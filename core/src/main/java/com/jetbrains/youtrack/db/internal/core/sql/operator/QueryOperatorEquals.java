@@ -138,14 +138,14 @@ public class QueryOperatorEquals extends QueryOperatorEqualityNotNulls {
   }
 
   protected static boolean comparesValues(
-      final Object iValue, final Result iRecord, final boolean iConsiderIn) {
-    if (iRecord.getIdentity() != null && iRecord.getIdentity().isPersistent()) {
-      return iRecord.getIdentity().equals(iValue);
+      final Object iValue, final Result result, final boolean iConsiderIn) {
+    if (result.isRecord() && result.getIdentity().isPersistent()) {
+      return result.getIdentity().equals(iValue);
     } else {
       // ODOCUMENT AS RESULT OF SUB-QUERY: GET THE FIRST FIELD IF ANY
-      var firstFieldName = iRecord.getPropertyNames();
+      var firstFieldName = result.getPropertyNames();
       if (firstFieldName.size() == 1) {
-        var fieldValue = iRecord.getProperty(firstFieldName.iterator().next());
+        var fieldValue = result.getProperty(firstFieldName.iterator().next());
         if (fieldValue != null) {
           if (iConsiderIn && MultiValue.isMultiValue(fieldValue)) {
             for (var o : MultiValue.getMultiValueIterable(fieldValue)) {

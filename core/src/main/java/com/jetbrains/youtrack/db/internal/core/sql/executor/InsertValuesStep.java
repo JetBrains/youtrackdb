@@ -70,7 +70,7 @@ public class InsertValuesStep extends AbstractExecutionStep {
                 var schema = entity.getImmutableSchemaClass(session);
                 var schemaProperty =
                     schema != null ? schema.getProperty(session, propertyName) : null;
-                value = SQLUpdateItem.cleanValue(value, session, schemaProperty);
+                value = SQLUpdateItem.cleanPropertyValue(value, session, schemaProperty);
               }
 
               ((ResultInternal) result).setProperty(propertyName, value);

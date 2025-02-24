@@ -96,8 +96,8 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
 
     EntityImpl e3 = edges.next().getIdentity().getRecord(session);
     Assert.assertEquals("E", e3.getSchemaClassName());
-    Assert.assertEquals(e3.field("out"), v1);
-    Assert.assertEquals(e3.field("in"), v4);
+    Assert.assertEquals(e3.getPropertyInternal("out"), v1);
+    Assert.assertEquals(e3.getPropertyInternal("in"), v4);
     Assert.assertEquals(3, e3.<Object>field("weight"));
 
     session.begin();
@@ -111,8 +111,8 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
     session.commit();
     EntityImpl e4 = edges.next().getIdentity().getRecord(session);
     Assert.assertEquals("E1", e4.getSchemaClassName());
-    Assert.assertEquals(e4.field("out"), v2);
-    Assert.assertEquals(e4.field("in"), v3);
+    Assert.assertEquals(e4.getPropertyInternal("out"), v2);
+    Assert.assertEquals(e4.getPropertyInternal("in"), v3);
     Assert.assertEquals(10, e4.<Object>field("weight"));
 
     session.begin();

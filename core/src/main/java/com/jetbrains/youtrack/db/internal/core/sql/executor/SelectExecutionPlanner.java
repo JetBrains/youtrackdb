@@ -61,6 +61,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public class SelectExecutionPlanner {
+
   private QueryPlanningInfo info;
   private final SQLSelectStatement statement;
 
@@ -132,9 +133,9 @@ public class SelectExecutionPlanner {
 
     handleGlobalLet(result, info, ctx, enableProfiling);
 
-    handleLet(result, info, ctx, enableProfiling);
-
     handleFetchFromTarget(result, info, ctx, enableProfiling);
+
+    handleLet(result, info, ctx, enableProfiling);
 
     handleWhere(result, info, ctx, enableProfiling);
 
@@ -1353,15 +1354,14 @@ public class SelectExecutionPlanner {
     if (info.perRecordLetClause != null) {
       var items = info.perRecordLetClause.getItems();
       items = sortLet(items, this.statement.getLetClause());
-      if (!plan.steps.isEmpty()) {
-        for (var item : items) {
-          if (item.getExpression() != null) {
-            plan.chain(
-                new LetExpressionStep(
-                    item.getVarName(), item.getExpression(), ctx, profilingEnabled));
-          } else {
-            plan.chain(new LetQueryStep(item.getVarName(), item.getQuery(), ctx, profilingEnabled));
-          }
+
+      for (var item : items) {
+        if (item.getExpression() != null) {
+          plan.chain(
+              new LetExpressionStep(
+                  item.getVarName(), item.getExpression(), ctx, profilingEnabled));
+        } else {
+          plan.chain(new LetQueryStep(item.getVarName(), item.getQuery(), ctx, profilingEnabled));
         }
       }
     }

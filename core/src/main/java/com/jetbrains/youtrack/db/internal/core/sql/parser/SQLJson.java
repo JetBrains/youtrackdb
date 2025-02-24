@@ -77,7 +77,10 @@ public class SQLJson extends SimpleNode {
       } else {
         value = item.right.execute(source, ctx);
       }
-      entity.field(name, value);
+
+      var schemaClass = entity.getImmutableSchemaClass(session);
+      var schemaProperty = schemaClass != null ? schemaClass.getProperty(session, name) : null;
+      entity.setProperty(name, SQLUpdateItem.cleanPropertyValue(value, session, schemaProperty));
     }
 
     return entity;

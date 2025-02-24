@@ -562,14 +562,17 @@ public enum PropertyType {
         switch (value) {
           case Collection<?> collection -> {
             var embeddedSet = session.newEmbeddedSet(collection.size());
-            embeddedSet.addAll(collection);
+            for (var item : collection) {
+              var converted = convertValue(session, item);
+              embeddedSet.add(converted);
+            }
             return (T) embeddedSet;
           }
           case Iterable<?> iterable -> {
             var embeddedSet = session.newEmbeddedSet();
 
             for (var item : iterable) {
-              embeddedSet.add(item);
+              embeddedSet.add(convertValue(session, item));
             }
 
             return (T) embeddedSet;
@@ -577,7 +580,7 @@ public enum PropertyType {
           case Iterator<?> iterator -> {
             var embeddedSet = session.newEmbeddedSet();
             while (iterator.hasNext()) {
-              embeddedSet.add(iterator.next());
+              embeddedSet.add(convertValue(session, iterator.next()));
             }
             return (T) embeddedSet;
           }
@@ -642,26 +645,30 @@ public enum PropertyType {
         switch (value) {
           case Collection<?> collection -> {
             var embeddedList = session.newEmbeddedList(collection.size());
-            embeddedList.addAll(collection);
+            for (var item : collection) {
+              var converted = convertValue(session, item);
+              embeddedList.add(converted);
+            }
+
             return (T) embeddedList;
           }
           case Iterable<?> iterable -> {
             var embeddedList = session.newEmbeddedList();
             for (var item : iterable) {
-              embeddedList.add(item);
+              embeddedList.add(convertValue(session, item));
             }
             return (T) embeddedList;
           }
           case Iterator<?> iterator -> {
             var embeddedList = session.newEmbeddedList();
             while (iterator.hasNext()) {
-              embeddedList.add(iterator.next());
+              embeddedList.add(convertValue(session, iterator.next()));
             }
             return (T) embeddedList;
           }
           default -> {
             var embeddedList = session.newEmbeddedList();
-            embeddedList.add(value);
+            embeddedList.add(convertValue(session, value));
             return (T) embeddedList;
           }
         }
@@ -700,11 +707,13 @@ public enum PropertyType {
       } else if (TrackedMap.class.isAssignableFrom(targetClass)) {
         if (value instanceof Map<?, ?> map) {
           var embeddedMap = session.newEmbeddedMap(map.size());
-          embeddedMap.putAll((Map) map);
+          for (var entry : map.entrySet()) {
+            embeddedMap.put(entry.getKey().toString(), convertValue(session, entry.getValue()));
+          }
           return (T) embeddedMap;
         } else {
           var embeddedMap = session.newEmbeddedMap();
-          embeddedMap.put("value", value);
+          embeddedMap.put("value", convertValue(session, value));
           return (T) embeddedMap;
         }
       } else if (Map.class.isAssignableFrom(targetClass)) {
@@ -833,6 +842,16 @@ public enum PropertyType {
 
     throw new DatabaseException(session != null ? session.getDatabaseName() : null,
         String.format("Error in conversion of value '%s' to type '%s'", value, targetClass));
+  }
+
+  private static Object convertValue(DatabaseSessionInternal session, Object item) {
+    var type = PropertyType.getTypeByValue(item);
+    if (type == null) {
+      throw new DatabaseException(session.getDatabaseName(),
+          String.format("Error in conversion of value '%s'", item));
+    }
+
+    return PropertyType.convert(session, item, type.javaDefaultType);
   }
 
   public static Number increment(final Number a, final Number b) {

@@ -327,7 +327,7 @@ public class SQLModifier extends SimpleNode {
   private void doSetValue(Result currentRecord, Object target, Object value,
       CommandContext ctx, @Nullable SchemaProperty schemaProperty) {
     value = SQLUpdateItem.convertResultToDocument(value);
-    value = SQLUpdateItem.cleanValue(value, ctx.getDatabaseSession(), schemaProperty);
+    value = SQLUpdateItem.cleanPropertyValue(value, ctx.getDatabaseSession(), schemaProperty);
     if (methodCall != null) {
       // do nothing
     } else if (suffix != null) {

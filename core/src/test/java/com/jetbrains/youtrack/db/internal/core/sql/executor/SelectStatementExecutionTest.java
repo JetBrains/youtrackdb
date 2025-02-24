@@ -1877,14 +1877,14 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testExpand3() {
     var childClassName = "testExpand3_child";
     var parentClassName = "testExpand3_parent";
-    var childClass = session.getMetadata().getSchema().createClass(childClassName);
-    var parentClass = session.getMetadata().getSchema().createClass(parentClassName);
+    session.getMetadata().getSchema().createClass(childClassName);
+    session.getMetadata().getSchema().createClass(parentClassName);
 
     session.begin();
     var count = 30;
     var collSize = 7;
     for (var i = 0; i < count; i++) {
-      List coll = new ArrayList<>();
+      var coll = session.newLinkList();
       for (var j = 0; j < collSize; j++) {
         var doc = session.newInstance(childClassName);
         doc.setProperty("name", "name" + j);
@@ -2210,8 +2210,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     for (var i = 0; i < 10; i++) {
       session.begin();
       var doc = session.newInstance(className);
-      doc.setProperty("i", i);
-      doc.setProperty("iSeq", new int[]{i, 2 * i, 4 * i});
+      doc.setInt("i", i);
+      doc.newEmbeddedList("iSeq", new int[]{i, 2 * i, 4 * i});
 
       session.commit();
     }
@@ -2250,7 +2250,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.begin();
       var doc = session.newInstance(className);
       doc.setProperty("i", i);
-      doc.setProperty("iSeq", new int[]{i, 2 * i, 4 * i});
+      doc.newEmbeddedList("iSeq", new int[]{i, 2 * i, 4 * i});
 
       session.commit();
     }
@@ -3257,7 +3257,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var doc = session.newInstance(className);
-    doc.setProperty("name", new String[]{"a", "b", "c", "d"});
+    doc.newEmbeddedList("name", new String[]{"a", "b", "c", "d"});
 
     session.commit();
 
@@ -3295,7 +3295,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var doc = session.newInstance(className);
-    doc.setProperty("name", new String[]{"a", "b", "c", "d"});
+    doc.newEmbeddedList("name", new String[]{"a", "b", "c", "d"});
 
     session.commit();
 
@@ -3333,7 +3333,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var doc = session.newInstance(className);
-    doc.setProperty("name", new String[]{"a", "b", "c", "d"});
+    doc.newEmbeddedList("name", new String[]{"a", "b", "c", "d"});
 
     session.commit();
 
@@ -3374,7 +3374,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var doc = session.newInstance(className);
-    doc.setProperty("name", new String[]{"a", "b", "c", "d"});
+    doc.newEmbeddedList("name", new String[]{"a", "b", "c", "d"});
 
     session.commit();
 
@@ -3471,7 +3471,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     coll.add("foo");
     coll.add("bar");
     coll.add("baz");
-    elem1.setProperty("coll", coll);
+    elem1.newEmbeddedList("coll", coll);
     session.commit();
 
     var result = session.query("select coll[='foo'] as filtered from " + className);
@@ -3516,14 +3516,14 @@ public class SelectStatementExecutionTest extends DbTestBase {
     coll.add(1L);
     coll.add(3L);
     coll.add(5L);
-    elem1.setProperty("coll", coll);
+    elem1.newEmbeddedList("coll", coll);
 
     var elem2 = session.newEntity(className);
     coll = new ArrayList<>();
     coll.add(2L);
     coll.add(4L);
     coll.add(6L);
-    elem2.setProperty("coll", coll);
+    elem2.newEmbeddedList("coll", coll);
     session.commit();
 
     var result = session.query("select from " + className + " where coll contains 1");
@@ -4114,7 +4114,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Map<String, Object> theMap = new HashMap<>();
       theMap.put("key" + i, "val" + i);
       var elem1 = session.newEntity(className);
-      elem1.setProperty("themap", theMap);
+      elem1.newEmbeddedMap("themap", theMap);
       session.commit();
     }
 
@@ -4807,16 +4807,25 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.begin();
     // fill data
     var coupe1 = session.newVertex(car);
+    gasoline = session.bindToSession(gasoline);
+    coupe = session.bindToSession(coupe);
+
     coupe1.setProperty("name", "car1");
     coupe1.addEdge(gasoline, eng);
     coupe1.addEdge(coupe, bt);
 
     var coupe2 = session.newVertex(car);
+    diesel = session.bindToSession(diesel);
+    coupe = session.bindToSession(coupe);
+
     coupe2.setProperty("name", "car2");
     coupe2.addEdge(diesel, eng);
     coupe2.addEdge(coupe, bt);
 
     var mw1 = session.newVertex(car);
+
+    microwave = session.bindToSession(microwave);
+    suv = session.bindToSession(suv);
     mw1.setProperty("name", "microwave1");
     mw1.addEdge(microwave, eng);
     mw1.addEdge(suv, bt);

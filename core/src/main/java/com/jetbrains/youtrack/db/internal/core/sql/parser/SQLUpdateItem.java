@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class SQLUpdateItem extends SimpleNode {
@@ -264,7 +265,7 @@ public class SQLUpdateItem extends SimpleNode {
         var newValue = convertResultToDocument(rightValue);
         newValue = convertToPropertyType(entity, attrName, newValue, ctx);
         entity.setProperty(attrName.getStringValue(),
-            cleanValue(newValue, session, schemaProperty));
+            cleanPropertyValue(newValue, session, schemaProperty));
         break;
       case OPERATOR_MINUSASSIGN:
         entity.setProperty(
@@ -289,8 +290,13 @@ public class SQLUpdateItem extends SimpleNode {
     }
   }
 
-  public static Object cleanValue(Object newValue, DatabaseSessionInternal session,
+  public static Object cleanPropertyValue(@Nullable Object newValue,
+      @Nonnull DatabaseSessionInternal session,
       @Nullable SchemaProperty schemaProperty) {
+    if (newValue == null) {
+      return null;
+    }
+
     var type = schemaProperty != null ? schemaProperty.getType(session) : null;
     if (type == null) {
       type = PropertyType.getTypeByValue(newValue);
