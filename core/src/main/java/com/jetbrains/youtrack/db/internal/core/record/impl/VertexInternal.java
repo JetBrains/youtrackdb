@@ -1,12 +1,8 @@
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Edge;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
@@ -21,32 +17,15 @@ import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import org.apache.commons.collections4.IterableUtils;
 
 public interface VertexInternal extends Vertex, EntityInternal {
-
-  @Nonnull
-  EntityImpl getBaseEntity();
-
-  @Override
-  default @Nonnull Collection<String> getPropertyNames() {
-    return filterPropertyNames(getBaseEntity().getPropertyNamesInternal());
-  }
-
-  @Override
-  default Collection<String> getPropertyNamesInternal() {
-    return getBaseEntity().getPropertyNamesInternal();
-  }
 
   static Collection<String> filterPropertyNames(Collection<String> propertyNames) {
     var propertiesToRemove = new ArrayList<String>();
@@ -69,152 +48,6 @@ public interface VertexInternal extends Vertex, EntityInternal {
     return propertyNames;
   }
 
-  @Override
-  default <RET> RET getProperty(@Nonnull String name) {
-    checkPropertyName(name);
-
-    return getBaseEntity().getProperty(name);
-  }
-
-  @Override
-  default @Nonnull <T> List<T> getOrCreateEmbeddedList(@Nonnull String name) {
-    checkPropertyName(name);
-
-    return getBaseEntity().getOrCreateEmbeddedList(name);
-  }
-
-  @Nonnull
-  @Override
-  default <T> List<T> newEmbeddedList(@Nonnull String name) {
-    checkPropertyName(name);
-
-    return getBaseEntity().newEmbeddedList(name);
-  }
-
-  @Override
-  default @Nonnull <T> Set<T> getOrCreateEmbeddedSet(@Nonnull String name) {
-    checkPropertyName(name);
-
-    return getBaseEntity().getOrCreateEmbeddedSet(name);
-  }
-
-  @Nonnull
-  @Override
-  default <T> Set<T> newEmbeddedSet(@Nonnull String name) {
-    checkPropertyName(name);
-
-    return getBaseEntity().newEmbeddedSet(name);
-  }
-
-  @Override
-  default @Nonnull <T> Map<String, T> getOrCreateEmbeddedMap(@Nonnull String name) {
-    checkPropertyName(name);
-
-    return getBaseEntity().getOrCreateEmbeddedMap(name);
-  }
-
-  @Nonnull
-  @Override
-  default <T> Map<String, T> newEmbeddedMap(@Nonnull String name) {
-    checkPropertyName(name);
-
-    return getBaseEntity().newEmbeddedMap(name);
-  }
-
-  @Override
-  default @Nonnull List<Identifiable> getOrCreateLinkList(@Nonnull String name) {
-    checkPropertyName(name);
-
-    return getBaseEntity().getOrCreateLinkList(name);
-  }
-
-  @Nonnull
-  @Override
-  default List<Identifiable> newLinkList(@Nonnull String name) {
-    checkPropertyName(name);
-
-    return getBaseEntity().newLinkList(name);
-  }
-
-  @Nonnull
-  @Override
-  default Set<Identifiable> getOrCreateLinkSet(@Nonnull String name) {
-    checkPropertyName(name);
-
-    return getBaseEntity().getOrCreateLinkSet(name);
-  }
-
-  @Nonnull
-  @Override
-  default Set<Identifiable> newLinkSet(@Nonnull String name) {
-    checkPropertyName(name);
-
-    return getBaseEntity().newLinkSet(name);
-  }
-
-  @Nonnull
-  @Override
-  default Map<String, Identifiable> getOrCreateLinkMap(@Nonnull String name) {
-    checkPropertyName(name);
-
-    return getBaseEntity().getOrCreateLinkMap(name);
-  }
-
-  @Nonnull
-  @Override
-  default Map<String, Identifiable> newLinkMap(@Nonnull String name) {
-    checkPropertyName(name);
-
-    return getBaseEntity().newLinkMap(name);
-  }
-
-  @Nullable
-  @Override
-  default Entity getEntity(@Nonnull String name) {
-    checkPropertyName(name);
-
-    var baseEntity = getBaseEntity();
-    return baseEntity.getEntity(name);
-  }
-
-  @Nullable
-  @Override
-  default Blob getBlob(String propertyName) {
-    checkPropertyName(propertyName);
-
-    var baseEntity = getBaseEntity();
-    return baseEntity.getBlob(propertyName);
-  }
-
-  @Override
-  default <RET> RET getPropertyInternal(String name, boolean lazyLoading) {
-    return getBaseEntity().getPropertyInternal(name, lazyLoading);
-  }
-
-  @Override
-  default <RET> RET getPropertyInternal(String name) {
-    return getBaseEntity().getPropertyInternal(name);
-  }
-
-  @Override
-  default <RET> RET getPropertyOnLoadValue(@Nonnull String name) {
-    return getBaseEntity().getPropertyOnLoadValue(name);
-  }
-
-  @Nullable
-  @Override
-  default RID getLinkPropertyInternal(String name) {
-    return getBaseEntity().getLinkPropertyInternal(name);
-  }
-
-  @Nullable
-  @Override
-  default RID getLink(@Nonnull String name) {
-    checkPropertyName(name);
-
-    return getBaseEntity().getLink(name);
-  }
-
   static void checkPropertyName(String name) {
     if (name.startsWith(DIRECTION_OUT_PREFIX) || name.startsWith(DIRECTION_IN_PREFIX)) {
       throw new IllegalArgumentException(
@@ -222,49 +55,6 @@ public interface VertexInternal extends Vertex, EntityInternal {
     }
   }
 
-  @Override
-  default void setProperty(@Nonnull String name, @Nullable Object value) {
-    checkPropertyName(name);
-
-    getBaseEntity().setProperty(name, value);
-  }
-
-  @Override
-  default void setPropertyInternal(String name, Object value) {
-    getBaseEntity().setPropertyInternal(name, value);
-  }
-
-  @Override
-  default boolean hasProperty(final @Nonnull String propertyName) {
-    checkPropertyName(propertyName);
-
-    return getBaseEntity().hasProperty(propertyName);
-  }
-
-  @Override
-  default void setProperty(@Nonnull String propertyName, Object value,
-      @Nonnull PropertyType fieldType) {
-    checkPropertyName(propertyName);
-
-    getBaseEntity().setProperty(propertyName, value, fieldType);
-  }
-
-  @Override
-  default void setPropertyInternal(String name, Object value, PropertyType type) {
-    getBaseEntity().setPropertyInternal(name, value, type);
-  }
-
-  @Override
-  default <RET> RET removeProperty(@Nonnull String name) {
-    checkPropertyName(name);
-
-    return getBaseEntity().removePropertyInternal(name);
-  }
-
-  @Override
-  default <RET> RET removePropertyInternal(String name) {
-    return getBaseEntity().removePropertyInternal(name);
-  }
 
   @Override
   default Iterable<Vertex> getVertices(Direction direction) {
@@ -417,14 +207,6 @@ public interface VertexInternal extends Vertex, EntityInternal {
     return getEdges(direction, types.toArray(new String[]{}));
   }
 
-  @Override
-  default boolean isUnloaded() {
-    return getBaseEntity().isUnloaded();
-  }
-
-  default boolean isNotBound(@Nonnull DatabaseSession session) {
-    return getBaseEntity().isNotBound(session);
-  }
 
   @Override
   default Iterable<Edge> getEdges(Direction direction) {
@@ -451,11 +233,6 @@ public interface VertexInternal extends Vertex, EntityInternal {
     }
 
     return getEdges(direction, candidateClasses.toArray(new String[]{}));
-  }
-
-  @Override
-  default boolean exists() {
-    return getBaseEntity().exists();
   }
 
   @Override
@@ -500,27 +277,31 @@ public interface VertexInternal extends Vertex, EntityInternal {
       fieldValue = entity.getPropertyInternal(fieldName);
 
       if (fieldValue != null) {
-        if (fieldValue instanceof Identifiable) {
-          var coll = Collections.singleton(fieldValue);
-          iterables.add(new EdgeIterator(this, coll, coll.iterator(), connection, labels, 1, db));
-        } else if (fieldValue instanceof Collection<?> coll) {
-          // CREATE LAZY Iterable AGAINST COLLECTION FIELD
-          iterables.add(new EdgeIterator(this, coll, coll.iterator(), connection, labels, -1, db));
-        } else if (fieldValue instanceof RidBag) {
-          iterables.add(
+        switch (fieldValue) {
+          case Identifiable identifiable -> {
+            var coll = Collections.singleton(fieldValue);
+            iterables.add(new EdgeIterator(this, coll, coll.iterator(), connection, labels, 1, db));
+          }
+          case Collection<?> coll ->
+            // CREATE LAZY Iterable AGAINST COLLECTION FIELD
+              iterables.add(
+                  new EdgeIterator(this, coll, coll.iterator(), connection, labels, -1, db));
+          case RidBag bag -> iterables.add(
               new EdgeIterator(
                   this,
                   fieldValue,
-                  ((RidBag) fieldValue).iterator(),
+                  bag.iterator(),
                   connection,
                   labels,
-                  ((RidBag) fieldValue).size(), db));
+                  bag.size(), db));
+          default -> {
+          }
         }
       }
     }
 
     if (iterables.size() == 1) {
-      return iterables.get(0);
+      return iterables.getFirst();
     } else if (iterables.isEmpty()) {
       return Collections.emptyList();
     }
@@ -661,42 +442,44 @@ public interface VertexInternal extends Vertex, EntityInternal {
         iVertexToRemove != null
             ? vertex.getPropertyInternal(fieldName)
             : vertex.removePropertyInternal(fieldName);
-    if (fieldValue == null) {
-      return;
-    }
-
-    if (fieldValue instanceof Identifiable) {
-      // SINGLE RECORD
-
-      if (iVertexToRemove != null) {
-        if (!fieldValue.equals(iVertexToRemove)) {
-          return;
-        }
-        vertex.setPropertyInternal(fieldName, newVertex);
+    switch (fieldValue) {
+      case null -> {
       }
+      case Identifiable identifiable -> {
+        // SINGLE RECORD
 
-    } else if (fieldValue instanceof RidBag bag) {
-      // COLLECTION OF RECORDS: REMOVE THE ENTRY
-      var found = false;
-      final var it = bag.iterator();
-      while (it.hasNext()) {
-        if (it.next().equals(iVertexToRemove.getIdentity())) {
-          // REMOVE THE OLD ENTRY
-          found = true;
-          it.remove();
+        if (iVertexToRemove != null) {
+          if (!fieldValue.equals(iVertexToRemove)) {
+            return;
+          }
+          vertex.setPropertyInternal(fieldName, newVertex);
         }
       }
-      if (found)
-      // ADD THE NEW ONE
-      {
-        bag.add(newVertex.getIdentity());
+      case RidBag bag -> {
+        // COLLECTION OF RECORDS: REMOVE THE ENTRY
+        var found = false;
+        final var it = bag.iterator();
+        while (it.hasNext()) {
+          if (it.next().equals(iVertexToRemove.getIdentity())) {
+            // REMOVE THE OLD ENTRY
+            found = true;
+            it.remove();
+          }
+        }
+        if (found)
+        // ADD THE NEW ONE
+        {
+          bag.add(newVertex.getIdentity());
+        }
       }
+      case Collection<?> collection -> {
+        @SuppressWarnings("unchecked") final var col = (Collection<Identifiable>) fieldValue;
 
-    } else if (fieldValue instanceof Collection) {
-      @SuppressWarnings("unchecked") final var col = (Collection<Identifiable>) fieldValue;
-
-      if (col.remove(iVertexToRemove)) {
-        col.add(newVertex);
+        if (col.remove(iVertexToRemove)) {
+          col.add(newVertex);
+        }
+      }
+      default -> {
       }
     }
 
@@ -718,14 +501,6 @@ public interface VertexInternal extends Vertex, EntityInternal {
 
     final var baseEntity = getBaseEntity();
     var session = baseEntity.getSession();
-    if (!session.getTransaction().isActive()) {
-      throw new DatabaseException(session.getDatabaseName(),
-          "This operation is allowed only inside a transaction");
-    }
-    if (checkDeletedInTx(session, getIdentity())) {
-      throw new RecordNotFoundException(session.getDatabaseName(),
-          getIdentity(), "The vertex " + getIdentity() + " has been deleted");
-    }
 
     var oldIdentity = ((RecordId) getIdentity()).copy();
     final var oldRecord = (EntityImpl) oldIdentity.getEntity(session);
@@ -792,6 +567,8 @@ public interface VertexInternal extends Vertex, EntityInternal {
     // FINAL SAVE
     return newIdentity;
   }
+
+  EntityImpl getBaseEntity();
 
   static boolean checkDeletedInTx(DatabaseSessionInternal session, RID id) {
     final var oper = session.getTransaction().getRecordEntry(id);
@@ -912,14 +689,12 @@ public interface VertexInternal extends Vertex, EntityInternal {
       Object link,
       String label,
       Identifiable identifiable) {
-    if (link instanceof Collection) {
-      ((Collection<?>) link).remove(identifiable);
-    } else if (link instanceof RidBag) {
-      ((RidBag) link).remove(identifiable.getIdentity());
-    } else if (link instanceof Identifiable && link.equals(vertex)) {
-      vertex.removePropertyInternal(fieldName);
-    } else {
-      throw new IllegalArgumentException(
+    switch (link) {
+      case Collection<?> collection -> collection.remove(identifiable);
+      case RidBag bag -> bag.remove(identifiable.getIdentity());
+      case Identifiable ignored when link.equals(vertex) ->
+          vertex.removePropertyInternal(fieldName);
+      case null, default -> throw new IllegalArgumentException(
           label + " is not a valid link in vertex with rid " + vertex.getIdentity());
     }
   }
@@ -934,76 +709,74 @@ public interface VertexInternal extends Vertex, EntityInternal {
     var outType = fromVertex.getPropertyType(fieldName);
     var found = fromVertex.getPropertyInternal(fieldName);
 
-    SchemaImmutableClass result = null;
-    if (fromVertex != null) {
-      result = fromVertex.getImmutableSchemaClass(session);
-    }
-    final SchemaClass linkClass = result;
-    if (linkClass == null) {
+    var result = fromVertex.getImmutableSchemaClass(session);
+    if (result == null) {
       throw new IllegalArgumentException("Class not found in source vertex: " + fromVertex);
     }
 
-    final var prop = linkClass.getProperty(session, fieldName);
+    final var prop = result.getProperty(session, fieldName);
     final var propType =
         prop != null && prop.getType(session) != PropertyType.ANY ? prop.getType(session) : null;
 
-    if (found == null) {
-      if (propType == PropertyType.LINKLIST
-          || (prop != null
-          && "true".equalsIgnoreCase(prop.getCustom(session, "ordered")))) { // TODO constant
-        var coll = new LinkList(fromVertex);
-        coll.add(to);
-        out = coll;
-        outType = PropertyType.LINKLIST;
-      } else if (propType == null || propType == PropertyType.LINKBAG) {
-        final var bag = new RidBag(fromVertex.getSession());
-        bag.add(to.getIdentity());
-        out = bag;
-        outType = PropertyType.LINKBAG;
-      } else if (propType == PropertyType.LINK) {
-        out = to;
-        outType = PropertyType.LINK;
-      } else {
-        throw new DatabaseException(session.getDatabaseName(),
-            "Type of field provided in schema '"
-                + prop.getType(session)
-                + "' cannot be used for link creation.");
+    switch (found) {
+      case null -> {
+        if (propType == PropertyType.LINKLIST
+            || (prop != null
+            && "true".equalsIgnoreCase(prop.getCustom(session, "ordered")))) { // TODO constant
+          var coll = new LinkList(fromVertex);
+          coll.add(to);
+          out = coll;
+          outType = PropertyType.LINKLIST;
+        } else if (propType == null || propType == PropertyType.LINKBAG) {
+          final var bag = new RidBag(fromVertex.getSession());
+          bag.add(to.getIdentity());
+          out = bag;
+          outType = PropertyType.LINKBAG;
+        } else if (propType == PropertyType.LINK) {
+          out = to;
+          outType = PropertyType.LINK;
+        } else {
+          throw new DatabaseException(session.getDatabaseName(),
+              "Type of field provided in schema '"
+                  + prop.getType(session)
+                  + "' cannot be used for link creation.");
+        }
       }
+      case Identifiable foundId -> {
+        if (prop != null && propType == PropertyType.LINK) {
+          throw new DatabaseException(session.getDatabaseName(),
+              "Type of field provided in schema '"
+                  + prop.getType(session)
+                  + "' cannot be used for creation to hold several links.");
+        }
 
-    } else if (found instanceof Identifiable foundId) {
-      if (prop != null && propType == PropertyType.LINK) {
-        throw new DatabaseException(session.getDatabaseName(),
-            "Type of field provided in schema '"
-                + prop.getType(session)
-                + "' cannot be used for creation to hold several links.");
+        if (prop != null && "true".equalsIgnoreCase(
+            prop.getCustom(session, "ordered"))) { // TODO constant
+          var coll = new LinkList(fromVertex);
+          coll.add(foundId);
+          coll.add(to);
+          out = coll;
+          outType = PropertyType.LINKLIST;
+        } else {
+          final var bag = new RidBag(fromVertex.getSession());
+          bag.add(foundId.getIdentity());
+          bag.add(to.getIdentity());
+          out = bag;
+          outType = PropertyType.LINKBAG;
+        }
       }
-
-      if (prop != null && "true".equalsIgnoreCase(
-          prop.getCustom(session, "ordered"))) { // TODO constant
-        var coll = new LinkList(fromVertex);
-        coll.add(foundId);
-        coll.add(to);
-        out = coll;
-        outType = PropertyType.LINKLIST;
-      } else {
-        final var bag = new RidBag(fromVertex.getSession());
-        bag.add(foundId.getIdentity());
-        bag.add(to.getIdentity());
-        out = bag;
-        outType = PropertyType.LINKBAG;
+      case RidBag bag -> {
+        // ADD THE LINK TO THE COLLECTION
+        out = null;
+        bag.add(to.getRecord(session).getIdentity());
       }
-    } else if (found instanceof RidBag) {
-      // ADD THE LINK TO THE COLLECTION
-      out = null;
-      ((RidBag) found).add(to.getRecord(session).getIdentity());
-    } else if (found instanceof Collection<?>) {
-      // USE THE FOUND COLLECTION
-      out = null;
-      //noinspection unchecked
-      ((Collection<Identifiable>) found).add(to);
-
-    } else {
-      throw new DatabaseException(session.getDatabaseName(),
+      case Collection<?> ignored -> {
+        // USE THE FOUND COLLECTION
+        out = null;
+        //noinspection unchecked
+        ((Collection<Identifiable>) found).add(to);
+      }
+      default -> throw new DatabaseException(session.getDatabaseName(),
           "Relationship content is invalid on field " + fieldName + ". Found: " + found);
     }
 
@@ -1059,19 +832,17 @@ public interface VertexInternal extends Vertex, EntityInternal {
       ((Collection<?>) edgeProp).remove(edgeId);
     } else if (edgeProp instanceof RidBag) {
       ((RidBag) edgeProp).remove(edgeId.getIdentity());
-    } else //noinspection deprecation
-      if (edgeProp instanceof Identifiable
-          && ((Identifiable) edgeProp).getIdentity() != null
-          && ((Identifiable) edgeProp).getIdentity().equals(edgeId)
-          || edge.isLightweight()) {
-        vertex.removePropertyInternal(edgeField);
-      } else {
-        LogManager.instance()
-            .warn(
-                vertex,
-                "Error detaching edge: the vertex collection field is of type "
-                    + (edgeProp == null ? "null" : edgeProp.getClass()));
-      }
+    } else if (
+        edgeProp instanceof Identifiable && ((Identifiable) edgeProp).getIdentity().equals(edgeId)
+            || edge.isLightweight()) {
+      vertex.removePropertyInternal(edgeField);
+    } else {
+      LogManager.instance()
+          .warn(
+              vertex,
+              "Error detaching edge: the vertex collection field is of type "
+                  + (edgeProp == null ? "null" : edgeProp.getClass()));
+    }
   }
 
   static void removeIncomingEdge(DatabaseSessionInternal db, Vertex vertex, Edge edge) {

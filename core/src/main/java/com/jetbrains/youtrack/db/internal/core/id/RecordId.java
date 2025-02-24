@@ -39,7 +39,6 @@ import java.io.Serial;
 import javax.annotation.Nonnull;
 
 public class RecordId implements RID, SerializableStream {
-
   @Serial
   private static final long serialVersionUID = 247070594054408657L;
   // INT TO AVOID JVM PENALTY, BUT IT'S STORED AS SHORT
@@ -283,15 +282,6 @@ public class RecordId implements RID, SerializableStream {
     clusterPosition = Long.parseLong(parts.get(1));
   }
 
-  public void copyFrom(final RID iSource) {
-    if (iSource == null) {
-      throw new IllegalArgumentException("Source is null");
-    }
-
-    clusterId = iSource.getClusterId();
-    clusterPosition = iSource.getClusterPosition();
-  }
-
   public String next() {
     return generateString(clusterId, clusterPosition + 1);
   }
@@ -306,13 +296,6 @@ public class RecordId implements RID, SerializableStream {
   public <T extends DBRecord> T getRecord(@Nonnull DatabaseSession session) {
     if (!isValid()) {
       throw new RecordNotFoundException(session.getDatabaseName(), this);
-    }
-
-    if (session == null) {
-      throw new DatabaseException(session.getDatabaseName(),
-          "No database found in current thread local space. If you manually control databases over"
-              + " threads assure to set the current database before to use it by calling:"
-              + " DatabaseRecordThreadLocal.instance().set(db);");
     }
 
     return session.load(this);

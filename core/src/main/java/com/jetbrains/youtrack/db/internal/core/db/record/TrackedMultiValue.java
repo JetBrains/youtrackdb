@@ -22,7 +22,9 @@ package com.jetbrains.youtrack.db.internal.core.db.record;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
@@ -70,9 +72,28 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
         throw new SchemaException(
             "Cannot add a RID or a non-embedded entity to a embedded data container");
       }
-      if ((value instanceof Collection<?> && !((value instanceof TrackedList<?>)
-          || (value instanceof TrackedSet<?>))) || (value instanceof Map<?, ?> &&
-          !(value instanceof TrackedMap<?>))) {
+
+      if (PropertyType.isSingleValueType(value)) {
+        return;
+      }
+
+      if (value instanceof Entity) {
+        return;
+      }
+
+      if (value instanceof Collection<?>) {
+        if (value instanceof TrackedList<?> || value instanceof TrackedSet<?>) {
+          return;
+        }
+      }
+
+      if (value instanceof Map<?, ?>) {
+        if (value instanceof TrackedMap<?>) {
+          return;
+        }
+      }
+
+      if ((value instanceof Collection<?>) || (value instanceof Map<?, ?>)) {
         throw new SchemaException(
             "Cannot add a non tracked collection to a embedded data container. Please use "
                 + DatabaseSession.class.getName() +
@@ -80,10 +101,20 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
                 + "newEmbeddedList(), newEmbeddedSet(), newEmbeddedMap(), newLinkMap(), "
                 + "newLinkList(), newLinkSet().");
       }
+
+      throw new SchemaException("Value " + value + " is not supported by data container.");
     } else {
+      if (value == null) {
+        return;
+      }
+
       if (value instanceof Entity entity && entity.isEmbedded()) {
         throw new SchemaException(
             "Cannot add an embedded entity to a link based data container");
+      }
+      if (!(value instanceof Identifiable)) {
+        throw new SchemaException(
+            "Cannot add a non-identifiable entity to a link based data container");
       }
     }
   }
@@ -133,17 +164,15 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
         if (!rid.isValid() || rid.isNew()) {
           ((EntityImpl) e).setOwner(this);
         }
+      } else if (e instanceof RecordElement recordElement) {
+        recordElement.setOwner(this);
       }
-    } else if (e instanceof TrackedMultiValue<?, ?> trackedMultiValue) {
-      trackedMultiValue.setOwner(this);
     }
   }
 
   default void removeOwner(V oldValue) {
-    if (oldValue instanceof TrackedMultiValue<?, ?> trackedMultiValue) {
-      trackedMultiValue.setOwner(null);
-    } else if (oldValue instanceof EntityImpl entity) {
-      entity.removeOwner(this);
+    if (oldValue instanceof RecordElement recordElement) {
+      recordElement.setOwner(null);
     }
   }
 }

@@ -1107,27 +1107,36 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
             return null;
           }
           case null -> {
-            final RID rid = record.getIdentity().copy();
+            final RID rid = record.getIdentity();
             final var clusterId = rid.getClusterId();
 
-            var systemRecord = findRelatedSystemRecord(beforeImportSchemaSnapshot, clusterId,
-                record);
-            if (systemRecord != null) {
-              if (!record.getClass().isAssignableFrom(systemRecord.getClass())) {
-                throw new IllegalStateException(
-                    "Imported record and record stored in database under id "
-                        + rid
-                        + " have different types. "
-                        + "Stored record class is : "
-                        + record.getClass()
-                        + " and imported "
-                        + systemRecord.getClass()
-                        + " .");
-              }
-
-              systemRecord.fromStream(record.toStream());
+            if (isSystemRecord(beforeImportSchemaSnapshot, clusterId)) {
+              var recordStream = record.toStream();
+              //or we will find ourselves.
               record.delete();
-              recordsBeforeImport.remove(systemRecord.getIdentity());
+              var systemRecord = findRelatedSystemRecord(beforeImportSchemaSnapshot, clusterId,
+                  record);
+              if (systemRecord != null) {
+                if (!record.getClass().isAssignableFrom(systemRecord.getClass())) {
+                  throw new IllegalStateException(
+                      "Imported record and record stored in database under id "
+                          + rid
+                          + " have different types. "
+                          + "Stored record class is : "
+                          + record.getClass()
+                          + " and imported "
+                          + systemRecord.getClass()
+                          + " .");
+                }
+
+                systemRecord.fromStream(recordStream);
+                recordsBeforeImport.remove(systemRecord.getIdentity());
+              } else {
+                RecordSerializerJackson.fromStringWithMetadata(session,
+                    value,
+                    null
+                );
+              }
             }
           }
         }
@@ -1215,6 +1224,21 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
         }
     }
     return systemRecord;
+  }
+
+  private boolean isSystemRecord(Schema beforeImportSchemaSnapshot, int clusterId) {
+    var cls = beforeImportSchemaSnapshot.getClassByClusterId(clusterId);
+    if (cls != null) {
+      if (cls.getName(session).equals(SecurityUserImpl.CLASS_NAME)) {
+        return true;
+      }
+      if (cls.getName(session).equals(Role.CLASS_NAME)) {
+        return true;
+      }
+      return cls.getName(session).equals(SecurityPolicy.class.getSimpleName());
+    }
+
+    return false;
   }
 
   private void importRecords(Schema beforeImportSchemaSnapshot) throws Exception {

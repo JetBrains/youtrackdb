@@ -1,8 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
-import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -11,10 +9,6 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class VertexEntityImpl extends EntityImpl implements VertexInternal {
-
-  public VertexEntityImpl(DatabaseSessionInternal db) {
-    super(db);
-  }
 
   public VertexEntityImpl(DatabaseSessionInternal database, RID rid) {
     super(database, (RecordId) rid);
@@ -79,14 +73,6 @@ public class VertexEntityImpl extends EntityImpl implements VertexInternal {
   }
 
   @Override
-  public Iterable<Vertex> getVertices(Direction direction) {
-    checkForBinding();
-    return VertexInternal.super.getVertices(direction);
-  }
-
-
-  @Override
-  @Nonnull
   public EntityImpl getBaseEntity() {
     return this;
   }

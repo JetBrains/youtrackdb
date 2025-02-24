@@ -107,9 +107,61 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
   }
 
   @Override
+  public <T> List<T> newEmbeddedList(@Nonnull String name, T[] source) {
+    EdgeInternal.checkPropertyName(name);
+    return entity.newEmbeddedList(name, source);
+  }
+
+  @Override
+  public List<Byte> newEmbeddedList(@Nonnull String name, byte[] source) {
+    EdgeInternal.checkPropertyName(name);
+    return entity.newEmbeddedList(name, source);
+
+  }
+
+  @Override
+  public List<Short> newEmbeddedList(@Nonnull String name, short[] source) {
+    EdgeInternal.checkPropertyName(name);
+    return entity.newEmbeddedList(name, source);
+
+  }
+
+  @Override
+  public List<Integer> newEmbeddedList(@Nonnull String name, int[] source) {
+    EdgeInternal.checkPropertyName(name);
+    return entity.newEmbeddedList(name, source);
+
+  }
+
+  @Override
+  public List<Long> newEmbeddedList(@Nonnull String name, long[] source) {
+    EdgeInternal.checkPropertyName(name);
+    return entity.newEmbeddedList(name, source);
+
+  }
+
+  @Override
+  public List<Boolean> newEmbeddedList(@Nonnull String name, boolean[] source) {
+    EdgeInternal.checkPropertyName(name);
+    return entity.newEmbeddedList(name, source);
+  }
+
+  @Override
+  public List<Float> newEmbeddedList(@Nonnull String name, float[] source) {
+    EdgeInternal.checkPropertyName(name);
+    return entity.newEmbeddedList(name, source);
+
+  }
+
+  @Override
+  public List<Double> newEmbeddedList(@Nonnull String name, double[] source) {
+    EdgeInternal.checkPropertyName(name);
+    return entity.newEmbeddedList(name, source);
+  }
+
+  @Override
   public @Nonnull <T> Set<T> getOrCreateEmbeddedSet(@Nonnull String name) {
     EdgeInternal.checkPropertyName(name);
-
     return entity.getOrCreateEmbeddedSet(name);
   }
 
@@ -213,7 +265,6 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
 
   @Override
   public <RET> RET getPropertyInternal(String name, boolean lazyLoading) {
-
     return entity.getPropertyInternal(name, lazyLoading);
   }
 
@@ -222,10 +273,14 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
     return entity.getPropertyOnLoadValue(name);
   }
 
+  @Override
+  public Collection<String> getDirtyProperties() {
+    return EdgeInternal.filterPropertyNames(entity.getDirtyProperties());
+  }
+
   @Nullable
   @Override
   public RID getLinkPropertyInternal(String name) {
-
     return entity.getLinkPropertyInternal(name);
   }
 
@@ -242,8 +297,44 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
   }
 
   @Override
-  public void setPropertyInternal(String name, Object value, PropertyType type) {
+  public <T> List<T> newEmbeddedList(@Nonnull String name, List<T> source) {
+    EdgeInternal.checkPropertyName(name);
+    return entity.newEmbeddedList(name, source);
+  }
 
+  @Override
+  public <T> Set<T> newEmbeddedSet(@Nonnull String name, Set<T> source) {
+    EdgeInternal.checkPropertyName(name);
+    return entity.newEmbeddedSet(name, source);
+  }
+
+  @Override
+  public <T> Map<String, T> newEmbeddedMap(@Nonnull String name, Map<String, T> source) {
+    EdgeInternal.checkPropertyName(name);
+    return entity.newEmbeddedMap(name, source);
+  }
+
+  @Override
+  public List<Identifiable> newLinkList(@Nonnull String name, List<Identifiable> source) {
+    EdgeInternal.checkPropertyName(name);
+    return entity.newLinkList(name, source);
+  }
+
+  @Override
+  public Set<Identifiable> newLinkSet(@Nonnull String name, Set<Identifiable> source) {
+    EdgeInternal.checkPropertyName(name);
+    return entity.newLinkSet(name, source);
+  }
+
+  @Override
+  public Map<String, Identifiable> newLinkMap(@Nonnull String name,
+      Map<String, Identifiable> source) {
+    EdgeInternal.checkPropertyName(name);
+    return entity.newLinkMap(name, source);
+  }
+
+  @Override
+  public void setPropertyInternal(String name, Object value, PropertyType type) {
     entity.setPropertyInternal(name, value, type);
   }
 

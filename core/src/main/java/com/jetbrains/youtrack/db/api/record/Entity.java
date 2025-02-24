@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import java.math.BigDecimal;
+import java.util.Collection;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -51,6 +52,8 @@ public interface Entity extends DBRecord, Result {
    *                                  {@code #Vertex.DIRECTION_IN_PREFIX}.
    */
   <RET> RET getPropertyOnLoadValue(@Nonnull String name);
+
+  Collection<String> getDirtyProperties();
 
   /**
    * Sets a property value
@@ -156,20 +159,48 @@ public interface Entity extends DBRecord, Result {
   @Nonnull
   <T> List<T> newEmbeddedList(@Nonnull String name);
 
+  <T> List<T> newEmbeddedList(@Nonnull String name, List<T> source);
+
+  <T> List<T> newEmbeddedList(@Nonnull String name, T[] source);
+
+  List<Byte> newEmbeddedList(@Nonnull String name, byte[] source);
+
+  List<Short> newEmbeddedList(@Nonnull String name, short[] source);
+
+  List<Integer> newEmbeddedList(@Nonnull String name, int[] source);
+
+  List<Long> newEmbeddedList(@Nonnull String name, long[] source);
+
+  List<Boolean> newEmbeddedList(@Nonnull String name, boolean[] source);
+
+  List<Float> newEmbeddedList(@Nonnull String name, float[] source);
+
+  List<Double> newEmbeddedList(@Nonnull String name, double[] source);
+
   @Nonnull
   <T> Set<T> newEmbeddedSet(@Nonnull String name);
+
+  <T> Set<T> newEmbeddedSet(@Nonnull String name, Set<T> source);
 
   @Nonnull
   <T> Map<String, T> newEmbeddedMap(@Nonnull String name);
 
+  <T> Map<String, T> newEmbeddedMap(@Nonnull String name, Map<String, T> source);
+
   @Nonnull
   List<Identifiable> newLinkList(@Nonnull String name);
+
+  List<Identifiable> newLinkList(@Nonnull String name, List<Identifiable> source);
 
   @Nonnull
   Set<Identifiable> newLinkSet(@Nonnull String name);
 
+  Set<Identifiable> newLinkSet(@Nonnull String name, Set<Identifiable> source);
+
   @Nonnull
   Map<String, Identifiable> newLinkMap(@Nonnull String name);
+
+  Map<String, Identifiable> newLinkMap(@Nonnull String name, Map<String, Identifiable> source);
 
   @Nonnull
   <T> List<T> getOrCreateEmbeddedList(@Nonnull String name);

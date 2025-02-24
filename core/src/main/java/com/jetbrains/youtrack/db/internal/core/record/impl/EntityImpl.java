@@ -820,6 +820,92 @@ public class EntityImpl extends RecordAbstract
   }
 
   @Override
+  public <T> List<T> newEmbeddedList(@Nonnull String name, List<T> source) {
+    var value = new TrackedList<T>(source.size());
+    value.addAll(source);
+    setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST);
+    return value;
+  }
+
+  @Override
+  public <T> List<T> newEmbeddedList(@Nonnull String name, T[] source) {
+    var value = new TrackedList<T>(source.length);
+    Collections.addAll(value, source);
+    setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST);
+    return value;
+  }
+
+  @Override
+  public List<Byte> newEmbeddedList(@Nonnull String name, byte[] source) {
+    var value = new TrackedList<Byte>(source.length);
+    for (var b : source) {
+      value.add(b);
+    }
+    setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST);
+    return value;
+  }
+
+  @Override
+  public List<Short> newEmbeddedList(@Nonnull String name, short[] source) {
+    var value = new TrackedList<Short>(source.length);
+    for (var s : source) {
+      value.add(s);
+    }
+    setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST);
+    return value;
+  }
+
+  @Override
+  public List<Integer> newEmbeddedList(@Nonnull String name, int[] source) {
+    var value = new TrackedList<Integer>(source.length);
+    for (var i : source) {
+      value.add(i);
+    }
+    setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST);
+    return value;
+  }
+
+  @Override
+  public List<Long> newEmbeddedList(@Nonnull String name, long[] source) {
+    var value = new TrackedList<Long>(source.length);
+    for (var l : source) {
+      value.add(l);
+    }
+    setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST);
+    return value;
+  }
+
+  @Override
+  public List<Boolean> newEmbeddedList(@Nonnull String name, boolean[] source) {
+    var value = new TrackedList<Boolean>(source.length);
+    for (var b : source) {
+      value.add(b);
+    }
+    setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST);
+    return value;
+  }
+
+  @Override
+  public List<Float> newEmbeddedList(@Nonnull String name, float[] source) {
+    var value = new TrackedList<Float>(source.length);
+    for (var f : source) {
+      value.add(f);
+    }
+    setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST);
+    return value;
+  }
+
+  @Override
+  public List<Double> newEmbeddedList(@Nonnull String name, double[] source) {
+    var value = new TrackedList<Double>(source.length);
+    for (var d : source) {
+      value.add(d);
+    }
+    setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST);
+    return value;
+  }
+
+  @Override
   public @Nonnull <T> Set<T> getOrCreateEmbeddedSet(@Nonnull String name) {
     var value = this.<Set<T>>getPropertyInternal(name);
     if (value == null) {
@@ -834,6 +920,14 @@ public class EntityImpl extends RecordAbstract
   @Override
   public <T> Set<T> newEmbeddedSet(@Nonnull String name) {
     var value = new TrackedSet<T>(this);
+    setPropertyInternal(name, value, PropertyType.EMBEDDEDSET);
+    return value;
+  }
+
+  @Override
+  public <T> Set<T> newEmbeddedSet(@Nonnull String name, Set<T> source) {
+    var value = new TrackedSet<T>(source.size());
+    value.addAll(source);
     setPropertyInternal(name, value, PropertyType.EMBEDDEDSET);
     return value;
   }
@@ -858,6 +952,14 @@ public class EntityImpl extends RecordAbstract
   }
 
   @Override
+  public <T> Map<String, T> newEmbeddedMap(@Nonnull String name, Map<String, T> source) {
+    var value = new TrackedMap<T>(source.size());
+    value.putAll(source);
+    setPropertyInternal(name, value, PropertyType.EMBEDDEDMAP);
+    return value;
+  }
+
+  @Override
   public @Nonnull List<Identifiable> getOrCreateLinkList(@Nonnull String name) {
     var value = this.<List<Identifiable>>getPropertyInternal(name);
     if (value == null) {
@@ -872,6 +974,14 @@ public class EntityImpl extends RecordAbstract
   @Override
   public List<Identifiable> newLinkList(@Nonnull String name) {
     var value = new LinkList(this);
+    setPropertyInternal(name, value, PropertyType.LINKLIST);
+    return value;
+  }
+
+  @Override
+  public List<Identifiable> newLinkList(@Nonnull String name, List<Identifiable> source) {
+    var value = new LinkList(this);
+    value.addAll(source);
     setPropertyInternal(name, value, PropertyType.LINKLIST);
     return value;
   }
@@ -896,6 +1006,14 @@ public class EntityImpl extends RecordAbstract
     return value;
   }
 
+  @Override
+  public Set<Identifiable> newLinkSet(@Nonnull String name, Set<Identifiable> source) {
+    var value = new LinkSet(this);
+    value.addAll(source);
+    setPropertyInternal(name, value, PropertyType.LINKSET);
+    return value;
+  }
+
   @Nonnull
   @Override
   public Map<String, Identifiable> getOrCreateLinkMap(@Nonnull String name) {
@@ -912,6 +1030,15 @@ public class EntityImpl extends RecordAbstract
   @Override
   public Map<String, Identifiable> newLinkMap(@Nonnull String name) {
     var value = new LinkMap(this);
+    setPropertyInternal(name, value, PropertyType.LINKMAP);
+    return value;
+  }
+
+  @Override
+  public Map<String, Identifiable> newLinkMap(@Nonnull String name,
+      Map<String, Identifiable> source) {
+    var value = new LinkMap(this);
+    value.putAll(source);
     setPropertyInternal(name, value, PropertyType.LINKMAP);
     return value;
   }
@@ -1333,7 +1460,7 @@ public class EntityImpl extends RecordAbstract
           validateLink(schema, session, p, fieldValue, false);
           break;
         case LINKLIST:
-          if (!(fieldValue instanceof List)) {
+          if (!(fieldValue instanceof LinkList)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
                     + p.getFullName(session)
@@ -1343,7 +1470,7 @@ public class EntityImpl extends RecordAbstract
           validateLinkCollection(session, schema, p, (Collection<Object>) fieldValue, entry);
           break;
         case LINKSET:
-          if (!(fieldValue instanceof Set)) {
+          if (!(fieldValue instanceof LinkSet)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
                     + p.getFullName(session)
@@ -1353,7 +1480,7 @@ public class EntityImpl extends RecordAbstract
           validateLinkCollection(session, schema, p, (Collection<Object>) fieldValue, entry);
           break;
         case LINKMAP:
-          if (!(fieldValue instanceof Map)) {
+          if (!(fieldValue instanceof LinkMap)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
                     + p.getFullName(session)
@@ -1377,7 +1504,7 @@ public class EntityImpl extends RecordAbstract
           validateEmbedded(session, p, fieldValue);
           break;
         case EMBEDDEDLIST:
-          if (!(fieldValue instanceof List)) {
+          if (!(fieldValue instanceof TrackedList<?>)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
                     + p.getFullName(session)
@@ -1398,7 +1525,7 @@ public class EntityImpl extends RecordAbstract
           }
           break;
         case EMBEDDEDSET:
-          if (!(fieldValue instanceof Set)) {
+          if (!(fieldValue instanceof TrackedSet<?>)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
                     + p.getFullName(session)
@@ -1418,7 +1545,7 @@ public class EntityImpl extends RecordAbstract
           }
           break;
         case EMBEDDEDMAP:
-          if (!(fieldValue instanceof Map)) {
+          if (!(fieldValue instanceof TrackedMap<?>)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
                     + p.getFullName(session)
@@ -2022,100 +2149,95 @@ public class EntityImpl extends RecordAbstract
       propertyTypes = Collections.emptyMap();
     }
 
-    status = STATUS.UNMARSHALLING;
-    try {
-      for (var propertyName : result.getPropertyNames()) {
-        var value = result.getProperty(propertyName);
-        if (propertyName.charAt(0) == '@') {
-          switch (propertyName) {
-            case EntityHelper.ATTRIBUTE_CLASS -> {
-              if (!Objects.equals(getSchemaClassName(), value)) {
-                throw new IllegalArgumentException("Invalid  entity class name provided: "
-                    + value + " expected: " + getSchemaClassName());
-              }
+    for (var propertyName : result.getPropertyNames()) {
+      var value = result.getProperty(propertyName);
+      if (propertyName.charAt(0) == '@') {
+        switch (propertyName) {
+          case EntityHelper.ATTRIBUTE_CLASS -> {
+            if (!Objects.equals(getSchemaClassName(), value)) {
+              throw new IllegalArgumentException("Invalid  entity class name provided: "
+                  + value + " expected: " + getSchemaClassName());
             }
-            case EntityHelper.ATTRIBUTE_RID -> {
-              if (value instanceof RecordId rid) {
-                if (!rid.equals(recordId)) {
-                  throw new IllegalArgumentException("Invalid  entity record id provided: "
-                      + rid + " expected: " + recordId);
-                }
-              } else {
+          }
+          case EntityHelper.ATTRIBUTE_RID -> {
+            if (value instanceof RecordId rid) {
+              if (!rid.equals(recordId)) {
                 throw new IllegalArgumentException("Invalid  entity record id provided: "
-                    + value + " expected: " + recordId);
+                    + rid + " expected: " + recordId);
               }
-            }
-            case EntityHelper.ATTRIBUTE_EMBEDDED -> {
-              if (Boolean.parseBoolean(value.toString()) != isEmbedded()) {
-                throw new IllegalArgumentException("Invalid  entity embedded flag provided: "
-                    + value + " expected: " + isEmbedded());
-              }
-            }
-            case EntityHelper.ATTRIBUTE_VERSION -> {
-              //skip it
-            }
-            default -> {
-              throw new IllegalArgumentException(
-                  "Invalid  entity attribute provided: " + propertyName);
+            } else {
+              throw new IllegalArgumentException("Invalid  entity record id provided: "
+                  + value + " expected: " + recordId);
             }
           }
-        }
-
-        var property = cls != null ? cls.getProperty(session, propertyName) : null;
-        var type = property != null ? property.getType(session) : null;
-
-        if (type == null) {
-          var typeName = propertyTypes.get(propertyName);
-
-          if (typeName != null) {
-            type = PropertyType.valueOf(typeName);
+          case EntityHelper.ATTRIBUTE_EMBEDDED -> {
+            if (Boolean.parseBoolean(value.toString()) != isEmbedded()) {
+              throw new IllegalArgumentException("Invalid  entity embedded flag provided: "
+                  + value + " expected: " + isEmbedded());
+            }
           }
-        }
-
-        switch (type) {
-          case LINKLIST: {
-            updateLinkListFromMapValue(value, propertyName);
-            break;
+          case EntityHelper.ATTRIBUTE_VERSION -> {
+            //skip it
           }
-          case LINKSET: {
-            updateLinkSetFromMapValue(value, propertyName);
-            break;
-          }
-          case LINKBAG: {
-            updateLinkBagFromMapValue(value, session, propertyName);
-            break;
-          }
-          case LINKMAP: {
-            updateLinkMapFromMapValue(value, propertyName);
-            break;
-          }
-          case EMBEDDEDLIST: {
-            updateEmbeddedListFromMapValue(session, value, propertyName);
-            break;
-          }
-          case EMBEDDEDSET: {
-            updateEmbeddedSetFromMapValue(session, value, propertyName);
-            break;
-          }
-          case EMBEDDEDMAP: {
-            updateEmbeddedMapFromMapValue(session, value, propertyName);
-            break;
-          }
-          case EMBEDDED: {
-            updateEmbeddedFromMapValue(value, session, propertyName);
-            break;
-          }
-          case null: {
-            updatePropertyFromNonTypedMapValue(value, session, propertyName);
-            break;
-          }
-          default: {
-            setPropertyInternal(propertyName, value);
+          default -> {
+            throw new IllegalArgumentException(
+                "Invalid  entity attribute provided: " + propertyName);
           }
         }
       }
-    } finally {
-      status = STATUS.LOADED;
+
+      var property = cls != null ? cls.getProperty(session, propertyName) : null;
+      var type = property != null ? property.getType(session) : null;
+
+      if (type == null) {
+        var typeName = propertyTypes.get(propertyName);
+
+        if (typeName != null) {
+          type = PropertyType.valueOf(typeName);
+        }
+      }
+
+      switch (type) {
+        case LINKLIST: {
+          updateLinkListFromMapValue(value, propertyName);
+          break;
+        }
+        case LINKSET: {
+          updateLinkSetFromMapValue(value, propertyName);
+          break;
+        }
+        case LINKBAG: {
+          updateLinkBagFromMapValue(value, session, propertyName);
+          break;
+        }
+        case LINKMAP: {
+          updateLinkMapFromMapValue(value, propertyName);
+          break;
+        }
+        case EMBEDDEDLIST: {
+          updateEmbeddedListFromMapValue(session, value, propertyName);
+          break;
+        }
+        case EMBEDDEDSET: {
+          updateEmbeddedSetFromMapValue(session, value, propertyName);
+          break;
+        }
+        case EMBEDDEDMAP: {
+          updateEmbeddedMapFromMapValue(session, value, propertyName);
+          break;
+        }
+        case EMBEDDED: {
+          updateEmbeddedFromMapValue(value, session, propertyName);
+          break;
+        }
+        case null: {
+          updatePropertyFromNonTypedMapValue(value, session, propertyName);
+          break;
+        }
+        default: {
+          setPropertyInternal(propertyName, value);
+        }
+      }
     }
   }
 
@@ -2130,65 +2252,59 @@ public class EntityImpl extends RecordAbstract
     checkForBinding();
 
     var cls = getImmutableSchemaClass(this.session);
+    for (var entry : map.entrySet()) {
+      var key = entry.getKey();
+      if (key.isEmpty()) {
+        continue;
+      }
+      if (key.charAt(0) == '@') {
+        continue;
+      }
 
-    status = STATUS.UNMARSHALLING;
-    try {
-      for (var entry : map.entrySet()) {
-        var key = entry.getKey();
-        if (key.isEmpty()) {
-          continue;
+      var property = cls != null ? cls.getProperty(session, key) : null;
+      var type = property != null ? property.getType(session) : null;
+
+      switch (type) {
+        case LINKLIST: {
+          updateLinkListFromMapValue(entry.getValue(), key);
+          break;
         }
-        if (key.charAt(0) == '@') {
-          continue;
+        case LINKSET: {
+          updateLinkSetFromMapValue(entry.getValue(), key);
+          break;
         }
-
-        var property = cls != null ? cls.getProperty(session, key) : null;
-        var type = property != null ? property.getType(session) : null;
-
-        switch (type) {
-          case LINKLIST: {
-            updateLinkListFromMapValue(entry.getValue(), key);
-            break;
-          }
-          case LINKSET: {
-            updateLinkSetFromMapValue(entry.getValue(), key);
-            break;
-          }
-          case LINKBAG: {
-            updateLinkBagFromMapValue(entry.getValue(), session, key);
-            break;
-          }
-          case LINKMAP: {
-            updateLinkMapFromMapValue(entry.getValue(), key);
-            break;
-          }
-          case EMBEDDEDLIST: {
-            updateEmbeddedListFromMapValue(session, entry.getValue(), key);
-            break;
-          }
-          case EMBEDDEDSET: {
-            updateEmbeddedSetFromMapValue(session, entry.getValue(), key);
-            break;
-          }
-          case EMBEDDEDMAP: {
-            updateEmbeddedMapFromMapValue(session, entry.getValue(), key);
-            break;
-          }
-          case EMBEDDED: {
-            updateEmbeddedFromMapValue(entry.getValue(), session, key);
-            break;
-          }
-          case null: {
-            updatePropertyFromNonTypedMapValue(entry.getValue(), session, key);
-            break;
-          }
-          default: {
-            setPropertyInternal(key, entry.getValue());
-          }
+        case LINKBAG: {
+          updateLinkBagFromMapValue(entry.getValue(), session, key);
+          break;
+        }
+        case LINKMAP: {
+          updateLinkMapFromMapValue(entry.getValue(), key);
+          break;
+        }
+        case EMBEDDEDLIST: {
+          updateEmbeddedListFromMapValue(session, entry.getValue(), key);
+          break;
+        }
+        case EMBEDDEDSET: {
+          updateEmbeddedSetFromMapValue(session, entry.getValue(), key);
+          break;
+        }
+        case EMBEDDEDMAP: {
+          updateEmbeddedMapFromMapValue(session, entry.getValue(), key);
+          break;
+        }
+        case EMBEDDED: {
+          updateEmbeddedFromMapValue(entry.getValue(), session, key);
+          break;
+        }
+        case null: {
+          updatePropertyFromNonTypedMapValue(entry.getValue(), session, key);
+          break;
+        }
+        default: {
+          setPropertyInternal(key, entry.getValue());
         }
       }
-    } finally {
-      status = STATUS.LOADED;
     }
   }
 
@@ -2518,11 +2634,12 @@ public class EntityImpl extends RecordAbstract
    *
    * @return Array of fields, values of which were changed.
    */
-  public String[] getDirtyProperties() {
+  @Override
+  public Collection<String> getDirtyProperties() {
     checkForBinding();
 
     if (fields == null || fields.isEmpty()) {
-      return EMPTY_STRINGS;
+      return Collections.emptyList();
     }
 
     final Set<String> dirtyFields = new HashSet<>();
@@ -2531,7 +2648,8 @@ public class EntityImpl extends RecordAbstract
         dirtyFields.add(entry.getKey());
       }
     }
-    return dirtyFields.toArray(new String[0]);
+
+    return dirtyFields;
   }
 
   /**

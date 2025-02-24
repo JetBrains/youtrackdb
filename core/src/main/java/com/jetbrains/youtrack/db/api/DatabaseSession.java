@@ -1032,9 +1032,25 @@ public interface DatabaseSession extends AutoCloseable {
 
   <T> List<T> newEmbeddedList(List<T> list);
 
+  List<Byte> newEmbeddedList(byte[] source);
+
+  List<Short> newEmbeddedList(short[] source);
+
+  List<Integer> newEmbeddedList(int[] source);
+
+  List<Long> newEmbeddedList(long[] source);
+
+  List<Float> newEmbeddedList(float[] source);
+
+  List<Double> newEmbeddedList(double[] source);
+
+  List<Boolean> newEmbeddedList(boolean[] source);
+
   List<Identifiable> newLinkList();
 
   List<Identifiable> newLinkList(int size);
+
+  List<Identifiable> newLinkList(List<Identifiable> source);
 
   <T> Set<T> newEmbeddedSet();
 
@@ -1046,6 +1062,8 @@ public interface DatabaseSession extends AutoCloseable {
 
   Set<Identifiable> newLinkSet(int size);
 
+  Set<Identifiable> newLinkSet(Set<Identifiable> source);
+
   <V> Map<String, V> newEmbeddedMap();
 
   <V> Map<String, V> newEmbeddedMap(int size);
@@ -1055,6 +1073,8 @@ public interface DatabaseSession extends AutoCloseable {
   Map<String, Identifiable> newLinkMap();
 
   Map<String, Identifiable> newLinkMap(int size);
+
+  Map<String, Identifiable> newLinkMap(Map<String, Identifiable> source);
 
   enum ATTRIBUTES {
     DATEFORMAT,

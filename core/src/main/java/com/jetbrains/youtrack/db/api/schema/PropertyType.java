@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.api.schema;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
@@ -823,7 +824,7 @@ public enum PropertyType {
                         ((EntityInternal) value).getPropertyNamesInternal().iterator().next()),
                 targetClass);
         default -> throw BaseException.wrapException(
-            new DatabaseException(session != null ? session.getDatabaseName() : null,
+            new ValidationException(session != null ? session.getDatabaseName() : null,
                 String.format("Error in conversion of value '%s' to type '%s'", value,
                     targetClass)),
             e, session.getDatabaseName());

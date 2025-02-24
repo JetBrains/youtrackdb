@@ -12,7 +12,6 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
-import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.DocumentSerializerDelta;
 import java.math.BigDecimal;
@@ -46,7 +45,6 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     doc.setProperty(constantFieldName, "someValue");
     doc.setProperty(removeField, "removeVal");
 
-    doc = doc;
     session.commit();
 
     session.begin();
@@ -90,7 +88,6 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     originalDoc.setProperty(constantFieldName, "someValue2");
     originalDoc.setProperty(nestedDocField, nestedDoc, PropertyType.EMBEDDED);
 
-    doc = doc;
     session.commit();
 
     session.begin();
@@ -126,7 +123,6 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     doc.newEmbeddedList(fieldName).addAll(originalValue);
 
-    doc = doc;
     session.commit();
 
     session.begin();
@@ -245,7 +241,6 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     doc.newEmbeddedList(fieldName).addAll(originalValue);
 
-    doc = doc;
     session.commit();
 
     session.begin();
@@ -335,7 +330,6 @@ public class EntitySerializerDeltaTest extends DbTestBase {
       originalValue.add(containedList);
     }
 
-    entity = entity;
     session.commit();
 
     session.begin();
@@ -378,7 +372,6 @@ public class EntitySerializerDeltaTest extends DbTestBase {
       originalValue.add(containedList);
     }
 
-    entity = entity;
     session.commit();
 
     session.begin();
@@ -426,7 +419,6 @@ public class EntitySerializerDeltaTest extends DbTestBase {
       originalValue.add(containedDoc);
     }
 
-    entity = entity;
     session.commit();
 
     session.begin();
@@ -538,15 +530,14 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     originalValue.add("two");
     originalValue.add("three");
 
-    doc = doc;
     session.commit();
 
     session.begin();
     doc = session.bindToSession(doc);
 
     List<String> newArray = doc.field(fieldName);
-    newArray.remove(0);
-    newArray.remove(0);
+    newArray.removeFirst();
+    newArray.removeFirst();
 
     // test serialization/deserialization
     var serializerDelta = DocumentSerializerDelta.instance();
@@ -574,7 +565,6 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     entity.setProperty(constantFieldName + "1", "someValue1");
     entity.setProperty(constantFieldName, "someValue");
 
-    entity = entity;
     session.commit();
 
     session.begin();
@@ -606,7 +596,6 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     entity.setProperty(fieldName, testValue);
     entity.setProperty(constantFieldName, "someValue");
 
-    entity = entity;
     session.commit();
 
     session.begin();
@@ -760,7 +749,6 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     doc.newEmbeddedList(fieldName).addAll(originalValue);
 
-    doc = doc;
     session.commit();
 
     session.begin();
@@ -833,32 +821,30 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.begin();
     var doc = (EntityImpl) session.newEntity(claz);
     var fieldName = "testField";
-    List<Map> originalList = new ArrayList<>();
-    List<Map> copyList = new ArrayList<>();
+    var originalList = session.<Map<String, String>>newEmbeddedList();
+    var copyList = session.<Map<String, String>>newEmbeddedList();
 
-    Map<String, String> mapValue1 = new HashMap<>();
+    Map<String, String> mapValue1 = session.newEmbeddedMap();
     mapValue1.put("first", "one");
     mapValue1.put("second", "two");
     originalList.add(mapValue1);
-    Map<String, String> mapValue1Copy = new HashMap<>(mapValue1);
+    var mapValue1Copy = session.newEmbeddedMap(mapValue1);
     copyList.add(mapValue1Copy);
 
-    Map<String, String> mapValue2 = new HashMap<>();
+    Map<String, String> mapValue2 = session.newEmbeddedMap();
     mapValue2.put("third", "three");
     mapValue2.put("forth", "four");
     originalList.add(mapValue2);
-    Map<String, String> mapValue2Copy = new HashMap<>(mapValue2);
+    var mapValue2Copy = session.newEmbeddedMap(mapValue2);
     copyList.add(mapValue2Copy);
 
     doc.field(fieldName, originalList);
-
-    doc = doc;
     session.commit();
 
     session.begin();
     doc = session.bindToSession(doc);
-    var containedMap = (Map<String, String>) ((List) doc.field(
-        fieldName)).getFirst();
+    var containedMap = doc.<Map<String, String>>getEmbeddedList(
+        fieldName).getFirst();
     containedMap.put("first", "changed");
     // test serialization/deserialization
     var serializerDelta = DocumentSerializerDelta.instance();
@@ -868,7 +854,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     doc = session.bindToSession(doc);
     serializerDelta.deserializeDelta(session, bytes, doc);
 
-    containedMap = (Map<String, String>) ((List) doc.field(fieldName)).getFirst();
+    containedMap = doc.<Map<String, String>>getEmbeddedList(fieldName).getFirst();
     assertEquals("changed", containedMap.get("first"));
     session.rollback();
   }
@@ -882,20 +868,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var fieldName = "testField";
 
     var first = (EntityImpl) session.newEntity(claz);
-    first = first;
     var second = (EntityImpl) session.newEntity(claz);
-    second = second;
 
     var ridBag = new RidBag(session);
     ridBag.add(first.getIdentity());
     ridBag.add(second.getIdentity());
     doc.field(fieldName, ridBag, PropertyType.LINKBAG);
-    doc = doc;
 
     var originalDoc = doc;
 
     var third = (EntityImpl) session.newEntity(claz);
-    third = third;
     session.commit();
 
     session.begin();
@@ -931,11 +913,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var fieldName = "testField";
 
     var first = (EntityImpl) session.newEntity(claz);
-    first = first;
     var second = (EntityImpl) session.newEntity(claz);
-    second = second;
     var third = (EntityImpl) session.newEntity(claz);
-    third = third;
     session.commit();
 
     session.begin();
@@ -984,22 +963,18 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var fieldName = "testField";
 
     var first = (EntityImpl) session.newEntity(claz);
-    first = first;
     var second = (EntityImpl) session.newEntity(claz);
-    second = second;
 
     var ridBag = new RidBag(session);
     ridBag.add(first.getIdentity());
     ridBag.add(second.getIdentity());
     entity.field(fieldName, ridBag, PropertyType.LINKBAG);
-    entity = entity;
     session.commit();
 
     entity = session.bindToSession(entity);
 
     session.begin();
     var third = (EntityImpl) session.newEntity(claz);
-    third = third;
     session.commit();
 
     session.begin();
@@ -1031,18 +1006,14 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var fieldName = "testField";
 
     var first = (EntityImpl) session.newEntity(claz);
-    first = first;
     var second = (EntityImpl) session.newEntity(claz);
-    second = second;
     var third = (EntityImpl) session.newEntity(claz);
-    third = third;
 
     var ridBag = new RidBag(session);
     ridBag.add(first.getIdentity());
     ridBag.add(second.getIdentity());
     ridBag.add(third.getIdentity());
     entity.field(fieldName, ridBag, PropertyType.LINKBAG);
-    entity = entity;
     session.commit();
 
     session.begin();
@@ -1139,12 +1110,12 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.begin();
     doc = session.bindToSession(doc);
     serializerDelta.deserializeDelta(session, bytes, doc);
-    assertTrue(((List) doc.getProperty("list")).contains(null));
-    assertTrue(((Set) doc.getProperty("set")).contains(null));
-    assertTrue(((Map) doc.getProperty("map")).containsKey("nullValue"));
-    assertTrue(((List) doc.getProperty("linkList")).contains(null));
-    assertTrue(((Set) doc.getProperty("linkSet")).contains(null));
-    assertTrue(((Map) doc.getProperty("linkMap")).containsKey("nullValue"));
+    assertTrue(doc.getEmbeddedList("list").contains(null));
+    assertTrue(doc.getEmbeddedSet("set").contains(null));
+    assertTrue(doc.getEmbeddedMap("map").containsKey("nullValue"));
+    assertTrue(doc.getLinkList("linkList").contains(null));
+    assertTrue(doc.getLinkSet("linkSet").contains(null));
+    assertTrue(doc.getLinkMap("linkMap").containsKey("nullValue"));
     session.rollback();
   }
 
@@ -1224,7 +1195,6 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     embedded.setProperty("other", 1);
     mapEmbedded.put("first", embedded);
 
-    doc = doc;
     session.commit();
 
     session.begin();
@@ -1277,7 +1247,6 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     document.field("bitHeigth", 12.5d);
     document.field("class", (byte) 'C');
     document.field("nullField", null);
-    document.field("character", 'C');
     document.field("alive", true);
     document.field("dateTime", new Date());
     document.field(
@@ -1299,7 +1268,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     Arrays.fill(byteValue, (byte) 10);
     document.field("bytes", byteValue);
 
-    document.field("utf8String", "A" + "\u00ea" + "\u00f1" + "\u00fc" + "C");
+    document.field("utf8String", "A" + "ê" + "ñ" + "ü" + "C");
     document.field("recordId", new RecordId(10, 10));
 
     var serializerDelta = DocumentSerializerDelta.instance();
@@ -1336,169 +1305,66 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.rollback();
   }
 
-  @SuppressWarnings("rawtypes")
-  @Test
-  public void testSimpleLiteralArray() {
-    session.begin();
-    var document = (EntityImpl) session.newEntity();
-    var strings = new String[3];
-    strings[0] = "a";
-    strings[1] = "b";
-    strings[2] = "c";
-    document.field("listStrings", strings);
-
-    var shorts = new Short[3];
-    shorts[0] = (short) 1;
-    shorts[1] = (short) 2;
-    shorts[2] = (short) 3;
-    document.field("shorts", shorts);
-
-    var longs = new Long[3];
-    longs[0] = (long) 1;
-    longs[1] = (long) 2;
-    longs[2] = (long) 3;
-    document.field("longs", longs);
-
-    var ints = new Integer[3];
-    ints[0] = 1;
-    ints[1] = 2;
-    ints[2] = 3;
-    document.field("integers", ints);
-
-    var floats = new Float[3];
-    floats[0] = 1.1f;
-    floats[1] = 2.2f;
-    floats[2] = 3.3f;
-    document.field("floats", floats);
-
-    var doubles = new Double[3];
-    doubles[0] = 1.1d;
-    doubles[1] = 2.2d;
-    doubles[2] = 3.3d;
-    document.field("doubles", doubles);
-
-    var dates = new Date[3];
-    dates[0] = new Date();
-    dates[1] = new Date();
-    dates[2] = new Date();
-    document.field("dates", dates);
-
-    var bytes = new Byte[3];
-    bytes[0] = (byte) 0;
-    bytes[1] = (byte) 1;
-    bytes[2] = (byte) 3;
-    document.field("bytes", bytes);
-
-    // TODO: char not currently supported
-    var chars = new Character[3];
-    chars[0] = 'A';
-    chars[1] = 'B';
-    chars[2] = 'C';
-    // document.field("chars", chars);
-
-    var booleans = new Boolean[3];
-    booleans[0] = true;
-    booleans[1] = false;
-    booleans[2] = false;
-    document.field("booleans", booleans);
-
-    var arrayNulls = new Object[3];
-    // document.field("arrayNulls", arrayNulls);
-
-    // Object[] listMixed = new ArrayList[9];
-    // listMixed[0] = new Boolean(true);
-    // listMixed[1] = 1;
-    // listMixed[2] = (long) 5;
-    // listMixed[3] = (short) 2;
-    // listMixed[4] = 4.0f;
-    // listMixed[5] = 7.0D;
-    // listMixed[6] = "hello";
-    // listMixed[7] = new Date();
-    // listMixed[8] = (byte) 10;
-    // document.field("listMixed", listMixed);
-
-    var serializerDelta = DocumentSerializerDelta.instance();
-    var res = serializerDelta.serialize(session, document);
-    var extr = (EntityImpl) session.newEntity();
-    serializerDelta.deserialize(session, res, extr);
-
-    assertEquals(extr.fields(), document.fields());
-    assertEquals(extr.getEmbeddedList("listStrings"), document.getEmbeddedList("listStrings"));
-    assertEquals(extr.getEmbeddedList("integers"), document.getEmbeddedList("integers"));
-    assertEquals(extr.getEmbeddedList("doubles"), document.getEmbeddedList("doubles"));
-    assertEquals(extr.getEmbeddedList("dates"), document.getEmbeddedList("dates"));
-    assertEquals(extr.getEmbeddedList("bytes"), document.getEmbeddedList("bytes"));
-    assertEquals(extr.getEmbeddedList("booleans"), document.getEmbeddedList("booleans"));
-    session.rollback();
-  }
-
   @SuppressWarnings({"rawtypes", "unchecked"})
   @Test
   public void testSimpleLiteralList() {
     session.begin();
     var document = (EntityImpl) session.newEntity();
-    List<String> strings = new ArrayList<String>();
+    List<String> strings = session.newEmbeddedList();
     strings.add("a");
     strings.add("b");
     strings.add("c");
     document.field("listStrings", strings);
 
-    List<Short> shorts = new ArrayList<Short>();
+    List<Short> shorts = session.newEmbeddedList();
     shorts.add((short) 1);
     shorts.add((short) 2);
     shorts.add((short) 3);
     document.field("shorts", shorts);
 
-    List<Long> longs = new ArrayList<Long>();
+    List<Long> longs = session.newEmbeddedList();
     longs.add((long) 1);
     longs.add((long) 2);
     longs.add((long) 3);
     document.field("longs", longs);
 
-    List<Integer> ints = new ArrayList<Integer>();
+    List<Integer> ints = session.newEmbeddedList();
     ints.add(1);
     ints.add(2);
     ints.add(3);
     document.field("integers", ints);
 
-    List<Float> floats = new ArrayList<Float>();
+    List<Float> floats = session.newEmbeddedList();
     floats.add(1.1f);
     floats.add(2.2f);
     floats.add(3.3f);
     document.field("floats", floats);
 
-    List<Double> doubles = new ArrayList<Double>();
+    List<Double> doubles = session.newEmbeddedList();
     doubles.add(1.1);
     doubles.add(2.2);
     doubles.add(3.3);
     document.field("doubles", doubles);
 
-    List<Date> dates = new ArrayList<Date>();
+    List<Date> dates = session.newEmbeddedList();
     dates.add(new Date());
     dates.add(new Date());
     dates.add(new Date());
     document.field("dates", dates);
 
-    List<Byte> bytes = new ArrayList<Byte>();
+    List<Byte> bytes = session.newEmbeddedList();
     bytes.add((byte) 0);
     bytes.add((byte) 1);
     bytes.add((byte) 3);
     document.field("bytes", bytes);
 
-    // TODO: char not currently supported
-    List<Character> chars = new ArrayList<Character>();
-    chars.add('A');
-    chars.add('B');
-    chars.add('C');
-    // document.field("chars", chars);
-
-    List<Boolean> booleans = new ArrayList<Boolean>();
+    List<Boolean> booleans = session.newEmbeddedList();
     booleans.add(true);
     booleans.add(false);
     booleans.add(false);
     document.field("booleans", booleans);
 
-    List listMixed = new ArrayList();
+    List listMixed = session.newEmbeddedList();
     listMixed.add(true);
     listMixed.add(1);
     listMixed.add((long) 5);
@@ -1526,48 +1392,48 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.rollback();
   }
 
-  @SuppressWarnings({"rawtypes", "unchecked"})
+  @SuppressWarnings({"rawtypes", "unchecked", "OverwrittenKey"})
   @Test
   public void testSimpleLiteralSet() throws InterruptedException {
     session.begin();
     var document = (EntityImpl) session.newEntity();
-    Set<String> strings = new HashSet<String>();
+    Set<String> strings = session.newEmbeddedSet();
     strings.add("a");
     strings.add("b");
     strings.add("c");
     document.field("listStrings", strings);
 
-    Set<Short> shorts = new HashSet<Short>();
+    Set<Short> shorts = session.newEmbeddedSet();
     shorts.add((short) 1);
     shorts.add((short) 2);
     shorts.add((short) 3);
     document.field("shorts", shorts);
 
-    Set<Long> longs = new HashSet<Long>();
+    Set<Long> longs = session.newEmbeddedSet();
     longs.add((long) 1);
     longs.add((long) 2);
     longs.add((long) 3);
     document.field("longs", longs);
 
-    Set<Integer> ints = new HashSet<Integer>();
+    Set<Integer> ints = session.newEmbeddedSet();
     ints.add(1);
     ints.add(2);
     ints.add(3);
     document.field("integers", ints);
 
-    Set<Float> floats = new HashSet<Float>();
+    Set<Float> floats = session.newEmbeddedSet();
     floats.add(1.1f);
     floats.add(2.2f);
     floats.add(3.3f);
     document.field("floats", floats);
 
-    Set<Double> doubles = new HashSet<Double>();
+    Set<Double> doubles = session.newEmbeddedSet();
     doubles.add(1.1);
     doubles.add(2.2);
     doubles.add(3.3);
     document.field("doubles", doubles);
 
-    Set<Date> dates = new HashSet<Date>();
+    Set<Date> dates = session.newEmbeddedSet();
     dates.add(new Date());
     Thread.sleep(1);
     dates.add(new Date());
@@ -1575,26 +1441,19 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     dates.add(new Date());
     document.field("dates", dates);
 
-    Set<Byte> bytes = new HashSet<Byte>();
+    Set<Byte> bytes = session.newEmbeddedSet();
     bytes.add((byte) 0);
     bytes.add((byte) 1);
     bytes.add((byte) 3);
     document.field("bytes", bytes);
 
-    // TODO: char not currently supported
-    Set<Character> chars = new HashSet<Character>();
-    chars.add('A');
-    chars.add('B');
-    chars.add('C');
-    // document.field("chars", chars);
-
-    Set<Boolean> booleans = new HashSet<Boolean>();
+    Set<Boolean> booleans = session.newEmbeddedSet();
     booleans.add(true);
     booleans.add(false);
     booleans.add(false);
     document.field("booleans", booleans);
 
-    Set listMixed = new HashSet();
+    Set listMixed = session.newEmbeddedSet();
     listMixed.add(true);
     listMixed.add(1);
     listMixed.add((long) 5);
@@ -1629,14 +1488,14 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.begin();
 
     var document = (EntityImpl) session.newEntity();
-    Set<RecordId> linkSet = new HashSet<RecordId>();
+    var linkSet = session.newLinkSet();
     linkSet.add(new RecordId(10, 20));
     linkSet.add(new RecordId(10, 21));
     linkSet.add(new RecordId(10, 22));
     linkSet.add(new RecordId(11, 22));
     document.field("linkSet", linkSet, PropertyType.LINKSET);
 
-    List<RecordId> linkList = new ArrayList<RecordId>();
+    var linkList = session.newLinkList();
     linkList.add(new RecordId(10, 20));
     linkList.add(new RecordId(10, 21));
     linkList.add(new RecordId(10, 22));
@@ -1651,7 +1510,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     assertEquals(extr.fields(), document.fields());
     assertEquals(
         ((Set<?>) extr.field("linkSet")).size(), ((Set<?>) document.field("linkSet")).size());
-    assertTrue(((Set<?>) extr.field("linkSet")).containsAll(document.field("linkSet")));
+    assertTrue(extr.getLinkSet("linkSet").containsAll(document.getLinkSet("linkSet")));
     assertEquals(extr.<Object>field("linkList"), document.field("linkList"));
 
     session.rollback();
@@ -1687,47 +1546,47 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     var document = (EntityImpl) session.newEntity();
 
-    Map<String, String> mapString = new HashMap<String, String>();
+    Map<String, String> mapString = session.newEmbeddedMap();
     mapString.put("key", "value");
     mapString.put("key1", "value1");
     document.field("mapString", mapString);
 
-    Map<String, Integer> mapInt = new HashMap<String, Integer>();
+    Map<String, Integer> mapInt = session.newEmbeddedMap();
     mapInt.put("key", 2);
     mapInt.put("key1", 3);
     document.field("mapInt", mapInt);
 
-    Map<String, Long> mapLong = new HashMap<String, Long>();
+    Map<String, Long> mapLong = session.newEmbeddedMap();
     mapLong.put("key", 2L);
     mapLong.put("key1", 3L);
     document.field("mapLong", mapLong);
 
-    Map<String, Short> shortMap = new HashMap<String, Short>();
+    Map<String, Short> shortMap = session.newEmbeddedMap();
     shortMap.put("key", (short) 2);
     shortMap.put("key1", (short) 3);
     document.field("shortMap", shortMap);
 
-    Map<String, Date> dateMap = new HashMap<String, Date>();
+    Map<String, Date> dateMap = session.newEmbeddedMap();
     dateMap.put("key", new Date());
     dateMap.put("key1", new Date());
     document.field("dateMap", dateMap);
 
-    Map<String, Float> floatMap = new HashMap<String, Float>();
+    Map<String, Float> floatMap = session.newEmbeddedMap();
     floatMap.put("key", 10f);
     floatMap.put("key1", 11f);
     document.field("floatMap", floatMap);
 
-    Map<String, Double> doubleMap = new HashMap<String, Double>();
+    Map<String, Double> doubleMap = session.newEmbeddedMap();
     doubleMap.put("key", 10d);
     doubleMap.put("key1", 11d);
     document.field("doubleMap", doubleMap);
 
-    Map<String, Byte> bytesMap = new HashMap<String, Byte>();
+    Map<String, Byte> bytesMap = session.newEmbeddedMap();
     bytesMap.put("key", (byte) 10);
     bytesMap.put("key1", (byte) 11);
     document.field("bytesMap", bytesMap);
 
-    Map<String, String> mapWithNulls = new HashMap<String, String>();
+    Map<String, String> mapWithNulls = session.newEmbeddedMap();
     mapWithNulls.put("key", "dddd");
     mapWithNulls.put("key1", null);
     document.field("bytesMap", mapWithNulls);
@@ -1753,12 +1612,13 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.begin();
 
     var document = (EntityImpl) session.newEntity();
-    List<List<String>> list = new ArrayList<List<String>>();
-    List<String> ls = new ArrayList<String>();
+    List<List<String>> list = session.newEmbeddedList();
+    List<String> ls = session.newEmbeddedList();
     ls.add("test1");
     ls.add("test2");
     list.add(ls);
-    document.field("complexList", list);
+
+    document.setEmbeddedList("complexList", list);
 
     var serializerDelta = DocumentSerializerDelta.instance();
     var res = serializerDelta.serialize(session, document);
@@ -1772,42 +1632,15 @@ public class EntitySerializerDeltaTest extends DbTestBase {
   }
 
   @Test
-  public void testArrayOfArray() {
-    session.begin();
-
-    var document = (EntityImpl) session.newEntity();
-    var array = new String[1][];
-    var ls = new String[2];
-    ls[0] = "test1";
-    ls[1] = "test2";
-    array[0] = ls;
-    document.field("complexArray", array);
-
-    var serializerDelta = DocumentSerializerDelta.instance();
-    var res = serializerDelta.serialize(session, document);
-    var extr = (EntityImpl) session.newEntity();
-    serializerDelta.deserialize(session, res, extr);
-
-    assertEquals(extr.fields(), document.fields());
-    List<List<String>> savedValue = extr.field("complexArray");
-    assertEquals(savedValue.size(), array.length);
-    assertEquals(savedValue.getFirst().size(), array[0].length);
-    assertEquals(savedValue.getFirst().get(0), array[0][0]);
-    assertEquals(savedValue.getFirst().get(1), array[0][1]);
-
-    session.rollback();
-  }
-
-  @Test
   public void testEmbeddedListOfEmbeddedMap() {
     session.begin();
 
     var document = (EntityImpl) session.newEntity();
-    List<Map<String, String>> coll = new ArrayList<Map<String, String>>();
-    Map<String, String> map = new HashMap<String, String>();
+    List<Map<String, String>> coll = session.newEmbeddedList();
+    Map<String, String> map = session.newEmbeddedMap();
     map.put("first", "something");
     map.put("second", "somethingElse");
-    Map<String, String> map2 = new HashMap<String, String>();
+    Map<String, String> map2 = session.newEmbeddedMap();
     map2.put("first", "something");
     map2.put("second", "somethingElse");
     coll.add(map);
@@ -1832,9 +1665,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var embeddedInMap = (EntityImpl) session.newEmbededEntity();
     embeddedInMap.field("name", "test");
     embeddedInMap.field("surname", "something");
-    Map<String, EntityImpl> map = new HashMap<String, EntityImpl>();
+    Map<String, EntityImpl> map = document.newEmbeddedMap("map");
     map.put("embedded", embeddedInMap);
-    document.field("map", map, PropertyType.EMBEDDEDMAP);
 
     var serializerDelta = DocumentSerializerDelta.instance();
     var res = serializerDelta.serialize(session, document);
@@ -1861,9 +1693,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     // needs a database because of the lazy loading
     var document = (EntityImpl) session.newEntity();
 
-    Map<String, Identifiable> map = new HashMap<String, Identifiable>();
+    var map = document.newLinkMap("map");
     map.put("link", new RecordId(0, 0));
-    document.field("map", map, PropertyType.LINKMAP);
 
     var serializerDelta = DocumentSerializerDelta.instance();
     var res = serializerDelta.serialize(session, document);
@@ -1895,126 +1726,9 @@ public class EntitySerializerDeltaTest extends DbTestBase {
   }
 
   @Test
-  public void testDocumentWithCostumDocument() {
+  public void testCollectionOfEmbeddedEntities() {
     session.begin();
-
-    var document = (EntityImpl) session.newEntity();
-    document.field("test", "test");
-    document.field("custom", new DocumentSchemalessBinarySerializationTest.CustomDocument());
-
-    var serializerDelta = DocumentSerializerDelta.instance();
-    var res = serializerDelta.serialize(session, document);
-    var extr = (EntityImpl) session.newEntity();
-    serializerDelta.deserialize(session, res, extr);
-
-    assertEquals(extr.getSchemaClassName(), document.getSchemaClassName());
-    assertEquals(extr.fields(), document.fields());
-    assertEquals(extr.<Object>field("test"), document.field("test"));
-    assertEquals(extr.<Object>field("custom"), document.field("custom"));
-
-    session.rollback();
-  }
-
-  @Test(expected = SerializationException.class)
-  public void testSetOfWrongData() {
-    session.executeInTx(() -> {
-      var document = (EntityImpl) session.newEntity();
-
-      Set<Object> embeddedSet = new HashSet<Object>();
-      embeddedSet.add(new WrongData());
-      document.field("embeddedSet", embeddedSet, PropertyType.EMBEDDEDSET);
-
-      var serializerDelta = DocumentSerializerDelta.instance();
-      serializerDelta.serialize(session, document);
-    });
-  }
-
-  @Test(expected = SerializationException.class)
-  public void testListOfWrongData() {
-    session.executeInTx(() -> {
-      var document = (EntityImpl) session.newEntity();
-
-      List<Object> embeddedList = new ArrayList<Object>();
-      embeddedList.add(new WrongData());
-      document.field("embeddedList", embeddedList, PropertyType.EMBEDDEDLIST);
-
-      var serializerDelta = DocumentSerializerDelta.instance();
-      serializerDelta.serialize(session, document);
-    });
-  }
-
-  @Test(expected = SerializationException.class)
-  public void testMapOfWrongData() {
-    session.executeInTx(() -> {
-      var document = (EntityImpl) session.newEntity();
-
-      Map<String, Object> embeddedMap = new HashMap<String, Object>();
-      embeddedMap.put("name", new WrongData());
-      document.field("embeddedMap", embeddedMap, PropertyType.EMBEDDEDMAP);
-
-      var serializerDelta = DocumentSerializerDelta.instance();
-      serializerDelta.serialize(session, document);
-    });
-  }
-
-  @Test(expected = ClassCastException.class)
-  public void testLinkSetOfWrongData() {
-    session.executeInTx(() -> {
-      var document = (EntityImpl) session.newEntity();
-
-      Set<Object> linkSet = new HashSet<Object>();
-      linkSet.add(new WrongData());
-      document.field("linkSet", linkSet, PropertyType.LINKSET);
-
-      var serializerDelta = DocumentSerializerDelta.instance();
-      serializerDelta.serialize(session, document);
-    });
-  }
-
-  @Test(expected = ClassCastException.class)
-  public void testLinkListOfWrongData() {
-    session.executeInTx(() -> {
-      var document = (EntityImpl) session.newEntity();
-
-      List<Object> linkList = new ArrayList<Object>();
-      linkList.add(new WrongData());
-      document.field("linkList", linkList, PropertyType.LINKLIST);
-
-      var serializerDelta = DocumentSerializerDelta.instance();
-      serializerDelta.serialize(session, document);
-    });
-  }
-
-  @Test(expected = ClassCastException.class)
-  public void testLinkMapOfWrongData() {
-    session.executeInTx(() -> {
-      var document = (EntityImpl) session.newEntity();
-
-      Map<String, Object> linkMap = new HashMap<String, Object>();
-      linkMap.put("name", new WrongData());
-      document.field("linkMap", linkMap, PropertyType.LINKMAP);
-
-      var serializerDelta = DocumentSerializerDelta.instance();
-      serializerDelta.serialize(session, document);
-    });
-  }
-
-  @Test(expected = SerializationException.class)
-  public void testFieldWrongData() {
-    session.executeInTx(() -> {
-      var document = (EntityImpl) session.newEntity();
-
-      document.field("wrongData", new WrongData());
-
-      var serializerDelta = DocumentSerializerDelta.instance();
-      serializerDelta.serialize(session, document);
-    });
-  }
-
-  @Test
-  public void testCollectionOfEmbeddedDocument() {
-    session.begin();
-    var document = (EntityImpl) session.newEntity();
+    var entity = session.newEntity();
 
     var embeddedInList = (EntityImpl) session.newEmbededEntity();
     embeddedInList.field("name", "test");
@@ -2024,12 +1738,12 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     embeddedInList2.field("name", "test1");
     embeddedInList2.field("surname", "something2");
 
-    List<EntityImpl> embeddedList = new ArrayList<EntityImpl>();
+    List<EntityImpl> embeddedList = new ArrayList<>();
     embeddedList.add(embeddedInList);
     embeddedList.add(embeddedInList2);
     embeddedList.add(null);
     embeddedList.add((EntityImpl) session.newEmbededEntity());
-    document.field("embeddedList", embeddedList, PropertyType.EMBEDDEDLIST);
+    entity.newEmbeddedList("embeddedList", embeddedList);
 
     var embeddedInSet = (EntityImpl) session.newEmbededEntity();
     embeddedInSet.field("name", "test2");
@@ -2039,14 +1753,14 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     embeddedInSet2.field("name", "test5");
     embeddedInSet2.field("surname", "something6");
 
-    Set<EntityImpl> embeddedSet = new HashSet<EntityImpl>();
+    Set<EntityImpl> embeddedSet = new HashSet<>();
     embeddedSet.add(embeddedInSet);
     embeddedSet.add(embeddedInSet2);
     embeddedSet.add((EntityImpl) session.newEmbededEntity());
-    document.newEmbeddedSet("embeddedSet").addAll(embeddedSet);
+    entity.newEmbeddedSet("embeddedSet").addAll(embeddedSet);
 
     var serializerDelta = DocumentSerializerDelta.instance();
-    var res = serializerDelta.serialize(session, document);
+    var res = serializerDelta.serialize(session, (EntityImpl) entity);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
 

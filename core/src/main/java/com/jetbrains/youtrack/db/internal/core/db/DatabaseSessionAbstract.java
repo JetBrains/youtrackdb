@@ -155,7 +155,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   private boolean prefetchRecords;
 
-  protected Map<String, QueryDatabaseState> activeQueries = new ConcurrentHashMap<>();
+  protected ConcurrentHashMap<String, QueryDatabaseState> activeQueries = new ConcurrentHashMap<>();
   protected LinkedList<QueryDatabaseState> queryState = new LinkedList<>();
   private Map<UUID, BonsaiCollectionPointer> collectionsChanges;
 
@@ -533,11 +533,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   public RID refreshRid(@Nonnull RID rid) {
     if (rid.isPersistent()) {
       return rid;
-    }
-
-    if (!currentTx.isActive()) {
-      throw new TransactionException(
-          "Temporary rids can not be processed because transaction is not active");
     }
 
     var record = currentTx.getRecordEntry(rid);
@@ -1197,11 +1192,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   public EntityImpl newInternalInstance() {
     assert assertIfNotActive();
 
-    if (!currentTx.isActive()) {
-      throw new DatabaseException(getDatabaseName(),
-          "New instance can be created only if transaction is active");
-    }
-
     var clusterId = getClusterIdByName(MetadataDefault.CLUSTER_INTERNAL_NAME);
     var rid = new ChangeableRecordId();
     rid.setClusterId(clusterId);
@@ -1217,11 +1207,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   public Blob newBlob(byte[] bytes) {
     assert assertIfNotActive();
 
-    if (!currentTx.isActive()) {
-      throw new DatabaseException(getDatabaseName(),
-          "New instance can be created only if transaction is active");
-    }
-
     var blob = new RecordBytes(this, bytes);
     assignAndCheckCluster(blob, null);
 
@@ -1234,11 +1219,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   @Override
   public Blob newBlob() {
     assert assertIfNotActive();
-
-    if (!currentTx.isActive()) {
-      throw new DatabaseException(getDatabaseName(),
-          "New instance can be created only if transaction is active");
-    }
 
     var blob = new RecordBytes(this);
     assignAndCheckCluster(blob, null);
@@ -1258,16 +1238,11 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   @Override
   public EntityImpl newInstance(final String className) {
     assert assertIfNotActive();
-    if (!currentTx.isActive()) {
-      throw new DatabaseException(getDatabaseName(),
-          "New instance can be created only if transaction is active");
-    }
 
     var entity = new EntityImpl(this, className);
     assignAndCheckCluster(entity, null);
 
-    var tx = (FrontendTransactionOptimistic) currentTx;
-    tx.addRecordOperation(entity, RecordOperation.CREATED, null);
+    currentTx.addRecordOperation(entity, RecordOperation.CREATED, null);
 
     return entity;
   }
@@ -1329,28 +1304,18 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   public Vertex newVertex(final String className) {
     assert assertIfNotActive();
 
-    if (!currentTx.isActive()) {
-      throw new DatabaseException(getDatabaseName(),
-          "New instance can be created only if transaction is active");
-    }
-
     checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, className);
     var vertex = new VertexEntityImpl(this, className);
     assignAndCheckCluster(vertex, null);
 
-    var tx = (FrontendTransactionOptimistic) currentTx;
-    tx.addRecordOperation(vertex, RecordOperation.CREATED, null);
+    currentTx.addRecordOperation(vertex, RecordOperation.CREATED, null);
 
     return vertex;
   }
 
   private StatefulEdgeImpl newStatefulEdgeInternal(final String className) {
-    if (!currentTx.isActive()) {
-      throw new DatabaseException(getDatabaseName(),
-          "New instance can be created only if transaction is active");
-    }
-
     checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, className);
+
     return new StatefulEdgeImpl(newInstance(className), this);
   }
 
@@ -2376,12 +2341,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     assert assertIfNotActive();
 
     var transaction = getTransaction();
-
-    if (transaction.isActive()) {
-      return transaction.amountOfNestedTxs();
-    }
-
-    return 0;
+    return transaction.amountOfNestedTxs();
   }
 
   @Override
@@ -2402,6 +2362,69 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
+  public List<Byte> newEmbeddedList(byte[] source) {
+    var trackedList = new TrackedList<Byte>(source.length);
+    for (var b : source) {
+      trackedList.add(b);
+    }
+    return trackedList;
+  }
+
+  @Override
+  public List<Short> newEmbeddedList(short[] source) {
+    var trackedList = new TrackedList<Short>(source.length);
+    for (var s : source) {
+      trackedList.add(s);
+    }
+    return trackedList;
+  }
+
+  @Override
+  public List<Integer> newEmbeddedList(int[] source) {
+    var trackedList = new TrackedList<Integer>(source.length);
+    for (var i : source) {
+      trackedList.add(i);
+    }
+    return trackedList;
+  }
+
+  @Override
+  public List<Long> newEmbeddedList(long[] source) {
+    var trackedList = new TrackedList<Long>(source.length);
+    for (var l : source) {
+      trackedList.add(l);
+    }
+    return trackedList;
+  }
+
+  @Override
+  public List<Float> newEmbeddedList(float[] source) {
+    var trackedList = new TrackedList<Float>(source.length);
+    for (var f : source) {
+      trackedList.add(f);
+    }
+    return trackedList;
+  }
+
+  @Override
+  public List<Double> newEmbeddedList(double[] source) {
+    var trackedList = new TrackedList<Double>(source.length);
+    for (var d : source) {
+      trackedList.add(d);
+    }
+    return trackedList;
+  }
+
+  @Override
+  public List<Boolean> newEmbeddedList(boolean[] source) {
+    var trackedList = new TrackedList<Boolean>(source.length);
+    for (var b : source) {
+      trackedList.add(b);
+    }
+    return trackedList;
+  }
+
+  @Override
   public List<Identifiable> newLinkList() {
     return new LinkList(this);
   }
@@ -2409,6 +2432,13 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   @Override
   public List<Identifiable> newLinkList(int size) {
     return new LinkList(size, this);
+  }
+
+  @Override
+  public List<Identifiable> newLinkList(List<Identifiable> source) {
+    var list = new LinkList(source.size(), this);
+    list.addAll(source);
+    return list;
   }
 
   @Override
@@ -2439,6 +2469,13 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
+  public Set<Identifiable> newLinkSet(Set<Identifiable> source) {
+    var linkSet = new LinkSet(source.size(), this);
+    linkSet.addAll(source);
+    return linkSet;
+  }
+
+  @Override
   public <V> Map<String, V> newEmbeddedMap() {
     return new TrackedMap<>();
   }
@@ -2463,5 +2500,12 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   @Override
   public Map<String, Identifiable> newLinkMap(int size) {
     return new LinkMap(size, this);
+  }
+
+  @Override
+  public Map<String, Identifiable> newLinkMap(Map<String, Identifiable> source) {
+    var linkMap = new LinkMap(source.size(), this);
+    linkMap.putAll(source);
+    return linkMap;
   }
 }

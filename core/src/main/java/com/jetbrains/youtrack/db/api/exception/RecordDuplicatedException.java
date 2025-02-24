@@ -62,25 +62,7 @@ public class RecordDuplicatedException extends CoreException implements HighLeve
   }
 
   @Override
-  public boolean equals(final Object obj) {
-    if (obj == null || !obj.getClass().equals(getClass())) {
-      return false;
-    }
-
-    if (!indexName.equals(((RecordDuplicatedException) obj).indexName)) {
-      return false;
-    }
-
-    return rid.equals(((RecordDuplicatedException) obj).rid);
-  }
-
-  @Override
-  public int hashCode() {
-    return rid.hashCode();
-  }
-
-  @Override
-  public String toString() {
-    return super.toString() + " INDEX=" + indexName + " RID=" + rid;
+  public String getMessage() {
+    return super.getMessage() + " INDEX=" + indexName + " RID=" + rid;
   }
 }

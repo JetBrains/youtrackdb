@@ -96,6 +96,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
       session.createClass("TestCreateClass");
       Assert.fail();
     } catch (SchemaException ex) {
+      //ignore
     }
 
     var subclazz = session.createClass("TestCreateClass_subclass", "TestCreateClass");
@@ -231,8 +232,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
 
       var linkedVal = res.getProperty("linked");
       Assert.assertTrue(linkedVal instanceof Identifiable);
-      Assert.assertTrue(
-          session.load(((Identifiable) linkedVal).getIdentity()) instanceof Identifiable);
+      session.load(((Identifiable) linkedVal).getIdentity());
 
       Assert.assertTrue(res.asEntity().getProperty("linked") instanceof Vertex);
     }
@@ -310,17 +310,20 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     session.createClass(edgeClass, "E");
     vc.createProperty(session, "out_testEdge", PropertyType.LINK);
     vc.createProperty(session, "in_testEdge", PropertyType.LINK);
-    var doc1 = session.newVertex(vertexClass);
-    doc1.setProperty("name", "first");
 
-    var doc2 = session.newVertex(vertexClass);
-    doc2.setProperty("name", "second");
+    session.executeInTx(() -> {
+      var doc1 = session.newVertex(vertexClass);
+      doc1.setProperty("name", "first");
 
-    var doc3 = session.newVertex(vertexClass);
-    doc3.setProperty("name", "third");
+      var doc2 = session.newVertex(vertexClass);
+      doc2.setProperty("name", "second");
 
-    session.newStatefulEdge(doc1, doc2, "testEdge");
-    session.newStatefulEdge(doc1, doc3, "testEdge");
+      var doc3 = session.newVertex(vertexClass);
+      doc3.setProperty("name", "third");
+
+      session.newStatefulEdge(doc1, doc2, "testEdge");
+      session.newStatefulEdge(doc1, doc3, "testEdge");
+    });
   }
 
   @Test

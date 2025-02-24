@@ -225,13 +225,13 @@ public abstract class DBSequence {
     entityRid = entity.getIdentity();
   }
 
-  protected DBSequence(DatabaseSessionInternal db, CreateParams params, @Nonnull String name) {
+  protected DBSequence(DatabaseSessionInternal session, CreateParams params, @Nonnull String name) {
     Objects.requireNonNull(name);
 
     entityRid =
-        db.computeInTx(
+        session.computeInTx(
             () -> {
-              var entity = new EntityImpl(db, CLASS_NAME);
+              var entity = session.newInstance(CLASS_NAME);
 
               CreateParams currentParams;
               if (params == null) {

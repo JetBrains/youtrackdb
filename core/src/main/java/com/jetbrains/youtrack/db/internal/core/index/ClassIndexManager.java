@@ -30,7 +30,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableCl
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -83,7 +82,15 @@ public class ClassIndexManager {
 
     final Collection<Index> indexes = cls.getRawIndexes();
     if (!indexes.isEmpty()) {
-      final Set<String> dirtyFields = new HashSet<>(Arrays.asList(entity.getDirtyProperties()));
+      final Set<String> dirtyFields;
+      var dirtyProperties = entity.getDirtyProperties();
+
+      if (dirtyProperties instanceof Set<String> dirtyFieldsSet) {
+        dirtyFields = dirtyFieldsSet;
+      } else {
+        dirtyFields = new HashSet<>(dirtyProperties);
+      }
+
       if (!dirtyFields.isEmpty()) {
         for (final var index : indexes) {
           processIndexUpdate(database, entity, dirtyFields, index);
@@ -447,7 +454,14 @@ public class ClassIndexManager {
     final Collection<Index> indexes = new ArrayList<>(cls.getRawIndexes());
 
     if (!indexes.isEmpty()) {
-      final Set<String> dirtyFields = new HashSet<>(Arrays.asList(entity.getDirtyProperties()));
+      final Set<String> dirtyFields;
+      var dirtyProperties = entity.getDirtyProperties();
+
+      if (dirtyProperties instanceof Set<String> dirtyFieldsSet) {
+        dirtyFields = dirtyFieldsSet;
+      } else {
+        dirtyFields = new HashSet<>(dirtyProperties);
+      }
 
       if (!dirtyFields.isEmpty()) {
         // REMOVE INDEX OF ENTRIES FOR THE OLD VALUES

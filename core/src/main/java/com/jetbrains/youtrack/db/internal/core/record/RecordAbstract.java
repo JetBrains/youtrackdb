@@ -153,40 +153,41 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   }
 
   public void setDirty() {
-    dirty++;
-    if (dirty == 1 && status != STATUS.UNMARSHALLING) {
-      checkForBinding();
-      registerInTx();
-      source = null;
-    }
+    assert session != null && session.assertIfNotActive() : createNotBoundToSessionMessage();
+    if (status != STATUS.UNMARSHALLING) {
+      dirty++;
 
-    contentChanged = true;
+      if (dirty == 1) {
+        registerInTx();
+
+        source = null;
+      }
+
+      contentChanged = true;
+    } else {
+      assert dirty == 0;
+    }
   }
 
   @Override
   public void setDirtyNoChanged() {
-    if (dirty == 0 && status != STATUS.UNMARSHALLING) {
-      checkForBinding();
-      registerInTx();
+    if (status != STATUS.UNMARSHALLING) {
+      if (dirty == 0) {
+        checkForBinding();
+        registerInTx();
 
-      source = null;
+        source = null;
+      }
+
+      dirty++;
+    } else {
+      assert dirty == 0;
     }
-
-    dirty++;
   }
 
   private void registerInTx() {
     if (recordId.isPersistent()) {
-      if (session == null) {
-        throw new DatabaseException(createNotBoundToSessionMessage());
-      }
-
       var tx = session.getTransaction();
-      if (!tx.isActive()) {
-        throw new DatabaseException(session.getDatabaseName(),
-            "Cannot modify persisted record outside of transaction");
-      }
-
       if (!isEmbedded()) {
         assert recordId.isPersistent();
 
@@ -202,47 +203,27 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
 
   public <RET extends DBRecord> RET updateFromJSON(final String iSource, final String iOptions) {
-    status = STATUS.UNMARSHALLING;
-    try {
-      RecordSerializerJackson.fromString(getSession(),
-          iSource, this);
-      // nothing change
-      return (RET) this;
-    } finally {
-      status = STATUS.LOADED;
-    }
+    RecordSerializerJackson.fromString(getSession(),
+        iSource, this);
+    // nothing change
+    return (RET) this;
   }
 
   public void updateFromJSON(final @Nonnull String iSource) {
-    status = STATUS.UNMARSHALLING;
-    try {
-      RecordSerializerJackson.fromString(getSession(), iSource, this);
-    } finally {
-      status = STATUS.LOADED;
-    }
+    RecordSerializerJackson.fromString(getSession(), iSource, this);
   }
 
   // Add New API to load record if rid exist
   public final <RET extends DBRecord> RET updateFromJSON(final String iSource, boolean needReload) {
-    status = STATUS.UNMARSHALLING;
-    try {
-      return (RET) RecordSerializerJackson.fromString(getSession(), iSource, this);
-    } finally {
-      status = STATUS.LOADED;
-    }
+    return (RET) RecordSerializerJackson.fromString(getSession(), iSource, this);
   }
 
   public final <RET extends DBRecord> RET updateFromJSON(final InputStream iContentResult)
       throws IOException {
-    status = STATUS.UNMARSHALLING;
-    try {
-      final var out = new ByteArrayOutputStream();
-      IOUtils.copyStream(iContentResult, out);
-      RecordSerializerJackson.fromString(getSession(), out.toString(), this);
-      return (RET) this;
-    } finally {
-      status = STATUS.LOADED;
-    }
+    final var out = new ByteArrayOutputStream();
+    IOUtils.copyStream(iContentResult, out);
+    RecordSerializerJackson.fromString(getSession(), out.toString(), this);
+    return (RET) this;
   }
 
   public @Nonnull String toJSON() {
@@ -457,7 +438,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   }
 
 
-  protected void unsetDirty() {
+  public void unsetDirty() {
     contentChanged = false;
     dirty = 0;
   }

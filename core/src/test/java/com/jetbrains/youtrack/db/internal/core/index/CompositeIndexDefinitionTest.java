@@ -652,10 +652,11 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
 
   @Test(expected = BaseException.class)
   public void testDocumentToIndexCollectionValueTwoCollections() {
+    session.begin();
     final var document = (EntityImpl) session.newEntity();
 
-    document.field("fOne", List.of(12));
-    document.field("fTwo", Arrays.asList(1, 2));
+    document.newEmbeddedList("fOne").add(12);
+    document.newEmbeddedList("fTwo").addAll(Arrays.asList(1, 2));
 
     final var compositeIndexDefinition =
         new CompositeIndexDefinition("testCollectionClass");
@@ -665,16 +666,19 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyListIndexDefinition("testCollectionClass", "fTwo", PropertyType.INTEGER));
     compositeIndexDefinition.getDocumentValueToIndex(session, document);
+    session.rollback();
   }
 
   @Test(expected = DatabaseException.class)
   public void testDocumentToIndexWrongField() {
+    session.begin();
     final var document = (EntityImpl) session.newEntity();
 
-    document.field("fOne", "1t2");
-    document.field("fTwo", "test");
+    document.setString("fOne", "1t2");
+    document.setString("fTwo", "test");
 
     compositeIndex.getDocumentValueToIndex(session, document);
+    session.rollback();
   }
 
   @Test

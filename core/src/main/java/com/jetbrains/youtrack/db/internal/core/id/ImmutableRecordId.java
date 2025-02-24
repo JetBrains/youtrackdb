@@ -43,11 +43,6 @@ public class ImmutableRecordId extends RecordId {
   }
 
   @Override
-  public void copyFrom(final RID iSource) {
-    throw new UnsupportedOperationException("copyFrom");
-  }
-
-  @Override
   public RecordId fromStream(byte[] iBuffer) {
     throw new UnsupportedOperationException("fromStream");
   }

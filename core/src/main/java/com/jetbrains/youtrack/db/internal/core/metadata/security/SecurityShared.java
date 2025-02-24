@@ -86,7 +86,7 @@ public class SecurityShared implements SecurityInternal {
   // used to avoid updating the above while the security schema is being created
   protected boolean skipRoleHasPredicateSecurityForClassUpdate = false;
 
-  protected Map<String, Map<String, SQLBooleanExpression>> securityPredicateCache =
+  protected ConcurrentHashMap<String, Map<String, SQLBooleanExpression>> securityPredicateCache =
       new ConcurrentHashMap<>();
 
   /**
@@ -251,8 +251,7 @@ public class SecurityShared implements SecurityInternal {
     final var currentUser = session.geCurrentUser();
     if (currentUser != null) {
       // CHECK IF CURRENT USER IS ENLISTED
-      if (iAllowAll == null
-          || (iAllowAll != null && !iAllowAll.contains(currentUser.getIdentity()))) {
+      if (iAllowAll == null || !iAllowAll.contains(currentUser.getIdentity())) {
         // CHECK AGAINST SPECIFIC _ALLOW OPERATION
         if (iAllowOperation != null && iAllowOperation.contains(currentUser.getIdentity())) {
           return true;
@@ -727,11 +726,10 @@ public class SecurityShared implements SecurityInternal {
     return adminUser;
   }
 
-  private Role createDefaultWriterRole(final DatabaseSessionInternal session) {
+  private void createDefaultWriterRole(final DatabaseSessionInternal session) {
     final var writerRole =
         createRole(session, DEFAULT_WRITER_ROLE_NAME);
     sedDefaultWriterPermissions(session, writerRole);
-    return writerRole;
   }
 
   private void sedDefaultWriterPermissions(final DatabaseSessionInternal session,
@@ -1675,7 +1673,8 @@ public class SecurityShared implements SecurityInternal {
     return true;
   }
 
-  private ResultInternal calculateOriginalValue(DBRecord record, DatabaseSessionInternal db) {
+  private static ResultInternal calculateOriginalValue(DBRecord record,
+      DatabaseSessionInternal db) {
     return calculateBefore(record.getRecord(db), db);
   }
 
@@ -1794,11 +1793,8 @@ public class SecurityShared implements SecurityInternal {
   protected void putPredicateInCache(DatabaseSessionInternal session, String roleName, String key,
       SQLBooleanExpression predicate) {
     if (predicate.isCacheable(session)) {
-      var roleMap = this.securityPredicateCache.get(roleName);
-      if (roleMap == null) {
-        roleMap = new ConcurrentHashMap<>();
-        this.securityPredicateCache.put(roleName, roleMap);
-      }
+      var roleMap = this.securityPredicateCache.computeIfAbsent(roleName,
+          k -> new ConcurrentHashMap<>());
 
       roleMap.put(key.toLowerCase(Locale.ENGLISH), predicate);
     }

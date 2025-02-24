@@ -187,4 +187,10 @@ public interface FrontendTransaction {
   }
 
   long getId();
+
+
+  void addRecordOperation(RecordAbstract record, byte status, String clusterName);
+
+  default void preProcessRecordsAndExecuteCallCallbacks() {
+  }
 }

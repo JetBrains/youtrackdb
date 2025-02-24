@@ -35,8 +35,9 @@ public class FrontendTransactionOptimisticClient extends FrontendTransactionOpti
 
   public void replaceContent(List<RecordOperation38Response> operations) {
 
-    Map<RecordId, RecordOperation> oldEntries = this.recordOperations;
-    this.recordOperations = new LinkedHashMap<>();
+    Map<RecordId, RecordOperation> oldEntries = new LinkedHashMap<>(this.recordOperations);
+    this.recordOperations.clear();
+
     var createCount = -2; // Start from -2 because temporary rids start from -2
     var db = getDatabaseSession();
     for (var operation : operations) {

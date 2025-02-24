@@ -5,6 +5,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import java.math.BigDecimal;
@@ -299,7 +300,7 @@ public class SchemaPropertyTypeConvertTest extends DbTestBase {
     assertEquals(result, true);
   }
 
-  @Test(expected = DatabaseException.class)
+  @Test(expected = ValidationException.class)
   public void testToBooleanFromInvalidString() {
     PropertyType.convert(session, "invalid", Boolean.class);
   }

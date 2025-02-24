@@ -55,7 +55,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
@@ -67,11 +66,10 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
 
   private static final AtomicLong txSerial = new AtomicLong();
 
-  // order of updates is critical during synchronization of remote transactions
-  protected LinkedHashMap<RecordId, RecordId> generatedOriginalRecordIdMap = new LinkedHashMap<>();
-  protected LinkedHashMap<RecordId, RecordOperation> recordOperations = new LinkedHashMap<>();
+  protected final HashMap<RecordId, RecordId> generatedOriginalRecordIdMap = new HashMap<>();
+  protected final HashMap<RecordId, RecordOperation> recordOperations = new HashMap<>();
 
-  protected LinkedHashMap<String, FrontendTransactionIndexChanges> indexEntries = new LinkedHashMap<>();
+  protected HashMap<String, FrontendTransactionIndexChanges> indexEntries = new HashMap<>();
   protected HashMap<RID, List<FrontendTransactionRecordIndexOperation>> recordIndexOperations =
       new HashMap<>();
 
@@ -661,7 +659,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     status = TXSTATUS.COMPLETED;
   }
 
-  private void preProcessRecordsAndExecuteCallCallbacks() {
+  public void preProcessRecordsAndExecuteCallCallbacks() {
     var serializer = session.getSerializer();
 
     while (changed) {

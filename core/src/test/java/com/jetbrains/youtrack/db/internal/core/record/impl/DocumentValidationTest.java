@@ -11,14 +11,9 @@ import com.jetbrains.youtrack.db.internal.BaseMemoryInternalDatabase;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
-import java.util.Collection;
 import java.util.Date;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.Assert;
@@ -72,76 +67,77 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     clazz.createProperty(session, "linkMap", PropertyType.LINKMAP).setMandatory(session, true);
 
     session.begin();
-    var d = (EntityImpl) session.newEntity(clazz);
-    d.field("int", 10);
-    d.field("long", 10);
-    d.field("float", 10);
-    d.field("boolean", 10);
-    d.field("binary", new byte[]{});
-    d.field("byte", 10);
-    d.field("date", new Date());
-    d.field("datetime", new Date());
-    d.field("decimal", 10);
-    d.field("double", 10);
-    d.field("short", 10);
-    d.field("string", "yeah");
-    d.field("link", id);
-    d.field("linkList", new ArrayList<RecordId>());
-    d.field("linkSet", new HashSet<RecordId>());
-    d.field("linkMap", new HashMap<String, RecordId>());
+    var entity = (EntityImpl) session.newEntity(clazz);
+    entity.setInt("int", 10);
+    entity.setLong("long", 10L);
+    entity.setFloat("float", 10f);
+    entity.setBoolean("boolean", true);
+    entity.setBinary("binary", new byte[]{});
+    entity.setByte("byte", (byte) 10);
+    entity.setDate("date", new Date());
+    entity.setDateTime("datetime", new Date());
+    entity.setDecimal("decimal", BigDecimal.valueOf(10));
+    entity.setDouble("double", 10d);
+    entity.setShort("short", (short) 10);
+    entity.setString("string", "yeah");
+    entity.setLink("link", id);
+    entity.newLinkList("linkList");
+    entity.newLinkSet("linkSet");
+    entity.newLinkMap("linkMap");
 
-    d.field("embeddedListNoClass", new ArrayList<RecordId>());
-    d.field("embeddedSetNoClass", new HashSet<RecordId>());
-    d.field("embeddedMapNoClass", new HashMap<String, RecordId>());
+    entity.newEmbeddedList("embeddedListNoClass");
+    entity.newEmbeddedSet("embeddedSetNoClass");
+    entity.newEmbeddedMap("embeddedMapNoClass");
 
-    var embedded = (EntityImpl) session.newEntity("EmbeddedValidation");
-    embedded.field("int", 20);
-    embedded.field("long", 20);
-    d.field("embedded", embedded);
+    var embedded = session.newEmbededEntity("EmbeddedValidation");
+    embedded.setInt("int", 20);
+    embedded.setLong("long", 20L);
+    entity.setEmbeddedEntity("embedded", embedded);
 
-    var embeddedInList = (EntityImpl) session.newEmbededEntity("EmbeddedValidation");
-    embeddedInList.field("int", 30);
-    embeddedInList.field("long", 30);
-    final var embeddedList = new ArrayList<EntityImpl>();
+    var embeddedInList = session.newEmbededEntity("EmbeddedValidation");
+    embeddedInList.setInt("int", 30);
+    embeddedInList.setLong("long", 30L);
+
+    final var embeddedList = session.newEmbeddedList();
     embeddedList.add(embeddedInList);
-    d.field("embeddedList", embeddedList);
+    entity.setEmbeddedList("embeddedList", embeddedList);
 
-    var embeddedInSet = (EntityImpl) session.newEmbededEntity("EmbeddedValidation");
-    embeddedInSet.field("int", 30);
-    embeddedInSet.field("long", 30);
-    final Set<EntityImpl> embeddedSet = new HashSet<>();
+    var embeddedInSet = session.newEmbededEntity("EmbeddedValidation");
+    embeddedInSet.setInt("int", 30);
+    embeddedInSet.setLong("long", 30L);
+    var embeddedSet = session.newEmbeddedSet();
     embeddedSet.add(embeddedInSet);
-    d.field("embeddedSet", embeddedSet);
+    entity.setEmbeddedSet("embeddedSet", embeddedSet);
 
-    var embeddedInMap = (EntityImpl) session.newEmbededEntity("EmbeddedValidation");
-    embeddedInMap.field("int", 30);
-    embeddedInMap.field("long", 30);
-    final Map<String, EntityImpl> embeddedMap = new HashMap<>();
+    var embeddedInMap = session.newEmbededEntity("EmbeddedValidation");
+    embeddedInMap.setInt("int", 30);
+    embeddedInMap.setLong("long", 30L);
+    final Map<String, Entity> embeddedMap = session.newEmbeddedMap();
     embeddedMap.put("testEmbedded", embeddedInMap);
-    d.field("embeddedMap", embeddedMap);
+    entity.setEmbeddedMap("embeddedMap", embeddedMap);
 
-    d.validate();
+    entity.validate();
 
-    checkRequireField(d, "int");
-    checkRequireField(d, "long");
-    checkRequireField(d, "float");
-    checkRequireField(d, "boolean");
-    checkRequireField(d, "binary");
-    checkRequireField(d, "byte");
-    checkRequireField(d, "date");
-    checkRequireField(d, "datetime");
-    checkRequireField(d, "decimal");
-    checkRequireField(d, "double");
-    checkRequireField(d, "short");
-    checkRequireField(d, "string");
-    checkRequireField(d, "link");
-    checkRequireField(d, "embedded");
-    checkRequireField(d, "embeddedList");
-    checkRequireField(d, "embeddedSet");
-    checkRequireField(d, "embeddedMap");
-    checkRequireField(d, "linkList");
-    checkRequireField(d, "linkSet");
-    checkRequireField(d, "linkMap");
+    checkRequireField(entity, "int");
+    checkRequireField(entity, "long");
+    checkRequireField(entity, "float");
+    checkRequireField(entity, "boolean");
+    checkRequireField(entity, "binary");
+    checkRequireField(entity, "byte");
+    checkRequireField(entity, "date");
+    checkRequireField(entity, "datetime");
+    checkRequireField(entity, "decimal");
+    checkRequireField(entity, "double");
+    checkRequireField(entity, "short");
+    checkRequireField(entity, "string");
+    checkRequireField(entity, "link");
+    checkRequireField(entity, "embedded");
+    checkRequireField(entity, "embeddedList");
+    checkRequireField(entity, "embeddedSet");
+    checkRequireField(entity, "embeddedMap");
+    checkRequireField(entity, "linkList");
+    checkRequireField(entity, "linkSet");
+    checkRequireField(entity, "linkMap");
     session.rollback();
   }
 
@@ -193,23 +189,23 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
         .setMandatory(session, true);
 
     session.begin();
-    var d = (EntityImpl) session.newEntity(clazz);
-    d.field("int", 30);
-    d.field("long", 30);
-    final Set<EntityImpl> embeddedSet = new HashSet<>();
-    d.field("embeddedSet", embeddedSet);
+    var entity = session.newEntity(clazz);
+    entity.setInt("int", 30);
+    entity.setLong("long", 30L);
+    final Set<Entity> embeddedSet = session.newEmbeddedSet();
+    entity.setEmbeddedSet("embeddedSet", embeddedSet);
 
-    var embeddedInSet = (EntityImpl) session.newEmbededEntity("EmbeddedValidation");
-    embeddedInSet.field("int", 30);
-    embeddedInSet.field("long", 30);
+    var embeddedInSet = session.newEmbededEntity("EmbeddedValidation");
+    embeddedInSet.setInt("int", 30);
+    embeddedInSet.setLong("long", 30L);
     embeddedSet.add(embeddedInSet);
 
-    var embeddedInSet2 = (EntityImpl) session.newEmbededEntity("EmbeddedValidation");
-    embeddedInSet2.field("int", 30);
+    var embeddedInSet2 = session.newEmbededEntity("EmbeddedValidation");
+    embeddedInSet2.setInt("int", 30);
     embeddedSet.add(embeddedInSet2);
 
     try {
-      d.validate();
+      ((EntityImpl) entity).validate();
       fail("Validation doesn't throw exception");
     } catch (ValidationException e) {
       session.rollback();
@@ -230,23 +226,22 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
         .setMandatory(session, true);
 
     session.begin();
-    var d = (EntityImpl) session.newEntity(clazz);
-    d.field("int", 30);
-    d.field("long", 30);
-    final var embeddedList = new ArrayList<EntityImpl>();
-    d.field("embeddedList", embeddedList);
+    var entity = session.newEntity(clazz);
+    entity.setInt("int", 30);
+    entity.setLong("long", 30L);
+    final var embeddedList = entity.newEmbeddedList("embeddedList");
 
-    var embeddedInList = (EntityImpl) session.newEmbededEntity("EmbeddedValidation");
-    embeddedInList.field("int", 30);
-    embeddedInList.field("long", 30);
+    var embeddedInList = session.newEmbededEntity("EmbeddedValidation");
+    embeddedInList.setInt("int", 30);
+    embeddedInList.setLong("long", 30L);
     embeddedList.add(embeddedInList);
 
-    var embeddedInList2 = (EntityImpl) session.newEmbededEntity("EmbeddedValidation");
-    embeddedInList2.field("int", 30);
+    var embeddedInList2 = session.newEmbededEntity("EmbeddedValidation");
+    embeddedInList2.setInt("int", 30);
     embeddedList.add(embeddedInList2);
 
     try {
-      d.validate();
+      ((EntityImpl) entity).validate();
       fail("Validation doesn't throw exception");
     } catch (ValidationException e) {
       session.rollback();
@@ -267,23 +262,22 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
         .setMandatory(session, true);
 
     session.begin();
-    var d = (EntityImpl) session.newEmbededEntity(clazz);
-    d.field("int", 30);
-    d.field("long", 30);
-    final Map<String, EntityImpl> embeddedMap = new HashMap<>();
-    d.field("embeddedMap", embeddedMap);
+    var entity = session.newEmbededEntity(clazz);
+    entity.setInt("int", 30);
+    entity.setLong("long", 30L);
+    var embeddedMap = entity.newEmbeddedMap("embeddedMap");
 
-    var embeddedInMap = (EntityImpl) session.newEmbededEntity("EmbeddedValidation");
-    embeddedInMap.field("int", 30);
-    embeddedInMap.field("long", 30);
+    var embeddedInMap = session.newEmbededEntity("EmbeddedValidation");
+    embeddedInMap.setInt("int", 30);
+    embeddedInMap.setLong("long", 30L);
     embeddedMap.put("1", embeddedInMap);
 
-    var embeddedInMap2 = (EntityImpl) session.newEmbededEntity("EmbeddedValidation");
-    embeddedInMap2.field("int", 30);
+    var embeddedInMap2 = session.newEmbededEntity("EmbeddedValidation");
+    embeddedInMap2.setInt("int", 30);
     embeddedMap.put("2", embeddedInMap2);
 
     try {
-      d.validate();
+      ((EntityImpl) entity).validate();
       fail("Validation doesn't throw exception");
     } catch (ValidationException e) {
       session.rollback();
@@ -291,15 +285,16 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     }
   }
 
-  private static void checkRequireField(EntityImpl toCheck, String fieldName) {
+  private static void checkRequireField(Entity toCheck, String fieldName) {
     try {
-      var session = toCheck.getSession();
+      var session = toCheck.getBoundedToSession();
       var newD = (EntityImpl) session.newEntity(toCheck.getSchemaClass());
-      newD.copyPropertiesFromOtherEntity(toCheck);
+      newD.copyPropertiesFromOtherEntity((EntityImpl) toCheck);
       newD.removeField(fieldName);
       newD.validate();
       fail();
     } catch (ValidationException v) {
+      //ignore
     }
   }
 
@@ -309,7 +304,6 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     clazz.createProperty(session, "int", PropertyType.INTEGER).setMax(session, "11");
     clazz.createProperty(session, "long", PropertyType.LONG).setMax(session, "11");
     clazz.createProperty(session, "float", PropertyType.FLOAT).setMax(session, "11");
-    // clazz.createProperty("boolean", PropertyType.BOOLEAN) no meaning
     clazz.createProperty(session, "binary", PropertyType.BINARY).setMax(session, "11");
     clazz.createProperty(session, "byte", PropertyType.BYTE).setMax(session, "11");
     var cal = Calendar.getInstance();
@@ -340,81 +334,114 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     clazz.createProperty(session, "linkBag", PropertyType.LINKBAG).setMax(session, "2");
 
     session.begin();
-    var d = (EntityImpl) session.newEntity(clazz);
-    d.field("int", 11);
-    d.field("long", 11);
-    d.field("float", 11);
-    d.field("binary", new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11});
-    d.field("byte", 11);
-    d.field("date", new Date());
-    d.field("datetime", new Date());
-    d.field("decimal", 10);
-    d.field("double", 10);
-    d.field("short", 10);
-    d.field("string", "yeah");
-    d.field("embeddedList", Arrays.asList("a", "b"));
-    d.field("embeddedSet", new HashSet<>(Arrays.asList("a", "b")));
-    var cont = new HashMap<String, String>();
+    var entity = session.newEntity(clazz);
+    entity.setInt("int", 11);
+    entity.setLong("long", 11L);
+    entity.setFloat("float", 11f);
+    entity.setBinary("binary", new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11});
+    entity.setByte("byte", (byte) 11);
+    entity.setDate("date", new Date());
+    entity.setDateTime("datetime", new Date());
+    entity.setDecimal("decimal", BigDecimal.valueOf(10));
+    entity.setDouble("double", 10d);
+    entity.setShort("short", (short) 10);
+    entity.setString("string", "yeah");
+
+    var embeddedList = session.newEmbeddedList();
+    embeddedList.add("a");
+    embeddedList.add("b");
+
+    entity.setEmbeddedList("embeddedList", embeddedList);
+
+    var embeddedSet = session.newEmbeddedSet();
+    embeddedSet.add("a");
+    embeddedSet.add("b");
+
+    entity.setEmbeddedSet("embeddedSet", embeddedSet);
+
+    var cont = session.<String>newEmbeddedMap();
     cont.put("one", "one");
     cont.put("two", "one");
-    d.field("embeddedMap", cont);
-    d.field("linkList", Arrays.asList(new RecordId(40, 30), new RecordId(40, 34)));
-    d.field(
-        "linkSet",
-        new HashSet<>(Arrays.asList(new RecordId(40, 30), new RecordId(40, 31))));
-    var cont1 = new HashMap<String, RecordId>();
+    entity.setEmbeddedMap("embeddedMap", cont);
+
+    var links = session.newLinkList();
+    links.addAll(Arrays.asList(new RecordId(40, 30), new RecordId(40, 34)));
+    entity.setLinkList("linkList", links);
+
+    var linkSet = session.newLinkSet();
+    linkSet.addAll(Arrays.asList(new RecordId(40, 30), new RecordId(40, 34)));
+    entity.setLinkSet("linkSet", linkSet);
+
+    var cont1 = session.newLinkMap();
     cont1.put("one", new RecordId(30, 30));
     cont1.put("two", new RecordId(30, 30));
-    d.field("linkMap", cont1);
+
+    entity.setLinkMap("linkMap", cont1);
     var bag1 = new RidBag(session);
     bag1.add(new RecordId(40, 30));
     bag1.add(new RecordId(40, 33));
-    d.field("linkBag", bag1);
-    d.validate();
+    entity.setProperty("linkBag", bag1);
 
-    checkField(d, "int", 12);
-    checkField(d, "long", 12);
-    checkField(d, "float", 20);
-    checkField(d, "binary", new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13});
+    ((EntityImpl) entity).validate();
 
-    checkField(d, "byte", 20);
+    checkField(entity, "int", 12);
+    checkField(entity, "long", 12);
+    checkField(entity, "float", 20);
+    checkField(entity, "binary", new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13});
+
+    checkField(entity, "byte", 20);
     cal = Calendar.getInstance();
     cal.add(Calendar.DAY_OF_MONTH, 1);
-    checkField(d, "date", cal.getTime());
-    checkField(d, "datetime", cal.getTime());
-    checkField(d, "decimal", 20);
-    checkField(d, "double", 20);
-    checkField(d, "short", 20);
-    checkField(d, "string", "0123456789101112");
-    checkField(d, "embeddedList", Arrays.asList("a", "b", "d"));
-    checkField(d, "embeddedSet", new HashSet<>(Arrays.asList("a", "b", "d")));
-    var con1 = new HashMap<String, String>();
+    checkField(entity, "date", cal.getTime());
+    checkField(entity, "datetime", cal.getTime());
+    checkField(entity, "decimal", 20);
+    checkField(entity, "double", 20);
+    checkField(entity, "short", 20);
+    checkField(entity, "string", "0123456789101112");
+
+    var embeddedList1 = session.newEmbeddedList();
+    embeddedList1.add("a");
+    embeddedList1.add("b");
+    embeddedList1.add("d");
+
+    checkField(entity, "embeddedList", embeddedList1);
+
+    var embeddedSet1 = session.newEmbeddedSet();
+    embeddedSet1.add("a");
+    embeddedSet1.add("b");
+    embeddedSet1.add("d");
+
+    checkField(entity, "embeddedSet", embeddedSet1);
+
+    var con1 = session.newEmbeddedMap();
     con1.put("one", "one");
     con1.put("two", "one");
     con1.put("three", "one");
 
-    checkField(d, "embeddedMap", con1);
-    checkField(
-        d,
-        "linkList",
-        Arrays.asList(new RecordId(40, 30), new RecordId(40, 33), new RecordId(40, 31)));
-    checkField(
-        d,
-        "linkSet",
-        new HashSet<>(
-            Arrays.asList(new RecordId(40, 30), new RecordId(40, 33), new RecordId(40, 31))));
+    var links1 = session.newLinkList();
+    links1.addAll(Arrays.asList(new RecordId(40, 30), new RecordId(40, 33), new RecordId(40, 31)));
 
-    var cont3 = new HashMap<String, RecordId>();
+    checkField(entity, "embeddedMap", con1);
+    checkField(
+        entity,
+        "linkList",
+        links1);
+
+    var linkSet1 = session.newLinkSet();
+    linkSet1.addAll(
+        Arrays.asList(new RecordId(40, 30), new RecordId(40, 33), new RecordId(40, 31)));
+
+    var cont3 = session.newLinkMap();
     cont3.put("one", new RecordId(30, 30));
     cont3.put("two", new RecordId(30, 30));
     cont3.put("three", new RecordId(30, 30));
-    checkField(d, "linkMap", cont3);
+    checkField(entity, "linkMap", cont3);
 
     var bag2 = new RidBag(session);
     bag2.add(new RecordId(40, 30));
     bag2.add(new RecordId(40, 33));
     bag2.add(new RecordId(40, 31));
-    checkField(d, "linkBag", bag2);
+    checkField(entity, "linkBag", bag2);
     session.rollback();
   }
 
@@ -696,23 +723,41 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     checkField(entity, "link", session.newEntity(clazz));
     checkField(entity, "embedded", session.newEmbededEntity(clazz));
 
-    checkField(entity, "linkList", Arrays.asList("a", "b"));
-    checkField(entity, "linkSet", new HashSet<>(Arrays.asList("a", "b")));
+    var newLinkList = session.newEmbeddedList();
+    newLinkList.addAll(Arrays.asList("a", "b"));
+    checkField(entity, "linkList", newLinkList);
 
-    Map<String, String> map1 = new HashMap<>();
+    var newLinkSet = session.newEmbeddedSet();
+    newLinkList.addAll(Arrays.asList("a", "b"));
+    checkField(entity, "linkSet", newLinkList);
+
+    Map<String, String> map1 = session.newEmbeddedMap();
     map1.put("a", "a1");
     map1.put("b", "a2");
     checkField(entity, "linkMap", map1);
 
-    checkField(entity, "linkList", List.of((EntityImpl) session.newEntity(clazz)));
-    checkField(entity, "linkSet", new HashSet<>(List.of((EntityImpl) session.newEntity(clazz))));
-    checkField(entity, "embeddedList", List.of((EntityImpl) session.newEmbededEntity(clazz)));
-    checkField(entity, "embeddedSet", List.of((EntityImpl) session.newEmbededEntity(clazz)));
+    var newLinkList2 = session.newLinkList();
+    newLinkList2.add(session.newEntity(clazz));
+    checkField(entity, "linkList", newLinkList2);
+
+    var newLinkSet2 = session.newLinkSet();
+    newLinkSet2.add(session.newEntity(clazz));
+    checkField(entity, "linkSet", newLinkSet2);
+
+    var newEmbeddedList = session.newEmbeddedList();
+    newEmbeddedList.add(session.newEmbededEntity(clazz));
+    checkField(entity, "embeddedList", newEmbeddedList);
+
+    var newEmbeddedSet = session.newEmbeddedSet();
+    newEmbeddedSet.add(session.newEmbededEntity(clazz));
+
+    checkField(entity, "embeddedSet", newEmbeddedSet);
+
     var bag = new RidBag(session);
     bag.add(session.newEntity(clazz).getIdentity());
     checkField(entity, "linkBag", bag);
-    Map<String, EntityImpl> map2 = new HashMap<>();
-    map2.put("a", (EntityImpl) session.newEntity(clazz));
+    var map2 = session.newLinkMap();
+    map2.put("a", session.newEntity(clazz));
     checkField(entity, "linkMap", map2);
     session.rollback();
   }
@@ -728,25 +773,26 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     clazz.createProperty(session, "linkBag", PropertyType.LINKBAG).setLinkedClass(session, clazz1);
 
     session.begin();
-    var d = (EntityImpl) session.newEntity(clazz);
-    d.field("link", session.newEntity(clazz1));
-    d.field("embedded", session.newEmbededEntity(clazz1));
-    var list = List.of((EntityImpl) session.newEntity(clazz1));
-    d.field("linkList", list);
-    Set<EntityImpl> set = new HashSet<>(list);
-    d.field("linkSet", set);
-    d.field("linkBag", new RidBag(session));
+    var entity = session.newEntity(clazz);
+    entity.setLink("link", session.newEntity(clazz1));
+    entity.setEmbeddedEntity("embedded", session.newEmbededEntity(clazz1));
 
-    Map<String, EntityImpl> map = new HashMap<>();
-    map.put("a", (EntityImpl) session.newEntity(clazz1));
-    d.field("linkMap", map);
+    var list = entity.newLinkList("linkList");
+    list.add(session.newEntity(clazz1));
+
+    entity.newLinkSet("linkSet");
+    ((EntityImpl) entity).setPropertyInternal("linkBag", new RidBag(session));
+
+    var map = session.newLinkMap();
+    map.put("a", session.newEntity(clazz1));
+    entity.setLinkMap("linkMap", map);
     session.commit();
 
     try {
       session.begin();
-      d = session.bindToSession(d);
-      ((Collection) d.field("linkList")).add(session.newEntity(clazz));
-      d.validate();
+      entity = session.bindToSession(entity);
+      entity.getLinkList("linkList").add(session.newEntity(clazz));
+      ((EntityImpl) entity).validate();
       fail();
     } catch (ValidationException v) {
       session.rollback();
@@ -754,9 +800,9 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
     try {
       session.begin();
-      d = session.bindToSession(d);
-      ((Collection) d.field("linkSet")).add(session.newEntity(clazz));
-      d.validate();
+      entity = session.bindToSession(entity);
+      entity.getLinkSet("linkSet").add(session.newEntity(clazz));
+      ((EntityImpl) entity).validate();
       fail();
     } catch (ValidationException v) {
       session.rollback();
@@ -764,8 +810,8 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
     try {
       session.begin();
-      d = session.bindToSession(d);
-      ((RidBag) d.field("linkBag")).add(session.newEntity(clazz).getIdentity());
+      entity = session.bindToSession(entity);
+      ((RidBag) entity.getProperty("linkBag")).add(session.newEntity(clazz).getIdentity());
       session.commit();
       fail();
     } catch (ValidationException v) {
@@ -774,10 +820,9 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
     try {
       session.begin();
-      d = session.bindToSession(d);
-      ((Map<String, EntityImpl>) d.field("linkMap")).put("a",
-          (EntityImpl) session.newEntity(clazz));
-      d.validate();
+      entity = session.bindToSession(entity);
+      entity.getLinkMap("linkMap").put("a", session.newEntity(clazz));
+      ((EntityImpl) entity).validate();
       fail();
     } catch (ValidationException v) {
       session.rollback();
@@ -793,6 +838,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
       newD.validate();
       fail();
     } catch (ValidationException v) {
+      //ignore
     }
   }
 }

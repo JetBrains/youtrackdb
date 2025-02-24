@@ -30,10 +30,14 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
+import java.util.Collection;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -150,7 +154,7 @@ public final class VertexDelegate implements VertexInternal {
   }
 
   @Override
-  public int compareTo(Identifiable o) {
+  public int compareTo(@Nonnull Identifiable o) {
     return entity.compareTo(o);
   }
 
@@ -174,6 +178,12 @@ public final class VertexDelegate implements VertexInternal {
 
     return entity.equals(((Entity) obj).getRecordSilently(entity.getSession()));
   }
+
+  @Override
+  public @Nonnull Collection<String> getPropertyNames() {
+    return VertexInternal.filterPropertyNames(getPropertyNamesInternal());
+  }
+
 
   @Override
   public int hashCode() {
@@ -247,12 +257,6 @@ public final class VertexDelegate implements VertexInternal {
     return super.toString();
   }
 
-  @Nonnull
-  @Override
-  public EntityImpl getBaseEntity() {
-    return entity;
-  }
-
   @Override
   public void updateFromMap(@Nonnull Map<String, ?> map) {
     entity.updateFromMap(map);
@@ -290,5 +294,306 @@ public final class VertexDelegate implements VertexInternal {
   @Override
   public SchemaImmutableClass getImmutableSchemaClass(@Nonnull DatabaseSessionInternal session) {
     return entity.getImmutableSchemaClass(session);
+  }
+
+  @Override
+  public Collection<String> getDirtyProperties() {
+    return VertexInternal.filterPropertyNames(entity.getDirtyProperties());
+  }
+
+  @Override
+  public <T> List<T> newEmbeddedList(@Nonnull String name, List<T> source) {
+    VertexInternal.checkPropertyName(name);
+    return entity.newEmbeddedList(name, source);
+  }
+
+  @Override
+  public <T> Set<T> newEmbeddedSet(@Nonnull String name, Set<T> source) {
+    VertexInternal.checkPropertyName(name);
+    return entity.newEmbeddedSet(name, source);
+  }
+
+  @Override
+  public <T> Map<String, T> newEmbeddedMap(@Nonnull String name, Map<String, T> source) {
+    VertexInternal.checkPropertyName(name);
+    return entity.newEmbeddedMap(name, source);
+  }
+
+  @Override
+  public List<Identifiable> newLinkList(@Nonnull String name, List<Identifiable> source) {
+    VertexInternal.checkPropertyName(name);
+    return entity.newLinkList(name, source);
+  }
+
+  @Override
+  public Set<Identifiable> newLinkSet(@Nonnull String name, Set<Identifiable> source) {
+    VertexInternal.checkPropertyName(name);
+    return entity.newLinkSet(name, source);
+  }
+
+  @Override
+  public Map<String, Identifiable> newLinkMap(@Nonnull String name,
+      Map<String, Identifiable> source) {
+    VertexInternal.checkPropertyName(name);
+    return entity.newLinkMap(name, source);
+  }
+
+  @Override
+  public <RET> RET getProperty(@Nonnull String name) {
+    VertexInternal.checkPropertyName(name);
+    return entity.getProperty(name);
+  }
+
+  @Override
+  public @Nonnull <T> List<T> getOrCreateEmbeddedList(@Nonnull String name) {
+    VertexInternal.checkPropertyName(name);
+
+    return entity.getOrCreateEmbeddedList(name);
+  }
+
+  @Nonnull
+  @Override
+  public <T> List<T> newEmbeddedList(@Nonnull String name) {
+    VertexInternal.checkPropertyName(name);
+
+    return entity.newEmbeddedList(name);
+  }
+
+  @Override
+  public <T> List<T> newEmbeddedList(@Nonnull String name, T[] source) {
+    VertexInternal.checkPropertyName(name);
+    return entity.newEmbeddedList(name, source);
+  }
+
+  @Override
+  public List<Byte> newEmbeddedList(@Nonnull String name, byte[] source) {
+    VertexInternal.checkPropertyName(name);
+    return entity.newEmbeddedList(name, source);
+  }
+
+  @Override
+  public List<Short> newEmbeddedList(@Nonnull String name, short[] source) {
+    VertexInternal.checkPropertyName(name);
+    return entity.newEmbeddedList(name, source);
+  }
+
+  @Override
+  public List<Integer> newEmbeddedList(@Nonnull String name, int[] source) {
+    VertexInternal.checkPropertyName(name);
+    return entity.newEmbeddedList(name, source);
+  }
+
+  @Override
+  public List<Long> newEmbeddedList(@Nonnull String name, long[] source) {
+    VertexInternal.checkPropertyName(name);
+    return entity.newEmbeddedList(name, source);
+  }
+
+  @Override
+  public List<Boolean> newEmbeddedList(@Nonnull String name, boolean[] source) {
+    VertexInternal.checkPropertyName(name);
+    return entity.newEmbeddedList(name, source);
+  }
+
+  @Override
+  public List<Float> newEmbeddedList(@Nonnull String name, float[] source) {
+    VertexInternal.checkPropertyName(name);
+    return entity.newEmbeddedList(name, source);
+  }
+
+  @Override
+  public List<Double> newEmbeddedList(@Nonnull String name, double[] source) {
+    VertexInternal.checkPropertyName(name);
+    return entity.newEmbeddedList(name, source);
+  }
+
+  @Override
+  public @Nonnull <T> Set<T> getOrCreateEmbeddedSet(@Nonnull String name) {
+    VertexInternal.checkPropertyName(name);
+
+    return entity.getOrCreateEmbeddedSet(name);
+  }
+
+  @Nonnull
+  @Override
+  public <T> Set<T> newEmbeddedSet(@Nonnull String name) {
+    VertexInternal.checkPropertyName(name);
+
+    return entity.newEmbeddedSet(name);
+  }
+
+  @Override
+  public @Nonnull <T> Map<String, T> getOrCreateEmbeddedMap(@Nonnull String name) {
+    VertexInternal.checkPropertyName(name);
+
+    return entity.getOrCreateEmbeddedMap(name);
+  }
+
+  @Nonnull
+  @Override
+  public <T> Map<String, T> newEmbeddedMap(@Nonnull String name) {
+    VertexInternal.checkPropertyName(name);
+
+    return entity.newEmbeddedMap(name);
+  }
+
+  @Override
+  public @Nonnull List<Identifiable> getOrCreateLinkList(@Nonnull String name) {
+    VertexInternal.checkPropertyName(name);
+
+    return entity.getOrCreateLinkList(name);
+  }
+
+  @Nonnull
+  @Override
+  public List<Identifiable> newLinkList(@Nonnull String name) {
+    VertexInternal.checkPropertyName(name);
+
+    return entity.newLinkList(name);
+  }
+
+  @Nonnull
+  @Override
+  public Set<Identifiable> getOrCreateLinkSet(@Nonnull String name) {
+    VertexInternal.checkPropertyName(name);
+
+    return entity.getOrCreateLinkSet(name);
+  }
+
+  @Nonnull
+  @Override
+  public Set<Identifiable> newLinkSet(@Nonnull String name) {
+    VertexInternal.checkPropertyName(name);
+
+    return entity.newLinkSet(name);
+  }
+
+  @Nonnull
+  @Override
+  public Map<String, Identifiable> getOrCreateLinkMap(@Nonnull String name) {
+    VertexInternal.checkPropertyName(name);
+
+    return entity.getOrCreateLinkMap(name);
+  }
+
+  @Nonnull
+  @Override
+  public Map<String, Identifiable> newLinkMap(@Nonnull String name) {
+    VertexInternal.checkPropertyName(name);
+
+    return entity.newLinkMap(name);
+  }
+
+  @Nullable
+  @Override
+  public Entity getEntity(@Nonnull String name) {
+    VertexInternal.checkPropertyName(name);
+    return entity.getEntity(name);
+  }
+
+  @Nullable
+  @Override
+  public Blob getBlob(String propertyName) {
+    VertexInternal.checkPropertyName(propertyName);
+
+    return entity.getBlob(propertyName);
+  }
+
+  @Override
+  public <RET> RET getPropertyInternal(String name, boolean lazyLoading) {
+    return entity.getPropertyInternal(name, lazyLoading);
+  }
+
+  @Override
+  public <RET> RET getPropertyInternal(String name) {
+    return entity.getPropertyInternal(name);
+  }
+
+  @Override
+  public <RET> RET getPropertyOnLoadValue(@Nonnull String name) {
+    return entity.getPropertyOnLoadValue(name);
+  }
+
+  @Nullable
+  @Override
+  public RID getLinkPropertyInternal(String name) {
+    return entity.getLinkPropertyInternal(name);
+  }
+
+  @Nullable
+  @Override
+  public RID getLink(@Nonnull String name) {
+    VertexInternal.checkPropertyName(name);
+
+    return entity.getLink(name);
+  }
+
+
+  @Override
+  public void setProperty(@Nonnull String name, @Nullable Object value) {
+    VertexInternal.checkPropertyName(name);
+
+    entity.setProperty(name, value);
+  }
+
+  @Override
+  public void setPropertyInternal(String name, Object value) {
+    entity.setPropertyInternal(name, value);
+  }
+
+  @Override
+  public boolean hasProperty(final @Nonnull String propertyName) {
+    VertexInternal.checkPropertyName(propertyName);
+
+    return entity.hasProperty(propertyName);
+  }
+
+  @Override
+  public void setProperty(@Nonnull String propertyName, Object value,
+      @Nonnull PropertyType fieldType) {
+    VertexInternal.checkPropertyName(propertyName);
+
+    entity.setProperty(propertyName, value, fieldType);
+  }
+
+  @Override
+  public void setPropertyInternal(String name, Object value, PropertyType type) {
+    entity.setPropertyInternal(name, value, type);
+  }
+
+  @Override
+  public <RET> RET removeProperty(@Nonnull String name) {
+    VertexInternal.checkPropertyName(name);
+
+    return entity.removePropertyInternal(name);
+  }
+
+  @Override
+  public <RET> RET removePropertyInternal(String name) {
+    return entity.removePropertyInternal(name);
+  }
+
+  @Override
+  public boolean isUnloaded() {
+    return entity.isUnloaded();
+  }
+
+  public boolean isNotBound(@Nonnull DatabaseSession session) {
+    return entity.isNotBound(session);
+  }
+
+  @Override
+  public Collection<String> getPropertyNamesInternal() {
+    return entity.getPropertyNamesInternal();
+  }
+
+  @Override
+  public boolean exists() {
+    return entity.exists();
+  }
+
+  @Override
+  public EntityImpl getBaseEntity() {
+    return entity;
   }
 }

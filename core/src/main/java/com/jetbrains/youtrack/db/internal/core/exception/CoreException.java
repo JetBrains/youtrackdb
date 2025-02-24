@@ -45,7 +45,7 @@ public abstract class CoreException extends BaseException {
   public CoreException(
       String dbName, final String message, final String componentName,
       final ErrorCode errorCode) {
-    super(dbName, message);
+    super(message, dbName);
 
     this.errorCode = errorCode;
     this.componentName = componentName;
@@ -55,16 +55,13 @@ public abstract class CoreException extends BaseException {
     return errorCode;
   }
 
-  public String getComponentName() {
-    return componentName;
-  }
 
   public void setComponentName(String componentName) {
     this.componentName = componentName;
   }
 
   @Override
-  public final String getMessage() {
+  public String getMessage() {
     var msg = super.getMessage();
     final var builder = new StringBuilder(msg != null ? msg : "");
 

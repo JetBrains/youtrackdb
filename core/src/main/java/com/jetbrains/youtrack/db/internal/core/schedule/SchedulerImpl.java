@@ -30,7 +30,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -202,7 +201,14 @@ public class SchedulerImpl {
 
       if (event != null) {
         // UPDATED EVENT
-        final Set<String> dirtyFields = new HashSet<>(Arrays.asList(entity.getDirtyProperties()));
+        final Set<String> dirtyFields;
+        var dirtyProperties = entity.getDirtyProperties();
+
+        if (dirtyProperties instanceof Set<String> dirtyFieldsSet) {
+          dirtyFields = dirtyFieldsSet;
+        } else {
+          dirtyFields = new HashSet<>(dirtyProperties);
+        }
 
         if (dirtyFields.contains(ScheduledEvent.PROP_NAME)) {
           throw new ValidationException(session.getDatabaseName(),

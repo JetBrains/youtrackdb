@@ -219,6 +219,11 @@ public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
   }
 
   @Override
+  public void addRecordOperation(RecordAbstract record, byte status, String clusterName) {
+    throw new UnsupportedOperationException("Can not modify record outside transaction");
+  }
+
+  @Override
   public FrontendTransactionIndexChanges getIndexChangesInternal(String indexName) {
     return null;
   }

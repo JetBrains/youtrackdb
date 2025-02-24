@@ -24,7 +24,6 @@ import com.jetbrains.youtrack.db.internal.core.hook.DocumentHookAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -62,8 +61,7 @@ public class DbListenerTest extends BaseDBTest {
 
             @Override
             public void onRecordAfterUpdate(EntityImpl entity) {
-              List<String> changedFields = new ArrayList<>();
-              Collections.addAll(changedFields, entity.getDirtyProperties());
+              List<String> changedFields = new ArrayList<>(entity.getDirtyProperties());
               changes.put(entity, changedFields);
             }
           });

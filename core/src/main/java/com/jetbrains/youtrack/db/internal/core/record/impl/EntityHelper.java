@@ -19,9 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
-import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -33,15 +31,7 @@ import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
-import com.jetbrains.youtrack.db.internal.core.exception.QueryParsingException;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
@@ -51,7 +41,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLPredicate;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.lang.reflect.Array;
-import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -147,171 +136,7 @@ public class EntityHelper {
       return (RET) value;
     }
 
-    if (RID.class.isAssignableFrom(fieldJavaClass)) {
-      if (value instanceof RID) {
-        return (RET) value;
-      } else if (value instanceof String) {
-        return (RET) new RecordId((String) value);
-      } else if (value instanceof DBRecord) {
-        return (RET) ((DBRecord) value).getIdentity();
-      }
-    } else if (Identifiable.class.isAssignableFrom(fieldJavaClass)) {
-      if (value instanceof RID || value instanceof DBRecord) {
-        return (RET) value;
-      } else if (value instanceof String) {
-        return (RET) new RecordId((String) value);
-      } else if (MultiValue.isMultiValue(value) && MultiValue.getSize(value) == 1) {
-        var val = MultiValue.getFirstValue(value);
-        if (val instanceof Result) {
-          val = ((Result) val).getIdentity();
-        }
-        if (val instanceof Identifiable) {
-          return (RET) val;
-        }
-      }
-    } else if (Set.class.isAssignableFrom(fieldJavaClass)) {
-      if (!(value instanceof Set) || type.isLink() && !(value instanceof LinkSet) || !type.isLink()
-          && (value instanceof LinkSet)) {
-        // CONVERT IT TO SET
-        final Collection<?> newValue;
-        if (type.isLink()) {
-          newValue = new LinkSet(entity);
-        } else {
-          newValue = new TrackedSet<>(entity);
-        }
-        if (value instanceof Collection<?>) {
-          ((Collection<Object>) newValue).addAll((Collection<Object>) value);
-        } else if (value instanceof Map) {
-          ((Collection<Object>) newValue).addAll(((Map<String, Object>) value).values());
-        } else if (value instanceof String stringValue) {
-
-          if (!stringValue.isEmpty()) {
-            final var items = stringValue.split(",");
-            for (var s : items) {
-              ((Collection<Object>) newValue).add(s);
-            }
-          }
-        } else if (MultiValue.isMultiValue(value)) {
-          // GENERIC MULTI VALUE
-          for (var s : MultiValue.getMultiValueIterable(value)) {
-            ((Collection<Object>) newValue).add(s);
-          }
-        } else {
-          throw new IllegalArgumentException("Cannot convert value to set: " + value);
-        }
-        return (RET) newValue;
-      } else {
-        return (RET) value;
-      }
-    } else if (List.class.isAssignableFrom(fieldJavaClass)) {
-      if (!(value instanceof List) ||
-          type.isLink() && !(value instanceof LinkList)
-          || !type.isLink() && (value instanceof LinkList)) {
-        // CONVERT IT TO LIST
-        final Collection<?> newValue;
-
-        if (type.isLink()) {
-          newValue = new LinkList(entity);
-        } else {
-          newValue = new TrackedList<>(entity);
-        }
-
-        if (value instanceof Collection) {
-          ((Collection<Object>) newValue).addAll((Collection<Object>) value);
-        } else if (value instanceof Map) {
-          ((Collection<Object>) newValue).addAll(((Map<String, Object>) value).values());
-        } else if (value instanceof String stringValue) {
-
-          if (!stringValue.isEmpty()) {
-            final var items = stringValue.split(",");
-            for (var s : items) {
-              ((Collection<Object>) newValue).add(s);
-            }
-          }
-        } else if (MultiValue.isMultiValue(value)) {
-          // GENERIC MULTI VALUE
-          for (var s : MultiValue.getMultiValueIterable(value)) {
-            ((Collection<Object>) newValue).add(s);
-          }
-        } else {
-          throw new IllegalArgumentException("Cannot convert value to list: " + value);
-        }
-        return (RET) newValue;
-      } else {
-        return (RET) value;
-      }
-    } else if (Map.class.isAssignableFrom(fieldJavaClass)) {
-      if (!(value instanceof Map<?, ?>) ||
-          type.isLink() && !(value instanceof LinkMap)
-          || !type.isLink() && (value instanceof LinkList)) {
-        // CONVERT IT TO LIST
-        final Map<String, ?> newValue;
-
-        if (type.isLink()) {
-          newValue = new LinkMap(entity);
-        } else {
-          newValue = new TrackedMap<>(entity);
-        }
-
-        if (value instanceof Map<?, ?>) {
-          ((Map<String, Object>) newValue).putAll((Map<String, Object>) value);
-        } else {
-          throw new IllegalArgumentException("Cannot convert value to map: " + value);
-        }
-
-        return (RET) newValue;
-      } else {
-        return (RET) value;
-      }
-
-    } else if (value instanceof Enum) {
-      // ENUM
-      if (Number.class.isAssignableFrom(fieldJavaClass)) {
-        value = ((Enum<?>) value).ordinal();
-      } else {
-        value = value.toString();
-      }
-      if (!(value instanceof String) && !fieldJavaClass.isAssignableFrom(value.getClass())) {
-        throw new IllegalArgumentException(
-            "Property '"
-                + fieldName
-                + "' of type '"
-                + fieldJavaClass
-                + "' cannot accept value of type: "
-                + value.getClass());
-      }
-    } else if (Date.class.isAssignableFrom(fieldJavaClass)) {
-      if (value instanceof String) {
-        final var config = session.getStorageInfo().getConfiguration();
-
-        DateFormat formatter;
-
-        if (((String) value).length() > config.getDateFormat().length()) {
-          // ASSUMES YOU'RE USING THE DATE-TIME FORMATTE
-          formatter = config.getDateTimeFormatInstance();
-        } else {
-          formatter = config.getDateFormatInstance();
-        }
-
-        try {
-          var newValue = formatter.parse((String) value);
-          // _fieldValues.put(iFieldName, newValue);
-          return (RET) newValue;
-        } catch (ParseException pe) {
-          final var dateFormat =
-              ((String) value).length() > config.getDateFormat().length()
-                  ? config.getDateTimeFormat()
-                  : config.getDateFormat();
-          throw BaseException.wrapException(
-              new QueryParsingException(session.getDatabaseName(),
-                  "Error on conversion of date '" + value + "' using the format: " + dateFormat),
-              pe, session.getDatabaseName());
-        }
-      }
-    }
-
     value = PropertyType.convert(session, value, fieldJavaClass);
-
     return (RET) value;
   }
 

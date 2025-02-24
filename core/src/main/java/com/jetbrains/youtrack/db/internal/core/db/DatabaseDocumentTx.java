@@ -1129,6 +1129,48 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
+  public List<Byte> newEmbeddedList(byte[] source) {
+    checkOpenness();
+    return internal.newEmbeddedList(source);
+  }
+
+  @Override
+  public List<Short> newEmbeddedList(short[] source) {
+    checkOpenness();
+    return internal.newEmbeddedList(source);
+  }
+
+  @Override
+  public List<Integer> newEmbeddedList(int[] source) {
+    checkOpenness();
+    return internal.newEmbeddedList(source);
+  }
+
+  @Override
+  public List<Long> newEmbeddedList(long[] source) {
+    checkOpenness();
+    return internal.newEmbeddedList(source);
+  }
+
+  @Override
+  public List<Float> newEmbeddedList(float[] source) {
+    checkOpenness();
+    return internal.newEmbeddedList(source);
+  }
+
+  @Override
+  public List<Double> newEmbeddedList(double[] source) {
+    checkOpenness();
+    return internal.newEmbeddedList(source);
+  }
+
+  @Override
+  public List<Boolean> newEmbeddedList(boolean[] source) {
+    checkOpenness();
+    return internal.newEmbeddedList(source);
+  }
+
+  @Override
   public List<Identifiable> newLinkList() {
     checkOpenness();
     return internal.newLinkList();
@@ -1138,6 +1180,12 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   public List<Identifiable> newLinkList(int size) {
     checkOpenness();
     return internal.newLinkList(size);
+  }
+
+  @Override
+  public List<Identifiable> newLinkList(List<Identifiable> source) {
+    checkOpenness();
+    return internal.newLinkList(source);
   }
 
   @Override
@@ -1171,6 +1219,12 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
+  public Set<Identifiable> newLinkSet(Set<Identifiable> source) {
+    checkOpenness();
+    return internal.newLinkSet(source);
+  }
+
+  @Override
   public <V> Map<String, V> newEmbeddedMap() {
     checkOpenness();
     return internal.newEmbeddedMap();
@@ -1198,6 +1252,12 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   public Map<String, Identifiable> newLinkMap(int size) {
     checkOpenness();
     return internal.newLinkMap(size);
+  }
+
+  @Override
+  public Map<String, Identifiable> newLinkMap(Map<String, Identifiable> source) {
+    checkOpenness();
+    return internal.newLinkMap(source);
   }
 
   @Override

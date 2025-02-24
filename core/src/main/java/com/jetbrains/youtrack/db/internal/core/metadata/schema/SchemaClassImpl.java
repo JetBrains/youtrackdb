@@ -626,7 +626,7 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
     entity.setProperty("shortName", shortName);
     entity.setProperty("description", description);
     entity.setProperty("defaultClusterId", defaultClusterId);
-    entity.setProperty("clusterIds", clusterIds);
+    entity.newEmbeddedList("clusterIds", clusterIds);
     entity.setProperty("clusterSelection", clusterSelection.getName());
     entity.setProperty("overSize", overSize);
     entity.setProperty("strictMode", strictMode);
