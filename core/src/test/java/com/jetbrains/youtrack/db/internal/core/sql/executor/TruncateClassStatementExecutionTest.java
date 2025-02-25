@@ -34,9 +34,9 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
 
     session.begin();
     ((EntityImpl) session.newEntity(testClass)).field("name", "x")
-        .field("data", Arrays.asList(1, 2));
+        .newEmbeddedList("data", Arrays.asList(1, 2));
     ((EntityImpl) session.newEntity(testClass)).field("name", "y")
-        .field("data", Arrays.asList(3, 0));
+        .newEmbeddedList("data", Arrays.asList(3, 0));
     session.commit();
 
     session.command("truncate class test_class").close();
@@ -198,9 +198,9 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
 
     session.begin();
     ((EntityImpl) session.newEntity(testClass)).field("name", "x")
-        .field("data", Arrays.asList(1, 2));
+        .newEmbeddedList("data", Arrays.asList(1, 2));
     ((EntityImpl) session.newEntity(testClass)).field("name", "y")
-        .field("data", Arrays.asList(3, 0));
+        .newEmbeddedList("data", Arrays.asList(3, 0));
     session.commit();
 
     var result = session.query("select from test_class");

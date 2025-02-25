@@ -68,6 +68,12 @@ public class TrackedMap<T> extends AbstractMap<String, T>
     embeddedCollection = this.getClass().equals(TrackedMap.class);
   }
 
+  public TrackedMap(final RecordElement iSourceRecord, int size) {
+    this.map = new HashMap<>(size);
+    this.sourceRecord = new WeakReference<>(iSourceRecord);
+    embeddedCollection = this.getClass().equals(TrackedMap.class);
+  }
+
   public TrackedMap() {
     this.map = new HashMap<>();
     embeddedCollection = this.getClass().equals(TrackedMap.class);
@@ -81,8 +87,21 @@ public class TrackedMap<T> extends AbstractMap<String, T>
   }
 
   @Override
-  public void setOwner(RecordElement owner) {
-    this.sourceRecord = new WeakReference<>(owner);
+  public void setOwner(RecordElement newOwner) {
+    if (newOwner != null) {
+      var owner = getOwner();
+      if (owner != null && !owner.equals(newOwner)) {
+        throw new IllegalStateException(
+            "This map is already owned by data container "
+                + owner
+                + " if you want to use it in other data container create new map instance and copy"
+                + " content of current one.");
+      }
+
+      this.sourceRecord = new WeakReference<>(newOwner);
+    } else {
+      this.sourceRecord = null;
+    }
   }
 
   @Override

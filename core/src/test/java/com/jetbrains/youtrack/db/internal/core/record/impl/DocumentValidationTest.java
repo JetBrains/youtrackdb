@@ -289,7 +289,9 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     try {
       var session = toCheck.getBoundedToSession();
       var newD = (EntityImpl) session.newEntity(toCheck.getSchemaClass());
-      newD.copyPropertiesFromOtherEntity((EntityImpl) toCheck);
+
+      newD.unsetDirty();
+      newD.fromStream(((EntityImpl) toCheck).toStream());
       newD.removeField(fieldName);
       newD.validate();
       fail();
@@ -833,7 +835,10 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     try {
       var session = toCheck.getBoundedToSession();
       var newD = (EntityImpl) session.newEntity(toCheck.getSchemaClass());
-      newD.copyPropertiesFromOtherEntity((EntityImpl) toCheck);
+
+      newD.unsetDirty();
+      newD.fromStream(((EntityImpl) toCheck).toStream());
+
       newD.setProperty(field, newValue);
       newD.validate();
       fail();

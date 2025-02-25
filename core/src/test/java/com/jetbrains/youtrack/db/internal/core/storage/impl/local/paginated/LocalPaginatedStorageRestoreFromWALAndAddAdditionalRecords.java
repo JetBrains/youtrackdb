@@ -372,10 +372,13 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
 
     private void saveDoc(EntityImpl document) {
       var testDoc = ((EntityImpl) baseDB.newEntity());
-      testDoc.copyPropertiesFromOtherEntity(document);
+      var propertyNames = document.getPropertyNames();
+
+      for (var propertyName : propertyNames) {
+        testDoc.setProperty(propertyName, document.getProperty(propertyName));
+      }
 
       if (testDB != null) {
-
         Assert.assertEquals(testDoc.getIdentity(), document.getIdentity());
       }
     }

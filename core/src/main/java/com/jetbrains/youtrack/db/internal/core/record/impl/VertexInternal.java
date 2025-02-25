@@ -506,9 +506,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
     final var oldRecord = (EntityImpl) oldIdentity.getEntity(session);
 
     var newEntity = (EntityImpl) session.newEntity(className);
-    newEntity.copyPropertiesFromOtherEntity(oldRecord);
-
-    // DELETE THE OLD RECORD FIRST TO AVOID ISSUES WITH UNIQUE CONSTRAINTS
+    newEntity.movePropertiesFromOtherEntity(oldRecord);
     session.delete(oldRecord);
 
     var delegate = new VertexDelegate(newEntity);

@@ -799,8 +799,9 @@ public class DocumentSchemalessBinarySerializationTest extends DbTestBase {
     session.begin();
     var document = (EntityImpl) session.newEntity();
 
-    var lista = session.newEmbeddedList();
+    var lista = document.newEmbeddedList("list");
     var mappa = session.newEmbeddedMap();
+
     mappa.put("prop1", "val1");
     mappa.put("prop2", null);
     lista.add(mappa);
@@ -808,7 +809,6 @@ public class DocumentSchemalessBinarySerializationTest extends DbTestBase {
     mappa = session.newEmbeddedMap();
     mappa.put("prop", "val");
     lista.add(mappa);
-    document.newEmbeddedList("list").addAll(lista);
 
     var res = serializer.toStream(session, document);
     var extr = (EntityImpl) serializer.fromStream(session, res, (EntityImpl) session.newEntity(),

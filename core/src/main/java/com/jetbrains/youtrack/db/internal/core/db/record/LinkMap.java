@@ -63,6 +63,12 @@ public class LinkMap extends TrackedMap<Identifiable> implements Sizeable,
     this.session = new WeakReference<>(iSourceRecord.getSession());
   }
 
+  public LinkMap(final EntityImpl iSourceRecord, int size) {
+    super(iSourceRecord, size);
+    this.session = new WeakReference<>(iSourceRecord.getSession());
+  }
+
+
   public LinkMap(final EntityImpl iSourceRecord, final Map<String, Identifiable> iOrigin) {
     this(iSourceRecord);
 

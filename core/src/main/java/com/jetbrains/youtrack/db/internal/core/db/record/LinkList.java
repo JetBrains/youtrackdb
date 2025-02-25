@@ -55,6 +55,11 @@ public class LinkList extends TrackedList<Identifiable> implements Sizeable,
     this.session = new WeakReference<>(sourceRecord.getSession());
   }
 
+  public LinkList(@Nonnull final RecordElement sourceRecord, int size) {
+    super(sourceRecord, size);
+    this.session = new WeakReference<>(sourceRecord.getSession());
+  }
+
   public LinkList(
       @Nonnull final RecordElement sourceRecord, final Collection<? extends Identifiable> origin) {
     this(sourceRecord);

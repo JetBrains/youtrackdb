@@ -61,6 +61,12 @@ public class TrackedSet<T> extends AbstractSet<T>
     embeddedCollection = this.getClass().equals(TrackedSet.class);
   }
 
+  public TrackedSet(final RecordElement iSourceRecord, int size) {
+    this.set = new HashSet<>(size);
+    this.sourceRecord = new WeakReference<>(iSourceRecord);
+    embeddedCollection = this.getClass().equals(TrackedSet.class);
+  }
+
   public TrackedSet() {
     this.set = new HashSet<>();
     embeddedCollection = this.getClass().equals(TrackedSet.class);
@@ -74,8 +80,22 @@ public class TrackedSet<T> extends AbstractSet<T>
   }
 
   @Override
-  public void setOwner(RecordElement owner) {
-    sourceRecord = new WeakReference<>(owner);
+  public void setOwner(RecordElement newOwner) {
+    if (newOwner != null) {
+      var owner = getOwner();
+
+      if (owner != null && !owner.equals(newOwner)) {
+        throw new IllegalStateException(
+            "This set is already owned by data container "
+                + owner
+                + " if you want to use it in other data container create new set instance and copy"
+                + " content of current one.");
+      }
+
+      sourceRecord = new WeakReference<>(newOwner);
+    } else {
+      sourceRecord = null;
+    }
   }
 
   @Override

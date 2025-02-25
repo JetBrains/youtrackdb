@@ -183,7 +183,7 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
         var phantom = (EntityImpl) RecordSerializerNetworkV37.INSTANCE.fromStream(
             getDatabaseSession(),
             operation.getRecord(), null);
-        entity.copyPropertiesFromOtherEntity(phantom);
+        entity.movePropertiesFromOtherEntity(phantom);
       }
     }
   }

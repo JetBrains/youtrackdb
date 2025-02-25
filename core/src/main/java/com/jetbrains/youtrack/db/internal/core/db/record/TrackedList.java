@@ -75,6 +75,12 @@ public class TrackedList<T> extends AbstractList<T>
     embeddedCollection = this.getClass().equals(TrackedList.class);
   }
 
+  public TrackedList(@Nonnull final RecordElement iSourceRecord, int size) {
+    this.list = new ArrayList<>(size);
+    this.sourceRecord = new WeakReference<>(iSourceRecord);
+    embeddedCollection = this.getClass().equals(TrackedList.class);
+  }
+
   public TrackedList() {
     this.list = new ArrayList<>();
     embeddedCollection = this.getClass().equals(TrackedList.class);
@@ -88,8 +94,21 @@ public class TrackedList<T> extends AbstractList<T>
   }
 
   @Override
-  public void setOwner(RecordElement owner) {
-    this.sourceRecord = new WeakReference<>(owner);
+  public void setOwner(RecordElement newOwner) {
+    if (newOwner != null) {
+      var owner = getOwner();
+      if (owner != null && !owner.equals(newOwner)) {
+        throw new IllegalStateException(
+            "This list is already owned by data container "
+                + owner
+                + " if you want to use it in other data container create new list instance and copy"
+                + " content of current one.");
+      }
+
+      this.sourceRecord = new WeakReference<>(newOwner);
+    } else {
+      this.sourceRecord = null;
+    }
   }
 
   @Override

@@ -4,7 +4,6 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.profiler.Profiler;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
@@ -1539,11 +1538,10 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     var doc = result.next();
     Assert.assertFalse(result.hasNext());
 
-    var foo = doc.getProperty("foo");
+    var foo = doc.getLinkList("foo");
     Assert.assertNotNull(foo);
-    Assert.assertTrue(foo instanceof List);
-    Assert.assertEquals(1, ((List) foo).size());
-    var resultVertex = (Vertex) ((List) foo).get(0);
+    Assert.assertEquals(1, (foo).size());
+    var resultVertex = foo.getFirst().getVertex(session);
     Assert.assertEquals(2, resultVertex.<Object>getProperty("uid"));
     result.close();
   }

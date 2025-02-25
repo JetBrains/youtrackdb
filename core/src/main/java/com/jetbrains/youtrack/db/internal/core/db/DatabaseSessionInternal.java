@@ -72,6 +72,7 @@ import java.util.Set;
 import java.util.TimerTask;
 import java.util.UUID;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public interface DatabaseSessionInternal extends DatabaseSession {
 
@@ -94,7 +95,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   EntityImpl newInternalInstance();
 
-  Entity newEmbededEntity(String className);
+  Entity newEmbededEntity(@Nullable String className);
 
   /**
    * Internal. Gets an instance of sb-tree collection manager for current database.

@@ -1055,57 +1055,60 @@ public class EntityImpl extends RecordAbstract
   }
 
   /**
-   * Copies property values from one entity to another. Only properties with different values are
+   * Moves property values from one entity to another. Only properties with different values are
    * marked as dirty in result of such change. This rule is applied for all properties except of
    * <code>RidBag</code>. Only embedded <code>RidBag</code>s are compared but tree based are
    * always assigned to avoid performance overhead.
    *
    * @param from Entity from which properties are copied.
    */
-  public void copyPropertiesFromOtherEntity(@Nonnull EntityImpl from) {
+  public void movePropertiesFromOtherEntity(@Nonnull EntityImpl from) {
     checkForFields();
-    from.deserializeFields();
+    from.checkForFields();
 
-    var fromFields = from.fields;
-    if (fromFields == null || fromFields.isEmpty()) {
+    if (from.fields.isEmpty()) {
       return;
     }
 
+    var fromFields = new HashMap<>(from.fields);
     var sameCluster = from.recordId.getClusterId() == recordId.getClusterId();
 
-    for (var entry : fromFields.entrySet()) {
-      if (entry.getValue().exists()) {
-        var fromEntry = entry.getValue();
-
-        var currentEntry = fields.get(entry.getKey());
+    for (var mapEntry : fromFields.entrySet()) {
+      if (mapEntry.getValue().exists()) {
+        var fromEntry = mapEntry.getValue();
+        var currentEntry = fields.get(mapEntry.getKey());
         var currentValue = currentEntry != null ? currentEntry.value : null;
         var fromValue = fromEntry.value;
+        var propertyName = mapEntry.getKey();
+        var fromType = fromEntry.type;
+
+        from.removeProperty(mapEntry.getKey());
 
         if (fromValue != null && currentValue == null) {
-          setPropertyInternal(entry.getKey(),
-              copyRidBagIfNecessary(session, fromValue, sameCluster), fromEntry.type);
+          setPropertyInternal(propertyName,
+              copyRidBagIfNecessary(session, fromValue, sameCluster), fromType);
         } else if (fromValue == null && currentValue != null) {
-          setPropertyInternal(entry.getKey(), null, currentEntry.type);
+          setPropertyInternal(propertyName, null, currentEntry.type);
         } else if (fromValue.getClass() != currentValue.getClass()) {
-          setPropertyInternal(entry.getKey(),
+          setPropertyInternal(propertyName,
               copyRidBagIfNecessary(session, fromValue, sameCluster),
-              fromEntry.type);
+              fromType);
         } else {
           if (!(currentValue instanceof RidBag ridBag)) {
-            if (!Objects.equals(fromEntry.type, currentEntry.type)) {
-              setPropertyInternal(entry.getKey(), fromValue, fromEntry.type);
+            if (!Objects.equals(fromType, currentEntry.type)) {
+              setPropertyInternal(propertyName, fromValue, fromType);
             }
           } else {
             if (ridBag.isEmbedded() || ((RidBag) fromValue).isEmbedded()) {
-              if (!Objects.equals(fromEntry.type, currentEntry.type)) {
-                setPropertyInternal(entry.getKey(),
+              if (!Objects.equals(fromType, currentEntry.type)) {
+                setPropertyInternal(propertyName,
                     copyRidBagIfNecessary(session,
                         copyRidBagIfNecessary(session, fromValue, sameCluster), sameCluster),
-                    fromEntry.type);
+                    fromType);
               }
             } else {
-              setPropertyInternal(entry.getKey(),
-                  copyRidBagIfNecessary(session, fromValue, sameCluster), fromEntry.type);
+              setPropertyInternal(propertyName,
+                  copyRidBagIfNecessary(session, fromValue, sameCluster), fromType);
             }
           }
         }
@@ -2992,9 +2995,9 @@ public class EntityImpl extends RecordAbstract
 
     for (var entry : fields.entrySet()) {
       var value = entry.getValue();
-      if (value.original == null && value.value instanceof RidBag) {
-        ridBagsToDelete.add((RidBag) value.value);
-      } else if (value.original instanceof RidBag ridBag) {
+      if (value.original == null && value.value instanceof RidBag ridBag && !ridBag.isEmbedded()) {
+        ridBagsToDelete.add(ridBag);
+      } else if (value.original instanceof RidBag ridBag && !ridBag.isEmbedded()) {
         ridBagsToDelete.add(ridBag);
       }
     }
@@ -3768,10 +3771,19 @@ public class EntityImpl extends RecordAbstract
    * Internal.
    */
   public void setOwner(final RecordElement iOwner) {
-    checkForBinding();
-
     if (iOwner == null) {
       return;
+    }
+
+    checkForBinding();
+
+    var owner = getOwner();
+    if (owner != null && !owner.equals(iOwner)) {
+      throw new IllegalStateException(
+          "This entity is already owned by data container "
+              + owner
+              + " if you want to use it in other data container create new entity instance and copy"
+              + " content of current one.");
     }
 
     if (recordId.isPersistent()) {

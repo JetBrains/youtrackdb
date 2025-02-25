@@ -66,6 +66,11 @@ public class LinkSet extends TrackedSet<Identifiable> implements IdentityChangeL
     this.session = new WeakReference<>(iSourceRecord.getSession());
   }
 
+  public LinkSet(final RecordElement iSourceRecord, int size) {
+    super(iSourceRecord, size);
+    this.session = new WeakReference<>(iSourceRecord.getSession());
+  }
+
   public LinkSet(RecordElement iSourceRecord, Collection<Identifiable> iOrigin) {
     this(iSourceRecord);
 
