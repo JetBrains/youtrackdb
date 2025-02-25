@@ -61,7 +61,7 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
 
     if (command.getPredicate() != null) {
       final var conditionResult =
-          command.getPredicate().evaluate(target, null, command.getContext());
+          command.getPredicate().evaluate(target.getEntity(session), null, command.getContext());
       if (conditionResult != Boolean.TRUE) {
         return drop();
       }

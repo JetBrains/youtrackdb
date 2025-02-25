@@ -16,10 +16,10 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.method.misc;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 
 /**
  * Remove all the occurrences of elements from a collection.
@@ -37,7 +37,7 @@ public class SQLMethodRemoveAll extends AbstractSQLMethod {
   @Override
   public Object execute(
       Object iThis,
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       final CommandContext iContext,
       Object ioResult,
       Object[] iParams) {

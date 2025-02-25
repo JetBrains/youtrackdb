@@ -3207,6 +3207,12 @@ public class EntityImpl extends RecordAbstract
       return false;
     }
 
+    if (obj instanceof Entity entity) {
+      if (session != entity.getBoundedToSession()) {
+        return false;
+      }
+    }
+
     return this == obj || recordId.isValid();
   }
 

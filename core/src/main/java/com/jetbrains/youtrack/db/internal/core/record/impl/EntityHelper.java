@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.record.impl;
 
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -32,6 +33,7 @@ import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExportException;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
@@ -150,7 +152,7 @@ public class EntityHelper {
 
   @SuppressWarnings("unchecked")
   public static <RET> RET getFieldValue(
-      DatabaseSessionInternal db, Object value, final String iFieldName,
+      DatabaseSessionInternal session, Object value, final String iFieldName,
       @Nonnull final CommandContext iContext) {
     if (value == null) {
       return null;
@@ -190,14 +192,14 @@ public class EntityHelper {
       if (nextSeparator == '[') {
         if (!fieldName.isEmpty()) {
           if (currentRecord != null) {
-            value = getIdentifiableValue(db, currentRecord, fieldName);
+            value = getIdentifiableValue(session, currentRecord, fieldName);
           } else if (value instanceof Map<?, ?>) {
-            value = getMapEntry(db, (Map<String, ?>) value, fieldName);
+            value = getMapEntry(session, (Map<String, ?>) value, fieldName);
           } else if (MultiValue.isMultiValue(value)) {
             final HashSet<Object> temp = new LinkedHashSet<Object>();
             for (var o : MultiValue.getMultiValueIterable(value)) {
               if (o instanceof Identifiable) {
-                var r = getFieldValue(db, o, iFieldName);
+                var r = getFieldValue(session, o, iFieldName);
                 if (r != null) {
                   MultiValue.add(temp, r);
                 }
@@ -232,7 +234,7 @@ public class EntityHelper {
 
         if (value instanceof Identifiable) {
           final var record =
-              currentRecord instanceof Identifiable ? currentRecord.getRecord(db) : null;
+              currentRecord instanceof Identifiable ? currentRecord.getRecord(session) : null;
 
           final var index = getIndexPart(iContext, indexPart);
           final var indexAsString = index != null ? index.toString() : null;
@@ -284,16 +286,16 @@ public class EntityHelper {
             // CONDITION
             final var conditionFieldName = indexCondition.get(0);
             var conditionFieldValue =
-                RecordSerializerStringAbstract.getTypeValue(db, indexCondition.get(1));
+                RecordSerializerStringAbstract.getTypeValue(session, indexCondition.get(1));
 
             if (conditionFieldValue instanceof String) {
               conditionFieldValue = IOUtils.getStringContent(conditionFieldValue);
             }
 
-            final var fieldValue = getFieldValue(db, currentRecord, conditionFieldName);
+            final var fieldValue = getFieldValue(session, currentRecord, conditionFieldName);
 
             if (conditionFieldValue != null && fieldValue != null) {
-              conditionFieldValue = PropertyType.convert(db, conditionFieldValue,
+              conditionFieldValue = PropertyType.convert(session, conditionFieldValue,
                   fieldValue.getClass());
             }
 
@@ -351,7 +353,7 @@ public class EntityHelper {
             // CONDITION
             final var conditionFieldName = indexCondition.get(0);
             var conditionFieldValue =
-                RecordSerializerStringAbstract.getTypeValue(db, indexCondition.get(1));
+                RecordSerializerStringAbstract.getTypeValue(session, indexCondition.get(1));
 
             if (conditionFieldValue instanceof String) {
               conditionFieldValue = IOUtils.getStringContent(conditionFieldValue);
@@ -360,7 +362,7 @@ public class EntityHelper {
             final var fieldValue = map.get(conditionFieldName);
 
             if (conditionFieldValue != null && fieldValue != null) {
-              conditionFieldValue = PropertyType.convert(db, conditionFieldValue,
+              conditionFieldValue = PropertyType.convert(session, conditionFieldValue,
                   fieldValue.getClass());
             }
 
@@ -383,13 +385,13 @@ public class EntityHelper {
           if (isFieldName(indexAsString)) {
             // SINGLE VALUE
             if (value instanceof Map<?, ?>) {
-              value = getMapEntry(db, (Map<String, ?>) value, index);
+              value = getMapEntry(session, (Map<String, ?>) value, index);
             } else if (Character.isDigit(indexAsString.charAt(0))) {
               value = MultiValue.getValue(value, Integer.parseInt(indexAsString));
             } else
             // FILTER BY FIELD
             {
-              value = getFieldValue(db, value, indexAsString, iContext);
+              value = getFieldValue(session, value, indexAsString, iContext);
             }
 
           } else if (isListOfNumbers(indexParts)) {
@@ -435,9 +437,10 @@ public class EntityHelper {
             final HashSet<Object> values = new LinkedHashSet<Object>();
 
             for (var v : MultiValue.getMultiValueIterable(value)) {
-              if (v instanceof Identifiable) {
+              if (v instanceof Identifiable identifiable) {
+                var entity = identifiable.getEntity(session);
                 var result =
-                    pred.evaluate((Identifiable) v, ((Identifiable) v).getRecord(db), iContext);
+                    pred.evaluate(entity, (EntityImpl) entity, iContext);
                 if (Boolean.TRUE.equals(result)) {
                   values.add(v);
                 }
@@ -467,13 +470,13 @@ public class EntityHelper {
           }
         }
       } else {
-        if (fieldName.length() == 0) {
+        if (fieldName.isEmpty()) {
           // NO FIELD NAME: THIS IS THE CASE OF NOT USEFUL . AFTER A ] OR .
           beginPos = ++nextSeparatorPos;
           continue;
         }
 
-        if (fieldName.startsWith("$")) {
+        if (fieldName.charAt(0) == '$') {
           value = iContext.getVariable(fieldName);
         } else if (fieldName.contains("(")) {
           var executedMethod = false;
@@ -481,7 +484,9 @@ public class EntityHelper {
             var method =
                 SQLEngine.getMethod(fieldName.substring(0, fieldName.length() - 2));
             if (method != null) {
-              value = method.execute(value, currentRecord, iContext, value, new Object[]{});
+              value = method.execute(value,
+                  currentRecord != null ? currentRecord.getEntity(session) : null, iContext, value,
+                  new Object[]{});
               executedMethod = true;
             }
           }
@@ -495,26 +500,26 @@ public class EntityHelper {
           if (indexCondition.size() == 2) {
             final var conditionFieldName = indexCondition.get(0);
             var conditionFieldValue =
-                RecordSerializerStringAbstract.getTypeValue(db, indexCondition.get(1));
+                RecordSerializerStringAbstract.getTypeValue(session, indexCondition.get(1));
 
             if (conditionFieldValue instanceof String) {
               conditionFieldValue = IOUtils.getStringContent(conditionFieldValue);
             }
 
-            value = filterItem(db, conditionFieldName, conditionFieldValue, value);
+            value = filterItem(session, conditionFieldName, conditionFieldValue, value);
 
           } else if (currentRecord != null) {
             // GET THE LINKED OBJECT IF ANY
-            value = getIdentifiableValue(db, currentRecord, fieldName);
+            value = getIdentifiableValue(session, currentRecord, fieldName);
           } else if (value instanceof Map<?, ?>) {
-            value = getMapEntry(db, (Map<String, ?>) value, fieldName);
+            value = getMapEntry(session, (Map<String, ?>) value, fieldName);
           } else if (MultiValue.isMultiValue(value)) {
             final Set<Object> values = new LinkedHashSet<Object>();
             for (var v : MultiValue.getMultiValueIterable(value)) {
               final Object item;
 
               if (v instanceof Identifiable) {
-                item = getIdentifiableValue(db, (Identifiable) v, fieldName);
+                item = getIdentifiableValue(session, (Identifiable) v, fieldName);
               } else if (v instanceof Map) {
                 item = ((Map<?, ?>) v).get(fieldName);
               } else {
@@ -734,11 +739,6 @@ public class EntityHelper {
     if (!iFieldName.isEmpty()) {
       final var begin = iFieldName.charAt(0);
       if (begin == '@') {
-        if (session == null) {
-          throw new IllegalStateException(
-              "Custom attribute can not be processed because record is not bound to the session");
-        }
-
         // RETURN AN ATTRIBUTE
         if (iFieldName.equalsIgnoreCase(ATTRIBUTE_THIS)) {
           return current.getRecord(session);
@@ -910,7 +910,12 @@ public class EntityHelper {
         final var f = SQLHelper.getFunction(iContext.getDatabaseSession(), null,
             iFunction);
         if (f != null) {
-          result = f.execute(currentRecord, currentRecord, null, iContext);
+          if (currentRecord instanceof Entity entity) {
+            result = f.execute(currentRecord, entity, null, iContext);
+          } else {
+            throw new DatabaseExportException("Cannot execute function " + iFunction
+                + " because the current record is not an entity");
+          }
         }
       }
     }

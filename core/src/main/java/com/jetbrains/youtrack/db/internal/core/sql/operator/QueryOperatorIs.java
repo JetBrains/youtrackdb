@@ -20,14 +20,13 @@
 package com.jetbrains.youtrack.db.internal.core.sql.operator;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionMultiValue;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField;
@@ -45,7 +44,7 @@ public class QueryOperatorIs extends QueryOperatorEquality {
 
   @Override
   protected boolean evaluateExpression(
-      final Identifiable iRecord,
+      final Result iRecord,
       final SQLFilterCondition iCondition,
       final Object iLeft,
       Object iRight,
@@ -74,11 +73,8 @@ public class QueryOperatorIs extends QueryOperatorEquality {
     }
   }
 
-  protected boolean evaluateDefined(final Identifiable iRecord, final String iFieldName) {
-    if (iRecord instanceof EntityImpl) {
-      return ((EntityImpl) iRecord).containsField(iFieldName);
-    }
-    return false;
+  protected static boolean evaluateDefined(final Result iRecord, final String iFieldName) {
+    return iRecord.getProperty(iFieldName) != null;
   }
 
   @Override

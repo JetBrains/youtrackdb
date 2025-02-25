@@ -22,7 +22,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.filter;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.parser.BaseParser;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -137,7 +137,7 @@ public class SQLPredicate extends BaseParser implements CommandPredicate {
   }
 
   public Object evaluate(
-      final Identifiable iRecord, EntityImpl iCurrentResult, final CommandContext iContext) {
+      final Result iRecord, EntityImpl iCurrentResult, final CommandContext iContext) {
     if (rootCondition == null) {
       return true;
     }

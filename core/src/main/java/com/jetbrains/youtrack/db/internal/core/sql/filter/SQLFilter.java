@@ -20,9 +20,9 @@
 package com.jetbrains.youtrack.db.internal.core.sql.filter;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandPredicate;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.exception.QueryParsingException;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Locale;
@@ -103,7 +103,7 @@ public class SQLFilter extends SQLPredicate implements CommandPredicate {
   }
 
   public Object evaluate(
-      final Identifiable iRecord, final EntityImpl iCurrentResult,
+      final Result iRecord, final EntityImpl iCurrentResult,
       final CommandContext iContext) {
     if (rootCondition == null) {
       return true;

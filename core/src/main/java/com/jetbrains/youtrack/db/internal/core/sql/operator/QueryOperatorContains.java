@@ -20,6 +20,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.operator;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -28,8 +29,8 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionMultiValue;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField;
 import java.util.List;
@@ -48,7 +49,7 @@ public class QueryOperatorContains extends QueryOperatorEqualityNotNulls {
   @Override
   @SuppressWarnings("unchecked")
   protected boolean evaluateExpression(
-      final Identifiable iRecord,
+      final Result iRecord,
       final SQLFilterCondition iCondition,
       final Object iLeft,
       final Object iRight,
@@ -70,25 +71,26 @@ public class QueryOperatorContains extends QueryOperatorEqualityNotNulls {
         // CHECK AGAINST A CONDITION
 
         for (final var o : iterable) {
-          final Identifiable id;
-          if (o instanceof Identifiable) {
-            id = (Identifiable) o;
-          } else if (o instanceof Map<?, ?>) {
-            final var iter = ((Map<?, Object>) o).values().iterator();
-            final var v = iter.hasNext() ? iter.next() : null;
-            if (v instanceof Identifiable) {
-              id = (Identifiable) v;
-            } else
-            // TRANSFORM THE ENTIRE MAP IN A DOCUMENT. PROBABLY HAS BEEN IMPORTED FROM JSON
-            {
-              id = new EntityImpl(session, (Map) o);
-            }
+          final Result id;
+          switch (o) {
+            case Identifiable identifiable -> id = identifiable.getEntity(session);
+            case Map<?, ?> map -> {
+              final var iter = map.values().iterator();
+              final var v = iter.hasNext() ? iter.next() : null;
+              if (v instanceof Identifiable identifiable) {
+                id = identifiable.getEntity(session);
+              } else {
+                id = new ResultInternal(session, (Map<String, ?>) o);
+              }
 
-          } else if (o instanceof Iterable<?>) {
-            final var iter = ((Iterable<Identifiable>) o).iterator();
-            id = iter.hasNext() ? iter.next() : null;
-          } else {
-            continue;
+            }
+            case Iterable<?> objects -> {
+              final var iter = objects.iterator();
+              id = iter.hasNext() ? ((Identifiable) iter.next()).getEntity(session) : null;
+            }
+            case null, default -> {
+              continue;
+            }
           }
 
           if (condition.evaluate(id, null, iContext) == Boolean.TRUE) {
@@ -105,12 +107,9 @@ public class QueryOperatorContains extends QueryOperatorEqualityNotNulls {
           var fieldName =
               ((SQLFilterItemField) iCondition.getLeft()).getFieldChain().getItemName(0);
           if (fieldName != null) {
-            Object record = iRecord.getRecord(session);
-            if (record instanceof EntityImpl) {
-              SchemaImmutableClass result = null;
-              if (record != null) {
-                result = ((EntityImpl) record).getImmutableSchemaClass(session);
-              }
+            if (iRecord.isEntity()) {
+              var entity = iRecord.castToEntity();
+              var result = ((EntityImpl) entity).getImmutableSchemaClass(session);
               var property =
                   result
                       .getProperty(session, fieldName);
@@ -133,7 +132,7 @@ public class QueryOperatorContains extends QueryOperatorEqualityNotNulls {
 
       if (condition != null) {
         for (final var o : iterable) {
-          if (condition.evaluate(o, null, iContext) == Boolean.TRUE) {
+          if (condition.evaluate(o.getEntity(session), null, iContext) == Boolean.TRUE) {
             return true;
           }
         }

@@ -48,7 +48,7 @@ public class LuceneSearchOnClassFunction extends LuceneSearchFunctionTemplate {
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       Object iCurrentResult,
       Object[] params,
       CommandContext ctx) {

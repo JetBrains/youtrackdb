@@ -22,6 +22,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.filter;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -109,7 +110,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
   }
 
   public Object getValue(
-      final Identifiable iRecord, final Object iCurrentResult, final CommandContext iContext) {
+      final Result iRecord, final Object iCurrentResult, final CommandContext iContext) {
     var session = iContext.getDatabaseSession();
     if (iRecord == null) {
       throw new CommandExecutionException(session,
@@ -122,7 +123,6 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
       }
     }
 
-    final EntityImpl entity = iRecord.getRecord(session);
 
     if (preLoadedFieldsArray == null
         && preLoadedFields != null
@@ -134,14 +134,9 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
       preLoadedFields.toArray(preLoadedFieldsArray);
     }
 
-    // UNMARSHALL THE SINGLE FIELD
-    if (preLoadedFieldsArray != null && !entity.deserializeFields(preLoadedFieldsArray)) {
-      return null;
-    }
-
-    final var v = stringValue == null ? entity.rawField(name) : stringValue;
-
-    if (!collatePreset) {
+    final var v = stringValue == null ? iRecord.getProperty(name) : stringValue;
+    if (!collatePreset && iRecord.isEntity()) {
+      var entity = (EntityImpl) iRecord.castToEntity();
       SchemaImmutableClass result = null;
       result = entity.getImmutableSchemaClass(session);
       SchemaClass schemaClass = result;

@@ -20,13 +20,11 @@ import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunction;
-import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -4355,7 +4353,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
               @Override
               public Object execute(
                   Object iThis,
-                  Identifiable iCurrentRecord,
+                  Result iCurrentRecord,
                   Object iCurrentResult,
                   Object[] iParams,
                   CommandContext iContext) {

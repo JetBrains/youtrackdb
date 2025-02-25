@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.functions.graph;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
@@ -74,13 +75,14 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
 
   public List<RID> execute(
       Object iThis,
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       final Object iCurrentResult,
       final Object[] iParams,
       final CommandContext iContext) {
 
     var session = iContext.getDatabaseSession();
-    var record = iCurrentRecord != null ? iCurrentRecord.getRecord(session) : null;
+    var record =
+        iCurrentRecord != null && iCurrentRecord.isRecord() ? iCurrentRecord.castToRecord() : null;
 
     final var ctx = new ShortestPathContext();
 
@@ -92,7 +94,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
     source = SQLHelper.getValue(source, record, iContext);
     if (source instanceof Identifiable) {
       Entity elem = ((Identifiable) source).getRecord(session);
-      if (elem == null || !elem.isVertex()) {
+      if (!elem.isVertex()) {
         throw new IllegalArgumentException("The sourceVertex must be a vertex record");
       }
       ctx.sourceVertex = elem.castToVertex();

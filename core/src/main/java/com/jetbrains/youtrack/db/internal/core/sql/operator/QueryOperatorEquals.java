@@ -274,7 +274,7 @@ public class QueryOperatorEquals extends QueryOperatorEqualityNotNulls {
 
   @Override
   protected boolean evaluateExpression(
-      final Identifiable iRecord,
+      final Result iRecord,
       final SQLFilterCondition iCondition,
       final Object iLeft,
       final Object iRight,

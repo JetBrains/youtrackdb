@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemAbstract;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
@@ -45,7 +46,7 @@ public class SQLMethodField extends AbstractSQLMethod {
   @Override
   public Object execute(
       Object iThis,
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       final CommandContext iContext,
       Object ioResult,
       final Object[] iParams) {
@@ -53,29 +54,35 @@ public class SQLMethodField extends AbstractSQLMethod {
       return null;
     }
 
-    var db = iContext.getDatabaseSession();
-    final var paramAsString = iParams[0].toString();
+    var session = iContext.getDatabaseSession();
+    var params = iParams[0];
+    String paramAsString;
+    if (params instanceof SQLFilterItemAbstract item) {
+      paramAsString = item.asString(session);
+    } else {
+      paramAsString = ((String) params).trim();
+    }
+
 
     if (ioResult != null) {
-      if (ioResult instanceof Result result && result.isEntity()) {
+      if (ioResult instanceof Identifiable) {
+        try {
+          ioResult = ((Identifiable) ioResult).getRecord(session);
+        } catch (RecordNotFoundException rnf) {
+          LogManager.instance()
+              .error(this, "Error on reading rid with value '%s'", null, ioResult);
+          ioResult = null;
+        }
+      } else if (ioResult instanceof Result result && result.isEntity()) {
         ioResult = result.asEntity();
-      }
-      if (ioResult instanceof Iterable && !(ioResult instanceof EntityImpl)) {
+      } else if (ioResult instanceof Iterable && !(ioResult instanceof EntityImpl)) {
         ioResult = ((Iterable) ioResult).iterator();
       }
       if (ioResult instanceof String) {
         try {
-          ioResult = new RecordId((String) ioResult).getRecord(db);
+          ioResult = new RecordId((String) ioResult).getRecord(session);
         } catch (Exception e) {
           LogManager.instance().error(this, "Error on reading rid with value '%s'", e, ioResult);
-          ioResult = null;
-        }
-      } else if (ioResult instanceof Identifiable) {
-        try {
-          ioResult = ((Identifiable) ioResult).getRecord(db);
-        } catch (RecordNotFoundException rnf) {
-          LogManager.instance()
-              .error(this, "Error on reading rid with value '%s'", null, ioResult);
           ioResult = null;
         }
       } else if (ioResult instanceof Collection<?>
@@ -83,7 +90,7 @@ public class SQLMethodField extends AbstractSQLMethod {
           || ioResult.getClass().isArray()) {
         final List<Object> result = new ArrayList<Object>(MultiValue.getSize(ioResult));
         for (var o : MultiValue.getMultiValueIterable(ioResult)) {
-          var newlyAdded = EntityHelper.getFieldValue(db, o, paramAsString);
+          var newlyAdded = EntityHelper.getFieldValue(session, o, paramAsString);
           if (MultiValue.isMultiValue(newlyAdded)) {
             if (newlyAdded instanceof Map || newlyAdded instanceof Identifiable) {
               result.add(newlyAdded);
@@ -104,7 +111,7 @@ public class SQLMethodField extends AbstractSQLMethod {
       if (ioResult instanceof CommandContext) {
         ioResult = ((CommandContext) ioResult).getVariable(paramAsString);
       } else {
-        ioResult = EntityHelper.getFieldValue(db, ioResult, paramAsString, iContext);
+        ioResult = EntityHelper.getFieldValue(session, ioResult, paramAsString, iContext);
       }
     }
 

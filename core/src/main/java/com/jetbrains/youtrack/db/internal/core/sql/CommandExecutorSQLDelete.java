@@ -325,10 +325,10 @@ public class CommandExecutorSQLDelete extends CommandExecutorSQLAbstract
   public boolean result(@Nonnull DatabaseSessionInternal session, final Object iRecord) {
     final RecordAbstract record = ((Identifiable) iRecord).getRecord(session);
 
-    if (record instanceof EntityImpl
+    if (record instanceof EntityImpl entity
         && compiledFilter != null
         && !Boolean.TRUE.equals(
-        this.compiledFilter.evaluate(record, (EntityImpl) record, getContext()))) {
+        this.compiledFilter.evaluate(entity, entity, getContext()))) {
       return true;
     }
     if (record.getIdentity().isValid()) {

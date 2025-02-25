@@ -20,7 +20,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.functions;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 
 /**
@@ -49,7 +49,7 @@ public interface SQLFunction {
    */
   Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       Object iCurrentResult,
       Object[] iParams,
       CommandContext iContext);
@@ -76,8 +76,7 @@ public interface SQLFunction {
    * A function can act both as transformation or filtering records. If the function may reduce the
    * number final records than it must return true.
    *
-   * <p>Function should return null for the {@linkplain #execute(Object, Identifiable, Object,
-   * Object[], CommandContext) execute} method if the record must be excluded.
+   * <p>Function should return null for the {@linkplain #execute(Object, Result, Object, Object[], CommandContext) execute} method if the record must be excluded.
    *
    * @return true if the function acts as a record filter.
    */

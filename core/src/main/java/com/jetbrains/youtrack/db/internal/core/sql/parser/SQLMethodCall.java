@@ -4,7 +4,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -144,12 +143,11 @@ public class SQLMethodCall extends SimpleNode {
       CommandContext ctx,
       Object val,
       List<Object> paramValues) {
-    if (val instanceof Result result) {
-      val = result.asEntity();
+    if (val instanceof Identifiable identifiable) {
+      val = identifiable.getEntity(ctx.getDatabaseSession());
     }
-
     return method.execute(
-        targetObjects, (Identifiable) val, ctx, targetObjects, paramValues.toArray());
+        targetObjects, (Result) val, ctx, targetObjects, paramValues.toArray());
   }
 
   private static Object invokeGraphFunction(
@@ -177,19 +175,10 @@ public class SQLMethodCall extends SimpleNode {
               ctx);
     } else {
       var current = ctx.getVariable("$current");
-      if (current instanceof Identifiable) {
-        return graphFunction.execute(
-            targetObjects, (Identifiable) current, null, paramValues.toArray(), ctx);
-      } else if (current instanceof Result result) {
-        Entity entity = null;
-        if (result.isEntity()) {
-          entity = result.castToEntity();
-        } else {
-          entity = null;
-        }
+      if (current instanceof Result result) {
         return graphFunction.execute(
             targetObjects,
-            entity,
+            result,
             null,
             paramValues.toArray(),
             ctx);

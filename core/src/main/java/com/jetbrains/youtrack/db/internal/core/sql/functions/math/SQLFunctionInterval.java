@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.functions.math;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLPredicate;
 
@@ -27,7 +27,7 @@ public class SQLFunctionInterval extends SQLFunctionMathAbstract {
   @SuppressWarnings({"rawtypes", "unchecked"})
   public Object execute(
       Object iThis,
-      final Identifiable iRecord,
+      final Result iRecord,
       final Object iCurrentResult,
       final Object[] iParams,
       CommandContext iContext) {

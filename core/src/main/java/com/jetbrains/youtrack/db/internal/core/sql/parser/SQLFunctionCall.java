@@ -5,7 +5,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -143,26 +142,22 @@ public class SQLFunctionCall extends SimpleNode {
       validateFunctionParams(ctx.getDatabaseSession(), function, paramValues);
 
       ctx.setVariable("aggregation", false);
-      if (record instanceof Identifiable) {
-        return function.execute(
-            targetObjects, (Identifiable) record, null, paramValues.toArray(), ctx);
-      } else if (record instanceof Result result) {
-        Entity entity = null;
-        if (result.isEntity()) {
-          entity = result.castToEntity();
-        }
-        return function.execute(
+      var session = ctx.getDatabaseSession();
+      return switch (record) {
+        case Identifiable identifiable ->
+            function.execute(targetObjects, identifiable.getEntity(session), null,
+                paramValues.toArray(),
+                ctx);
+        case Result result -> function.execute(
             targetObjects,
-            entity,
+            result,
             null,
             paramValues.toArray(),
             ctx);
-      } else if (record == null) {
-        return function.execute(targetObjects, null, null, paramValues.toArray(), ctx);
-      } else {
-        throw new CommandExecutionException(ctx.getDatabaseSession(),
-            "Invalid value for $current: " + record);
-      }
+        case null -> function.execute(targetObjects, null, null, paramValues.toArray(), ctx);
+        default ->
+            throw new CommandExecutionException(session, "Invalid value for $current: " + record);
+      };
     } else {
       throw new CommandExecutionException(ctx.getDatabaseSession(), "Funciton not found: " + name);
     }

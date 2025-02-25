@@ -141,11 +141,9 @@ public class CommandExecutorSQLLiveSelect extends CommandExecutorSQLSelect
     if (this.compiledFilter == null || this.compiledFilter.getRootCondition() == null) {
       return true;
     }
-    if (!(value instanceof EntityImpl)) {
-      value = value.getRecord(execDb);
-    }
+
     return !(Boolean.FALSE.equals(
-        compiledFilter.evaluate(value, (EntityImpl) value, getContext())));
+        compiledFilter.evaluate(value.getEntity(execDb), (EntityImpl) value, getContext())));
   }
 
   private boolean matchesTarget(Identifiable value) {

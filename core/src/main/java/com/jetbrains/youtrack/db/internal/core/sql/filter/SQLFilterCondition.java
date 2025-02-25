@@ -22,7 +22,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.filter;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.Collate;
@@ -31,18 +31,15 @@ import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.exception.QueryParsingException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.query.QueryRuntimeValueMulti;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.BinaryField;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.BytesContainer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
-import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionRuntime;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorMatches;
 import com.jetbrains.youtrack.db.internal.core.sql.query.SQLQuery;
@@ -79,14 +76,14 @@ public class SQLFilterCondition {
   }
 
   public Object evaluate(
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       final EntityImpl iCurrentResult,
       final CommandContext iContext) {
     var session = iContext.getDatabaseSession();
     var binaryEvaluation =
         operator != null && operator.isSupportingBinaryEvaluate()
             && session.getSerializer().getSupportBinaryEvaluate()
-            && iCurrentRecord != null
+            && iCurrentRecord != null && iCurrentRecord.isEntity()
             && iCurrentRecord.getIdentity().isPersistent();
 
     if (left instanceof SQLQuery<?>)
@@ -177,9 +174,13 @@ public class SQLFilterCondition {
 
     if (!binaryEvaluation) {
       // no collate for regular expressions, otherwise quotes will result in no match
-      final var collate =
-          operator instanceof QueryOperatorMatches ? null : getCollate(session, iCurrentRecord);
-      final var convertedValues = checkForConversion(session, iCurrentRecord, l, r, collate);
+      Collate collate = null;
+      if (iCurrentRecord.isEntity()) {
+        var entity = iCurrentRecord.castToEntity();
+        collate = operator instanceof QueryOperatorMatches ? null : getCollate(session, entity);
+      }
+
+      final var convertedValues = checkForConversion(session, l, r, collate);
       if (convertedValues != null) {
         l = convertedValues[0];
         r = convertedValues[1];
@@ -205,6 +206,7 @@ public class SQLFilterCondition {
       }
       result = Boolean.FALSE;
     }
+
 
     return result;
   }
@@ -406,7 +408,7 @@ public class SQLFilterCondition {
   }
 
   protected static Object evaluate(
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       final EntityImpl iCurrentResult,
       final Object iValue,
       final CommandContext iContext,
@@ -420,26 +422,16 @@ public class SQLFilterCondition {
     }
 
     var session = iContext.getDatabaseSession();
-    try {
-      if (iCurrentRecord != null) {
-        iCurrentRecord = iCurrentRecord.getRecord(session);
-        if (((RecordAbstract) iCurrentRecord).getInternalStatus()
-            == RecordElement.STATUS.NOT_LOADED) {
-          iCurrentRecord = session.bindToSession(iCurrentRecord);
+    if (iCurrentRecord != null && iCurrentRecord.isEntity()) {
+      var entity = iCurrentRecord.castToEntity();
+      if (binaryEvaluation
+          && iValue instanceof SQLFilterItemField
+          && !entity.isDirty()
+          && !entity.getIdentity().isTemporary()) {
+        final var bField = ((SQLFilterItemField) iValue).getBinaryField(session, entity);
+        if (bField != null) {
+          return bField;
         }
-      }
-    } catch (RecordNotFoundException ignore) {
-      return null;
-    }
-
-    if (binaryEvaluation
-        && iValue instanceof SQLFilterItemField
-        && iCurrentRecord != null
-        && !((EntityImpl) iCurrentRecord).isDirty()
-        && !iCurrentRecord.getIdentity().isTemporary()) {
-      final var bField = ((SQLFilterItemField) iValue).getBinaryField(session, iCurrentRecord);
-      if (bField != null) {
-        return bField;
       }
     }
 
@@ -452,16 +444,11 @@ public class SQLFilterCondition {
       return ((SQLFilterCondition) iValue).evaluate(iCurrentRecord, iCurrentResult, iContext);
     }
 
-    if (iValue instanceof SQLFunctionRuntime f) {
-      // STATELESS FUNCTION: EXECUTE IT
-      return f.execute(iCurrentRecord, iCurrentRecord, iCurrentResult, iContext);
-    }
-
     if (MultiValue.isMultiValue(iValue) && !Map.class.isAssignableFrom(iValue.getClass())) {
       final Iterable<?> multiValue = MultiValue.getMultiValueIterable(iValue);
 
       // MULTI VALUE: RETURN A COPY
-      final var result = new ArrayList<Object>(MultiValue.getSize(iValue));
+      final var result = new ArrayList<>(MultiValue.getSize(iValue));
 
       for (final var value : multiValue) {
         if (value instanceof SQLFilterItem) {
@@ -478,7 +465,7 @@ public class SQLFilterCondition {
   }
 
   private Object[] checkForConversion(
-      DatabaseSessionInternal session, final Identifiable o, Object l, Object r,
+      DatabaseSessionInternal session, Object l, Object r,
       final Collate collate) {
     Object[] result = null;
 

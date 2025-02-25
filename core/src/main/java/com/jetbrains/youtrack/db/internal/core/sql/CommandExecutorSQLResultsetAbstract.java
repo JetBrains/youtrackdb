@@ -22,7 +22,9 @@ package com.jetbrains.youtrack.db.internal.core.sql;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -464,7 +466,12 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
     if (compiledFilter == null) {
       return true;
     }
-    var evaluate = (Boolean) compiledFilter.evaluate(iRecord, null, iContext);
+
+    Boolean evaluate = null;
+    if (iRecord instanceof Entity entity) {
+      evaluate = (Boolean) compiledFilter.evaluate(entity, null, iContext);
+    }
+
     return evaluate != null && evaluate;
   }
 
@@ -473,7 +480,7 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
       // BIND CONTEXT VARIABLES
       for (var entry : let.entrySet()) {
         var varName = entry.getKey();
-        if (varName.startsWith("$")) {
+        if (!varName.isEmpty() && varName.charAt(0) == '$') {
           varName = varName.substring(1);
         }
 
@@ -494,16 +501,25 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
 
         } else {
           if (letValue instanceof SQLFunctionRuntime f) {
-            if (f.getFunction().aggregateResults()) {
-              f.execute(iRecord, iRecord, null, context);
-              varValue = f.getFunction().getResult();
+            if (iRecord instanceof Entity entity) {
+              if (f.getFunction().aggregateResults()) {
+                f.execute(iRecord, entity, null, context);
+                varValue = f.getFunction().getResult();
+
+              } else {
+                varValue = f.execute(iRecord, entity, null, context);
+              }
             } else {
-              varValue = f.execute(iRecord, iRecord, null, context);
+              throw new DatabaseException("Cannot evaluate function on non-entity record");
             }
           } else {
             if (letValue instanceof String) {
               var pred = new SQLPredicate(getContext(), ((String) letValue).trim());
-              varValue = pred.evaluate(iRecord, (EntityImpl) iRecord, context);
+              if (iRecord instanceof Entity entity) {
+                varValue = pred.evaluate(entity, (EntityImpl) iRecord, context);
+              } else {
+                throw new DatabaseException("Cannot evaluate predicate on non-entity record");
+              }
             } else {
               varValue = letValue;
             }

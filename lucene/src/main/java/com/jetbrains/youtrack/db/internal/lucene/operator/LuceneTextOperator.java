@@ -18,7 +18,8 @@ package com.jetbrains.youtrack.db.internal.lucene.operator;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
@@ -109,7 +110,7 @@ public class LuceneTextOperator extends QueryTargetOperator {
 
   @Override
   public Object evaluateRecord(
-      Identifiable iRecord,
+      Result iRecord,
       EntityImpl iCurrentResult,
       SQLFilterCondition iCondition,
       Object iLeft,
@@ -117,7 +118,7 @@ public class LuceneTextOperator extends QueryTargetOperator {
       CommandContext iContext,
       final EntitySerializer serializer) {
 
-    var index = involvedIndex(iContext.getDatabaseSession(), iRecord,
+    var index = involvedIndex(iContext.getDatabaseSession(), iRecord.castToEntity(),
         iCondition
     );
     if (index == null) {
@@ -221,10 +222,10 @@ public class LuceneTextOperator extends QueryTargetOperator {
   }
 
   protected LuceneFullTextIndex involvedIndex(
-      DatabaseSessionInternal session, Identifiable iRecord,
+      DatabaseSessionInternal session, Entity iRecord,
       SQLFilterCondition iCondition) {
     try {
-      EntityImpl doc = iRecord.getRecord(session);
+      var doc = (EntityImpl) iRecord;
       if (doc.getSchemaClassName() != null) {
         var cls = session.getMetadata().getSchemaInternal()
             .getClassInternal(doc.getSchemaClassName());

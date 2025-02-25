@@ -20,7 +20,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.filter;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.parser.BaseParser;
@@ -170,7 +170,7 @@ public abstract class SQLFilterItemAbstract implements SQLFilterItem {
   public abstract String getRoot(DatabaseSession session);
 
   public Object transformValue(
-      final Identifiable iRecord, @Nonnull final CommandContext iContext, Object ioResult) {
+      final Result iRecord, @Nonnull final CommandContext iContext, Object ioResult) {
     if (ioResult != null && operationsChain != null) {
       // APPLY OPERATIONS FOLLOWING THE STACK ORDER
       SQLMethodRuntime method = null;
@@ -213,5 +213,32 @@ public abstract class SQLFilterItemAbstract implements SQLFilterItem {
       }
     }
     return null;
+  }
+
+  public String asString(DatabaseSession session) {
+    final var buffer = new StringBuilder(128);
+    final var root = getRoot(session);
+    if (root != null) {
+      buffer.append(root);
+    }
+    if (operationsChain != null) {
+      for (var op : operationsChain) {
+        buffer.append('.');
+        buffer.append(op.getKey());
+        if (op.getValue() != null) {
+          final var values = op.getValue();
+          buffer.append('(');
+          var i = 0;
+          for (var v : values) {
+            if (i++ > 0) {
+              buffer.append(',');
+            }
+            buffer.append(v);
+          }
+          buffer.append(')');
+        }
+      }
+    }
+    return buffer.toString();
   }
 }

@@ -23,8 +23,7 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.parser.BaseParser;
@@ -79,7 +78,7 @@ public class SQLFunctionRuntime extends SQLFilterItemAbstract {
    */
   public Object execute(
       final Object iThis,
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       final Object iCurrentResult,
       @Nonnull final CommandContext iContext) {
     var session = iContext.getDatabaseSession();
@@ -110,7 +109,7 @@ public class SQLFunctionRuntime extends SQLFilterItemAbstract {
           final var pred = new SQLPredicate(iContext, text);
           runtimeParameters[i] =
               pred.evaluate(
-                  iCurrentRecord instanceof DBRecord ? iCurrentRecord : null,
+                  iCurrentRecord,
                   (EntityImpl) iCurrentResult,
                   iContext);
           // REPLACE ORIGINAL PARAM
@@ -120,7 +119,7 @@ public class SQLFunctionRuntime extends SQLFilterItemAbstract {
         runtimeParameters[i] =
             ((SQLPredicate) configuredParameters[i])
                 .evaluate(
-                    iCurrentRecord.getRecord(session),
+                    iCurrentRecord,
                     (iCurrentRecord instanceof EntityImpl ? (EntityImpl) iCurrentResult : null),
                     iContext);
       } else if (configuredParameters[i] instanceof String) {
@@ -171,11 +170,9 @@ public class SQLFunctionRuntime extends SQLFilterItemAbstract {
 
   @Override
   public Object getValue(
-      final Identifiable iRecord, Object iCurrentResult, CommandContext iContext) {
+      final Result iRecord, Object iCurrentResult, CommandContext iContext) {
     try {
-      final var current =
-          iRecord != null ? (EntityImpl) iRecord.getRecord(iContext.getDatabaseSession()) : null;
-      return execute(current, current, null, iContext);
+      return execute(iRecord, iRecord, null, iContext);
     } catch (RecordNotFoundException rnf) {
       return null;
     }

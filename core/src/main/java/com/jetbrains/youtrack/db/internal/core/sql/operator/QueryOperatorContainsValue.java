@@ -20,7 +20,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.operator;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
@@ -138,7 +138,7 @@ public class QueryOperatorContainsValue extends QueryOperatorEqualityNotNulls {
   @Override
   @SuppressWarnings("unchecked")
   protected boolean evaluateExpression(
-      final Identifiable iRecord,
+      final Result iRecord,
       final SQLFilterCondition iCondition,
       final Object iLeft,
       Object iRight,
@@ -160,12 +160,10 @@ public class QueryOperatorContainsValue extends QueryOperatorEqualityNotNulls {
       var fieldName =
           ((SQLFilterItemField) iCondition.getLeft()).getFieldChain().getItemName(0);
       if (fieldName != null) {
-        Object record = iRecord.getRecord(iContext.getDatabaseSession());
-        if (record instanceof EntityImpl) {
+        if (iRecord.isEntity()) {
           SchemaImmutableClass result = null;
-          if (record != null) {
-            result = ((EntityImpl) record).getImmutableSchemaClass(session);
-          }
+          var entity = iRecord.castToEntity();
+          result = ((EntityImpl) entity).getImmutableSchemaClass(session);
           var property =
               result
                   .getProperty(session, fieldName);

@@ -16,7 +16,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.method.misc;
 
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
@@ -40,7 +40,7 @@ public class SQLMethodFormat extends AbstractSQLMethod {
   @Override
   public Object execute(
       final Object iThis,
-      final Identifiable iRecord,
+      final Result iRecord,
       final CommandContext iContext,
       Object ioResult,
       final Object[] iParams) {

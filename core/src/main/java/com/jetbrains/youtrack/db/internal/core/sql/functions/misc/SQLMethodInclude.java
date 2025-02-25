@@ -83,7 +83,7 @@ public class SQLMethodInclude extends AbstractSQLMethod {
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
@@ -144,11 +144,11 @@ public class SQLMethodInclude extends AbstractSQLMethod {
           }
 
           for (var f : toInclude) {
-            ent.field(fieldName, entity.<Object>field(f));
+            ent.field(fieldName, entity.field(f));
           }
 
         } else {
-          ent.field(fieldName, entity.<Object>field(fieldName));
+          ent.field(fieldName, entity.field(fieldName));
         }
       }
     }

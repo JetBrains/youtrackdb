@@ -19,14 +19,13 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.filter;
 
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.query.QueryRuntimeValueMulti;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -54,24 +53,31 @@ public abstract class SQLFilterItemFieldMultiAbstract extends SQLFilterItemAbstr
   }
 
   public Object getValue(
-      final Identifiable iRecord, Object iCurrentResult, CommandContext iContext) {
-    final var entity = ((EntityImpl) iRecord);
+      final Result iRecord, Object iCurrentResult, CommandContext iContext) {
 
-    if (names.size() == 1) {
+    if (names.size() == 1 && iRecord.isEntity()) {
+      var entity = iRecord.castToEntity();
       return transformValue(
           iRecord, iContext,
-          EntityHelper.getIdentifiableValue(iContext.getDatabaseSession(), iRecord,
+          EntityHelper.getIdentifiableValue(iContext.getDatabaseSession(), entity,
               names.getFirst()));
     }
 
-    final var fieldNames = entity.fieldNames();
-    final var values = new Object[fieldNames.length];
+    final List<String> fieldNames;
+    var propertyNames = iRecord.getPropertyNames();
+    if (propertyNames instanceof List<String> list) {
+      fieldNames = list;
+    } else {
+      fieldNames = new ArrayList<>(propertyNames);
+    }
+
+    final var values = new Object[fieldNames.size()];
 
     collates.clear();
     var db = iContext.getDatabaseSession();
     for (var i = 0; i < values.length; ++i) {
-      values[i] = entity.field(fieldNames[i]);
-      collates.add(getCollateForField(db, clazz, fieldNames[i]));
+      values[i] = iRecord.getProperty(fieldNames.get(i));
+      collates.add(getCollateForField(db, clazz, fieldNames.get(i)));
     }
 
     if (hasChainOperators()) {

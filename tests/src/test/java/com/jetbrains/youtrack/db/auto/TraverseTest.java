@@ -16,8 +16,8 @@
 
 package com.jetbrains.youtrack.db.auto;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -289,7 +289,7 @@ public class TraverseTest extends BaseDBTest {
                 new CommandPredicate() {
                   @Override
                   public Object evaluate(
-                      Identifiable iRecord, EntityImpl iCurrentResult,
+                      Result iRecord, EntityImpl iCurrentResult,
                       CommandContext iContext) {
                     return ((Integer) iContext.getVariable("depth")) <= 2;
                   }

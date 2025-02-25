@@ -34,6 +34,7 @@ import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExportException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
@@ -445,7 +446,11 @@ public class SQLHelper {
     }
 
     if (iObject instanceof SQLFilterItem) {
-      return ((SQLFilterItem) iObject).getValue(iRecord, null, iContext);
+      if (iRecord instanceof Entity entity) {
+        return ((SQLFilterItem) iObject).getValue(entity, null, iContext);
+      } else {
+        throw new DatabaseExportException("Record is not an entity");
+      }
     } else if (iObject instanceof String) {
       final var s = ((String) iObject).trim();
       if (iRecord != null & !s.isEmpty()

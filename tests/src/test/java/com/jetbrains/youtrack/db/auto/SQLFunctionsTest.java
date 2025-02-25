@@ -20,6 +20,7 @@ import static org.junit.Assert.assertNotNull;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -473,7 +474,7 @@ public class SQLFunctionsTest extends BaseDBTest {
               @Override
               public Object execute(
                   Object iThis,
-                  Identifiable iCurrentRecord,
+                  Result iCurrentRecord,
                   Object iCurrentResult,
                   final Object[] iParams,
                   CommandContext iContext) {

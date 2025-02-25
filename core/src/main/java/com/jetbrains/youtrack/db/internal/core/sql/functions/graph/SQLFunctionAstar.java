@@ -78,7 +78,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
 
   public LinkedList<Vertex> execute(
       final Object iThis,
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       final Object iCurrentResult,
       final Object[] iParams,
       final CommandContext iContext) {
@@ -86,7 +86,8 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
     final var context = this;
 
     var db = iContext.getDatabaseSession();
-    var record = iCurrentRecord != null ? iCurrentRecord.getRecord(db) : null;
+    var record =
+        iCurrentRecord != null && iCurrentRecord.isRecord() ? iCurrentRecord.castToRecord() : null;
 
     var source = iParams[0];
     if (MultiValue.isMultiValue(source)) {

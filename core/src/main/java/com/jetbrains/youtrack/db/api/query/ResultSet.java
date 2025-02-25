@@ -162,8 +162,6 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
   /**
    * Returns the result set as a stream of vertices (filters only the results that are vertices -
    * where the isVertex() method returns true). IMPORTANT: the stream consumes the result set!
-   *
-   * @return
    */
   default Stream<Vertex> vertexStream() {
     return StreamSupport.stream(
