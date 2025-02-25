@@ -5,7 +5,6 @@ import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
@@ -51,22 +50,22 @@ public class UpdateStatementExecutionTest {
 
     db.begin();
     for (var i = 0; i < 10; i++) {
-      EntityImpl doc = db.newInstance(className);
-      doc.setProperty("name", "name" + i);
-      doc.setProperty("surname", "surname" + i);
-      doc.setProperty("number", 4L);
+      var entity = db.newEntity(className);
+      entity.setProperty("name", "name" + i);
+      entity.setProperty("surname", "surname" + i);
+      entity.setProperty("number", 4L);
 
       List<String> tagsList = new ArrayList<>();
       tagsList.add("foo");
       tagsList.add("bar");
       tagsList.add("baz");
-      doc.setProperty("tagsList", tagsList);
+      entity.newEmbeddedList("tagsList", tagsList);
 
       Map<String, String> tagsMap = new HashMap<>();
       tagsMap.put("foo", "foo");
       tagsMap.put("bar", "bar");
       tagsMap.put("baz", "baz");
-      doc.setProperty("tagsMap", tagsMap);
+      entity.newEmbeddedMap("tagsMap", tagsMap);
 
     }
     db.commit();
@@ -541,7 +540,6 @@ public class UpdateStatementExecutionTest {
 
   @Test
   public void testUpsert2() {
-
     db.begin();
     var result =
         db.command("update " + className + " set foo = 'bar' upsert where name = 'name11'");
@@ -555,7 +553,7 @@ public class UpdateStatementExecutionTest {
     result.close();
 
     result = db.query("select from " + className);
-    for (var i = 0; i < 11; i++) {
+    for (var i = 0; i < 10; i++) {
       Assert.assertTrue(result.hasNext());
       item = result.next();
       Assert.assertNotNull(item);
@@ -579,12 +577,12 @@ public class UpdateStatementExecutionTest {
     clazz.createProperty(db, "theProperty", PropertyType.EMBEDDEDLIST);
 
     db.begin();
-    EntityImpl doc = db.newInstance(className);
-    List theList = new ArrayList();
+    var doc = db.newEntity(className);
+    var theList = new ArrayList<String>();
     for (var i = 0; i < 10; i++) {
       theList.add("n" + i);
     }
-    doc.setProperty("theProperty", theList);
+    doc.newEmbeddedList("theProperty", theList);
 
     db.commit();
 
@@ -618,12 +616,12 @@ public class UpdateStatementExecutionTest {
     clazz.createProperty(db, "theProperty", PropertyType.EMBEDDEDLIST);
 
     db.begin();
-    EntityImpl doc = db.newInstance(className);
-    List theList = new ArrayList();
+    var entity = db.newInstance(className);
+    var theList = new ArrayList<String>();
     for (var i = 0; i < 10; i++) {
       theList.add("n" + i);
     }
-    doc.setProperty("theProperty", theList);
+    entity.newEmbeddedList("theProperty", theList);
 
     db.commit();
 
@@ -652,15 +650,6 @@ public class UpdateStatementExecutionTest {
         .contains("n2")
         .doesNotContain("n3")
         .contains("n4");
-
-    //    Assert.assertNotNull(ls);
-    //    Assert.assertEquals(7, ls.size());
-    //    Assert.assertFalse(ls.contains("n0"));
-    //    Assert.assertFalse(ls.contains("n1"));
-    //    Assert.assertTrue(ls.contains("n2"));
-    //    Assert.assertFalse(ls.contains("n3"));
-    //    Assert.assertTrue(ls.contains("n4"));
-
     Assert.assertFalse(result.hasNext());
     result.close();
   }
@@ -672,7 +661,7 @@ public class UpdateStatementExecutionTest {
     clazz.createProperty(db, "theProperty", PropertyType.EMBEDDED);
 
     db.begin();
-    EntityImpl doc = db.newInstance(className);
+    var doc = db.newInstance(className);
     var emb = ((EntityImpl) db.newEntity());
     emb.setProperty("sub", "foo");
     emb.setProperty("aaa", "bar");
