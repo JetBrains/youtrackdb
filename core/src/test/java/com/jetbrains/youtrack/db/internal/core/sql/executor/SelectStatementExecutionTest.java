@@ -25,11 +25,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.Assert;
 import org.junit.Ignore;
@@ -632,7 +634,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
           .close();
       Assert.fail();
     } catch (CommandExecutionException x) {
-
+      //ignore
     } catch (Exception e) {
       Assert.fail();
     }
@@ -647,7 +649,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.query("select [max(a), max(b), foo] from " + className).close();
       Assert.fail();
     } catch (CommandExecutionException x) {
-
+      //ignore
     } catch (Exception e) {
       Assert.fail();
     }
@@ -1136,10 +1138,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     var p = result.getExecutionPlan();
     Assert.assertNotNull(p);
-    var p2 = p;
-    Assert.assertTrue(p2 instanceof SelectExecutionPlan);
-    var plan = (SelectExecutionPlan) p2;
-    Assert.assertEquals(FetchFromIndexStep.class, plan.getSteps().get(0).getClass());
+    Assert.assertTrue(p instanceof SelectExecutionPlan);
+    var plan = (SelectExecutionPlan) p;
+    Assert.assertEquals(FetchFromIndexStep.class, plan.getSteps().getFirst().getClass());
     result.close();
   }
 
@@ -1172,10 +1173,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     var p = result.getExecutionPlan();
     Assert.assertNotNull(p);
-    var p2 = p;
-    Assert.assertTrue(p2 instanceof SelectExecutionPlan);
-    var plan = (SelectExecutionPlan) p2;
-    Assert.assertEquals(FetchFromIndexStep.class, plan.getSteps().get(0).getClass());
+    Assert.assertTrue(p instanceof SelectExecutionPlan);
+    var plan = (SelectExecutionPlan) p;
+    Assert.assertEquals(FetchFromIndexStep.class, plan.getSteps().getFirst().getClass());
     result.close();
     GlobalConfiguration.INDEX_ALLOW_MANUAL_INDEXES.setValue(oldAllowManual);
   }
@@ -1218,13 +1218,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     var p = result.getExecutionPlan();
     Assert.assertNotNull(p);
-    var p2 = p;
-    Assert.assertTrue(p2 instanceof SelectExecutionPlan);
-    var plan = (SelectExecutionPlan) p2;
-    Assert.assertEquals(FetchFromIndexStep.class, plan.getSteps().get(0).getClass());
+    Assert.assertTrue(p instanceof SelectExecutionPlan);
+    var plan = (SelectExecutionPlan) p;
+    Assert.assertEquals(FetchFromIndexStep.class, plan.getSteps().getFirst().getClass());
 
     Assert.assertEquals(
-        classNameExt + ".name", ((FetchFromIndexStep) plan.getSteps().get(0)).getIndexName());
+        classNameExt + ".name", ((FetchFromIndexStep) plan.getSteps().getFirst()).getIndexName());
     result.close();
   }
 
@@ -1263,11 +1262,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     var p = result.getExecutionPlan();
     Assert.assertNotNull(p);
-    var p2 = p;
-    Assert.assertTrue(p2 instanceof SelectExecutionPlan);
-    var plan = (SelectExecutionPlan) p2;
-    Assert.assertEquals(ParallelExecStep.class, plan.getSteps().get(0).getClass());
-    var parallel = (ParallelExecStep) plan.getSteps().get(0);
+    Assert.assertTrue(p instanceof SelectExecutionPlan);
+    var plan = (SelectExecutionPlan) p;
+    Assert.assertEquals(ParallelExecStep.class, plan.getSteps().getFirst().getClass());
+    var parallel = (ParallelExecStep) plan.getSteps().getFirst();
     Assert.assertEquals(2, parallel.getSubExecutionPlans().size());
     result.close();
   }
@@ -2005,8 +2003,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertNotNull(item);
     var one = item.getProperty("one");
     Assert.assertTrue(one instanceof List);
-    Assert.assertEquals(1, ((List) one).size());
-    var x = ((List) one).get(0);
+    Assert.assertEquals(1, ((List<?>) one).size());
+    var x = ((List<?>) one).getFirst();
     Assert.assertTrue(x instanceof Result);
     Assert.assertEquals(1, (Object) ((Result) x).getProperty("a"));
     result.close();
@@ -2189,10 +2187,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var counter = 0;
     while (resultSet.hasNext()) {
       var result = resultSet.next();
-      Iterable edge = result.getProperty("$x");
-      Iterator<Identifiable> iter = edge.iterator();
-      while (iter.hasNext()) {
-        Vertex toVertex = session.load(iter.next().getIdentity());
+      Iterable<Identifiable> edge = result.getProperty("$x");
+      for (var identifiable : edge) {
+        Vertex toVertex = session.load(identifiable.getIdentity());
         if (doc2Id.equals(toVertex.getIdentity())) {
           ++counter;
         }
@@ -2265,7 +2262,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Assert.assertNotNull(item.getProperty("iSeq"));
       Integer first = item.getProperty("i");
       Integer second = item.getProperty("iSeq");
-      Assert.assertTrue(first + second == 0 || second.intValue() % first.intValue() == 0);
+      Assert.assertTrue(first + second == 0 || second % first == 0);
     }
     Assert.assertFalse(result.hasNext());
     result.close();
@@ -2282,9 +2279,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
       doc.setProperty("i", i);
       List<Integer> iSeq = new ArrayList<>();
       iSeq.add(i);
-      iSeq.add(i * 2);
-      iSeq.add(i * 4);
-      doc.setProperty("iSeq", iSeq);
+      iSeq.add(i << 1);
+      iSeq.add(i << 2);
+      doc.newEmbeddedList("iSeq", iSeq);
 
       session.commit();
     }
@@ -2299,7 +2296,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Assert.assertNotNull(item.getProperty("iSeq"));
       Integer first = item.getProperty("i");
       Integer second = item.getProperty("iSeq");
-      Assert.assertTrue(first + second == 0 || second.intValue() % first.intValue() == 0);
+      Assert.assertTrue(first + second == 0 || second % first == 0);
     }
     Assert.assertFalse(result.hasNext());
     result.close();
@@ -2337,7 +2334,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var result = session.query("select from " + parent + " where name = 'name1'");
     printExecutionPlan(result);
     var plan = (InternalExecutionPlan) result.getExecutionPlan();
-    Assert.assertTrue(plan.getSteps().get(0) instanceof ParallelExecStep);
+    Assert.assertTrue(plan.getSteps().getFirst() instanceof ParallelExecStep);
     for (var i = 0; i < 2; i++) {
       Assert.assertTrue(result.hasNext());
       var item = result.next();
@@ -2382,7 +2379,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         session.query("select from " + parent + " where name = 'name1' and surname = 'surname1'");
     printExecutionPlan(result);
     var plan = (InternalExecutionPlan) result.getExecutionPlan();
-    Assert.assertTrue(plan.getSteps().get(0) instanceof ParallelExecStep);
+    Assert.assertTrue(plan.getSteps().getFirst() instanceof ParallelExecStep);
     for (var i = 0; i < 2; i++) {
       Assert.assertTrue(result.hasNext());
       var item = result.next();
@@ -2427,7 +2424,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     printExecutionPlan(result);
     var plan = (InternalExecutionPlan) result.getExecutionPlan();
     Assert.assertTrue(
-        plan.getSteps().get(0) instanceof FetchFromClassExecutionStep); // no index used
+        plan.getSteps().getFirst() instanceof FetchFromClassExecutionStep); // no index used
     for (var i = 0; i < 2; i++) {
       Assert.assertTrue(result.hasNext());
       var item = result.next();
@@ -2479,7 +2476,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     printExecutionPlan(result);
     var plan = (InternalExecutionPlan) result.getExecutionPlan();
     Assert.assertTrue(
-        plan.getSteps().get(0)
+        plan.getSteps().getFirst()
             instanceof
             FetchFromClassExecutionStep); // no index, because the superclass is not empty
     for (var i = 0; i < 2; i++) {
@@ -2542,7 +2539,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         session.query("select from " + parent + " where name = 'name1' and surname = 'surname1'");
     printExecutionPlan(result);
     var plan = (InternalExecutionPlan) result.getExecutionPlan();
-    Assert.assertTrue(plan.getSteps().get(0) instanceof ParallelExecStep);
+    Assert.assertTrue(plan.getSteps().getFirst() instanceof ParallelExecStep);
     for (var i = 0; i < 3; i++) {
       Assert.assertTrue(result.hasNext());
       var item = result.next();
@@ -2600,7 +2597,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         session.query("select from " + parent + " where name = 'name1' and surname = 'surname1'");
     printExecutionPlan(result);
     var plan = (InternalExecutionPlan) result.getExecutionPlan();
-    Assert.assertTrue(plan.getSteps().get(0) instanceof FetchFromClassExecutionStep);
+    Assert.assertTrue(plan.getSteps().getFirst() instanceof FetchFromClassExecutionStep);
     for (var i = 0; i < 3; i++) {
       Assert.assertTrue(result.hasNext());
       var item = result.next();
@@ -2946,6 +2943,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     result.close();
   }
 
+  @SuppressWarnings("ConstantValue")
   @Test
   public void testIndexPlusSort8() {
     var className = "testIndexPlusSort8";
@@ -2992,6 +2990,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     result.close();
   }
 
+  @SuppressWarnings("ConstantValue")
   @Test
   public void testIndexPlusSort9() {
     var className = "testIndexPlusSort9";
@@ -3036,6 +3035,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     result.close();
   }
 
+  @SuppressWarnings("ConstantValue")
   @Test
   public void testIndexPlusSort10() {
     var className = "testIndexPlusSort10";
@@ -3080,6 +3080,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     result.close();
   }
 
+  @SuppressWarnings("ConstantValue")
   @Test
   public void testIndexPlusSort11() {
     var className = "testIndexPlusSort11";
@@ -3124,6 +3125,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     result.close();
   }
 
+  @SuppressWarnings("ConstantValue")
   @Test
   public void testIndexPlusSort12() {
     var className = "testIndexPlusSort12";
@@ -3268,21 +3270,16 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Assert.assertTrue(result.hasNext());
       var item = result.next();
       Assert.assertNotNull(item);
-      var names = item.getProperty("names");
+      var names = item.<String>getEmbeddedList("names");
       if (names == null) {
         Assert.fail();
       }
-      if (names instanceof Collection) {
-        Assert.assertEquals(3, ((Collection) names).size());
-        var iter = ((Collection) names).iterator();
-        Assert.assertEquals("a", iter.next());
-        Assert.assertEquals("b", iter.next());
-        Assert.assertEquals("c", iter.next());
-      } else if (names.getClass().isArray()) {
-        Assert.assertEquals(3, Array.getLength(names));
-      } else {
-        Assert.fail();
-      }
+
+      Assert.assertEquals(3, names.size());
+      var iter = names.iterator();
+      Assert.assertEquals("a", iter.next());
+      Assert.assertEquals("b", iter.next());
+      Assert.assertEquals("c", iter.next());
     }
     Assert.assertFalse(result.hasNext());
     result.close();
@@ -3306,21 +3303,15 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Assert.assertTrue(result.hasNext());
       var item = result.next();
       Assert.assertNotNull(item);
-      var names = item.getProperty("names");
+      var names = item.<String>getEmbeddedList("names");
       if (names == null) {
         Assert.fail();
       }
-      if (names instanceof Collection) {
-        Assert.assertEquals(3, ((Collection) names).size());
-        var iter = ((Collection) names).iterator();
-        Assert.assertEquals("a", iter.next());
-        Assert.assertEquals("b", iter.next());
-        Assert.assertEquals("c", iter.next());
-      } else if (names.getClass().isArray()) {
-        Assert.assertEquals(3, Array.getLength(names));
-      } else {
-        Assert.fail();
-      }
+      Assert.assertEquals(3, names.size());
+      var iter = names.iterator();
+      Assert.assertEquals("a", iter.next());
+      Assert.assertEquals("b", iter.next());
+      Assert.assertEquals("c", iter.next());
     }
     Assert.assertFalse(result.hasNext());
     result.close();
@@ -3347,21 +3338,15 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Assert.assertTrue(result.hasNext());
       var item = result.next();
       Assert.assertNotNull(item);
-      var names = item.getProperty("names");
+      var names = item.<String>getEmbeddedList("names");
       if (names == null) {
         Assert.fail();
       }
-      if (names instanceof Collection) {
-        Assert.assertEquals(3, ((Collection) names).size());
-        var iter = ((Collection) names).iterator();
-        Assert.assertEquals("a", iter.next());
-        Assert.assertEquals("b", iter.next());
-        Assert.assertEquals("c", iter.next());
-      } else if (names.getClass().isArray()) {
-        Assert.assertEquals(3, Array.getLength(names));
-      } else {
-        Assert.fail();
-      }
+      Assert.assertEquals(3, (names).size());
+      var iter =  names.iterator();
+      Assert.assertEquals("a", iter.next());
+      Assert.assertEquals("b", iter.next());
+      Assert.assertEquals("c", iter.next());
     }
     Assert.assertFalse(result.hasNext());
     result.close();
@@ -3385,24 +3370,15 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Assert.assertTrue(result.hasNext());
       var item = result.next();
       Assert.assertNotNull(item);
-      var names = item.getProperty("names");
+      var names = item.<String>getEmbeddedList("names");
       if (names == null) {
         Assert.fail();
       }
-      if (names instanceof Collection) {
-        Assert.assertEquals(3, ((Collection) names).size());
-        var iter = ((Collection) names).iterator();
-        Assert.assertEquals("a", iter.next());
-        Assert.assertEquals("b", iter.next());
-        Assert.assertEquals("c", iter.next());
-      } else if (names.getClass().isArray()) {
-        Assert.assertEquals(3, Array.getLength(names));
-        Assert.assertEquals("a", Array.get(names, 0));
-        Assert.assertEquals("b", Array.get(names, 1));
-        Assert.assertEquals("c", Array.get(names, 2));
-      } else {
-        Assert.fail();
-      }
+      Assert.assertEquals(3, names.size());
+      var iter = names.iterator();
+      Assert.assertEquals("a", iter.next());
+      Assert.assertEquals("b", iter.next());
+      Assert.assertEquals("c", iter.next());
     }
     Assert.assertFalse(result.hasNext());
     result.close();
@@ -3477,9 +3453,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var result = session.query("select coll[='foo'] as filtered from " + className);
     Assert.assertTrue(result.hasNext());
     var item = result.next();
-    List res = item.getProperty("filtered");
+    var res = item.<String>getEmbeddedList("filtered");
     Assert.assertEquals(1, res.size());
-    Assert.assertEquals("foo", res.get(0));
+    Assert.assertEquals("foo", res.getFirst());
     result.close();
 
     result = session.query("select coll[<'ccc'] as filtered from " + className);
@@ -3501,7 +3477,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     item = result.next();
     res = item.getProperty("filtered");
     Assert.assertEquals(1, res.size());
-    Assert.assertEquals("bar", res.get(0));
+    Assert.assertEquals("bar", res.getFirst());
     result.close();
   }
 
@@ -4276,6 +4252,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         }
         Assert.fail();
       } catch (CommandExecutionException ex) {
+        //ignore
       }
     } finally {
       GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(oldValue);
@@ -4385,6 +4362,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
                 try {
                   Thread.sleep(5);
                 } catch (InterruptedException e) {
+                  //ignore
                 }
                 return null;
               }
@@ -4445,7 +4423,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       }
       Assert.fail();
     } catch (TimeoutException ex) {
-
+      //ignore
     }
 
     try (var result =
@@ -4861,13 +4839,13 @@ public class SelectStatementExecutionTest extends DbTestBase {
         session.query(unionAllEnginesQuery)
             .vertexStream()
             .map(oVertex -> oVertex.getProperty("name"))
-            .toArray();
-    Assert.assertArrayEquals(
-        Arrays.asList(
-                gasoline.getProperty("name"),
-                diesel.getProperty("name"),
-                microwave.getProperty("name"))
-            .toArray(),
-        engineNames);
+            .collect(Collectors.toSet());
+
+    var names = Arrays.asList(
+        gasoline.getProperty("name"),
+        diesel.getProperty("name"),
+        microwave.getProperty("name"));
+    Assert.assertEquals(names.size(), engineNames.size());
+    Assert.assertEquals(new HashSet<>(names), engineNames);
   }
 }

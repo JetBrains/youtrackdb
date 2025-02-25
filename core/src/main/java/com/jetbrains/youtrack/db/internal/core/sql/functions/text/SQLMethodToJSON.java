@@ -22,6 +22,8 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
 import java.util.Map;
 
@@ -57,19 +59,14 @@ public class SQLMethodToJSON extends AbstractSQLMethod {
     if (current instanceof Result result && result.isEntity()) {
       current = result.asEntity();
     }
+
+    var session = iContext.getDatabaseSession();
     if (current instanceof DBRecord record) {
-
-      if (record.isUnloaded()) {
-        record = iContext.getDatabaseSession().bindToSession(record);
-      }
-
       return iParams.length == 1 ? record.toJSON(format) : record.toJSON();
     } else if (current instanceof Map) {
 
-      final var entity = new EntityImpl(null);
       //noinspection unchecked
-      entity.updateFromMap((Map<String, Object>) current);
-      return iParams.length == 1 ? entity.toJSON(format) : entity.toJSON();
+      return RecordSerializerJackson.mapToJson((Map<String, Object>) current);
     } else if (MultiValue.isMultiValue(current)) {
       var builder = new StringBuilder();
       builder.append("[");

@@ -145,12 +145,9 @@ public class SQLMethodCall extends SimpleNode {
       Object val,
       List<Object> paramValues) {
     if (val instanceof Result result) {
-      if (result.isEntity()) {
-        val = result.castToEntity();
-      } else {
-        val = result;
-      }
+      val = result.asEntity();
     }
+
     return method.execute(
         targetObjects, (Identifiable) val, ctx, targetObjects, paramValues.toArray());
   }
