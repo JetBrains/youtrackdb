@@ -37,7 +37,6 @@ public class CreateVertexStatementTest {
   public void testSimpleCreate() {
     checkRightSyntax("create vertex");
     checkRightSyntax("create vertex V");
-    checkRightSyntax("create vertex x cluster t");
     checkWrongSyntax("create vertex V foo");
     checkRightSyntax("create vertex Foo (a) values (1)");
     checkRightSyntax("create vertex Foo (a) values ('1')");
@@ -70,13 +69,6 @@ public class CreateVertexStatementTest {
   public void testEmptyMapCreate() {
     checkRightSyntax("create vertex Foo set a = {}");
     checkRightSyntax("create vertex Foo SET a = { }");
-  }
-
-  @Test
-  public void testInsertIntoCluster() {
-    checkRightSyntax(
-        "create vertex cluster:default (equaledges, name, list) values ('yes', 'square', ['bottom',"
-            + " 'top','left','right'] )");
   }
 
   private void printTree(String s) {

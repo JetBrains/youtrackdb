@@ -445,6 +445,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void queryCollectionInNumbers() {
+    session.begin();
     var record = ((EntityImpl) session.newEntity("Animal"));
     record.field("name", "Cat");
 
@@ -452,9 +453,6 @@ public class SQLSelectTest extends AbstractSelectTest {
     rates.add(100);
     rates.add(200);
     record.field("rates", rates);
-
-    session.begin();
-    record.save("animal");
     session.commit();
 
     var result = executeQuery(
@@ -1437,10 +1435,8 @@ public class SQLSelectTest extends AbstractSelectTest {
   public void testBinaryClusterSelect() {
     session.command("create blob cluster binarycluster").close();
     session.reload();
-    var bytes = session.newBlob(new byte[]{1, 2, 3});
-
     session.begin();
-    session.save(bytes, "binarycluster");
+    session.newBlob(new byte[]{1, 2, 3});
     session.commit();
 
     var result = session.query("select from cluster:binarycluster");

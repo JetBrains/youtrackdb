@@ -19,7 +19,6 @@ import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.tx.RollbackException;
@@ -52,9 +51,7 @@ public class FrontendTransactionOptimisticTest extends BaseDBTest {
 
     session.begin();
 
-    var recordBytes = session.newBlob("This is the first version".getBytes());
-    ((RecordAbstract) recordBytes).save("binary");
-
+    session.newBlob("This is the first version".getBytes());
     session.rollback();
 
     Assert.assertEquals(session.countClusterElements("binary"), rec);
@@ -71,8 +68,6 @@ public class FrontendTransactionOptimisticTest extends BaseDBTest {
     session.begin();
 
     var recordBytes = session.newBlob("This is the first version".getBytes());
-    ((RecordAbstract) recordBytes).save("binary");
-
     session.commit();
 
     Assert.assertEquals(session.countClusterElements("binary"), tot + 1);
@@ -86,10 +81,8 @@ public class FrontendTransactionOptimisticTest extends BaseDBTest {
 
     var session2 = acquireSession();
     session.activateOnCurrentThread();
-    var record1 = session.newBlob("This is the first version".getBytes());
-
     session.begin();
-    ((RecordAbstract) record1).save("binary");
+    var record1 = session.newBlob("This is the first version".getBytes());
     session.commit();
 
     try {

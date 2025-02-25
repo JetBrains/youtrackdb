@@ -100,6 +100,7 @@ public class SQLMethodAsSetTest extends DbTestBase {
   public void testODocument() {
     // The expected behavior is to return a set with only the single
     // EntityImpl in it.
+    session.begin();
     var doc = ((EntityImpl) session.newEntity());
     doc.field("f1", 1);
     doc.field("f2", 2);
@@ -110,6 +111,7 @@ public class SQLMethodAsSetTest extends DbTestBase {
     expected.add(doc);
 
     assertEquals(result, expected);
+    session.rollback();
   }
 
   @Test

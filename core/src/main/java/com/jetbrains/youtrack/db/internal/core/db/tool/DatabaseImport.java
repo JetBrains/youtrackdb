@@ -1049,16 +1049,6 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
     }
     listener.onMessage("\nDone " + indexesToRebuild.size() + " indexes were rebuilt.");
     listener.onMessage("\nDone. Imported " + total + " clusters");
-
-    session.begin();
-    if (!session.exists(
-        new RecordId(session.getStorageInfo().getConfiguration().getIndexMgrRecordId()))) {
-      var indexEntity = new EntityImpl(session);
-      indexEntity.save(MetadataDefault.CLUSTER_INTERNAL_NAME);
-      session.getStorage().setIndexMgrRecordId(indexEntity.getIdentity().toString());
-    }
-    session.commit();
-
   }
 
   /**

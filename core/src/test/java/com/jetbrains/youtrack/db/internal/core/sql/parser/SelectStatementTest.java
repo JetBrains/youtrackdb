@@ -12,7 +12,6 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import org.junit.Assert;
 import org.junit.Ignore;
@@ -289,7 +288,7 @@ public class SelectStatementTest {
   public void testEscape1() {
     var result =
         checkRightSyntax(
-            "select from cluster:internal where \"\\u005C\\u005C\" = \"\\u005C\\u005C\" ");
+            "select from ouser where \"\\u005C\\u005C\" = \"\\u005C\\u005C\" ");
     assertTrue(result instanceof SQLSelectStatement);
   }
 
@@ -424,11 +423,6 @@ public class SelectStatementTest {
   public void testSlashInQuery() {
     checkRightSyntax("insert into test content {\"node_id\": \"MFmqvmht//sYYWB8=\"}");
     checkRightSyntax("insert into test content { \"node_id\": \"MFmqvmht\\/\\/GYsYYWB8=\"}");
-  }
-
-  @Test
-  public void testClusterList() {
-    checkRightSyntax("select from cluster:[foo,bar]");
   }
 
   @Test
@@ -626,11 +620,6 @@ public class SelectStatementTest {
   public void testInstanceOfE() {
     // issue #5212
     checkRightSyntax("select from Friend where @class instanceof 'E'");
-  }
-
-  @Test
-  public void testSelectFromClusterNumber() {
-    checkRightSyntax("select from cluster:12");
   }
 
   @Test

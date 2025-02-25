@@ -166,8 +166,6 @@ public class SystemDBImporter extends Thread {
             copy.setProperty("database", dbName);
 
             sysdb.activateOnCurrentThread();
-            sysdb.save(copy, DefaultAuditing.getClusterName(dbName));
-
             lastRID = entity.getIdentity().toString();
 
             count++;

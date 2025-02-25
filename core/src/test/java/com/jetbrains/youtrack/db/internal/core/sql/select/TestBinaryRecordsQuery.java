@@ -23,7 +23,7 @@ public class TestBinaryRecordsQuery extends DbTestBase {
   @Test
   public void testSelectBinary() {
     session.begin();
-    session.save(session.newBlob("blabla".getBytes()), "BlobCluster");
+    session.newBlob("blabla".getBytes());
     session.commit();
 
     var res = session.query("select from cluster:BlobCluster");
@@ -34,17 +34,17 @@ public class TestBinaryRecordsQuery extends DbTestBase {
   @Test
   public void testSelectRidBinary() {
     session.begin();
-    session.save(session.newBlob("blabla".getBytes()), "BlobCluster");
+    var blob = session.newBlob("blabla".getBytes());
     session.commit();
 
-    var res = session.query("select @rid from cluster:BlobCluster");
+    var res = session.query("select @rid from " + blob.getIdentity());
     assertEquals(1, res.stream().count());
   }
 
   @Test
   public void testDeleteBinary() {
     session.begin();
-    var rec = session.save(session.newBlob("blabla".getBytes()), "BlobCluster");
+    var rec = session.newBlob("blabla".getBytes());
     session.commit();
 
     session.begin();
@@ -63,7 +63,7 @@ public class TestBinaryRecordsQuery extends DbTestBase {
   @Test
   public void testSelectDeleteBinary() {
     session.begin();
-    var rec = session.save(session.newBlob("blabla".getBytes()), "BlobCluster");
+    var rec = session.newBlob("blabla".getBytes());
     session.commit();
 
     session.getMetadata().getSchema().createClass("RecordPointer");
@@ -91,8 +91,8 @@ public class TestBinaryRecordsQuery extends DbTestBase {
   @Test
   public void testDeleteFromSelectBinary() {
     session.begin();
-    var rec = session.save(session.newBlob("blabla".getBytes()), "BlobCluster");
-    var rec1 = session.save(session.newBlob("blabla".getBytes()), "BlobCluster");
+    var rec = session.newBlob("blabla".getBytes());
+    var rec1 = session.newBlob("blabla".getBytes());
     session.commit();
 
     session.getMetadata().getSchema().createClass("RecordPointer");

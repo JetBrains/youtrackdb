@@ -300,10 +300,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     return session;
   }
 
-  public void save(final String iClusterName) {
-    getSession().save(this, iClusterName);
-  }
-
   public void delete() {
     checkForBinding();
 

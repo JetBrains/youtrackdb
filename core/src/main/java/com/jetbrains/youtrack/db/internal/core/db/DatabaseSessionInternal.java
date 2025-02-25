@@ -861,17 +861,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    */
   int addCluster(String iClusterName, int iRequestedId);
 
-  /**
-   * Saves an entity in the specified cluster in synchronous mode. If the entity is not dirty, then
-   * the operation will be ignored. For custom entity implementations assure to set the entity as
-   * dirty. If the cluster does not exist, an error will be thrown.
-   *
-   * @param iObject      The entity to save
-   * @param iClusterName Name of the cluster where to save
-   * @return The saved entity.
-   */
-  <RET extends DBRecord> RET save(DBRecord iObject, String iClusterName);
-
   MetadataInternal getMetadata();
 
   void afterCommitOperations();

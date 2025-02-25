@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.select;
 
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
@@ -17,9 +18,9 @@ public class TestSqlEmbeddedResult extends DbTestBase {
     var doc = ((EntityImpl) session.newEntity("Test"));
     var doc1 = ((EntityImpl) session.newEntity());
     doc1.setProperty("format", 1);
-    Set<EntityImpl> docs = new HashSet<EntityImpl>();
+    Set<Identifiable> docs = new HashSet<>();
     docs.add(doc1);
-    doc.setProperty("rel", docs);
+    doc.newLinkSet("rel", docs);
     // doc
     session.commit();
 

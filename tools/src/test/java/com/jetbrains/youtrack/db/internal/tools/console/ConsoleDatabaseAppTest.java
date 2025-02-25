@@ -43,7 +43,7 @@ public class ConsoleDatabaseAppTest {
       db.addBlobCluster("blobTest");
 
       db.begin();
-      var record = db.save(db.newBlob("blobContent".getBytes()), "blobTest");
+      var record = db.newBlob("blobContent".getBytes());
       db.commit();
       builder.setLength(0);
       app.select(" from " + record.getIdentity() + " limit -1 ");

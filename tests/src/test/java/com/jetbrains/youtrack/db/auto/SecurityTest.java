@@ -75,7 +75,7 @@ public class SecurityTest extends BaseDBTest {
 
     try {
       session.begin();
-      (new EntityImpl(session)).save("internal");
+      session.newInternalInstance();
       session.commit();
 
       Assert.fail();

@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import static org.junit.Assert.fail;
 
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.ByteArrayInputStream;
@@ -49,11 +50,11 @@ public class DeleteStatementTest extends DbTestBase {
     final var doc2 = ((EntityImpl) session.newEntity("Foo")).field("k", "key2");
     final var doc3 = ((EntityImpl) session.newEntity("Foo")).field("k", "key3");
 
-    List<EntityImpl> list = new ArrayList<EntityImpl>();
+    List<Identifiable> list = new ArrayList<>();
     list.add(doc1);
     list.add(doc2);
     list.add(doc3);
-    final var bar = ((EntityImpl) session.newEntity("Bar")).field("arr", list);
+    final var bar = session.newEntity("Bar").newLinkList("arr", list);
 
     session.commit();
 

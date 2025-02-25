@@ -7,7 +7,6 @@ public class MoveVertexStatementTest extends ParserTestAbstract {
   @Test
   public void test() {
     checkRightSyntax("move vertex (select from V) to class:newposition");
-    checkRightSyntax("move vertex (select from V) to cluster:newposition");
     checkRightSyntax("move vertex (select from V) to class:newposition set name = 'a'");
     checkRightSyntax(
         "move vertex (select from V) to class:newposition set name = 'a', surname = 'b'");

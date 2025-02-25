@@ -409,11 +409,6 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
   }
 
   protected void saveRecord(final RecordAbstract rec) {
-    if (clusterName != null) {
-      rec.save(clusterName);
-    } else {
-
-    }
     saved.incrementAndGet();
   }
 

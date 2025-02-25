@@ -49,6 +49,7 @@ public class SQLFunctionDijkstraTest {
 
     graph.createEdgeClass("weight");
 
+    graph.begin();
     v1 = graph.newVertex();
     v2 = graph.newVertex();
     v3 = graph.newVertex();
@@ -59,7 +60,6 @@ public class SQLFunctionDijkstraTest {
     v3.setProperty("node_id", "C");
     v4.setProperty("node_id", "D");
 
-    graph.begin();
     var e1 = graph.newStatefulEdge(v1, v2, "weight");
     e1.setProperty("weight", 1.0f);
 

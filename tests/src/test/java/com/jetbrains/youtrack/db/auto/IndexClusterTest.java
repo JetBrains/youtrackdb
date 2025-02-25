@@ -39,8 +39,7 @@ public class IndexClusterTest extends BaseDBTest {
     session
         .newInstance(className)
         .field("key", "a")
-        .field("value", 2)
-        .save(className + "secondCluster");
+        .field("value", 2);
     session.commit();
 
     // when

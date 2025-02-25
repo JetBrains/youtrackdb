@@ -27,7 +27,6 @@ import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.DefaultSecuritySystem;
 import java.util.UUID;
 import java.util.function.BiFunction;
@@ -68,22 +67,6 @@ public class SystemDatabase {
         return callback.apply(result, session);
       }
     }
-  }
-
-  public EntityImpl save(final EntityImpl entity) {
-    return save(entity, null);
-  }
-
-  public EntityImpl save(final EntityImpl entity, final String clusterName) {
-    // BYPASS SECURITY
-    try (var session = openSystemDatabaseSession()) {
-      if (clusterName != null) {
-        return session.save(entity, clusterName);
-      } else {
-        return entity;
-      }
-    }
-
   }
 
   public void init() {

@@ -26,12 +26,16 @@ public class DepthFetchPlanTest extends DbTestBase {
 
     session.begin();
     doc = session.bindToSession(doc);
+    doc1 = session.bindToSession(doc1);
+
     doc1.field("name", "name1");
     doc1.field("ref", doc);
     session.commit();
 
     session.begin();
     doc1 = session.bindToSession(doc1);
+    doc2 = session.bindToSession(doc2);
+
     doc2.field("name", "name2");
     doc2.field("ref", doc1);
     session.commit();
@@ -59,12 +63,15 @@ public class DepthFetchPlanTest extends DbTestBase {
 
     session.begin();
     doc = session.bindToSession(doc);
+    doc1 = session.bindToSession(doc1);
+
     doc1.field("name", "name1");
     doc1.field("ref", doc);
     session.commit();
 
     session.begin();
     doc1 = session.bindToSession(doc1);
+    doc2 = session.bindToSession(doc2);
 
     doc2.field("name", "name2");
     doc2.field("ref", doc1);
@@ -72,6 +79,7 @@ public class DepthFetchPlanTest extends DbTestBase {
 
     session.begin();
     doc2 = session.bindToSession(doc2);
+    doc3 = session.bindToSession(doc3);
 
     doc3.field("name", "name2");
     doc3.field("ref", doc2);

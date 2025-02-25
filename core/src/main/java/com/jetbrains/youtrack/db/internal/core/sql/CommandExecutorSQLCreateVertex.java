@@ -150,11 +150,6 @@ public class CommandExecutorSQLCreateVertex extends CommandExecutorSQLSetAware
       ((EntityImpl) vertex.getRecord(session)).merge(content, true, false);
     }
 
-    if (clusterName != null) {
-      vertex.getBaseEntity().save(clusterName);
-    } else {
-    }
-
     return vertex.getRecord(session);
   }
 

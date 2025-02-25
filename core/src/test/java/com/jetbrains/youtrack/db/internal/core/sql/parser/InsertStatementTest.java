@@ -45,23 +45,6 @@ public class InsertStatementTest {
   }
 
   @Test
-  public void testInsertIntoCluster() {
-    checkRightSyntax(
-        "insert into cluster:default (equaledges, name, list) values ('yes', 'square', ['bottom',"
-            + " 'top','left','right'] )");
-    checkRightSyntax(
-        "insert into CLUSTER:default (equaledges, name, list) values ('yes', 'square', ['bottom',"
-            + " 'top','left','right'] )");
-
-    checkRightSyntax(
-        "insert into Foo cluster foo1 (equaledges, name, list) values ('yes', 'square', ['bottom',"
-            + " 'top','left','right'] )");
-    checkRightSyntax(
-        "insert into Foo CLUSTER foo1 (equaledges, name, list) values ('yes', 'square', ['bottom',"
-            + " 'top','left','right'] )");
-  }
-
-  @Test
   public void testInsertSelectTimeout() {
     checkRightSyntax("insert into foo return foo select from bar TIMEOUT 10 ");
     checkRightSyntax("insert into foo return foo select from bar TIMEOUT 10 return");

@@ -40,7 +40,6 @@ public class YouTrackDbCreationHelper {
     for (var i = 1; i <= documents; i++) {
       var doc = ((EntityImpl) db.newEntity("Item"));
       doc = createItem(i, doc);
-      ((DatabaseSessionInternal) db).save(doc, "Item");
     }
 
     createAuthorAndArticles(db, 50, 50);

@@ -24,7 +24,6 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.HighLevelException;
 import com.jetbrains.youtrack.db.api.exception.OfflineClusterException;
@@ -32,7 +31,6 @@ import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
-import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
@@ -1531,58 +1529,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
     return new RecordIteratorCluster<>(
         this, getClusterIdByName(iClusterName), startClusterPosition, endClusterPosition);
-  }
-
-  /**
-   * Saves a entity specifying a cluster where to store the record. Behavior depends by the current
-   * running transaction if any. If no transaction is running then changes apply immediately. If an
-   * Optimistic transaction is running then the record will be changed at commit time. The current
-   * transaction will continue to see the record as modified, while others not. If a Pessimistic
-   * transaction is running, then an exclusive lock is acquired against the record. Current
-   * transaction will continue to see the record as modified, while others cannot access to it since
-   * it's locked.
-   *
-   * @param record      Record to save
-   * @param clusterName Cluster name where to save the record
-   * @return The Database instance itself giving a "fluent interface". Useful to call multiple
-   * methods in chain.
-   * @throws ConcurrentModificationException if the version of the entity is different by the
-   *                                         version contained in the database.
-   * @throws ValidationException             if the entity breaks some validation constraints
-   *                                         defined in the schema
-   * @see #setMVCC(boolean), {@link #isMVCC()}, EntityImpl#validate()
-   */
-  @Override
-  public <RET extends DBRecord> RET save(DBRecord record, String clusterName) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-
-    if (clusterName != null && record instanceof EntityImpl entity
-        && entity.getSchemaClassName() != null) {
-      throw new DatabaseException(getDatabaseName(),
-          "Only entities without class name can be saved in predefined clusters");
-    }
-
-    if (record instanceof Edge edge) {
-      if (edge.isLightweight()) {
-        record = edge.getFrom();
-      }
-    }
-
-    //unwrap the record if wrapper is passed
-    record = record.getRecord(this);
-
-    if (record.isUnloaded()) {
-      throw new DatabaseException(getDatabaseName(),
-          "Record "
-              + record
-              + " is not bound to session, please call "
-              + DatabaseSession.class.getSimpleName()
-              + ".bindToSession(record) before save it");
-    }
-
-    return saveInternal((RecordAbstract) record, clusterName);
   }
 
   private <RET extends DBRecord> RET saveInternal(RecordAbstract record, String clusterName) {
