@@ -764,7 +764,17 @@ public class ResultInternal implements Result {
 
   public void setIdentifiable(Identifiable identifiable) {
     assert session == null || session.assertIfNotActive();
+
+    this.lightweightEdge = null;
     this.identifiable = identifiable;
+    this.content = null;
+  }
+
+  public void setLightweightEdge(Edge edge) {
+    assert session == null || session.assertIfNotActive();
+
+    this.identifiable = null;
+    this.lightweightEdge = edge;
     this.content = null;
   }
 

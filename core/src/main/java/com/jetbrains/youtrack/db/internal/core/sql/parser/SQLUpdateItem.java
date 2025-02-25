@@ -4,8 +4,11 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Direction;
+import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
@@ -14,8 +17,10 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.VertexInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -257,35 +262,81 @@ public class SQLUpdateItem extends SimpleNode {
   }
 
   private void applyOperation(
-      ResultInternal entity, SQLIdentifier attrName, Object rightValue, CommandContext ctx,
+      ResultInternal res, SQLIdentifier attrName, Object rightValue, CommandContext ctx,
       @Nullable SchemaProperty schemaProperty) {
     var session = ctx.getDatabaseSession();
     switch (operator) {
       case OPERATOR_EQ:
         var newValue = convertResultToDocument(rightValue);
-        newValue = convertToPropertyType(entity, attrName, newValue, ctx);
-        entity.setProperty(attrName.getStringValue(),
-            cleanPropertyValue(newValue, session, schemaProperty));
+        newValue = convertToPropertyType(res, attrName, newValue, ctx);
+        var propertyName = attrName.getStringValue();
+
+        if (res.isVertex() && VertexInternal.isEdgeProperty(propertyName)) {
+          throw new IllegalStateException("Cannot update edges by assigning properties directly.");
+        } else if (res.isEdge() && EdgeInternal.isEdgeConnectionProperty(propertyName)) {
+          var edge = res.castToEdge();
+
+          Vertex toVertex;
+          if (EdgeInternal.isInEdgeConnectionProperty(propertyName)) {
+            if (newValue instanceof Identifiable identifiable) {
+              toVertex = identifiable.getVertex(session);
+            } else {
+              throw new IllegalArgumentException(
+                  "Cannot assign a non-vertex to an edge connection");
+            }
+          } else {
+            toVertex = edge.getVertex(Direction.IN);
+          }
+          Vertex fromVertex;
+          if (EdgeInternal.isOutEdgeConnectionProperty(propertyName)) {
+            if (newValue instanceof Identifiable identifiable) {
+              fromVertex = identifiable.getVertex(session);
+            } else {
+              throw new IllegalArgumentException(
+                  "Cannot assign a non-vertex to an edge connection");
+            }
+          } else {
+            fromVertex = edge.getVertex(Direction.OUT);
+          }
+
+          if (edge.isStateful()) {
+            var statefulEdge = session.newStatefulEdge(fromVertex, toVertex, edge.getSchemaClass());
+            var entityImpl = (EntityImpl) statefulEdge.castToEntity();
+
+            entityImpl.movePropertiesFromOtherEntity((EntityImpl)
+                edge.castToStatefulEdge().castToEntity(), Edge.DIRECTION_IN, Edge.DIRECTION_OUT);
+            res.setIdentifiable(statefulEdge);
+          } else {
+            var lightweightEdge = session.newLightweightEdge(fromVertex, toVertex,
+                edge.getSchemaClass());
+            res.setLightweightEdge(lightweightEdge);
+          }
+
+          edge.delete();
+        } else {
+          res.setProperty(propertyName,
+              cleanPropertyValue(newValue, session, schemaProperty));
+        }
         break;
       case OPERATOR_MINUSASSIGN:
-        entity.setProperty(
+        res.setProperty(
             attrName.getStringValue(),
-            calculateNewValue(entity, ctx, SQLMathExpression.Operator.MINUS));
+            calculateNewValue(res, ctx, SQLMathExpression.Operator.MINUS));
         break;
       case OPERATOR_PLUSASSIGN:
-        entity.setProperty(
+        res.setProperty(
             attrName.getStringValue(),
-            calculateNewValue(entity, ctx, SQLMathExpression.Operator.PLUS));
+            calculateNewValue(res, ctx, SQLMathExpression.Operator.PLUS));
         break;
       case OPERATOR_SLASHASSIGN:
-        entity.setProperty(
+        res.setProperty(
             attrName.getStringValue(),
-            calculateNewValue(entity, ctx, SQLMathExpression.Operator.SLASH));
+            calculateNewValue(res, ctx, SQLMathExpression.Operator.SLASH));
         break;
       case OPERATOR_STARASSIGN:
-        entity.setProperty(
+        res.setProperty(
             attrName.getStringValue(),
-            calculateNewValue(entity, ctx, SQLMathExpression.Operator.STAR));
+            calculateNewValue(res, ctx, SQLMathExpression.Operator.STAR));
         break;
     }
   }

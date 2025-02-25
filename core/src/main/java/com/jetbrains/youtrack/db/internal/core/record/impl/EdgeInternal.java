@@ -5,19 +5,30 @@ import java.util.ArrayList;
 import java.util.Collection;
 
 public interface EdgeInternal extends Edge {
-
   static void checkPropertyName(String name) {
-    if (name.equals(DIRECTION_OUT) || name.equals(DIRECTION_IN)) {
+    if (isEdgeConnectionProperty(name)) {
       throw new IllegalArgumentException(
           "Property name " + name + " is booked as a name that can be used to manage edges.");
     }
+  }
+
+  static boolean isEdgeConnectionProperty(String name) {
+    return isOutEdgeConnectionProperty(name) || isInEdgeConnectionProperty(name);
+  }
+
+  static boolean isInEdgeConnectionProperty(String name) {
+    return name.equals(DIRECTION_IN);
+  }
+
+  static boolean isOutEdgeConnectionProperty(String name) {
+    return name.equals(DIRECTION_OUT);
   }
 
   static Collection<String> filterPropertyNames(Collection<String> propertyNames) {
     var propertiesToRemove = new ArrayList<String>();
 
     for (var propertyName : propertyNames) {
-      if (propertyName.equals(DIRECTION_IN) || propertyName.equals(DIRECTION_OUT)) {
+      if (isInEdgeConnectionProperty(propertyName) || isOutEdgeConnectionProperty(propertyName)) {
         propertiesToRemove.add(propertyName);
       }
     }

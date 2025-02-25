@@ -31,8 +31,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
     var propertiesToRemove = new ArrayList<String>();
 
     for (var propertyName : propertyNames) {
-      if (propertyName.startsWith(DIRECTION_IN_PREFIX)
-          || propertyName.startsWith(DIRECTION_OUT_PREFIX)) {
+      if (isEdgeProperty(propertyName)) {
         propertiesToRemove.add(propertyName);
       }
     }
@@ -48,8 +47,21 @@ public interface VertexInternal extends Vertex, EntityInternal {
     return propertyNames;
   }
 
+  static boolean isEdgeProperty(String propertyName) {
+    return isInEdgeProperty(propertyName)
+        || isOutEdgeProperty(propertyName);
+  }
+
+  static boolean isOutEdgeProperty(String propertyName) {
+    return propertyName.startsWith(DIRECTION_OUT_PREFIX);
+  }
+
+  static boolean isInEdgeProperty(String propertyName) {
+    return propertyName.startsWith(DIRECTION_IN_PREFIX);
+  }
+
   static void checkPropertyName(String name) {
-    if (name.startsWith(DIRECTION_OUT_PREFIX) || name.startsWith(DIRECTION_IN_PREFIX)) {
+    if (isOutEdgeProperty(name) || isInEdgeProperty(name)) {
       throw new IllegalArgumentException(
           "Property name " + name + " is booked as a name that can be used to manage edges.");
     }
@@ -82,10 +94,10 @@ public interface VertexInternal extends Vertex, EntityInternal {
 
   static boolean isConnectionToEdge(Direction direction, String propertyName) {
     return switch (direction) {
-      case OUT -> propertyName.startsWith(DIRECTION_OUT_PREFIX);
-      case IN -> propertyName.startsWith(DIRECTION_IN_PREFIX);
-      case BOTH -> propertyName.startsWith(DIRECTION_OUT_PREFIX)
-          || propertyName.startsWith(DIRECTION_IN_PREFIX);
+      case OUT -> isOutEdgeProperty(propertyName);
+      case IN -> isInEdgeProperty(propertyName);
+      case BOTH -> isOutEdgeProperty(propertyName)
+          || isInEdgeProperty(propertyName);
     };
   }
 
@@ -371,7 +383,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
 
     if (direction == Direction.OUT || direction == Direction.BOTH) {
       // FIELDS THAT STARTS WITH "out_"
-      if (fieldName.startsWith(DIRECTION_OUT_PREFIX)) {
+      if (isOutEdgeProperty(fieldName)) {
         if (classNames == null || classNames.length == 0) {
           return new Pair<>(Direction.OUT, getConnectionClass(Direction.OUT, fieldName));
         }
@@ -399,7 +411,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
 
     if (direction == Direction.IN || direction == Direction.BOTH) {
       // FIELDS THAT STARTS WITH "in_"
-      if (fieldName.startsWith(DIRECTION_IN_PREFIX)) {
+      if (isInEdgeProperty(fieldName)) {
         if (classNames == null || classNames.length == 0) {
           return new Pair<>(Direction.IN, getConnectionClass(Direction.IN, fieldName));
         }

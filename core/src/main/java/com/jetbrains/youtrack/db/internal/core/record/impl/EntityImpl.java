@@ -150,9 +150,7 @@ public class EntityImpl extends RecordAbstract
   }
 
   /**
-   * Creates a new instance by the raw stream usually read from the database. New instances are not
-   * persistent until {@link #save()} is called.
-   *
+   * Creates a new instance by the raw stream usually read from the database.
    * @param iSource Raw stream
    */
   @Deprecated
@@ -164,7 +162,7 @@ public class EntityImpl extends RecordAbstract
 
   /**
    * Creates a new instance in memory of the specified class, linked by the Record Id to the
-   * persistent one. New instances are not persistent until {@link #save()} is called.
+   * persistent one.
    *
    * @param iClassName Class name
    * @param recordId   Record Id
@@ -198,9 +196,7 @@ public class EntityImpl extends RecordAbstract
 
 
   /**
-   * Creates a new instance in memory of the specified class. New instances are not persistent until
-   * {@link #save()} is called.
-   *
+   * Creates a new instance in memory of the specified class.
    * @param session    the session the instance will be attached to
    * @param iClassName Class name
    */
@@ -212,9 +208,7 @@ public class EntityImpl extends RecordAbstract
   }
 
   /**
-   * Creates a new instance in memory of the specified schema class. New instances are not
-   * persistent until {@link #save()} is called. The database reference is taken from the thread
-   * local.
+   * Creates a new instance in memory of the specified schema class.
    *
    * @param iClass SchemaClass instance
    */
@@ -1060,9 +1054,10 @@ public class EntityImpl extends RecordAbstract
    * <code>RidBag</code>. Only embedded <code>RidBag</code>s are compared but tree based are
    * always assigned to avoid performance overhead.
    *
-   * @param from Entity from which properties are copied.
+   * @param from    Entity from which properties are moved.
+   * @param exclude Field names to exclude from move.
    */
-  public void movePropertiesFromOtherEntity(@Nonnull EntityImpl from) {
+  public void movePropertiesFromOtherEntity(@Nonnull EntityImpl from, String... exclude) {
     checkForFields();
     from.checkForFields();
 
@@ -1072,14 +1067,24 @@ public class EntityImpl extends RecordAbstract
 
     var fromFields = new HashMap<>(from.fields);
     var sameCluster = from.recordId.getClusterId() == recordId.getClusterId();
+    var excludeSet = new HashSet<String>();
+
+    if (exclude.length > 0) {
+      Collections.addAll(excludeSet, exclude);
+    }
 
     for (var mapEntry : fromFields.entrySet()) {
       if (mapEntry.getValue().exists()) {
+        var propertyName = mapEntry.getKey();
+        if (excludeSet.contains(propertyName)) {
+          continue;
+        }
+
         var fromEntry = mapEntry.getValue();
         var currentEntry = fields.get(mapEntry.getKey());
         var currentValue = currentEntry != null ? currentEntry.value : null;
         var fromValue = fromEntry.value;
-        var propertyName = mapEntry.getKey();
+
         var fromType = fromEntry.type;
 
         from.removeProperty(mapEntry.getKey());

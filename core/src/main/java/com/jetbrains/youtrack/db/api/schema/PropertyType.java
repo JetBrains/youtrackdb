@@ -231,6 +231,7 @@ public enum PropertyType {
    * @param iClass Class to check
    * @return PropertyType instance if found, otherwise null
    */
+  @Nullable
   public static PropertyType getTypeByClass(final Class<?> iClass) {
     if (iClass == null) {
       return null;
@@ -357,7 +358,7 @@ public enum PropertyType {
    */
   @SuppressWarnings({"unchecked", "rawtypes"})
   public static <T> T convert(@Nullable DatabaseSessionInternal session, final Object value,
-      final Class<? extends T> targetClass) {
+      Class<? extends T> targetClass) {
     if (value == null) {
       return null;
     }
@@ -838,6 +839,14 @@ public enum PropertyType {
                     targetClass)),
             e, session.getDatabaseName());
       };
+    }
+
+    var type = getTypeByClass(targetClass);
+    if (type != null) {
+      var typeClass = type.javaDefaultType;
+      if (typeClass != targetClass && typeClass.isAssignableFrom(targetClass)) {
+        return (T) convert(session, value, typeClass);
+      }
     }
 
     throw new DatabaseException(session != null ? session.getDatabaseName() : null,
