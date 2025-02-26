@@ -185,7 +185,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       this.transactionMeters = new TransactionMeters(
           metrics.databaseMetric(CoreMetrics.TRANSACTION_RATE, getName()),
           metrics.databaseMetric(CoreMetrics.TRANSACTION_WRITE_RATE, getName()),
-          metrics.databaseMetric(CoreMetrics.TRANSACTION_ROLLBACK_RATE, getName())
+          metrics.databaseMetric(CoreMetrics.TRANSACTION_WRITE_ROLLBACK_RATE, getName())
       );
 
     } catch (Exception t) {

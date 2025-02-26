@@ -387,7 +387,7 @@ public class TransactionOptimistic extends FrontendTransactionAbstract implement
 
     if (isWriteTransaction()) {
       database.transactionMeters()
-          .rollbackTransactions()
+          .writeRollbackTransactions()
           .record();
     }
 

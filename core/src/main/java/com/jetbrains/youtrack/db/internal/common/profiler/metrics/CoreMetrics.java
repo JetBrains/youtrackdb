@@ -125,11 +125,11 @@ public class CoreMetrics {
           )
       );
 
-  public static final MetricDefinition<MetricScope.Database, TimeRate> TRANSACTION_ROLLBACK_RATE =
+  public static final MetricDefinition<MetricScope.Database, TimeRate> TRANSACTION_WRITE_ROLLBACK_RATE =
       new MetricDefinition<>(
-          "TransactionRollbackRate",
-          "Transaction Rollback Rate",
-          "The rate of transaction rollbacks (per second) for the last 60 seconds",
+          "TransactionWriteRollbackRate",
+          "Transaction Write Rollback Rate",
+          "The rate of write transaction rollbacks (per second) for the last 60 seconds",
           MetricType.rate(
               TimeInterval.of(60, TimeUnit.SECONDS),
               TimeInterval.of(1, TimeUnit.SECONDS),
@@ -147,7 +147,7 @@ public class CoreMetrics {
       DATABASE_SYNCH_DURATION,
       TRANSACTION_RATE,
       TRANSACTION_WRITE_RATE,
-      TRANSACTION_ROLLBACK_RATE
+      TRANSACTION_WRITE_ROLLBACK_RATE
   );
 
   // ===================== CLASS (disabled for now) ===================== //
