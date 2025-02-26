@@ -113,15 +113,17 @@ public class ClassTest extends BaseMemoryInternalDatabase {
   }
 
   private String queryShortName() {
-    var selectShortNameSQL =
-        "select shortName from ( select expand(classes) from metadata:schema )"
-            + " where name = \""
-            + SHORTNAME_CLASS_NAME
-            + "\"";
-    try (var result = session.query(selectShortNameSQL)) {
-      String name = result.next().getProperty("shortName");
-      assertFalse(result.hasNext());
-      return name;
-    }
+    return session.computeInTx(() -> {
+      var selectShortNameSQL =
+          "select shortName from ( select expand(classes) from metadata:schema )"
+              + " where name = \""
+              + SHORTNAME_CLASS_NAME
+              + "\"";
+      try (var result = session.query(selectShortNameSQL)) {
+        String name = result.next().getProperty("shortName");
+        assertFalse(result.hasNext());
+        return name;
+      }
+    });
   }
 }

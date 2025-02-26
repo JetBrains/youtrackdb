@@ -30,6 +30,7 @@ import com.jetbrains.youtrack.db.internal.core.security.AuditingOperation;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -304,7 +305,8 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
         clazz = entity.getImmutableSchemaClass((DatabaseSessionInternal) session);
       }
 
-      if (clazz.isUser() && Arrays.asList(entity.getDirtyProperties()).contains("password")) {
+      if (clazz.isUser() && Collections.singletonList(entity.getCallbackDirtyProperties())
+          .contains("password")) {
         String name = entity.getProperty("name");
         var message = String.format("The password for user '%s' has been changed", name);
         log(session, AuditingOperation.CHANGED_PWD, session.getDatabaseName(),
@@ -365,10 +367,10 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
         if (iRecord instanceof EntityImpl entity && cfg.onUpdateChanges) {
           changes = new EntityImpl((DatabaseSessionInternal) db);
 
-          for (var f : entity.getDirtyProperties()) {
+          for (var f : entity.getCallbackDirtyProperties()) {
             var fieldChanges = new EntityImpl(null);
             fieldChanges.field("from", entity.getOriginalValue(f));
-            fieldChanges.field("to", (Object) entity.rawField(f));
+            fieldChanges.field("to", entity.rawField(f));
             changes.field(f, fieldChanges, PropertyType.EMBEDDED);
           }
         }

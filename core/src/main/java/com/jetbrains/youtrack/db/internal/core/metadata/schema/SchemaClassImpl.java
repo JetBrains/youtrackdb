@@ -1322,24 +1322,24 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
     final var strictSQL =
         ((DatabaseSessionInternal) database).getStorageInfo().getConfiguration().isStrictSql();
 
-    try (var result =
-        database.query(
-            "select from "
-                + getEscapedName(name, strictSQL)
-                + " where "
-                + getEscapedName(propertyName, strictSQL)
-                + ".type() <> \""
-                + type.name()
-                + "\"")) {
-      while (result.hasNext()) {
-        database.executeInTx(
-            () -> {
-              var record =
-                  database.bindToSession((EntityImpl) result.next().castToEntity());
-              record.field(propertyName, record.field(propertyName), type);
-            });
+    var recordsToUpdate = database.computeInTx(() -> {
+      try (var result =
+          database.query(
+              "select from "
+                  + getEscapedName(name, strictSQL)
+                  + " where "
+                  + getEscapedName(propertyName, strictSQL)
+                  + ".type() <> \""
+                  + type.name()
+                  + "\"")) {
+        return result.toRidList();
       }
-    }
+    });
+
+    database.executeInTxBatches(recordsToUpdate, (s, rid) -> {
+      var entity = (EntityImpl) s.loadEntity(rid);
+      entity.setPropertyInternal(propertyName, entity.getPropertyInternal(propertyName), type);
+    });
   }
 
   public void firePropertyNameMigration(
@@ -1350,34 +1350,35 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
     final var strictSQL =
         ((DatabaseSessionInternal) database).getStorageInfo().getConfiguration().isStrictSql();
 
-    try (var result =
-        database.query(
-            "select from "
-                + getEscapedName(name, strictSQL)
-                + " where "
-                + getEscapedName(propertyName, strictSQL)
-                + " is not null ")) {
-      while (result.hasNext()) {
-        database.executeInTx(
-            () -> {
-              var record =
-                  database.bindToSession((EntityImpl) result.next().castToEntity());
-              record.setFieldType(propertyName, type);
-              record.field(newPropertyName, record.field(propertyName), type);
-            });
+    var ridsToMigrate = database.computeInTx(() -> {
+      try (var result =
+          database.query(
+              "select from "
+                  + getEscapedName(name, strictSQL)
+                  + " where "
+                  + getEscapedName(propertyName, strictSQL)
+                  + " is not null ")) {
+        return result.toRidList();
       }
-    }
+    });
+
+    database.executeInTxBatches(ridsToMigrate, (s, rid) -> {
+      var entity = (EntityImpl) s.loadEntity(rid);
+      entity.setFieldType(propertyName, type);
+      entity.setPropertyInternal(newPropertyName, entity.getPropertyInternal(propertyName),
+          type);
+    });
   }
 
   public void checkPersistentPropertyType(
-      final DatabaseSessionInternal database,
+      final DatabaseSessionInternal session,
       final String propertyName,
       final PropertyType type,
       SchemaClass linkedClass) {
     if (PropertyType.ANY.equals(type)) {
       return;
     }
-    final var strictSQL = database.getStorageInfo().getConfiguration().isStrictSql();
+    final var strictSQL = session.getStorageInfo().getConfiguration().isStrictSql();
 
     final var builder = new StringBuilder(256);
     builder.append("select from ");
@@ -1404,21 +1405,23 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
           .append(".size() <> 0 limit 1");
     }
 
-    try (final var res = database.command(builder.toString())) {
-      if (res.hasNext()) {
-        throw new SchemaException(database.getDatabaseName(),
-            "The database contains some schema-less data in the property '"
-                + name
-                + "."
-                + propertyName
-                + "' that is not compatible with the type "
-                + type
-                + ". Fix those records and change the schema again");
+    session.executeInTx(() -> {
+      try (final var res = session.query(builder.toString())) {
+        if (res.hasNext()) {
+          throw new SchemaException(session.getDatabaseName(),
+              "The database contains some schema-less data in the property '"
+                  + name
+                  + "."
+                  + propertyName
+                  + "' that is not compatible with the type "
+                  + type
+                  + ". Fix those records and change the schema again");
+        }
       }
-    }
+    });
 
     if (linkedClass != null) {
-      checkAllLikedObjects(database, propertyName, type, linkedClass);
+      checkAllLikedObjects(session, propertyName, type, linkedClass);
     }
   }
 

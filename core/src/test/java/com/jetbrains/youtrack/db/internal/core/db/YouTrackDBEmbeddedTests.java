@@ -103,9 +103,11 @@ public class YouTrackDBEmbeddedTests {
       Runnable acquirer =
           () -> {
             try (var db = pool.acquire()) {
-              assertThat(db.isActiveOnCurrentThread()).isTrue();
-              final var res = db.query("SELECT * FROM OUser");
-              assertThat(res).hasSize(1); // Only 'admin' created in this test
+              db.executeInTx(() -> {
+                assertThat(db.isActiveOnCurrentThread()).isTrue();
+                final var res = db.query("SELECT * FROM OUser");
+                assertThat(res).hasSize(1); // Only 'admin' created in this test
+              });
             }
           };
 

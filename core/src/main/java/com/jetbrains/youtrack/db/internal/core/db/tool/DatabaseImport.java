@@ -23,6 +23,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jetbrains.youtrack.db.api.DatabaseSession.STATUS;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
@@ -1232,8 +1233,6 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
   }
 
   private void importRecords(Schema beforeImportSchemaSnapshot) throws Exception {
-    long total = 0;
-
     final Schema schema = session.getMetadata().getSchema();
     if (schema.getClass(EXPORT_IMPORT_CLASS_NAME) != null) {
       schema.dropClass(EXPORT_IMPORT_CLASS_NAME);
@@ -1241,77 +1240,86 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
     final var cls = schema.createClass(EXPORT_IMPORT_CLASS_NAME);
     cls.createProperty(session, "key", PropertyType.STRING);
     cls.createProperty(session, "value", PropertyType.STRING);
-
-    jsonReader.readNext(JSONReader.BEGIN_COLLECTION);
-
-    long totalRecords = 0;
-
-    listener.onMessage("\n\nImporting records...");
-
-    // the only security records are left at this moment so we need to overwrite them
-    // and then remove left overs
-    final var recordsBeforeImport = new HashSet<RID>();
-
-    for (final var clusterName : session.getClusterNames()) {
-      final Iterator<DBRecord> recordIterator = session.browseCluster(clusterName);
-      while (recordIterator.hasNext()) {
-        recordsBeforeImport.add(recordIterator.next().getIdentity());
-      }
-    }
-
-    RID rid;
-    RID lastRid = new ChangeableRecordId();
     final var begin = System.currentTimeMillis();
-    long lastLapRecords = 0;
-    var last = begin;
-    Set<String> involvedClusters = new HashSet<>();
 
-    LogManager.instance().debug(this, "Detected exporter version " + exporterVersion + ".");
-    while (jsonReader.lastChar() != ']') {
-      rid = importRecord(recordsBeforeImport, beforeImportSchemaSnapshot);
+    var tr = session.computeInTx(() -> {
+      long totalRecords = 0;
+      try {
+        long total = 0;
+        jsonReader.readNext(JSONReader.BEGIN_COLLECTION);
 
-      total++;
-      if (rid != null) {
-        ++lastLapRecords;
-        ++totalRecords;
+        listener.onMessage("\n\nImporting records...");
 
-        if (rid.getClusterId() != lastRid.getClusterId() || involvedClusters.isEmpty()) {
-          involvedClusters.add(session.getClusterNameById(rid.getClusterId()));
+        // the only security records are left at this moment so we need to overwrite them
+        // and then remove left overs
+        final var recordsBeforeImport = new HashSet<RID>();
+
+        for (final var clusterName : session.getClusterNames()) {
+          final Iterator<DBRecord> recordIterator = session.browseCluster(clusterName);
+          while (recordIterator.hasNext()) {
+            recordsBeforeImport.add(recordIterator.next().getIdentity());
+          }
         }
-        lastRid = rid;
+
+        RID rid;
+        RID lastRid = new ChangeableRecordId();
+
+        long lastLapRecords = 0;
+        var last = begin;
+        Set<String> involvedClusters = new HashSet<>();
+
+        LogManager.instance().debug(this, "Detected exporter version " + exporterVersion + ".");
+        while (jsonReader.lastChar() != ']') {
+          rid = importRecord(recordsBeforeImport, beforeImportSchemaSnapshot);
+
+          total++;
+          if (rid != null) {
+            ++lastLapRecords;
+            ++totalRecords;
+
+            if (rid.getClusterId() != lastRid.getClusterId() || involvedClusters.isEmpty()) {
+              involvedClusters.add(session.getClusterNameById(rid.getClusterId()));
+            }
+            lastRid = rid;
+          }
+
+          final var now = System.currentTimeMillis();
+          if (now - last > IMPORT_RECORD_DUMP_LAP_EVERY_MS) {
+            final List<String> sortedClusters = new ArrayList<>(involvedClusters);
+            Collections.sort(sortedClusters);
+
+            listener.onMessage(
+                String.format(
+                    "\n"
+                        + "- Imported %,d records into clusters: %s. Total JSON records imported so for"
+                        + " %,d .Total records imported so far: %,d (%,.2f/sec)",
+                    lastLapRecords,
+                    total,
+                    sortedClusters.size(),
+                    totalRecords,
+                    (float) lastLapRecords * 1000 / (float) IMPORT_RECORD_DUMP_LAP_EVERY_MS));
+
+            // RESET LAP COUNTERS
+            last = now;
+            lastLapRecords = 0;
+            involvedClusters.clear();
+          }
+        }
+
+        // remove all records which were absent in new database but
+        // exist in old database
+        for (final var leftOverRid : recordsBeforeImport) {
+          var record = session.load(leftOverRid);
+          session.delete(record);
+        }
+      } catch (Exception e) {
+        listener.onMessage("ERROR: " + e);
+        throw BaseException.wrapException(new DatabaseImportException("Error on importing records"),
+            e, session);
       }
 
-      final var now = System.currentTimeMillis();
-      if (now - last > IMPORT_RECORD_DUMP_LAP_EVERY_MS) {
-        final List<String> sortedClusters = new ArrayList<>(involvedClusters);
-        Collections.sort(sortedClusters);
-
-        listener.onMessage(
-            String.format(
-                "\n"
-                    + "- Imported %,d records into clusters: %s. Total JSON records imported so for"
-                    + " %,d .Total records imported so far: %,d (%,.2f/sec)",
-                lastLapRecords,
-                total,
-                sortedClusters.size(),
-                totalRecords,
-                (float) lastLapRecords * 1000 / (float) IMPORT_RECORD_DUMP_LAP_EVERY_MS));
-
-        // RESET LAP COUNTERS
-        last = now;
-        lastLapRecords = 0;
-        involvedClusters.clear();
-      }
-    }
-
-    // remove all records which were absent in new database but
-    // exist in old database
-    for (final var leftOverRid : recordsBeforeImport) {
-      session.executeInTx(() -> {
-        var record = session.load(leftOverRid);
-        session.delete(record);
-      });
-    }
+      return totalRecords;
+    });
 
     session.getMetadata().reload();
 
@@ -1321,10 +1329,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
     listener.onMessage(
         String.format(
             "\n\nDone. Imported %,d records in %,.2f secs\n",
-            totalRecords, ((float) (System.currentTimeMillis() - begin)) / 1000));
+            tr, ((float) (System.currentTimeMillis() - begin)) / 1000));
 
     jsonReader.readNext(JSONReader.COMMA_SEPARATOR);
-
   }
 
   private void importIndexes() throws IOException, ParseException {

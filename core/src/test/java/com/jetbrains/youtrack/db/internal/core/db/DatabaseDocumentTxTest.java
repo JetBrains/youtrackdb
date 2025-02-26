@@ -152,9 +152,11 @@ public class DatabaseDocumentTxTest extends DbTestBase {
 
     session.commit();
 
+    session.begin();
     try (var result = session.query("select from testDocFromJsonEmbedded_Class0")) {
       Assert.assertEquals(0, result.stream().count());
     }
+
 
     try (var result = session.query("select from testDocFromJsonEmbedded_Class1")) {
       Assert.assertTrue(result.hasNext());
@@ -163,6 +165,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
       Assert.assertEquals("testDocFromJsonEmbedded_Class0", meta.getSchemaClassName());
       Assert.assertEquals("0:0:0:0:0:0:0:1", meta.field("ip"));
     }
+    session.commit();
   }
 
   @Test
@@ -226,6 +229,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     doc2.setProperty("linked", doc1);
     session.commit();
 
+    session.begin();
     try (var rs = session.query("SELECT FROM " + className + " WHERE name = 'b'")) {
       Assert.assertTrue(rs.hasNext());
       var res = rs.next();
@@ -236,6 +240,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
 
       Assert.assertTrue(res.asEntity().getProperty("linked") instanceof Vertex);
     }
+    session.commit();
   }
 
   @Test
@@ -258,6 +263,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     session.newStatefulEdge(session.bindToSession(doc1), doc2, "testEdge");
     session.commit();
 
+    session.begin();
     try (var rs = session.query("SELECT out() as o FROM " + vertexClass)) {
       Assert.assertTrue(rs.hasNext());
       var res = rs.next();
@@ -266,6 +272,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
       Assert.assertTrue(linkedVal instanceof Collection);
       Assert.assertEquals(1, ((Collection) linkedVal).size());
     }
+    session.commit();
   }
 
   @Test
@@ -292,6 +299,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     session.newStatefulEdge(doc1, doc3, "testEdge");
     session.commit();
 
+    session.begin();
     try (var rs = session.query("SELECT out() as o FROM " + vertexClass)) {
       Assert.assertTrue(rs.hasNext());
       var res = rs.next();
@@ -300,6 +308,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
       Assert.assertTrue(linkedVal instanceof Collection);
       Assert.assertEquals(2, ((Collection) linkedVal).size());
     }
+    session.commit();
   }
 
   @Test(expected = DatabaseException.class)

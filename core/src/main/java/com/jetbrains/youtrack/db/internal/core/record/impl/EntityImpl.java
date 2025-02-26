@@ -609,6 +609,7 @@ public class EntityImpl extends RecordAbstract
     }
   }
 
+
   private static <RET> RET convertToGraphElement(RET value) {
     if (value instanceof Entity) {
       if (((Entity) value).isVertex()) {
@@ -2642,6 +2643,23 @@ public class EntityImpl extends RecordAbstract
    *
    * @return Array of fields, values of which were changed.
    */
+  public Collection<String> getCallbackDirtyProperties() {
+    checkForBinding();
+
+    if (fields == null || fields.isEmpty()) {
+      return Collections.emptyList();
+    }
+
+    final Set<String> dirtyFields = new HashSet<>();
+    for (var entry : fields.entrySet()) {
+      if (entry.getValue().isChanged() || entry.getValue().isTrackedModified()) {
+        dirtyFields.add(entry.getKey());
+      }
+    }
+
+    return dirtyFields;
+  }
+
   @Override
   public Collection<String> getDirtyProperties() {
     checkForBinding();
@@ -2652,7 +2670,7 @@ public class EntityImpl extends RecordAbstract
 
     final Set<String> dirtyFields = new HashSet<>();
     for (var entry : fields.entrySet()) {
-      if (entry.getValue().isChanged() || entry.getValue().isTrackedModified()) {
+      if (entry.getValue().isTxChanged() || entry.getValue().isTxTrackedModified()) {
         dirtyFields.add(entry.getKey());
       }
     }

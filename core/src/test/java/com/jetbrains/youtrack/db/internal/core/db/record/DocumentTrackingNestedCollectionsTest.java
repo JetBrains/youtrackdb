@@ -40,11 +40,13 @@ public class DocumentTrackingNestedCollectionsTest extends DbTestBase {
     subObjects.add(nestedDoc);
     session.commit();
 
+    session.begin();
     entity = session.load(orid);
     objects = entity.field("objects");
     subObjects = objects.iterator().next();
 
     assertFalse(subObjects.isEmpty());
+    session.commit();
   }
 
   @Test

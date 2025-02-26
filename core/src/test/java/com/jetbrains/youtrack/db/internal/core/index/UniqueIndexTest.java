@@ -138,8 +138,10 @@ public class UniqueIndexTest extends DbTestBase {
     } catch (RecordDuplicatedException ex) {
       // ignore
     }
+    session.begin();
     EntityImpl fromDb = session.load(id.getIdentity());
     Assert.assertEquals(fromDb.field("MailAddress"), "jane@doe.com");
+    session.commit();
   }
 
   @Test
@@ -179,7 +181,9 @@ public class UniqueIndexTest extends DbTestBase {
       // ignore
     }
 
+    session.begin();
     final var result = session.query("select from User where MailAddress = 'john@doe.com'");
     Assert.assertEquals(result.stream().count(), 1);
+    session.commit();
   }
 }

@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.security;
 
+import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
@@ -23,7 +24,7 @@ public class ColumnSecurityTest {
 
   static String DB_NAME = "test";
   static YouTrackDB context;
-  private DatabaseSessionInternal db;
+  private DatabaseSessionInternal session;
 
   @BeforeClass
   public static void beforeClass() {
@@ -42,60 +43,60 @@ public class ColumnSecurityTest {
 
   @Before
   public void before() {
-    context.execute(
-        "create database "
-            + DB_NAME
-            + " "
-            + "memory"
-            + " users ( admin identified by '"
-            + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
-            + "' role admin)");
-    this.db = (DatabaseSessionInternal) context.open(DB_NAME, "admin",
+    context.create("test", DatabaseType.MEMORY,
+        "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD, "admin",
+        "writer", "writer", "writer",
+        "reader", "reader", "reader");
+    this.session = (DatabaseSessionInternal) context.open(DB_NAME, "admin",
         CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
   }
 
   @After
   public void after() {
-    this.db.close();
+    this.session.close();
     context.drop("test");
-    this.db = null;
+    this.session = null;
   }
 
   @Test
   public void testIndexWithPolicy() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    var person = db.createClass("Person");
-    person.createProperty(db, "name", PropertyType.STRING);
+    var person = session.createClass("Person");
+    person.createProperty(session, "name", PropertyType.STRING);
 
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setReadRule(session, "name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
-        db, security.getRole(db, "reader"), "database.class.Person.name", policy);
+        session, security.getRole(session, "reader"), "database.class.Person.name", policy);
+    session.commit();
 
-    db.command("create index Person.name on Person (name) NOTUNIQUE");
+    session.command("create index Person.name on Person (name) NOTUNIQUE");
   }
 
   @Test
   public void testIndexWithPolicy1() throws InterruptedException {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    var person = db.createClass("Person");
-    person.createProperty(db, "name", PropertyType.STRING);
-    person.createProperty(db, "surname", PropertyType.STRING);
+    var person = session.createClass("Person");
+    person.createProperty(session, "name", PropertyType.STRING);
+    person.createProperty(session, "surname", PropertyType.STRING);
 
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setReadRule(session, "name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
-        db, security.getRole(db, "reader"), "database.class.Person.name", policy);
+        session, security.getRole(session, "reader"), "database.class.Person.name", policy);
+    session.commit();
 
     Thread.sleep(100);
     try {
-      db.command("create index Person.name_surname on Person (name, surname) NOTUNIQUE");
+      session.command("create index Person.name_surname on Person (name, surname) NOTUNIQUE");
       Assert.fail();
     } catch (IndexException e) {
 
@@ -104,122 +105,135 @@ public class ColumnSecurityTest {
 
   @Test
   public void testIndexWithPolicy2() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    var person = db.createClass("Person");
-    person.createProperty(db, "name", PropertyType.STRING);
+    var person = session.createClass("Person");
+    person.createProperty(session, "name", PropertyType.STRING);
 
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setCreateRule(db, "name = 'foo'");
-    policy.setBeforeUpdateRule(db, "name = 'foo'");
-    policy.setAfterUpdateRule(db, "name = 'foo'");
-    policy.setDeleteRule(db, "name = 'foo'");
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setCreateRule(session, "name = 'foo'");
+    policy.setBeforeUpdateRule(session, "name = 'foo'");
+    policy.setAfterUpdateRule(session, "name = 'foo'");
+    policy.setDeleteRule(session, "name = 'foo'");
 
-    security.saveSecurityPolicy(db, policy);
+    security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
-        db, security.getRole(db, "reader"), "database.class.Person.name", policy);
+        session, security.getRole(session, "reader"), "database.class.Person.name", policy);
+    session.commit();
 
-    db.command("create index Person.name on Person (name) NOTUNIQUE");
+    session.command("create index Person.name on Person (name) NOTUNIQUE");
   }
 
   @Test
   public void testIndexWithPolicy3() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    var person = db.createClass("Person");
-    person.createProperty(db, "name", PropertyType.STRING);
+    var person = session.createClass("Person");
+    person.createProperty(session, "name", PropertyType.STRING);
 
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setReadRule(session, "name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
-        db, security.getRole(db, "reader"), "database.class.Person.surname", policy);
+        session, security.getRole(session, "reader"), "database.class.Person.surname", policy);
+    session.commit();
 
-    db.command("create index Person.name on Person (name) NOTUNIQUE");
+    session.command("create index Person.name on Person (name) NOTUNIQUE");
   }
 
   @Test
   public void testIndexWithPolicy4() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    var person = db.createClass("Person");
-    person.createProperty(db, "name", PropertyType.STRING);
-    person.createProperty(db, "address", PropertyType.STRING);
+    var person = session.createClass("Person");
+    person.createProperty(session, "name", PropertyType.STRING);
+    person.createProperty(session, "address", PropertyType.STRING);
 
-    db.command("create index Person.name_address on Person (name, address) NOTUNIQUE");
+    session.command("create index Person.name_address on Person (name, address) NOTUNIQUE");
 
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setReadRule(session, "name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
-        db, security.getRole(db, "reader"), "database.class.Person.surname", policy);
+        session, security.getRole(session, "reader"), "database.class.Person.surname", policy);
+    session.commit();
   }
 
   @Test
   public void testIndexWithPolicy5() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    var person = db.createClass("Person");
-    person.createProperty(db, "name", PropertyType.STRING);
-    person.createProperty(db, "surname", PropertyType.STRING);
+    var person = session.createClass("Person");
+    person.createProperty(session, "name", PropertyType.STRING);
+    person.createProperty(session, "surname", PropertyType.STRING);
 
-    db.command("create index Person.name_surname on Person (name, surname) NOTUNIQUE");
+    session.command("create index Person.name_surname on Person (name, surname) NOTUNIQUE");
 
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setReadRule(session, "name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
 
     try {
       security.setSecurityPolicy(
-          db, security.getRole(db, "reader"), "database.class.Person.name", policy);
+          session, security.getRole(session, "reader"), "database.class.Person.name", policy);
       Assert.fail();
     } catch (Exception e) {
     }
+    session.commit();
   }
 
   @Test
   public void testIndexWithPolicy6() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    var person = db.createClass("Person");
-    person.createProperty(db, "name", PropertyType.STRING);
+    var person = session.createClass("Person");
+    person.createProperty(session, "name", PropertyType.STRING);
 
-    db.command("create index Person.name on Person (name) NOTUNIQUE");
+    session.command("create index Person.name on Person (name) NOTUNIQUE");
 
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setReadRule(session, "name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
-        db, security.getRole(db, "reader"), "database.class.Person.name", policy);
+        session, security.getRole(session, "reader"), "database.class.Person.name", policy);
+    session.commit();
   }
 
   @Test
   public void testReadFilterOneProperty() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
+    session.createClass("Person");
 
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setReadRule(session, "name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
-        db, security.getRole(db, "reader"), "database.class.Person.name", policy);
+        session, security.getRole(session, "reader"), "database.class.Person.name", policy);
 
-    var elem = db.newEntity("Person");
+    var elem = session.newEntity("Person");
     elem.setProperty("name", "foo");
 
-    elem = db.newEntity("Person");
+    elem = session.newEntity("Person");
     elem.setProperty("name", "bar");
+    session.commit();
 
-    db.close();
-    this.db = (DatabaseSessionInternal) context.open(DB_NAME, "reader", "reader");
-    var rs = db.query("select from Person");
+    session.close();
+    this.session = (DatabaseSessionInternal) context.open(DB_NAME, "reader", "reader");
+    session.begin();
+    var rs = session.query("select from Person");
     var fooFound = false;
     var nullFound = false;
 
@@ -238,66 +252,76 @@ public class ColumnSecurityTest {
 
     Assert.assertTrue(fooFound);
     Assert.assertTrue(nullFound);
+    session.commit();
   }
 
   @Test
   public void testReadFilterOnePropertyWithIndex() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    var clazz = db.createClass("Person");
-    clazz.createProperty(db, "name", PropertyType.STRING);
+    var clazz = session.createClass("Person");
+    clazz.createProperty(session, "name", PropertyType.STRING);
 
-    db.command("create index Person.name on Person (name) NOTUNIQUE");
+    session.command("create index Person.name on Person (name) NOTUNIQUE");
 
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setReadRule(session, "name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
-        db, security.getRole(db, "reader"), "database.class.Person.name", policy);
+        session, security.getRole(session, "reader"), "database.class.Person.name", policy);
 
-    var elem = db.newEntity("Person");
+    var elem = session.newEntity("Person");
     elem.setProperty("name", "foo");
 
-    elem = db.newEntity("Person");
+    elem = session.newEntity("Person");
     elem.setProperty("name", "bar");
+    session.commit();
 
-    db.close();
-    this.db = (DatabaseSessionInternal) context.open(DB_NAME, "reader", "reader");
-    var rs = db.query("select from Person where name = 'foo'");
+    session.close();
+    this.session = (DatabaseSessionInternal) context.open(DB_NAME, "reader", "reader");
+    session.begin();
+    var rs = session.query("select from Person where name = 'foo'");
     Assert.assertTrue(rs.hasNext());
     rs.next();
     Assert.assertFalse(rs.hasNext());
     rs.close();
+    session.commit();
 
-    rs = db.query("select from Person where name = 'bar'");
+    session.begin();
+    rs = session.query("select from Person where name = 'bar'");
     Assert.assertFalse(rs.hasNext());
     Assert.assertTrue(
         rs.getExecutionPlan().getSteps().stream()
             .anyMatch(x -> x instanceof FetchFromIndexStep));
     rs.close();
+    session.commit();
   }
 
   @Test
   public void testReadWithPredicateAndQuery() throws InterruptedException {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
+    session.createClass("Person");
 
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name IN (select 'foo' as foo)");
-    security.saveSecurityPolicy(db, policy);
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setReadRule(session, "name IN (select 'foo' as foo)");
+    security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
-        db, security.getRole(db, "reader"), "database.class.Person.name", policy);
+        session, security.getRole(session, "reader"), "database.class.Person.name", policy);
 
-    var elem = db.newEntity("Person");
+    var elem = session.newEntity("Person");
     elem.setProperty("name", "foo");
 
-    elem = db.newEntity("Person");
+    elem = session.newEntity("Person");
     elem.setProperty("name", "bar");
+    session.commit();
 
-    var rs = db.query("select from Person");
+    session.begin();
+    var rs = session.query("select from Person");
     var fooFound = false;
     var barFound = false;
 
@@ -316,12 +340,14 @@ public class ColumnSecurityTest {
 
     Assert.assertTrue(fooFound);
     Assert.assertTrue(barFound);
+    session.commit();
 
-    db.close();
+    session.close();
     Thread.sleep(200);
 
-    this.db = (DatabaseSessionInternal) context.open(DB_NAME, "reader", "reader");
-    rs = db.query("select from Person");
+    this.session = (DatabaseSessionInternal) context.open(DB_NAME, "reader", "reader");
+    session.begin();
+    rs = session.query("select from Person");
     fooFound = false;
     var nullFound = false;
 
@@ -340,106 +366,121 @@ public class ColumnSecurityTest {
 
     Assert.assertTrue(fooFound);
     Assert.assertTrue(nullFound);
+    session.commit();
   }
 
   @Test
   public void testReadFilterOnePropertyWithQuery() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
+    session.createClass("Person");
 
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setReadRule(session, "name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
-        db, security.getRole(db, "reader"), "database.class.Person.name", policy);
+        session, security.getRole(session, "reader"), "database.class.Person.name", policy);
 
-    var elem = db.newEntity("Person");
+    var elem = session.newEntity("Person");
     elem.setProperty("name", "foo");
     elem.setProperty("surname", "foo");
 
-    elem = db.newEntity("Person");
+    elem = session.newEntity("Person");
     elem.setProperty("name", "bar");
     elem.setProperty("surname", "bar");
+    session.commit();
 
-    db.close();
+    session.close();
 
-    this.db = (DatabaseSessionInternal) context.open(DB_NAME, "reader", "reader");
-    var rs = db.query("select from Person where name = 'foo' OR name = 'bar'");
+    this.session = (DatabaseSessionInternal) context.open(DB_NAME, "reader", "reader");
+    session.begin();
+    var rs = session.query("select from Person where name = 'foo' OR name = 'bar'");
 
     var item = rs.next();
     Assert.assertEquals("foo", item.getProperty("name"));
 
     Assert.assertFalse(rs.hasNext());
     rs.close();
+    session.commit();
   }
 
   @Test
   public void testCreate() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
+    session.createClass("Person");
 
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setCreateRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setCreateRule(session, "name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
-        db, security.getRole(db, "writer"), "database.class.Person.name", policy);
+        session, security.getRole(session, "writer"), "database.class.Person.name", policy);
+    session.commit();
 
-    db.close();
-    this.db = (DatabaseSessionInternal) context.open(DB_NAME, "writer", "writer");
+    session.close();
+    this.session = (DatabaseSessionInternal) context.open(DB_NAME, "writer", "writer");
 
-    var elem = db.newEntity("Person");
+    session.begin();
+    var elem = session.newEntity("Person");
     elem.setProperty("name", "foo");
     elem.setProperty("surname", "foo");
 
-    elem = db.newEntity("Person");
+    elem = session.newEntity("Person");
     elem.setProperty("name", "bar");
     elem.setProperty("surname", "bar");
     try {
+      session.commit();
       Assert.fail();
     } catch (SecurityException e) {
-
     }
   }
 
   @Test
   public void testBeforeUpdate() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
+    session.createClass("Person");
 
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setBeforeUpdateRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setBeforeUpdateRule(session, "name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
-        db, security.getRole(db, "writer"), "database.class.Person.name", policy);
+        session, security.getRole(session, "writer"), "database.class.Person.name", policy);
 
-    var elem = db.newEntity("Person");
+    var elem = session.newEntity("Person");
     elem.setProperty("name", "foo");
     elem.setProperty("surname", "foo");
 
-    elem = db.newEntity("Person");
+    elem = session.newEntity("Person");
     elem.setProperty("name", "bar");
     elem.setProperty("surname", "bar");
+    session.commit();
 
-    db.close();
+    session.close();
 
-    this.db = (DatabaseSessionInternal) context.open(DB_NAME, "writer", "writer");
+    this.session = (DatabaseSessionInternal) context.open(DB_NAME, "writer", "writer");
+    session.begin();
+    session.command("UPDATE Person SET name = 'foo1' WHERE name = 'foo'");
+    session.commit();
 
-    db.command("UPDATE Person SET name = 'foo1' WHERE name = 'foo'");
-
-    try (var rs = db.query("SELECT FROM Person WHERE name = 'foo1'")) {
+    session.begin();
+    try (var rs = session.query("SELECT FROM Person WHERE name = 'foo1'")) {
       Assert.assertTrue(rs.hasNext());
       rs.next();
       Assert.assertFalse(rs.hasNext());
     }
+    session.commit();
 
     try {
-      db.command("UPDATE Person SET name = 'bar1' WHERE name = 'bar'");
+      session.begin();
+      session.command("UPDATE Person SET name = 'bar1' WHERE name = 'bar'");
+      session.commit();
       Assert.fail();
     } catch (SecurityException e) {
 
@@ -448,34 +489,40 @@ public class ColumnSecurityTest {
 
   @Test
   public void testAfterUpdate() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
+    session.createClass("Person");
 
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setAfterUpdateRule(db, "name <> 'invalid'");
-    security.saveSecurityPolicy(db, policy);
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setAfterUpdateRule(session, "name <> 'invalid'");
+    security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
-        db, security.getRole(db, "writer"), "database.class.Person.name", policy);
+        session, security.getRole(session, "writer"), "database.class.Person.name", policy);
 
-    var elem = db.newEntity("Person");
+    var elem = session.newEntity("Person");
     elem.setProperty("name", "foo");
     elem.setProperty("surname", "foo");
+    session.commit();
 
-    db.close();
-    this.db = (DatabaseSessionInternal) context.open(DB_NAME, "writer", "writer");
+    session.close();
+    this.session = (DatabaseSessionInternal) context.open(DB_NAME, "writer", "writer");
 
-    db.command("UPDATE Person SET name = 'foo1' WHERE name = 'foo'");
+    session.begin();
+    session.command("UPDATE Person SET name = 'foo1' WHERE name = 'foo'");
 
-    try (var rs = db.query("SELECT FROM Person WHERE name = 'foo1'")) {
+    try (var rs = session.query("SELECT FROM Person WHERE name = 'foo1'")) {
       Assert.assertTrue(rs.hasNext());
       rs.next();
       Assert.assertFalse(rs.hasNext());
     }
+    session.commit();
 
     try {
-      db.command("UPDATE Person SET name = 'invalid'");
+      session.begin();
+      session.command("UPDATE Person SET name = 'invalid'");
+      session.commit();
       Assert.fail();
     } catch (SecurityException e) {
 
@@ -484,43 +531,51 @@ public class ColumnSecurityTest {
 
   @Test
   public void testReadHiddenColumn() {
-    db.command("CREATE CLASS Person");
-    db.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'bar')");
-    db.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person.name");
+    session.command("CREATE CLASS Person");
+    session.begin();
+    session.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'bar')");
+    session.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person.name");
 
-    var elem = db.newEntity("Person");
+    var elem = session.newEntity("Person");
     elem.setProperty("name", "foo");
     elem.setProperty("surname", "foo");
+    session.commit();
 
-    db.close();
+    session.close();
 
-    db = (DatabaseSessionInternal) context.open(DB_NAME, "reader", "reader");
-    try (final var resultSet = db.query("SELECT from Person")) {
+    session = (DatabaseSessionInternal) context.open(DB_NAME, "reader", "reader");
+    session.begin();
+    try (final var resultSet = session.query("SELECT from Person")) {
       var item = resultSet.next();
       Assert.assertNull(item.getProperty("name"));
     }
+    session.commit();
   }
 
   @Test
   public void testUpdateHiddenColumn() {
+    session.command("CREATE CLASS Person");
 
-    db.command("CREATE CLASS Person");
-    db.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'bar')");
-    db.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person.name");
+    session.begin();
+    session.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'bar')");
+    session.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person.name");
 
-    var elem = db.newEntity("Person");
+    var elem = session.newEntity("Person");
     elem.setProperty("name", "foo");
     elem.setProperty("surname", "foo");
+    session.commit();
 
-    db.close();
+    session.close();
 
-    db = (DatabaseSessionInternal) context.open(DB_NAME, "reader", "reader");
-    try (final var resultSet = db.query("SELECT from Person")) {
+    session = (DatabaseSessionInternal) context.open(DB_NAME, "reader", "reader");
+    session.begin();
+    try (final var resultSet = session.query("SELECT from Person")) {
       var item = resultSet.next();
       Assert.assertNull(item.getProperty("name"));
       var doc = item.castToEntity();
       doc.setProperty("name", "bar");
       try {
+        session.commit();
         Assert.fail();
       } catch (Exception e) {
 

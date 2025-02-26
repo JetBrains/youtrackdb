@@ -202,6 +202,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     oClass.createProperty(session, "test5", PropertyType.DECIMAL);
     oClass.createProperty(session, "test6", PropertyType.FLOAT);
 
+    session.begin();
     EntityImpl doc1 = session.load(rid);
     assertEquals(PropertyType.INTEGER, doc1.getPropertyType("test1"));
     assertTrue(doc1.field("test1") instanceof Integer);
@@ -215,6 +216,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     assertTrue(doc1.field("test5") instanceof BigDecimal);
     assertEquals(PropertyType.FLOAT, doc1.getPropertyType("test6"));
     assertTrue(doc1.field("test6") instanceof Float);
+    session.commit();
   }
 
   @Test
@@ -242,6 +244,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     oClass.createProperty(session, "test5", PropertyType.LINKMAP);
     oClass.createProperty(session, "test6", PropertyType.EMBEDDEDMAP);
 
+    session.begin();
     EntityImpl doc1 = session.load(rid);
     assertEquals(PropertyType.LINKLIST, doc1.getPropertyType("test1"));
     assertEquals(PropertyType.EMBEDDEDLIST, doc1.getPropertyType("test2"));
@@ -249,6 +252,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     assertEquals(PropertyType.EMBEDDEDSET, doc1.getPropertyType("test4"));
     assertEquals(PropertyType.LINKMAP, doc1.getPropertyType("test5"));
     assertEquals(PropertyType.EMBEDDEDMAP, doc1.getPropertyType("test6"));
+    session.commit();
   }
 
   @Test
@@ -361,6 +365,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     oClass.getProperty(session, "test5").setType(session, PropertyType.DECIMAL);
     oClass.getProperty(session, "test6").setType(session, PropertyType.FLOAT);
 
+    session.begin();
     EntityImpl doc1 = session.load(rid);
     assertEquals(PropertyType.INTEGER, doc1.getPropertyType("test1"));
     assertTrue(doc1.field("test1") instanceof Integer);
@@ -374,6 +379,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     assertTrue(doc1.field("test5") instanceof BigDecimal);
     assertEquals(PropertyType.FLOAT, doc1.getPropertyType("test6"));
     assertTrue(doc1.field("test6") instanceof Float);
+    session.commit();
   }
 
   @Test
@@ -409,6 +415,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     oClass.getProperty(session, "test5").setName(session, "test5a");
     oClass.getProperty(session, "test6").setName(session, "test6a");
 
+    session.begin();
     EntityImpl doc1 = session.load(rid);
     assertEquals(PropertyType.SHORT, doc1.getPropertyType("test1a"));
     assertTrue(doc1.field("test1a") instanceof Short);
@@ -422,6 +429,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     assertTrue(doc1.field("test5") instanceof Double);
     assertEquals(PropertyType.INTEGER, doc1.getPropertyType("test6a"));
     assertTrue(doc1.field("test6a") instanceof Integer);
+    session.commit();
   }
 
   @Test
@@ -518,16 +526,17 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
 
     session.executeInTx(
         () -> {
-          EntityImpl record = session.newInstance(className);
+          var record = session.newInstance(className);
           record.field("name", "foo");
-
         });
 
     oClass.createProperty(session, "name", PropertyType.ANY);
 
+    session.begin();
     try (var result = session.query("select from " + className + " where name = 'foo'")) {
       assertEquals(1, result.stream().count());
     }
+    session.commit();
   }
 
   @Test

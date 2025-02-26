@@ -29,6 +29,7 @@ public class JSScriptTest extends DbTestBase {
 
   @Test
   public void jsQueryTest() {
+    session.begin();
     var script = "db.query('select from OUser')";
     var resultSet = session.execute("javascript", script);
     Assert.assertTrue(resultSet.hasNext());
@@ -42,12 +43,13 @@ public class JSScriptTest extends DbTestBase {
             oElement -> {
               Assert.assertEquals("OUser", oElement.getSchemaClassName());
             });
-
+    session.commit();
   }
 
   @Test
   public void jsScriptTest() throws IOException {
     var stream = ClassLoader.getSystemResourceAsStream("fixtures/scriptTest.js");
+    session.begin();
     var resultSet = session.execute("javascript", IOUtils.readStreamAsString(stream));
     Assert.assertTrue(resultSet.hasNext());
 
@@ -61,7 +63,7 @@ public class JSScriptTest extends DbTestBase {
             entity -> {
               Assert.assertEquals("OUser", entity.getSchemaClassName());
             });
-
+    session.commit();
   }
 
   @Test
@@ -118,6 +120,7 @@ public class JSScriptTest extends DbTestBase {
 
   @Test
   public void jsSandboxWithDB() {
+    session.begin();
     var resultSet =
         session.execute(
             "javascript",
@@ -130,6 +133,7 @@ public class JSScriptTest extends DbTestBase {
                 """);
     Assert.assertEquals(1, resultSet.stream().count());
     resultSet.close();
+    session.commit();
   }
 
   @Test

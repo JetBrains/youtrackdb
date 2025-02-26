@@ -22,13 +22,15 @@ public class SaveLinkedTypeAnyTest extends DbTestBase {
     session.command("insert into TestRemoveLinkedType set prop = [4]").close();
     session.commit();
 
+    session.begin();
     try (var result = session.query("select from TestRemoveLinkedType")) {
       Assert.assertTrue(result.hasNext());
-      Collection coll = result.next().getProperty("prop");
+      Collection coll = result.next().getEmbeddedList("prop");
       Assert.assertFalse(result.hasNext());
       Assert.assertEquals(coll.size(), 1);
       Assert.assertEquals(coll.iterator().next(), 4);
     }
+    session.commit();
   }
 
   @Test
@@ -43,6 +45,7 @@ public class SaveLinkedTypeAnyTest extends DbTestBase {
     session.command("insert into TestRemoveLinkedType set prop = [4]").close();
     session.commit();
 
+    session.begin();
     try (var result = session.query("select from TestRemoveLinkedType")) {
       Assert.assertTrue(result.hasNext());
       Collection coll = result.next().getProperty("prop");
@@ -50,5 +53,6 @@ public class SaveLinkedTypeAnyTest extends DbTestBase {
       Assert.assertEquals(coll.size(), 1);
       Assert.assertEquals(coll.iterator().next(), 4);
     }
+    session.commit();
   }
 }

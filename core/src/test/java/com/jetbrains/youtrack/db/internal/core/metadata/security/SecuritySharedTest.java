@@ -12,7 +12,9 @@ public class SecuritySharedTest extends DbTestBase {
     session.begin();
     security.createSecurityPolicy(session, "testPolicy");
     session.commit();
+    session.begin();
     Assert.assertNotNull(security.getSecurityPolicy(session, "testPolicy"));
+    session.commit();
   }
 
   @Test
@@ -39,9 +41,11 @@ public class SecuritySharedTest extends DbTestBase {
     security.saveSecurityPolicy(session, policy);
     session.commit();
 
+    session.begin();
     Assert.assertTrue(security.getSecurityPolicy(session, "testPolicy").isActive(session));
     Assert.assertEquals("name = 'foo'",
         security.getSecurityPolicy(session, "testPolicy").getReadRule(session));
+    session.commit();
   }
 
   @Test
@@ -59,12 +63,14 @@ public class SecuritySharedTest extends DbTestBase {
         "database.class.Person", policy);
     session.commit();
 
+    session.begin();
     Assert.assertEquals(
         "testPolicy",
         security
             .getSecurityPolicies(session, security.getRole(session, "reader"))
             .get("database.class.Person")
             .getName(session));
+    session.commit();
   }
 
   @Test
@@ -87,9 +93,11 @@ public class SecuritySharedTest extends DbTestBase {
         "database.class.Person");
     session.commit();
 
+    session.begin();
     Assert.assertNull(
         security
             .getSecurityPolicies(session, security.getRole(session, "reader"))
             .get("database.class.Person"));
+    session.commit();
   }
 }

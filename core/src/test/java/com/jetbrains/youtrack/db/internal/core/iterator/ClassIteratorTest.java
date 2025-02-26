@@ -7,6 +7,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassIntern
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.clusterselection.DefaultClusterSelectionStrategy;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Set;
 import org.junit.Assert;
 import org.junit.Test;
@@ -21,7 +22,7 @@ public class ClassIteratorTest extends DbTestBase {
   private void createPerson(final String iClassName, final String first) {
     // Create Person document
     session.begin();
-    final EntityImpl personDoc = session.newInstance(iClassName);
+    final var personDoc = session.newInstance(iClassName);
     personDoc.field("First", first);
 
     session.commit();
@@ -74,22 +75,20 @@ public class ClassIteratorTest extends DbTestBase {
 
     personIter.setRange(null, null); // open range
 
-    var docNum = 0;
+    var docNum = new int[1];
     // Explicit iterator loop.
-    while (personIter.hasNext()) {
-      final var personDoc = personIter.next();
-      Assert.assertTrue(names.contains(personDoc.field("First")));
-      Assert.assertTrue(names.remove(personDoc.field("First")));
-      System.out.printf("Doc %d: %s\n", docNum++, personDoc);
-    }
+    session.executeInTxBatches((Iterator<EntityImpl>) personIter, (s, doc) -> {
+      Assert.assertTrue(names.contains(doc.getString("First")));
+      Assert.assertTrue(names.remove(doc.getString("First")));
+      System.out.printf("Doc %d: %s\n", docNum[0]++, doc);
+    });
 
     Assert.assertTrue(names.isEmpty());
   }
 
   @Test
   public void testMultipleClusters() throws Exception {
-    final var personClass =
-        session.getMetadata().getSchema().createClass("PersonMultipleClusters", 4, null);
+    session.getMetadata().getSchema().createClass("PersonMultipleClusters", 4);
     for (var name : names) {
       createPerson("PersonMultipleClusters", name);
     }
@@ -97,14 +96,13 @@ public class ClassIteratorTest extends DbTestBase {
     final var personIter =
         new RecordIteratorClass<EntityImpl>(session, "PersonMultipleClusters", true);
 
-    var docNum = 0;
+    var docNum = new int[1];
 
-    while (personIter.hasNext()) {
-      final var personDoc = personIter.next();
-      Assert.assertTrue(names.contains(personDoc.field("First")));
-      Assert.assertTrue(names.remove(personDoc.field("First")));
-      System.out.printf("Doc %d: %s\n", docNum++, personDoc);
-    }
+    session.executeInTxBatches((Iterator<EntityImpl>) personIter, (s, doc) -> {
+      Assert.assertTrue(names.contains(doc.getString("First")));
+      Assert.assertTrue(names.remove(doc.getString("First")));
+      System.out.printf("Doc %d: %s\n", docNum[0]++, doc);
+    });
 
     Assert.assertTrue(names.isEmpty());
   }

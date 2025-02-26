@@ -69,6 +69,19 @@ public class SystemDatabase {
     }
   }
 
+  public <R> R query(
+      @Nonnull final BiFunction<ResultSet, DatabaseSession, R> callback, final String sql,
+      final Object... args) {
+    // BYPASS SECURITY
+    try (final DatabaseSession session = openSystemDatabaseSession()) {
+      return session.computeInTx(() -> {
+        try (var result = session.query(sql, args)) {
+          return callback.apply(result, session);
+        }
+      });
+    }
+  }
+
   public void init() {
     if (!exists()) {
       LogManager.instance()

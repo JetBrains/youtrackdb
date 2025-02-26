@@ -1687,8 +1687,9 @@ public class SecurityShared implements SecurityInternal {
     result.setProperty("@rid", entity.getIdentity());
     result.setProperty("@class", entity.getSchemaClassName());
     result.setProperty("@version", entity.getVersion());
+
     for (var prop : entity.getDirtyProperties()) {
-      result.setProperty(prop, convert(entity.getOriginalValue(prop)));
+      result.setProperty(prop, convert(entity.getPropertyOnLoadValue(prop)));
     }
     return result;
   }

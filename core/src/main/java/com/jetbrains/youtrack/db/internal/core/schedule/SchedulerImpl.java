@@ -202,7 +202,7 @@ public class SchedulerImpl {
       if (event != null) {
         // UPDATED EVENT
         final Set<String> dirtyFields;
-        var dirtyProperties = entity.getDirtyProperties();
+        var dirtyProperties = entity.getCallbackDirtyProperties();
 
         if (dirtyProperties instanceof Set<String> dirtyFieldsSet) {
           dirtyFields = dirtyFieldsSet;

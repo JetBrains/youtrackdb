@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.core.db.tool;
 
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.BaseMemoryInternalDatabase;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -18,7 +17,7 @@ public class CheckIndexToolTest extends BaseMemoryInternalDatabase {
     session.command("create index Foo.name on Foo (name) NOTUNIQUE").close();
 
     session.begin();
-    EntityImpl doc = session.newInstance("Foo");
+    var doc = session.newInstance("Foo");
     doc.field("name", "a");
 
     session.commit();
@@ -74,7 +73,9 @@ public class CheckIndexToolTest extends BaseMemoryInternalDatabase {
     tool.setDatabaseSession(session);
     tool.setVerbose(true);
     tool.setOutputListener(System.out::println);
+    session.begin();
     tool.run();
+    session.commit();
     Assert.assertEquals(0, tool.getTotalErrors());
   }
 }

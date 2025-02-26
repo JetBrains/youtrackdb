@@ -7,7 +7,7 @@ import java.util.List;
 import org.junit.Assert;
 import org.junit.Test;
 
-public class TestLinkedDocumentInMap extends DbTestBase {
+public class TestLinkedEntityInMap extends DbTestBase {
 
   @Test
   public void testLinkedValue() {
@@ -30,16 +30,20 @@ public class TestLinkedDocumentInMap extends DbTestBase {
 
     session.commit();
 
+    session.begin();
     tyrionDoc = session.bindToSession(tyrionDoc);
     List<Entity> res = tyrionDoc.field("emergency_contact");
     var doc = res.getFirst();
     Assert.assertTrue(doc.getLink("contact").isPersistent());
+    session.commit();
 
     reOpen("admin", "adminpwd");
+    session.begin();
     try (var result = session.query("select from " + tyrionDoc.getIdentity())) {
       res = result.next().getEmbeddedList("emergency_contact");
       doc = res.getFirst();
       Assert.assertTrue(doc.getLink("contact").isPersistent());
     }
+    session.commit();
   }
 }

@@ -66,6 +66,7 @@ public class DocumentTest extends DbTestBase {
 
     session.commit();
 
+    session.begin();
     var map = session.bindToSession(doc).toMap();
 
     Assert.assertEquals(4, map.size());
@@ -73,6 +74,7 @@ public class DocumentTest extends DbTestBase {
     Assert.assertEquals("Miner", map.get("surname"));
     Assert.assertEquals("V", map.get("@class"));
     Assert.assertTrue(map.containsKey("@rid"));
+    session.commit();
   }
 
   @Test

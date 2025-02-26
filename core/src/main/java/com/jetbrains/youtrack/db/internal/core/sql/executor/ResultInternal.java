@@ -546,6 +546,10 @@ public class ResultInternal implements Result {
     return session;
   }
 
+  public void setSession(@Nonnull DatabaseSessionInternal session) {
+    this.session = session;
+  }
+
   @Override
   public @Nonnull Result detach() {
     var detached = new ResultInternal(null);

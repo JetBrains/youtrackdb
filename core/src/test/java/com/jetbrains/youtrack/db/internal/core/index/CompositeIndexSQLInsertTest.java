@@ -60,6 +60,7 @@ public class CompositeIndexSQLInsertTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     var res =
         session.query("select from CompositeIndexWithRangeAndConditions where id > 0 and bar = 1");
 
@@ -100,5 +101,6 @@ public class CompositeIndexSQLInsertTest extends DbTestBase {
             .stream()
             .count();
     Assert.assertEquals(1, count4);
+    session.commit();
   }
 }

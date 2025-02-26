@@ -19,7 +19,7 @@ public class PredicateSecurityTest {
 
   private static final String DB_NAME = PredicateSecurityTest.class.getSimpleName();
   private static YouTrackDB youTrackDB;
-  private DatabaseSessionInternal db;
+  private DatabaseSessionInternal session;
 
   @BeforeClass
   public static void beforeClass() {
@@ -50,46 +50,47 @@ public class PredicateSecurityTest {
             + "' role reader, writer identified by '"
             + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
             + "' role writer)");
-    this.db =
+    this.session =
         (DatabaseSessionInternal)
             youTrackDB.open(DB_NAME, "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
   }
 
   @After
   public void after() {
-    this.db.close();
+    this.session.close();
     youTrackDB.drop(DB_NAME);
-    this.db = null;
+    this.session = null;
   }
 
   @Test
   public void testCreate() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
+    session.createClass("Person");
 
-    db.begin();
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setCreateRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "writer"), "database.class.Person", policy);
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setCreateRule(session, "name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "writer"),
+        "database.class.Person", policy);
+    session.commit();
 
-    db.close();
-    this.db =
+    session.close();
+    this.session =
         (DatabaseSessionInternal)
             youTrackDB.open(DB_NAME, "writer", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "writer"
 
-    db.executeInTx(
+    session.executeInTx(
         () -> {
-          var elem = db.newEntity("Person");
+          var elem = session.newEntity("Person");
           elem.setProperty("name", "foo");
         });
     try {
-      db.executeInTx(
+      session.executeInTx(
           () -> {
-            var elem = db.newEntity("Person");
+            var elem = session.newEntity("Person");
             elem.setProperty("name", "bar");
           });
 
@@ -100,32 +101,33 @@ public class PredicateSecurityTest {
 
   @Test
   public void testSqlCreate() throws InterruptedException {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
+    session.createClass("Person");
 
-    db.begin();
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setCreateRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "writer"), "database.class.Person", policy);
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setCreateRule(session, "name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "writer"),
+        "database.class.Person", policy);
+    session.commit();
 
-    db.close();
+    session.close();
     Thread.sleep(500);
-    this.db =
+    this.session =
         (DatabaseSessionInternal)
             youTrackDB.open(DB_NAME, "writer", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "writer"
 
-    db.begin();
-    db.command("insert into Person SET name = 'foo'");
-    db.commit();
+    session.begin();
+    session.command("insert into Person SET name = 'foo'");
+    session.commit();
 
     try {
-      db.begin();
-      db.command("insert into Person SET name = 'bar'");
-      db.commit();
+      session.begin();
+      session.command("insert into Person SET name = 'bar'");
+      session.commit();
       Assert.fail();
     } catch (SecurityException ex) {
     }
@@ -133,181 +135,193 @@ public class PredicateSecurityTest {
 
   @Test
   public void testSqlRead() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
+    session.createClass("Person");
 
-    db.begin();
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "reader"), "database.class.Person", policy);
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setReadRule(session, "name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "reader"),
+        "database.class.Person", policy);
+    session.commit();
 
-    db.executeInTx(
+    session.executeInTx(
         () -> {
-          var elem = db.newEntity("Person");
+          var elem = session.newEntity("Person");
           elem.setProperty("name", "foo");
         });
 
-    db.executeInTx(
+    session.executeInTx(
         () -> {
-          var elem = db.newEntity("Person");
+          var elem = session.newEntity("Person");
           elem.setProperty("name", "bar");
         });
 
-    db.close();
-    this.db =
+    session.close();
+    this.session =
         (DatabaseSessionInternal)
             youTrackDB.open(DB_NAME, "reader", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "reader"
-    var rs = db.query("select from Person");
+    session.begin();
+    var rs = session.query("select from Person");
     Assert.assertTrue(rs.hasNext());
     rs.next();
     Assert.assertFalse(rs.hasNext());
     rs.close();
+    session.commit();
   }
 
   @Test
   public void testSqlReadWithIndex() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    var person = db.createClass("Person");
-    person.createProperty(db, "name", PropertyType.STRING);
-    db.command("create index Person.name on Person (name) NOTUNIQUE");
+    var person = session.createClass("Person");
+    person.createProperty(session, "name", PropertyType.STRING);
+    session.command("create index Person.name on Person (name) NOTUNIQUE");
 
-    db.begin();
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "reader"), "database.class.Person", policy);
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setReadRule(session, "name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "reader"),
+        "database.class.Person", policy);
+    session.commit();
 
-    db.executeInTx(
+    session.executeInTx(
         () -> {
-          var elem = db.newEntity("Person");
+          var elem = session.newEntity("Person");
           elem.setProperty("name", "foo");
         });
 
-    db.executeInTx(
+    session.executeInTx(
         () -> {
-          var elem = db.newEntity("Person");
+          var elem = session.newEntity("Person");
           elem.setProperty("name", "bar");
         });
 
-    db.close();
-    this.db =
+    session.close();
+    this.session =
         (DatabaseSessionInternal)
             youTrackDB.open(DB_NAME, "reader", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "reader"
-    var rs = db.query("select from Person where name = 'bar'");
+    session.begin();
+    var rs = session.query("select from Person where name = 'bar'");
     Assert.assertFalse(rs.hasNext());
     rs.close();
+    session.commit();
   }
 
   @Test
   public void testSqlReadWithIndex2() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    var person = db.createClass("Person");
-    person.createProperty(db, "name", PropertyType.STRING);
-    db.command("create index Person.name on Person (name) NOTUNIQUE");
+    var person = session.createClass("Person");
+    person.createProperty(session, "name", PropertyType.STRING);
+    session.command("create index Person.name on Person (name) NOTUNIQUE");
 
-    db.begin();
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "surname = 'foo'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "reader"), "database.class.Person", policy);
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setReadRule(session, "surname = 'foo'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "reader"),
+        "database.class.Person", policy);
+    session.commit();
 
-    db.executeInTx(
+    session.executeInTx(
         () -> {
-          var elem = db.newEntity("Person");
+          var elem = session.newEntity("Person");
           elem.setProperty("name", "foo");
           elem.setProperty("surname", "foo");
         });
 
-    db.executeInTx(
+    session.executeInTx(
         () -> {
-          var elem = db.newEntity("Person");
+          var elem = session.newEntity("Person");
           elem.setProperty("name", "foo");
           elem.setProperty("surname", "bar");
         });
 
-    db.close();
-    this.db =
+    session.close();
+    this.session =
         (DatabaseSessionInternal)
             youTrackDB.open(DB_NAME, "reader", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "reader"
-    var rs = db.query("select from Person where name = 'foo'");
+    session.begin();
+    var rs = session.query("select from Person where name = 'foo'");
     Assert.assertTrue(rs.hasNext());
     var item = rs.next();
     Assert.assertEquals("foo", item.getProperty("surname"));
     Assert.assertFalse(rs.hasNext());
     rs.close();
+    session.commit();
   }
 
   @Test
   public void testBeforeUpdateCreate() throws InterruptedException {
-    var security = db.getSharedContext().getSecurity();
-    db.createClass("Person");
+    var security = session.getSharedContext().getSecurity();
+    session.createClass("Person");
 
-    db.begin();
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setBeforeUpdateRule(db, "name = 'bar'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "writer"), "database.class.Person", policy);
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setBeforeUpdateRule(session, "name = 'bar'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "writer"),
+        "database.class.Person", policy);
+    session.commit();
 
-    db.close();
+    session.close();
     Thread.sleep(500);
-    this.db =
+    this.session =
         (DatabaseSessionInternal)
             youTrackDB.open(DB_NAME, "writer", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "writer"
 
     var elem =
-        db.computeInTx(
+        session.computeInTx(
             () -> {
-              var e = db.newEntity("Person");
+              var e = session.newEntity("Person");
               e.setProperty("name", "foo");
               return e;
             });
 
     try {
-      db.begin();
-      elem = db.bindToSession(elem);
+      session.begin();
+      elem = session.bindToSession(elem);
       elem.setProperty("name", "baz");
       var elemToSave = elem;
-      db.commit();
+      session.commit();
       Assert.fail();
     } catch (SecurityException ex) {
 
     }
 
-    Assert.assertFalse(db.isTxActive());
-    elem = db.load(elem.getIdentity());
+    session.begin();
+    elem = session.load(elem.getIdentity());
     Assert.assertEquals("foo", elem.getProperty("name"));
+    session.commit();
   }
 
   @Test
   public void testBeforeUpdateCreateSQL() throws InterruptedException {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
+    session.createClass("Person");
 
-    db.begin();
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setBeforeUpdateRule(db, "name = 'bar'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "writer"), "database.class.Person", policy);
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setBeforeUpdateRule(session, "name = 'bar'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "writer"),
+        "database.class.Person", policy);
+    session.commit();
 
-    db.close();
+    session.close();
 
     if (!doTestBeforeUpdateSQL()) {
-      db.close();
+      session.close();
       Thread.sleep(500);
       if (!doTestBeforeUpdateSQL()) {
         Assert.fail();
@@ -316,322 +330,342 @@ public class PredicateSecurityTest {
   }
 
   private boolean doTestBeforeUpdateSQL() {
-    this.db =
+    this.session =
         (DatabaseSessionInternal)
             youTrackDB.open(DB_NAME, "writer", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "writer"
 
     var elem =
-        db.computeInTx(
+        session.computeInTx(
             () -> {
-              var e = db.newEntity("Person");
+              var e = session.newEntity("Person");
               e.setProperty("name", "foo");
               return e;
             });
 
     try {
-      db.begin();
-      db.command("update Person set name = 'bar'");
-      db.commit();
+      session.begin();
+      session.command("update Person set name = 'bar'");
+      session.commit();
       return false;
     } catch (SecurityException ex) {
     }
 
-    Assert.assertEquals("foo", db.bindToSession(elem).getProperty("name"));
+    session.begin();
+    Assert.assertEquals("foo", session.bindToSession(elem).getProperty("name"));
+    session.commit();
     return true;
   }
 
   @Test
   public void testAfterUpdate() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
+    session.createClass("Person");
 
-    db.begin();
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setAfterUpdateRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "writer"), "database.class.Person", policy);
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setAfterUpdateRule(session, "name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "writer"),
+        "database.class.Person", policy);
+    session.commit();
 
-    db.close();
-    this.db =
+    session.close();
+    this.session =
         (DatabaseSessionInternal)
             youTrackDB.open(DB_NAME, "writer", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "writer"
 
     var elem =
-        db.computeInTx(
+        session.computeInTx(
             () -> {
-              var e = db.newEntity("Person");
+              var e = session.newEntity("Person");
               e.setProperty("name", "foo");
               return e;
             });
 
     try {
-      db.begin();
-      elem = db.bindToSession(elem);
+      session.begin();
+      elem = session.bindToSession(elem);
       elem.setProperty("name", "bar");
-      var elemToSave = elem;
-      db.commit();
+      session.commit();
       Assert.fail();
     } catch (SecurityException ex) {
     }
 
-    elem = db.load(elem.getIdentity());
+    session.begin();
+    elem = session.load(elem.getIdentity());
     Assert.assertEquals("foo", elem.getProperty("name"));
+    session.commit();
   }
 
   @Test
   public void testAfterUpdateSQL() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
+    session.createClass("Person");
 
-    db.begin();
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setAfterUpdateRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "writer"), "database.class.Person", policy);
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setAfterUpdateRule(session, "name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "writer"),
+        "database.class.Person", policy);
+    session.commit();
 
-    db.close();
-    this.db =
+    session.close();
+    this.session =
         (DatabaseSessionInternal)
             youTrackDB.open(DB_NAME, "writer", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "writer"
 
     var elem =
-        db.computeInTx(
+        session.computeInTx(
             () -> {
-              var e = db.newEntity("Person");
+              var e = session.newEntity("Person");
               e.setProperty("name", "foo");
               return e;
             });
 
     try {
-      db.begin();
-      db.command("update Person set name = 'bar'");
-      db.commit();
+      session.begin();
+      session.command("update Person set name = 'bar'");
+      session.commit();
       Assert.fail();
     } catch (SecurityException ex) {
     }
 
-    Assert.assertEquals("foo", db.bindToSession(elem).getProperty("name"));
+    session.begin();
+    Assert.assertEquals("foo", session.bindToSession(elem).getProperty("name"));
+    session.commit();
   }
 
   @Test
   public void testDelete() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
+    session.createClass("Person");
 
-    db.begin();
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setDeleteRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "writer"), "database.class.Person", policy);
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setDeleteRule(session, "name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "writer"),
+        "database.class.Person", policy);
+    session.commit();
 
-    db.close();
-    this.db =
+    session.close();
+    this.session =
         (DatabaseSessionInternal)
             youTrackDB.open(DB_NAME, "writer", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "writer"
 
     var elem =
-        db.computeInTx(
+        session.computeInTx(
             () -> {
-              var e = db.newEntity("Person");
+              var e = session.newEntity("Person");
               e.setProperty("name", "bar");
               return e;
             });
 
     try {
       var elemToDelete = elem;
-      db.executeInTx(() -> db.delete(db.bindToSession(elemToDelete)));
+      session.executeInTx(() -> session.delete(session.bindToSession(elemToDelete)));
       Assert.fail();
     } catch (SecurityException ex) {
     }
 
     elem =
-        db.computeInTx(
+        session.computeInTx(
             () -> {
-              var e = db.newEntity("Person");
+              var e = session.newEntity("Person");
               e.setProperty("name", "foo");
               return e;
             });
 
     var elemToDelete = elem;
-    db.executeInTx(() -> db.delete(db.bindToSession(elemToDelete)));
+    session.executeInTx(() -> session.delete(session.bindToSession(elemToDelete)));
   }
 
   @Test
   public void testDeleteSQL() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
+    session.createClass("Person");
 
-    db.begin();
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setDeleteRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "writer"), "database.class.Person", policy);
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setDeleteRule(session, "name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "writer"),
+        "database.class.Person", policy);
+    session.commit();
 
-    db.close();
-    this.db =
+    session.close();
+    this.session =
         (DatabaseSessionInternal)
             youTrackDB.open(DB_NAME, "writer", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "writer"
 
-    db.executeInTx(
+    session.executeInTx(
         () -> {
-          var elem = db.newEntity("Person");
+          var elem = session.newEntity("Person");
           elem.setProperty("name", "foo");
         });
 
-    db.executeInTx(
+    session.executeInTx(
         () -> {
-          var elem = db.newEntity("Person");
+          var elem = session.newEntity("Person");
           elem.setProperty("name", "bar");
         });
 
-    db.begin();
-    db.command("delete from Person where name = 'foo'");
-    db.commit();
+    session.begin();
+    session.command("delete from Person where name = 'foo'");
+    session.commit();
     try {
-      db.begin();
-      db.command("delete from Person where name = 'bar'");
-      db.commit();
+      session.begin();
+      session.command("delete from Person where name = 'bar'");
+      session.commit();
       Assert.fail();
     } catch (SecurityException ex) {
     }
 
-    var rs = db.query("select from Person");
+    session.begin();
+    var rs = session.query("select from Person");
     Assert.assertTrue(rs.hasNext());
     Assert.assertEquals("bar", rs.next().getProperty("name"));
     Assert.assertFalse(rs.hasNext());
     rs.close();
+    session.commit();
   }
 
   @Test
   public void testSqlCount() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    var person = db.createClass("Person");
-    person.createProperty(db, "name", PropertyType.STRING);
+    var person = session.createClass("Person");
+    person.createProperty(session, "name", PropertyType.STRING);
 
-    db.begin();
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "reader"), "database.class.Person", policy);
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setReadRule(session, "name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "reader"),
+        "database.class.Person", policy);
+    session.commit();
 
-    db.executeInTx(
+    session.executeInTx(
         () -> {
-          var elem = db.newEntity("Person");
+          var elem = session.newEntity("Person");
           elem.setProperty("name", "foo");
         });
 
-    db.executeInTx(
+    session.executeInTx(
         () -> {
-          var elem = db.newEntity("Person");
+          var elem = session.newEntity("Person");
           elem.setProperty("name", "bar");
         });
 
-    db.close();
-    this.db =
+    session.close();
+    this.session =
         (DatabaseSessionInternal)
             youTrackDB.open(DB_NAME, "reader", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "reader"
-    var rs = db.query("select count(*) as count from Person");
+    session.begin();
+    var rs = session.query("select count(*) as count from Person");
     Assert.assertEquals(1L, (long) rs.next().getProperty("count"));
     rs.close();
+    session.commit();
   }
 
   @Test
   public void testSqlCountWithIndex() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    var person = db.createClass("Person");
-    person.createProperty(db, "name", PropertyType.STRING);
-    db.command("create index Person.name on Person (name) NOTUNIQUE");
+    var person = session.createClass("Person");
+    person.createProperty(session, "name", PropertyType.STRING);
+    session.command("create index Person.name on Person (name) NOTUNIQUE");
 
-    db.begin();
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "reader"), "database.class.Person", policy);
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setReadRule(session, "name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "reader"),
+        "database.class.Person", policy);
+    session.commit();
 
-    db.executeInTx(
+    session.executeInTx(
         () -> {
-          var e = db.newEntity("Person");
+          var e = session.newEntity("Person");
           e.setProperty("name", "foo");
         });
 
-    db.executeInTx(
+    session.executeInTx(
         () -> {
-          var elem = db.newEntity("Person");
+          var elem = session.newEntity("Person");
           elem.setProperty("name", "bar");
         });
 
-    db.close();
-    this.db =
+    session.close();
+    this.session =
         (DatabaseSessionInternal)
             youTrackDB.open(DB_NAME, "reader", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "reader"
-    var rs = db.query("select count(*) as count from Person where name = 'bar'");
+    session.begin();
+    var rs = session.query("select count(*) as count from Person where name = 'bar'");
     Assert.assertEquals(0L, (long) rs.next().getProperty("count"));
     rs.close();
 
-    rs = db.query("select count(*) as count from Person where name = 'foo'");
+    rs = session.query("select count(*) as count from Person where name = 'foo'");
     Assert.assertEquals(1L, (long) rs.next().getProperty("count"));
     rs.close();
+    session.commit();
   }
 
   @Test
   public void testIndexGet() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    var person = db.createClass("Person");
-    person.createProperty(db, "name", PropertyType.STRING);
-    db.command("create index Person.name on Person (name) NOTUNIQUE");
+    var person = session.createClass("Person");
+    person.createProperty(session, "name", PropertyType.STRING);
+    session.command("create index Person.name on Person (name) NOTUNIQUE");
 
-    db.begin();
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "reader"), "database.class.Person", policy);
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setReadRule(session, "name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "reader"),
+        "database.class.Person", policy);
+    session.commit();
 
-    db.executeInTx(
+    session.executeInTx(
         () -> {
-          var elem = db.newEntity("Person");
+          var elem = session.newEntity("Person");
           elem.setProperty("name", "foo");
         });
 
-    db.executeInTx(
+    session.executeInTx(
         () -> {
-          var elem = db.newEntity("Person");
+          var elem = session.newEntity("Person");
           elem.setProperty("name", "bar");
         });
 
-    db.close();
-    this.db =
+    session.close();
+    this.session =
         (DatabaseSessionInternal)
             youTrackDB.open(DB_NAME, "reader", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "reader"
 
-    var index = db.getMetadata().getIndexManager().getIndex("Person.name");
+    var index = session.getMetadata().getIndexManager().getIndex("Person.name");
 
-    try (var rids = index.getInternal().getRids(db, "bar")) {
+    session.begin();
+    try (var rids = index.getInternal().getRids(session, "bar")) {
       Assert.assertEquals(0, rids.count());
     }
 
-    try (var rids = index.getInternal().getRids(db, "foo")) {
+    try (var rids = index.getInternal().getRids(session, "foo")) {
       Assert.assertEquals(1, rids.count());
     }
+    session.commit();
   }
 }

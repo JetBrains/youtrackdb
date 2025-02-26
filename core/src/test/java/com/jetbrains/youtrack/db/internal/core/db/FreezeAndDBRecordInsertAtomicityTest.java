@@ -90,30 +90,33 @@ public class FreezeAndDBRecordInsertAtomicityTest extends DbTestBase {
       futures.add(
           executorService.submit(
               () -> {
-                try (final var db = openDatabase()) {
+                try (final var session = openDatabase()) {
                   final var index =
-                      db.getMetadata().getIndexManagerInternal().getIndex(db, "Person.name");
+                      session.getMetadata().getIndexManagerInternal()
+                          .getIndex(session, "Person.name");
                   for (var i1 = 0; i1 < ITERATIONS; ++i1) {
                     switch (random.nextInt(2)) {
                       case 0:
                         var val = i1;
-                        db.executeInTx(
+                        session.executeInTx(
                             () ->
-                                db.newInstance("Person")
+                                session.newInstance("Person")
                                     .field("name", "name-" + thread + "-" + val));
                         break;
 
                       case 1:
-                        db.freeze();
+                        session.freeze();
                         try {
-                          for (var document : db.browseClass("Person")) {
+                          session.begin();
+                          for (var document : session.browseClass("Person")) {
                             try (var rids =
-                                index.getInternal().getRids(db, document.field("name"))) {
+                                index.getInternal().getRids(session, document.field("name"))) {
                               assertEquals(document.getIdentity(), rids.findFirst().orElse(null));
                             }
                           }
+                          session.commit();
                         } finally {
-                          db.release();
+                          session.release();
                         }
 
                         break;

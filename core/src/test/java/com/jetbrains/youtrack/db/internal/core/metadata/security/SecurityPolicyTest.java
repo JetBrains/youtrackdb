@@ -21,6 +21,7 @@ public class SecurityPolicyTest extends DbTestBase {
     security.createSecurityPolicy(session, "test");
     session.commit();
 
+    session.begin();
     rs =
         session.query(
             "select from " + SecurityPolicy.CLASS_NAME + " WHERE name = ?", "test");
@@ -29,6 +30,7 @@ public class SecurityPolicyTest extends DbTestBase {
     Assert.assertEquals("test", item.getProperty("name"));
     Assert.assertFalse(rs.hasNext());
     rs.close();
+    session.commit();
   }
 
   @Test
@@ -40,7 +42,9 @@ public class SecurityPolicyTest extends DbTestBase {
     security.createSecurityPolicy(session, "test");
     session.commit();
 
+    session.begin();
     Assert.assertNotNull(security.getSecurityPolicy(session, "test"));
+    session.commit();
   }
 
   @Test
@@ -60,6 +64,7 @@ public class SecurityPolicyTest extends DbTestBase {
     security.saveSecurityPolicy(session, policy);
     session.commit();
 
+    session.begin();
     SecurityPolicy readPolicy = security.getSecurityPolicy(session, "test");
     Assert.assertNotNull(policy);
     Assert.assertEquals("name = 'create'", readPolicy.getCreateRule(session));
@@ -68,6 +73,7 @@ public class SecurityPolicyTest extends DbTestBase {
     Assert.assertEquals("name = 'afterUpdate'", readPolicy.getAfterUpdateRule(session));
     Assert.assertEquals("name = 'delete'", readPolicy.getDeleteRule(session));
     Assert.assertEquals("name = 'execute'", readPolicy.getExecuteRule(session));
+    session.commit();
   }
 
   @Test
@@ -141,6 +147,7 @@ public class SecurityPolicyTest extends DbTestBase {
     security.setSecurityPolicy(session, reader, resource, policy);
     session.commit();
 
+    session.begin();
     var policyRid = policy.getEntity(session).getIdentity();
     try (var rs = session.query("select from " + Role.CLASS_NAME + " where name = 'reader'")) {
       Map<String, Identifiable> rolePolicies = rs.next().getProperty("policies");
@@ -151,6 +158,7 @@ public class SecurityPolicyTest extends DbTestBase {
     var policy2 = security.getSecurityPolicy(session, reader, resource);
     Assert.assertNotNull(policy2);
     Assert.assertEquals(policy2.getIdentity(), policyRid);
+    session.commit();
   }
 
   @Test

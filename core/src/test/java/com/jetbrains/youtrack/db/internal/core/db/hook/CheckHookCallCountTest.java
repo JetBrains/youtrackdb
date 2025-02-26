@@ -36,15 +36,15 @@ public class CheckHookCallCountTest extends DbTestBase {
     first.field(FIELD_STATUS, STATUS);
     session.commit();
 
+    session.begin();
     session
         .query("SELECT FROM " + CLASS_NAME + " WHERE " + FIELD_STATUS + " = '" + STATUS + "'")
         .stream()
         .count();
-    //      assertEquals(hook.readCount, 1); //TODO
     hook.readCount = 0;
     session.query("SELECT FROM " + CLASS_NAME + " WHERE " + FIELD_ID + " = '" + id + "'").stream()
         .count();
-    //      assertEquals(hook.readCount, 1); //TODO
+    session.commit();
   }
 
   @Test

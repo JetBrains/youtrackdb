@@ -22,10 +22,12 @@ public class RecursiveLinkedSaveTest extends DbTestBase {
     doc1.field("link", doc2);
     doc2.field("link", doc);
     session.commit();
+    session.begin();
     assertEquals(3, session.countClass("Test"));
     doc = session.load(doc.getIdentity());
     doc1 = doc.field("link");
     doc2 = doc1.field("link");
     assertEquals(doc, doc2.field("link"));
+    session.commit();
   }
 }

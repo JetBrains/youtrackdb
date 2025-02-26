@@ -61,7 +61,7 @@ public class DbListenerTest extends BaseDBTest {
 
             @Override
             public void onRecordAfterUpdate(EntityImpl entity) {
-              List<String> changedFields = new ArrayList<>(entity.getDirtyProperties());
+              List<String> changedFields = new ArrayList<>(entity.getCallbackDirtyProperties());
               changes.put(entity, changedFields);
             }
           });

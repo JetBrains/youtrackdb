@@ -33,14 +33,15 @@ public class TestTypeGuessingWorkingWithSQLAndMultiValues extends DbTestBase {
   @Test
   public void testLinkedValue() {
 
+    session.begin();
     try (var result =
         session.execute(
             "sql",
-            "begin; let res = insert into client set name = 'James Bond', phones = ['1234',"
+            "let res = insert into client set name = 'James Bond', phones = ['1234',"
                 + " '34567'], addresses = [{'@class':'Address','city':'Shanghai', 'zip':'3999'},"
                 + " {'@class':'Address','city':'New York', 'street':'57th Ave'}]\n"
                 + ";update client set addresses = addresses ||"
-                + " [{'@type':'d','@class':'Address','city':'London', 'zip':'67373'}]; commit;"
+                + " [{'@type':'d','@class':'Address','city':'London', 'zip':'67373'}];"
                 + " return $res")) {
       Assert.assertTrue(result.hasNext());
       var doc = result.next();
@@ -51,6 +52,7 @@ public class TestTypeGuessingWorkingWithSQLAndMultiValues extends DbTestBase {
         Assert.assertEquals("Address", a.getProperty("@class"));
       }
     }
+    session.commit();
 
     session.begin();
     try (var resultSet =

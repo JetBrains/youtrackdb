@@ -44,74 +44,77 @@ public class SQLCreateSystemUserStatement extends SQLSimpleExecServerStatement {
 
     return systemDb.executeWithDB(
         (session) -> {
-          List<Object> params = new ArrayList<>();
-          // INSERT INTO OUser SET
-          var sb = new StringBuilder();
-          sb.append("INSERT INTO OUser SET ");
-
-          sb.append(USER_FIELD_NAME);
-          sb.append("=?");
-          params.add(this.name.getStringValue());
-
-          // pass=<pass>
-          sb.append(',');
-          sb.append(USER_FIELD_PASSWORD);
-          sb.append("=");
-          if (passwordString != null) {
-            sb.append(passwordString);
-          } else if (passwordIdentifier != null) {
-            sb.append("?");
-            params.add(passwordIdentifier.getStringValue());
-          } else {
-            sb.append("?");
-            params.add(passwordParam.getValue(ctx.getInputParameters()));
-          }
-
-          // status=ACTIVE
-          sb.append(',');
-          sb.append(USER_FIELD_STATUS);
-          sb.append("='");
-          sb.append(DEFAULT_STATUS);
-          sb.append("'");
-
-          // role=(select from Role where name in [<input_role || 'writer'>)]
-          List<SQLIdentifier> roles = new ArrayList<>(this.roles);
-          if (roles.isEmpty()) {
-            roles.add(new SQLIdentifier(DEFAULT_ROLE));
-          }
-
-          sb.append(',');
-          sb.append(USER_FIELD_ROLES);
-          sb.append("=(SELECT FROM ");
-          sb.append(ROLE_CLASS);
-          sb.append(" WHERE ");
-          sb.append(ROLE_FIELD_NAME);
-          sb.append(" IN [");
-          var security = session.getMetadata().getSecurity();
-          for (var i = 0; i < this.roles.size(); ++i) {
-            var roleName = this.roles.get(i).getStringValue();
-            var role = security.getRole(roleName);
-            if (role == null) {
-              throw new CommandExecutionException(session,
-                  "Cannot create user " + this.name + ": role " + roleName + " does not exist");
-            }
-            if (i > 0) {
-              sb.append(", ");
-            }
-
-            if (!roleName.isEmpty() && roleName.charAt(0) == '\'' || !roleName.isEmpty()
-                && roleName.charAt(0) == '\"') {
-              sb.append(roleName);
-            } else {
-              sb.append("'");
-              sb.append(roleName);
-              sb.append("'");
-            }
-          }
-          sb.append("])");
           var result =
               session.computeInTx(
-                  () -> session.command(sb.toString(), params.toArray()).detach());
+                  () -> {
+                    List<Object> params = new ArrayList<>();
+                    // INSERT INTO OUser SET
+                    var sb = new StringBuilder();
+                    sb.append("INSERT INTO OUser SET ");
+
+                    sb.append(USER_FIELD_NAME);
+                    sb.append("=?");
+                    params.add(this.name.getStringValue());
+
+                    // pass=<pass>
+                    sb.append(',');
+                    sb.append(USER_FIELD_PASSWORD);
+                    sb.append("=");
+                    if (passwordString != null) {
+                      sb.append(passwordString);
+                    } else if (passwordIdentifier != null) {
+                      sb.append("?");
+                      params.add(passwordIdentifier.getStringValue());
+                    } else {
+                      sb.append("?");
+                      params.add(passwordParam.getValue(ctx.getInputParameters()));
+                    }
+
+                    // status=ACTIVE
+                    sb.append(',');
+                    sb.append(USER_FIELD_STATUS);
+                    sb.append("='");
+                    sb.append(DEFAULT_STATUS);
+                    sb.append("'");
+
+                    // role=(select from Role where name in [<input_role || 'writer'>)]
+                    List<SQLIdentifier> roles = new ArrayList<>(this.roles);
+                    if (roles.isEmpty()) {
+                      roles.add(new SQLIdentifier(DEFAULT_ROLE));
+                    }
+
+                    sb.append(',');
+                    sb.append(USER_FIELD_ROLES);
+                    sb.append("=(SELECT FROM ");
+                    sb.append(ROLE_CLASS);
+                    sb.append(" WHERE ");
+                    sb.append(ROLE_FIELD_NAME);
+                    sb.append(" IN [");
+                    var security = session.getMetadata().getSecurity();
+                    for (var i = 0; i < this.roles.size(); ++i) {
+                      var roleName = this.roles.get(i).getStringValue();
+                      var role = security.getRole(roleName);
+                      if (role == null) {
+                        throw new CommandExecutionException(session,
+                            "Cannot create user " + this.name + ": role " + roleName
+                                + " does not exist");
+                      }
+                      if (i > 0) {
+                        sb.append(", ");
+                      }
+
+                      if (!roleName.isEmpty() && roleName.charAt(0) == '\'' || !roleName.isEmpty()
+                          && roleName.charAt(0) == '\"') {
+                        sb.append(roleName);
+                      } else {
+                        sb.append("'");
+                        sb.append(roleName);
+                        sb.append("'");
+                      }
+                    }
+                    sb.append("])");
+                    return session.command(sb.toString(), params.toArray()).detach();
+                  });
           return ExecutionStream.resultIterator(result.iterator());
         });
   }

@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.api.query;
 
 import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import java.util.Iterator;
 import java.util.List;
@@ -199,6 +200,44 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
 
   default List<Vertex> toVertexList() {
     return vertexStream().toList();
+  }
+
+  default Stream<RID> ridStream() {
+    return StreamSupport.stream(
+            new Spliterator<RID>() {
+              @Override
+              public boolean tryAdvance(Consumer<? super RID> action) {
+                while (hasNext()) {
+                  var elem = next();
+                  if (elem.isRecord()) {
+                    action.accept(elem.getIdentity());
+                    return true;
+                  }
+                }
+                return false;
+              }
+
+              @Override
+              public Spliterator<RID> trySplit() {
+                return null;
+              }
+
+              @Override
+              public long estimateSize() {
+                return Long.MAX_VALUE;
+              }
+
+              @Override
+              public int characteristics() {
+                return ORDERED;
+              }
+            },
+            false)
+        .onClose(this::close);
+  }
+
+  default List<RID> toRidList() {
+    return ridStream().toList();
   }
 
   /**

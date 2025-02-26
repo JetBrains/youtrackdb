@@ -38,6 +38,7 @@ public class LightWeightEdgesTest {
     v1.setProperty("name", "bName");
     session.commit();
 
+    session.begin();
     try (var res =
         session.query(" select expand(out('Edge')) from `Vertex` where name = 'aName'")) {
       assertTrue(res.hasNext());
@@ -51,6 +52,7 @@ public class LightWeightEdgesTest {
       var r = res.next();
       assertEquals(r.getProperty("name"), "aName");
     }
+    session.commit();
   }
 
   @Test

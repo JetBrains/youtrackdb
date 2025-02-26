@@ -1838,19 +1838,16 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_DELETE, clazz.getName(this));
     }
 
-    long count = 0;
+    var count = new long[]{0};
     final var iteratorCluster =
         new RecordIteratorCluster<>(this, id);
 
-    while (iteratorCluster.hasNext()) {
-      executeInTx(
-          () -> {
-            final var record = bindToSession(iteratorCluster.next());
-            record.delete();
-          });
-      count++;
-    }
-    return count;
+    executeInTxBatches((Iterator<DBRecord>) iteratorCluster, (session, record) -> {
+      delete(record);
+      count[0]++;
+    });
+
+    return count[0];
   }
 
   @Override

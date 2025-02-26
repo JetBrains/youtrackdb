@@ -418,7 +418,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
     var systemDb = context.getSystemDatabase();
     if (context.getSystemDatabase().exists()) {
       return systemDb
-          .execute(
+          .query(
               (resultset, session) -> {
                 var sessionInternal = (DatabaseSessionInternal) session;
                 if (resultset != null && resultset.hasNext()) {

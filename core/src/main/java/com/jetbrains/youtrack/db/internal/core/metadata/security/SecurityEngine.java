@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLOrBlock;
@@ -442,15 +443,20 @@ public class SecurityEngine {
           .getYouTrackDB()
           .executeNoAuthorizationAsync(
               session.getDatabaseName(),
-              (db -> {
+              (noAuthSession -> {
                 var ctx = new BasicCommandContext();
-                ctx.setDatabaseSession(db);
+                ctx.setDatabaseSession(noAuthSession);
                 ctx.setDynamicVariable(
                     "$currentUser",
                     (inContext) -> {
                       return user;
                     });
-                return predicate.evaluate(record, ctx);
+                var detached = record.detach();
+                if (detached instanceof ResultInternal resultInternal) {
+                  resultInternal.setSession(noAuthSession);
+                }
+
+                return predicate.evaluate(detached, ctx);
               }))
           .get();
     } catch (Exception e) {
