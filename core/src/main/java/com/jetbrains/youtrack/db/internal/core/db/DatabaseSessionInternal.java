@@ -1017,7 +1017,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   record TransactionMeters(
       TimeRate totalTransactions,
       TimeRate writeTransactions,
-      TimeRate rollbackTransactions
+      TimeRate writeRollbackTransactions
   ) {
 
     public static TransactionMeters NOOP = new TransactionMeters(
