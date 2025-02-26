@@ -18,10 +18,11 @@ public class ForEachBlockExecutionTest extends DbTestBase {
 
     var script = "";
     script += "FOREACH ($val in [1,2,3]){\n";
-    script += "  begin;insert into " + className + " set value = $val;commit;\n";
+    script += "  insert into " + className + " set value = $val;\n";
     script += "}";
     script += "SELECT FROM " + className;
 
+    session.begin();
     var results = session.execute("sql", script);
 
     var tot = 0;
@@ -34,6 +35,7 @@ public class ForEachBlockExecutionTest extends DbTestBase {
     Assert.assertEquals(3, tot);
     Assert.assertEquals(6, sum);
     results.close();
+    session.commit();
   }
 
   @Test
@@ -42,9 +44,10 @@ public class ForEachBlockExecutionTest extends DbTestBase {
 
     session.createClass(className);
 
+    session.begin();
     var script = "";
     script += "FOREACH ($val in [1,2,3]){\n";
-    script += "  begin;insert into " + className + " set value = $val;commit;\n";
+    script += "  insert into " + className + " set value = $val;\n";
     script += "  if($val = 2){\n";
     script += "    RETURN;\n";
     script += "  }\n";
@@ -64,5 +67,6 @@ public class ForEachBlockExecutionTest extends DbTestBase {
     Assert.assertEquals(2, tot);
     Assert.assertEquals(3, sum);
     results.close();
+    session.commit();
   }
 }

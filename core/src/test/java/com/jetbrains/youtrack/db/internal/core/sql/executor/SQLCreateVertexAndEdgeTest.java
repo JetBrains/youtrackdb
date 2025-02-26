@@ -41,43 +41,43 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
     var v1 = session.command("create vertex").next().castToVertex();
     session.commit();
 
+    session.begin();
     v1 = session.bindToSession(v1);
     Assert.assertEquals("V", v1.getSchemaClassName());
 
-    session.begin();
     var v2 = session.command("create vertex V1").next().castToVertex();
     session.commit();
 
+    session.begin();
     v2 = session.bindToSession(v2);
     Assert.assertEquals("V1", v2.getSchemaClassName());
 
-    session.begin();
     var v3 = session.command("create vertex set brand = 'fiat'").next().castToVertex();
     session.commit();
-
+    session.begin();
     v3 = session.bindToSession(v3);
     Assert.assertEquals("V", v3.getSchemaClassName());
     Assert.assertEquals("fiat", v3.getProperty("brand"));
 
-    session.begin();
     var v4 =
         session.command("create vertex V1 set brand = 'fiat',name = 'wow'").next().castToVertex();
     session.commit();
 
+    session.begin();
     v4 = session.bindToSession(v4);
     Assert.assertEquals("V1", v4.getSchemaClassName());
     Assert.assertEquals("fiat", v4.getProperty("brand"));
     Assert.assertEquals("wow", v4.getProperty("name"));
 
-    session.begin();
     var v5 = session.command("create vertex V1").next().castToVertex();
     session.commit();
 
+    session.begin();
     v5 = session.bindToSession(v5);
     Assert.assertEquals("V1", v5.getSchemaClassName());
 
     // EDGES
-    session.begin();
+
     var edges =
         session.command("create edge from " + v1.getIdentity() + " to " + v2.getIdentity());
     session.commit();
@@ -123,9 +123,10 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
                 + " to "
                 + v5.getIdentity()
                 + " set weight = 17");
-    session.commit();
+
     EntityImpl e5 = edges.next().getIdentity().getRecord(session);
     Assert.assertEquals("E1", e5.getSchemaClassName());
+    session.commit();
   }
 
   /**
@@ -145,8 +146,10 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
 
     session.execute("sql", cmd).close();
 
+    session.begin();
     result = session.query("select from V");
     Assert.assertEquals(result.stream().count(), before + 1);
+    session.commit();
   }
 
   @Test
@@ -155,12 +158,12 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
     var v1 = session.command("create vertex").next().castToVertex();
     session.commit();
 
+    session.begin();
     v1 = session.bindToSession(v1);
     Assert.assertEquals("V", v1.getSchemaClassName());
 
     var vid = v1.getIdentity();
 
-    session.begin();
     session.command("create edge from " + vid + " to " + vid).close();
 
     session.command("create edge E from " + vid + " to " + vid).close();

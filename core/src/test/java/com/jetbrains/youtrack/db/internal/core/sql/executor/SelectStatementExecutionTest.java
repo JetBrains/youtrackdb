@@ -4448,6 +4448,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
       session.commit();
     }
+    session.begin();
     final var result = session.query("select from " + className + " WHERE name >= 'name5'");
     printExecutionPlan(result);
 
@@ -4457,6 +4458,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test

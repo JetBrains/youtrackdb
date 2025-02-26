@@ -23,7 +23,6 @@ public class CreateVertexStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var result = session.command("create vertex " + className + " set name = 'name1'");
-    session.commit();
 
     printExecutionPlan(result);
     for (var i = 0; i < 1; i++) {
@@ -42,6 +41,7 @@ public class CreateVertexStatementExecutionTest extends DbTestBase {
       Assert.assertEquals("name1", item.getProperty("name"));
     }
     Assert.assertFalse(result.hasNext());
+    session.commit();
     result.close();
   }
 
@@ -70,7 +70,7 @@ public class CreateVertexStatementExecutionTest extends DbTestBase {
     var result =
         session.command(
             "create vertex " + className + "  (name, surname) values ('name1', 'surname1')");
-    session.commit();
+
     printExecutionPlan(result);
     for (var i = 0; i < 1; i++) {
       Assert.assertTrue(result.hasNext());
@@ -90,6 +90,7 @@ public class CreateVertexStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -104,7 +105,6 @@ public class CreateVertexStatementExecutionTest extends DbTestBase {
             "create vertex "
                 + className
                 + "  (name, surname) values ('name1', 'surname1'), ('name2', 'surname2')");
-    session.commit();
 
     printExecutionPlan(result);
 
@@ -132,6 +132,7 @@ public class CreateVertexStatementExecutionTest extends DbTestBase {
     Assert.assertFalse(result.hasNext());
     Assert.assertTrue(names.isEmpty());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -144,7 +145,6 @@ public class CreateVertexStatementExecutionTest extends DbTestBase {
     var result =
         session.command(
             "create vertex " + className + " content {'name':'name1', 'surname':'surname1'}");
-    session.commit();
 
     printExecutionPlan(result);
     for (var i = 0; i < 1; i++) {
@@ -165,5 +165,6 @@ public class CreateVertexStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 }

@@ -113,6 +113,7 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
 
     session.commit();
 
+    session.begin();
     person1 = session.bindToSession(person1);
     person2 = session.bindToSession(person2);
     person3 = session.bindToSession(person3);
@@ -122,6 +123,7 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
     assertRids("Name1", person1);
     assertRids("Name2", person2, person3);
     assertRids("Name3");
+    session.commit();
   }
 
   @Test
@@ -190,6 +192,7 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
 
     session.commit();
 
+    session.begin();
     person1 = session.bindToSession(person1);
     person2 = session.bindToSession(person2);
     person3 = session.bindToSession(person3);
@@ -199,6 +202,7 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
     assertRids("Name1", person1);
     assertRids("Name2", person2);
     assertRids("Name3", person3);
+    session.commit();
   }
 
   @Test
@@ -269,6 +273,7 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
 
     session.commit();
 
+    session.begin();
     person2 = session.bindToSession(person2);
     person4 = session.bindToSession(person4);
 
@@ -278,6 +283,7 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
     assertRids("Name2", person2, person4);
     assertRids("Name3");
     assertRids("Name4");
+    session.commit();
 
     session.begin();
     person2 = session.bindToSession(person2);
@@ -305,6 +311,7 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
     }
     session.commit();
 
+    session.begin();
     // verify index state
     try (var stream = index.getInternal().getRids(session, "Name")) {
       stream.forEach(
@@ -314,6 +321,7 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
           });
     }
     Assert.assertTrue(unseen.isEmpty());
+    session.commit();
   }
 
   @SuppressWarnings("unchecked")

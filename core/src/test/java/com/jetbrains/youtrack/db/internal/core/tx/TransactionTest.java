@@ -37,8 +37,10 @@ public class TransactionTest {
     v.setProperty("name", "Bar");
     db.rollback();
 
+    db.begin();
     v = db.bindToSession(v);
     Assert.assertEquals("Foo", v.getProperty("name"));
+    db.commit();
   }
 
   @After

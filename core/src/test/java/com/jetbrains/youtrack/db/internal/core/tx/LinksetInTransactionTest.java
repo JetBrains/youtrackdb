@@ -22,7 +22,7 @@ public class LinksetInTransactionTest extends DbTestBase {
 
     Set set = new HashSet<>();
     set.add(link1);
-    withLinks1.setProperty("links", set);
+    withLinks1.newLinkSet("links", set);
 
     session.commit();
 
@@ -50,11 +50,13 @@ public class LinksetInTransactionTest extends DbTestBase {
     Assert.assertEquals(0, links.size());
     session.commit();
 
+    session.begin();
     withLinks1 = session.bindToSession(withLinks1);
     links = withLinks1.getProperty("links");
     /* Initial record was removed */
     Assert.assertFalse(links.contains(link1));
     /* Fails: why is link2 still in the set? */
     Assert.assertFalse(links.contains(link2));
+    session.commit();
   }
 }

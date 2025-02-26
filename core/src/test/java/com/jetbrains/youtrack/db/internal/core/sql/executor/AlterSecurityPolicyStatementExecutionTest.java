@@ -17,6 +17,7 @@ public class AlterSecurityPolicyStatementExecutionTest extends DbTestBase {
     session.command("ALTER SECURITY POLICY foo SET READ = (name = 'foo')").close();
     session.commit();
 
+    session.begin();
     var security = session.getSharedContext().getSecurity();
     SecurityPolicy policy = security.getSecurityPolicy(session, "foo");
     Assert.assertNotNull(policy);
@@ -28,12 +29,13 @@ public class AlterSecurityPolicyStatementExecutionTest extends DbTestBase {
     Assert.assertNull(policy.getDeleteRule(session));
     Assert.assertNull(policy.getExecuteRule(session));
 
-    session.begin();
     session.command("ALTER SECURITY POLICY foo REMOVE READ").close();
     session.commit();
 
+    session.begin();
     policy = security.getSecurityPolicy(session, "foo");
     Assert.assertNotNull(policy);
     Assert.assertNull(policy.getReadRule(session));
+    session.commit();
   }
 }

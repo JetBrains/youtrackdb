@@ -1053,9 +1053,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
         && getStorageInfo().isAssigningClusterIds()) {
       if (record instanceof EntityImpl) {
         SchemaImmutableClass result = null;
-        if (record != null) {
-          result = ((EntityImpl) record).getImmutableSchemaClass(this);
-        }
+        result = ((EntityImpl) record).getImmutableSchemaClass(this);
         schemaClass = result;
         if (schemaClass != null) {
           if (schemaClass.isAbstract(this)) {

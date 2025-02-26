@@ -74,8 +74,10 @@ public class DeleteVertexStatementExecutionTest extends DbTestBase {
     rs.close();
     session.commit();
 
+    session.begin();
     rs = session.query("SELECT FROM " + className2);
     Assert.assertEquals(10, rs.stream().count());
     rs.close();
+    session.commit();
   }
 }

@@ -36,6 +36,7 @@ public class RebuildIndexStatementExecutionTest extends DbTestBase {
 
     Assert.assertNotEquals(ele1.getIdentity().getClusterId(), ele.getIdentity().getClusterId());
 
+    session.begin();
     // when
     var result = session.command("rebuild index " + className + "index1");
     Assert.assertTrue(result.hasNext());
@@ -44,5 +45,6 @@ public class RebuildIndexStatementExecutionTest extends DbTestBase {
     Assert.assertFalse(result.hasNext());
     assertEquals(
         2, session.query("select from " + className + " where key = 'a'").stream().toList().size());
+    session.commit();
   }
 }

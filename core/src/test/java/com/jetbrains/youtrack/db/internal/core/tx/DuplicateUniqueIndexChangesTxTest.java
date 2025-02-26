@@ -50,9 +50,9 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     session.begin();
 
     // saved persons will have null name
-    final EntityImpl person1 = session.newInstance("Person");
-    final EntityImpl person2 = session.newInstance("Person");
-    final EntityImpl person3 = session.newInstance("Person");
+    final var person1 = session.newInstance("Person");
+    final var person2 = session.newInstance("Person");
+    final var person3 = session.newInstance("Person");
 
     // change names to unique
     person1.field("name", "Name1");
@@ -64,11 +64,13 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     // should not throw RecordDuplicatedException exception
     session.commit();
 
+    session.begin();
     // verify index state
     Assert.assertNull(fetchDocumentFromIndex(null));
-    Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
-    Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
-    Assert.assertEquals(person3, fetchDocumentFromIndex("Name3"));
+    Assert.assertEquals(session.bindToSession(person1), fetchDocumentFromIndex("Name1"));
+    Assert.assertEquals(session.bindToSession(person2), fetchDocumentFromIndex("Name2"));
+    Assert.assertEquals(session.bindToSession(person3), fetchDocumentFromIndex("Name3"));
+    session.commit();
   }
 
   private EntityImpl fetchDocumentFromIndex(String o) {
@@ -80,25 +82,24 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
   @Test
   public void testDuplicateNullsOnUpdate() {
     session.begin();
-    EntityImpl person1 = session.newInstance("Person");
+    var person1 = session.newInstance("Person");
     person1.field("name", "Name1");
-    EntityImpl person2 = session.newInstance("Person");
+    var person2 = session.newInstance("Person");
     person2.field("name", "Name2");
-    EntityImpl person3 = session.newInstance("Person");
+    var person3 = session.newInstance("Person");
     person3.field("name", "Name3");
     session.commit();
 
     // verify index state
+    session.begin();
+    person1 = session.bindToSession(person1);
+    person2 = session.bindToSession(person2);
+    person3 = session.bindToSession(person3);
+
     Assert.assertNull(fetchDocumentFromIndex(null));
     Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
     Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
     Assert.assertEquals(person3, fetchDocumentFromIndex("Name3"));
-
-    session.begin();
-
-    person1 = session.bindToSession(person1);
-    person2 = session.bindToSession(person2);
-    person3 = session.bindToSession(person3);
 
     // saved persons will have null name
     person1.field("name", null);
@@ -123,10 +124,12 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     session.commit();
 
     // verify index state
+    session.begin();
     Assert.assertNull(fetchDocumentFromIndex(null));
-    Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
-    Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
-    Assert.assertEquals(person3, fetchDocumentFromIndex("Name3"));
+    Assert.assertEquals(session.bindToSession(person1), fetchDocumentFromIndex("Name1"));
+    Assert.assertEquals(session.bindToSession(person2), fetchDocumentFromIndex("Name2"));
+    Assert.assertEquals(session.bindToSession(person3), fetchDocumentFromIndex("Name3"));
+    session.commit();
   }
 
   @Test
@@ -134,11 +137,11 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     session.begin();
 
     // saved persons will have same name
-    final EntityImpl person1 = session.newInstance("Person");
+    final var person1 = session.newInstance("Person");
     person1.field("name", "same");
-    final EntityImpl person2 = session.newInstance("Person");
+    final var person2 = session.newInstance("Person");
     person2.field("name", "same");
-    final EntityImpl person3 = session.newInstance("Person");
+    final var person3 = session.newInstance("Person");
     person3.field("name", "same");
 
     // change names to unique
@@ -152,33 +155,34 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     session.commit();
 
     // verify index state
+    session.begin();
     Assert.assertNull(fetchDocumentFromIndex("same"));
-    Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
-    Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
-    Assert.assertEquals(person3, fetchDocumentFromIndex("Name3"));
+    Assert.assertEquals(session.bindToSession(person1), fetchDocumentFromIndex("Name1"));
+    Assert.assertEquals(session.bindToSession(person2), fetchDocumentFromIndex("Name2"));
+    Assert.assertEquals(session.bindToSession(person3), fetchDocumentFromIndex("Name3"));
+    session.commit();
   }
 
   @Test
   public void testDuplicateValuesOnUpdate() {
     session.begin();
-    EntityImpl person1 = session.newInstance("Person");
+    var person1 = session.newInstance("Person");
     person1.field("name", "Name1");
-    EntityImpl person2 = session.newInstance("Person");
+    var person2 = session.newInstance("Person");
     person2.field("name", "Name2");
-    EntityImpl person3 = session.newInstance("Person");
+    var person3 = session.newInstance("Person");
     person3.field("name", "Name3");
     session.commit();
 
     // verify index state
-    Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
-    Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
-    Assert.assertEquals(person3, fetchDocumentFromIndex("Name3"));
-
     session.begin();
-
     person1 = session.bindToSession(person1);
     person2 = session.bindToSession(person2);
     person3 = session.bindToSession(person3);
+
+    Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
+    Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
+    Assert.assertEquals(person3, fetchDocumentFromIndex("Name3"));
 
     // saved persons will have same name
     person1.field("name", "same");
@@ -197,11 +201,18 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     // should not throw RecordDuplicatedException exception
     session.commit();
 
+    session.begin();
     // verify index state
+
+    person1 = session.bindToSession(person1);
+    person2 = session.bindToSession(person2);
+    person3 = session.bindToSession(person3);
+
     Assert.assertNull(fetchDocumentFromIndex("same"));
     Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
     Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
     Assert.assertEquals(person3, fetchDocumentFromIndex("Name3"));
+    session.commit();
   }
 
   @Test
@@ -209,13 +220,13 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     session.begin();
 
     // saved persons will have same name
-    final EntityImpl person1 = session.newInstance("Person");
+    final var person1 = session.newInstance("Person");
     person1.field("name", "same");
-    final EntityImpl person2 = session.newInstance("Person");
+    final var person2 = session.newInstance("Person");
     person2.field("name", "same");
-    final EntityImpl person3 = session.newInstance("Person");
+    final var person3 = session.newInstance("Person");
     person3.field("name", "same");
-    final EntityImpl person4 = session.newInstance("Person");
+    final var person4 = session.newInstance("Person");
     person4.field("name", "same");
 
     person1.delete();
@@ -227,29 +238,26 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     session.commit();
 
     // verify index state
-    Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
-    Assert.assertEquals(person4, fetchDocumentFromIndex("same"));
+    session.begin();
+    Assert.assertEquals(session.bindToSession(person2), fetchDocumentFromIndex("Name2"));
+    Assert.assertEquals(session.bindToSession(person4), fetchDocumentFromIndex("same"));
+    session.commit();
   }
 
   @Test
   public void testDuplicateValuesOnUpdateDelete() {
     session.begin();
-    EntityImpl person1 = session.newInstance("Person");
+    var person1 = session.newInstance("Person");
     person1.field("name", "Name1");
-    EntityImpl person2 = session.newInstance("Person");
+    var person2 = session.newInstance("Person");
     person2.field("name", "Name2");
-    EntityImpl person3 = session.newInstance("Person");
+    var person3 = session.newInstance("Person");
     person3.field("name", "Name3");
-    EntityImpl person4 = session.newInstance("Person");
+    var person4 = session.newInstance("Person");
     person4.field("name", "Name4");
     session.commit();
 
     // verify index state
-    Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
-    Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
-    Assert.assertEquals(person3, fetchDocumentFromIndex("Name3"));
-    Assert.assertEquals(person4, fetchDocumentFromIndex("Name4"));
-
     session.begin();
 
     person1 = session.bindToSession(person1);
@@ -257,6 +265,11 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     person3 = session.bindToSession(person3);
     person4 = session.bindToSession(person4);
 
+    Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
+    Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
+    Assert.assertEquals(person3, fetchDocumentFromIndex("Name3"));
+    Assert.assertEquals(person4, fetchDocumentFromIndex("Name4"));
+
     person1.delete();
     person2.field("name", "same");
 
@@ -269,12 +282,12 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     session.commit();
 
     // verify index state
-    Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
-    Assert.assertEquals(person4, fetchDocumentFromIndex("same"));
-
     session.begin();
     person2 = session.bindToSession(person2);
     person4 = session.bindToSession(person4);
+
+    Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
+    Assert.assertEquals(person4, fetchDocumentFromIndex("same"));
 
     person2.delete();
     person4.delete();
@@ -288,11 +301,11 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
   @Test(expected = RecordDuplicatedException.class)
   public void testDuplicateCreateThrows() {
     session.begin();
-    EntityImpl person1 = session.newInstance("Person");
+    var person1 = session.newInstance("Person");
     person1.field("name", "Name1");
-    EntityImpl person2 = session.newInstance("Person");
-    EntityImpl person3 = session.newInstance("Person");
-    EntityImpl person4 = session.newInstance("Person");
+    var person2 = session.newInstance("Person");
+    var person3 = session.newInstance("Person");
+    var person4 = session.newInstance("Person");
     person4.field("name", "Name1");
     //    Assert.assertThrows(RecordDuplicatedException.class, new Assert.ThrowingRunnable() {
     //      @Override
@@ -306,27 +319,28 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
   @Test(expected = RecordDuplicatedException.class)
   public void testDuplicateUpdateThrows() {
     session.begin();
-    EntityImpl person1 = session.newInstance("Person");
+    var person1 = session.newInstance("Person");
     person1.field("name", "Name1");
-    EntityImpl person2 = session.newInstance("Person");
+    var person2 = session.newInstance("Person");
     person2.field("name", "Name2");
-    EntityImpl person3 = session.newInstance("Person");
+    var person3 = session.newInstance("Person");
     person3.field("name", "Name3");
-    EntityImpl person4 = session.newInstance("Person");
+    var person4 = session.newInstance("Person");
     person4.field("name", "Name4");
     session.commit();
 
     // verify index state
-    Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
-    Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
-    Assert.assertEquals(person3, fetchDocumentFromIndex("Name3"));
-    Assert.assertEquals(person4, fetchDocumentFromIndex("Name4"));
-
     session.begin();
+
     person1 = session.bindToSession(person1);
     person2 = session.bindToSession(person2);
     person3 = session.bindToSession(person3);
     person4 = session.bindToSession(person4);
+
+    Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
+    Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
+    Assert.assertEquals(person3, fetchDocumentFromIndex("Name3"));
+    Assert.assertEquals(person4, fetchDocumentFromIndex("Name4"));
 
     person1.field("name", "Name1");
 
