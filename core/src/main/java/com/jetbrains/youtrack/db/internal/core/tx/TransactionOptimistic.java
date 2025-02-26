@@ -782,7 +782,7 @@ public class TransactionOptimistic extends FrontendTransactionAbstract implement
     try {
       status = TXSTATUS.COMMITTING;
 
-      if (isWriteTransaction()) {
+      if (sentToServer || isWriteTransaction()) {
         database.internalCommit(this);
         database.transactionMeters()
             .writeTransactions()
@@ -806,7 +806,7 @@ public class TransactionOptimistic extends FrontendTransactionAbstract implement
   }
 
   private boolean isWriteTransaction() {
-    return sentToServer || !recordOperations.isEmpty() || !indexEntries.isEmpty();
+    return !recordOperations.isEmpty() || !indexEntries.isEmpty();
   }
 
   public void resetChangesTracking() {
