@@ -143,10 +143,12 @@ public class ResourceDerivedTest {
 
     var db = youTrackDB.open("test", "tenant1", "password");
 
+    db.begin();
     try {
       var result = query(db, "SELECT FROM Customer");
 
       assertThat(result).hasSize(3);
+      db.commit();
     } finally {
       db.close();
     }
@@ -158,10 +160,12 @@ public class ResourceDerivedTest {
 
     var db = youTrackDB.open("test", "tenant1", "password");
 
+    db.begin();
     try {
       var result = query(db, "SELECT FROM Customer_t2");
 
       assertThat(result).hasSize(1);
+      db.commit();
     } finally {
       db.close();
     }
@@ -171,22 +175,24 @@ public class ResourceDerivedTest {
 
     var db = youTrackDB.open("test", "tenant1", "password");
 
+    db.begin();
     try {
       var result = query(db, "SELECT FROM Customer_u2");
       assertThat(result).hasSize(0);
     } finally {
+      db.rollback();
       db.close();
     }
   }
 
   public void shouldTestCustomer() {
-
     var db = youTrackDB.open("test", "tenant2", "password");
-
+    db.begin();
     try {
       var result = query(db, "SELECT FROM Customer");
       assertThat(result).hasSize(0);
     } finally {
+      db.rollback();
       db.close();
     }
   }
@@ -197,11 +203,12 @@ public class ResourceDerivedTest {
   public void shouldTestCustomer_t2Tenant2() {
 
     var db = youTrackDB.open("test", "tenant2", "password");
-
+    db.begin();
     try {
       var result = query(db, "SELECT FROM Customer_t2");
 
       assertThat(result).hasSize(2);
+      db.commit();
     } finally {
       db.close();
     }

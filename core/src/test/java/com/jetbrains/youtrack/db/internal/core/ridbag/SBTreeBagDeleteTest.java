@@ -48,12 +48,14 @@ public class SBTreeBagDeleteTest extends BaseMemoryInternalDatabase {
     session.delete(entity);
     session.commit();
 
+    session.begin();
     try {
       session.load(id);
       Assert.fail();
     } catch (RecordNotFoundException e) {
       // ignore
     }
+    session.rollback();
 
     Thread.sleep(100);
     var tree =

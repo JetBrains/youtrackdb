@@ -33,8 +33,10 @@ public class TestSerializationCompatibilityDBRecord extends DbTestBase {
     record.setProperty("some", "aa");
     session.commit();
 
+    session.begin();
     EntityImpl record1 = session.load(id);
     assertEquals(PropertyType.LINKMAP, record1.getPropertyType("map"));
     assertEquals("aa", record1.getString("some"));
+    session.commit();
   }
 }

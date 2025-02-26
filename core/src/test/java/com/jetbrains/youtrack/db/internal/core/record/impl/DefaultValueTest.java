@@ -59,10 +59,12 @@ public class DefaultValueTest extends DbTestBase {
     var inserted = session.command("insert into ClassA content {}").next();
     session.commit();
 
+    session.begin();
     EntityImpl seved1 = session.load(inserted.getIdentity());
     assertNotNull(seved1.field("date"));
     assertNotNull(seved1.field("id"));
     assertTrue(seved1.field("date") instanceof Date);
+    session.commit();
   }
 
   @Test
@@ -82,21 +84,25 @@ public class DefaultValueTest extends DbTestBase {
     EntityImpl saved = doc;
     session.commit();
 
+    session.begin();
     saved = session.bindToSession(saved);
     assertNotNull(saved.field("date"));
     assertTrue(saved.field("date") instanceof Date);
     assertNotNull(saved.field("id"));
+    session.commit();
 
     session.begin();
     var inserted = session.command("insert into ClassA content {\"date\":\"" + value + "\"}")
         .next();
     session.commit();
 
+    session.begin();
     EntityImpl seved1 = session.load(inserted.getIdentity());
     assertNotNull(seved1.field("date"));
     assertNotNull(seved1.field("id"));
     assertTrue(seved1.field("date") instanceof Date);
     assertEquals(DateHelper.getDateTimeFormatInstance(session).format(seved1.field("date")), value);
+    session.commit();
   }
 
   @Test
@@ -113,10 +119,12 @@ public class DefaultValueTest extends DbTestBase {
     EntityImpl saved = doc;
     session.commit();
 
+    session.begin();
     saved = session.bindToSession(saved);
     assertNotNull(saved.field("date"));
     assertTrue(saved.field("date") instanceof Date);
     assertNotNull(saved.field("other"));
+    session.commit();
   }
 
   @Test
@@ -134,10 +142,12 @@ public class DefaultValueTest extends DbTestBase {
     EntityImpl saved = doc;
     session.commit();
 
+    session.begin();
     saved = session.bindToSession(saved);
     assertNotNull(saved.field("date"));
     assertEquals(DateHelper.getDateTimeFormatInstance(session).format(saved.field("date")), value1);
     assertNotNull(saved.field("other"));
+    session.commit();
   }
 
   @Test
@@ -156,10 +166,12 @@ public class DefaultValueTest extends DbTestBase {
     EntityImpl saved = doc;
     session.commit();
 
+    session.begin();
     saved = session.bindToSession(saved);
     assertNotNull(saved.field("date"));
     assertTrue(saved.field("date") instanceof Date);
     assertNotNull(saved.field("other"));
+    session.commit();
   }
 
   @Test
@@ -214,13 +226,13 @@ public class DefaultValueTest extends DbTestBase {
     var doc1 = (EntityImpl) session.newEntity("ClassA");
     doc1.updateFromJSON("{\"@class\":\"ClassA\",\"date\":\"" + val + "\",\"other\":\"other1\"}");
     saved.merge(doc1, true, true);
-
-    saved = saved;
     session.commit();
 
+    session.begin();
     saved = session.bindToSession(saved);
     assertNotNull(saved.field("date"));
     assertEquals(DateHelper.getDateTimeFormatInstance(session).format(saved.field("date")), val);
     assertEquals(saved.field("other"), "other1");
+    session.commit();
   }
 }

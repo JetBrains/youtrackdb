@@ -971,9 +971,9 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     entity.field(fieldName, ridBag, PropertyType.LINKBAG);
     session.commit();
 
+    session.begin();
     entity = session.bindToSession(entity);
 
-    session.begin();
     var third = (EntityImpl) session.newEntity(claz);
     session.commit();
 

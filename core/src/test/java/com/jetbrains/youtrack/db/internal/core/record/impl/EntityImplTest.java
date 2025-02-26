@@ -19,9 +19,9 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import java.util.Map;
 import org.junit.Test;
 
-public class DocumentTest extends DbTestBase {
+public class EntityImplTest extends DbTestBase {
 
-  private static final String dbName = DocumentTest.class.getSimpleName();
+  private static final String dbName = EntityImplTest.class.getSimpleName();
   private static final String defaultDbAdminCredentials = "admin";
 
   @Test
@@ -233,27 +233,27 @@ public class DocumentTest extends DbTestBase {
 
   @Test
   public void testUndo() {
-    DatabaseSessionInternal db = null;
+    DatabaseSessionInternal session = null;
     YouTrackDB odb = null;
     try {
       odb = CreateDatabaseUtil.createDatabase(dbName, "memory:", CreateDatabaseUtil.TYPE_MEMORY);
-      db = (DatabaseSessionInternal) odb.open(dbName, defaultDbAdminCredentials,
+      session = (DatabaseSessionInternal) odb.open(dbName, defaultDbAdminCredentials,
           CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-      Schema schema = db.getMetadata().getSchema();
+      Schema schema = session.getMetadata().getSchema();
       var classA = schema.createClass("TestUndo");
-      classA.createProperty(db, "name", PropertyType.STRING);
-      classA.createProperty(db, "property", PropertyType.STRING);
+      classA.createProperty(session, "name", PropertyType.STRING);
+      classA.createProperty(session, "property", PropertyType.STRING);
 
-      db.begin();
-      var doc = (EntityImpl) db.newEntity(classA);
+      session.begin();
+      var doc = (EntityImpl) session.newEntity(classA);
       doc.field("name", "My Name");
       doc.field("property", "value1");
 
-      db.commit();
+      session.commit();
 
-      db.begin();
-      doc = db.bindToSession(doc);
+      session.begin();
+      doc = session.bindToSession(doc);
       assertEquals("My Name", doc.field("name"));
       assertEquals("value1", doc.field("property"));
       doc.undo();
@@ -266,28 +266,30 @@ public class DocumentTest extends DbTestBase {
       assertEquals("My Name 3", doc.field("name"));
       assertEquals("value1", doc.field("property"));
 
-      db.commit();
+      session.commit();
 
-      db.begin();
-      doc = db.bindToSession(doc);
+      session.begin();
+      doc = session.bindToSession(doc);
       doc.field("name", "My Name 4");
       doc.field("property", "value4");
       doc.undo("property");
       assertEquals("My Name 4", doc.field("name"));
       assertEquals("value1", doc.field("property"));
 
-      db.commit();
+      session.commit();
 
-      doc = db.bindToSession(doc);
+      session.begin();
+      doc = session.bindToSession(doc);
       doc.undo("property");
       assertEquals("My Name 4", doc.field("name"));
       assertEquals("value1", doc.field("property"));
       doc.undo();
       assertEquals("My Name 4", doc.field("name"));
       assertEquals("value1", doc.field("property"));
+      session.commit();
     } finally {
-      if (db != null) {
-        db.close();
+      if (session != null) {
+        session.close();
       }
       if (odb != null) {
         odb.drop(dbName);

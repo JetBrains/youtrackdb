@@ -11,7 +11,7 @@ import java.util.List;
 import org.junit.Assert;
 import org.junit.Test;
 
-public class DocumentTransactionalValidationTest extends BaseMemoryInternalDatabase {
+public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabase {
 
   @Test(expected = ValidationException.class)
   public void simpleConstraintShouldBeCheckedOnCommitFalseTest() {
@@ -61,7 +61,9 @@ public class DocumentTransactionalValidationTest extends BaseMemoryInternalDatab
     vertex.setProperty("str", "second");
     vertex.setProperty("str", "abacorrect");
     session.commit();
+    session.begin();
     Assert.assertEquals("abacorrect", session.bindToSession(vertex).getProperty("str"));
+    session.commit();
   }
 
   @Test(expected = ValidationException.class)

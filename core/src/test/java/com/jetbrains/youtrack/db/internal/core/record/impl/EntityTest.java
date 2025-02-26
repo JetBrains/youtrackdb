@@ -32,9 +32,11 @@ public class EntityTest extends DbTestBase {
     elem.setProperty("name", "foo");
     session.commit();
 
+    session.begin();
     var result = session.query("select from TestLoadAndSave where name = 'foo'");
     Assert.assertTrue(result.hasNext());
     Assert.assertEquals("foo", result.next().getProperty("name"));
     result.close();
+    session.commit();
   }
 }

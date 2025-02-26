@@ -3,7 +3,6 @@ package com.jetbrains.youtrack.db.internal.core.record.impl;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
@@ -14,7 +13,7 @@ import java.util.Set;
 import org.apache.commons.collections4.SetUtils;
 import org.junit.Test;
 
-public class CollectionOfLinkInNestedDocumentTest extends DbTestBase {
+public class CollectionOfLinkInNestedEntityTest extends DbTestBase {
 
   @Test
   public void nestedLinkSet() {
@@ -35,12 +34,14 @@ public class CollectionOfLinkInNestedDocumentTest extends DbTestBase {
     Identifiable id = base;
     session.commit();
 
+    session.begin();
     EntityImpl base1 = session.load(id.getIdentity());
     EntityImpl nest1 = base1.field("nested");
     assertNotNull(nest1);
 
     assertEquals(SetUtils.hashSet(doc1.getIdentity(), doc2.getIdentity()),
         nest1.<Set<Identifiable>>field("set"));
+    session.commit();
   }
 
   @Test
@@ -57,16 +58,17 @@ public class CollectionOfLinkInNestedDocumentTest extends DbTestBase {
 
     nested.field("list", list);
 
-
     var base = (EntityImpl) session.newEntity();
     base.field("nested", nested, PropertyType.EMBEDDED);
     Identifiable id = base;
     session.commit();
 
+    session.begin();
     EntityImpl base1 = session.load(id.getIdentity());
     EntityImpl nest1 = base1.field("nested");
     assertNotNull(nest1);
     assertEquals(list, nest1.field("list"));
+    session.commit();
   }
 
   @Test
@@ -88,9 +90,11 @@ public class CollectionOfLinkInNestedDocumentTest extends DbTestBase {
     Identifiable id = base;
     session.commit();
 
+    session.begin();
     EntityImpl base1 = session.load(id.getIdentity());
     EntityImpl nest1 = base1.field("nested");
     assertNotNull(nest1);
     assertEquals(map, nest1.field("map"));
+    session.commit();
   }
 }
