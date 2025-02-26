@@ -10,28 +10,15 @@ import java.util.List;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
 public class TraverseTest extends DbTestBase {
-
-  private EntityImpl rootDocument;
-  private Traverse traverse;
-
-  public void beforeTest() throws Exception {
-    super.beforeTest();
-
-    session.executeInTx(() -> {
-      rootDocument = (EntityImpl) session.newEntity();
-      traverse = new Traverse(session);
-      traverse.target(rootDocument).fields("*");
-    });
-  }
 
   @Test
   public void testDepthTraverse() {
+    EntityImpl rootDocument;
+    Traverse traverse;
+
     session.begin();
-    rootDocument = session.bindToSession(rootDocument);
+    rootDocument = (EntityImpl) session.newEntity();
 
     final var aa = (EntityImpl) session.newEntity();
     final var ab = (EntityImpl) session.newEntity();
@@ -87,6 +74,8 @@ public class TraverseTest extends DbTestBase {
             session.bindToSession(c3a),
             session.bindToSession(c3b));
 
+    traverse = new Traverse(session);
+    traverse.target(rootDocument).fields("*");
     final var results = traverse.execute(session);
 
     compareTraverseResults(expectedResult, results);
@@ -95,10 +84,12 @@ public class TraverseTest extends DbTestBase {
 
   @Test
   public void testBreadthTraverse() throws Exception {
-    traverse.setStrategy(Traverse.STRATEGY.BREADTH_FIRST);
+    EntityImpl rootDocument;
+    Traverse traverse;
+
 
     session.begin();
-    rootDocument = session.bindToSession(rootDocument);
+    rootDocument = (EntityImpl) session.newEntity();
     final var aa = (EntityImpl) session.newEntity();
     final var ab = (EntityImpl) session.newEntity();
     final var ba = (EntityImpl) session.newEntity();
@@ -128,11 +119,15 @@ public class TraverseTest extends DbTestBase {
     c3.setProperty("c3a", c3a, PropertyType.LINK);
     final var c3b = (EntityImpl) session.newEntity();
     c3.setProperty("c3b", c3b, PropertyType.LINK);
-
     rootDocument.getOrCreateLinkList("c").addAll(new ArrayList<>(Arrays.asList(c1, c2, c3)));
     session.commit();
+
     session.begin();
     rootDocument = session.bindToSession(rootDocument);
+    traverse = new Traverse(session);
+
+    traverse.target(rootDocument).fields("*");
+    traverse.setStrategy(Traverse.STRATEGY.BREADTH_FIRST);
 
     final var expectedResult =
         Arrays.asList(
@@ -153,7 +148,6 @@ public class TraverseTest extends DbTestBase {
             session.bindToSession(c3a),
             session.bindToSession(c3b));
     final var results = traverse.execute(session);
-
     compareTraverseResults(expectedResult, results);
     session.rollback();
   }
