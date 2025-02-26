@@ -239,10 +239,10 @@ public class ResultSerializationTest extends DbTestBase {
     Result extr = serializeDeserialize(session, document);
 
     assertEquals(document.getPropertyNames(), extr.getPropertyNames());
-    Result emb = extr.getProperty("embed");
+    Map<String, Object> emb = extr.getProperty("embed");
     assertNotNull(emb);
-    assertEquals(emb.<String>getProperty("name"), embedded.getProperty("name"));
-    assertEquals(emb.<String>getProperty("surname"), embedded.getProperty("surname"));
+    assertEquals(emb.get("name"), embedded.getProperty("name"));
+    assertEquals(emb.get("surname"), embedded.getProperty("surname"));
   }
 
   @Test
@@ -259,12 +259,12 @@ public class ResultSerializationTest extends DbTestBase {
 
     Result extr = serializeDeserialize(session, document);
 
-    Map<String, Result> mapS = extr.getProperty("map");
+    Map<String, Map<String, Object>> mapS = extr.getProperty("map");
     assertEquals(1, mapS.size());
     var emb = mapS.get("embedded");
     assertNotNull(emb);
-    assertEquals(emb.<String>getProperty("name"), embeddedInMap.getProperty("name"));
-    assertEquals(emb.<String>getProperty("surname"), embeddedInMap.getProperty("surname"));
+    assertEquals(emb.get("name"), embeddedInMap.getProperty("name"));
+    assertEquals(emb.get("surname"), embeddedInMap.getProperty("surname"));
   }
 
   @Test
@@ -290,19 +290,19 @@ public class ResultSerializationTest extends DbTestBase {
 
     Result extr = serializeDeserialize(session, document);
 
-    List<Result> ser = extr.getProperty("embeddedList");
+    List<Map<String, Object>> ser = extr.getProperty("embeddedList");
     assertEquals(1, ser.size());
-    var inList = ser.get(0);
+    var inList = ser.getFirst();
     assertNotNull(inList);
-    assertEquals(inList.<String>getProperty("name"), embeddedInList.getProperty("name"));
-    assertEquals(inList.<String>getProperty("surname"), embeddedInList.getProperty("surname"));
+    assertEquals(inList.get("name"), embeddedInList.getProperty("name"));
+    assertEquals(inList.get("surname"), embeddedInList.getProperty("surname"));
 
-    Set<Result> setEmb = extr.getProperty("embeddedSet");
+    Set<Map<String, Object>> setEmb = extr.getProperty("embeddedSet");
     assertEquals(1, setEmb.size());
     var inSet = setEmb.iterator().next();
     assertNotNull(inSet);
-    assertEquals(inSet.<String>getProperty("name"), embeddedInSet.getProperty("name"));
-    assertEquals(inSet.<String>getProperty("surname"), embeddedInSet.getProperty("surname"));
+    assertEquals(inSet.get("name"), embeddedInSet.getProperty("name"));
+    assertEquals(inSet.get("surname"), embeddedInSet.getProperty("surname"));
   }
 
   @Test

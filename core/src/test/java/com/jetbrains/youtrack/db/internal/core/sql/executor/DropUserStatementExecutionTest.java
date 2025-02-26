@@ -17,6 +17,7 @@ public class DropUserStatementExecutionTest extends DbTestBase {
     session.commit();
     result.close();
 
+    session.begin();
     result = session.query("SELECT name, roles.name as roles FROM OUser WHERE name = 'test'");
     Assert.assertTrue(result.hasNext());
     var user = result.next();
@@ -25,14 +26,17 @@ public class DropUserStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(1, roles.size());
     Assert.assertEquals("admin", roles.get(0));
     result.close();
+    session.commit();
 
     session.begin();
     result = session.command("DROP USER test");
     session.commit();
     result.close();
 
+    session.begin();
     result = session.query("SELECT name, roles.name as roles FROM OUser WHERE name = 'test'");
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 }

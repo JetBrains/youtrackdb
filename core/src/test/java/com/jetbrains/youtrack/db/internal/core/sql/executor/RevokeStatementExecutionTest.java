@@ -7,8 +7,6 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityPolicyImpl;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -22,7 +20,7 @@ import org.junit.Test;
 public class RevokeStatementExecutionTest {
 
   static YouTrackDB youTrackDB;
-  private DatabaseSessionInternal db;
+  private DatabaseSessionInternal session;
 
   @BeforeClass
   public static void beforeClass() {
@@ -37,69 +35,75 @@ public class RevokeStatementExecutionTest {
   @Before
   public void before() {
     CreateDatabaseUtil.createDatabase("test", youTrackDB, CreateDatabaseUtil.TYPE_MEMORY);
-    this.db = (DatabaseSessionInternal) youTrackDB.open("test", "admin",
+    this.session = (DatabaseSessionInternal) youTrackDB.open("test", "admin",
         CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
   }
 
   @After
   public void after() {
-    this.db.close();
+    this.session.close();
     youTrackDB.drop("test");
-    this.db = null;
+    this.session = null;
   }
 
   @Test
   public void testSimple() {
-    db.begin();
+    session.begin();
     var testRole =
-        db.getMetadata()
+        session.getMetadata()
             .getSecurity()
             .createRole("testRole");
     Assert.assertFalse(
         testRole.allow(Rule.ResourceGeneric.SERVER, "server", Role.PERMISSION_EXECUTE));
-    db.commit();
+    session.commit();
 
-    db.begin();
-    db.command("GRANT execute on server.remove to testRole");
-    db.commit();
-    testRole = db.getMetadata().getSecurity().getRole("testRole");
+    session.begin();
+    session.command("GRANT execute on server.remove to testRole");
+    session.commit();
+    session.begin();
+    testRole = session.getMetadata().getSecurity().getRole("testRole");
     Assert.assertTrue(
         testRole.allow(Rule.ResourceGeneric.SERVER, "remove", Role.PERMISSION_EXECUTE));
-    db.begin();
-    db.command("REVOKE execute on server.remove from testRole");
-    db.commit();
-    testRole = db.getMetadata().getSecurity().getRole("testRole");
+    session.command("REVOKE execute on server.remove from testRole");
+    session.commit();
+    session.begin();
+    testRole = session.getMetadata().getSecurity().getRole("testRole");
     Assert.assertFalse(
         testRole.allow(Rule.ResourceGeneric.SERVER, "remove", Role.PERMISSION_EXECUTE));
+    session.commit();
   }
 
   @Test
   public void testRemovePolicy() {
-    var security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
+    session.createClass("Person");
 
-    db.begin();
-    var policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "reader"), "database.class.Person", policy);
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(session, true);
+    policy.setReadRule(session, "name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "reader"),
+        "database.class.Person", policy);
+    session.commit();
 
+    session.begin();
     Assert.assertEquals(
         "testPolicy",
         security
-            .getSecurityPolicies(db, security.getRole(db, "reader"))
+            .getSecurityPolicies(session, security.getRole(session, "reader"))
             .get("database.class.Person")
-            .getName(db));
-    db.begin();
-    db.command("REVOKE POLICY ON database.class.Person FROM reader").close();
-    db.commit();
+            .getName(session));
 
+    session.command("REVOKE POLICY ON database.class.Person FROM reader").close();
+    session.commit();
+
+    session.begin();
     Assert.assertNull(
         security
-            .getSecurityPolicies(db, security.getRole(db, "reader"))
+            .getSecurityPolicies(session, security.getRole(session, "reader"))
             .get("database.class.Person"));
+    session.commit();
   }
 }

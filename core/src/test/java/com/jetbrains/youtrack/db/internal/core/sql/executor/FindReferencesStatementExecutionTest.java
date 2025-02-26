@@ -45,6 +45,7 @@ public class FindReferencesStatementExecutionTest extends DbTestBase {
       }
     }
 
+    session.begin();
     var result = session.query("find references " + linked.getIdentity());
 
     printExecutionPlan(result);
@@ -58,5 +59,6 @@ public class FindReferencesStatementExecutionTest extends DbTestBase {
     Assert.assertFalse(result.hasNext());
     Assert.assertTrue(ridsToMatch.isEmpty());
     result.close();
+    session.commit();
   }
 }

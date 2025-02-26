@@ -48,6 +48,7 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
         .newEmbeddedList("data", Arrays.asList(8, 9, -1));
     session.commit();
 
+    session.begin();
     var result = session.query("select from test_class");
     //    Assert.assertEquals(result.size(), 2);
 
@@ -66,6 +67,7 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
             Assert.assertTrue(set.contains((Integer) entry.first));
           });
     }
+    session.commit();
 
     schema.dropClass("test_class");
   }
@@ -83,6 +85,8 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
       Assert.fail();
     } catch (Exception e) {
     }
+
+    session.begin();
     var result = session.query("select from TestTruncateVertexClass");
     Assert.assertTrue(result.hasNext());
     result.close();
@@ -91,6 +95,7 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
     result = session.query("select from TestTruncateVertexClass");
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -105,6 +110,7 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
     session.command("insert into TestTruncateVertexClassSubclass set name = 'bar'");
     session.commit();
 
+    session.begin();
     var result = session.query("select from TestTruncateVertexClassSuperclass");
     for (var i = 0; i < 2; i++) {
       Assert.assertTrue(result.hasNext());
@@ -112,18 +118,24 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
 
     session.command("truncate class TestTruncateVertexClassSuperclass ");
+    session.begin();
     result = session.query("select from TestTruncateVertexClassSubclass");
     Assert.assertTrue(result.hasNext());
     result.next();
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
 
     session.command("truncate class TestTruncateVertexClassSuperclass polymorphic");
+
+    session.begin();
     result = session.query("select from TestTruncateVertexClassSubclass");
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -203,6 +215,7 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
         .newEmbeddedList("data", Arrays.asList(3, 0));
     session.commit();
 
+    session.begin();
     var result = session.query("select from test_class");
     Assert.assertEquals(toList(result).size(), 2);
 
@@ -212,6 +225,7 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
     result = session.query("select from test_class");
     Assert.assertEquals(toList(result).size(), 0);
     result.close();
+    session.commit();
 
     schema.dropClass("test_class");
   }

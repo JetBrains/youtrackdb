@@ -19,7 +19,7 @@ public class ExplainResultSet implements ResultSet {
   private final DatabaseStats dbStats;
   boolean hasNext = true;
   @Nullable
-  private final DatabaseSessionInternal session;
+  private DatabaseSessionInternal session;
 
   public ExplainResultSet(@Nullable DatabaseSessionInternal session, ExecutionPlan executionPlan,
       DatabaseStats dbStats) {
@@ -56,6 +56,7 @@ public class ExplainResultSet implements ResultSet {
   @Override
   public void close() {
     assert session == null || session.assertIfNotActive();
+    this.session = null;
   }
 
   @Override

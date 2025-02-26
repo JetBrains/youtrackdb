@@ -15,7 +15,7 @@ import javax.annotation.Nullable;
 public class RemoteResultSet implements ResultSet {
 
   @Nullable
-  private final DatabaseSessionRemote session;
+  private DatabaseSessionRemote session;
   private final String queryId;
   private List<Result> currentPage;
   private ExecutionPlan executionPlan;
@@ -96,6 +96,7 @@ public class RemoteResultSet implements ResultSet {
       // AUTOMATICALLY CLOSES THE QUERY AFTER SENDING THE LAST PAGE
       session.closeQuery(queryId);
     }
+    this.session = null;
   }
 
   @Override

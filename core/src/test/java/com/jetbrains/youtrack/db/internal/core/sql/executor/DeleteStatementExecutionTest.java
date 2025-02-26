@@ -38,6 +38,7 @@ public class DeleteStatementExecutionTest extends DbTestBase {
     Assert.assertFalse(result.hasNext());
     session.commit();
 
+    session.begin();
     result = session.query("select from " + className);
     for (var i = 0; i < 9; i++) {
       Assert.assertTrue(result.hasNext());
@@ -47,6 +48,7 @@ public class DeleteStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -59,19 +61,18 @@ public class DeleteStatementExecutionTest extends DbTestBase {
     session.getMetadata().getSchema().createClass(className, v);
     for (var i = 0; i < 10; i++) {
       session.begin();
-      EntityImpl doc = session.newInstance(className);
+      var doc = session.newInstance(className);
       doc.setProperty("name", "name" + i);
-
       session.commit();
     }
+
     try {
-      var result = session.command("delete from  " + className + " where name = 'name4'");
+      session.begin();
+      session.command("delete from  " + className + " where name = 'name4'");
       Assert.fail();
     } catch (CommandExecutionException ex) {
-
-    } catch (Exception e) {
-      Assert.fail();
     }
+    session.rollback();
   }
 
   @Test
@@ -103,6 +104,7 @@ public class DeleteStatementExecutionTest extends DbTestBase {
     Assert.assertFalse(result.hasNext());
     session.commit();
 
+    session.begin();
     result = session.query("select from " + className);
     for (var i = 0; i < 9; i++) {
       Assert.assertTrue(result.hasNext());
@@ -112,6 +114,7 @@ public class DeleteStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -144,6 +147,7 @@ public class DeleteStatementExecutionTest extends DbTestBase {
     Assert.assertFalse(result.hasNext());
     session.commit();
 
+    session.begin();
     result = session.query("select from " + className);
     for (var i = 0; i < 9; i++) {
       Assert.assertTrue(result.hasNext());
@@ -153,6 +157,7 @@ public class DeleteStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -178,6 +183,7 @@ public class DeleteStatementExecutionTest extends DbTestBase {
     Assert.assertFalse(result.hasNext());
     session.commit();
 
+    session.begin();
     result = session.query("select from " + className);
     for (var i = 0; i < 5; i++) {
       Assert.assertTrue(result.hasNext());
@@ -186,5 +192,6 @@ public class DeleteStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 }

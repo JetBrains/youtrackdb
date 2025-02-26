@@ -944,8 +944,8 @@ public class YouTrackDBSqlTokenManager implements YouTrackDBSqlConstants {
                      jjstateSet[jjnewStateCnt++] = 6;
                   break;
                case 12:
-                  if (curChar == 46)
-                    jjCheckNAdd(13);
+                 if (curChar == 46)
+                   jjCheckNAdd(13);
                  break;
               case 13:
                 if ((0x3ff000000000000L & l) == 0L)
@@ -1012,7 +1012,7 @@ public class YouTrackDBSqlTokenManager implements YouTrackDBSqlConstants {
                 if (curChar != 36)
                   break;
                 if (kind > 262)
-                     kind = 262;
+                  kind = 262;
                 jjCheckNAdd(40);
                 break;
               case 40:
@@ -1202,7 +1202,7 @@ public class YouTrackDBSqlTokenManager implements YouTrackDBSqlConstants {
                 if (curChar != 36)
                   break;
                 if (kind > 260)
-                     kind = 260;
+                  kind = 260;
                 jjCheckNAdd(567);
                 break;
               case 567:
@@ -1727,7 +1727,7 @@ public class YouTrackDBSqlTokenManager implements YouTrackDBSqlConstants {
              if ((0x7fffffe87fffffeL & l) == 0L)
                break;
              if (kind > 254)
-                     kind = 254;
+               kind = 254;
              jjCheckNAdd(31);
              break;
            case 31:
@@ -1750,12 +1750,12 @@ public class YouTrackDBSqlTokenManager implements YouTrackDBSqlConstants {
                      jjCheckNAddStates(0, 2);
                   break;
                case 35:
-                  if (curChar == 92)
-                    jjCheckNAdd(34);
+                 if (curChar == 92)
+                   jjCheckNAdd(34);
                  break;
            case 36:
              if (curChar == 96 && kind > 255)
-                     kind = 255;
+               kind = 255;
              break;
            case 39:
            case 40:
@@ -6405,24 +6405,27 @@ public class YouTrackDBSqlTokenManager implements YouTrackDBSqlConstants {
   /**
    * Constructor.
    */
-  public YouTrackDBSqlTokenManager(CharStream stream, int lexState) {
-    this(stream);
-   SwitchTo(lexState);
-}
+  public YouTrackDBSqlTokenManager(CharStream stream, int lexState){
+   this(stream);
+    SwitchTo(lexState);
+  }
 
-/** Reinitialise parser. */
-public void ReInit(CharStream stream) {
-  jjmatchedPos = jjnewStateCnt = 0;
-  curLexState = defaultLexState;
-  input_stream = stream;
-  ReInitRounds();
-}
-private void ReInitRounds() {
-  int i;
-   jjround = 0x80000001;
-  for (i = 1210; i-- > 0; )
-    jjrounds[i] = 0x80000000;
-}
+  /**
+   * Reinitialise parser.
+   */
+  public void ReInit(CharStream stream) {
+    jjmatchedPos = jjnewStateCnt = 0;
+    curLexState = defaultLexState;
+    input_stream = stream;
+   ReInitRounds();
+  }
+
+  private void ReInitRounds() {
+    int i;
+    jjround = 0x80000001;
+    for (i = 1210; i-- > 0; )
+      jjrounds[i] = 0x80000000;
+  }
 
   /**
    * Reinitialise parser.
@@ -6437,7 +6440,8 @@ private void ReInitRounds() {
    */
   public void SwitchTo(int lexState) {
     if (lexState >= 3 || lexState < 0)
-      throw new TokenMgrError("Error: Ignoring invalid lexical state : " + lexState + ". State unchanged.",
+      throw new TokenMgrError(
+          "Error: Ignoring invalid lexical state : " + lexState + ". State unchanged.",
           TokenMgrError.INVALID_LEXICAL_STATE);
     else
       curLexState = lexState;
@@ -6584,12 +6588,13 @@ private void ReInitRounds() {
         }
         throw new TokenMgrError(EOFSeen, curLexState, error_line, error_column, error_after,
             curChar, TokenMgrError.LEXICAL_ERROR);
-      }
-    }
+   }
   }
+}
 
-  void SkipLexicalActions(Token matchedToken) {
-    switch (jjmatchedKind)
+void SkipLexicalActions(Token matchedToken)
+{
+   switch(jjmatchedKind)
    {
       default :
          break;

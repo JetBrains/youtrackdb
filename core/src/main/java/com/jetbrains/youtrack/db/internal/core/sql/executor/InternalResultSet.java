@@ -20,7 +20,7 @@ public class InternalResultSet implements ResultSet, Resettable {
   private int next = 0;
   protected ExecutionPlan plan;
   @Nullable
-  private final DatabaseSessionInternal session;
+  private DatabaseSessionInternal session;
 
   public InternalResultSet(@Nullable DatabaseSessionInternal session) {
     this.session = session;
@@ -42,6 +42,7 @@ public class InternalResultSet implements ResultSet, Resettable {
   public void close() {
     assert session == null || session.assertIfNotActive();
     this.content.clear();
+    this.session = null;
   }
 
   @Override

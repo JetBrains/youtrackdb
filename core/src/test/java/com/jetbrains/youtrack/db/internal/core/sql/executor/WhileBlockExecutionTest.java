@@ -19,12 +19,11 @@ public class WhileBlockExecutionTest extends DbTestBase {
     var script = "";
     script += "LET $i = 0;";
     script += "WHILE ($i < 3){\n";
-    script += "  begin;\n";
     script += "  insert into " + className + " set value = $i;\n";
     script += "  LET $i = $i + 1;";
-    script += "  commit;";
     script += "}";
     script += "SELECT FROM " + className;
+    session.begin();
     var results = session.execute("sql", script);
 
     var tot = 0;
@@ -37,6 +36,7 @@ public class WhileBlockExecutionTest extends DbTestBase {
     Assert.assertEquals(3, tot);
     Assert.assertEquals(3, sum);
     results.close();
+    session.commit();
   }
 
   @Test
@@ -48,15 +48,14 @@ public class WhileBlockExecutionTest extends DbTestBase {
     var script = "";
     script += "LET $i = 0;";
     script += "WHILE ($i < 3){\n";
-    script += "  begin;\n";
     script += "  insert into " + className + " set value = $i;\n";
-    script += "   commit;\n";
     script += "  IF ($i = 1) {";
     script += "    RETURN;";
     script += "  }";
     script += "  LET $i = $i + 1;";
     script += "}";
 
+    session.begin();
     var results = session.execute("sql", script);
     results.close();
     results = session.query("SELECT FROM " + className);
@@ -71,5 +70,6 @@ public class WhileBlockExecutionTest extends DbTestBase {
     Assert.assertEquals(2, tot);
     Assert.assertEquals(1, sum);
     results.close();
+    session.commit();
   }
 }

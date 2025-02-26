@@ -23,12 +23,14 @@ public class AlterRoleStatementExecutionTest extends DbTestBase {
     session.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person").close();
     session.commit();
 
+    session.begin();
     Assert.assertEquals(
         "testPolicy",
         security
             .getSecurityPolicies(session, security.getRole(session, "reader"))
             .get("database.class.Person")
             .getName(session));
+    session.commit();
   }
 
   @Test
@@ -46,6 +48,7 @@ public class AlterRoleStatementExecutionTest extends DbTestBase {
         "database.class.Person", policy);
     session.commit();
 
+    session.begin();
     Assert.assertEquals(
         "testPolicy",
         security
@@ -53,13 +56,14 @@ public class AlterRoleStatementExecutionTest extends DbTestBase {
             .get("database.class.Person")
             .getName(session));
 
-    session.begin();
     session.command("ALTER ROLE reader REMOVE POLICY ON database.class.Person").close();
     session.commit();
+    session.begin();
 
     Assert.assertNull(
         security
             .getSecurityPolicies(session, security.getRole(session, "reader"))
             .get("database.class.Person"));
+    session.commit();
   }
 }

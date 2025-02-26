@@ -18,9 +18,11 @@ public class ProfileStatementExecutionTest extends DbTestBase {
     session.command("insert into testProfile set name ='bar'");
     session.commit();
 
+    session.begin();
     var result = session.query("PROFILE SELECT FROM testProfile WHERE name ='bar'");
     Assert.assertTrue(result.getExecutionPlan().prettyPrint(0, 2).contains("μs"));
 
     result.close();
+    session.commit();
   }
 }

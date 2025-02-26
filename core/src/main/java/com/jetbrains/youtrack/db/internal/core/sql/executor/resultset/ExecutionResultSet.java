@@ -14,7 +14,7 @@ public class ExecutionResultSet implements ResultSet {
   private final CommandContext context;
   private final ExecutionPlan plan;
   @Nullable
-  private final DatabaseSessionInternal session;
+  private DatabaseSessionInternal session;
 
   public ExecutionResultSet(
       ExecutionStream stream, CommandContext context, ExecutionPlan plan) {
@@ -41,6 +41,7 @@ public class ExecutionResultSet implements ResultSet {
   public void close() {
     assert session == null || session.assertIfNotActive();
     stream.close(context);
+    this.session = null;
   }
 
   @Override

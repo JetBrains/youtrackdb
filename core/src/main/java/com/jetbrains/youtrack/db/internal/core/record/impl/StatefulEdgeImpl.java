@@ -65,6 +65,14 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
 
   @Nullable
   @Override
+  public Result getResult(@Nonnull String name) {
+    EdgeInternal.checkPropertyName(name);
+
+    return entity.getResult(name);
+  }
+
+  @Nullable
+  @Override
   public Blob getBlob(String propertyName) {
     EdgeInternal.checkPropertyName(propertyName);
 

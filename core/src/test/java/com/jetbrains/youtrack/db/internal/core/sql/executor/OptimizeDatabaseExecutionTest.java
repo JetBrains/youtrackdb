@@ -37,6 +37,7 @@ public class OptimizeDatabaseExecutionTest extends DbTestBase {
     session.commit();
 
     ExecutionPlanPrintUtils.printExecutionPlan(createREs);
+    session.begin();
     var result = session.query("select expand(out()) from " + v1.getIdentity());
     Assert.assertNotNull(result);
     Assert.assertTrue(result.hasNext());
@@ -45,12 +46,13 @@ public class OptimizeDatabaseExecutionTest extends DbTestBase {
     Assert.assertEquals("v2", next.getProperty("name"));
     result.close();
 
-    session.begin();
     session.command("optimize database -LWEDGES").close();
     session.commit();
 
+    session.begin();
     var rs = session.query("select from E");
     Assert.assertFalse(rs.hasNext());
     rs.close();
+    session.commit();
   }
 }

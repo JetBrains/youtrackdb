@@ -29,6 +29,7 @@ public class CreateLinkStatementExecutionTest extends DbTestBase {
     session.command("CREATE LINK theLink type link FROM Basic1.fk TO Basic2.pk ").close();
     session.commit();
 
+    session.begin();
     var result = session.query("select pk, theLink.pk as other from Basic1 order by pk");
     Assert.assertTrue(result.hasNext());
 
@@ -43,6 +44,7 @@ public class CreateLinkStatementExecutionTest extends DbTestBase {
     item = result.next();
     otherKey = item.getProperty("other");
     Assert.assertEquals(otherKey, "pkb2_2");
+    session.commit();
   }
 
   @Test
@@ -65,6 +67,7 @@ public class CreateLinkStatementExecutionTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     var result = session.query("select pk, theLink.pk as other from Inverse2 order by pk");
     Assert.assertTrue(result.hasNext());
     var item = result.next();
@@ -82,5 +85,6 @@ public class CreateLinkStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(((List) otherKeys).size(), 2);
     Assert.assertTrue(((List) otherKeys).contains("pkb1_2"));
     Assert.assertTrue(((List) otherKeys).contains("pkb1_3"));
+    session.commit();
   }
 }

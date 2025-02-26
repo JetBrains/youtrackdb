@@ -1129,9 +1129,6 @@ SQLStatement StatementInternal():
                 LOOKAHEAD(TruncateClassStatement())
                 result = TruncateClassStatement()
                 |
-                LOOKAHEAD(TruncateClusterStatement())
-                result = TruncateClusterStatement()
-                |
                 LOOKAHEAD(2)
                 result = AlterSequenceStatement()
                 |
@@ -3874,19 +3871,6 @@ SQLTruncateClassStatement TruncateClassStatement():
 	<TRUNCATE> <CLASS>
 	jjtThis.className = Identifier()
 	[ <POLYMORPHIC> {jjtThis.polymorphic = true;} ]
-	[ <UNSAFE> {jjtThis.unsafe = true;} ]
-	{ return jjtThis; }
-}
-
-SQLTruncateClusterStatement TruncateClusterStatement():
-{}
-{
-	<TRUNCATE> <CLUSTER>
-	(
-		jjtThis.clusterName = Identifier()
-		|
-		jjtThis.clusterNumber = Integer()
-	)
 	[ <UNSAFE> {jjtThis.unsafe = true;} ]
 	{ return jjtThis; }
 }

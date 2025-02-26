@@ -16,7 +16,7 @@ public class LocalResultSet implements ResultSet {
   private ExecutionStream stream = null;
   private final InternalExecutionPlan executionPlan;
   @Nullable
-  private final DatabaseSessionInternal session;
+  private DatabaseSessionInternal session;
 
   long totalExecutionTime = 0;
   long startTime = 0;
@@ -96,6 +96,7 @@ public class LocalResultSet implements ResultSet {
   public void close() {
     stream.close(executionPlan.getContext());
     executionPlan.close();
+    session = null;
   }
 
   @Override

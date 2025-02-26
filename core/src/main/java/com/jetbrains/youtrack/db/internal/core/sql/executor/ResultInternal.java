@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
@@ -20,8 +19,8 @@ import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
+import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
@@ -228,6 +227,12 @@ public class ResultInternal implements Result {
         return entity.getIdentity();
       }
 
+      case ContextualRecordId contextualRecordId -> {
+        addMetadata(contextualRecordId.getContext());
+        return new RecordId(contextualRecordId.getClusterId(),
+            contextualRecordId.getClusterPosition());
+      }
+
       case Identifiable id -> {
         var res = id.getIdentity();
         if (session != null) {
@@ -242,8 +247,17 @@ public class ResultInternal implements Result {
         } else if (result.isBlob()) {
           return convertPropertyValue(result.castToBlob());
         }
-        if (result.isEdge() && !result.isStatefulEdge()) {
-          throw new IllegalStateException("Lightweight edges are not supported in properties");
+        if (result.isEdge()) {
+          if (!result.isStatefulEdge()) {
+            throw new IllegalStateException("Lightweight edges are not supported in properties");
+          }
+
+          return convertPropertyValue(result.castToStatefulEdge());
+        }
+
+        if (result.getBoundedToSession() != session) {
+          throw new DatabaseException(
+              "Result is bound to different session, cannot use it as property value");
         }
 
         return result;
@@ -362,7 +376,7 @@ public class ResultInternal implements Result {
       result = (T) content.get(name);
     } else {
       if (isEntity()) {
-        result = EntityInternalUtils.rawPropertyRead(castToEntity(), name);
+        result = identifiable.getEntity(session).getProperty(name);
       }
     }
 
@@ -372,112 +386,130 @@ public class ResultInternal implements Result {
   @Override
   public Entity getEntity(@Nonnull String name) {
     assert session == null || session.assertIfNotActive();
-    loadIdentifiable();
 
     Object result = null;
     if (content != null && content.containsKey(name)) {
       result = content.get(name);
     } else {
       if (isEntity()) {
-        result = EntityInternalUtils.rawPropertyRead((Entity) identifiable, name);
+        result = identifiable.getEntity(session).getEntity(name);
       }
     }
 
-    if (result instanceof Result) {
-      result = ((Result) result).castToRecord();
+    if (result instanceof Identifiable id) {
+      result = id.getEntity(session);
     }
 
-    if (result instanceof RID) {
-      assert session != null && session.assertIfNotActive();
-      result = ((RID) result).getRecord(session);
+    if (result instanceof Entity entity) {
+      return entity;
     }
 
-    return result instanceof Entity ? (Entity) result : null;
+    if (result == null) {
+      return null;
+    }
+
+    throw new DatabaseException("Property " + name + " is not an entity");
+  }
+
+  @Nullable
+  @Override
+  public Result getResult(@Nonnull String name) {
+    assert session == null || session.assertIfNotActive();
+
+    Object result = null;
+    if (content != null && content.containsKey(name)) {
+      result = content.get(name);
+    } else {
+      if (isEntity()) {
+        result = identifiable.getEntity(session).getResult(name);
+      }
+    }
+
+    if (result instanceof Result res) {
+      return res;
+    }
+
+    if (result == null) {
+      return null;
+    }
+
+    throw new DatabaseException("Property " + name + " is not a result.");
   }
 
   @Override
   public Vertex getVertex(@Nonnull String name) {
-    assert session == null || session.assertIfNotActive();
+    checkSessionForRecords();
 
-    loadIdentifiable();
     Object result = null;
     if (content != null && content.containsKey(name)) {
       result = content.get(name);
     } else {
       if (isEntity()) {
-        result = EntityInternalUtils.rawPropertyRead((Entity) identifiable, name);
+        result = identifiable.getEntity(session).getVertex(name);
       }
     }
 
-    if (result instanceof Result) {
-      result = ((Result) result).castToRecord();
+    if (result instanceof Identifiable id) {
+      return id.getVertex(session);
     }
 
-    if (result instanceof RID) {
-      assert session != null && session.assertIfNotActive();
-      result = ((RID) result).getRecord(session);
+    if (result == null) {
+      return null;
     }
 
-    if (result instanceof Entity entity) {
-      return entity.castToVertex();
-    }
-
-    throw new IllegalStateException("Result is not a vertex");
+    throw new DatabaseException("Property " + name + " is not a vertex");
   }
 
   @Override
   public Edge getEdge(@Nonnull String name) {
-    assert session == null || session.assertIfNotActive();
+    checkSessionForRecords();
 
-    loadIdentifiable();
     Object result = null;
     if (content != null && content.containsKey(name)) {
       result = content.get(name);
     } else {
       if (isEntity()) {
-        result = EntityInternalUtils.rawPropertyRead((Entity) identifiable, name);
+        result = identifiable.getEntity(session).getEdge(name);
       }
     }
 
-    if (result instanceof Result) {
-      result = ((Result) result).castToRecord();
+    if (result instanceof Identifiable id) {
+      return id.getEdge(session);
     }
 
-    if (result instanceof RID) {
-      assert session != null && session.assertIfNotActive();
-      result = ((RID) result).getRecord(session);
+    if (result instanceof Edge edge) {
+      return edge;
     }
 
-    if (result instanceof Entity entity) {
-      return entity.castToStatefulEdge();
+    if (result == null) {
+      return null;
     }
 
-    throw new IllegalStateException("Result is not an edge");
+    throw new DatabaseException("Property " + name + " is not an edge");
   }
 
   @Override
   public Blob getBlob(String name) {
-    assert session == null || session.assertIfNotActive();
-    loadIdentifiable();
+    checkSessionForRecords();
+
     Object result = null;
     if (content != null && content.containsKey(name)) {
       result = content.get(name);
     } else {
       if (isEntity()) {
-        result = EntityInternalUtils.rawPropertyRead((Entity) identifiable, name);
+        result = identifiable.getEntity(session).getProperty(name);
       }
     }
 
-    if (result instanceof Result) {
-      result = ((Result) result).castToRecord();
+    if (result instanceof Identifiable id) {
+      return id.getBlob(session);
     }
 
-    if (result instanceof RID) {
-      assert session != null && session.assertIfNotActive();
-      result = ((RID) result).getRecord(session);
+    if (result == null) {
+      return null;
     }
 
-    return result instanceof Blob ? (Blob) result : null;
+    throw new DatabaseException("Property " + name + " is not a blob");
   }
 
   @Nullable
@@ -490,48 +522,35 @@ public class ResultInternal implements Result {
       result = content.get(name);
     } else {
       if (isEntity()) {
-        result = EntityInternalUtils.rawPropertyRead(identifiable.getEntity(session), name);
+        result = identifiable.getEntity(session).getLink(name);
       }
     }
 
-    if (result == null) {
-      return null;
-    }
+    return switch (result) {
+      case null -> null;
+      case Identifiable id -> id.getIdentity();
+      default -> throw new IllegalStateException("Property " + name + " is not a link");
+    };
 
-    if (result instanceof Result res && res.isRecord()) {
-      result = res.castToRecord().getIdentity();
-    }
-
-    if (result instanceof RID rid) {
-      return rid;
-    }
-
-    if (result instanceof Identifiable id) {
-      return id.getIdentity();
-    }
-
-    throw new IllegalStateException("Property " + name + " is not a link");
   }
 
 
   public @Nonnull Collection<String> getPropertyNames() {
     assert session == null || session.assertIfNotActive();
-    loadIdentifiable();
-    if (isEntity()) {
-      return ((Entity) identifiable).getPropertyNames();
-    } else {
-      if (content != null) {
-        return new LinkedHashSet<>(content.keySet());
-      } else {
-        return Collections.emptySet();
-      }
+    if (content != null) {
+      return new LinkedHashSet<>(content.keySet());
     }
+
+    if (isEntity()) {
+      return identifiable.getEntity(session).getPropertyNames();
+    }
+
+    return Collections.emptyList();
   }
 
   public boolean hasProperty(@Nonnull String propName) {
     assert session == null || session.assertIfNotActive();
-    loadIdentifiable();
-    if (isEntity() && ((Entity) identifiable).hasProperty(propName)) {
+    if (isEntity() && identifiable.getEntity(session).hasProperty(propName)) {
       return true;
     }
     if (content != null) {
@@ -552,9 +571,14 @@ public class ResultInternal implements Result {
 
   @Override
   public @Nonnull Result detach() {
+    if (lightweightEdge != null) {
+      throw new DatabaseException("Cannot detach lightweight edge");
+    }
+
     var detached = new ResultInternal(null);
+
     if (content != null) {
-      var detachedMap = new LinkedHashMap<String, Object>(content.size());
+      var detachedMap = new HashMap<String, Object>(content.size());
 
       for (var entry : content.entrySet()) {
         detachedMap.put(entry.getKey(), toMapValue(entry.getValue(), false));
@@ -578,26 +602,26 @@ public class ResultInternal implements Result {
       return false;
     }
 
+    checkSessionForRecords();
     if (identifiable instanceof Entity) {
       return true;
     }
 
-    try {
-      assert session != null && session.assertIfNotActive();
-      identifiable = identifiable.getRecord(session);
-    } catch (RecordNotFoundException e) {
-      identifiable = null;
-    }
+    return !isBlob();
+  }
 
-    return identifiable instanceof Entity;
+  private void checkSessionForRecords() {
+    if (session == null) {
+      throw new DatabaseException(
+          "There is no active session to process the record related operations.");
+    }
   }
 
   @Nonnull
   public Entity castToEntity() {
-    assert session == null || session.assertIfNotActive();
+    checkSessionForRecords();
 
     if (isEntity()) {
-      loadIdentifiable();
       return identifiable.getEntity(session);
     }
 
@@ -610,7 +634,6 @@ public class ResultInternal implements Result {
     assert session == null || session.assertIfNotActive();
 
     if (isEntity()) {
-      loadIdentifiable();
       return identifiable.getEntitySilently(session);
     }
 
@@ -621,6 +644,9 @@ public class ResultInternal implements Result {
   @Override
   public RID getIdentity() {
     assert session == null || session.assertIfNotActive();
+    if (identifiable == null) {
+      return null;
+    }
 
     return identifiable.getIdentity();
   }
@@ -629,14 +655,13 @@ public class ResultInternal implements Result {
   public boolean isProjection() {
     assert session == null || session.assertIfNotActive();
 
-    return this.identifiable == null;
+    return this.content != null;
   }
 
   @Nonnull
   @Override
   public DBRecord castToRecord() {
     assert session == null || session.assertIfNotActive();
-    loadIdentifiable();
 
     if (identifiable == null) {
       throw new IllegalStateException("Result is not a record");
@@ -649,8 +674,6 @@ public class ResultInternal implements Result {
   @Override
   public DBRecord asRecord() {
     assert session == null || session.assertIfNotActive();
-    loadIdentifiable();
-
     if (identifiable == null) {
       return null;
     }
@@ -661,17 +684,26 @@ public class ResultInternal implements Result {
   @Override
   public boolean isBlob() {
     assert session == null || session.assertIfNotActive();
-    loadIdentifiable();
+    if (identifiable == null) {
+      return false;
+    }
 
-    return this.identifiable instanceof Blob;
+    checkSessionForRecords();
+    assert session.assertIfNotActive();
+
+    if (identifiable instanceof Blob) {
+      return true;
+    }
+
+    var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
+    var blobClusters = schemaSnapshot.getBlobClusters();
+    return blobClusters.contains(identifiable.getIdentity().getClusterId());
   }
 
   @Nonnull
   @Override
   public Blob castToBlob() {
     assert session == null || session.assertIfNotActive();
-    loadIdentifiable();
-
     if (isBlob()) {
       return this.identifiable.getBlob(session);
     }
@@ -683,8 +715,6 @@ public class ResultInternal implements Result {
   @Override
   public Blob asBlob() {
     assert session == null || session.assertIfNotActive();
-    loadIdentifiable();
-
     if (isBlob()) {
       return this.identifiable.getBlobSilently(session);
     }
@@ -728,50 +758,19 @@ public class ResultInternal implements Result {
     return metadata == null ? Collections.emptySet() : metadata.keySet();
   }
 
-  public void loadIdentifiable() {
-    assert session == null || session.assertIfNotActive();
-    switch (identifiable) {
-      case null -> {
-        return;
-      }
-      case Entity elem -> {
-        if (elem.isUnloaded()) {
-          try {
-            if (session == null) {
-              throw new IllegalStateException("There is no active session to load entity");
-            }
-
-            identifiable = session.bindToSession(elem);
-          } catch (RecordNotFoundException rnf) {
-            identifiable = null;
-          }
-        }
-
-        return;
-      }
-      case ContextualRecordId contextualRecordId ->
-          this.addMetadata(contextualRecordId.getContext());
-      default -> {
-      }
-    }
-
-    try {
-      if (session == null) {
-        throw new IllegalStateException("There is no active session to load entity");
-      }
-
-      this.identifiable = session.load(identifiable.getIdentity());
-    } catch (RecordNotFoundException rnf) {
-      identifiable = null;
-    }
-  }
-
   public void setIdentifiable(Identifiable identifiable) {
     assert session == null || session.assertIfNotActive();
 
     this.lightweightEdge = null;
-    this.identifiable = identifiable;
     this.content = null;
+
+    if (identifiable instanceof ContextualRecordId contextualRecordId) {
+      this.identifiable = new RecordId(contextualRecordId.getClusterId(),
+          contextualRecordId.getClusterPosition());
+      addMetadata(contextualRecordId.getContext());
+    } else {
+      this.identifiable = identifiable;
+    }
   }
 
   public void setLightweightEdge(Edge edge) {
@@ -786,6 +785,10 @@ public class ResultInternal implements Result {
   @Override
   public Map<String, Object> toMap() {
     assert session == null || session.assertIfNotActive();
+
+    if (lightweightEdge != null) {
+      return lightweightEdge.toMap();
+    }
 
     if (isEntity()) {
       return castToEntity().toMap();
@@ -803,27 +806,45 @@ public class ResultInternal implements Result {
   @Override
   public boolean isEdge() {
     assert session == null || session.assertIfNotActive();
-    loadIdentifiable();
+    if (content != null) {
+      return false;
+    }
 
-    if (isStatefulEdge()) {
+    if (lightweightEdge != null) {
       return true;
     }
 
-    return lightweightEdge != null;
+    return isStatefulEdge();
+  }
+
+  @Override
+  public boolean isStatefulEdge() {
+    assert session == null || session.assertIfNotActive();
+    if (identifiable == null) {
+      return false;
+    }
+
+    checkSessionForRecords();
+    if (identifiable instanceof Edge edge) {
+      return edge.isStateful();
+    }
+
+    var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
+    var cls = schemaSnapshot.getClassByClusterId(identifiable.getIdentity().getClusterId());
+
+    return cls != null && !cls.isAbstract(session) && cls.isEdgeType(session);
   }
 
   @Nonnull
   @Override
   public Edge castToEdge() {
     assert session == null || session.assertIfNotActive();
-    loadIdentifiable();
+    if (lightweightEdge != null) {
+      return lightweightEdge;
+    }
 
     if (isStatefulEdge()) {
       return castToStatefulEdge();
-    }
-
-    if (lightweightEdge != null) {
-      return lightweightEdge;
     }
 
     throw new DatabaseException("Result is not an edge");
@@ -833,14 +854,13 @@ public class ResultInternal implements Result {
   @Override
   public Edge asEdge() {
     assert session == null || session.assertIfNotActive();
-    loadIdentifiable();
-
-    if (isStatefulEdge()) {
-      return castToStatefulEdge();
-    }
 
     if (lightweightEdge != null) {
       return lightweightEdge;
+    }
+
+    if (isStatefulEdge()) {
+      return castToStatefulEdge();
     }
 
     return null;
@@ -848,9 +868,15 @@ public class ResultInternal implements Result {
 
   public @Nonnull String toJSON() {
     assert session == null || session.assertIfNotActive();
+
+    if (lightweightEdge != null) {
+      return lightweightEdge.toJSON();
+    }
+
     if (isEntity()) {
       return castToEntity().toJSON();
     }
+
     var result = new StringBuilder();
     result.append("{");
     var first = true;

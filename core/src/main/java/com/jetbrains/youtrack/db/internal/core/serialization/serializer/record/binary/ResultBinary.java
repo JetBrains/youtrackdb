@@ -115,6 +115,13 @@ public class ResultBinary implements Result {
         "Not supported yet.");
   }
 
+  @Nullable
+  @Override
+  public Result getResult(@Nonnull String name) {
+    throw new UnsupportedOperationException(
+        "Not supported yet.");
+  }
+
   @Override
   public Vertex getVertex(@Nonnull String name) {
     throw new UnsupportedOperationException(
@@ -248,6 +255,11 @@ public class ResultBinary implements Result {
   @Override
   public Edge asEdge() {
     return null;
+  }
+
+  @Override
+  public boolean isStatefulEdge() {
+    return false;
   }
 
   @Override

@@ -207,14 +207,15 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
 
     var cmd = "BEGIN;\n";
     cmd += "LET $groupVertices = SELECT FROM V WHERE name = 'testSqlScriptThatDeletesEdge1';\n";
-    cmd += "LET $removeRoleEdge = DELETE edge E WHERE out IN $groupVertices\n;";
+    cmd += "LET $removeRoleEdge = DELETE edge E WHERE out() IN $groupVertices\n;";
     cmd += "COMMIT;\n";
     cmd += "RETURN $groupVertices;\n";
 
     session.execute("sql", cmd);
 
+    session.begin();
     var edges = session.query("select from E where name = 'testSqlScriptThatDeletesEdge'");
-
     Assert.assertEquals(0, edges.stream().count());
+    session.commit();
   }
 }

@@ -493,6 +493,13 @@ public final class VertexDelegate implements VertexInternal {
 
   @Nullable
   @Override
+  public Result getResult(@Nonnull String name) {
+    VertexInternal.checkPropertyName(name);
+    return entity.getResult(name);
+  }
+
+  @Nullable
+  @Override
   public Blob getBlob(String propertyName) {
     VertexInternal.checkPropertyName(propertyName);
 

@@ -1,7 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import java.util.Collection;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -51,6 +50,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     var result =
         session.query("traverse out() from (select from " + classPrefix + "V where name = 'a')");
 
@@ -61,6 +61,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -104,6 +105,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     var result =
         session.query(
             "traverse out() from (select from "
@@ -117,6 +119,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -160,6 +163,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     var result =
         session.query(
             "traverse out() from (select from " + classPrefix + "V where name = 'a') MAXDEPTH 1");
@@ -183,6 +187,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -226,6 +231,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     var result =
         session.query(
             "traverse out() from (select from "
@@ -239,6 +245,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -261,7 +268,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
         "create edge testTraverseInBatchTx_E from (select from testTraverseInBatchTx_V where name ="
             + " 'b') to (select from testTraverseInBatchTx_V where name = 'c');";
     script +=
-        "let top = (select * from (traverse in('testTraverseInBatchTx_E') from (select from"
+        "let top = (select @rid as rid from (traverse in('testTraverseInBatchTx_E') from (select from"
             + " testTraverseInBatchTx_V where name='c')) where in('testTraverseInBatchTx_E').size()"
             + " == 0);";
     script += "commit;";
@@ -270,9 +277,9 @@ public class TraverseStatementExecutionTest extends DbTestBase {
     var result = session.execute("sql", script);
     Assert.assertTrue(result.hasNext());
     var item = result.next();
-    var val = item.getProperty("value");
-    Assert.assertTrue(val instanceof Collection);
-    Assert.assertEquals(1, ((Collection) val).size());
+
+    var val = item.getEmbeddedList("value");
+    Assert.assertEquals(1, val.size());
     result.close();
   }
 }

@@ -50,8 +50,10 @@ public class CommandExecutorSQLDeleteVertexTest extends DbTestBase {
     session.command("delete vertex User limit 4").close();
     session.commit();
 
+    session.begin();
     var result = session.query("select from User");
     Assert.assertEquals(result.stream().count(), 6);
+    session.commit();
   }
 
   @Test
@@ -84,12 +86,12 @@ public class CommandExecutorSQLDeleteVertexTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     try (var edges = session.query("select from e limit 1")) {
-      session.begin();
       session.command("delete vertex [" + edges.next().getIdentity() + "]").close();
-      session.commit();
       Assert.fail("Error on deleting a vertex with a rid of an edge");
     }
+    session.rollback();
   }
 
   @Test
@@ -124,7 +126,9 @@ public class CommandExecutorSQLDeleteVertexTest extends DbTestBase {
     session.command("delete vertex from (select from User where name = 'foo10')").close();
     session.commit();
 
+    session.begin();
     var result = session.query("select from User");
     Assert.assertEquals(result.stream().count(), 99);
+    session.commit();
   }
 }

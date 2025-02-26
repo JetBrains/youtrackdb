@@ -1,10 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
+import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -20,7 +19,7 @@ public class MoveVertexStatementExecutionTest {
   @Rule
   public TestName name = new TestName();
 
-  private DatabaseSession db;
+  private DatabaseSession session;
 
   private YouTrackDB youTrackDB;
 
@@ -29,12 +28,12 @@ public class MoveVertexStatementExecutionTest {
     youTrackDB =
         CreateDatabaseUtil.createDatabase("test", DbTestBase.embeddedDBUrl(getClass()),
             CreateDatabaseUtil.TYPE_MEMORY);
-    db = youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    session = youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
   }
 
   @After
   public void after() {
-    db.close();
+    session.close();
     youTrackDB.close();
   }
 
@@ -43,14 +42,14 @@ public class MoveVertexStatementExecutionTest {
     var vertexClassName1 = "testMoveVertexV1";
     var vertexClassName2 = "testMoveVertexV2";
     var edgeClassName = "testMoveVertexE";
-    db.createVertexClass(vertexClassName1);
-    db.createVertexClass(vertexClassName2);
-    db.createEdgeClass(edgeClassName);
+    session.createVertexClass(vertexClassName1);
+    session.createVertexClass(vertexClassName2);
+    session.createEdgeClass(edgeClassName);
 
-    db.begin();
-    db.command("create vertex " + vertexClassName1 + " set name = 'a'");
-    db.command("create vertex " + vertexClassName1 + " set name = 'b'");
-    db.command(
+    session.begin();
+    session.command("create vertex " + vertexClassName1 + " set name = 'a'");
+    session.command("create vertex " + vertexClassName1 + " set name = 'b'");
+    session.command(
         "create edge "
             + edgeClassName
             + " from (select from "
@@ -59,36 +58,38 @@ public class MoveVertexStatementExecutionTest {
             + vertexClassName1
             + " where name = 'b' )");
 
-    db.command(
+    session.command(
         "MOVE VERTEX (select from "
             + vertexClassName1
             + " where name = 'a') to class:"
             + vertexClassName2);
-    db.commit();
+    session.commit();
 
-    var rs = db.query("select from " + vertexClassName1);
+    session.begin();
+    var rs = session.query("select from " + vertexClassName1);
     Assert.assertTrue(rs.hasNext());
     rs.next();
     Assert.assertFalse(rs.hasNext());
     rs.close();
 
-    rs = db.query("select from " + vertexClassName2);
+    rs = session.query("select from " + vertexClassName2);
     Assert.assertTrue(rs.hasNext());
     rs.next();
     Assert.assertFalse(rs.hasNext());
     rs.close();
 
-    rs = db.query("select expand(out()) from " + vertexClassName2);
+    rs = session.query("select expand(out()) from " + vertexClassName2);
     Assert.assertTrue(rs.hasNext());
     rs.next();
     Assert.assertFalse(rs.hasNext());
     rs.close();
 
-    rs = db.query("select expand(in()) from " + vertexClassName1);
+    rs = session.query("select expand(in()) from " + vertexClassName1);
     Assert.assertTrue(rs.hasNext());
     rs.next();
     Assert.assertFalse(rs.hasNext());
     rs.close();
+    session.commit();
   }
 
   @Test
@@ -96,14 +97,14 @@ public class MoveVertexStatementExecutionTest {
     var vertexClassName1 = "testMoveVertexBatchV1";
     var vertexClassName2 = "testMoveVertexBatchV2";
     var edgeClassName = "testMoveVertexBatchE";
-    db.createVertexClass(vertexClassName1);
-    db.createVertexClass(vertexClassName2);
-    db.createEdgeClass(edgeClassName);
+    session.createVertexClass(vertexClassName1);
+    session.createVertexClass(vertexClassName2);
+    session.createEdgeClass(edgeClassName);
 
-    db.begin();
-    db.command("create vertex " + vertexClassName1 + " set name = 'a'");
-    db.command("create vertex " + vertexClassName1 + " set name = 'b'");
-    db.command(
+    session.begin();
+    session.command("create vertex " + vertexClassName1 + " set name = 'a'");
+    session.command("create vertex " + vertexClassName1 + " set name = 'b'");
+    session.command(
         "create edge "
             + edgeClassName
             + " from (select from "
@@ -112,36 +113,38 @@ public class MoveVertexStatementExecutionTest {
             + vertexClassName1
             + " where name = 'b' )");
 
-    db.command(
+    session.command(
         "MOVE VERTEX (select from "
             + vertexClassName1
             + " where name = 'a') to class:"
             + vertexClassName2
             + " BATCH 2");
-    db.commit();
+    session.commit();
 
-    var rs = db.query("select from " + vertexClassName1);
+    session.begin();
+    var rs = session.query("select from " + vertexClassName1);
     Assert.assertTrue(rs.hasNext());
     rs.next();
     Assert.assertFalse(rs.hasNext());
     rs.close();
 
-    rs = db.query("select from " + vertexClassName2);
+    rs = session.query("select from " + vertexClassName2);
     Assert.assertTrue(rs.hasNext());
     rs.next();
     Assert.assertFalse(rs.hasNext());
     rs.close();
 
-    rs = db.query("select expand(out()) from " + vertexClassName2);
+    rs = session.query("select expand(out()) from " + vertexClassName2);
     Assert.assertTrue(rs.hasNext());
     rs.next();
     Assert.assertFalse(rs.hasNext());
     rs.close();
 
-    rs = db.query("select expand(in()) from " + vertexClassName1);
+    rs = session.query("select expand(in()) from " + vertexClassName1);
     Assert.assertTrue(rs.hasNext());
     rs.next();
     Assert.assertFalse(rs.hasNext());
     rs.close();
+    session.commit();
   }
 }

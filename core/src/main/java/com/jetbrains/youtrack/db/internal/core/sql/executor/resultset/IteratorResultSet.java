@@ -18,7 +18,7 @@ public class IteratorResultSet implements ResultSet {
 
   protected final Iterator iterator;
   @Nullable
-  protected final DatabaseSessionInternal session;
+  protected DatabaseSessionInternal session;
 
   public IteratorResultSet(@Nullable DatabaseSessionInternal session, Iterator iter) {
     this.iterator = iter;
@@ -52,6 +52,7 @@ public class IteratorResultSet implements ResultSet {
   @Override
   public void close() {
     assert session == null || session.assertIfNotActive();
+    this.session = null;
   }
 
   @Override

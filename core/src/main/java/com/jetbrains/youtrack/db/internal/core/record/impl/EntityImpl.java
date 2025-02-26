@@ -526,6 +526,12 @@ public class EntityImpl extends RecordAbstract
 
   @Nullable
   @Override
+  public Result getResult(@Nonnull String name) {
+    return getEntity(name);
+  }
+
+  @Nullable
+  @Override
   public Blob getBlob(String propertyName) {
     var property = getProperty(propertyName);
 

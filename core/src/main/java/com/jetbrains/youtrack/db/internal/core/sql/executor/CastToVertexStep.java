@@ -23,10 +23,6 @@ public class CastToVertexStep extends AbstractExecutionStep {
   }
 
   private static Result mapResult(Result result, CommandContext ctx) {
-    if (!result.isVertex()) {
-      return result;
-    }
-
     var db = ctx.getDatabaseSession();
     if (result.isVertex()) {
       if (result instanceof ResultInternal) {

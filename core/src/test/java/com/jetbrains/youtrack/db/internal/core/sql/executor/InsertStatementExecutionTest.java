@@ -8,7 +8,6 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -30,7 +29,6 @@ public class InsertStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var result = session.command("insert into " + className + " set name = 'name1'");
-    session.commit();
 
     printExecutionPlan(result);
     for (var i = 0; i < 1; i++) {
@@ -40,7 +38,9 @@ public class InsertStatementExecutionTest extends DbTestBase {
       Assert.assertEquals("name1", item.getProperty("name"));
     }
     Assert.assertFalse(result.hasNext());
+    session.commit();
 
+    session.begin();
     result = session.query("select from " + className);
     for (var i = 0; i < 1; i++) {
       Assert.assertTrue(result.hasNext());
@@ -50,6 +50,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -61,7 +62,6 @@ public class InsertStatementExecutionTest extends DbTestBase {
     var result =
         session.command(
             "insert into " + className + "  (name, surname) values ('name1', 'surname1')");
-    session.commit();
 
     printExecutionPlan(result);
     for (var i = 0; i < 1; i++) {
@@ -72,7 +72,9 @@ public class InsertStatementExecutionTest extends DbTestBase {
       Assert.assertEquals("surname1", item.getProperty("surname"));
     }
     Assert.assertFalse(result.hasNext());
+    session.commit();
 
+    session.begin();
     result = session.query("select from " + className);
     for (var i = 0; i < 1; i++) {
       Assert.assertTrue(result.hasNext());
@@ -82,6 +84,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -95,7 +98,6 @@ public class InsertStatementExecutionTest extends DbTestBase {
             "insert into "
                 + className
                 + "  (name, surname) values ('name1', 'surname1'), ('name2', 'surname2')");
-    session.commit();
 
     printExecutionPlan(result);
 
@@ -107,10 +109,12 @@ public class InsertStatementExecutionTest extends DbTestBase {
       Assert.assertEquals("surname" + (i + 1), item.getProperty("surname"));
     }
     Assert.assertFalse(result.hasNext());
+    session.commit();
 
     Set<String> names = new HashSet<>();
     names.add("name1");
     names.add("name2");
+    session.begin();
     result = session.query("select from " + className);
     for (var i = 0; i < 2; i++) {
       Assert.assertTrue(result.hasNext());
@@ -123,6 +127,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
     Assert.assertFalse(result.hasNext());
     Assert.assertTrue(names.isEmpty());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -134,7 +139,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
     session.getMetadata().getSchema().createClass(className2);
     for (var i = 0; i < 10; i++) {
       session.begin();
-      EntityImpl doc = session.newInstance(className1);
+      var doc = session.newInstance(className1);
       doc.setProperty("name", "name" + i);
       doc.setProperty("surname", "surname" + i);
 
@@ -144,7 +149,6 @@ public class InsertStatementExecutionTest extends DbTestBase {
     session.begin();
     var result = session.command(
         "insert into " + className2 + " from select from " + className1);
-    session.commit();
 
     printExecutionPlan(result);
 
@@ -156,11 +160,13 @@ public class InsertStatementExecutionTest extends DbTestBase {
       Assert.assertNotNull(item.getProperty("surname"));
     }
     Assert.assertFalse(result.hasNext());
+    session.commit();
 
     Set<String> names = new HashSet<>();
     for (var i = 0; i < 10; i++) {
       names.add("name" + i);
     }
+    session.begin();
     result = session.query("select from " + className2);
     for (var i = 0; i < 10; i++) {
       Assert.assertTrue(result.hasNext());
@@ -173,6 +179,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
     Assert.assertFalse(result.hasNext());
     Assert.assertTrue(names.isEmpty());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -184,7 +191,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
     session.getMetadata().getSchema().createClass(className2);
     for (var i = 0; i < 10; i++) {
       session.begin();
-      EntityImpl doc = session.newInstance(className1);
+      var doc = session.newInstance(className1);
       doc.setProperty("name", "name" + i);
       doc.setProperty("surname", "surname" + i);
 
@@ -194,7 +201,6 @@ public class InsertStatementExecutionTest extends DbTestBase {
     session.begin();
     var result =
         session.command("insert into " + className2 + " ( select from " + className1 + ")");
-    session.commit();
 
     printExecutionPlan(result);
 
@@ -206,11 +212,13 @@ public class InsertStatementExecutionTest extends DbTestBase {
       Assert.assertNotNull(item.getProperty("surname"));
     }
     Assert.assertFalse(result.hasNext());
+    session.commit();
 
     Set<String> names = new HashSet<>();
     for (var i = 0; i < 10; i++) {
       names.add("name" + i);
     }
+    session.begin();
     result = session.query("select from " + className2);
     for (var i = 0; i < 10; i++) {
       Assert.assertTrue(result.hasNext());
@@ -223,6 +231,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
     Assert.assertFalse(result.hasNext());
     Assert.assertTrue(names.isEmpty());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -234,7 +243,6 @@ public class InsertStatementExecutionTest extends DbTestBase {
     var result =
         session.command(
             "insert into " + className + " content {'name':'name1', 'surname':'surname1'}");
-    session.commit();
 
     printExecutionPlan(result);
     for (var i = 0; i < 1; i++) {
@@ -244,7 +252,9 @@ public class InsertStatementExecutionTest extends DbTestBase {
       Assert.assertEquals("name1", item.getProperty("name"));
     }
     Assert.assertFalse(result.hasNext());
+    session.commit();
 
+    session.begin();
     result = session.query("select from " + className);
     for (var i = 0; i < 1; i++) {
       Assert.assertTrue(result.hasNext());
@@ -255,6 +265,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -269,7 +280,6 @@ public class InsertStatementExecutionTest extends DbTestBase {
                 + className
                 + " content {'name':'name1', 'surname':'surname1'},{'name':'name1',"
                 + " 'surname':'surname1'}");
-    session.commit();
 
     printExecutionPlan(result);
     for (var i = 0; i < 2; i++) {
@@ -279,7 +289,9 @@ public class InsertStatementExecutionTest extends DbTestBase {
       Assert.assertEquals("name1", item.getProperty("name"));
     }
     Assert.assertFalse(result.hasNext());
+    session.commit();
 
+    session.begin();
     result = session.query("select from " + className);
     for (var i = 0; i < 2; i++) {
       Assert.assertTrue(result.hasNext());
@@ -290,6 +302,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -305,7 +318,6 @@ public class InsertStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var result = session.command("insert into " + className + " content :theContent", params);
-    session.commit();
 
     printExecutionPlan(result);
     for (var i = 0; i < 1; i++) {
@@ -315,7 +327,9 @@ public class InsertStatementExecutionTest extends DbTestBase {
       Assert.assertEquals("name1", item.getProperty("name"));
     }
     Assert.assertFalse(result.hasNext());
+    session.commit();
 
+    session.begin();
     result = session.query("select from " + className);
     for (var i = 0; i < 1; i++) {
       Assert.assertTrue(result.hasNext());
@@ -326,6 +340,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -361,6 +376,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     var result = session.query("SELECT FROM " + className2);
     for (var i = 0; i < 2; i++) {
       Assert.assertTrue(result.hasNext());
@@ -370,6 +386,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
       Assert.assertTrue(val instanceof Identifiable);
     }
     result.close();
+    session.commit();
   }
 
   @Test
@@ -388,6 +405,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     var result = session.query("SELECT FROM " + className2);
     for (var i = 0; i < 1; i++) {
       Assert.assertTrue(result.hasNext());
@@ -404,6 +422,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
           ((Result) o).castToEntity().getSchemaClassName());
     }
     result.close();
+    session.commit();
   }
 
   @Test
@@ -423,6 +442,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     var result = session.query("SELECT FROM " + className2);
     for (var i = 0; i < 1; i++) {
       Assert.assertTrue(result.hasNext());
@@ -439,6 +459,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
           ((Result) o).castToEntity().getSchemaClassName());
     }
     result.close();
+    session.commit();
   }
 
   @Test
@@ -449,7 +470,6 @@ public class InsertStatementExecutionTest extends DbTestBase {
     session.begin();
     var result =
         session.command("insert into " + className + " set name = 'name1' RETURN 'OK' as result");
-    session.commit();
 
     printExecutionPlan(result);
     for (var i = 0; i < 1; i++) {
@@ -459,7 +479,9 @@ public class InsertStatementExecutionTest extends DbTestBase {
       Assert.assertEquals("OK", item.getProperty("result"));
     }
     Assert.assertFalse(result.hasNext());
+    session.commit();
 
+    session.begin();
     result = session.query("select from " + className);
     for (var i = 0; i < 1; i++) {
       Assert.assertTrue(result.hasNext());
@@ -469,6 +491,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -488,6 +511,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
 
     result.close();
 
+    session.begin();
     result = session.query("SELECT FROM " + className);
 
     for (var i = 0; i < 2; i++) {
@@ -499,6 +523,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -520,6 +545,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
             + " WHERE name = 'test')})");
     session.commit();
 
+    session.begin();
     var result = session.query("SELECT FROM " + className);
 
     var item = result.next();
@@ -529,6 +555,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
 
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -544,6 +571,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
             + " CONTENT { name: \"jack\", memo: \"this is a \\n multi line text\" }");
     session.commit();
 
+    session.begin();
     var result = session.query("SELECT FROM " + className);
 
     var item = result.next();
@@ -552,6 +580,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
 
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -565,11 +594,13 @@ public class InsertStatementExecutionTest extends DbTestBase {
     }
     session.commit();
 
+    session.begin();
     try (var result = session.query("SELECT FROM index:testInsert ")) {
       var item = result.next();
       assertEquals(item.getProperty("key"), "one");
       assertEquals(item.getProperty("rid"), new RecordId(5, 0));
       assertFalse(result.hasNext());
     }
+    session.commit();
   }
 }

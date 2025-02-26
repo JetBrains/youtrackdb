@@ -42,6 +42,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testSelectNoTarget() {
+    session.begin();
     var result = session.query("select 1 as one, 2 as two, 2+3");
     Assert.assertTrue(result.hasNext());
     var item = result.next();
@@ -52,6 +53,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     printExecutionPlan(result);
 
     result.close();
+    session.commit();
   }
 
   @Test
@@ -71,6 +73,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     final var result =
         session.query(
             "select address, count(*) as occurrencies from InputTx where address is not null group"
@@ -80,6 +83,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Assert.assertNotNull(row.getProperty("address")); // <== FALSE!
       Assert.assertNotNull(row.getProperty("occurrencies"));
     }
+    session.commit();
     result.close();
   }
 
@@ -149,6 +153,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result = session.query("select from " + className);
     for (var i = 0; i < 100000; i++) {
       Assert.assertTrue(result.hasNext());
@@ -159,6 +164,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertFalse(result.hasNext());
     printExecutionPlan(result);
     result.close();
+    session.commit();
   }
 
   @Test
@@ -173,6 +179,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
       session.commit();
     }
+
+    session.begin();
     var result = session.query("select from " + className + " ORDER BY @rid ASC");
     printExecutionPlan(result);
     Identifiable lastItem = null;
@@ -188,6 +196,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       lastItem = item.castToEntity();
     }
     Assert.assertFalse(result.hasNext());
+    session.commit();
 
     result.close();
   }
@@ -205,6 +214,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result = session.query("select from " + className + " ORDER BY @rid DESC");
     printExecutionPlan(result);
     Identifiable lastItem = null;
@@ -220,6 +230,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       lastItem = item.castToEntity();
     }
     Assert.assertFalse(result.hasNext());
+    session.commit();
 
     result.close();
   }
@@ -236,6 +247,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
       session.commit();
     }
+
+    session.begin();
     var result = session.query("select from " + className + " limit 10");
     printExecutionPlan(result);
 
@@ -247,6 +260,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -261,6 +275,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
       session.commit();
     }
+
+    session.begin();
     var result = session.query("select from " + className + " skip 100 limit 10");
     printExecutionPlan(result);
 
@@ -272,6 +288,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -286,6 +303,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
       session.commit();
     }
+
+    session.begin();
     var result = session.query("select from " + className + " order by surname desc");
     printExecutionPlan(result);
 
@@ -302,6 +321,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -316,6 +336,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
       session.commit();
     }
+
+    session.begin();
     var result = session.query("select from " + className + " order by surname asc");
     printExecutionPlan(result);
 
@@ -332,6 +354,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -347,6 +370,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result = session.query("select from " + className + " order by surname asc limit 100");
     printExecutionPlan(result);
 
@@ -358,6 +382,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -373,6 +398,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result = session.query("select name from " + className + " order by surname asc");
     printExecutionPlan(result);
 
@@ -390,6 +416,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -405,6 +432,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query("select name from " + className + " order by name asc, surname asc");
     printExecutionPlan(result);
@@ -423,6 +451,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -439,6 +468,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query("select from " + className + " where name = 'name1' or name = 'name7' ");
     printExecutionPlan(result);
@@ -452,6 +482,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -466,6 +497,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
       session.commit();
     }
+
+    session.begin();
     var result = session.query("select from " + className + " where name <> 'name1' ");
     printExecutionPlan(result);
 
@@ -478,6 +511,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -492,6 +526,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
       session.commit();
     }
+
+    session.begin();
     var result = session.query("select name from " + className);
     printExecutionPlan(result);
 
@@ -508,6 +544,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -517,25 +554,20 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     for (var i = 0; i < 7; i++) {
       session.begin();
-      var doc = (EntityImpl) session.newEntity(className);
-
+      session.newEntity(className);
       session.commit();
     }
-
-    try {
-      var result = session.query("select count(*) from " + className);
-      printExecutionPlan(result);
-      Assert.assertNotNull(result);
-      Assert.assertTrue(result.hasNext());
-      var next = result.next();
-      Assert.assertNotNull(next);
-      Assert.assertEquals(7L, (Object) next.getProperty("count(*)"));
-      Assert.assertFalse(result.hasNext());
-      result.close();
-    } catch (Exception e) {
-      e.printStackTrace();
-      Assert.fail();
-    }
+    session.begin();
+    var result = session.query("select count(*) from " + className);
+    printExecutionPlan(result);
+    Assert.assertNotNull(result);
+    Assert.assertTrue(result.hasNext());
+    var next = result.next();
+    Assert.assertNotNull(next);
+    Assert.assertEquals(7L, (Object) next.getProperty("count(*)"));
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
   }
 
   @Test
@@ -550,22 +582,20 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
       session.commit();
     }
-    try {
-      var result = session.query("select count(*), name from " + className + " group by name");
-      printExecutionPlan(result);
-      Assert.assertNotNull(result);
-      for (var i = 0; i < 5; i++) {
-        Assert.assertTrue(result.hasNext());
-        var next = result.next();
-        Assert.assertNotNull(next);
-        Assert.assertEquals(2L, (Object) next.getProperty("count(*)"));
-      }
-      Assert.assertFalse(result.hasNext());
-      result.close();
-    } catch (Exception e) {
-      e.printStackTrace();
-      Assert.fail();
+
+    session.begin();
+    var result = session.query("select count(*), name from " + className + " group by name");
+    printExecutionPlan(result);
+    Assert.assertNotNull(result);
+    for (var i = 0; i < 5; i++) {
+      Assert.assertTrue(result.hasNext());
+      var next = result.next();
+      Assert.assertNotNull(next);
+      Assert.assertEquals(2L, (Object) next.getProperty("count(*)"));
     }
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
   }
 
   @Test
@@ -578,20 +608,17 @@ public class SelectStatementExecutionTest extends DbTestBase {
     elem.setProperty("name", "bar");
     session.commit();
 
-    try {
-      var result = session.query("select count(*) from " + className + " where name = 'foo'");
-      printExecutionPlan(result);
-      Assert.assertNotNull(result);
-      Assert.assertTrue(result.hasNext());
-      var next = result.next();
-      Assert.assertNotNull(next);
-      Assert.assertEquals(0L, (Object) next.getProperty("count(*)"));
-      Assert.assertFalse(result.hasNext());
-      result.close();
-    } catch (Exception e) {
-      e.printStackTrace();
-      Assert.fail();
-    }
+    session.begin();
+    var result = session.query("select count(*) from " + className + " where name = 'foo'");
+    printExecutionPlan(result);
+    Assert.assertNotNull(result);
+    Assert.assertTrue(result.hasNext());
+    var next = result.next();
+    Assert.assertNotNull(next);
+    Assert.assertEquals(0L, (Object) next.getProperty("count(*)"));
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
   }
 
   @Test
@@ -604,21 +631,18 @@ public class SelectStatementExecutionTest extends DbTestBase {
     elem.setProperty("name", "bar");
     session.commit();
 
-    try {
-      var result =
-          session.query("select count(*) as a from " + className + " where name = 'foo'");
-      printExecutionPlan(result);
-      Assert.assertNotNull(result);
-      Assert.assertTrue(result.hasNext());
-      var next = result.next();
-      Assert.assertNotNull(next);
-      Assert.assertEquals(0L, (Object) next.getProperty("a"));
-      Assert.assertFalse(result.hasNext());
-      result.close();
-    } catch (Exception e) {
-      e.printStackTrace();
-      Assert.fail();
-    }
+    session.begin();
+    var result =
+        session.query("select count(*) as a from " + className + " where name = 'foo'");
+    printExecutionPlan(result);
+    Assert.assertNotNull(result);
+    Assert.assertTrue(result.hasNext());
+    var next = result.next();
+    Assert.assertNotNull(next);
+    Assert.assertEquals(0L, (Object) next.getProperty("a"));
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
   }
 
   @Test
@@ -627,10 +651,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.getMetadata().getSchema().createClass(className);
 
     try {
-      session.query(
-              "select max(a) + max(b) + pippo + pluto as foo, max(d) + max(e), f from " + className)
-          .close();
-      Assert.fail();
+      session.executeInTx(() -> {
+        session.query(
+                "select max(a) + max(b) + pippo + pluto as foo, max(d) + max(e), f from " + className)
+            .close();
+        Assert.fail();
+      });
     } catch (CommandExecutionException x) {
       //ignore
     } catch (Exception e) {
@@ -644,8 +670,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.getMetadata().getSchema().createClass(className);
 
     try {
-      session.query("select [max(a), max(b), foo] from " + className).close();
-      Assert.fail();
+      session.executeInTx(() -> {
+        session.query("select [max(a), max(b), foo] from " + className).close();
+        Assert.fail();
+      });
     } catch (CommandExecutionException x) {
       //ignore
     } catch (Exception e) {
@@ -658,14 +686,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testAggretateInCollection";
     session.getMetadata().getSchema().createClass(className);
 
-    try {
-      var query = "select [max(a), max(b)] from " + className;
-      var result = session.query(query);
-      printExecutionPlan(query, result);
-      result.close();
-    } catch (Exception x) {
-      Assert.fail();
-    }
+    session.begin();
+    var query = "select [max(a), max(b)] from " + className;
+    var result = session.query(query);
+    printExecutionPlan(query, result);
+    result.close();
+    session.commit();
   }
 
   @Test
@@ -700,6 +726,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result = session.query("select sum(val) from " + className);
     printExecutionPlan(result);
     Assert.assertTrue(result.hasNext());
@@ -708,6 +735,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(45, (Object) item.getProperty("sum(val)"));
 
     result.close();
+    session.commit();
   }
 
   @Test
@@ -722,6 +750,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
       session.commit();
     }
+    session.begin();
     var result = session.query("select sum(val), type from " + className + " group by type");
     printExecutionPlan(result);
     var evenFound = false;
@@ -742,6 +771,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertTrue(evenFound);
     Assert.assertTrue(oddFound);
     result.close();
+    session.commit();
   }
 
   @Test
@@ -756,6 +786,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
       session.commit();
     }
+
+    session.begin();
     var result =
         session.query(
             "select sum(val), max(val), min(val), type from " + className + " group by type");
@@ -782,6 +814,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertTrue(evenFound);
     Assert.assertTrue(oddFound);
     result.close();
+    session.commit();
   }
 
   @Test
@@ -796,6 +829,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
       session.commit();
     }
+
+    session.begin();
     var result = session.query("select sum(val) from " + className + " group by type");
     printExecutionPlan(result);
     var evenFound = false;
@@ -815,6 +850,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertTrue(evenFound);
     Assert.assertTrue(oddFound);
     result.close();
+    session.commit();
   }
 
   @Test
@@ -829,6 +865,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
       session.commit();
     }
+
+    session.begin();
     var result =
         session.query("select sum(val) from " + className + " group by type.substring(0,1)");
     printExecutionPlan(result);
@@ -841,6 +879,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -856,6 +895,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result = session.query("select from " + className);
     printExecutionPlan(result);
     var sum = 0;
@@ -870,6 +910,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(45, sum);
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -884,6 +925,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
       doc.setProperty("val", i);
       session.commit();
     }
+
+    session.begin();
     var result =
         session.query("select from " + className + " order by @rid desc");
     printExecutionPlan(result);
@@ -902,6 +945,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -916,6 +960,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
       doc.setProperty("val", i);
       session.commit();
     }
+
+    session.begin();
     var result = session.query(
         "select from " + className + " order by @rid asc");
     printExecutionPlan(result);
@@ -934,6 +980,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -950,6 +997,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query("select from (select from " + className + " where val > 2)  where val < 8");
     printExecutionPlan(result);
@@ -963,10 +1011,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
   public void testQuerySchema() {
+    session.begin();
     var result = session.query("select from metadata:schema");
     printExecutionPlan(result);
 
@@ -977,10 +1027,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
   public void testQueryMetadataIndexManager() {
+    session.begin();
     var result = session.query("select from metadata:indexmanager");
     printExecutionPlan(result);
     for (var i = 0; i < 1; i++) {
@@ -990,18 +1042,22 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
   public void testQueryMetadataIndexManager2() {
+    session.begin();
     var result = session.query("select expand(indexes) from metadata:indexmanager");
     printExecutionPlan(result);
     Assert.assertTrue(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
   public void testQueryMetadataDatabase() {
+    session.begin();
     var result = session.query("select from metadata:database");
     printExecutionPlan(result);
 
@@ -1010,10 +1066,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals("testQueryMetadataDatabase", item.getProperty("name"));
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
   public void testQueryMetadataStorage() {
+    session.begin();
     var result = session.query("select from metadata:storage");
     printExecutionPlan(result);
 
@@ -1022,44 +1080,53 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals("testQueryMetadataStorage", item.getProperty("name"));
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
   public void testNonExistingRids() {
+    session.begin();
     var result = session.query("select from #0:100000000");
     printExecutionPlan(result);
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
   public void testFetchFromSingleRid() {
+    session.begin();
     var result = session.query("select from #0:1");
     printExecutionPlan(result);
     Assert.assertTrue(result.hasNext());
     Assert.assertNotNull(result.next());
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
   public void testFetchFromSingleRid2() {
+    session.begin();
     var result = session.query("select from [#0:1]");
     printExecutionPlan(result);
     Assert.assertTrue(result.hasNext());
     Assert.assertNotNull(result.next());
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
   public void testFetchFromSingleRidParam() {
+    session.begin();
     var result = session.query("select from ?", new RecordId(0, 1));
     printExecutionPlan(result);
     Assert.assertTrue(result.hasNext());
     Assert.assertNotNull(result.next());
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1069,6 +1136,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     session.commit();
 
+    session.begin();
     var result = session.query("select from [#0:1, #0:2]");
     printExecutionPlan(result);
     Assert.assertTrue(result.hasNext());
@@ -1083,6 +1151,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1092,6 +1161,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     session.commit();
 
+    session.begin();
     var result = session.query("select from [#0:1, #0:2, #0:100000]");
     printExecutionPlan(result);
 
@@ -1107,6 +1177,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1124,6 +1195,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result = session.query("select from " + className + " where name = 'name2'");
     printExecutionPlan(result);
 
@@ -1140,42 +1212,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var plan = (SelectExecutionPlan) p;
     Assert.assertEquals(FetchFromIndexStep.class, plan.getSteps().getFirst().getClass());
     result.close();
-  }
-
-  @Test
-  public void testFetchFromIndex() {
-    var oldAllowManual = GlobalConfiguration.INDEX_ALLOW_MANUAL_INDEXES.getValueAsBoolean();
-    GlobalConfiguration.INDEX_ALLOW_MANUAL_INDEXES.setValue(true);
-    var className = "testFetchFromIndex";
-    var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    var indexName = className + ".name";
-    clazz.createIndex(session, indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
-
-    for (var i = 0; i < 10; i++) {
-      session.begin();
-      var doc = session.newInstance(className);
-      doc.setProperty("name", "name" + i);
-
-      session.commit();
-    }
-
-    var result = session.query("select from index:" + indexName + " where key = 'name2'");
-    printExecutionPlan(result);
-
-    Assert.assertTrue(result.hasNext());
-    var next = result.next();
-    Assert.assertNotNull(next);
-
-    Assert.assertFalse(result.hasNext());
-
-    var p = result.getExecutionPlan();
-    Assert.assertNotNull(p);
-    Assert.assertTrue(p instanceof SelectExecutionPlan);
-    var plan = (SelectExecutionPlan) p;
-    Assert.assertEquals(FetchFromIndexStep.class, plan.getSteps().getFirst().getClass());
-    result.close();
-    GlobalConfiguration.INDEX_ALLOW_MANUAL_INDEXES.setValue(oldAllowManual);
+    session.commit();
   }
 
   @Test
@@ -1205,6 +1242,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result = session.query("select from " + classNameExt + " where name = 'name6'");
     printExecutionPlan(result);
 
@@ -1223,6 +1261,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(
         classNameExt + ".name", ((FetchFromIndexStep) plan.getSteps().getFirst()).getIndexName());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1243,6 +1282,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query("select from " + className + " where name = 'name2' or surname = 'surname3'");
     printExecutionPlan(result);
@@ -1266,6 +1306,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var parallel = (ParallelExecStep) plan.getSteps().getFirst();
     Assert.assertEquals(2, parallel.getSubExecutionPlans().size());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1286,6 +1327,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query(
             "select from "
@@ -1295,6 +1337,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1316,6 +1359,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query(
             "select from "
@@ -1334,6 +1378,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1355,6 +1400,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query(
             "select from "
@@ -1374,6 +1420,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1396,6 +1443,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query(
             "select from " + className + " where name = 'name3' and surname >= 'surname1'");
@@ -1410,6 +1458,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1432,6 +1481,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query(
             "select from " + className + " where name = 'name3' and surname > 'surname3'");
@@ -1439,6 +1489,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1461,6 +1512,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query(
             "select from " + className + " where name = 'name3' and surname >= 'surname3'");
@@ -1472,6 +1524,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1494,6 +1547,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query(
             "select from " + className + " where name = 'name3' and surname < 'surname3'");
@@ -1501,6 +1555,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1523,6 +1578,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query(
             "select from " + className + " where name = 'name3' and surname <= 'surname3'");
@@ -1534,6 +1590,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1556,6 +1613,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result = session.query("select from " + className + " where name > 'name3' ");
     printExecutionPlan(result);
     for (var i = 0; i < 6; i++) {
@@ -1565,6 +1623,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1587,6 +1646,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result = session.query("select from " + className + " where name >= 'name3' ");
     printExecutionPlan(result);
     for (var i = 0; i < 7; i++) {
@@ -1595,6 +1655,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1617,6 +1678,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result = session.query("select from " + className + " where name < 'name3' ");
     printExecutionPlan(result);
     for (var i = 0; i < 3; i++) {
@@ -1625,6 +1687,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1647,6 +1710,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result = session.query("select from " + className + " where name <= 'name3' ");
     printExecutionPlan(result);
     for (var i = 0; i < 4; i++) {
@@ -1655,6 +1719,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1677,6 +1742,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query("select from " + className + " where name > 'name3' and name < 'name5'");
     printExecutionPlan(result);
@@ -1689,6 +1755,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(
         1, plan.getSteps().stream().filter(step -> step instanceof FetchFromIndexStep).count());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1711,6 +1778,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query(
             "select from "
@@ -1723,6 +1791,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(
         1, plan.getSteps().stream().filter(step -> step instanceof FetchFromIndexStep).count());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1745,6 +1814,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query(
             "select from " + className + " where name = 'name6' and surname = 'surname6' ");
@@ -1760,6 +1830,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(
         1, plan.getSteps().stream().filter(step -> step instanceof FetchFromIndexStep).count());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1782,6 +1853,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query(
             "select from " + className + " where name = 'name6' and surname >= 'surname6' ");
@@ -1797,6 +1869,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(
         FetchFromIndexStep.class, plan.getSteps().getFirst().getClass()); // index not used
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1820,6 +1893,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result = session.query("select expand(linked) from " + parentClassName);
     printExecutionPlan(result);
 
@@ -1830,6 +1904,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1857,6 +1932,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     session.commit();
 
+    session.begin();
     var result = session.query("select expand(linked) from " + parentClassName);
     printExecutionPlan(result);
 
@@ -1867,6 +1943,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1894,6 +1971,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     session.commit();
 
+    session.begin();
     var result =
         session.query("select expand(linked) from " + parentClassName + " order by name");
     printExecutionPlan(result);
@@ -1910,6 +1988,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1928,6 +2007,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result = session.query("select distinct name, surname from " + className);
     printExecutionPlan(result);
 
@@ -1938,6 +2018,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -1956,6 +2037,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result = session.query("select distinct(name) from " + className);
     printExecutionPlan(result);
 
@@ -1966,10 +2048,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
   public void testLet1() {
+    session.begin();
     var result = session.query("select $a as one, $b as two let $a = 1, $b = 1+1");
     Assert.assertTrue(result.hasNext());
     var item = result.next();
@@ -1978,10 +2062,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(2, item.<Object>getProperty("two"));
     printExecutionPlan(result);
     result.close();
+    session.commit();
   }
 
   @Test
   public void testLet1Long() {
+    session.begin();
     var result = session.query("select $a as one, $b as two let $a = 1L, $b = 1L+1");
     Assert.assertTrue(result.hasNext());
     var item = result.next();
@@ -1990,26 +2076,27 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(2L, item.<Object>getProperty("two"));
     printExecutionPlan(result);
     result.close();
+    session.commit();
   }
 
   @Test
   public void testLet2() {
+    session.begin();
     var result = session.query("select $a as one let $a = (select 1 as a)");
     printExecutionPlan(result);
     Assert.assertTrue(result.hasNext());
     var item = result.next();
     Assert.assertNotNull(item);
-    var one = item.getProperty("one");
-    Assert.assertTrue(one instanceof List);
-    Assert.assertEquals(1, ((List<?>) one).size());
-    var x = ((List<?>) one).getFirst();
-    Assert.assertTrue(x instanceof Result);
-    Assert.assertEquals(1, (Object) ((Result) x).getProperty("a"));
+    var one = item.<Result>getEmbeddedList("one");
+    Assert.assertEquals(1, one.size());
+    var x = one.getFirst();
+    Assert.assertEquals(1, x.getInt("a").intValue());
     result.close();
   }
 
   @Test
   public void testLet3() {
+    session.begin();
     var result = session.query("select $a[0].foo as one let $a = (select 1 as foo)");
     printExecutionPlan(result);
     Assert.assertTrue(result.hasNext());
@@ -2018,6 +2105,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var one = item.getProperty("one");
     Assert.assertEquals(1, one);
     result.close();
+    session.commit();
   }
 
   @Test
@@ -2033,6 +2121,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query(
             "select name, surname, $nameAndSurname as fullname from "
@@ -2051,6 +2140,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -2067,6 +2157,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query(
             "select from "
@@ -2083,6 +2174,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -2099,6 +2191,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query(
             "select $foo as name from "
@@ -2116,6 +2209,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -2132,6 +2226,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query(
             "select $bar as name from "
@@ -2151,6 +2246,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -2179,6 +2275,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.newStatefulEdge(doc1, doc2, edgeClass);
     session.commit();
 
+    session.begin();
     var queryString =
         "SELECT $x, name FROM " + vertexClassName + " let $x = out(\"" + edgeClassName + "\")";
     var resultSet = session.query(queryString);
@@ -2195,6 +2292,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertEquals(1, counter);
     resultSet.close();
+    session.commit();
   }
 
   @Test
@@ -2211,6 +2309,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query(
             "select $current.*, $b.*, $b.@class from (select 1 as sqa, @class as sqc from "
@@ -2234,6 +2333,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(Integer.valueOf(1), bResult.<Integer>getProperty("sqa"));
     Assert.assertEquals(className, bResult.getProperty("sqc"));
     result.close();
+    session.commit();
   }
 
   @Test
@@ -2250,6 +2350,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result = session.query("select i, iSeq from " + className + " unwind iSeq");
     printExecutionPlan(result);
     for (var i = 0; i < 30; i++) {
@@ -2264,6 +2365,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -2284,6 +2386,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result = session.query("select i, iSeq from " + className + " unwind iSeq");
     printExecutionPlan(result);
     for (var i = 0; i < 30; i++) {
@@ -2298,6 +2401,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -2329,6 +2433,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result = session.query("select from " + parent + " where name = 'name1'");
     printExecutionPlan(result);
     var plan = (InternalExecutionPlan) result.getExecutionPlan();
@@ -2340,6 +2445,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -2373,6 +2479,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query("select from " + parent + " where name = 'name1' and surname = 'surname1'");
     printExecutionPlan(result);
@@ -2385,6 +2492,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -2417,6 +2525,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query("select from " + parent + " where name = 'name1' and surname = 'surname1'");
     printExecutionPlan(result);
@@ -2430,6 +2539,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -2469,6 +2579,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query("select from " + parent + " where name = 'name1' and surname = 'surname1'");
     printExecutionPlan(result);
@@ -2484,6 +2595,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -2533,6 +2645,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query("select from " + parent + " where name = 'name1' and surname = 'surname1'");
     printExecutionPlan(result);
@@ -2545,6 +2658,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -2591,6 +2705,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query("select from " + parent + " where name = 'name1' and surname = 'surname1'");
     printExecutionPlan(result);
@@ -2603,6 +2718,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -2628,6 +2744,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query("select from " + className + " where name = 'name1' order by surname ASC");
     printExecutionPlan(result);
@@ -2651,6 +2768,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(
         0, plan.getSteps().stream().filter(step -> step instanceof OrderByStep).count());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -2676,6 +2794,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query("select from " + className + " where name = 'name1' order by surname DESC");
     printExecutionPlan(result);
@@ -2699,6 +2818,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(
         0, plan.getSteps().stream().filter(step -> step instanceof OrderByStep).count());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -2724,6 +2844,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query(
             "select from " + className + " where name = 'name1' order by name DESC, surname DESC");
@@ -2748,6 +2869,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(
         0, plan.getSteps().stream().filter(step -> step instanceof OrderByStep).count());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -2773,6 +2895,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query(
             "select from " + className + " where name = 'name1' order by name ASC, surname ASC");
@@ -2797,6 +2920,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(
         0, plan.getSteps().stream().filter(step -> step instanceof OrderByStep).count());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -2823,6 +2947,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query("select from " + className + " where name = 'name1' order by surname ASC");
     printExecutionPlan(result);
@@ -2845,6 +2970,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(
         0, plan.getSteps().stream().filter(step -> step instanceof OrderByStep).count());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -2871,6 +2997,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query("select from " + className + " where name = 'name1' order by surname DESC");
     printExecutionPlan(result);
@@ -2893,6 +3020,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(
         0, plan.getSteps().stream().filter(step -> step instanceof OrderByStep).count());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -2919,6 +3047,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query("select from " + className + " where name = 'name1' order by address DESC");
     printExecutionPlan(result);
@@ -2939,6 +3068,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertTrue(orderStepFound);
     result.close();
+    session.commit();
   }
 
   @SuppressWarnings("ConstantValue")
@@ -2965,6 +3095,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query(
             "select from " + className + " where name = 'name1' order by name ASC, surname DESC");
@@ -2986,6 +3117,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertTrue(orderStepFound);
     result.close();
+    session.commit();
   }
 
   @SuppressWarnings("ConstantValue")
@@ -3012,6 +3144,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result = session.query("select from " + className + " order by name , surname ASC");
     printExecutionPlan(result);
     for (var i = 0; i < 10; i++) {
@@ -3031,6 +3164,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(orderStepFound);
     result.close();
+    session.commit();
   }
 
   @SuppressWarnings("ConstantValue")
@@ -3057,6 +3191,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result = session.query("select from " + className + " order by name desc, surname desc");
     printExecutionPlan(result);
     for (var i = 0; i < 10; i++) {
@@ -3076,6 +3211,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(orderStepFound);
     result.close();
+    session.commit();
   }
 
   @SuppressWarnings("ConstantValue")
@@ -3102,6 +3238,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result = session.query("select from " + className + " order by name asc, surname desc");
     printExecutionPlan(result);
     for (var i = 0; i < 10; i++) {
@@ -3121,6 +3258,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertTrue(orderStepFound);
     result.close();
+    session.commit();
   }
 
   @SuppressWarnings("ConstantValue")
@@ -3147,6 +3285,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result = session.query("select from " + className + " order by name");
     printExecutionPlan(result);
     String last = null;
@@ -3172,6 +3311,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(orderStepFound);
     result.close();
+    session.commit();
   }
 
   @Test
@@ -3185,6 +3325,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
       session.commit();
     }
+
+    session.begin();
     var result = session.query("select from ?", className);
     printExecutionPlan(result);
 
@@ -3196,6 +3338,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -3211,6 +3354,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Map<Object, Object> params = new HashMap<>();
     params.put("target", className);
+
+    session.begin();
     var result = session.query("select from :target", params);
     printExecutionPlan(result);
 
@@ -3222,6 +3367,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -3237,6 +3383,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var result = session.query("select from " + className + " where name matches 'name1'");
     printExecutionPlan(result);
 
@@ -3248,6 +3395,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -3261,6 +3409,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     session.commit();
 
+    session.begin();
     var result = session.query("select name[0..3] as names from " + className);
     printExecutionPlan(result);
 
@@ -3281,6 +3430,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -3294,6 +3444,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     session.commit();
 
+    session.begin();
     var result = session.query("select name[?..?] as names from " + className, 0, 3);
     printExecutionPlan(result);
 
@@ -3313,6 +3464,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -3329,6 +3481,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Map<String, Object> params = new HashMap<>();
     params.put("a", 0);
     params.put("b", 3);
+
+    session.begin();
     var result = session.query("select name[:a..:b] as names from " + className, params);
     printExecutionPlan(result);
 
@@ -3341,13 +3495,14 @@ public class SelectStatementExecutionTest extends DbTestBase {
         Assert.fail();
       }
       Assert.assertEquals(3, (names).size());
-      var iter =  names.iterator();
+      var iter = names.iterator();
       Assert.assertEquals("a", iter.next());
       Assert.assertEquals("b", iter.next());
       Assert.assertEquals("c", iter.next());
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -3361,6 +3516,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     session.commit();
 
+    session.begin();
     var result = session.query("select name[0...2] as names from " + className);
     printExecutionPlan(result);
 
@@ -3380,10 +3536,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
   public void testNewRid() {
+    session.begin();
     var result = session.query("select {\"@rid\":\"#12:0\"} as theRid ");
     Assert.assertTrue(result.hasNext());
     var item = result.next();
@@ -3394,6 +3552,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(0L, id.getIdentity().getClusterPosition());
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -3420,6 +3579,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     session.commit();
 
+    session.begin();
     var result =
         session.query(
             "select name, elem1:{*}, elem2:{!surname} from " + className + " where name = 'd'");
@@ -3432,6 +3592,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     printExecutionPlan(result);
 
     result.close();
+    session.commit();
   }
 
   @Test
@@ -3448,6 +3609,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     elem1.newEmbeddedList("coll", coll);
     session.commit();
 
+    session.begin();
     var result = session.query("select coll[='foo'] as filtered from " + className);
     Assert.assertTrue(result.hasNext());
     var item = result.next();
@@ -3477,6 +3639,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(1, res.size());
     Assert.assertEquals("bar", res.getFirst());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -3500,6 +3663,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     elem2.newEmbeddedList("coll", coll);
     session.commit();
 
+    session.begin();
     var result = session.query("select from " + className + " where coll contains 1");
     Assert.assertTrue(result.hasNext());
     result.next();
@@ -3515,6 +3679,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     result = session.query("select from " + className + " where coll contains 12L");
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -3531,11 +3696,13 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.command("insert into " + className + " set id = 1 , name = 'Bar'").close();
     session.commit();
 
+    session.begin();
     var result = session.query("select from " + className + " where name = 'Bar'");
     Assert.assertTrue(result.hasNext());
     result.next();
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -3551,12 +3718,14 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Map<String, Object> params = new HashMap<>();
     params.put("p1", "Foo");
     params.put("p2", "Fox");
+    session.begin();
     var result =
         session.query("select from " + className + " where name = :p1 and surname = :p2", params);
     Assert.assertTrue(result.hasNext());
     result.next();
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -3574,11 +3743,13 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     Map<String, Object> params = new HashMap<>();
     params.put("p1", "Foo");
+    session.begin();
     var result = session.query("select from " + className + " where name = :p1", params);
     Assert.assertTrue(result.hasNext());
     result.next();
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -3592,11 +3763,13 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.command("insert into " + className + " set sur = 'Barz'").close();
     session.commit();
 
+    session.begin();
     var result = session.query("select from " + className + " where name is defined");
     Assert.assertTrue(result.hasNext());
     result.next();
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -3610,11 +3783,13 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.command("insert into " + className + " set sur = 'Barz'").close();
     session.commit();
 
+    session.begin();
     var result = session.query("select from " + className + " where name is not defined");
     Assert.assertTrue(result.hasNext());
     result.next();
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -3632,6 +3807,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.command("insert into " + className + 2 + "  set tags = ['foo']");
     session.commit();
 
+    session.begin();
     try (var result =
         session.query(
             "select from "
@@ -3648,6 +3824,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       result.next();
       Assert.assertFalse(result.hasNext());
     }
+    session.commit();
   }
 
   @Test
@@ -3665,6 +3842,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.command("insert into " + className + 2 + "  set tags = ['foo']");
     session.commit();
 
+    session.begin();
     try (var result =
         session.query(
             "select from "
@@ -3680,6 +3858,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Assert.assertTrue(result.hasNext());
       result.next();
       Assert.assertFalse(result.hasNext());
+      session.commit();
     }
   }
 
@@ -3694,6 +3873,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.command("insert into " + className + "  set tags = ['bbb', 'FFF']");
     session.commit();
 
+    session.begin();
     try (var result =
         session.query("select from " + className + " where tags containsany ['foo','baz']")) {
       Assert.assertTrue(result.hasNext());
@@ -3725,6 +3905,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     try (var result = session.query("select from " + className + " where tags containsany []")) {
       Assert.assertFalse(result.hasNext());
     }
+    session.commit();
   }
 
   @Test
@@ -3740,6 +3921,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.command("insert into " + className + "  set tags = ['bbb', 'FFF']");
     session.commit();
 
+    session.begin();
     try (var result =
         session.query("select from " + className + " where tags containsany ['foo','baz']")) {
       Assert.assertTrue(result.hasNext());
@@ -3786,6 +3968,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
           result.getExecutionPlan().getSteps().stream()
               .anyMatch(x -> x instanceof FetchFromIndexStep));
     }
+    session.commit();
   }
 
   @Test
@@ -3799,6 +3982,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.command("insert into " + className + "  set tags = ['foo', 'FFF']");
     session.commit();
 
+    session.begin();
     try (var result =
         session.query("select from " + className + " where tags containsall ['foo','bar']")) {
       Assert.assertTrue(result.hasNext());
@@ -3814,6 +3998,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       result.next();
       Assert.assertFalse(result.hasNext());
     }
+    session.commit();
   }
 
   @Test
@@ -3828,6 +4013,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.command("insert into " + className + "  set name = 'foo4', val = 4");
     session.commit();
 
+    session.begin();
     try (var result = session.query("select from " + className + " where val between 2 and 3")) {
       Assert.assertTrue(result.hasNext());
       result.next();
@@ -3835,6 +4021,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       result.next();
       Assert.assertFalse(result.hasNext());
     }
+    session.commit();
   }
 
   @Test
@@ -3849,6 +4036,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.command("insert into " + className + "  set tag = 'bar'");
     session.commit();
 
+    session.begin();
     try (var result = session.query(
         "select from " + className + " where tag in ['foo','baz']")) {
       Assert.assertTrue(result.hasNext());
@@ -3891,6 +4079,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
           result.getExecutionPlan().getSteps().stream()
               .anyMatch(x -> x instanceof FetchFromIndexStep));
     }
+    session.commit();
   }
 
   @Test
@@ -3926,6 +4115,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     elem1.setProperty("name", "wrong");
     session.commit();
 
+    session.begin();
     try (var result =
         session.query("select from " + className1 + " where next.next.name = ?", "John")) {
       Assert.assertTrue(result.hasNext());
@@ -3936,6 +4126,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
           result.getExecutionPlan().getSteps().stream()
               .anyMatch(x -> x instanceof FetchFromIndexStep));
     }
+    session.commit();
   }
 
   @Test
@@ -3982,6 +4173,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     session.commit();
 
+    session.begin();
     try (var result =
         session.query("select from " + className1 + " where next.next.name CONTAINSANY ['John']")) {
       Assert.assertTrue(result.hasNext());
@@ -3992,6 +4184,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
           result.getExecutionPlan().getSteps().stream()
               .anyMatch(x -> x instanceof FetchFromIndexStep));
     }
+    session.commit();
   }
 
   @Test
@@ -4015,6 +4208,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     try (var result =
         session.query("select from " + className + " where themap CONTAINSKEY ?", "key10")) {
       Assert.assertTrue(result.hasNext());
@@ -4026,6 +4220,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
           result.getExecutionPlan().getSteps().stream()
               .anyMatch(x -> x instanceof FetchFromIndexStep));
     }
+    session.commit();
   }
 
   @Test
@@ -4056,6 +4251,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     try (var result =
         session.query(
             "select from " + className + " where themap CONTAINSKEY ? AND thestring = ?",
@@ -4070,6 +4266,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
           result.getExecutionPlan().getSteps().stream()
               .anyMatch(x -> x instanceof FetchFromIndexStep));
     }
+    session.commit();
   }
 
   @Test
@@ -4092,6 +4289,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     try (var result =
         session.query("select from " + className + " where themap CONTAINSVALUE ?", "val10")) {
       Assert.assertTrue(result.hasNext());
@@ -4103,6 +4301,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
           result.getExecutionPlan().getSteps().stream()
               .anyMatch(x -> x instanceof FetchFromIndexStep));
     }
+    session.commit();
   }
 
   @Test
@@ -4117,12 +4316,14 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.command("INSERT INTO " + className + " SET thelist = [{name:\"Joe\"}]").close();
     session.commit();
 
+    session.begin();
     try (var result =
         session.query("select from " + className + " where thelist CONTAINS ( name = ?)", "Jack")) {
       Assert.assertTrue(result.hasNext());
       result.next();
       Assert.assertFalse(result.hasNext());
     }
+    session.commit();
   }
 
   @Test
@@ -4139,6 +4340,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.command("INSERT INTO " + className + " SET name = 'd', idx = 3").close();
     session.commit();
 
+    session.begin();
     try (var result =
         session.query("select from " + className + " order by name asc collate ci")) {
       for (var i = 0; i < 5; i++) {
@@ -4149,6 +4351,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       }
       Assert.assertFalse(result.hasNext());
     }
+    session.commit();
   }
 
   @Test
@@ -4182,11 +4385,13 @@ public class SelectStatementExecutionTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     try (var result = session.query("select from " + className + " where test contains []")) {
       Assert.assertTrue(result.hasNext());
       result.next();
       Assert.assertFalse(result.hasNext());
     }
+    session.commit();
   }
 
   @Test
@@ -4220,11 +4425,13 @@ public class SelectStatementExecutionTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     try (var result = session.query("select from " + className + " where test contains [1]")) {
       Assert.assertTrue(result.hasNext());
       result.next();
       Assert.assertFalse(result.hasNext());
     }
+    session.commit();
   }
 
   @Test
@@ -4244,6 +4451,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.command("INSERT INTO " + className + " set name = 'd'").close();
       session.commit();
 
+      session.begin();
       try {
         try (var result = session.query("select from " + className + " ORDER BY name")) {
           result.forEachRemaining(x -> x.getProperty("name"));
@@ -4252,6 +4460,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       } catch (CommandExecutionException ex) {
         //ignore
       }
+      session.commit();
     } finally {
       GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(oldValue);
     }
@@ -4259,12 +4468,14 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testXor() {
+    session.begin();
     try (var result = session.query("select 15 ^ 4 as foo")) {
       Assert.assertTrue(result.hasNext());
       var item = result.next();
       Assert.assertEquals(11, (int) item.getProperty("foo"));
       Assert.assertFalse(result.hasNext());
     }
+    session.commit();
   }
 
   @Test
@@ -4279,6 +4490,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     try (var result = session.query("select from " + className + " where name LIKE 'foo%'")) {
       Assert.assertTrue(result.hasNext());
       result.next();
@@ -4313,6 +4525,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         Assert.assertFalse(result.hasNext());
       }
     }
+    session.commit();
   }
 
   @Test
@@ -4328,6 +4541,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
       session.commit();
     }
+
+    session.begin();
     var result = session.query("select count(val) as count from " + className + " limit 3");
     printExecutionPlan(result);
 
@@ -4336,6 +4551,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(10L, (long) item.getProperty("count"));
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -4475,6 +4691,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
       session.commit();
     }
+
+    session.begin();
     final var result = session.query("select from " + className + " WHERE name <= 'name5'");
     printExecutionPlan(result);
 
@@ -4484,6 +4702,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -4502,6 +4721,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     final var result = session.query("select from " + className + " WHERE name >= 'name5'");
     printExecutionPlan(result);
 
@@ -4511,6 +4731,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -4552,6 +4773,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     session.commit();
 
+    session.begin();
     try (var rs =
         session.query(
             "SELECT FROM "
@@ -4568,6 +4790,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
           rs.getExecutionPlan().getSteps().stream()
               .anyMatch(x -> x instanceof FetchFromIndexStep));
     }
+    session.commit();
   }
 
   @Test
@@ -4617,6 +4840,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     try (var rs =
         session.query(
             "select from "
@@ -4632,6 +4856,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       rs.next();
       Assert.assertFalse(rs.hasNext());
     }
+    session.commit();
 
     session.command(
             "create index "
@@ -4641,6 +4866,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
                 + "Report(id) unique;")
         .close();
 
+    session.begin();
     try (var rs =
         session.query(
             "select from "
@@ -4656,6 +4882,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       rs.next();
       Assert.assertFalse(rs.hasNext());
     }
+    session.commit();
   }
 
   @Test
@@ -4669,6 +4896,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     session.commit();
 
+    session.begin();
     var result = session.query("select *, !surname from " + className);
     Assert.assertTrue(result.hasNext());
     var item = result.next();
@@ -4678,6 +4906,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     printExecutionPlan(result);
     result.close();
+    session.commit();
   }
 
   @Test
@@ -4694,6 +4923,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     session.commit();
 
+    session.begin();
     try (var result =
         session.query(
             "select from "
@@ -4714,6 +4944,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Assert.assertNotNull(item);
       Assert.assertEquals("abbb", item.getProperty("name"));
     }
+    session.commit();
   }
 
   @Test
@@ -4730,11 +4961,13 @@ public class SelectStatementExecutionTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     try (var rs = session.query("select themap.tojson() as x from " + className)) {
       Assert.assertTrue(rs.hasNext());
       var item = rs.next();
       Assert.assertTrue(((String) item.getProperty("x")).contains("foo bar"));
     }
+    session.commit();
   }
 
   @Test
@@ -4749,6 +4982,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.command("insert into " + className + " set field=true").close();
     session.commit();
 
+    session.begin();
     try (var rs =
         session.query("select count(*) as count from " + className + " where field=true")) {
       Assert.assertTrue(rs.hasNext());
@@ -4756,6 +4990,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Assert.assertEquals(1L, (long) item.getProperty("count"));
       Assert.assertFalse(rs.hasNext());
     }
+    session.commit();
   }
 
   @Test
@@ -4819,6 +5054,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     hatch1.addEdge(suv, bt);
     session.commit();
 
+    session.begin();
     gasoline = session.bindToSession(gasoline);
     diesel = session.bindToSession(diesel);
     microwave = session.bindToSession(microwave);
@@ -4847,5 +5083,6 @@ public class SelectStatementExecutionTest extends DbTestBase {
         microwave.getProperty("name"));
     Assert.assertEquals(names.size(), engineNames.size());
     Assert.assertEquals(new HashSet<>(names), engineNames);
+    session.commit();
   }
 }

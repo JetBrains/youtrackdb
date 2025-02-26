@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
@@ -25,6 +26,8 @@ public class DeleteStep extends AbstractExecutionStep {
   private static Result mapResult(Result result, CommandContext ctx) {
     if (result.isRecord()) {
       ctx.getDatabaseSession().delete(result.castToRecord());
+    } else {
+      throw new DatabaseException("Can not delete non-record result: " + result);
     }
     return result;
   }

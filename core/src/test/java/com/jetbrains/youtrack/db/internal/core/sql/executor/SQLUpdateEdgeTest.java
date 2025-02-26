@@ -51,12 +51,12 @@ public class SQLUpdateEdgeTest extends DbTestBase {
             .castToEntity();
     session.commit();
 
+    session.begin();
     v4 = session.bindToSession(v4);
     assertEquals("V1", v4.getSchemaClassName());
     assertEquals("fiat", v4.getProperty("brand"));
     assertEquals("wow", v4.getProperty("name"));
 
-    session.begin();
     var edges =
         session.command("create edge E1 from " + v1.getIdentity() + " to " + v2.getIdentity());
     var edge = edges.next().castToStatefulEdge();
@@ -75,6 +75,7 @@ public class SQLUpdateEdgeTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     var result = session.query("select expand(out('E1')) from " + v3.getIdentity());
     var vertex4 = result.next();
     Assert.assertEquals("v4", vertex4.getProperty("vid"));
@@ -88,6 +89,7 @@ public class SQLUpdateEdgeTest extends DbTestBase {
 
     result = session.query("select expand(in('E1')) from " + v2.getIdentity());
     Assert.assertEquals(0, result.stream().count());
+    session.commit();
   }
 
   @Test
@@ -107,6 +109,7 @@ public class SQLUpdateEdgeTest extends DbTestBase {
     session.command("UPDATE EDGE " + edge.getIdentity() + " SET in = " + v3.getIdentity());
     session.commit();
 
+    session.begin();
     var result = session.query("select expand(out()) from " + v1.getIdentity());
     Assert.assertEquals(result.next().getIdentity(), v3.getIdentity());
 
@@ -115,5 +118,6 @@ public class SQLUpdateEdgeTest extends DbTestBase {
 
     result = session.command("select expand(in()) from " + v2.getIdentity());
     Assert.assertFalse(result.hasNext());
+    session.commit();
   }
 }

@@ -63,7 +63,6 @@ public class UpdateEdgeStatementExecutionTest extends DbTestBase {
     session.begin();
     var edges =
         session.command("create edge E1 from " + v1.getIdentity() + " to " + v2.getIdentity());
-    session.commit();
 
     Assert.assertTrue(edges.hasNext());
     var edge = edges.next();
@@ -71,7 +70,7 @@ public class UpdateEdgeStatementExecutionTest extends DbTestBase {
     Assert.assertEquals("E1",
         ((EntityImpl) edge.asEntity().getRecord(session)).getSchemaClassName());
     edges.close();
-
+    session.commit();
     session.begin();
     session.command(
         "update edge E1 set out = "
@@ -82,6 +81,7 @@ public class UpdateEdgeStatementExecutionTest extends DbTestBase {
             + edge.asEntity().getIdentity());
     session.commit();
 
+    session.begin();
     var result = session.query("select expand(out('E1')) from " + v3.getIdentity());
     Assert.assertTrue(result.hasNext());
     var vertex4 = result.next();
@@ -103,6 +103,7 @@ public class UpdateEdgeStatementExecutionTest extends DbTestBase {
     result = session.query("select expand(in('E1')) from " + v2.getIdentity());
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -128,6 +129,7 @@ public class UpdateEdgeStatementExecutionTest extends DbTestBase {
     session.commit();
     edges.close();
 
+    session.begin();
     var result = session.query("select expand(out()) from " + v1.getIdentity());
 
     Assert.assertEquals(result.next().getIdentity(), v3.getIdentity());
@@ -140,5 +142,6 @@ public class UpdateEdgeStatementExecutionTest extends DbTestBase {
     result = session.command("select expand(in()) from " + v2.getIdentity());
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 }

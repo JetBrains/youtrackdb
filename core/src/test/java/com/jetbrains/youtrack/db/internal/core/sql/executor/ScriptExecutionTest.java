@@ -23,8 +23,11 @@ public class ScriptExecutionTest extends DbTestBase {
             + " SET name = 'foo';INSERT INTO "
             + className
             + " SET name = 'bar';commit;");
+
+    session.begin();
     var rs = session.query("SELECT count(*) as count from " + className);
     Assert.assertEquals((Object) 2L, rs.next().getProperty("count"));
+    session.commit();
   }
 
   @Test
@@ -43,8 +46,10 @@ public class ScriptExecutionTest extends DbTestBase {
     script += "};";
     script += "commit;";
     session.execute("SQL", script);
+    session.begin();
     var rs = session.query("SELECT count(*) as count from " + className);
     Assert.assertEquals((Object) 2L, rs.next().getProperty("count"));
+    session.commit();
   }
 
   @Test
@@ -75,7 +80,9 @@ public class ScriptExecutionTest extends DbTestBase {
     var script = "begin;";
     script += "INSERT INTO " + className + " SET name = 'foo';";
     script += "commit;";
+    script += "begin;";
     script += "LET $1 = SELECT count(*) as count FROM " + className + " WHERE name ='foo';";
+    script += "commit;";
     script += "IF($1.size() > 0 ){";
     script += "   RETURN 'OK';";
     script += "}";
@@ -114,13 +121,13 @@ public class ScriptExecutionTest extends DbTestBase {
   public void testLazyExecutionPlanning() {
     var script = "";
     script +=
-        "LET $1 = SELECT FROM (select expand(classes) from metadata:schema) where name ="
+        "begin;LET $1 = SELECT FROM (select expand(classes) from metadata:schema) where name ="
             + " 'nonExistingClass';";
     script += "IF($1.size() > 0) {";
     script += "   SELECT FROM nonExistingClass;";
-    script += "   RETURN 'FAIL';";
+    script += "   commit;RETURN 'FAIL';";
     script += "}";
-    script += "RETURN 'OK';";
+    script += "commit;RETURN 'OK';";
     var result = session.execute("SQL", script);
 
     var item = result.next();
@@ -144,12 +151,14 @@ public class ScriptExecutionTest extends DbTestBase {
     script += "COMMIT RETRY 10;";
     session.execute("SQL", script);
 
+    session.begin();
     var result = session.query("select from " + className);
     Assert.assertTrue(result.hasNext());
     var item = result.next();
     Assert.assertEquals(4, (int) item.getProperty("attempt"));
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -190,12 +199,14 @@ public class ScriptExecutionTest extends DbTestBase {
 
     session.execute("SQL", script);
 
+    session.begin();
     var result = session.query("select from " + className);
     Assert.assertTrue(result.hasNext());
     var item = result.next();
     Assert.assertEquals("foo", item.getProperty("name"));
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -216,12 +227,14 @@ public class ScriptExecutionTest extends DbTestBase {
 
     session.execute("SQL", script);
 
+    session.begin();
     var result = session.query("select from " + className);
     Assert.assertTrue(result.hasNext());
     var item = result.next();
     Assert.assertEquals("foo", item.getProperty("name"));
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -245,12 +258,14 @@ public class ScriptExecutionTest extends DbTestBase {
 
     }
 
+    session.begin();
     var result = session.query("select from " + className);
     Assert.assertTrue(result.hasNext());
     var item = result.next();
     Assert.assertEquals("foo", item.getProperty("name"));
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -274,12 +289,14 @@ public class ScriptExecutionTest extends DbTestBase {
 
     }
 
+    session.begin();
     var result = session.query("select from " + className);
     Assert.assertTrue(result.hasNext());
     var item = result.next();
     Assert.assertEquals("foo", item.getProperty("name"));
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -333,9 +350,11 @@ public class ScriptExecutionTest extends DbTestBase {
 
     session.execute("sql", script).close();
 
+    session.begin();
     try (var rs = session.query("select from IndirectEdge")) {
       Assert.assertEquals("foo2", rs.next().getProperty("Source"));
       Assert.assertFalse(rs.hasNext());
     }
+    session.commit();
   }
 }

@@ -327,6 +327,10 @@ public interface Result {
   @Nullable
   Entity getEntity(@Nonnull String name);
 
+
+  @Nullable
+  Result getResult(@Nonnull String name);
+
   /**
    * Returns the property value as a vertex. If the property is a link, it will be loaded and
    * returned as an Vertex. If the property is not vertex, exception will be thrown.
@@ -438,18 +442,7 @@ public interface Result {
   @Nullable
   Edge asEdge();
 
-  default boolean isStatefulEdge() {
-    if (!isEntity()) {
-      return false;
-    }
-
-    var entity = asEntity();
-    if (entity == null) {
-      return false;
-    }
-
-    return entity.isStatefulEdge();
-  }
+  boolean isStatefulEdge();
 
   @Nonnull
   default StatefulEdge castToStatefulEdge() {

@@ -31,6 +31,7 @@ public class DeleteEdgeStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var rs = session.query("SELECT expand(out()) FROM " + vertexClassName);
     Assert.assertEquals(9, rs.stream().count());
     rs.close();
@@ -39,7 +40,6 @@ public class DeleteEdgeStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(9, rs.stream().count());
     rs.close();
 
-    session.begin();
     session.command(
             "DELETE EDGE "
                 + edgeClassName
@@ -51,6 +51,7 @@ public class DeleteEdgeStatementExecutionTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     rs = session.query("SELECT FROM " + edgeClassName);
     Assert.assertEquals(8, rs.stream().count());
     rs.close();
@@ -62,6 +63,7 @@ public class DeleteEdgeStatementExecutionTest extends DbTestBase {
     rs = session.query("SELECT expand(in()) FROM " + vertexClassName + " where name = 'a2'");
     Assert.assertEquals(0, rs.stream().count());
     rs.close();
+    session.commit();
   }
 
   @Test
@@ -85,6 +87,7 @@ public class DeleteEdgeStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
+    session.begin();
     var rs = session.query("SELECT expand(out()) FROM " + vertexClassName);
     Assert.assertEquals(9, rs.stream().count());
     rs.close();
@@ -93,10 +96,10 @@ public class DeleteEdgeStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(9, rs.stream().count());
     rs.close();
 
-    session.begin();
     session.command("DELETE EDGE " + edgeClassName).close();
     session.commit();
 
+    session.begin();
     rs = session.query("SELECT FROM " + edgeClassName);
     Assert.assertEquals(0, rs.stream().count());
     rs.close();
@@ -108,5 +111,6 @@ public class DeleteEdgeStatementExecutionTest extends DbTestBase {
     rs = session.query("SELECT expand(in()) FROM " + vertexClassName);
     Assert.assertEquals(0, rs.stream().count());
     rs.close();
+    session.commit();
   }
 }
