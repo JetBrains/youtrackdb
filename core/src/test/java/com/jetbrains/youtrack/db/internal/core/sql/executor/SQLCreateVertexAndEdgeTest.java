@@ -94,13 +94,13 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
             "create edge from " + v1.getIdentity() + " to " + v4.getIdentity() + " set weight = 3");
     session.commit();
 
+    session.begin();
     EntityImpl e3 = edges.next().getIdentity().getRecord(session);
     Assert.assertEquals("E", e3.getSchemaClassName());
-    Assert.assertEquals(e3.getPropertyInternal("out"), v1);
-    Assert.assertEquals(e3.getPropertyInternal("in"), v4);
+    Assert.assertEquals(e3.getPropertyInternal("out"), session.bindToSession(v1));
+    Assert.assertEquals(e3.getPropertyInternal("in"), session.bindToSession(v4));
     Assert.assertEquals(3, e3.<Object>field("weight"));
 
-    session.begin();
     edges =
         session.command(
             "create edge E1 from "
@@ -109,13 +109,13 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
                 + v3.getIdentity()
                 + " set weight = 10");
     session.commit();
+    session.begin();
     EntityImpl e4 = edges.next().getIdentity().getRecord(session);
     Assert.assertEquals("E1", e4.getSchemaClassName());
-    Assert.assertEquals(e4.getPropertyInternal("out"), v2);
-    Assert.assertEquals(e4.getPropertyInternal("in"), v3);
+    Assert.assertEquals(e4.getPropertyInternal("out"), session.bindToSession(v2));
+    Assert.assertEquals(e4.getPropertyInternal("in"), session.bindToSession(v3));
     Assert.assertEquals(10, e4.<Object>field("weight"));
 
-    session.begin();
     edges =
         session.command(
             "create edge e1 from "
