@@ -22,7 +22,6 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.VertexInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -51,36 +50,6 @@ public class SQLUpdateItem extends SimpleNode {
 
   public SQLUpdateItem(YouTrackDBSql p, int id) {
     super(p, id);
-  }
-
-  public static EntityImpl newEntityInstance(CommandContext ctx, String className,
-      DatabaseSessionInternal session) {
-    List<SchemaProperty> updatedPropertyStack = ctx.getSystemVariable(
-        CommandContext.SQL_UPDATED_PROPERTY_STACK_SYSTEM_VARIABLE);
-    var isEmbedded = false;
-
-    if (updatedPropertyStack != null && !updatedPropertyStack.isEmpty()) {
-      var currentPropertyType = updatedPropertyStack.getLast();
-      if (currentPropertyType != null) {
-        isEmbedded = currentPropertyType.getType(session).isEmbedded();
-      }
-    }
-
-    EntityImpl retDoc;
-    if (className != null) {
-      if (!isEmbedded) {
-        retDoc = (EntityImpl) session.newEntity(className);
-      } else {
-        retDoc = (EntityImpl) session.newEmbededEntity(className);
-      }
-    } else {
-      if (!isEmbedded) {
-        retDoc = (EntityImpl) session.newEntity();
-      } else {
-        retDoc = (EntityImpl) session.newEmbededEntity();
-      }
-    }
-    return retDoc;
   }
 
   public void toString(Map<Object, Object> params, StringBuilder builder) {
@@ -178,42 +147,28 @@ public class SQLUpdateItem extends SimpleNode {
     var session = ctx.getDatabaseSession();
     var propertyName = left.getStringValue();
 
-    List<SchemaProperty> updatedPropertyStack = ctx.getSystemVariable(
-        CommandContext.SQL_UPDATED_PROPERTY_STACK_SYSTEM_VARIABLE);
-    if (updatedPropertyStack == null) {
-      updatedPropertyStack = new ArrayList<>();
-      ctx.setSystemVariable(CommandContext.SQL_UPDATED_PROPERTY_STACK_SYSTEM_VARIABLE,
-          updatedPropertyStack);
-    }
-
     SchemaProperty schemaProperty = null;
     if (result.isEntity()) {
       var entity = (EntityInternal) result.castToEntity();
       var cls = entity.getImmutableSchemaClass(session);
       schemaProperty = cls != null ? cls.getProperty(session, propertyName) : null;
-      updatedPropertyStack.add(schemaProperty);
-    } else {
-      updatedPropertyStack.add(null);
     }
 
-    try {
-      if (leftModifier == null) {
-        var rightValue = right.execute(result, ctx);
-        applyOperation(result, left, rightValue, ctx, schemaProperty);
-      } else {
-        var rightValue = right.execute(result, ctx);
-        var linkedType = calculateLinkedTypeForThisItem(result, session);
-        rightValue = convertToType(rightValue, null, linkedType, ctx);
-        var val = result.getProperty(propertyName);
-        if (val == null) {
-          val = initSchemafullCollections(session, result, propertyName);
-        }
-        leftModifier.setValue(result, val, rightValue, ctx, schemaProperty);
+    if (leftModifier == null) {
+      var rightValue = right.execute(result, ctx);
+      applyOperation(result, left, rightValue, ctx, schemaProperty);
+    } else {
+      var rightValue = right.execute(result, ctx);
+      var linkedType = calculateLinkedTypeForThisItem(result, session);
+      rightValue = convertToType(rightValue, null, linkedType, ctx);
+      var val = result.getProperty(propertyName);
+      if (val == null) {
+        val = initSchemafullCollections(session, result, propertyName);
       }
-    } finally {
-      updatedPropertyStack.removeLast();
+      leftModifier.setValue(result, val, rightValue, ctx, schemaProperty);
     }
   }
+
 
   private Object initSchemafullCollections(DatabaseSessionInternal session, ResultInternal entity,
       String propName) {

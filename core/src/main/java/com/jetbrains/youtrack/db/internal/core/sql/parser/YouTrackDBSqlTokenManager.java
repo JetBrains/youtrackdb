@@ -943,10 +943,10 @@ public class YouTrackDBSqlTokenManager implements YouTrackDBSqlConstants {
                   if (curChar == 34)
                      jjstateSet[jjnewStateCnt++] = 6;
                   break;
-               case 12:
-                 if (curChar == 46)
-                   jjCheckNAdd(13);
-                 break;
+              case 12:
+                if (curChar == 46)
+                  jjCheckNAdd(13);
+                break;
               case 13:
                 if ((0x3ff000000000000L & l) == 0L)
                   break;
@@ -1749,10 +1749,10 @@ public class YouTrackDBSqlTokenManager implements YouTrackDBSqlConstants {
                   if (curChar == 96)
                      jjCheckNAddStates(0, 2);
                   break;
-               case 35:
-                 if (curChar == 92)
-                   jjCheckNAdd(34);
-                 break;
+           case 35:
+             if (curChar == 92)
+               jjCheckNAdd(34);
+             break;
            case 36:
              if (curChar == 96 && kind > 255)
                kind = 255;
@@ -6405,8 +6405,8 @@ public class YouTrackDBSqlTokenManager implements YouTrackDBSqlConstants {
   /**
    * Constructor.
    */
-  public YouTrackDBSqlTokenManager(CharStream stream, int lexState){
-   this(stream);
+  public YouTrackDBSqlTokenManager(CharStream stream, int lexState) {
+    this(stream);
     SwitchTo(lexState);
   }
 
@@ -6415,17 +6415,18 @@ public class YouTrackDBSqlTokenManager implements YouTrackDBSqlConstants {
    */
   public void ReInit(CharStream stream) {
     jjmatchedPos = jjnewStateCnt = 0;
-    curLexState = defaultLexState;
+   curLexState = defaultLexState;
     input_stream = stream;
-   ReInitRounds();
+    ReInitRounds();
   }
 
-  private void ReInitRounds() {
-    int i;
-    jjround = 0x80000001;
-    for (i = 1210; i-- > 0; )
-      jjrounds[i] = 0x80000000;
-  }
+  private void ReInitRounds()
+{
+   int i;
+   jjround = 0x80000001;
+  for (i = 1210; i-- > 0; )
+    jjrounds[i] = 0x80000000;
+}
 
   /**
    * Reinitialise parser.
@@ -6586,8 +6587,7 @@ public class YouTrackDBSqlTokenManager implements YouTrackDBSqlConstants {
           input_stream.backup(1);
           error_after = curPos <= 1 ? "" : input_stream.GetImage();
         }
-        throw new TokenMgrError(EOFSeen, curLexState, error_line, error_column, error_after,
-            curChar, TokenMgrError.LEXICAL_ERROR);
+        throw new TokenMgrError(EOFSeen, curLexState, error_line, error_column, error_after, curChar, TokenMgrError.LEXICAL_ERROR);
    }
   }
 }

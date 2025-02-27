@@ -1,13 +1,10 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import static com.jetbrains.youtrack.db.internal.core.sql.executor.ExecutionPlanPrintUtils.printExecutionPlan;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -580,27 +577,6 @@ public class InsertStatementExecutionTest extends DbTestBase {
 
     Assert.assertFalse(result.hasNext());
     result.close();
-    session.commit();
-  }
-
-  @Test
-  public void testInsertIndexTest() {
-    session.command("CREATE INDEX testInsert UNIQUE STRING ");
-
-    session.begin();
-    try (var insert = session.command("INSERT INTO index:testInsert set key='one', rid=#5:0")) {
-      assertEquals((long) insert.next().getProperty("count"), 1L);
-      assertFalse(insert.hasNext());
-    }
-    session.commit();
-
-    session.begin();
-    try (var result = session.query("SELECT FROM index:testInsert ")) {
-      var item = result.next();
-      assertEquals(item.getProperty("key"), "one");
-      assertEquals(item.getProperty("rid"), new RecordId(5, 0));
-      assertFalse(result.hasNext());
-    }
     session.commit();
   }
 }

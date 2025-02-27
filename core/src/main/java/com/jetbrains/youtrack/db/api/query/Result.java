@@ -503,4 +503,10 @@ public interface Result {
    */
   @Nonnull
   Result detach();
+
+  @Nonnull
+  Identifiable castToIdentifiable();
+
+  @Nullable
+  Identifiable asIdentifiable();
 }

@@ -141,9 +141,6 @@ public class FindReferencesStep extends AbstractExecutionStep {
       DatabaseSessionInternal db, final Set<RID> iSourceRIDs, final Object value,
       final DBRecord iRootObject, String prefix) {
     return switch (value) {
-      case Result result -> checkRoot(db, iSourceRIDs, result, iRootObject, prefix).stream()
-          .map(y -> value + "." + y)
-          .collect(Collectors.toList());
       case Identifiable identifiable ->
           checkRecord(db, iSourceRIDs, identifiable, iRootObject, prefix).stream()
               .map(y -> value + "." + y)
@@ -153,6 +150,9 @@ public class FindReferencesStep extends AbstractExecutionStep {
               .map(y -> value + "." + y)
               .collect(Collectors.toList());
       case Map<?, ?> map -> checkMap(db, iSourceRIDs, map, iRootObject, prefix).stream()
+          .map(y -> value + "." + y)
+          .collect(Collectors.toList());
+      case Result result -> checkRoot(db, iSourceRIDs, result, iRootObject, prefix).stream()
           .map(y -> value + "." + y)
           .collect(Collectors.toList());
       case null, default -> new ArrayList<>();
@@ -195,7 +195,7 @@ public class FindReferencesStep extends AbstractExecutionStep {
     } else if (!((RecordId) value.getIdentity()).isValid()
         && value.getRecord(db) instanceof EntityImpl) {
       // embedded document
-      EntityImpl entity = value.getRecord(db);
+      var entity = (EntityImpl) value.getEntity(db);
       for (var fieldName : entity.fieldNames()) {
         var fieldValue = entity.field(fieldName);
         result.addAll(

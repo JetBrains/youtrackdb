@@ -47,11 +47,12 @@ public class InsertExecutionPlanner {
       result.chain(new InsertIntoIndexStep(targetIndex, insertBody, ctx, enableProfiling));
     } else {
       if (selectStatement != null) {
-        handleInsertSelect(result, this.selectStatement, ctx, enableProfiling);
+        handleInsertSelect(result, this.selectStatement, ctx,
+            targetClass != null ? targetClass.getStringValue() : null, enableProfiling);
       } else {
         handleCreateRecord(result, this.insertBody, ctx, enableProfiling);
       }
-      handleTargetClass(ctx);
+
       handleSetFields(result, insertBody, ctx, enableProfiling);
       handleReturn(result, returnStatement, ctx, enableProfiling);
     }
@@ -104,14 +105,6 @@ public class InsertExecutionPlanner {
     }
   }
 
-  private SQLIdentifier handleTargetClass(CommandContext ctx) {
-    SQLIdentifier tc = null;
-    if (targetClass != null) {
-      tc = targetClass;
-    }
-
-    return tc;
-  }
 
   private void handleCreateRecord(
       InsertExecutionPlan result,
@@ -137,17 +130,19 @@ public class InsertExecutionPlanner {
       }
     }
 
-    result.chain(new CreateRecordStep(ctx, handleTargetClass(ctx), tot, profilingEnabled));
+    result.chain(
+        new CreateRecordStep(ctx, targetClass, tot,
+            profilingEnabled));
   }
 
   private static void handleInsertSelect(
       InsertExecutionPlan result,
       SQLSelectStatement selectStatement,
-      CommandContext ctx,
+      CommandContext ctx, String targetClass,
       boolean profilingEnabled) {
     var subPlan = selectStatement.createExecutionPlan(ctx, profilingEnabled);
     result.chain(new SubQueryStep(subPlan, ctx, ctx, profilingEnabled));
-    result.chain(new CopyDocumentStep(ctx, profilingEnabled));
+    result.chain(new CopyEntityStep(ctx, profilingEnabled, targetClass));
     result.chain(new RemoveEdgePointersStep(ctx, profilingEnabled));
   }
 }

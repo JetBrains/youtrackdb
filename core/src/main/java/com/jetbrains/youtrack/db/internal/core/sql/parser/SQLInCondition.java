@@ -132,7 +132,15 @@ public class SQLInCondition extends SQLBooleanExpression {
 
   protected static boolean evaluateExpression(DatabaseSessionInternal session, final Object iLeft,
       final Object iRight) {
-    if (MultiValue.isMultiValue(iRight)) {
+    if (iRight instanceof ResultSet rsRight) {
+      rsRight.reset();
+
+      while (rsRight.hasNext()) {
+        if (QueryOperatorEquals.equals(session, iLeft, rsRight.next())) {
+          return true;
+        }
+      }
+    } else if (MultiValue.isMultiValue(iRight)) {
       if (iRight instanceof Set<?> set) {
         if (set.contains(iLeft)) {
           return true;
@@ -168,14 +176,6 @@ public class SQLInCondition extends SQLBooleanExpression {
     } else if (iRight.getClass().isArray()) {
       for (final var rightItem : (Object[]) iRight) {
         if (QueryOperatorEquals.equals(session, iLeft, rightItem)) {
-          return true;
-        }
-      }
-    } else if (iRight instanceof ResultSet rsRight) {
-      rsRight.reset();
-
-      while (rsRight.hasNext()) {
-        if (QueryOperatorEquals.equals(session, iLeft, rsRight.next())) {
           return true;
         }
       }

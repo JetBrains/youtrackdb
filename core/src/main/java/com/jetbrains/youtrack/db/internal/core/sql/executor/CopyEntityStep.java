@@ -6,6 +6,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 
+
 /**
  * Reads an upstream result set and returns a new result set that contains copies of the original
  * Result instances
@@ -13,10 +14,13 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionS
  * <p>This is mainly used from statements that need to copy of the original data to save it
  * somewhere else, eg. INSERT ... FROM SELECT
  */
-public class CopyDocumentStep extends AbstractExecutionStep {
+public class CopyEntityStep extends AbstractExecutionStep {
 
-  public CopyDocumentStep(CommandContext ctx, boolean profilingEnabled) {
+  private final String className;
+
+  public CopyEntityStep(CommandContext ctx, boolean profilingEnabled, String className) {
     super(ctx, profilingEnabled);
+    this.className = className;
   }
 
   @Override
@@ -24,14 +28,13 @@ public class CopyDocumentStep extends AbstractExecutionStep {
     assert prev != null;
 
     var upstream = prev.start(ctx);
-    return upstream.map(CopyDocumentStep::mapResult);
+    return upstream.map(this::mapResult);
   }
 
-  private static Result mapResult(Result result, CommandContext ctx) {
-    var resultEntity = ctx.getDatabaseSession().newEntity();
+  private Result mapResult(Result result, CommandContext ctx) {
+    var resultEntity = ctx.getDatabaseSession().newEntity(className);
     if (result.isEntity()) {
       var docToCopy = (EntityImpl) result.castToEntity();
-
       for (var propName : docToCopy.getPropertyNames()) {
         resultEntity.setProperty(propName, docToCopy.getProperty(propName));
       }

@@ -13,7 +13,7 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.s
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.UpdatableResult;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -62,9 +62,15 @@ public class SQLJson extends SimpleNode {
   }
 
   public EntityImpl toEntity(Identifiable source, CommandContext ctx) {
-    var className = getClassNameForDocument(ctx);
+    var className = getClassNameForEntity(ctx);
     var session = ctx.getDatabaseSession();
-    var entity = SQLUpdateItem.newEntityInstance(ctx, className, session);
+
+    EntityImpl entity;
+    if (className == null) {
+      entity = (EntityImpl) session.newEmbededEntity();
+    } else {
+      entity = (EntityImpl) session.newEntity(className);
+    }
 
     for (var item : items) {
       var name = item.getLeftValue();
@@ -88,7 +94,15 @@ public class SQLJson extends SimpleNode {
 
   private EntityImpl toEntity(Result source, CommandContext ctx, String className) {
     var session = ctx.getDatabaseSession();
-    var retDoc = SQLUpdateItem.newEntityInstance(ctx, className, session);
+    EntityImpl retDoc;
+    if (className == null) {
+      retDoc = (EntityImpl) session.newEmbededEntity();
+    } else {
+      retDoc = (EntityImpl) session.newEntity(className);
+    }
+
+    var schemaClass = retDoc.getImmutableSchemaClass(session);
+
     Map<String, Character> types = null;
     for (var item : items) {
       var name = item.getLeftValue();
@@ -104,7 +118,10 @@ public class SQLJson extends SimpleNode {
         }
         continue;
       }
+
       var value = item.right.execute(source, ctx);
+      value = SQLUpdateItem.cleanPropertyValue(value, session, schemaClass != null ?
+          schemaClass.getProperty(session, name) : null);
       Character charType;
       if (types != null) {
         charType = types.get(name);
@@ -115,7 +132,7 @@ public class SQLJson extends SimpleNode {
         var t = FieldTypesString.getOTypeFromChar(charType);
         retDoc.setProperty(name, value, t);
       } else {
-        retDoc.setPropertyInternal(name, value);
+        retDoc.setProperty(name, value);
       }
     }
     return retDoc;
@@ -129,8 +146,8 @@ public class SQLJson extends SimpleNode {
    * @return
    */
   public Object toObjectDetermineType(Result source, CommandContext ctx) {
-    var className = getClassNameForDocument(ctx);
-    var type = getTypeForDocument(ctx);
+    var className = getClassNameForEntity(ctx);
+    var type = getTypeForEntity(ctx);
     if (className != null || ("d".equalsIgnoreCase(type))) {
       return toEntity(source, ctx, className);
     } else {
@@ -140,8 +157,9 @@ public class SQLJson extends SimpleNode {
 
   public Object toObjectDetermineType(Identifiable source, CommandContext ctx) {
     var db = ctx.getDatabaseSession();
-    var className = getClassNameForDocument(ctx);
-    var type = getTypeForDocument(ctx);
+    var className = getClassNameForEntity(ctx);
+    var type = getTypeForEntity(ctx);
+
     if (className != null || ("d".equalsIgnoreCase(type))) {
       UpdatableResult element = null;
       if (source != null) {
@@ -159,7 +177,7 @@ public class SQLJson extends SimpleNode {
   }
 
   public Map<String, Object> toMap(Identifiable source, CommandContext ctx) {
-    Map<String, Object> map = new LinkedHashMap<String, Object>();
+    Map<String, Object> map = new HashMap<String, Object>();
     for (var item : items) {
       var name = item.getLeftValue();
       if (name == null) {
@@ -173,7 +191,7 @@ public class SQLJson extends SimpleNode {
   }
 
   public Map<String, Object> toMap(Result source, CommandContext ctx) {
-    Map<String, Object> map = new LinkedHashMap<String, Object>();
+    Map<String, Object> map = new HashMap<String, Object>();
     for (var item : items) {
       var name = item.getLeftValue();
       if (name == null) {
@@ -186,23 +204,25 @@ public class SQLJson extends SimpleNode {
     return map;
   }
 
-  private String getClassNameForDocument(CommandContext ctx) {
+  private String getClassNameForEntity(CommandContext ctx) {
     for (var item : items) {
       var left = item.getLeftValue();
       if (left != null && left.toLowerCase(Locale.ENGLISH).equals("@class")) {
         return "" + item.right.execute((Result) null, ctx);
       }
     }
+
     return null;
   }
 
-  private String getTypeForDocument(CommandContext ctx) {
+  private String getTypeForEntity(CommandContext ctx) {
     for (var item : items) {
       var left = item.getLeftValue();
       if (left != null && left.toLowerCase(Locale.ENGLISH).equals("@type")) {
         return "" + item.right.execute((Result) null, ctx);
       }
     }
+
     return null;
   }
 

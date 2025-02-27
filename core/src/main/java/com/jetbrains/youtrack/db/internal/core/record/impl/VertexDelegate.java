@@ -290,6 +290,18 @@ public final class VertexDelegate implements VertexInternal {
     return entity.detach();
   }
 
+  @Nonnull
+  @Override
+  public Identifiable castToIdentifiable() {
+    return entity;
+  }
+
+  @Nullable
+  @Override
+  public Identifiable asIdentifiable() {
+    return entity;
+  }
+
   @Nullable
   @Override
   public SchemaImmutableClass getImmutableSchemaClass(@Nonnull DatabaseSessionInternal session) {

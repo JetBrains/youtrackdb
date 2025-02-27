@@ -49,6 +49,7 @@ public class ConvertToUpdatableResultStepTest extends TestUtilsFixture {
         };
 
     step.setPrevious(previous);
+    session.begin();
     var result = step.start(context);
 
     var counter = 0;
@@ -71,5 +72,6 @@ public class ConvertToUpdatableResultStepTest extends TestUtilsFixture {
       }
       counter++;
     }
+    session.commit();
   }
 }

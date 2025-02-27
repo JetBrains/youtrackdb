@@ -33,7 +33,6 @@ import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionMultiValue;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.BinaryField;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializer;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
@@ -77,9 +76,9 @@ public class QueryOperatorEquals extends QueryOperatorEqualityNotNulls {
     // RECORD & RID
     /*from this is only legacy query engine */
     if (iLeft instanceof DBRecord) {
-      return comparesValues(iRight, (DBRecord) iLeft, true);
+      return comparesValues(iRight, (DBRecord) iLeft);
     } else if (iRight instanceof DBRecord) {
-      return comparesValues(iLeft, (DBRecord) iRight, true);
+      return comparesValues(iLeft, (DBRecord) iRight);
     }
     /*till this is only legacy query engine */
     else if (iRight instanceof Result) {
@@ -110,31 +109,16 @@ public class QueryOperatorEquals extends QueryOperatorEqualityNotNulls {
     }
   }
 
-  protected static boolean comparesValues(
-      final Object iValue, final DBRecord iRecord, final boolean iConsiderIn) {
-    // RID && RECORD
-    final var other = iRecord.getIdentity();
-
-    if (!other.isPersistent() && iRecord instanceof EntityImpl) {
-      // ODOCUMENT AS RESULT OF SUB-QUERY: GET THE FIRST FIELD IF ANY
-      var firstFieldName = ((EntityImpl) iRecord).getPropertyNames();
-      if (!firstFieldName.isEmpty()) {
-        var fieldValue = ((EntityImpl) iRecord).getProperty(firstFieldName.iterator().next());
-        if (fieldValue != null) {
-          if (iConsiderIn && MultiValue.isMultiValue(fieldValue)) {
-            for (var o : MultiValue.getMultiValueIterable(fieldValue)) {
-              if (o != null && o.equals(iValue)) {
-                return true;
-              }
-            }
-          }
-
-          return fieldValue.equals(iValue);
-        }
+  protected static boolean comparesValues(Object iValue, final DBRecord iRecord) {
+    if (iValue instanceof Result result) {
+      if (result.isRecord()) {
+        iValue = result.castToIdentifiable();
+      } else {
+        return false;
       }
-      return false;
     }
-    return other.equals(iValue);
+
+    return iRecord.equals(iValue);
   }
 
   protected static boolean comparesValues(

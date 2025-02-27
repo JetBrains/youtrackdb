@@ -376,16 +376,9 @@ public class SQLHelper {
       return "*";
     }
 
-    List<SchemaProperty> updatedPropertyStack = context.getSystemVariable(
-        CommandContext.SQL_UPDATED_PROPERTY_STACK_SYSTEM_VARIABLE);
-    SchemaProperty schemaProperty = null;
-    if (updatedPropertyStack != null && !updatedPropertyStack.isEmpty()) {
-      schemaProperty = updatedPropertyStack.getLast();
-    }
-
     // TRY TO PARSE AS RAW VALUE
     final var v = parseValue(iWord, context, resolveContextVariables, null,
-        schemaProperty, null, null);
+        null, null, null);
     if (v != VALUE_NOT_PARSED) {
       return v;
     }

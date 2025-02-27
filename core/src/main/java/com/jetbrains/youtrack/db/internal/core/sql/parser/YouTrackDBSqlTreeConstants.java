@@ -2,6 +2,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 public interface YouTrackDBSqlTreeConstants {
+
   int JJTRID = 0;
   int JJTPARSE = 1;
   int JJTPARSESCRIPT = 2;

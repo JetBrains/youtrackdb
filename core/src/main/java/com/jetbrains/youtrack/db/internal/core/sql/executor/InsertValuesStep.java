@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -61,18 +62,20 @@ public class InsertValuesStep extends AbstractExecutionStep {
             nextValueSet %= values.size();
             for (var i = 0; i < currentValues.size(); i++) {
               var identifier = identifiers.get(i);
-              var value = currentValues.get(i).execute(result, ctx);
               var propertyName = identifier.getStringValue();
+
+              var session = ctx.getDatabaseSession();
+              SchemaProperty schemaProperty = null;
 
               if (result.isEntity()) {
                 var entity = (EntityImpl) result.castToEntity();
-                var session = ctx.getDatabaseSession();
                 var schema = entity.getImmutableSchemaClass(session);
-                var schemaProperty =
+                schemaProperty =
                     schema != null ? schema.getProperty(session, propertyName) : null;
-                value = SQLUpdateItem.cleanPropertyValue(value, session, schemaProperty);
               }
 
+              var value = currentValues.get(i).execute(result, ctx);
+              value = SQLUpdateItem.cleanPropertyValue(value, session, schemaProperty);
               ((ResultInternal) result).setProperty(propertyName, value);
             }
             return result;

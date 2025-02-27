@@ -120,14 +120,14 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
 
       try {
         Entity rec = iRecord.getRecord(graph);
-        if (rec.isStatefulEdge()) {
+        if (rec.isEdge()) {
           if (iDirection == Direction.BOTH) {
             List results = new ArrayList();
-            results.add(rec.castToStatefulEdge().getVertex(Direction.OUT));
-            results.add(rec.castToStatefulEdge().getVertex(Direction.IN));
+            results.add(rec.castToEdge().getVertex(Direction.OUT));
+            results.add(rec.castToEdge().getVertex(Direction.IN));
             return results;
           }
-          return rec.castToStatefulEdge().getVertex(iDirection);
+          return rec.castToEdge().getVertex(iDirection);
         } else {
           return null;
         }

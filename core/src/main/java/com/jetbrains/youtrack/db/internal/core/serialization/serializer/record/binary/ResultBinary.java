@@ -22,6 +22,7 @@ import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -105,6 +106,20 @@ public class ResultBinary implements Result {
 
   @Override
   public @Nonnull Result detach() {
+    throw new UnsupportedOperationException(
+        "Not supported yet.");
+  }
+
+  @Nonnull
+  @Override
+  public Identifiable castToIdentifiable() {
+    throw new UnsupportedOperationException(
+        "Not supported yet.");
+  }
+
+  @Nullable
+  @Override
+  public Identifiable asIdentifiable() {
     throw new UnsupportedOperationException(
         "Not supported yet.");
   }

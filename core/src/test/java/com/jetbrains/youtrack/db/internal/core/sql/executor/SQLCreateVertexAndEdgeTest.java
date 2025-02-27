@@ -207,7 +207,7 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
 
     var cmd = "BEGIN;\n";
     cmd += "LET $groupVertices = SELECT FROM V WHERE name = 'testSqlScriptThatDeletesEdge1';\n";
-    cmd += "LET $removeRoleEdge = DELETE edge E WHERE out() IN $groupVertices\n;";
+    cmd += "LET $removeRoleEdge = DELETE edge E WHERE outV() in $groupVertices\n;";
     cmd += "COMMIT;\n";
     cmd += "RETURN $groupVertices;\n";
 

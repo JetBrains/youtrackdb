@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
@@ -31,8 +32,6 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -54,13 +53,13 @@ public class ResultInternal implements Result {
   protected Edge lightweightEdge;
 
   public ResultInternal(@Nullable DatabaseSessionInternal session) {
-    content = new LinkedHashMap<>();
+    content = new HashMap<>();
     this.session = session;
   }
 
   public ResultInternal(@Nullable DatabaseSessionInternal session,
       @Nonnull Map<String, ?> data) {
-    content = new LinkedHashMap<>();
+    content = new HashMap<>();
     this.session = session;
 
     for (var entry : data.entrySet()) {
@@ -68,12 +67,12 @@ public class ResultInternal implements Result {
     }
   }
 
-  public ResultInternal(@Nullable DatabaseSessionInternal session, Identifiable ident) {
+  public ResultInternal(@Nullable DatabaseSessionInternal session, @Nonnull Identifiable ident) {
     setIdentifiable(ident);
     this.session = session;
   }
 
-  public ResultInternal(@Nullable DatabaseSessionInternal session, Edge edge) {
+  public ResultInternal(@Nullable DatabaseSessionInternal session, @Nonnull Edge edge) {
     this.session = session;
     if (edge.isLightweight()) {
       lightweightEdge = edge;
@@ -172,8 +171,8 @@ public class ResultInternal implements Result {
     };
   }
 
-  public void setProperty(String name, Object value) {
-    assert session == null || session.assertIfNotActive();
+  public void setProperty(@Nonnull String name, Object value) {
+    checkSession();
 
     if (content == null) {
       if (identifiable != null) {
@@ -192,13 +191,14 @@ public class ResultInternal implements Result {
 
   @Override
   public boolean isRecord() {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
+
     return identifiable != null;
   }
 
   private Object convertPropertyValue(Object value) {
     if (value == null) {
-      return value;
+      return null;
     }
 
     if (PropertyType.isSingleValueType(value)) {
@@ -337,6 +337,7 @@ public class ResultInternal implements Result {
 
 
   public void setTemporaryProperty(String name, Object value) {
+    checkSession();
     if (temporaryContent == null) {
       temporaryContent = new HashMap<>();
     }
@@ -349,6 +350,7 @@ public class ResultInternal implements Result {
   }
 
   public Object getTemporaryProperty(String name) {
+    checkSession();
     if (name == null || temporaryContent == null) {
       return null;
     }
@@ -360,7 +362,7 @@ public class ResultInternal implements Result {
   }
 
   public void removeProperty(String name) {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
 
     if (content != null) {
       content.remove(name);
@@ -368,7 +370,7 @@ public class ResultInternal implements Result {
   }
 
   public <T> T getProperty(@Nonnull String name) {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
 
     T result = null;
     if (content != null && content.containsKey(name)) {
@@ -376,7 +378,7 @@ public class ResultInternal implements Result {
       result = (T) content.get(name);
     } else {
       if (isEntity()) {
-        result = identifiable.getEntity(session).getProperty(name);
+        result = castToEntity().getProperty(name);
       }
     }
 
@@ -385,14 +387,14 @@ public class ResultInternal implements Result {
 
   @Override
   public Entity getEntity(@Nonnull String name) {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
 
     Object result = null;
     if (content != null && content.containsKey(name)) {
       result = content.get(name);
     } else {
       if (isEntity()) {
-        result = identifiable.getEntity(session).getEntity(name);
+        result = castToEntity().getEntity(name);
       }
     }
 
@@ -414,14 +416,14 @@ public class ResultInternal implements Result {
   @Nullable
   @Override
   public Result getResult(@Nonnull String name) {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
 
     Object result = null;
     if (content != null && content.containsKey(name)) {
       result = content.get(name);
     } else {
       if (isEntity()) {
-        result = identifiable.getEntity(session).getResult(name);
+        result = castToEntity().getResult(name);
       }
     }
 
@@ -445,7 +447,7 @@ public class ResultInternal implements Result {
       result = content.get(name);
     } else {
       if (isEntity()) {
-        result = identifiable.getEntity(session).getVertex(name);
+        result = castToEntity().getVertex(name);
       }
     }
 
@@ -469,7 +471,7 @@ public class ResultInternal implements Result {
       result = content.get(name);
     } else {
       if (isEntity()) {
-        result = identifiable.getEntity(session).getEdge(name);
+        result = castToEntity().getEdge(name);
       }
     }
 
@@ -497,7 +499,7 @@ public class ResultInternal implements Result {
       result = content.get(name);
     } else {
       if (isEntity()) {
-        result = identifiable.getEntity(session).getProperty(name);
+        result = castToEntity().getProperty(name);
       }
     }
 
@@ -515,14 +517,14 @@ public class ResultInternal implements Result {
   @Nullable
   @Override
   public RID getLink(@Nonnull String name) {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
 
     Object result = null;
     if (content != null && content.containsKey(name)) {
       result = content.get(name);
     } else {
       if (isEntity()) {
-        result = identifiable.getEntity(session).getLink(name);
+        result = castToEntity().getLink(name);
       }
     }
 
@@ -536,21 +538,21 @@ public class ResultInternal implements Result {
 
 
   public @Nonnull Collection<String> getPropertyNames() {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
     if (content != null) {
-      return new LinkedHashSet<>(content.keySet());
+      return new HashSet<>(content.keySet());
     }
 
     if (isEntity()) {
-      return identifiable.getEntity(session).getPropertyNames();
+      return castToEntity().getPropertyNames();
     }
 
     return Collections.emptyList();
   }
 
   public boolean hasProperty(@Nonnull String propName) {
-    assert session == null || session.assertIfNotActive();
-    if (isEntity() && identifiable.getEntity(session).hasProperty(propName)) {
+    checkSession();
+    if (isEntity() && castToEntity().hasProperty(propName)) {
       return true;
     }
     if (content != null) {
@@ -571,6 +573,7 @@ public class ResultInternal implements Result {
 
   @Override
   public @Nonnull Result detach() {
+    checkSession();
     if (lightweightEdge != null) {
       throw new DatabaseException("Cannot detach lightweight edge");
     }
@@ -594,15 +597,29 @@ public class ResultInternal implements Result {
     return detached;
   }
 
+  @Nonnull
+  @Override
+  public Identifiable castToIdentifiable() {
+    if (identifiable != null) {
+      return identifiable;
+    }
+
+    throw new IllegalStateException("Result is not an identifiable");
+  }
+
+  @Nullable
+  @Override
+  public Identifiable asIdentifiable() {
+    return identifiable;
+  }
+
 
   @Override
   public boolean isEntity() {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
     if (identifiable == null) {
       return false;
     }
-
-    checkSessionForRecords();
     if (identifiable instanceof Entity) {
       return true;
     }
@@ -610,7 +627,7 @@ public class ResultInternal implements Result {
     return !isBlob();
   }
 
-  private void checkSessionForRecords() {
+  protected void checkSessionForRecords() {
     if (session == null) {
       throw new DatabaseException(
           "There is no active session to process the record related operations.");
@@ -619,10 +636,15 @@ public class ResultInternal implements Result {
 
   @Nonnull
   public Entity castToEntity() {
-    checkSessionForRecords();
+    checkSession();
+    if (identifiable instanceof Entity entity) {
+      return entity;
+    }
 
     if (isEntity()) {
-      return identifiable.getEntity(session);
+      var result = identifiable.getEntity(session);
+      this.identifiable = result;
+      return result;
     }
 
     throw new IllegalStateException("Result is not an entity");
@@ -631,10 +653,15 @@ public class ResultInternal implements Result {
   @Nullable
   @Override
   public Entity asEntity() {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
+    if (identifiable instanceof Entity entity) {
+      return entity;
+    }
 
     if (isEntity()) {
-      return identifiable.getEntitySilently(session);
+      var result = identifiable.getEntity(session);
+      this.identifiable = result;
+      return result;
     }
 
     return null;
@@ -643,7 +670,8 @@ public class ResultInternal implements Result {
 
   @Override
   public RID getIdentity() {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
+
     if (identifiable == null) {
       return null;
     }
@@ -653,7 +681,7 @@ public class ResultInternal implements Result {
 
   @Override
   public boolean isProjection() {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
 
     return this.content != null;
   }
@@ -661,10 +689,13 @@ public class ResultInternal implements Result {
   @Nonnull
   @Override
   public DBRecord castToRecord() {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
 
     if (identifiable == null) {
       throw new IllegalStateException("Result is not a record");
+    }
+    if (identifiable instanceof DBRecord record) {
+      return record;
     }
 
     return this.identifiable.getRecord(session);
@@ -673,27 +704,31 @@ public class ResultInternal implements Result {
   @Nullable
   @Override
   public DBRecord asRecord() {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
     if (identifiable == null) {
       return null;
     }
 
-    return this.identifiable.getRecordSilently(session);
+    if (identifiable instanceof DBRecord record) {
+      return record;
+    }
+
+    var result = this.identifiable.getRecord(session);
+    this.identifiable = result;
+    return result;
   }
 
   @Override
   public boolean isBlob() {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
     if (identifiable == null) {
       return false;
     }
-
-    checkSessionForRecords();
-    assert session.assertIfNotActive();
-
     if (identifiable instanceof Blob) {
       return true;
     }
+
+    checkSessionForRecords();
 
     var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
     var blobClusters = schemaSnapshot.getBlobClusters();
@@ -703,27 +738,43 @@ public class ResultInternal implements Result {
   @Nonnull
   @Override
   public Blob castToBlob() {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
+    if (identifiable instanceof Blob blob) {
+      return blob;
+    }
+
     if (isBlob()) {
-      return this.identifiable.getBlob(session);
+      var result = this.identifiable.getBlob(session);
+      this.identifiable = result;
+      return result;
     }
 
     throw new IllegalStateException("Result is not a blob");
   }
 
+  protected final void checkSession() {
+    assert session == null || session.assertIfNotActive();
+  }
+
   @Nullable
   @Override
   public Blob asBlob() {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
+    if (identifiable instanceof Blob blob) {
+      return blob;
+    }
+
     if (isBlob()) {
-      return this.identifiable.getBlobSilently(session);
+      var result = this.identifiable.getBlob(session);
+      this.identifiable = result;
+      return result;
     }
 
     return null;
   }
 
   public Object getMetadata(String key) {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
     if (key == null) {
       return null;
     }
@@ -731,7 +782,7 @@ public class ResultInternal implements Result {
   }
 
   public void setMetadata(String key, Object value) {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
     if (key == null) {
       return;
     }
@@ -743,7 +794,7 @@ public class ResultInternal implements Result {
   }
 
   public void addMetadata(Map<String, Object> values) {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
     if (values == null) {
       return;
     }
@@ -754,12 +805,12 @@ public class ResultInternal implements Result {
   }
 
   public Set<String> getMetadataKeys() {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
     return metadata == null ? Collections.emptySet() : metadata.keySet();
   }
 
   public void setIdentifiable(Identifiable identifiable) {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
 
     this.lightweightEdge = null;
     this.content = null;
@@ -774,7 +825,7 @@ public class ResultInternal implements Result {
   }
 
   public void setLightweightEdge(Edge edge) {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
 
     this.identifiable = null;
     this.lightweightEdge = edge;
@@ -784,7 +835,7 @@ public class ResultInternal implements Result {
   @Nonnull
   @Override
   public Map<String, Object> toMap() {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
 
     if (lightweightEdge != null) {
       return lightweightEdge.toMap();
@@ -805,7 +856,7 @@ public class ResultInternal implements Result {
 
   @Override
   public boolean isEdge() {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
     if (content != null) {
       return false;
     }
@@ -819,15 +870,22 @@ public class ResultInternal implements Result {
 
   @Override
   public boolean isStatefulEdge() {
-    assert session == null || session.assertIfNotActive();
-    if (identifiable == null) {
-      return false;
+    checkSession();
+    switch (identifiable) {
+      case null -> {
+        return false;
+      }
+      case StatefulEdge statefulEdge -> {
+        return true;
+      }
+      case Entity entity -> {
+        return entity.isStatefulEdge();
+      }
+      default -> {
+      }
     }
 
     checkSessionForRecords();
-    if (identifiable instanceof Edge edge) {
-      return edge.isStateful();
-    }
 
     var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
     var cls = schemaSnapshot.getClassByClusterId(identifiable.getIdentity().getClusterId());
@@ -838,7 +896,7 @@ public class ResultInternal implements Result {
   @Nonnull
   @Override
   public Edge castToEdge() {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
     if (lightweightEdge != null) {
       return lightweightEdge;
     }
@@ -853,7 +911,7 @@ public class ResultInternal implements Result {
   @Nullable
   @Override
   public Edge asEdge() {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
 
     if (lightweightEdge != null) {
       return lightweightEdge;
@@ -867,7 +925,7 @@ public class ResultInternal implements Result {
   }
 
   public @Nonnull String toJSON() {
-    assert session == null || session.assertIfNotActive();
+    checkSession();
 
     if (lightweightEdge != null) {
       return lightweightEdge.toJSON();
@@ -894,7 +952,7 @@ public class ResultInternal implements Result {
   }
 
   private String toJson(Object val) {
-    String jsonVal = null;
+    String jsonVal;
     if (val == null) {
       jsonVal = "null";
     } else if (val instanceof String) {
@@ -992,6 +1050,9 @@ public class ResultInternal implements Result {
       return false;
     }
 
+    if (session != resultObj.session) {
+      return false;
+    }
     if (lightweightEdge != null) {
       return lightweightEdge.equals(resultObj.lightweightEdge);
     } else if (identifiable != null) {
@@ -1022,6 +1083,7 @@ public class ResultInternal implements Result {
 
 
   public void bindToCache(DatabaseSessionInternal db) {
+    checkSession();
     if (identifiable instanceof RecordAbstract record) {
       var identity = record.getIdentity();
       var tx = db.getTransaction();

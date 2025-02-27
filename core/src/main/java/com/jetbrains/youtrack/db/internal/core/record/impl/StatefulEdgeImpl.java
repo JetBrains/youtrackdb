@@ -510,6 +510,18 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
     return entity.detach();
   }
 
+  @Nonnull
+  @Override
+  public Identifiable castToIdentifiable() {
+    return entity;
+  }
+
+  @Nullable
+  @Override
+  public Identifiable asIdentifiable() {
+    return entity;
+  }
+
   @Nullable
   @Override
   public Entity asEntity() {

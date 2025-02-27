@@ -39,7 +39,6 @@ import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.EntitySerializable;
 import com.jetbrains.youtrack.db.internal.core.serialization.SerializableStream;
@@ -273,6 +272,24 @@ public enum PropertyType {
       return null;
     }
 
+    if (value instanceof Result result) {
+      if (result.isRecord()) {
+        if (result.isEntity()) {
+          var identifable = result.castToIdentifiable();
+          if (identifable instanceof Entity entity && entity.isEmbedded()) {
+            return EMBEDDED;
+          }
+        }
+
+        return LINK;
+      }
+      if (result.isProjection()) {
+        return EMBEDDEDMAP;
+      } else {
+        return null;
+      }
+    }
+
     var clazz = value.getClass();
     var type = TYPES_BY_CLASS.get(clazz);
     if (type != null) {
@@ -280,11 +297,7 @@ public enum PropertyType {
     }
 
     var byType = getTypeByClassInherit(clazz);
-    if (LINK == byType) {
-      if (value instanceof EntityImpl && ((EntityImpl) value).isEmbedded()) {
-        return EMBEDDED;
-      }
-    } else if (EMBEDDEDSET == byType) {
+    if (EMBEDDEDSET == byType) {
       if (checkLinkCollection(((Collection<?>) value))) {
         return LINKSET;
       }
@@ -306,9 +319,7 @@ public enum PropertyType {
     }
 
     var first = toCheck.stream().filter(Objects::nonNull).findAny();
-    return first.map(
-        o -> o instanceof Identifiable identifiable && (!(identifiable instanceof Entity entity)
-            || !entity.isEmbedded())).orElse(false);
+    return first.map(PropertyType::isCollectionLink).orElse(false);
   }
 
   public static boolean canBeLinkCollection(Collection<?> toCheck) {
@@ -317,9 +328,28 @@ public enum PropertyType {
     }
 
     var first = toCheck.stream().filter(Objects::nonNull).findAny();
-    return first.map(
-        o -> o instanceof Identifiable identifiable && (!(identifiable instanceof Entity entity)
-            || !entity.isEmbedded())).orElse(true);
+    return first.map(PropertyType::isCollectionLink).orElse(true);
+  }
+
+  private static boolean isCollectionLink(Object value) {
+    if (value instanceof Identifiable identifiable) {
+      if (identifiable instanceof Entity entity) {
+        return !entity.isEmbedded();
+      }
+      return true;
+    }
+
+    if (value instanceof Result result) {
+      if (result.isRecord()) {
+        var identifiable = result.castToIdentifiable();
+        if (!(identifiable instanceof Entity entity)) {
+          return true;
+        }
+        return !entity.isEmbedded();
+      }
+    }
+
+    return false;
   }
 
   public static boolean isSimpleValueType(@Nullable Object value) {
@@ -520,7 +550,9 @@ public enum PropertyType {
         switch (value) {
           case Collection<?> collection -> {
             var linkSet = session.newLinkSet(collection.size());
-            linkSet.addAll((Collection<? extends Identifiable>) collection);
+            for (var item : collection) {
+              linkSet.add((Identifiable) convertValue(session, item));
+            }
             return (T) linkSet;
           }
           case Iterable<?> iterable -> {
@@ -551,6 +583,13 @@ public enum PropertyType {
               }
             }
             return (T) linkSet;
+          }
+          case Result result -> {
+            if (result.isRecord()) {
+              var linkSet = session.newLinkSet();
+              linkSet.add(result.castToIdentifiable());
+              return (T) linkSet;
+            }
           }
           default -> {
             var linkSet = session.newLinkSet();
@@ -585,6 +624,13 @@ public enum PropertyType {
             }
             return (T) embeddedSet;
           }
+          case Result result -> {
+            if (result.isRecord()) {
+              var embeddedSet = session.newEmbeddedSet();
+              embeddedSet.add(result.castToRecord());
+              return (T) embeddedSet;
+            }
+          }
           default -> {
             var embeddedSet = session.newEmbeddedSet();
             embeddedSet.add(value);
@@ -604,7 +650,9 @@ public enum PropertyType {
         switch (value) {
           case Collection<?> collection -> {
             var linkList = session.newLinkList(collection.size());
-            linkList.addAll((Collection<? extends Identifiable>) collection);
+            for (var item : collection) {
+              linkList.add((Identifiable) convertValue(session, item));
+            }
             return (T) linkList;
           }
           case Iterable<?> iterable -> {
@@ -635,6 +683,13 @@ public enum PropertyType {
               }
             }
             return (T) linkList;
+          }
+          case Result result -> {
+            if (result.isRecord()) {
+              var linkList = session.newLinkList();
+              linkList.add(result.castToIdentifiable());
+              return (T) linkList;
+            }
           }
           default -> {
             var linkList = session.newLinkList();
@@ -667,6 +722,13 @@ public enum PropertyType {
             }
             return (T) embeddedList;
           }
+          case Result result -> {
+            if (result.isRecord()) {
+              var embeddedList = session.newEmbeddedList();
+              embeddedList.add(result.castToRecord());
+              return (T) embeddedList;
+            }
+          }
           default -> {
             var embeddedList = session.newEmbeddedList();
             embeddedList.add(convertValue(session, value));
@@ -697,9 +759,18 @@ public enum PropertyType {
         if (value instanceof Map<?, ?> map) {
           var linkMap = session.newLinkMap(map.size());
           for (var entry : map.entrySet()) {
-            linkMap.put(entry.getKey().toString(), (Identifiable) entry.getValue());
+            linkMap.put(entry.getKey().toString(),
+                (Identifiable) convertValue(session, entry.getValue()));
           }
           return (T) linkMap;
+        } else if (value instanceof Result result) {
+          if (result.isProjection()) {
+            var linkMap = session.newLinkMap();
+            for (var property : result.getPropertyNames()) {
+              linkMap.put(property, result.getLink(property));
+            }
+            return (T) linkMap;
+          }
         } else {
           var linkMap = session.newLinkMap();
           linkMap.put("value", (Identifiable) value);
@@ -712,6 +783,15 @@ public enum PropertyType {
             embeddedMap.put(entry.getKey().toString(), convertValue(session, entry.getValue()));
           }
           return (T) embeddedMap;
+        } else if (value instanceof Result result) {
+          if (result.isProjection()) {
+            var embeddedMap = session.newEmbeddedMap();
+            for (var property : result.getPropertyNames()) {
+              embeddedMap.put(property, convertValue(session, result.getProperty(property)));
+            }
+
+            return (T) embeddedMap;
+          }
         } else {
           var embeddedMap = session.newEmbeddedMap();
           embeddedMap.put("value", convertValue(session, value));
@@ -750,7 +830,11 @@ public enum PropertyType {
         }
         return (T) value.toString();
       } else if (Identifiable.class.isAssignableFrom(targetClass)) {
-        if (MultiValue.isMultiValue(value)) {
+        if (value instanceof Result result) {
+          if (result.isRecord()) {
+            return (T) result.castToIdentifiable();
+          }
+        } else if (MultiValue.isMultiValue(value)) {
           List<Identifiable> result = new ArrayList<>();
           for (var o : MultiValue.getMultiValueIterable(value)) {
             if (o instanceof Identifiable) {

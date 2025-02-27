@@ -30,10 +30,8 @@ import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
@@ -127,7 +125,7 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
   @Nonnull
   @Override
   public Map<String, Object> toMap(DatabaseSessionInternal session) {
-    var map = new HashMap<String, Object>();
+    var map = session.newEmbeddedMap();
     serializeToMap(map, session);
     return map;
   }
@@ -164,7 +162,7 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
 
   @Override
   protected void serializeToMap(@Nonnull Map<String, Object> map, DatabaseSessionInternal session) {
-    final List<String> keyTypeNames = new ArrayList<>(keyTypes.length);
+    final List<String> keyTypeNames = session.newEmbeddedList(keyTypes.length);
 
     for (final var keyType : keyTypes) {
       keyTypeNames.add(keyType.toString());
@@ -172,7 +170,7 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
 
     map.put("keyTypes", keyTypeNames);
     if (collate instanceof CompositeCollate) {
-      List<String> collatesNames = new ArrayList<>();
+      List<String> collatesNames = session.newEmbeddedList();
       for (var curCollate : ((CompositeCollate) this.collate).getCollates()) {
         collatesNames.add(curCollate.getName());
       }

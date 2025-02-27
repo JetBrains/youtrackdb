@@ -29,7 +29,7 @@ public class TraverseResult extends ResultInternal {
   }
 
   @Override
-  public void setProperty(String name, Object value) {
+  public void setProperty(@Nonnull String name, Object value) {
     assert session == null || session.assertIfNotActive();
     if ("$depth".equalsIgnoreCase(name)) {
       if (value instanceof Number) {

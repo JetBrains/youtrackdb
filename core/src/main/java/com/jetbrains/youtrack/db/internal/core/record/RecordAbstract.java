@@ -325,12 +325,28 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     if (this == obj) {
       return true;
     }
-    if (obj == null) {
-      return false;
-    }
 
-    if (obj instanceof Identifiable) {
-      return recordId.equals(((Identifiable) obj).getIdentity());
+    switch (obj) {
+      case null -> {
+        return false;
+      }
+      case RecordAbstract recordAbstract -> {
+        if (session != recordAbstract.getBoundedToSession()) {
+          return false;
+        }
+        return recordId.equals(((Identifiable) obj).getIdentity())
+            && recordVersion == recordAbstract.recordVersion;
+      }
+      case Identifiable identifiable -> {
+        if (session == null) {
+          return recordId.equals(identifiable.getIdentity());
+        } else {
+          var record = (RecordAbstract) identifiable.getRecord(session);
+          return recordId.equals(record.recordId) && recordVersion == record.recordVersion;
+        }
+      }
+      default -> {
+      }
     }
 
     return false;

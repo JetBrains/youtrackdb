@@ -18,6 +18,7 @@ public class CreateUserStatementExecutionTest extends DbTestBase {
     session.commit();
     result.close();
 
+    session.begin();
     result = session.query("SELECT name, roles.name as roles FROM OUser WHERE name = 'test'");
     Assert.assertTrue(result.hasNext());
     var user = result.next();
@@ -27,5 +28,6 @@ public class CreateUserStatementExecutionTest extends DbTestBase {
     Assert.assertEquals("admin", roles.get(0));
 
     result.close();
+    session.commit();
   }
 }

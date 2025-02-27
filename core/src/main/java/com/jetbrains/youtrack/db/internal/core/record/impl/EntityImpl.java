@@ -1920,7 +1920,7 @@ public class EntityImpl extends RecordAbstract
                 + "' has been declared as "
                 + p.getType(session)
                 + " but an incompatible type is used. Value: "
-                + fieldValue);
+                + fieldValue + " . Value class is :" + fieldValue.getClass());
       }
     }
   }
@@ -2844,6 +2844,18 @@ public class EntityImpl extends RecordAbstract
     return result;
   }
 
+  @Nonnull
+  @Override
+  public Identifiable castToIdentifiable() {
+    return this;
+  }
+
+  @Nullable
+  @Override
+  public Identifiable asIdentifiable() {
+    return this;
+  }
+
   private void convertToResult(ResultInternal result) {
     var propertyTypes = new HashMap<String, String>();
 
@@ -3223,30 +3235,6 @@ public class EntityImpl extends RecordAbstract
 
     this.ordered = iOrdered;
     return this;
-  }
-
-  @Override
-  public boolean equals(Object obj) {
-    if (!super.equals(obj)) {
-      return false;
-    }
-
-    if (obj instanceof Entity entity) {
-      if (session != entity.getBoundedToSession()) {
-        return false;
-      }
-    }
-
-    return this == obj || recordId.isValid();
-  }
-
-  @Override
-  public int hashCode() {
-    if (recordId.isValid()) {
-      return super.hashCode();
-    }
-
-    return System.identityHashCode(this);
   }
 
   /**

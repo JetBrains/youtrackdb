@@ -1726,10 +1726,7 @@ SQLInsertStatement InsertStatement():
 	<INSERT>
 	<INTO>
 	(
-	    LOOKAHEAD(IndexIdentifier())
-    	jjtThis.targetIndex = IndexIdentifier()
-    	|
-	    jjtThis.targetClass = Identifier()
+	   jjtThis.targetClass = Identifier()
 	)
     [ LOOKAHEAD(InsertBody()) jjtThis.insertBody = InsertBody() ]
     [ <RETURN> jjtThis.returnStatement = Projection() ]

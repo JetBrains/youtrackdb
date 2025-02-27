@@ -37,8 +37,9 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
     var createREs =
         session.command(
             "create edge " + eClass + " from " + v1.getIdentity() + " to " + v2.getIdentity());
-    session.commit();
     ExecutionPlanPrintUtils.printExecutionPlan(createREs);
+    session.commit();
+    session.begin();
     var result = session.query("select expand(out()) from " + v1.getIdentity());
     Assert.assertNotNull(result);
     Assert.assertTrue(result.hasNext());
@@ -54,6 +55,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
     Assert.assertNotNull(next);
     Assert.assertEquals("v1", next.getProperty("name"));
     result.close();
+    session.commit();
   }
 
   @Test
@@ -86,9 +88,9 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
                 + " to "
                 + v2.getIdentity()
                 + " set name = 'theEdge'");
-    session.commit();
-
     ExecutionPlanPrintUtils.printExecutionPlan(createREs);
+    session.commit();
+    session.begin();
     var result = session.query("select expand(outE()) from " + v1.getIdentity());
     Assert.assertNotNull(result);
     Assert.assertTrue(result.hasNext());
@@ -96,6 +98,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
     Assert.assertNotNull(next);
     Assert.assertEquals("theEdge", next.getProperty("name"));
     result.close();
+    session.commit();
   }
 
   @Test
@@ -128,6 +131,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
     session.commit();
     ExecutionPlanPrintUtils.printExecutionPlan(createREs);
 
+    session.begin();
     var result = session.query("select expand(out()) from " + vClass + " where name = 'v0'");
 
     Assert.assertNotNull(result);
@@ -147,6 +151,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
       Assert.assertNotNull(next);
     }
     result.close();
+    session.commit();
   }
 
   @Test
@@ -193,13 +198,13 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     var rs = session.query("SELECT FROM " + eClass);
     Assert.assertTrue(rs.hasNext());
     rs.next();
     Assert.assertFalse(rs.hasNext());
     rs.close();
 
-    session.begin();
     session.command(
             "CREATE EDGE "
                 + eClass
@@ -211,6 +216,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     rs = session.query("SELECT FROM " + eclazz);
     for (var i = 0; i < 4; i++) {
       Assert.assertTrue(rs.hasNext());
@@ -219,6 +225,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(rs.hasNext());
     rs.close();
+    session.commit();
   }
 
   @Test
@@ -265,13 +272,13 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     var rs = session.query("SELECT FROM " + eClass);
     Assert.assertTrue(rs.hasNext());
     rs.next();
     Assert.assertFalse(rs.hasNext());
     rs.close();
 
-    session.begin();
     session.command(
             "CREATE EDGE "
                 + eClass
@@ -283,6 +290,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     rs = session.query("SELECT FROM " + eclazz);
     for (var i = 0; i < 4; i++) {
       Assert.assertTrue(rs.hasNext());
@@ -290,6 +298,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
     }
     Assert.assertFalse(rs.hasNext());
     rs.close();
+    session.commit();
   }
 
   @Test
@@ -335,11 +344,13 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     var rs = session.query("SELECT FROM " + eClass);
     Assert.assertTrue(rs.hasNext());
     rs.next();
     Assert.assertFalse(rs.hasNext());
     rs.close();
+    session.commit();
 
     try {
       session.begin();
@@ -431,9 +442,12 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     var result =
-        session.query("select from " + eClass + " where out.name = 'v0' AND in.name = 'v1'");
+        session.query("select from " + eClass
+            + " where outV()[name = 'v0'].size() > 0 AND inV()[name = 'v1'].size() > 0");
     Assert.assertTrue(result.hasNext());
     result.close();
+    session.commit();
   }
 }
