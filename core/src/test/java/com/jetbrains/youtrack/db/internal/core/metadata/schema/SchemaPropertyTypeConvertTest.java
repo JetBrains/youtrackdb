@@ -4,7 +4,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
@@ -16,6 +15,7 @@ import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import org.junit.Assert;
 import org.junit.Test;
 
 /**
@@ -53,7 +53,7 @@ public class SchemaPropertyTypeConvertTest extends DbTestBase {
     assertNull(result);
   }
 
-  @Test(expected = DatabaseException.class)
+  @Test(expected = ValidationException.class)
   public void testCannotConvert() {
     // Expected behavior is to not convert and return null
     Object result = PropertyType.convert(session, true, Long.class);
@@ -300,9 +300,9 @@ public class SchemaPropertyTypeConvertTest extends DbTestBase {
     assertEquals(result, true);
   }
 
-  @Test(expected = ValidationException.class)
+  @Test
   public void testToBooleanFromInvalidString() {
-    PropertyType.convert(session, "invalid", Boolean.class);
+    Assert.assertFalse(PropertyType.convert(session, "invalid", Boolean.class));
   }
 
   @Test

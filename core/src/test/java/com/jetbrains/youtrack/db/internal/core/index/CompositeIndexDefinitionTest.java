@@ -1,7 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
@@ -292,7 +291,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.createValue(session, Arrays.asList(1, 2), List.of(12));
   }
 
-  @Test(expected = DatabaseException.class)
+  @Test(expected = NumberFormatException.class)
   public void testCreateValueWrongParam() {
     compositeIndex.createValue(session, Arrays.asList("1t2", "test"));
   }
@@ -304,7 +303,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     Assert.assertEquals(result, new CompositeKey(Arrays.asList(12, "test")));
   }
 
-  @Test(expected = DatabaseException.class)
+  @Test(expected = NumberFormatException.class)
   public void testCreateValueWrongParamArrayParams() {
     compositeIndex.createValue(session, "1t2", "test");
   }
@@ -669,7 +668,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     session.rollback();
   }
 
-  @Test(expected = DatabaseException.class)
+  @Test(expected = NumberFormatException.class)
   public void testDocumentToIndexWrongField() {
     session.begin();
     final var document = (EntityImpl) session.newEntity();

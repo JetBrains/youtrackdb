@@ -820,7 +820,9 @@ public class RecordSerializerJackson {
               yield text;
             }
           }
-          default -> PropertyType.convert(session, jsonParser.getText(), type.getDefaultJavaType());
+          default -> type.convert(jsonParser.getText(),
+              schemaProperty != null ? schemaProperty.getLinkedType(session) : null,
+              schemaProperty != null ? schemaProperty.getLinkedClass(session) : null, session);
         };
       }
 

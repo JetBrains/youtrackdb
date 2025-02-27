@@ -71,7 +71,7 @@ public class PropertyListIndexDefinition extends PropertyIndexDefinition
     var param = params[0];
     if (!(param instanceof Collection<?>)) {
       try {
-        return PropertyType.convert(session, param, keyType.getDefaultJavaType());
+        return keyType.convert(refreshRid(session, param), null, null, session);
       } catch (Exception e) {
         return null;
       }
@@ -89,7 +89,7 @@ public class PropertyListIndexDefinition extends PropertyIndexDefinition
   public Object createSingleValue(DatabaseSessionInternal session, final Object... param) {
     try {
       var value = refreshRid(session, param[0]);
-      return PropertyType.convert(session, value, keyType.getDefaultJavaType());
+      return keyType.convert(value, null, null, session);
     } catch (Exception e) {
       throw BaseException.wrapException(
           new IndexException(session.getDatabaseName(),

@@ -1,6 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -31,7 +30,7 @@ public class SchemaPropertyIndexDefinitionTest extends DbTestBase {
     Assert.assertEquals(12, result);
   }
 
-  @Test(expected = DatabaseException.class)
+  @Test(expected = NumberFormatException.class)
   public void testCreateValueWrongParameter() {
     propertyIndex.createValue(session, Collections.singletonList("tt"));
   }
@@ -48,7 +47,7 @@ public class SchemaPropertyIndexDefinitionTest extends DbTestBase {
     Assert.assertEquals(12, result);
   }
 
-  @Test(expected = DatabaseException.class)
+  @Test(expected = NumberFormatException.class)
   public void testCreateValueWrongParameterArrayParams() {
     propertyIndex.createValue(session, "tt");
   }

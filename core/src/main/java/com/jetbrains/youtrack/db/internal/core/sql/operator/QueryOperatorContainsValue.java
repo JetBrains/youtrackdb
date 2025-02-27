@@ -175,8 +175,7 @@ public class QueryOperatorContainsValue extends QueryOperatorEqualityNotNulls {
     }
 
     if (type != null) {
-      iRight = PropertyType.convert(iContext.getDatabaseSession(), iRight,
-          type.getDefaultJavaType());
+      iRight = type.convert(iRight, null, null, iContext.getDatabaseSession());
     }
 
     if (iLeft instanceof Map<?, ?>) {

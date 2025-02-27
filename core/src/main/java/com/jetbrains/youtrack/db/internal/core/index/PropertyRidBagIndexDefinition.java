@@ -47,8 +47,7 @@ public class PropertyRidBagIndexDefinition extends PropertyIndexDefinition
 
   @Override
   public Object createSingleValue(DatabaseSessionInternal session, Object... param) {
-    return PropertyType.convert(session, refreshRid(session, param[0]),
-        keyType.getDefaultJavaType());
+    return keyType.convert(refreshRid(session, param[0]), null, null, session);
   }
 
   public void processChangeEvent(

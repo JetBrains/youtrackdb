@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrack.db.internal.core.index;
 
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.internal.core.collate.DefaultCollate;
@@ -102,15 +101,8 @@ public abstract class AbstractIndexDefinition implements IndexDefinition {
 
   protected static <T> T refreshRid(DatabaseSessionInternal session, T value) {
     if (value instanceof RID rid) {
-      if (rid.isNew()) {
-        try {
-          var record = session.load(rid);
-          //noinspection unchecked
-          value = (T) record.getIdentity();
-        } catch (RecordNotFoundException rnf) {
-          return value;
-        }
-      }
+      //noinspection unchecked
+      return (T) session.refreshRid(rid);
     }
     return value;
   }

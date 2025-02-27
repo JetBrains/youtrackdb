@@ -527,7 +527,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       List<Object> result = new ArrayList<>();
       var i = 0;
       for (var o : MultiValue.getMultiValueIterable(val)) {
-        result.add(PropertyType.convert(session, o, types[i++].getDefaultJavaType()));
+        result.add(types[i++].convert(o, null, null, session));
       }
       if (condition instanceof SQLAndBlock) {
 
@@ -553,7 +553,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       }
       return result;
     }
-    return PropertyType.convert(session, val, types[0].getDefaultJavaType());
+    return types[0].convert(val, null, null, session);
   }
 
   private static boolean allEqualities(SQLAndBlock condition) {

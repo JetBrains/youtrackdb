@@ -309,7 +309,9 @@ public class SQLUpdateItem extends SimpleNode {
     }
 
     if (type != null) {
-      return PropertyType.convert(session, newValue, type.getDefaultJavaType());
+      return type.convert(newValue,
+          schemaProperty != null ? schemaProperty.getLinkedType(session) : null,
+          schemaProperty != null ? schemaProperty.getLinkedClass(session) : null, session);
     }
 
     throw new IllegalStateException("Unexpected value: " + newValue);

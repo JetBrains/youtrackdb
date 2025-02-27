@@ -120,7 +120,6 @@ public class EntityHelper {
       @Nonnull DatabaseSessionInternal session, @Nonnull final EntityImpl entity,
       @Nonnull final String fieldName,
       @Nullable PropertyType type,
-      @Nullable Class<?> fieldJavaClass,
       @Nullable Object value) {
     if (value == null) {
       return null;
@@ -130,15 +129,16 @@ public class EntityHelper {
       type = PropertyType.getTypeByValue(value);
     }
 
-    if (fieldJavaClass == null && type != null) {
-      fieldJavaClass = type.getDefaultJavaType();
-    }
-
-    if (fieldJavaClass == null) {
+    if (type == null) {
       return (RET) value;
     }
 
-    value = PropertyType.convert(session, value, fieldJavaClass);
+    var immutableSchemaClass = entity.getImmutableSchemaClass(session);
+    var property =
+        immutableSchemaClass != null ? immutableSchemaClass.getProperty(session, fieldName) : null;
+    value = type.convert(value, property != null ? property.getLinkedType(session) : null,
+        property != null ? property.getLinkedClass(session) : null, session);
+
     return (RET) value;
   }
 

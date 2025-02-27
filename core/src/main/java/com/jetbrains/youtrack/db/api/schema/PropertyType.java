@@ -27,7 +27,6 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionIterator;
-import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -39,20 +38,19 @@ import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.EntitySerializable;
 import com.jetbrains.youtrack.db.internal.core.serialization.SerializableStream;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
-import com.jetbrains.youtrack.db.internal.core.type.IdentityWrapper;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.text.ParseException;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -68,11 +66,83 @@ import javax.annotation.Nullable;
  * means that the type accepts generic Arrays.
  */
 public enum PropertyType {
-  BOOLEAN("Boolean", 0, Boolean.class, new Class<?>[]{Number.class}),
+  BOOLEAN("Boolean", 0, Boolean.class, new Class<?>[]{Number.class}) {
+    @Override
+    public Boolean convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
+        DatabaseSessionInternal session) {
+      switch (value) {
+        case null -> {
+          return null;
+        }
+        case Boolean b -> {
+          return b;
+        }
+        case String s -> {
+          return Boolean.valueOf(s);
+        }
+        case Number number -> {
+          return number.intValue() != 0;
+        }
+        default -> {
+          throw new DatabaseException(session != null ? session.getDatabaseName() : null,
+              conversionErrorMessage(value, this));
+        }
+      }
+    }
+  },
 
-  INTEGER("Integer", 1, Integer.class, new Class<?>[]{Number.class}),
+  INTEGER("Integer", 1, Integer.class, new Class<?>[]{Number.class}) {
+    @Override
+    public Integer convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
+        DatabaseSessionInternal session) {
+      switch (value) {
+        case null -> {
+          return null;
+        }
+        case Integer i -> {
+          return i;
+        }
+        case String s -> {
+          if (value.toString().isEmpty()) {
+            return null;
+          }
+          return Integer.valueOf(s);
+        }
+        case Number number -> {
+          return number.intValue();
+        }
+        default -> {
+          throw new DatabaseException(session != null ? session.getDatabaseName() : null,
+              conversionErrorMessage(value, this));
+        }
+      }
+    }
+  },
 
-  SHORT("Short", 2, Short.class, new Class<?>[]{Number.class}),
+  SHORT("Short", 2, Short.class, new Class<?>[]{Number.class}) {
+    @Override
+    public Short convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
+        DatabaseSessionInternal session) {
+      switch (value) {
+        case null -> {
+          return null;
+        }
+        case Short i -> {
+          return i;
+        }
+        case String s -> {
+          return Short.valueOf(s);
+        }
+        case Number number -> {
+          return number.shortValue();
+        }
+        default -> {
+          throw new DatabaseException(session != null ? session.getDatabaseName() : null,
+              conversionErrorMessage(value, this));
+        }
+      }
+    }
+  },
 
   LONG(
       "Long",
@@ -80,49 +150,597 @@ public enum PropertyType {
       Long.class,
       new Class<?>[]{
           Number.class,
-      }),
+      }) {
+    @Override
+    public Long convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
+        DatabaseSessionInternal session) {
+      switch (value) {
+        case null -> {
+          return null;
+        }
+        case Long l -> {
+          return l;
+        }
+        case String s -> {
+          return Long.valueOf(s);
+        }
+        case Date date -> {
+          return date.getTime();
+        }
+        case Number number -> {
+          return number.longValue();
+        }
+        default -> {
+          throw new DatabaseException(session != null ? session.getDatabaseName() : null,
+              conversionErrorMessage(value, this));
+        }
+      }
+    }
+  },
 
-  FLOAT("Float", 4, Float.class, new Class<?>[]{Number.class}),
+  FLOAT("Float", 4, Float.class, new Class<?>[]{Number.class}) {
+    @Override
+    public Float convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
+        DatabaseSessionInternal session) {
+      switch (value) {
+        case null -> {
+          return null;
+        }
+        case Float v -> {
+          return v;
+        }
+        case String s -> {
+          return Float.valueOf(s);
+        }
+        case Number number -> {
+          return number.floatValue();
+        }
+        default -> {
+          throw new DatabaseException(session != null ? session.getDatabaseName() : null,
+              conversionErrorMessage(value, this));
+        }
+      }
+    }
+  },
 
-  DOUBLE("Double", 5, Double.class, new Class<?>[]{Number.class}),
+  DOUBLE("Double", 5, Double.class, new Class<?>[]{Number.class}) {
+    @Override
+    public Double convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
+        DatabaseSessionInternal session) {
+      switch (value) {
+        case null -> {
+          return null;
+        }
+        case Double v -> {
+          return v;
+        }
+        case String s -> {
+          return Double.valueOf(s);
+        }
+        case Float ignored -> {
+          return Double.valueOf(value.toString());
+        }
+        case Number number -> {
+          return number.doubleValue();
+        }
+        default -> {
+          throw new DatabaseException(session != null ? session.getDatabaseName() : null,
+              conversionErrorMessage(value, this));
+        }
+      }
+    }
+  },
 
-  DATETIME("Datetime", 6, Date.class, new Class<?>[]{Date.class, Number.class}),
+  DATETIME("Datetime", 6, Date.class, new Class<?>[]{Date.class, Number.class}) {
+    @Override
+    public Date convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
+        DatabaseSessionInternal session) {
+      switch (value) {
+        case null -> {
+          return null;
+        }
+        case Date date -> {
+          return date;
+        }
+        case Number number -> {
+          return new Date(number.longValue());
+        }
+        case String s -> {
+          if (IOUtils.isLong(value.toString())) {
+            return new Date(Long.parseLong(value.toString()));
+          }
+          try {
+            return DateHelper.getDateTimeFormatInstance(session)
+                .parse((String) value);
+          } catch (ParseException ignore) {
+            try {
+              return DateHelper.getDateFormatInstance(session).parse((String) value);
+            } catch (ParseException e) {
+              throw BaseException.wrapException(
+                  new DatabaseException(session,
+                      conversionErrorMessage(value, this)), e, session);
+            }
+          }
+        }
+        default -> {
+          throw new DatabaseException(session != null ? session.getDatabaseName() : null,
+              conversionErrorMessage(value, this));
+        }
+      }
+    }
+  },
 
-  STRING("String", 7, String.class, new Class<?>[]{Enum.class}),
+  STRING("String", 7, String.class, new Class<?>[]{Enum.class}) {
+    @Override
+    public Object convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
+        DatabaseSessionInternal session) {
+      return switch (value) {
+        case null -> null;
+        case String s -> s;
+        case Collection<?> collection when collection.size() == 1 && collection.iterator()
+            .next() instanceof String -> collection.iterator().next();
+        default -> value.toString();
+      };
+    }
+  },
 
-  BINARY("Binary", 8, byte[].class, new Class<?>[]{byte[].class}),
+  BINARY("Binary", 8, byte[].class, new Class<?>[]{byte[].class}) {
+    @Override
+    public byte[] convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
+        DatabaseSessionInternal session) {
+      if (value == null) {
+        return null;
+      }
+      if (value instanceof byte[] ar) {
+        return ar;
+      }
+
+      return StringSerializerHelper.getBinaryContent(value);
+    }
+  },
 
   EMBEDDED(
       "Embedded",
       9,
-      Object.class,
-      new Class<?>[]{EntitySerializable.class, SerializableStream.class}),
+      Entity.class,
+      new Class<?>[]{EntitySerializable.class, SerializableStream.class}) {
+    @Override
+    public Entity convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
+        DatabaseSessionInternal session) {
+      switch (value) {
+        case null -> {
+          return null;
+        }
+        case Entity entity -> {
+          return entity;
+        }
+        case Map<?, ?> map -> {
+          var entityImpl = session.newEmbededEntity(linkedClass);
+          //noinspection unchecked
+          entityImpl.updateFromMap((Map<String, ?>) map);
+          return entityImpl;
+        }
+        case String s -> {
+          var entityImpl = session.newEmbededEntity(linkedClass);
+          RecordSerializerJackson.fromString(session, s, (RecordAbstract) entityImpl);
+          return entityImpl;
+        }
+        default -> {
+          throw new DatabaseException(session, conversionErrorMessage(value, this));
+        }
+      }
+    }
+  },
 
   EMBEDDEDLIST(
       "EmbeddedList", 10, TrackedList.class,
-      new Class<?>[]{List.class, MultiCollectionIterator.class}),
+      new Class<?>[]{List.class, MultiCollectionIterator.class}) {
+    @Override
+    public List<Object> convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
+        DatabaseSessionInternal session) {
+      switch (value) {
+        case null -> {
+          return null;
+        }
+        case TrackedList<?> trackedList -> {
+          //noinspection unchecked
+          return (List<Object>) trackedList;
+        }
+        case Collection<?> collection -> {
+          var embeddedList = session.newEmbeddedList(collection.size());
+          for (var item : collection) {
+            var converted = PropertyType.convertEmbeddedCollectionItem(linkedType, linkedClass,
+                session, item,
+                this);
+            embeddedList.add(converted);
+          }
 
-  EMBEDDEDSET("EmbeddedSet", 11, TrackedSet.class, new Class<?>[]{Set.class}),
+          return embeddedList;
+        }
+        case Iterable<?> iterable -> {
+          var embeddedList = session.newEmbeddedList();
+          for (var item : iterable) {
+            var converted = PropertyType.convertEmbeddedCollectionItem(linkedType, linkedClass,
+                session, item,
+                this);
+            embeddedList.add(converted);
+          }
+          return embeddedList;
+        }
+        case Iterator<?> iterator -> {
+          var embeddedList = session.newEmbeddedList();
+          while (iterator.hasNext()) {
+            var item = iterator.next();
+            var converted = PropertyType.convertEmbeddedCollectionItem(linkedType, linkedClass,
+                session, item,
+                this);
+            embeddedList.add(converted);
+          }
+          return embeddedList;
+        }
+        default -> {
+          var embeddedList = session.newEmbeddedList();
+          var converted = PropertyType.convertEmbeddedCollectionItem(linkedType, linkedClass,
+              session, value,
+              this);
+          embeddedList.add(converted);
+          return embeddedList;
+        }
+      }
+    }
+  },
 
-  EMBEDDEDMAP("EmbeddedMap", 12, TrackedMap.class, new Class<?>[]{Map.class}),
+  EMBEDDEDSET("EmbeddedSet", 11, TrackedSet.class, new Class<?>[]{Set.class}) {
+    @Override
+    public Set<Object> convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
+        DatabaseSessionInternal session) {
+      switch (value) {
+        case null -> {
+          return null;
+        }
+        case TrackedSet<?> trackedSet -> {
+          //noinspection unchecked
+          return (Set<Object>) trackedSet;
+        }
+        case Collection<?> collection -> {
+          var embeddedSet = session.newEmbeddedSet(collection.size());
+          for (var item : collection) {
+            var converted = convertEmbeddedCollectionItem(linkedType, linkedClass, session, item,
+                this);
+            embeddedSet.add(converted);
+          }
+          return embeddedSet;
+        }
+        case Iterable<?> iterable -> {
+          var embeddedSet = session.newEmbeddedSet();
+          for (var item : iterable) {
+            var converted = convertEmbeddedCollectionItem(linkedType, linkedClass, session, item,
+                this);
+            embeddedSet.add(converted);
+          }
+          return embeddedSet;
+        }
+        case Iterator<?> iterator -> {
+          var embeddedSet = session.newEmbeddedSet();
+          while (iterator.hasNext()) {
+            var item = iterator.next();
+            var converted = convertEmbeddedCollectionItem(linkedType, linkedClass, session, item,
+                this);
+            embeddedSet.add(converted);
+          }
+          return embeddedSet;
+        }
+        default -> {
+          var embeddedSet = session.newEmbeddedSet();
+          var converted = convertEmbeddedCollectionItem(linkedType, linkedClass, session, value,
+              this);
+          embeddedSet.add(converted);
+          return embeddedSet;
+        }
+      }
+    }
+  },
 
-  LINK("Link", 13, Identifiable.class, new Class<?>[]{Identifiable.class, RID.class}),
+  EMBEDDEDMAP("EmbeddedMap", 12, TrackedMap.class, new Class<?>[]{Map.class}) {
+    @Override
+    public Map<String, Object> convert(Object value, PropertyType linkedType,
+        SchemaClass linkedClass,
+        DatabaseSessionInternal session) {
+      switch (value) {
+        case null -> {
+          return null;
+        }
+        case TrackedMap<?> trackedMap -> {
+          //noinspection unchecked
+          return (Map<String, Object>) trackedMap;
+        }
+        case Map<?, ?> map -> {
+          var embeddedMap = session.newEmbeddedMap(map.size());
+          for (var entry : map.entrySet()) {
+            embeddedMap.put(entry.getKey().toString(),
+                PropertyType.convertEmbeddedCollectionItem(linkedType, linkedClass, session,
+                    entry.getValue(),
+                    this));
+          }
+          return embeddedMap;
+        }
+        case Result result -> {
+          var embeddedMap = session.newEmbeddedMap();
+          if (result.isProjection()) {
+            for (var property : result.getPropertyNames()) {
+              embeddedMap.put(property, PropertyType.convertEmbeddedCollectionItem(linkedType,
+                  linkedClass, session, result.getProperty(property), this));
+            }
+          } else {
+            embeddedMap.put("value", PropertyType.convertEmbeddedCollectionItem(linkedType,
+                linkedClass, session,
+                value, this));
+          }
+          return embeddedMap;
+        }
+        default -> {
+          var embeddedMap = session.newEmbeddedMap();
+          embeddedMap.put("value", PropertyType.convertEmbeddedCollectionItem(linkedType,
+              linkedClass, session,
+              value, this));
+          return embeddedMap;
+        }
+      }
+    }
+  },
 
-  LINKLIST("LinkList", 14, LinkList.class, new Class<?>[]{List.class}),
+  LINK("Link", 13, Identifiable.class, new Class<?>[]{Identifiable.class, RID.class}) {
+    @Override
+    public Identifiable convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
+        DatabaseSessionInternal session) {
+      switch (value) {
+        case null -> {
+          return null;
+        }
+        case Identifiable identifiable -> {
+          return identifiable;
+        }
+        case Result result -> {
+          if (result.isRecord()) {
+            return result.castToIdentifiable();
+          }
+          if (result.isProjection()) {
+            return convert(result.toMap(), linkedType, linkedClass, session);
+          }
+        }
+        case Collection<?> collection -> {
+          if (collection.isEmpty()) {
+            return null;
+          }
+          if (collection.size() == 1) {
+            var iterator = collection.iterator();
+            var first = iterator.next();
+            return convert(first, linkedType, linkedClass, session);
+          }
+        }
+        case Map<?, ?> map when linkedClass != null -> {
+          var entity = session.newEntity(linkedClass);
+          //noinspection unchecked
+          entity.updateFromMap((Map<String, Object>) value);
+          return entity;
+        }
+        case String s -> {
+          try {
+            return new RecordId((String) value);
+          } catch (Exception e) {
+            throw new ValidationException(session,
+                conversionErrorMessage(value, this));
+          }
+        }
+        default -> {
+          throw new DatabaseException(session != null ? session.getDatabaseName() : null,
+              conversionErrorMessage(value, this));
+        }
+      }
+      throw new DatabaseException(session, conversionErrorMessage(value, this));
+    }
+  },
 
-  LINKSET("LinkSet", 15, LinkSet.class, new Class<?>[]{Set.class}),
+  LINKLIST("LinkList", 14, LinkList.class, new Class<?>[]{List.class}) {
+    @Override
+    public Object convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
+        DatabaseSessionInternal session) {
+      switch (value) {
+        case null -> {
+          return null;
+        }
+        case LinkList linkList -> {
+          return linkList;
+        }
+        case Collection<?> collection -> {
+          var linkList = session.newLinkList(collection.size());
+          for (var item : collection) {
+            linkList.add((Identifiable) LINK.convert(item, null, linkedClass, session));
+          }
+          return linkList;
+        }
+        case Iterable<?> iterable -> {
+          var linkList = session.newLinkList();
+          for (var item : iterable) {
+            linkList.add((Identifiable) LINK.convert(item, null, linkedClass, session));
+          }
+          return linkList;
+        }
+        case Iterator<?> iterator -> {
+          var linkList = session.newLinkList();
+          while (iterator.hasNext()) {
+            var item = iterator.next();
+            linkList.add((Identifiable) LINK.convert(item, null, linkedClass, session));
+          }
+          return linkList;
+        }
+        default -> {
+          var linkList = session.newLinkList();
+          linkList.add((Identifiable) value);
+          return linkList;
+        }
+      }
+    }
+  },
 
-  LINKMAP("LinkMap", 16, LinkMap.class, new Class<?>[]{Map.class}),
+  LINKSET("LinkSet", 15, LinkSet.class, new Class<?>[]{Set.class}) {
+    @Override
+    public Set<Identifiable> convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
+        DatabaseSessionInternal session) {
+      switch (value) {
+        case null -> {
+          return null;
+        }
+        case LinkSet linkSet -> {
+          return linkSet;
+        }
+        case Collection<?> collection -> {
+          var linkSet = session.newLinkSet(collection.size());
+          for (var item : collection) {
+            linkSet.add((Identifiable) LINK.convert(item, null, linkedClass, session));
+          }
+          return linkSet;
+        }
+        case Iterable<?> iterable -> {
+          var linkSet = session.newLinkSet();
+          for (var item : iterable) {
+            linkSet.add((Identifiable) LINK.convert(item, null, linkedClass, session));
+          }
 
-  BYTE("Byte", 17, Byte.class, new Class<?>[]{Number.class}),
+          return linkSet;
+        }
+        case Iterator<?> iterator -> {
+          var linkSet = session.newLinkSet();
+          while (iterator.hasNext()) {
+            var item = iterator.next();
+            linkSet.add((Identifiable) LINK.convert(item, null, linkedClass, session));
+          }
+          return linkSet;
+        }
+        default -> {
+          var linkSet = session.newLinkSet();
+          linkSet.add((Identifiable) LINK.convert(value, null, linkedClass, session));
+          return linkSet;
 
-  DATE("Date", 19, Date.class, new Class<?>[]{Number.class}),
+        }
+      }
+    }
+  },
 
-  DECIMAL("Decimal", 21, BigDecimal.class, new Class<?>[]{BigDecimal.class, Number.class}),
+  LINKMAP("LinkMap", 16, LinkMap.class, new Class<?>[]{Map.class}) {
+    @Override
+    public Map<String, Identifiable> convert(Object value, PropertyType linkedType,
+        SchemaClass linkedClass,
+        DatabaseSessionInternal session) {
+      switch (value) {
+        case null -> {
+          return null;
+        }
+        case LinkMap linkMap -> {
+          return linkMap;
+        }
+        case Map<?, ?> map -> {
+          var linkMap = session.newLinkMap(map.size());
+          for (var entry : map.entrySet()) {
+            linkMap.put(entry.getKey().toString(),
+                (Identifiable) LINK.convert(entry.getValue(), null, linkedClass, session));
+          }
+          return linkMap;
+        }
+        case Result result -> {
+          if (result.isProjection()) {
+            var linkMap = session.newLinkMap();
+            for (var property : result.getPropertyNames()) {
+              linkMap.put(property, result.getLink(property));
+            }
+            return linkMap;
+          }
+        }
+        default -> {
+          var linkMap = session.newLinkMap();
+          linkMap.put("value", (Identifiable) LINK.convert(value, null, linkedClass, session));
+          return linkMap;
+        }
+      }
+      throw new DatabaseException(session != null ? session.getDatabaseName() : null,
+          conversionErrorMessage(value, this));
+    }
+  },
 
-  LINKBAG("LinkBag", 22, RidBag.class, new Class<?>[]{RidBag.class}),
+  BYTE("Byte", 17, Byte.class, new Class<?>[]{Number.class}) {
+    @Override
+    public Object convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
+        DatabaseSessionInternal session) {
+      return switch (value) {
+        case null -> null;
+        case Byte byteValue -> byteValue;
+        case String string -> Byte.valueOf(string);
+        case Number number -> number.byteValue();
+        default -> throw new DatabaseException(session != null ? session.getDatabaseName() : null,
+            conversionErrorMessage(value, this));
+      };
 
-  ANY("Any", 23, null, new Class<?>[]{});
+    }
+  },
+
+  DATE("Date", 19, Date.class, new Class<?>[]{Number.class}) {
+    @Override
+    public Object convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
+        DatabaseSessionInternal session) {
+      if (value == null) {
+        return null;
+      } else if (value instanceof Date date) {
+        return date;
+      }
+      return DATETIME.convert(value, linkedType, linkedClass, session);
+    }
+  },
+
+  DECIMAL("Decimal", 21, BigDecimal.class, new Class<?>[]{BigDecimal.class, Number.class}) {
+    @Override
+    public BigDecimal convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
+        DatabaseSessionInternal session) {
+      return switch (value) {
+        case null -> null;
+        case BigDecimal bigDecimal -> bigDecimal;
+        case String s -> new BigDecimal(s);
+        case Number number -> new BigDecimal(value.toString());
+        default -> throw new DatabaseException(session != null ? session.getDatabaseName() : null,
+            conversionErrorMessage(value, this));
+      };
+    }
+  },
+
+  LINKBAG("LinkBag", 22, RidBag.class, new Class<?>[]{RidBag.class}) {
+    @Override
+    public RidBag convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
+        DatabaseSessionInternal session) {
+      if (value == null) {
+        return null;
+      } else if (value instanceof RidBag ridBag) {
+        return ridBag;
+      }
+
+      var ridBag = new RidBag(session);
+      if (value instanceof Iterable<?> iterable) {
+        for (var item : iterable) {
+          ridBag.add(((Identifiable) LINK.convert(item, null, linkedClass, session)).getIdentity());
+        }
+
+        return ridBag;
+      }
+
+      throw new DatabaseException(session, conversionErrorMessage(value, this));
+    }
+  },
+
+  ANY("Any", 23, null, new Class<?>[]{}) {
+    @Override
+    public Object convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
+        DatabaseSessionInternal session) {
+      return value;
+    }
+  };
 
   // Don't change the order, the type discover get broken if you change the order.
   private static final PropertyType[] TYPES =
@@ -222,6 +840,9 @@ public enum PropertyType {
   public final int getId() {
     return id;
   }
+
+  public abstract Object convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
+      DatabaseSessionInternal session);
 
   /**
    * Return the correspondent type by checking the "assignability" of the class received as
@@ -411,493 +1032,55 @@ public enum PropertyType {
 
     try {
       if (byte[].class.isAssignableFrom(targetClass)) {
-        return (T) StringSerializerHelper.getBinaryContent(value);
+        return (T) BINARY.convert(value, null, null, session);
       } else if (byte[].class.isAssignableFrom(value.getClass())) {
         return (T) value;
-      } else if (targetClass.isEnum()) {
-        if (value instanceof Number) {
-          return (T) ((Class<Enum>) targetClass).getEnumConstants()[((Number) value).intValue()];
-        }
-        return (T) Enum.valueOf((Class<Enum>) targetClass, value.toString());
       } else if (targetClass.equals(Byte.TYPE) || targetClass.equals(Byte.class)) {
-        if (value instanceof Byte) {
-          return (T) value;
-        } else if (value instanceof String) {
-          return (T) Byte.valueOf((String) value);
-        } else {
-          assert value instanceof Number;
-          return (T) (Byte) ((Number) value).byteValue();
-        }
-
+        return (T) BYTE.convert(value, null, null, session);
       } else if (targetClass.equals(Short.TYPE) || targetClass.equals(Short.class)) {
-        switch (value) {
-          case Short i -> {
-            return (T) value;
-          }
-          case String s -> {
-            return (T) Short.valueOf(s);
-          }
-          case Number number -> {
-            return (T) (Short) number.shortValue();
-          }
-          default -> {
-          }
-        }
-
+        return (T) SHORT.convert(value, null, null, session);
       } else if (targetClass.equals(Integer.TYPE) || targetClass.equals(Integer.class)) {
-        switch (value) {
-          case Integer i -> {
-            return (T) value;
-          }
-          case String s -> {
-            if (value.toString().isEmpty()) {
-              return null;
-            }
-            return (T) Integer.valueOf(s);
-          }
-          case Number number -> {
-            return (T) (Integer) number.intValue();
-          }
-          default -> {
-          }
-        }
-
+        return (T) INTEGER.convert(value, null, null, session);
       } else if (targetClass.equals(Long.TYPE) || targetClass.equals(Long.class)) {
-        switch (value) {
-          case Long l -> {
-            return (T) value;
-          }
-          case String s -> {
-            return (T) Long.valueOf(s);
-          }
-          case Date date -> {
-            return (T) (Long) date.getTime();
-          }
-          case Number number -> {
-            return (T) (Long) number.longValue();
-          }
-          default -> {
-          }
-        }
-
+        return (T) LONG.convert(value, null, null, session);
       } else if (targetClass.equals(Float.TYPE) || targetClass.equals(Float.class)) {
-        switch (value) {
-          case Float v -> {
-            return (T) value;
-          }
-          case String s -> {
-            return (T) Float.valueOf(s);
-          }
-          case Number number -> {
-            return (T) (Float) number.floatValue();
-          }
-          default -> {
-          }
-        }
-
+        return (T) FLOAT.convert(value, null, null, session);
       } else if (targetClass.equals(BigDecimal.class)) {
-        if (value instanceof String) {
-          return (T) new BigDecimal((String) value);
-        } else if (value instanceof Number) {
-          return (T) new BigDecimal(value.toString());
-        }
-
+        return (T) DECIMAL.convert(value, null, null, session);
       } else if (targetClass.equals(Double.TYPE) || targetClass.equals(Double.class)) {
-        switch (value) {
-          case Double v -> {
-            return (T) value;
-          }
-          case String s -> {
-            return (T) Double.valueOf(s);
-          }
-          case Float v -> {
-            // THIS IS NECESSARY DUE TO A BUG/STRANGE BEHAVIOR OF JAVA BY LOSSING PRECISION
-
-            return (T) Double.valueOf(value.toString());
-            // THIS IS NECESSARY DUE TO A BUG/STRANGE BEHAVIOR OF JAVA BY LOSSING PRECISION
-          }
-          case Number number -> {
-            return (T) (Double) number.doubleValue();
-          }
-          default -> {
-          }
-        }
-
+        return (T) DOUBLE.convert(value, null, null, session);
       } else if (targetClass.equals(Boolean.TYPE) || targetClass.equals(Boolean.class)) {
-        switch (value) {
-          case Boolean b -> {
-            return (T) value;
-          }
-          case String s -> {
-            if (s.equalsIgnoreCase("true")) {
-              return (T) Boolean.TRUE;
-            } else if (((String) value).equalsIgnoreCase("false")) {
-              return (T) Boolean.FALSE;
-            }
-
-            throw new DatabaseException(session != null ? session.getDatabaseName() : null,
-                String.format("Error in conversion of value '%s' to type '%s'", value,
-                    targetClass));
-          }
-          case Number number -> {
-            return (T) (Boolean) (number.intValue() != 0);
-          }
-          default -> {
-          }
-        }
-
+        return (T) BOOLEAN.convert(value, null, null, session);
       } else if (LinkSet.class.isAssignableFrom(targetClass)) {
-        switch (value) {
-          case Collection<?> collection -> {
-            var linkSet = session.newLinkSet(collection.size());
-            for (var item : collection) {
-              linkSet.add((Identifiable) convertValue(session, item));
-            }
-            return (T) linkSet;
-          }
-          case Iterable<?> iterable -> {
-            var linkSet = session.newLinkSet();
-            for (var item : iterable) {
-              switch (item) {
-                case Identifiable identifiable -> linkSet.add(identifiable);
-                case String s -> linkSet.add(new RecordId(s));
-                case Result res when res.isRecord() -> linkSet.add(res.getIdentity());
-                case null, default -> throw new DatabaseException(session.getDatabaseName(),
-                    String.format(
-                        "Error in conversion of value '%s' to type '%s'", value, targetClass));
-              }
-            }
-            return (T) linkSet;
-          }
-          case Iterator<?> iterator -> {
-            var linkSet = session.newLinkSet();
-            while (iterator.hasNext()) {
-              var item = iterator.next();
-              switch (item) {
-                case Identifiable identifiable -> linkSet.add(identifiable);
-                case String s -> linkSet.add(new RecordId(s));
-                case Result res when res.isRecord() -> linkSet.add(res.getIdentity());
-                case null, default -> throw new DatabaseException(session.getDatabaseName(),
-                    String.format(
-                        "Error in conversion of value '%s' to type '%s'", value, targetClass));
-              }
-            }
-            return (T) linkSet;
-          }
-          case Result result -> {
-            if (result.isRecord()) {
-              var linkSet = session.newLinkSet();
-              linkSet.add(result.castToIdentifiable());
-              return (T) linkSet;
-            }
-          }
-          default -> {
-            var linkSet = session.newLinkSet();
-            linkSet.add((Identifiable) value);
-            return (T) linkSet;
-
-          }
-        }
-      } else if (TrackedSet.class.isAssignableFrom(targetClass)) {
-        switch (value) {
-          case Collection<?> collection -> {
-            var embeddedSet = session.newEmbeddedSet(collection.size());
-            for (var item : collection) {
-              var converted = convertValue(session, item);
-              embeddedSet.add(converted);
-            }
-            return (T) embeddedSet;
-          }
-          case Iterable<?> iterable -> {
-            var embeddedSet = session.newEmbeddedSet();
-
-            for (var item : iterable) {
-              embeddedSet.add(convertValue(session, item));
-            }
-
-            return (T) embeddedSet;
-          }
-          case Iterator<?> iterator -> {
-            var embeddedSet = session.newEmbeddedSet();
-            while (iterator.hasNext()) {
-              embeddedSet.add(convertValue(session, iterator.next()));
-            }
-            return (T) embeddedSet;
-          }
-          case Result result -> {
-            if (result.isRecord()) {
-              var embeddedSet = session.newEmbeddedSet();
-              embeddedSet.add(result.castToRecord());
-              return (T) embeddedSet;
-            }
-          }
-          default -> {
-            var embeddedSet = session.newEmbeddedSet();
-            embeddedSet.add(value);
-            return (T) embeddedSet;
-          }
-        }
+        return (T) LINKSET.convert(value, null, null, session);
       } else if (Set.class.isAssignableFrom(targetClass)) {
-        // The caller specifically wants a Set.  If the value is a collection
-        // we will add all of the items in the collection to a set.  Otherwise
-        // we will create a singleton set with only the value in it.
-        if (value instanceof Collection<?>) {
-          return (T) new HashSet<Object>((Collection<?>) value);
-        } else {
-          return (T) Collections.singleton(value);
-        }
+        return (T) EMBEDDEDSET.convert(value, null, null, session);
       } else if (LinkList.class.isAssignableFrom(targetClass)) {
-        switch (value) {
-          case Collection<?> collection -> {
-            var linkList = session.newLinkList(collection.size());
-            for (var item : collection) {
-              linkList.add((Identifiable) convertValue(session, item));
-            }
-            return (T) linkList;
-          }
-          case Iterable<?> iterable -> {
-            var linkList = session.newLinkList();
-            for (var item : iterable) {
-              switch (item) {
-                case Identifiable identifiable -> linkList.add(identifiable);
-                case String s -> linkList.add(new RecordId(s));
-                case Result res when res.isRecord() -> linkList.add(res.getIdentity());
-                case null, default -> throw new DatabaseException(session.getDatabaseName(),
-                    String.format(
-                        "Error in conversion of value '%s' to type '%s'", value, targetClass));
-              }
-            }
-            return (T) linkList;
-          }
-          case Iterator<?> iterator -> {
-            var linkList = session.newLinkList();
-            while (iterator.hasNext()) {
-              var item = iterator.next();
-              switch (item) {
-                case Identifiable identifiable -> linkList.add(identifiable);
-                case String s -> linkList.add(new RecordId(s));
-                case Result res when res.isRecord() -> linkList.add(res.getIdentity());
-                case null, default -> throw new DatabaseException(session.getDatabaseName(),
-                    String.format(
-                        "Error in conversion of value '%s' to type '%s'", value, targetClass));
-              }
-            }
-            return (T) linkList;
-          }
-          case Result result -> {
-            if (result.isRecord()) {
-              var linkList = session.newLinkList();
-              linkList.add(result.castToIdentifiable());
-              return (T) linkList;
-            }
-          }
-          default -> {
-            var linkList = session.newLinkList();
-            linkList.add((Identifiable) value);
-            return (T) linkList;
-          }
-        }
-      } else if (TrackedList.class.isAssignableFrom(targetClass)) {
-        switch (value) {
-          case Collection<?> collection -> {
-            var embeddedList = session.newEmbeddedList(collection.size());
-            for (var item : collection) {
-              var converted = convertValue(session, item);
-              embeddedList.add(converted);
-            }
-
-            return (T) embeddedList;
-          }
-          case Iterable<?> iterable -> {
-            var embeddedList = session.newEmbeddedList();
-            for (var item : iterable) {
-              embeddedList.add(convertValue(session, item));
-            }
-            return (T) embeddedList;
-          }
-          case Iterator<?> iterator -> {
-            var embeddedList = session.newEmbeddedList();
-            while (iterator.hasNext()) {
-              embeddedList.add(convertValue(session, iterator.next()));
-            }
-            return (T) embeddedList;
-          }
-          case Result result -> {
-            if (result.isRecord()) {
-              var embeddedList = session.newEmbeddedList();
-              embeddedList.add(result.castToRecord());
-              return (T) embeddedList;
-            }
-          }
-          default -> {
-            var embeddedList = session.newEmbeddedList();
-            embeddedList.add(convertValue(session, value));
-            return (T) embeddedList;
-          }
-        }
-      } else if (List.class.isAssignableFrom(targetClass)) {
-        // The caller specifically wants a List.  If the value is a collection
-        // we will add all of the items in the collection to a List.  Otherwise
-        // we will create a singleton List with only the value in it.
-        if (value instanceof Collection<?>) {
-          return (T) new ArrayList<>((Collection<Object>) value);
-        } else {
-          return (T) Collections.singletonList(value);
-        }
-
-      } else if (Collection.class.equals(targetClass)) {
-        // The caller specifically wants a Collection of any type.
-        // we will return a list if the value is a collection or
-        // a singleton set if the value is not a collection.
-        if (value instanceof Collection<?>) {
-          return (T) new ArrayList<Object>((Collection<?>) value);
-        } else {
-          return (T) Collections.singleton(value);
-        }
-
+        return (T) LINKLIST.convert(value, null, null, session);
+      } else if (Collection.class.isAssignableFrom(targetClass)) {
+        return (T) EMBEDDEDLIST.convert(value, null, null, session);
       } else if (LinkMap.class.isAssignableFrom(targetClass)) {
-        if (value instanceof Map<?, ?> map) {
-          var linkMap = session.newLinkMap(map.size());
-          for (var entry : map.entrySet()) {
-            linkMap.put(entry.getKey().toString(),
-                (Identifiable) convertValue(session, entry.getValue()));
-          }
-          return (T) linkMap;
-        } else if (value instanceof Result result) {
-          if (result.isProjection()) {
-            var linkMap = session.newLinkMap();
-            for (var property : result.getPropertyNames()) {
-              linkMap.put(property, result.getLink(property));
-            }
-            return (T) linkMap;
-          }
-        } else {
-          var linkMap = session.newLinkMap();
-          linkMap.put("value", (Identifiable) value);
-          return (T) linkMap;
-        }
-      } else if (TrackedMap.class.isAssignableFrom(targetClass)) {
-        if (value instanceof Map<?, ?> map) {
-          var embeddedMap = session.newEmbeddedMap(map.size());
-          for (var entry : map.entrySet()) {
-            embeddedMap.put(entry.getKey().toString(), convertValue(session, entry.getValue()));
-          }
-          return (T) embeddedMap;
-        } else if (value instanceof Result result) {
-          if (result.isProjection()) {
-            var embeddedMap = session.newEmbeddedMap();
-            for (var property : result.getPropertyNames()) {
-              embeddedMap.put(property, convertValue(session, result.getProperty(property)));
-            }
-
-            return (T) embeddedMap;
-          }
-        } else {
-          var embeddedMap = session.newEmbeddedMap();
-          embeddedMap.put("value", convertValue(session, value));
-          return (T) embeddedMap;
-        }
+        return (T) LINKMAP.convert(value, null, null, session);
       } else if (Map.class.isAssignableFrom(targetClass)) {
-        // The caller specifically wants a Map.  If the value is a map
-        // we will add all of the items in the map to a Map.  Otherwise
-        // we will create a singleton map with only the value in it.
-        if (value instanceof Map<?, ?>) {
-          return (T) new HashMap<Object, Object>((Map<?, ?>) value);
-        } else {
-          return (T) Collections.singletonMap("value", value);
-        }
+        return (T) EMBEDDEDMAP.convert(value, null, null, session);
       } else if (targetClass.equals(Date.class)) {
-        if (value instanceof Number) {
-          return (T) new Date(((Number) value).longValue());
-        }
-        if (value instanceof String) {
-          if (IOUtils.isLong(value.toString())) {
-            return (T) new Date(Long.parseLong(value.toString()));
-          }
-          try {
-            return (T) DateHelper.getDateTimeFormatInstance(session)
-                .parse((String) value);
-          } catch (ParseException ignore) {
-            return (T) DateHelper.getDateFormatInstance(session)
-                .parse((String) value);
-          }
-        }
+        return (T) DATETIME.convert(value, null, null, session);
       } else if (targetClass.equals(String.class)) {
-        if (value instanceof Collection
-            && ((Collection) value).size() == 1
-            && ((Collection) value).iterator().next() instanceof String) {
-          return (T) ((Collection) value).iterator().next();
-        }
-        return (T) value.toString();
+        return (T) STRING.convert(value, null, null, session);
       } else if (Identifiable.class.isAssignableFrom(targetClass)) {
-        if (value instanceof Result result) {
-          if (result.isRecord()) {
-            return (T) result.castToIdentifiable();
-          }
-        } else if (MultiValue.isMultiValue(value)) {
-          List<Identifiable> result = new ArrayList<>();
-          for (var o : MultiValue.getMultiValueIterable(value)) {
-            if (o instanceof Identifiable) {
-              result.add((Identifiable) o);
-            } else if (o instanceof String) {
-              try {
-                result.add(new RecordId(value.toString()));
-              } catch (Exception e) {
-                throw BaseException.wrapException(
-                    new DatabaseException(session != null ? session.getDatabaseName() : null,
-                        String.format(
-                            "Error in conversion of value '%s' to type '%s'", value, targetClass)),
-                    e, session.getDatabaseName());
-              }
-            } else if (o instanceof Result res && res.isEntity()) {
-              result.add(res.getIdentity());
-            }
-          }
-
-          if (result.isEmpty()) {
-            return null;
-          }
-          if (result.size() == 1) {
-            return (T) result.getFirst();
-          }
-
-          throw new DatabaseException(session != null ? session.getDatabaseName() : null,
-              String.format(
-                  "Error in conversion of value '%s' to type '%s'", value, targetClass));
-        } else if (value instanceof String) {
-          try {
-            return (T) new RecordId((String) value);
-          } catch (Exception e) {
-            throw new ClassCastException(
-                String.format(
-                    "Error in conversion of value '%s' to type '%s'", value, targetClass));
-          }
-        } else if (value instanceof IdentityWrapper entityWrapper) {
-          return (T) entityWrapper.getIdentity();
-        }
+        return (T) LINK.convert(value, null, null, session);
+      } else if (targetClass.equals(RidBag.class)) {
+        return (T) LINKBAG.convert(value, null, null, session);
       }
-
-      if (targetClass.equals(RidBag.class) && value instanceof Iterable<?> iterable) {
-        var ridBag = new RidBag(session);
-
-        for (var item : iterable) {
-          if (item instanceof Identifiable identifiable) {
-            ridBag.add(identifiable.getIdentity());
-          } else if (item instanceof String) {
-            ridBag.add(new RecordId((String) item));
-          }
-        }
-
-        return (T) ridBag;
-      }
-
-    } catch (IllegalArgumentException e) {
+    } catch (
+        IllegalArgumentException e) {
       // PASS THROUGH
       throw BaseException.wrapException(
           new DatabaseException(session != null ? session.getDatabaseName() : null,
               String.format("Error in conversion of value '%s' to type '%s'", value, targetClass)),
           e, session.getDatabaseName());
-    } catch (Exception e) {
+    } catch (
+        Exception e) {
       return switch (value) {
         case Collection collection when collection.size() == 1
             && !Collection.class.isAssignableFrom(targetClass) ->
@@ -937,6 +1120,11 @@ public enum PropertyType {
         String.format("Error in conversion of value '%s' to type '%s'", value, targetClass));
   }
 
+  private static String conversionErrorMessage(Object value, PropertyType type) {
+    return String.format("Error in conversion of value '%s' to type '%s'", value,
+        type);
+  }
+
   private static Object convertValue(DatabaseSessionInternal session, Object item) {
     var type = PropertyType.getTypeByValue(item);
     if (type == null) {
@@ -944,7 +1132,30 @@ public enum PropertyType {
           String.format("Error in conversion of value '%s'", item));
     }
 
-    return PropertyType.convert(session, item, type.javaDefaultType);
+    return type.convert(item, null, null, session);
+  }
+
+  private static Object convertEmbeddedCollectionItem(PropertyType linkedType,
+      SchemaClass linkedClass, DatabaseSessionInternal session,
+      Object item, PropertyType rootType) {
+    if (item == null) {
+      return null;
+    }
+    if (linkedClass != null) {
+      return EMBEDDED.convert(item, null, linkedClass, session);
+    }
+
+    var itemType = linkedType;
+    if (itemType == null) {
+      itemType = PropertyType.getTypeByValue(item);
+
+      if (itemType == null) {
+        throw new DatabaseException(session.getDatabaseName(),
+            conversionErrorMessage(item, rootType));
+      }
+    }
+
+    return itemType.convert(item, null, null, session);
   }
 
   public static Number increment(final Number a, final Number b) {

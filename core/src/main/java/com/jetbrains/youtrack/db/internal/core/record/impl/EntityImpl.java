@@ -151,6 +151,7 @@ public class EntityImpl extends RecordAbstract
 
   /**
    * Creates a new instance by the raw stream usually read from the database.
+   *
    * @param iSource Raw stream
    */
   @Deprecated
@@ -197,6 +198,7 @@ public class EntityImpl extends RecordAbstract
 
   /**
    * Creates a new instance in memory of the specified class.
+   *
    * @param session    the session the instance will be attached to
    * @param iClassName Class name
    */
@@ -1247,7 +1249,7 @@ public class EntityImpl extends RecordAbstract
       value = value.toString();
     }
     var fieldType = deriveFieldType(name, entry, type);
-    value = EntityHelper.convertField(session, this, name, fieldType, null,
+    value = EntityHelper.convertField(session, this, name, fieldType,
         value);
 
     if (knownProperty) {
@@ -3715,8 +3717,7 @@ public class EntityImpl extends RecordAbstract
 
   public SchemaImmutableClass getImmutableSchemaClass(
       @Nonnull DatabaseSessionInternal session) {
-    var bounededSession = getBoundedToSession();
-    if (bounededSession != null && bounededSession != session) {
+    if (this.session != null && this.session != session) {
       throw new DatabaseException("The entity is bounded to another session");
     }
 
@@ -4115,7 +4116,7 @@ public class EntityImpl extends RecordAbstract
           var curFieldValue = SQLHelper.parseDefaultValue(session, this, defValue, prop);
           var fieldValue =
               EntityHelper.convertField(session,
-                  this, prop.getName(session), prop.getType(session), null, curFieldValue);
+                  this, prop.getName(session), prop.getType(session), curFieldValue);
           rawField(prop.getName(session), fieldValue, prop.getType(session));
         }
       }

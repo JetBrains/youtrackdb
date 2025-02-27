@@ -1,6 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -62,7 +61,7 @@ public class SimpleKeyIndexDefinitionTest extends DbTestBase {
     Assert.assertNull(result);
   }
 
-  @Test(expected = DatabaseException.class)
+  @Test(expected = NumberFormatException.class)
   public void testWrongParamTypeListItem() {
     simpleKeyIndexDefinition.createValue(session, Arrays.asList("a", "3"));
   }
@@ -103,7 +102,7 @@ public class SimpleKeyIndexDefinitionTest extends DbTestBase {
     Assert.assertNull(result);
   }
 
-  @Test(expected = DatabaseException.class)
+  @Test(expected = NumberFormatException.class)
   public void testWrongParamType() {
     simpleKeyIndexDefinition.createValue(session, "a", "3");
   }

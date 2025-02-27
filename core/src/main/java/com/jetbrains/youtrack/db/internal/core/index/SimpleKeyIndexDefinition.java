@@ -93,18 +93,14 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
     }
 
     if (keyTypes.length == 1) {
-      return PropertyType.convert(session, refreshRid(session, params[0]),
-          keyTypes[0].getDefaultJavaType());
+      return keyTypes[0].convert(refreshRid(session, params[0]), null, null, session);
     }
 
     final var compositeKey = new CompositeKey();
 
     for (var i = 0; i < params.length; ++i) {
-      final var paramValue =
-          (Comparable<?>)
-              PropertyType.convert(session, refreshRid(session, params[i]),
-                  keyTypes[i].getDefaultJavaType());
-
+      final var paramValue = (Comparable<?>) keyTypes[i].convert(refreshRid(session, params[i]),
+          null, null, session);
       if (paramValue == null) {
         return null;
       }
