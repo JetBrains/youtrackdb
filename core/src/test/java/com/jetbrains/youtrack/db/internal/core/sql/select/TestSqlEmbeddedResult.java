@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.select;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -24,6 +25,7 @@ public class TestSqlEmbeddedResult extends DbTestBase {
     // doc
     session.commit();
 
+    session.begin();
     var res =
         session
             .query(
@@ -31,7 +33,7 @@ public class TestSqlEmbeddedResult extends DbTestBase {
             .toList();
     Assert.assertEquals(1, res.size());
     var ele = res.getFirst();
-    Assert.assertTrue(ele.getProperty("el") instanceof EntityImpl);
+    Assert.assertTrue(ele.getProperty("el") instanceof Result);
 
     res =
         session.query("select rel as el " + " from (select rel from Test)").stream()
@@ -40,5 +42,6 @@ public class TestSqlEmbeddedResult extends DbTestBase {
     Assert.assertEquals(1, res.size());
     ele = res.getFirst();
     Assert.assertTrue(ele.getProperty("el") instanceof Set<?>);
+    session.commit();
   }
 }

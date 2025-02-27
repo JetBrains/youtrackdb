@@ -62,6 +62,7 @@ public class DeleteStatementTest extends DbTestBase {
     session.command("delete from (select expand(arr) from Bar) where k = 'key2'").close();
     session.commit();
 
+    session.begin();
     try (var result = session.query("select from Foo")) {
       Assert.assertNotNull(result);
       var count = 0;
@@ -72,6 +73,7 @@ public class DeleteStatementTest extends DbTestBase {
       }
       Assert.assertEquals(count, 2);
     }
+    session.commit();
   }
 
   protected YouTrackDBSql getParserFor(String string) {

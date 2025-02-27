@@ -20,8 +20,10 @@ public class TestNullFieldQuery extends DbTestBase {
     doc.field("name", null);
     session.commit();
 
+    session.begin();
     var res = session.query("select from Test where name= 'some' ");
     assertEquals(0, res.stream().count());
+    session.commit();
   }
 
   @Test
@@ -34,7 +36,9 @@ public class TestNullFieldQuery extends DbTestBase {
     doc.field("name", null);
     session.commit();
 
+    session.begin();
     var res = session.query("select from Test where name= 'some' ");
     assertEquals(0, res.stream().count());
+    session.commit();
   }
 }

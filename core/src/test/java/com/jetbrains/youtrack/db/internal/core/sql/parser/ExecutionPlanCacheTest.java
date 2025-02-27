@@ -25,7 +25,9 @@ public class ExecutionPlanCacheTest extends BaseMemoryInternalDatabase {
     Thread.sleep(2);
 
     // schema changes
+    session.begin();
     session.query(stm).close();
+    session.commit();
     cache = ExecutionPlanCache.instance(session);
     Assert.assertTrue(cache.contains(stm));
 
@@ -35,7 +37,10 @@ public class ExecutionPlanCacheTest extends BaseMemoryInternalDatabase {
     Thread.sleep(2);
 
     // schema changes 2
+    session.begin();
     session.query(stm).close();
+    session.commit();
+
     cache = ExecutionPlanCache.instance(session);
     Assert.assertTrue(cache.contains(stm));
 
@@ -45,7 +50,9 @@ public class ExecutionPlanCacheTest extends BaseMemoryInternalDatabase {
     Thread.sleep(2);
 
     // index changes
+    session.begin();
     session.query(stm).close();
+    session.commit();
     cache = ExecutionPlanCache.instance(session);
     Assert.assertTrue(cache.contains(stm));
 

@@ -40,6 +40,7 @@ public class DepthFetchPlanTest extends DbTestBase {
     doc2.field("ref", doc1);
     session.commit();
 
+    session.begin();
     doc2 = session.bindToSession(doc2);
     FetchContext context = new RemoteFetchContext();
     var listener = new CountFetchListener();
@@ -47,6 +48,7 @@ public class DepthFetchPlanTest extends DbTestBase {
         doc2, doc2, FetchHelper.buildFetchPlan("ref:1 *:-2"), listener, context, "");
 
     assertEquals(1, listener.count);
+    session.commit();
   }
 
   @Test
@@ -85,6 +87,7 @@ public class DepthFetchPlanTest extends DbTestBase {
     doc3.field("ref", doc2);
     session.commit();
 
+    session.begin();
     doc3 = session.bindToSession(doc3);
     FetchContext context = new RemoteFetchContext();
     var listener = new CountFetchListener();
@@ -92,6 +95,7 @@ public class DepthFetchPlanTest extends DbTestBase {
         context,
         "");
     assertEquals(3, listener.count);
+    session.commit();
   }
 
   private final class CountFetchListener extends RemoteFetchListener {

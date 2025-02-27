@@ -24,7 +24,9 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
 import java.util.ArrayList;
 import java.util.List;
@@ -88,11 +90,11 @@ public class SQLMethodInclude extends AbstractSQLMethod {
       Object ioResult,
       Object[] iParams) {
 
-    var db = iContext.getDatabaseSession();
+    var session = iContext.getDatabaseSession();
     if (iParams[0] != null) {
       if (iThis instanceof Identifiable) {
         try {
-          iThis = ((Identifiable) iThis).getRecord(db);
+          iThis = ((Identifiable) iThis).getRecord(session);
         } catch (RecordNotFoundException rnf) {
           return null;
         }
@@ -101,7 +103,7 @@ public class SQLMethodInclude extends AbstractSQLMethod {
       }
       if (iThis instanceof EntityImpl) {
         // ACT ON SINGLE ENTITY
-        return copy((EntityImpl) iThis, iParams);
+        return copy((EntityImpl) iThis, iParams, session);
       } else if (iThis instanceof Map) {
         // ACT ON MAP
         return copy((Map) iThis, iParams);
@@ -111,8 +113,8 @@ public class SQLMethodInclude extends AbstractSQLMethod {
         for (var o : MultiValue.getMultiValueIterable(iThis)) {
           if (o instanceof Identifiable) {
             try {
-              var record = ((Identifiable) o).getRecord(db);
-              result.add(copy((EntityImpl) record, iParams));
+              var record = ((Identifiable) o).getRecord(session);
+              result.add(copy((EntityImpl) record, iParams, session));
             } catch (RecordNotFoundException rnf) {
               // IGNORE IT
             }
@@ -127,8 +129,8 @@ public class SQLMethodInclude extends AbstractSQLMethod {
   }
 
   private static Object copy(final EntityImpl entity,
-      final Object[] iFieldNames) {
-    final var ent = new EntityImpl(null);
+      final Object[] iFieldNames, DatabaseSessionInternal session) {
+    var result = new ResultInternal(session);
     for (var iFieldName : iFieldNames) {
       if (iFieldName != null) {
 
@@ -144,15 +146,16 @@ public class SQLMethodInclude extends AbstractSQLMethod {
           }
 
           for (var f : toInclude) {
-            ent.field(fieldName, entity.field(f));
+            result.setProperty(fieldName, entity.getProperty(f));
           }
 
         } else {
-          ent.field(fieldName, entity.field(fieldName));
+          result.setProperty(fieldName, entity.getProperty(fieldName));
         }
       }
     }
-    return ent;
+
+    return result;
   }
 
   private static Object copy(final Map map,

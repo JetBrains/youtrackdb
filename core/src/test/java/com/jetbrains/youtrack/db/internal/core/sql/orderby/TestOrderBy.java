@@ -27,6 +27,7 @@ public class TestOrderBy extends DbTestBase {
     var res3 = (DBRecord) ((EntityImpl) session.newEntity("test")).field("name", "Zebra");
     session.commit();
 
+    session.begin();
     var queryRes =
         session.query("select from test order by name").stream().collect(Collectors.toList());
     assertEquals(queryRes.get(0).getIdentity(), res2.getIdentity());
@@ -38,7 +39,9 @@ public class TestOrderBy extends DbTestBase {
     assertEquals(queryRes.get(0).getIdentity(), res3.getIdentity());
     assertEquals(queryRes.get(1).getIdentity(), res1.getIdentity());
     assertEquals(queryRes.get(2).getIdentity(), res2.getIdentity());
+    session.commit();
   }
+
 
   @Test
   @Ignore
