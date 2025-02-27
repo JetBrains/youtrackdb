@@ -842,7 +842,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
       newD.setProperty(field, newValue);
       newD.validate();
       fail();
-    } catch (ValidationException v) {
+    } catch (NumberFormatException | ValidationException v) {
       //ignore
     }
   }

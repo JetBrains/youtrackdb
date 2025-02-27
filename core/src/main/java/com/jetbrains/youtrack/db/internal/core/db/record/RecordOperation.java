@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
+import com.jetbrains.youtrack.db.internal.core.id.ImmutableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 
@@ -35,15 +36,16 @@ public final class RecordOperation implements Comparable<RecordOperation> {
   public final RecordAbstract record;
 
   public long recordCallBackDirtyCounter;
-  public long indexTrackingDirtyCounter;
 
   // used in processing of server transactions
   public boolean callHooksOnServerTx = false;
+  public final ImmutableRecordId initialRecordId;
 
   public RecordOperation(final RecordAbstract record, final byte status) {
     // CLONE RECORD AND CONTENT
     this.record = record;
     this.type = status;
+    this.initialRecordId = new ImmutableRecordId(record.getIdentity());
   }
 
   @Override

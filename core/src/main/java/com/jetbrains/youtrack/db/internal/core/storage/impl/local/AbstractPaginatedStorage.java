@@ -98,7 +98,6 @@ import com.jetbrains.youtrack.db.internal.core.query.QueryAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordVersionHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.impl.index.CompositeKeySerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.stream.StreamSerializerRID;
@@ -5183,9 +5182,10 @@ public abstract class AbstractPaginatedStorage
 
     // RESET TRACKING
     if (rec instanceof EntityImpl && ((EntityImpl) rec).isTrackingChanges()) {
-      EntityInternalUtils.clearTrackData(((EntityImpl) rec));
-      EntityInternalUtils.clearTransactionTrackData(((EntityImpl) rec));
+      ((EntityImpl) rec).clearTrackData();
+      ((EntityImpl) rec).clearTransactionTrackData();
     }
+
     RecordInternal.unsetDirty(rec);
   }
 

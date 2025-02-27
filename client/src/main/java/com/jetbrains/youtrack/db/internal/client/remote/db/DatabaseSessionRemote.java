@@ -30,11 +30,9 @@ import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
 import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
-import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.client.remote.LiveQueryClientListener;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemote;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
@@ -54,10 +52,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeEntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.VertexInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37Client;
@@ -590,38 +584,8 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   public void delete(final @Nonnull DBRecord record) {
     checkOpenness();
     assert assertIfNotActive();
-    if (record == null) {
-      throw new DatabaseException(getDatabaseName(), "Cannot delete null entity");
-    }
-    if (record instanceof Vertex) {
-      VertexInternal.deleteLinks((Vertex) record);
-    } else {
-      if (record instanceof Edge) {
-        EdgeEntityImpl.deleteLinks(this, (Edge) record);
-      }
-    }
 
-    try {
-      currentTx.deleteRecord((RecordAbstract) record);
-    } catch (BaseException e) {
-      throw e;
-    } catch (Exception e) {
-      if (record instanceof EntityImpl) {
-        throw BaseException.wrapException(
-            new DatabaseException(getDatabaseName(),
-                "Error on deleting record "
-                    + record.getIdentity()
-                    + " of class '"
-                    + ((EntityImpl) record).getSchemaClassName()
-                    + "'"),
-            e, this);
-      } else {
-        throw BaseException.wrapException(
-            new DatabaseException(getDatabaseName(),
-                "Error on deleting record " + record.getIdentity()),
-            e, this);
-      }
-    }
+    record.delete();
   }
 
   @Override

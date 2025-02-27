@@ -313,6 +313,7 @@ public final class VertexDelegate implements VertexInternal {
     return VertexInternal.filterPropertyNames(entity.getDirtyProperties());
   }
 
+  @Nonnull
   @Override
   public <T> List<T> newEmbeddedList(@Nonnull String name, List<T> source) {
     VertexInternal.checkPropertyName(name);
@@ -371,48 +372,56 @@ public final class VertexDelegate implements VertexInternal {
     return entity.newEmbeddedList(name);
   }
 
+  @Nonnull
   @Override
   public <T> List<T> newEmbeddedList(@Nonnull String name, T[] source) {
     VertexInternal.checkPropertyName(name);
     return entity.newEmbeddedList(name, source);
   }
 
+  @Nonnull
   @Override
   public List<Byte> newEmbeddedList(@Nonnull String name, byte[] source) {
     VertexInternal.checkPropertyName(name);
     return entity.newEmbeddedList(name, source);
   }
 
+  @Nonnull
   @Override
   public List<Short> newEmbeddedList(@Nonnull String name, short[] source) {
     VertexInternal.checkPropertyName(name);
     return entity.newEmbeddedList(name, source);
   }
 
+  @Nonnull
   @Override
   public List<Integer> newEmbeddedList(@Nonnull String name, int[] source) {
     VertexInternal.checkPropertyName(name);
     return entity.newEmbeddedList(name, source);
   }
 
+  @Nonnull
   @Override
   public List<Long> newEmbeddedList(@Nonnull String name, long[] source) {
     VertexInternal.checkPropertyName(name);
     return entity.newEmbeddedList(name, source);
   }
 
+  @Nonnull
   @Override
   public List<Boolean> newEmbeddedList(@Nonnull String name, boolean[] source) {
     VertexInternal.checkPropertyName(name);
     return entity.newEmbeddedList(name, source);
   }
 
+  @Nonnull
   @Override
   public List<Float> newEmbeddedList(@Nonnull String name, float[] source) {
     VertexInternal.checkPropertyName(name);
     return entity.newEmbeddedList(name, source);
   }
 
+  @Nonnull
   @Override
   public List<Double> newEmbeddedList(@Nonnull String name, double[] source) {
     VertexInternal.checkPropertyName(name);

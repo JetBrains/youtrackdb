@@ -1257,7 +1257,14 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
         for (final var clusterName : session.getClusterNames()) {
           final Iterator<DBRecord> recordIterator = session.browseCluster(clusterName);
           while (recordIterator.hasNext()) {
-            recordsBeforeImport.add(recordIterator.next().getIdentity());
+            var identity = recordIterator.next().getIdentity();
+            if (identity.equals(schemaRecordId)) {
+              continue;
+            } else if (identity.equals(indexMgrRecordId)) {
+              continue;
+            }
+
+            recordsBeforeImport.add(identity);
           }
         }
 

@@ -46,32 +46,32 @@ public final class SimpleMultiValueTracker<K, V> {
 
   public void addNoDirty(K key, V value) {
     onAfterRecordChanged(
-        new MultiValueChangeEvent<K, V>(ChangeType.ADD, key, value, null),
+        new MultiValueChangeEvent<>(ChangeType.ADD, key, value, null),
         false);
   }
 
   public void removeNoDirty(K key, V value) {
     onAfterRecordChanged(
-        new MultiValueChangeEvent<K, V>(
+        new MultiValueChangeEvent<>(
             ChangeType.REMOVE, key, null, value),
         false);
   }
 
   public void add(K key, V value) {
     onAfterRecordChanged(
-        new MultiValueChangeEvent<K, V>(ChangeType.ADD, key, value), true);
+        new MultiValueChangeEvent<>(ChangeType.ADD, key, value), true);
   }
 
   public void updated(K key, V newValue, V oldValue) {
     onAfterRecordChanged(
-        new MultiValueChangeEvent<K, V>(
+        new MultiValueChangeEvent<>(
             ChangeType.UPDATE, key, newValue, oldValue),
         true);
   }
 
   public void remove(K key, V value) {
     onAfterRecordChanged(
-        new MultiValueChangeEvent<K, V>(
+        new MultiValueChangeEvent<>(
             ChangeType.REMOVE, key, null, value),
         true);
   }
@@ -93,7 +93,7 @@ public final class SimpleMultiValueTracker<K, V> {
     timeLine.addCollectionChangeEvent((MultiValueChangeEvent<Object, Object>) event);
 
     if (transactionTimeLine == null) {
-      transactionTimeLine = new MultiValueChangeTimeLine<K, V>();
+      transactionTimeLine = new MultiValueChangeTimeLine<>();
     }
     transactionTimeLine.addCollectionChangeEvent(event);
 

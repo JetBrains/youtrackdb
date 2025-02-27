@@ -123,7 +123,7 @@ public class TransactionRidAllocationTest {
       deserialized.setIdentity(recordOperation.value.key.getIdentity());
 
       transactionOptimistic.addRecordOperation(deserialized,
-          recordOperation.key, null);
+          recordOperation.key);
     }
 
     ((AbstractPaginatedStorage) second.getStorage()).preallocateRids(transactionOptimistic);
@@ -191,7 +191,7 @@ public class TransactionRidAllocationTest {
       var deserialized = serializer.fromStream(second, record, null, null);
       deserialized.setIdentity(recordOperation.value.key.getIdentity());
       transactionOptimistic.addRecordOperation(deserialized,
-          recordOperation.key, null);
+          recordOperation.key);
     }
     ((AbstractPaginatedStorage) second.getStorage()).preallocateRids(transactionOptimistic);
   }

@@ -21,7 +21,6 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public interface Result {
-
   /**
    * returns a property from the result
    *
@@ -301,6 +300,7 @@ public interface Result {
     if (isEntity()) {
       return castToEntity().getLinkMap(name);
     }
+
     var value = getProperty(name);
     if (value == null) {
       return null;

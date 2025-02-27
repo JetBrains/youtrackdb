@@ -32,7 +32,6 @@ public class TestTypeGuessingWorkingWithSQLAndMultiValues extends DbTestBase {
 
   @Test
   public void testLinkedValue() {
-
     session.begin();
     try (var result =
         session.execute(

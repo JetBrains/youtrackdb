@@ -192,7 +192,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
         assert recordId.isPersistent();
 
         var optimistic = (FrontendTransactionOptimistic) tx;
-        optimistic.addRecordOperation(this, RecordOperation.UPDATED, null);
+        optimistic.addRecordOperation(this, RecordOperation.UPDATED);
       }
     }
   }

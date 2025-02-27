@@ -35,10 +35,10 @@ public class TestBinaryRecordsQuery extends DbTestBase {
   public void testSelectRidBinary() {
     session.begin();
     var blob = session.newBlob("blabla".getBytes());
-    session.commit();
 
     var res = session.query("select @rid from " + blob.getIdentity());
     assertEquals(1, res.stream().count());
+    session.commit();
   }
 
   @Test
@@ -48,9 +48,7 @@ public class TestBinaryRecordsQuery extends DbTestBase {
     session.commit();
 
     session.begin();
-    var res = session.command("delete from (select from cluster:BlobCluster)");
-    session.commit();
-
+    var res = session.command("delete from (select from ?)", rec.getIdentity());
     assertEquals(1, (long) res.next().getProperty("count"));
     try {
       session.load(rec.getIdentity());
@@ -58,6 +56,7 @@ public class TestBinaryRecordsQuery extends DbTestBase {
     } catch (RecordNotFoundException e) {
       // ignore
     }
+    session.commit();
   }
 
   @Test
@@ -76,8 +75,8 @@ public class TestBinaryRecordsQuery extends DbTestBase {
     session.begin();
     var res =
         session.command(
-            "delete from cluster:BlobCluster where @rid in (select ref from RecordPointer)");
-    session.commit();
+            "delete from (select * from ?)", doc.getIdentity());
+
 
     assertEquals(1, (long) res.next().getProperty("count"));
     try {
@@ -86,6 +85,7 @@ public class TestBinaryRecordsQuery extends DbTestBase {
     } catch (RecordNotFoundException e) {
       // ignore
     }
+    session.commit();
   }
 
   @Test

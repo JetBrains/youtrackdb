@@ -68,14 +68,6 @@ public class EntityInternalUtils {
     return entity.getFilteredEntries();
   }
 
-  public static void clearTrackData(final EntityImpl entity) {
-    entity.clearTrackData();
-  }
-
-  public static void checkClass(EntityImpl entity, DatabaseSessionInternal database) {
-    entity.checkClass(database);
-  }
-
   public static void autoConvertValueToClass(DatabaseSessionInternal database, EntityImpl entity) {
     entity.autoConvertFieldsToClass(database);
   }
@@ -109,10 +101,6 @@ public class EntityInternalUtils {
 
   public static PropertyEncryption getPropertyEncryption(EntityImpl entity) {
     return entity.propertyEncryption;
-  }
-
-  public static void clearTransactionTrackData(EntityImpl entity) {
-    entity.clearTransactionTrackData();
   }
 
   public static Iterator<String> iteratePropertieNames(EntityImpl entity) {

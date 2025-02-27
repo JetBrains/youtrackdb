@@ -84,7 +84,6 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.record.impl.RecordBytes;
 import com.jetbrains.youtrack.db.internal.core.record.impl.StatefulEdgeImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl;
@@ -552,8 +551,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Override
   public void deleteInternal(@Nonnull DBRecord record) {
-    assert assertIfNotActive();
     checkOpenness();
+    assert assertIfNotActive();
 
     if (record instanceof Entity) {
       if (((Entity) record).isVertex()) {
@@ -563,14 +562,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
           EdgeEntityImpl.deleteLinks(this, ((Entity) record).castToStatefulEdge());
         }
       }
-    }
-
-    // CHECK ACCESS ON SCHEMA CLASS NAME (IF ANY)
-    if (record instanceof EntityImpl && ((EntityImpl) record).getSchemaClassName() != null) {
-      checkSecurity(
-          Rule.ResourceGeneric.CLASS,
-          Role.PERMISSION_DELETE,
-          ((EntityImpl) record).getSchemaClassName());
     }
 
     try {
@@ -949,7 +940,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
         afterReadOperations(record);
         if (record instanceof EntityImpl) {
-          EntityInternalUtils.checkClass((EntityImpl) record, this);
+          ((EntityImpl) record).checkClass(this);
         }
 
         localCache.updateRecord(record);
@@ -997,7 +988,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
       RecordInternal.fill(record, rid, recordBuffer.version, recordBuffer.buffer, false);
 
       if (record instanceof EntityImpl) {
-        EntityInternalUtils.checkClass((EntityImpl) record, this);
+        ((EntityImpl) record).checkClass(this);
       }
 
       if (beforeReadOperations(record)) {
@@ -1194,7 +1185,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     var entity = new EntityImpl(this, rid);
 
     var tx = (FrontendTransactionOptimistic) currentTx;
-    tx.addRecordOperation(entity, RecordOperation.CREATED, null);
+    tx.addRecordOperation(entity, RecordOperation.CREATED);
 
     return entity;
   }
@@ -1207,7 +1198,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     assignAndCheckCluster(blob, null);
 
     var tx = (FrontendTransactionOptimistic) currentTx;
-    tx.addRecordOperation(blob, RecordOperation.CREATED, null);
+    tx.addRecordOperation(blob, RecordOperation.CREATED);
 
     return blob;
   }
@@ -1220,7 +1211,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     assignAndCheckCluster(blob, null);
 
     var tx = (FrontendTransactionOptimistic) currentTx;
-    tx.addRecordOperation(blob, RecordOperation.CREATED, null);
+    tx.addRecordOperation(blob, RecordOperation.CREATED);
 
     return blob;
   }
@@ -1238,7 +1229,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     var entity = new EntityImpl(this, className);
     assignAndCheckCluster(entity, null);
 
-    currentTx.addRecordOperation(entity, RecordOperation.CREATED, null);
+    currentTx.addRecordOperation(entity, RecordOperation.CREATED);
 
     return entity;
   }
@@ -1304,7 +1295,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     var vertex = new VertexEntityImpl(this, className);
     assignAndCheckCluster(vertex, null);
 
-    currentTx.addRecordOperation(vertex, RecordOperation.CREATED, null);
+    currentTx.addRecordOperation(vertex, RecordOperation.CREATED);
 
     return vertex;
   }
@@ -1529,37 +1520,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
         this, getClusterIdByName(iClusterName), startClusterPosition, endClusterPosition);
   }
 
-  private <RET extends DBRecord> RET saveInternal(RecordAbstract record, String clusterName) {
-    if (!(record instanceof EntityImpl entity)) {
-      assignAndCheckCluster(record, clusterName);
-      return (RET) currentTx.saveRecord(record, clusterName);
-    }
-
-    EntityInternalUtils.checkClass(entity, this);
-    entity.checkAllMultiValuesAreTrackedVersions();
-
-    if (!entity.getIdentity().isValid()) {
-      if (entity.getSchemaClassName() != null) {
-        checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE,
-            entity.getSchemaClassName());
-      }
-
-      assignAndCheckCluster(entity, clusterName);
-    } else {
-      // UPDATE: CHECK ACCESS ON SCHEMA CLASS NAME (IF ANY)
-      if (entity.getSchemaClassName() != null) {
-        checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_UPDATE,
-            entity.getSchemaClassName());
-      }
-    }
-
-    if (!serializer.equals(RecordInternal.getRecordSerializer(entity))) {
-      RecordInternal.setRecordSerializer(entity, serializer);
-    }
-
-    return (RET) currentTx.saveRecord(record, clusterName);
-  }
-
   /**
    * Returns the number of the records of the class iClassName.
    */
@@ -1605,8 +1565,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
                 deletedInTx++;
               }
             } else {
-              if (className.equals(schemaClass.getName(this))
-                  || className.equals(schemaClass.getShortName(this))) {
+              if (schemaClass != null && (className.equals(schemaClass.getName(this))
+                  || className.equals(schemaClass.getShortName(this)))) {
                 deletedInTx++;
               }
             }

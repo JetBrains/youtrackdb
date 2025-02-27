@@ -174,7 +174,7 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
       byte recordType) {
     if (record instanceof EntityImpl entity) {
       entity.deserializeFields();
-      EntityInternalUtils.clearTransactionTrackData(entity);
+      entity.clearTransactionTrackData();
 
       if (recordType == DocumentSerializerDelta.DELTA_RECORD_TYPE) {
         var delta = DocumentSerializerDelta.instance();
@@ -338,7 +338,7 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
       }
       // RESET TRACKING
       if (record instanceof EntityImpl && ((EntityImpl) record).isTrackingChanges()) {
-        EntityInternalUtils.clearTrackData(((EntityImpl) record));
+        ((EntityImpl) record).clearTrackData();
       }
 
     } catch (Exception e) {

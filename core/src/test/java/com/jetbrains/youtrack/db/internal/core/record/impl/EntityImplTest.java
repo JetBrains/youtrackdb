@@ -360,7 +360,7 @@ public class EntityImplTest extends DbTestBase {
     var entity = (EntityImpl) session.newEntity();
     var bytes = new byte[]{0, 1, 2, 3, 4, 5};
     entity.setBinary("bytes", bytes);
-    EntityInternalUtils.clearTrackData(entity);
+    entity.clearTrackData();
     RecordInternal.unsetDirty(entity);
     assertFalse(entity.isDirty());
     assertNull(entity.getOriginalValue("bytes"));

@@ -114,12 +114,14 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
     return entity.newEmbeddedList(name);
   }
 
+  @Nonnull
   @Override
   public <T> List<T> newEmbeddedList(@Nonnull String name, T[] source) {
     EdgeInternal.checkPropertyName(name);
     return entity.newEmbeddedList(name, source);
   }
 
+  @Nonnull
   @Override
   public List<Byte> newEmbeddedList(@Nonnull String name, byte[] source) {
     EdgeInternal.checkPropertyName(name);
@@ -127,6 +129,7 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
 
   }
 
+  @Nonnull
   @Override
   public List<Short> newEmbeddedList(@Nonnull String name, short[] source) {
     EdgeInternal.checkPropertyName(name);
@@ -134,6 +137,7 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
 
   }
 
+  @Nonnull
   @Override
   public List<Integer> newEmbeddedList(@Nonnull String name, int[] source) {
     EdgeInternal.checkPropertyName(name);
@@ -141,6 +145,7 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
 
   }
 
+  @Nonnull
   @Override
   public List<Long> newEmbeddedList(@Nonnull String name, long[] source) {
     EdgeInternal.checkPropertyName(name);
@@ -148,12 +153,14 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
 
   }
 
+  @Nonnull
   @Override
   public List<Boolean> newEmbeddedList(@Nonnull String name, boolean[] source) {
     EdgeInternal.checkPropertyName(name);
     return entity.newEmbeddedList(name, source);
   }
 
+  @Nonnull
   @Override
   public List<Float> newEmbeddedList(@Nonnull String name, float[] source) {
     EdgeInternal.checkPropertyName(name);
@@ -161,6 +168,7 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
 
   }
 
+  @Nonnull
   @Override
   public List<Double> newEmbeddedList(@Nonnull String name, double[] source) {
     EdgeInternal.checkPropertyName(name);
@@ -304,6 +312,7 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
     entity.setPropertyInternal(name, value);
   }
 
+  @Nonnull
   @Override
   public <T> List<T> newEmbeddedList(@Nonnull String name, List<T> source) {
     EdgeInternal.checkPropertyName(name);

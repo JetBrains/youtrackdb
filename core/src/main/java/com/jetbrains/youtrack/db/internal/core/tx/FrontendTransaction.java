@@ -104,15 +104,6 @@ public interface FrontendTransaction {
   boolean isActive();
 
   /**
-   * Saves the given record in this transaction.
-   *
-   * @param record      the record to save.
-   * @param clusterName record's cluster name.
-   * @return the record saved.
-   */
-  DBRecord saveRecord(RecordAbstract record, String clusterName);
-
-  /**
    * Deletes the given record in this transaction.
    *
    * @param record the record to delete.
@@ -189,8 +180,8 @@ public interface FrontendTransaction {
   long getId();
 
 
-  void addRecordOperation(RecordAbstract record, byte status, String clusterName);
+  void addRecordOperation(RecordAbstract record, byte status);
 
-  default void preProcessRecordsAndExecuteCallCallbacks() {
+  default void preProcessRecordsAndExecuteCallCallbacks(boolean cleanDeletedRecords) {
   }
 }

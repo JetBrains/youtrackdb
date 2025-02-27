@@ -123,10 +123,6 @@ public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
     return session.executeExists(rid);
   }
 
-  public DBRecord saveRecord(final RecordAbstract iRecord, final String iClusterName) {
-    throw new DatabaseException(session, "Cannot save record in no tx mode");
-  }
-
   /**
    * Deletes the record.
    */
@@ -219,7 +215,7 @@ public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
   }
 
   @Override
-  public void addRecordOperation(RecordAbstract record, byte status, String clusterName) {
+  public void addRecordOperation(RecordAbstract record, byte status) {
     throw new UnsupportedOperationException("Can not modify record outside transaction");
   }
 

@@ -822,6 +822,7 @@ public class EntityImpl extends RecordAbstract
     return value;
   }
 
+  @Nonnull
   @Override
   public <T> List<T> newEmbeddedList(@Nonnull String name, List<T> source) {
     var value = new TrackedList<T>(source.size());
@@ -830,6 +831,7 @@ public class EntityImpl extends RecordAbstract
     return value;
   }
 
+  @Nonnull
   @Override
   public <T> List<T> newEmbeddedList(@Nonnull String name, T[] source) {
     var value = new TrackedList<T>(source.length);
@@ -838,6 +840,7 @@ public class EntityImpl extends RecordAbstract
     return value;
   }
 
+  @Nonnull
   @Override
   public List<Byte> newEmbeddedList(@Nonnull String name, byte[] source) {
     var value = new TrackedList<Byte>(source.length);
@@ -848,6 +851,7 @@ public class EntityImpl extends RecordAbstract
     return value;
   }
 
+  @Nonnull
   @Override
   public List<Short> newEmbeddedList(@Nonnull String name, short[] source) {
     var value = new TrackedList<Short>(source.length);
@@ -858,6 +862,7 @@ public class EntityImpl extends RecordAbstract
     return value;
   }
 
+  @Nonnull
   @Override
   public List<Integer> newEmbeddedList(@Nonnull String name, int[] source) {
     var value = new TrackedList<Integer>(source.length);
@@ -868,6 +873,7 @@ public class EntityImpl extends RecordAbstract
     return value;
   }
 
+  @Nonnull
   @Override
   public List<Long> newEmbeddedList(@Nonnull String name, long[] source) {
     var value = new TrackedList<Long>(source.length);
@@ -878,6 +884,7 @@ public class EntityImpl extends RecordAbstract
     return value;
   }
 
+  @Nonnull
   @Override
   public List<Boolean> newEmbeddedList(@Nonnull String name, boolean[] source) {
     var value = new TrackedList<Boolean>(source.length);
@@ -888,6 +895,7 @@ public class EntityImpl extends RecordAbstract
     return value;
   }
 
+  @Nonnull
   @Override
   public List<Float> newEmbeddedList(@Nonnull String name, float[] source) {
     var value = new TrackedList<Float>(source.length);
@@ -898,6 +906,7 @@ public class EntityImpl extends RecordAbstract
     return value;
   }
 
+  @Nonnull
   @Override
   public List<Double> newEmbeddedList(@Nonnull String name, double[] source) {
     var value = new TrackedList<Double>(source.length);
@@ -1286,14 +1295,13 @@ public class EntityImpl extends RecordAbstract
       }
     }
 
-    if (oldValue instanceof
-        RidBag ridBag) {
+    if (oldValue instanceof RidBag ridBag) {
       ridBag.setOwner(null);
-    } else if (value instanceof TrackedMultiValue<?, ?> trackedMultiValue) {
-      trackedMultiValue.setOwner(null);
-    } else {
-      if (oldValue instanceof EntityImpl) {
-        ((EntityImpl) oldValue).removeOwner(this);
+    } else if (oldValue instanceof EntityImpl entity) {
+      entity.removeOwner(this);
+    } else if (value instanceof RecordElement recordElement) {
+      if (!(value instanceof Blob)) {
+        recordElement.setOwner(null);
       }
     }
 
@@ -1301,18 +1309,18 @@ public class EntityImpl extends RecordAbstract
       switch (value) {
         case EntityImpl entity -> {
           if (PropertyType.EMBEDDED.equals(fieldType)) {
-            final var embeddedEntity = (EntityImpl) value;
-            embeddedEntity.setOwner(this);
+            entity.setOwner(this);
           }
         }
         case RidBag ridBag -> {
-          ridBag.setOwner(
-              null); // in order to avoid IllegalStateException when ridBag changes the owner
-
           ridBag.setOwner(this);
           ridBag.setRecordAndField(recordId, name);
         }
-        case TrackedMultiValue<?, ?> trackedMultiValue -> trackedMultiValue.setOwner(this);
+        case RecordElement entity -> {
+          if (!(value instanceof Blob)) {
+            entity.setOwner(this);
+          }
+        }
         default -> {
         }
       }
@@ -3200,7 +3208,7 @@ public class EntityImpl extends RecordAbstract
     return this;
   }
 
-  protected void clearTrackData() {
+  public void clearTrackData() {
     if (fields != null) {
       // FREE RESOURCES
       for (var cur : fields.entrySet()) {
@@ -3214,7 +3222,7 @@ public class EntityImpl extends RecordAbstract
     }
   }
 
-  void clearTransactionTrackData() {
+  public void clearTransactionTrackData() {
     if (fields != null) {
       // FREE RESOURCES
       var iter = fields.entrySet().iterator();
@@ -3424,7 +3432,7 @@ public class EntityImpl extends RecordAbstract
     checkForBinding();
 
     if (className == null) {
-      fetchClassName();
+      fetchClassName(session);
     }
 
     if (className == null) {
@@ -3437,7 +3445,7 @@ public class EntityImpl extends RecordAbstract
   @Nullable
   public String getSchemaClassName() {
     if (className == null) {
-      fetchClassName();
+      fetchClassName(session);
     }
 
     return className;
@@ -3725,7 +3733,7 @@ public class EntityImpl extends RecordAbstract
     var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
     if (immutableClazz == null) {
       if (className == null) {
-        fetchClassName();
+        fetchClassName(session);
       }
 
       if (className != null) {
@@ -4059,7 +4067,7 @@ public class EntityImpl extends RecordAbstract
     }
   }
 
-  private void fetchClassName() {
+  private void fetchClassName(DatabaseSessionInternal session) {
     if (!session.isClosed()) {
       if (recordId != null) {
         if (recordId.getClusterId() >= 0) {
@@ -4217,13 +4225,13 @@ public class EntityImpl extends RecordAbstract
     }
   }
 
-  void checkClass(DatabaseSessionInternal database) {
+  public void checkClass(DatabaseSessionInternal session) {
     checkForBinding();
     if (className == null) {
-      fetchClassName();
+      fetchClassName(session);
     }
 
-    final Schema immutableSchema = database.getMetadata().getImmutableSchemaSnapshot();
+    final Schema immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
     if (immutableSchema == null) {
       return;
     }

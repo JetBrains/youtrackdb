@@ -159,22 +159,31 @@ public interface Entity extends DBRecord, Result {
   @Nonnull
   <T> List<T> newEmbeddedList(@Nonnull String name);
 
+  @Nonnull
   <T> List<T> newEmbeddedList(@Nonnull String name, List<T> source);
 
+  @Nonnull
   <T> List<T> newEmbeddedList(@Nonnull String name, T[] source);
 
+  @Nonnull
   List<Byte> newEmbeddedList(@Nonnull String name, byte[] source);
 
+  @Nonnull
   List<Short> newEmbeddedList(@Nonnull String name, short[] source);
 
+  @Nonnull
   List<Integer> newEmbeddedList(@Nonnull String name, int[] source);
 
+  @Nonnull
   List<Long> newEmbeddedList(@Nonnull String name, long[] source);
 
+  @Nonnull
   List<Boolean> newEmbeddedList(@Nonnull String name, boolean[] source);
 
+  @Nonnull
   List<Float> newEmbeddedList(@Nonnull String name, float[] source);
 
+  @Nonnull
   List<Double> newEmbeddedList(@Nonnull String name, double[] source);
 
   @Nonnull

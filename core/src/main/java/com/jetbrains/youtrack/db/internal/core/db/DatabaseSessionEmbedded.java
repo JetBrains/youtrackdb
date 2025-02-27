@@ -724,7 +724,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   private void preQueryStart() {
-    currentTx.preProcessRecordsAndExecuteCallCallbacks();
+    currentTx.preProcessRecordsAndExecuteCallCallbacks(true);
     this.queryState.push(new QueryDatabaseState());
   }
 
