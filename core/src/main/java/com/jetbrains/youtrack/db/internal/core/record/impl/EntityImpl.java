@@ -1730,7 +1730,8 @@ public class EntityImpl extends RecordAbstract
       final Object value) {
     if (value != null) {
       try {
-        if (PropertyType.convert(session, value, p.getLinkedType(session).getDefaultJavaType())
+        if (p.getLinkedType(session)
+            .convert(value, p.getLinkedType(session), p.getLinkedClass(session), session)
             == null) {
           throw new ValidationException(session.getDatabaseName(),
               "The field '"

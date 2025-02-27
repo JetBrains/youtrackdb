@@ -53,8 +53,8 @@ public class SQLFunctionDistance extends SQLFunctionAbstract {
         return null;
       }
 
-      values[i] = PropertyType.convert(iContext.getDatabaseSession(), iParams[i],
-          Double.class);
+      values[i] = (Double) PropertyType.DOUBLE.convert(iParams[i], null, null,
+          iContext.getDatabaseSession());
     }
 
     final var deltaLat = Math.toRadians(values[2] - values[0]);

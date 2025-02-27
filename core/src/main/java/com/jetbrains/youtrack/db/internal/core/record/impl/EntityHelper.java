@@ -295,8 +295,9 @@ public class EntityHelper {
             final var fieldValue = getFieldValue(session, currentRecord, conditionFieldName);
 
             if (conditionFieldValue != null && fieldValue != null) {
-              conditionFieldValue = PropertyType.convert(session, conditionFieldValue,
-                  fieldValue.getClass());
+              var type = PropertyType.getTypeByValue(fieldValue);
+              conditionFieldValue = type.convert(conditionFieldValue, null,
+                  null, session);
             }
 
             if (fieldValue == null && !conditionFieldValue.equals("null")
@@ -362,8 +363,9 @@ public class EntityHelper {
             final var fieldValue = map.get(conditionFieldName);
 
             if (conditionFieldValue != null && fieldValue != null) {
-              conditionFieldValue = PropertyType.convert(session, conditionFieldValue,
-                  fieldValue.getClass());
+              var type = PropertyType.getTypeByValue(fieldValue);
+              conditionFieldValue = type.convert(conditionFieldValue, null,
+                  null, session);
             }
 
             if (fieldValue == null && !conditionFieldValue.equals("null")
@@ -670,7 +672,9 @@ public class EntityHelper {
           return fieldValue == null ? entity : null;
         }
 
-        fieldValue = PropertyType.convert(db, fieldValue, iConditionFieldValue.getClass());
+        var dbType = PropertyType.getTypeByValue(iConditionFieldValue);
+        fieldValue = dbType.convert(fieldValue, null, null, db);
+
         if (fieldValue != null && fieldValue.equals(iConditionFieldValue)) {
           return entity;
         }
@@ -679,7 +683,8 @@ public class EntityHelper {
       final var map = (Map<String, ?>) iValue;
       var fieldValue = getMapEntry(db, map, iConditionFieldName);
 
-      fieldValue = PropertyType.convert(db, fieldValue, iConditionFieldValue.getClass());
+      var dbType = PropertyType.getTypeByValue(iConditionFieldValue);
+      fieldValue = dbType.convert(fieldValue, null, null, db);
       if (fieldValue != null && fieldValue.equals(iConditionFieldValue)) {
         return map;
       }

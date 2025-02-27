@@ -803,7 +803,7 @@ public class RecordSerializerJackson {
           case BINARY -> {
             var text = jsonParser.getText();
             if (!text.isEmpty() && text.length() <= 3) {
-              yield PropertyType.convert(session, text, Byte.class);
+              yield PropertyType.BYTE.convert(text, null, null, session);
             }
 
             yield Base64.getDecoder().decode(text);
