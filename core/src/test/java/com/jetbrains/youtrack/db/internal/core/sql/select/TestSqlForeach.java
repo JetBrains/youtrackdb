@@ -15,11 +15,12 @@ public class TestSqlForeach extends DbTestBase {
     var doc = ((EntityImpl) session.newEntity("Test"));
     session.commit();
 
+    session.begin();
     var result =
         session.execute(
             "sql",
-            "let $res = select from Test; foreach ($r in $res) { begin; update $r set timestamp ="
-                + " sysdate(); commit;}; return $res; ");
+            "let $res = select from Test; foreach ($r in $res) { update $r set timestamp ="
+                + " sysdate(); }; return $res; ");
 
     Assert.assertTrue(result.hasNext());
 
