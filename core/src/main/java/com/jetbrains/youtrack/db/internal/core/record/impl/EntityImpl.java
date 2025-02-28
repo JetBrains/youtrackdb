@@ -2924,10 +2924,14 @@ public class EntityImpl extends RecordAbstract
 
     for (var entry : fields.entrySet()) {
       var value = entry.getValue();
-      if (value.original == null && value.value instanceof RidBag ridBag && !ridBag.isEmbedded()) {
-        ridBagsToDelete.add(ridBag);
-      } else if (value.original instanceof RidBag ridBag && !ridBag.isEmbedded()) {
-        ridBagsToDelete.add(ridBag);
+      if (value.exists()) {
+        if (value.value != null) {
+          if (value.value instanceof RidBag ridBag && !ridBag.isEmbedded()) {
+            ridBagsToDelete.add(ridBag);
+          }
+        } else if (value.original instanceof RidBag ridBag && !ridBag.isEmbedded()) {
+          ridBagsToDelete.add(ridBag);
+        }
       }
     }
 

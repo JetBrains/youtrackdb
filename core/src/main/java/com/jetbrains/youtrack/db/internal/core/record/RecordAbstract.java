@@ -157,6 +157,8 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   public void setDirty() {
     assert session != null && session.assertIfNotActive() : createNotBoundToSessionMessage();
+    checkForBinding();
+
     if (status != STATUS.UNMARSHALLING) {
       dirty++;
 
@@ -282,6 +284,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
       status = STATUS.NOT_LOADED;
       session = null;
       unsetDirty();
+      txEntry = null;
     }
   }
 
@@ -314,6 +317,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     source = null;
     status = STATUS.NOT_LOADED;
     session = null;
+    txEntry = null;
   }
 
   public int getSize() {
@@ -472,8 +476,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
         return;
       }
 
-      throw new DatabaseException(session != null ? session.getDatabaseName() : null,
-          createNotBoundToSessionMessage());
+      throw new DatabaseException(session, createNotBoundToSessionMessage());
     }
 
     if (session == null) {
