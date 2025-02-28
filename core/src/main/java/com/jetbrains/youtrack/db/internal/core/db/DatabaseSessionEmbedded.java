@@ -583,6 +583,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       var result = new LocalResultSetLifecycleDecorator(original);
       queryStarted(result);
       return result;
+    } catch (Exception e) {
+      int i = 0;
+      throw e;
     } finally {
       cleanQueryState();
       getSharedContext().getYouTrackDB().endCommand();
@@ -724,7 +727,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   private void preQueryStart() {
-    currentTx.preProcessRecordsAndExecuteCallCallbacks(true);
+    currentTx.preProcessRecordsAndExecuteCallCallbacks();
     this.queryState.push(new QueryDatabaseState());
   }
 

@@ -41,9 +41,10 @@ public class FunctionSqlTest extends DbTestBase {
     var context = new BasicCommandContext();
     context.setDatabaseSession(session);
 
+    session.begin();
     var result = function.executeInContext(context, "Enrico");
-
     Assert.assertEquals(1, ((LegacyResultSet<?>) result).size());
+    session.commit();
   }
 
   @Test
@@ -88,7 +89,9 @@ public class FunctionSqlTest extends DbTestBase {
     var context = new BasicCommandContext();
     context.setDatabaseSession(session);
 
+    session.begin();
     var result = function.executeInContext(context, "Enrico");
     Assert.assertEquals(1, ((LegacyResultSet) result).size());
+    session.commit();
   }
 }

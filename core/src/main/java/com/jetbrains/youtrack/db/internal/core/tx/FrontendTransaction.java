@@ -182,6 +182,6 @@ public interface FrontendTransaction {
 
   void addRecordOperation(RecordAbstract record, byte status);
 
-  default void preProcessRecordsAndExecuteCallCallbacks(boolean cleanDeletedRecords) {
+  default void preProcessRecordsAndExecuteCallCallbacks() {
   }
 }

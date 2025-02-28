@@ -138,11 +138,11 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
           "Invalid value of tx counter: " + txStartCounter);
     }
     if (force) {
-      preProcessRecordsAndExecuteCallCallbacks(true);
+      preProcessRecordsAndExecuteCallCallbacks();
       txStartCounter = 0;
     } else {
       if (txStartCounter == 1) {
-        preProcessRecordsAndExecuteCallCallbacks(true);
+        preProcessRecordsAndExecuteCallCallbacks();
       }
       txStartCounter--;
     }
@@ -425,7 +425,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     try {
       addRecordOperation(record, RecordOperation.DELETED);
       //execute it here because after this operation record will be unloaded
-      preProcessRecordsAndExecuteCallCallbacks(false);
+      preProcessRecordsAndExecuteCallCallbacks();
     } catch (Exception e) {
       rollback(true, 0);
       throw e;
@@ -484,6 +484,12 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
             throw new IllegalStateException(
                 "Temporary records can not be added to the transaction");
           }
+          if (record.txEntry != null) {
+            throw new TransactionException(session,
+                "Record is already in transaction with different associated transaction entry");
+          }
+
+          record.txEntry = txEntry;
           txEntry = new RecordOperation(record, status);
           recordOperations.put(txEntry.initialRecordId, txEntry);
           changed = true;
@@ -492,6 +498,11 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
             throw new TransactionException(session,
                 "Found record in transaction with the same RID but different instance");
           }
+          if (record.txEntry != null && record.txEntry != txEntry) {
+            throw new TransactionException(session,
+                "Record is already in transaction with different associated transaction entry");
+          }
+          record.txEntry = txEntry;
 
           switch (txEntry.type) {
             case RecordOperation.UPDATED:
@@ -510,13 +521,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
               }
             case RecordOperation.CREATED:
               if (status == RecordOperation.DELETED) {
-                if (txEntry.recordCallBackDirtyCounter == 0) {
-                  //we can remove such record from transaction only if no callback was callback
-                  recordOperations.remove(txEntry.initialRecordId);
-                  updatedOperations.remove(txEntry.initialRecordId);
-                } else {
-                  txEntry.type = RecordOperation.DELETED;
-                }
+                txEntry.type = RecordOperation.DELETED;
                 changed = true;
               } else if (status == RecordOperation.CREATED) {
                 throw new IllegalStateException(
@@ -531,7 +536,11 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
                 "Error on execution of operation on record " + record.getIdentity()), e, session);
       }
 
-      updatedOperations.put(txEntry.initialRecordId, txEntry);
+      assert txEntry.recordCallBackDirtyCounter <= record.getDirtyCounter();
+      if (txEntry.recordCallBackDirtyCounter < record.getDirtyCounter()) {
+        changed = true;
+        updatedOperations.put(txEntry.initialRecordId, txEntry);
+      }
     } catch (Exception e) {
       rollback(true, 0);
       throw e;
@@ -569,9 +578,10 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     status = TXSTATUS.COMPLETED;
   }
 
-  public void preProcessRecordsAndExecuteCallCallbacks(boolean cleanDeletedRecords) {
+  public void preProcessRecordsAndExecuteCallCallbacks() {
     var serializer = session.getSerializer();
 
+    List<RecordId> newDeletedRecords = null;
     while (changed) {
       changed = false;
       var operations = new ArrayList<>(updatedOperations.values());
@@ -579,19 +589,17 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
 
       for (var recordOperation : operations) {
         preProcessRecordOperationAndExecuteCallbacks(recordOperation, serializer);
-      }
-    }
-
-    //case when record was created and then deleted in the same transaction
-    if (cleanDeletedRecords) {
-      var newDeletedRecords = new ArrayList<RecordId>();
-      for (var recordOperation : recordOperations.values()) {
         if (recordOperation.type == RecordOperation.DELETED && recordOperation.record.getIdentity()
             .isNew()) {
+          if (newDeletedRecords == null) {
+            newDeletedRecords = new ArrayList<>();
+          }
           newDeletedRecords.add(recordOperation.record.getIdentity());
         }
       }
+    }
 
+    if (newDeletedRecords != null) {
       for (var newDeletedRecord : newDeletedRecords) {
         recordOperations.remove(newDeletedRecord);
       }

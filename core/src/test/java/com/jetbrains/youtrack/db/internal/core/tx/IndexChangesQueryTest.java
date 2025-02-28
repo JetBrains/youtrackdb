@@ -64,7 +64,7 @@ public class IndexChangesQueryTest {
 
     Assert.assertNotNull(db.getTransaction().getIndexChanges(INDEX_NAME));
 
-    db.getTransaction().preProcessRecordsAndExecuteCallCallbacks(true);
+    db.getTransaction().preProcessRecordsAndExecuteCallCallbacks();
 
     Assert.assertFalse(fetchCollectionFromIndex(index, 1).isEmpty());
     Assert.assertFalse((fetchCollectionFromIndex(index, 2)).isEmpty());
@@ -120,7 +120,7 @@ public class IndexChangesQueryTest {
     var doc = ((EntityImpl) db.newEntity(CLASS_NAME));
     doc.field(FIELD_NAME, 2);
 
-    db.getTransaction().preProcessRecordsAndExecuteCallCallbacks(true);
+    db.getTransaction().preProcessRecordsAndExecuteCallCallbacks();
 
     Assert.assertEquals(1, (fetchCollectionFromIndex(index, 1)).size());
     Assert.assertEquals(1, (fetchCollectionFromIndex(index, 2)).size());

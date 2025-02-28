@@ -65,6 +65,9 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   @Nullable
   protected DatabaseSessionInternal session;
 
+  @Nullable
+  public RecordOperation txEntry;
+
   public RecordAbstract(@Nonnull DatabaseSessionInternal session) {
     recordId = new ChangeableRecordId();
     this.session = session;
@@ -157,9 +160,11 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     if (status != STATUS.UNMARSHALLING) {
       dirty++;
 
-      if (dirty == 1) {
-        registerInTx();
+      assert txEntry == null || dirty >= txEntry.recordCallBackDirtyCounter;
+      assert txEntry == null || txEntry.record == this;
 
+      if (txEntry == null || dirty > txEntry.recordCallBackDirtyCounter) {
+        registerInTx();
         source = null;
       }
 
