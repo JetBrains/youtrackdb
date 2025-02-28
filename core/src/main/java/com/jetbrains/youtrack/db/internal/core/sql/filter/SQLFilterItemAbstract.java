@@ -224,7 +224,7 @@ public abstract class SQLFilterItemAbstract implements SQLFilterItem {
     if (operationsChain != null) {
       for (var op : operationsChain) {
         buffer.append('.');
-        buffer.append(op.getKey());
+        buffer.append(op.getKey().asString(session));
         if (op.getValue() != null) {
           final var values = op.getValue();
           buffer.append('(');
@@ -233,7 +233,11 @@ public abstract class SQLFilterItemAbstract implements SQLFilterItem {
             if (i++ > 0) {
               buffer.append(',');
             }
-            buffer.append(v);
+            if (v instanceof SQLFilterItemAbstract filterItemAbstract) {
+              buffer.append(filterItemAbstract.asString(session));
+            } else {
+              buffer.append(v);
+            }
           }
           buffer.append(')');
         }

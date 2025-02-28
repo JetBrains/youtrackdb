@@ -207,7 +207,6 @@ public class SQLFilterCondition {
       result = Boolean.FALSE;
     }
 
-
     return result;
   }
 
@@ -292,6 +291,36 @@ public class SQLFilterCondition {
       buffer.append(right);
       if (right instanceof String) {
         buffer.append('\'');
+      }
+      buffer.append(')');
+    }
+
+    return buffer.toString();
+  }
+
+  public String asString(DatabaseSessionInternal session) {
+    var buffer = new StringBuilder(128);
+
+    buffer.append('(');
+    if (left instanceof SQLFilterItemAbstract filterItemAbstract) {
+      buffer.append(filterItemAbstract.asString(session));
+    } else {
+      buffer.append(left);
+    }
+    if (operator != null) {
+      buffer.append(' ');
+      buffer.append(operator);
+      buffer.append(' ');
+      if (right instanceof SQLFilterItemAbstract filterItemAbstract) {
+        buffer.append(filterItemAbstract.asString(session));
+      } else {
+        if (right instanceof String) {
+          buffer.append('\'');
+        }
+        buffer.append(right);
+        if (right instanceof String) {
+          buffer.append('\'');
+        }
       }
       buffer.append(')');
     }

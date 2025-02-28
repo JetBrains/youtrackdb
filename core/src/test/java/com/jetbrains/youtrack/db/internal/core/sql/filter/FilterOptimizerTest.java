@@ -85,7 +85,7 @@ public class FilterOptimizerTest extends DbTestBase {
 
     optimizer.optimize(filter, searchResult);
 
-    Assert.assertEquals(filter.getRootCondition().toString(), "(b > 5)");
+    Assert.assertEquals(filter.getRootCondition().asString(session), "(b > 5)");
   }
 
   @Test
@@ -108,6 +108,6 @@ public class FilterOptimizerTest extends DbTestBase {
 
     optimizer.optimize(filter, searchResult);
 
-    Assert.assertEquals(filter.getRootCondition().toString(), "(b.asfloat > 3.14)");
+    Assert.assertEquals(filter.getRootCondition().asString(session), "(b.asfloat > 3.14)");
   }
 }
