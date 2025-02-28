@@ -1,7 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.functions.sql;
 
 import com.jetbrains.youtrack.db.api.exception.ValidationException;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import org.junit.Assert;
@@ -19,8 +18,8 @@ public class SqlUpdateContentValidationTest extends DbTestBase {
     var res =
         session.command(
             "insert into Test content {\"testNormal\":\"hello\",\"test\":\"only read\"} ");
+    var id = res.next().getIdentity();
     session.commit();
-    Identifiable id = res.next().getProperty("@rid");
     try {
       session.begin();
       session.command("update " + id + " CONTENT {\"testNormal\":\"by\"}").close();

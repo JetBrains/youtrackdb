@@ -1,13 +1,12 @@
 package com.jetbrains.youtrack.db.internal.core.sql.functions;
 
+import com.jetbrains.youtrack.db.internal.DbTestBase;
+import java.math.BigDecimal;
+import java.util.Date;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
-
-import com.jetbrains.youtrack.db.internal.DbTestBase;
-import java.math.BigDecimal;
-import java.util.Date;
 import org.junit.Test;
 
 /**
@@ -24,12 +23,12 @@ public class SQLFunctionConvertTest extends DbTestBase {
         .close();
     session.commit();
 
-    var doc = session.query("select from TestConversion limit 1").next().getIdentity();
-
     session.begin();
+    var doc = session.query("select from TestConversion limit 1").next().getIdentity();
     session.command("update TestConversion set selfrid = 'foo" + doc.getIdentity() + "'").close();
     session.commit();
 
+    session.begin();
     var results = session.query("select string.asString() as convert from TestConversion");
 
     assertTrue(results.next().getProperty("convert") instanceof String);
@@ -77,5 +76,6 @@ public class SQLFunctionConvertTest extends DbTestBase {
             "select selfrid.substring(3).convert('LINK').string as convert from TestConversion");
     assertEquals(results.next().getProperty("convert"), "Jay");
     assertFalse(results.hasNext());
+    session.commit();
   }
 }
