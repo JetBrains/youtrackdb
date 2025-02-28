@@ -1,11 +1,10 @@
 package com.jetbrains.youtrack.db.internal.core.sql.select;
 
-import static org.junit.Assert.assertEquals;
-
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
+import static org.junit.Assert.assertEquals;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -23,12 +22,14 @@ public class TestBinaryRecordsQuery extends DbTestBase {
   @Test
   public void testSelectBinary() {
     session.begin();
-    session.newBlob("blabla".getBytes());
+    var record = session.newBlob("blabla".getBytes());
     session.commit();
 
-    var res = session.query("select from cluster:BlobCluster");
+    session.begin();
+    var res = session.query("select from " + record.getIdentity());
 
     assertEquals(1, res.stream().count());
+    session.commit();
   }
 
   @Test
@@ -75,8 +76,7 @@ public class TestBinaryRecordsQuery extends DbTestBase {
     session.begin();
     var res =
         session.command(
-            "delete from (select * from ?)", doc.getIdentity());
-
+            "delete from (select expand(ref) from ?)", doc.getIdentity());
 
     assertEquals(1, (long) res.next().getProperty("count"));
     try {
@@ -112,6 +112,7 @@ public class TestBinaryRecordsQuery extends DbTestBase {
     assertEquals(2, (long) res.next().getProperty("count"));
     session.commit();
 
+    session.begin();
     try {
       session.load(rec.getIdentity());
       Assert.fail();
@@ -125,5 +126,6 @@ public class TestBinaryRecordsQuery extends DbTestBase {
     } catch (RecordNotFoundException e) {
       // ignore
     }
+    session.commit();
   }
 }
