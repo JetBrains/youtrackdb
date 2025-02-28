@@ -1,12 +1,11 @@
 package com.jetbrains.youtrack.db.internal.core.sql.method.misc;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
-
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.HashMap;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -45,6 +44,7 @@ public class SQLMethodAsMapTest extends DbTestBase {
   public void testODocument() {
     // The expected behavior is to return a map that has the field names mapped
     // to the field values of the EntityImpl.
+    session.begin();
     var doc = ((EntityImpl) session.newEntity());
     doc.field("f1", 1);
     doc.field("f2", 2);
@@ -52,6 +52,7 @@ public class SQLMethodAsMapTest extends DbTestBase {
     var result = function.execute(null, null, null, doc, null);
 
     assertEquals(result, doc.toMap());
+    session.commit();
   }
 
   @Test

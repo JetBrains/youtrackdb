@@ -1,12 +1,11 @@
 package com.jetbrains.youtrack.db.internal.core.sql.method.misc;
 
-import static org.junit.Assert.assertEquals;
-
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import static org.junit.Assert.assertEquals;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -88,6 +87,7 @@ public class SQLMethodAsListTest extends DbTestBase {
   public void testODocument() {
     // The expected behavior is to return a list with only the single
     // EntityImpl in it.
+    session.begin();
     var doc = ((EntityImpl) session.newEntity());
     doc.field("f1", 1);
     doc.field("f2", 2);
@@ -98,6 +98,7 @@ public class SQLMethodAsListTest extends DbTestBase {
     expected.add(doc);
 
     assertEquals(result, expected);
+    session.commit();
   }
 
   @Test
