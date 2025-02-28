@@ -24,7 +24,6 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.SimpleMultiValueTracker;
 import java.io.Serializable;
-import java.lang.ref.WeakReference;
 import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -45,7 +44,7 @@ public class TrackedList<T> extends AbstractList<T>
     implements RecordElement, TrackedMultiValue<Integer, T>, Serializable {
 
   @Nullable
-  protected WeakReference<RecordElement> sourceRecord;
+  protected RecordElement sourceRecord;
   protected Class<?> genericClass;
 
   private final boolean embeddedCollection;
@@ -71,13 +70,13 @@ public class TrackedList<T> extends AbstractList<T>
 
   public TrackedList(@Nonnull final RecordElement iSourceRecord) {
     this.list = new ArrayList<>();
-    this.sourceRecord = new WeakReference<>(iSourceRecord);
+    this.sourceRecord = iSourceRecord;
     embeddedCollection = this.getClass().equals(TrackedList.class);
   }
 
   public TrackedList(@Nonnull final RecordElement iSourceRecord, int size) {
     this.list = new ArrayList<>(size);
-    this.sourceRecord = new WeakReference<>(iSourceRecord);
+    this.sourceRecord = iSourceRecord;
     embeddedCollection = this.getClass().equals(TrackedList.class);
   }
 
@@ -96,7 +95,7 @@ public class TrackedList<T> extends AbstractList<T>
   @Override
   public void setOwner(RecordElement newOwner) {
     if (newOwner != null) {
-      var owner = getOwner();
+      var owner = sourceRecord;
       if (owner != null && !owner.equals(newOwner)) {
         throw new IllegalStateException(
             "This list is already owned by data container "
@@ -105,7 +104,7 @@ public class TrackedList<T> extends AbstractList<T>
                 + " content of current one.");
       }
 
-      this.sourceRecord = new WeakReference<>(newOwner);
+      this.sourceRecord = newOwner;
     } else {
       this.sourceRecord = null;
     }
@@ -118,10 +117,7 @@ public class TrackedList<T> extends AbstractList<T>
 
   @Override
   public RecordElement getOwner() {
-    if (sourceRecord == null) {
-      return null;
-    }
-    return sourceRecord.get();
+    return sourceRecord;
   }
 
   @Override
@@ -261,7 +257,7 @@ public class TrackedList<T> extends AbstractList<T>
     this.dirty = true;
     this.transactionDirty = true;
 
-    var sourceRecord = getOwner();
+    var sourceRecord = this.sourceRecord;
     if (sourceRecord != null) {
       if (!(sourceRecord instanceof RecordAbstract)
           || !((RecordAbstract) sourceRecord).isDirty()) {
@@ -272,7 +268,7 @@ public class TrackedList<T> extends AbstractList<T>
 
   @Override
   public void setDirtyNoChanged() {
-    var sourceRecord = getOwner();
+    var sourceRecord = this.sourceRecord;
     if (sourceRecord != null) {
       sourceRecord.setDirtyNoChanged();
     }
@@ -316,8 +312,8 @@ public class TrackedList<T> extends AbstractList<T>
       TrackedMultiValue.nestedEnabled(this.iterator(), this);
     }
 
-    if (getOwner() != parent) {
-      this.sourceRecord = new WeakReference<>(parent);
+    if (sourceRecord != parent) {
+      this.sourceRecord = parent;
     }
   }
 
@@ -328,8 +324,8 @@ public class TrackedList<T> extends AbstractList<T>
     }
     this.dirty = false;
 
-    if (getOwner() != parent) {
-      this.sourceRecord = new WeakReference<>(parent);
+    if (sourceRecord != parent) {
+      this.sourceRecord = parent;
     }
   }
 

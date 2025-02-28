@@ -1,10 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
@@ -31,6 +26,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.assertj.core.api.Assertions;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -374,7 +373,7 @@ public class DocumentSchemalessBinarySerializationTest extends DbTestBase {
   public void testSimpleEmbeddedDoc() {
     session.begin();
     var document = (EntityImpl) session.newEntity();
-    var embedded = (EntityImpl) session.newEntity();
+    var embedded = (EntityImpl) session.newEmbeddedEntity();
     embedded.field("name", "test");
     embedded.field("surname", "something");
     document.field("embed", embedded, PropertyType.EMBEDDED);
@@ -499,7 +498,7 @@ public class DocumentSchemalessBinarySerializationTest extends DbTestBase {
     session.begin();
     var document = (EntityImpl) session.newEntity();
 
-    var embeddedInMap = (EntityImpl) session.newEmbededEntity();
+    var embeddedInMap = (EntityImpl) session.newEmbeddedEntity();
     embeddedInMap.field("name", "test");
     embeddedInMap.field("surname", "something");
     Map<String, EntityImpl> map = session.newEmbeddedMap();
@@ -610,11 +609,11 @@ public class DocumentSchemalessBinarySerializationTest extends DbTestBase {
 
     var document = (EntityImpl) session.newEntity();
 
-    var embeddedInList = (EntityImpl) session.newEmbededEntity();
+    var embeddedInList = (EntityImpl) session.newEmbeddedEntity();
     embeddedInList.field("name", "test");
     embeddedInList.field("surname", "something");
 
-    var embeddedInList2 = (EntityImpl) session.newEmbededEntity();
+    var embeddedInList2 = (EntityImpl) session.newEmbeddedEntity();
     embeddedInList2.field("name", "test1");
     embeddedInList2.field("surname", "something2");
 
@@ -622,21 +621,21 @@ public class DocumentSchemalessBinarySerializationTest extends DbTestBase {
     embeddedList.add(embeddedInList);
     embeddedList.add(embeddedInList2);
     embeddedList.add(null);
-    embeddedList.add((EntityImpl) session.newEmbededEntity());
+    embeddedList.add((EntityImpl) session.newEmbeddedEntity());
     document.newEmbeddedList("embeddedList").addAll(embeddedList);
 
-    var embeddedInSet = (EntityImpl) session.newEmbededEntity();
+    var embeddedInSet = (EntityImpl) session.newEmbeddedEntity();
     embeddedInSet.field("name", "test2");
     embeddedInSet.field("surname", "something3");
 
-    var embeddedInSet2 = (EntityImpl) session.newEmbededEntity();
+    var embeddedInSet2 = (EntityImpl) session.newEmbeddedEntity();
     embeddedInSet2.field("name", "test5");
     embeddedInSet2.field("surname", "something6");
 
     Set<EntityImpl> embeddedSet = new HashSet<>();
     embeddedSet.add(embeddedInSet);
     embeddedSet.add(embeddedInSet2);
-    embeddedSet.add((EntityImpl) session.newEmbededEntity());
+    embeddedSet.add((EntityImpl) session.newEmbeddedEntity());
     document.newEmbeddedSet("embeddedSet").addAll(embeddedSet);
 
     var res = serializer.toStream(session, document);
@@ -756,8 +755,9 @@ public class DocumentSchemalessBinarySerializationTest extends DbTestBase {
 
     var res = serializer.toStream(session, document);
 
-    var extr = new EntityImpl(session, res);
+    var extr = (EntityImpl) session.newEntity();
     extr.unsetDirty();
+    extr.fromStream(res);
 
     RecordInternal.setRecordSerializer(extr, serializer);
 

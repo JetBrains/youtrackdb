@@ -255,11 +255,11 @@ public final class CommandResponse implements BinaryResponse {
 
     if (protocolVersion >= ChannelBinaryProtocol.PROTOCOL_VERSION_35) {
       channel.writeByte((byte) 'w');
-      var entity = new EntityImpl(null);
-      entity.field("result", result);
+      var entity = db.newEmbeddedEntity();
+      entity.setProperty("result", result);
       MessageHelper.writeIdentifiable(db, channel, entity, recordSerializer);
       if (listener != null) {
-        listener.linkdedBySimpleValue(db, entity);
+        listener.linkdedBySimpleValue(db, (EntityImpl) entity);
       }
     } else {
       throw new UnsupportedEncodingException();

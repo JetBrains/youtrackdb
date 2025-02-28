@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Collection;
 import java.util.Map;
 
@@ -65,18 +66,22 @@ public class CommandExecutorSQLExplain extends CommandExecutorSQLDelegate {
     final var startTime = System.nanoTime();
 
     final var result = super.execute(session, iArgs);
-    final var report = new EntityImpl(session, delegate.getContext().getVariables());
+    final var report = new ResultInternal(session);
+    var variables = delegate.getContext().getVariables();
+    for (var entry : variables.entrySet()) {
+      report.setProperty(entry.getKey(), entry.getValue());
+    }
 
-    report.field("elapsed", (System.nanoTime() - startTime) / 1000000f);
+    report.setProperty("elapsed", (System.nanoTime() - startTime) / 1000000f);
 
     if (result instanceof Collection<?>) {
-      report.field("resultType", "collection");
-      report.field("resultSize", ((Collection<?>) result).size());
+      report.setProperty("resultType", "collection");
+      report.setProperty("resultSize", ((Collection<?>) result).size());
     } else if (result instanceof EntityImpl) {
-      report.field("resultType", "document");
-      report.field("resultSize", 1);
+      report.setProperty("resultType", "document");
+      report.setProperty("resultSize", 1);
     } else if (result instanceof Number) {
-      report.field("resultType", "number");
+      report.setProperty("resultType", "number");
     }
 
     return report;

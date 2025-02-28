@@ -29,7 +29,6 @@ import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Edge;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
@@ -72,7 +71,6 @@ import java.util.Set;
 import java.util.TimerTask;
 import java.util.UUID;
 import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 
 public interface DatabaseSessionInternal extends DatabaseSession {
 
@@ -94,8 +92,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   EntityImpl newInstance();
 
   EntityImpl newInternalInstance();
-
-  Entity newEmbededEntity(@Nullable String className);
 
   /**
    * Internal. Gets an instance of sb-tree collection manager for current database.

@@ -1,11 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
@@ -17,6 +11,11 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import java.util.Map;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public class EntityImplTest extends DbTestBase {
@@ -111,11 +110,11 @@ public class EntityImplTest extends DbTestBase {
     doc.field("string", "string");
     doc.field("binary", new byte[]{30});
 
-    // this is null because is not set on value set.
-    assertNull(doc.getPropertyType("integer"));
-    assertNull(doc.getPropertyType("link"));
-    assertNull(doc.getPropertyType("string"));
-    assertNull(doc.getPropertyType("binary"));
+    assertEquals(PropertyType.INTEGER, doc.getPropertyType("integer"));
+    assertEquals(PropertyType.LINK, doc.getPropertyType("link"));
+    assertEquals(PropertyType.STRING, doc.getPropertyType("string"));
+    assertEquals(PropertyType.BINARY, doc.getPropertyType("binary"));
+
     var ser = DatabaseSessionAbstract.getDefaultSerializer();
     var bytes = ser.toStream(session, doc);
     doc = (EntityImpl) session.newEntity();

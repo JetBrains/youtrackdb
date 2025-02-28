@@ -1,8 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.db.tool;
 
-import static com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport.EXPORT_IMPORT_CLASS_NAME;
-import static com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport.EXPORT_IMPORT_INDEX_NAME;
-
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -12,6 +9,8 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import static com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport.EXPORT_IMPORT_CLASS_NAME;
+import static com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport.EXPORT_IMPORT_INDEX_NAME;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
@@ -64,9 +63,9 @@ public class TestImportRewriteLinks {
 
         var doc = (EntityImpl) session.newEntity();
 
-        var emb = (EntityImpl) session.newEntity();
+        var emb = (EntityImpl) session.newEmbeddedEntity();
         doc.field("emb", emb, PropertyType.EMBEDDED);
-        var emb1 = (EntityImpl) session.newEntity();
+        var emb1 = (EntityImpl) session.newEmbeddedEntity();
         emb.field("emb1", emb1, PropertyType.EMBEDDED);
         emb1.field("link", new RecordId(10, 4));
         emb1.field("brokenLink", new RecordId(10, 5));

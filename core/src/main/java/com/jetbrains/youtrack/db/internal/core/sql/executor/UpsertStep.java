@@ -54,7 +54,7 @@ public class UpsertStep extends AbstractExecutionStep {
               .getMetadata()
               .getImmutableSchemaSnapshot()
               .getClassByClusterId(clusterId);
-      entity = new EntityImpl(session, clazz);
+      entity = (EntityImpl) session.newEntity(clazz);
     } else {
       throw new CommandExecutionException(session,
           "Cannot execute UPSERT on target '" + commandTarget + "'");

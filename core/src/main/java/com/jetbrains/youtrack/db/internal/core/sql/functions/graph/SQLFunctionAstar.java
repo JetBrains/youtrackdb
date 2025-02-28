@@ -87,7 +87,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
 
     var db = iContext.getDatabaseSession();
     var record =
-        iCurrentRecord != null && iCurrentRecord.isRecord() ? iCurrentRecord.castToRecord() : null;
+        iCurrentRecord != null && iCurrentRecord.isEntity() ? iCurrentRecord.castToEntity() : null;
 
     var source = iParams[0];
     if (MultiValue.isMultiValue(source)) {

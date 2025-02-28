@@ -57,6 +57,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponent
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
+import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
@@ -1183,6 +1184,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     var rid = new ChangeableRecordId();
     rid.setClusterId(clusterId);
     var entity = new EntityImpl(this, rid);
+    entity.setInternalStatus(RecordElement.STATUS.LOADED);
 
     var tx = (FrontendTransactionOptimistic) currentTx;
     tx.addRecordOperation(entity, RecordOperation.CREATED);
@@ -1195,6 +1197,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     assert assertIfNotActive();
 
     var blob = new RecordBytes(this, bytes);
+    blob.setInternalStatus(RecordElement.STATUS.LOADED);
     assignAndCheckCluster(blob, null);
 
     var tx = (FrontendTransactionOptimistic) currentTx;
@@ -1208,6 +1211,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     assert assertIfNotActive();
 
     var blob = new RecordBytes(this);
+    blob.setInternalStatus(RecordElement.STATUS.LOADED);
     assignAndCheckCluster(blob, null);
 
     var tx = (FrontendTransactionOptimistic) currentTx;
@@ -1228,6 +1232,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
     var entity = new EntityImpl(this, className);
     assignAndCheckCluster(entity, null);
+    entity.setInternalStatus(RecordElement.STATUS.LOADED);
 
     currentTx.addRecordOperation(entity, RecordOperation.CREATED);
 
@@ -1264,20 +1269,21 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     return newInstance(className);
   }
 
+
   @Override
-  public Entity newEmbededEntity(String className) {
+  public Entity newEmbeddedEntity(SchemaClass schemaClass) {
     assert assertIfNotActive();
-    return new EmbeddedEntityImpl(className, this);
+    return new EmbeddedEntityImpl(schemaClass != null ? schemaClass.getName(this) : null, this);
   }
 
   @Override
-  public Entity newEmbededEntity(SchemaClass schemaClass) {
+  public Entity newEmbeddedEntity(String schemaClass) {
     assert assertIfNotActive();
-    return new EmbeddedEntityImpl(schemaClass.getName(this), this);
+    return new EmbeddedEntityImpl(schemaClass, this);
   }
 
   @Override
-  public Entity newEmbededEntity() {
+  public Entity newEmbeddedEntity() {
     assert assertIfNotActive();
     return new EmbeddedEntityImpl(this);
   }

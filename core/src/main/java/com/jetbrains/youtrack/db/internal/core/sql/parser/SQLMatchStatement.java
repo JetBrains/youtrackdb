@@ -1049,9 +1049,11 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
       result = new ResultInternal(session);
       var i = 0;
 
-      var mapDoc = new EntityImpl(null);
-      mapDoc.setTrackingChanges(false);
-      mapDoc.updateFromMap(matchContext.matched);
+      var mapDoc = new ResultInternal(session);
+      for (var entry : matchContext.matched.entrySet()) {
+        result.setProperty(entry.getKey(), entry.getValue());
+      }
+
       ctx.setVariable("$current", mapDoc);
       for (var item : returnItems) {
         var returnAliasIdentifier = returnAliases.get(i);
@@ -1061,7 +1063,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
         } else {
           returnAlias = returnAliasIdentifier;
         }
-        var executed = item.execute((Result) mapDoc, ctx);
+        var executed = item.execute(mapDoc, ctx);
         // Force Embedded Document
         if (executed instanceof EntityImpl && !((EntityImpl) executed).getIdentity()
             .isValid()) {

@@ -75,9 +75,7 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordVersionHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLPredicate;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
 import java.lang.ref.WeakReference;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -139,6 +137,9 @@ public class EntityImpl extends RecordAbstract
     setup();
   }
 
+  /**
+   * Internal constructor used on unmarshalling.
+   */
   public EntityImpl(@Nonnull DatabaseSessionInternal database, RecordId rid) {
     super(database);
     assert assertIfAlreadyLoaded(rid);
@@ -150,113 +151,27 @@ public class EntityImpl extends RecordAbstract
   }
 
   /**
-   * Creates a new instance by the raw stream usually read from the database.
-   *
-   * @param iSource Raw stream
-   */
-  @Deprecated
-  public EntityImpl(@Nonnull DatabaseSessionInternal session, final byte[] iSource) {
-    super(session);
-    source = iSource;
-    setup();
-  }
-
-  /**
-   * Creates a new instance in memory of the specified class, linked by the Record Id to the
-   * persistent one.
-   *
-   * @param iClassName Class name
-   * @param recordId   Record Id
-   */
-  public EntityImpl(@Nonnull DatabaseSessionInternal session, final String iClassName,
-      final RecordId recordId) {
-    this(session, iClassName);
-
-    assert assertIfAlreadyLoaded(recordId);
-
-    this.recordId.setClusterId(recordId.getClusterId());
-    this.recordId.setClusterPosition(recordId.getClusterPosition());
-
-    final var database = getSession();
-    if (this.recordId.getClusterId() > -1) {
-      final Schema schema = database.getMetadata().getImmutableSchemaSnapshot();
-      final var cls = schema.getClassByClusterId(this.recordId.getClusterId());
-      if (cls != null && !cls.getName(session).equals(iClassName)) {
-        throw new IllegalArgumentException(
-            "Cluster id does not correspond class name should be "
-                + iClassName
-                + " but found "
-                + cls.getName(session));
-      }
-    }
-
-    dirty = 0;
-    contentChanged = false;
-    status = STATUS.NOT_LOADED;
-  }
-
-
-  /**
    * Creates a new instance in memory of the specified class.
+   * <b>Can be used only for newly created entities</b>
    *
    * @param session    the session the instance will be attached to
    * @param iClassName Class name
    */
   public EntityImpl(@Nonnull DatabaseSessionInternal session, final String iClassName) {
     super(session);
+
+    status = STATUS.LOADED;
     assert session.assertIfNotActive();
     setup();
     setClassName(iClassName);
-  }
 
-  /**
-   * Creates a new instance in memory of the specified schema class.
-   *
-   * @param iClass SchemaClass instance
-   */
-  public EntityImpl(@Nonnull DatabaseSessionInternal session, final SchemaClass iClass) {
-    this(session, iClass != null ? iClass.getName(session) : null);
-  }
-
-  /**
-   * Fills a entity passing the field array in form of pairs of field name and value.
-   *
-   * @param iFields Array of field pairs
-   */
-  public EntityImpl(@Nonnull DatabaseSessionInternal session, final Object[] iFields) {
-    this(session, DEFAULT_CLASS_NAME);
-
-    if (iFields != null && iFields.length > 0) {
-      for (var i = 0; i < iFields.length; i += 2) {
-        field(iFields[i].toString(), iFields[i + 1]);
-      }
+    var cls = getImmutableSchemaClass(session);
+    if (!isEmbedded() && cls != null && cls.isAbstract(session)) {
+      throw new DatabaseException(session,
+          "Standalone entities can be only of non-abstract classes. Provided class : "
+              + cls.getName(
+              session) + " is abstract.");
     }
-  }
-
-  /**
-   * Fills a entity passing a map of key/values where the key is the field name and the value the
-   * field's value.
-   *
-   * @param iFieldMap Map of Object/Object
-   */
-  public EntityImpl(@Nonnull DatabaseSessionInternal session, final Map<?, Object> iFieldMap) {
-    super(session);
-    setup();
-
-    if (iFieldMap != null && !iFieldMap.isEmpty()) {
-      for (var entry : iFieldMap.entrySet()) {
-        field(entry.getKey().toString(), entry.getValue());
-      }
-    }
-  }
-
-  /**
-   * Fills a entity passing the field names/values pair, where the first pair is mandatory.
-   */
-  public EntityImpl(@Nonnull DatabaseSessionInternal session, final String iFieldName,
-      final Object iFieldValue, final Object... iFields) {
-    this(session, iFields);
-    field(iFieldName, iFieldValue);
   }
 
   @Nullable
@@ -561,7 +476,6 @@ public class EntityImpl extends RecordAbstract
     }
 
     checkForBinding();
-
     var value = (RET) EntityHelper.getIdentifiableValue(session, this, name);
     if (!(!name.isEmpty() && name.charAt(0) == '@')
         && lazyLoad
@@ -780,7 +694,7 @@ public class EntityImpl extends RecordAbstract
    *                   expression, as in #eval()
    * @return the field value. Null if the field does not exist.
    */
-  <RET> RET getRawProperty(final String iFieldName) {
+  public <RET> RET getRawProperty(final String iFieldName) {
     checkForBinding();
 
     if (iFieldName == null) {
@@ -1240,6 +1154,7 @@ public class EntityImpl extends RecordAbstract
     final boolean knownProperty;
     final Object oldValue;
     final PropertyType oldType;
+
     if (entry == null) {
       entry = new EntityEntry();
       fieldSize++;
@@ -1257,90 +1172,77 @@ public class EntityImpl extends RecordAbstract
     if (value instanceof Enum) {
       value = value.toString();
     }
-    var fieldType = deriveFieldType(name, entry, type);
-    value = EntityHelper.convertField(session, this, name, fieldType,
-        value);
 
+    var fieldType = deriveFieldType(name, entry, type, value);
+    value = EntityHelper.convertField(session, this, name, fieldType, value);
     if (knownProperty) {
-      if (value == null) {
-        if (oldValue == null) {
-          return;
-        }
-      } else {
-        try {
-
-          if (fieldType == oldType) {
-            if (value instanceof byte[]
-                && Arrays.equals((byte[]) value, (byte[]) oldValue)) {
-              return;
-            }
-            if (!(value instanceof Collection<?>) && !(value instanceof Map<?, ?>) && value.equals(
-                oldValue)) {
-
-              if (!(value instanceof RecordElement)) {
-                setDirty();
-              }
-              return;
-            }
+      try {
+        if (fieldType == oldType) {
+          if (value instanceof byte[]
+              && Arrays.equals((byte[]) value, (byte[]) oldValue)) {
+            return;
           }
-        } catch (Exception e) {
-          LogManager.instance()
-              .warn(
-                  this,
-                  "Error on checking the value of property %s against the record %s",
-                  e,
-                  name,
-                  getIdentity());
+          if (PropertyType.isSingleValueType(value) && Objects.equals(oldValue, value)) {
+            setDirty();
+            return;
+          }
         }
+      } catch (Exception e) {
+        LogManager.instance()
+            .warn(
+                this,
+                "Error on checking the value of property %s against the record %s",
+                e,
+                name,
+                getIdentity());
       }
     }
 
-    if (oldValue instanceof RidBag ridBag) {
-      ridBag.setOwner(null);
-    } else if (oldValue instanceof EntityImpl entity) {
-      entity.removeOwner(this);
-    } else if (value instanceof RecordElement recordElement) {
-      if (!(value instanceof Blob)) {
-        recordElement.setOwner(null);
+    if (oldValue != null) {
+      if (oldValue instanceof RidBag ridBag) {
+        ridBag.setOwner(null);
+      } else if (oldValue instanceof EntityImpl entity) {
+        entity.removeOwner(this);
+      } else if (value instanceof RecordElement recordElement) {
+        if (!(value instanceof Blob)) {
+          recordElement.setOwner(null);
+        }
       }
     }
 
     if (value != null) {
       switch (value) {
-        case EntityImpl entity -> {
-          if (PropertyType.EMBEDDED.equals(fieldType)) {
-            entity.setOwner(this);
-          }
+        case EntityImpl entity when PropertyType.EMBEDDED.equals(fieldType) -> {
+          entity.setOwner(this);
         }
         case RidBag ridBag -> {
           ridBag.setOwner(this);
           ridBag.setRecordAndField(recordId, name);
         }
-        case RecordElement entity -> {
-          if (!(value instanceof Blob)) {
-            entity.setOwner(this);
-          }
+        case RecordElement entity when !(entity instanceof RecordAbstract) -> {
+          entity.setOwner(this);
+        }
+        case RID rid -> {
+          value = session.refreshRid(rid);
         }
         default -> {
         }
       }
-    }
 
-    if (oldType != fieldType) {
-      // can be made in a better way, but "keeping type" issue should be solved before
-      if (value == null || fieldType != null || oldType != PropertyType.getTypeByValue(value)) {
+      if (oldType != fieldType) {
+        // can be made in a better way, but "keeping type" issue should be solved before
         entry.type = fieldType;
       }
     }
+
     entry.disableTracking(this, oldValue);
-    if (value instanceof RID rid) {
-      value = refreshNonPersistentRid(rid);
-    }
+
     entry.value = value;
     if (!entry.exists()) {
       entry.setExists(true);
       fieldSize++;
     }
+
     entry.enableTracking(this);
 
     if (!entry.isChanged()) {
@@ -2017,29 +1919,6 @@ public class EntityImpl extends RecordAbstract
   }
 
   /**
-   * Fills the EntityImpl directly with the string representation of the entity itself. Use it for
-   * faster insertion but pay attention to respect the YouTrackDB record format.
-   *
-   * <p><code> record.reset();<br> record.setClassName("Account");<br>
-   * record.fromString(new String("Account@id:" + data.getCyclesDone() +
-   * ",name:'Luca',surname:'Garulli',birthDate:" + date.getTime()<br> + ",salary:" + 3000f +
-   * i));<br> record.save();<br> </code>
-   *
-   * @param iValue String representation of the record.
-   */
-  @Deprecated
-  public void fromString(final String iValue) {
-    dirty = 1;
-    contentChanged = true;
-    source = iValue.getBytes(StandardCharsets.UTF_8);
-
-    removeAllCollectionChangeListeners();
-
-    fields = null;
-    fieldSize = 0;
-  }
-
-  /**
    * Returns the set of field names.
    */
   public String[] fieldNames() {
@@ -2352,9 +2231,9 @@ public class EntityImpl extends RecordAbstract
       if (embedded != null && Boolean.parseBoolean(embedded.toString())) {
         Entity embeddedEntity;
         if (className != null) {
-          embeddedEntity = session.newEmbededEntity(className.toString());
+          embeddedEntity = session.newEmbeddedEntity(className.toString());
         } else {
-          embeddedEntity = session.newEmbededEntity();
+          embeddedEntity = session.newEmbeddedEntity();
         }
 
         embeddedEntity.updateFromMap(mapValue);
@@ -2629,21 +2508,19 @@ public class EntityImpl extends RecordAbstract
    *                                            (collections, maps, arrays, etc)
    */
   public EntityImpl merge(
-      final EntityImpl iOther,
+      final Result iOther,
       boolean iUpdateOnlyMode,
       boolean iMergeSingleItemsOfMultiValueFields) {
-    iOther.checkForBinding();
-
     checkForBinding();
 
-    iOther.checkForFields();
-
-    if (className == null && iOther.getImmutableSchemaClass(session) != null) {
-      className = iOther.getImmutableSchemaClass(session).getName(session);
+    if (className == null && iOther.isEntity()) {
+      var entity = (EntityImpl) iOther.castToEntity();
+      var cls = entity.getImmutableSchemaClass(session);
+      className = cls.getName(session);
     }
 
-    return mergeMap(
-        ((EntityImpl) iOther.getRecord(getSession())).fields,
+    return mergeResult(
+        iOther,
         iUpdateOnlyMode,
         iMergeSingleItemsOfMultiValueFields);
   }
@@ -2993,7 +2870,7 @@ public class EntityImpl extends RecordAbstract
       contentChanged = false;
       schema = null;
 
-      fetchSchemaIfCan();
+      fetchSchema();
       super.fromStream(iRecordBuffer);
 
       return this;
@@ -3254,8 +3131,8 @@ public class EntityImpl extends RecordAbstract
   @Override
   public int fields() {
     checkForBinding();
-
     checkForFields();
+
     return fieldSize;
   }
 
@@ -3278,11 +3155,11 @@ public class EntityImpl extends RecordAbstract
    */
   public void setFieldType(final String iFieldName, final PropertyType iFieldType) {
     checkForBinding();
-
     checkForFields(iFieldName);
+
     if (iFieldType != null) {
       if (fields == null) {
-        fields = ordered ? new LinkedHashMap<>() : new HashMap<>();
+        throw new DatabaseException("Fields are not loaded");
       }
 
       // SET THE FORCED TYPE
@@ -3311,6 +3188,10 @@ public class EntityImpl extends RecordAbstract
    * Initializes the object if has been unserialized
    */
   public boolean deserializeFields(String... iFields) {
+    if (status != STATUS.LOADED) {
+      return false;
+    }
+
     List<String> additional = null;
     if (source == null)
     // ALREADY UNMARSHALLED OR JUST EMPTY
@@ -3370,6 +3251,9 @@ public class EntityImpl extends RecordAbstract
 
     status = RecordElement.STATUS.UNMARSHALLING;
     try {
+      if (fields == null) {
+        fields = ordered ? new LinkedHashMap<>() : new HashMap<>();
+      }
       recordFormat.fromStream(session, source, this, iFields);
     } finally {
       status = RecordElement.STATUS.LOADED;
@@ -3604,22 +3488,36 @@ public class EntityImpl extends RecordAbstract
     }
   }
 
-  private EntityImpl mergeMap(
-      final Map<String, EntityEntry> iOther,
+  private EntityImpl mergeResult(
+      final Result result,
       final boolean iUpdateOnlyMode,
       boolean iMergeSingleItemsOfMultiValueFields) {
     checkForFields();
     source = null;
 
-    for (var entry : iOther.entrySet()) {
-      var f = entry.getKey();
-      var entityEntry = entry.getValue();
-      if (!entityEntry.exists()) {
-        continue;
-      }
-      final var otherValue = entityEntry.value;
+    for (var propertyName : result.getPropertyNames()) {
+      var otherValue = result.getProperty(propertyName);
+      var curValue = fields.get(propertyName);
 
-      var curValue = fields.get(f);
+      if (otherValue instanceof Result) {
+        var schemaClass = getImmutableSchemaClass(session);
+        if (schemaClass != null) {
+          var property = schemaClass.getProperty(session, propertyName);
+          if (property != null) {
+            var type = property.getType(session);
+            otherValue =
+                type.convert(otherValue, property.getLinkedType(session),
+                    property.getLinkedClass(session), session);
+          } else {
+            otherValue = PropertyType.EMBEDDED.convert(otherValue, session);
+          }
+        }
+      } else if (otherValue instanceof RecordElement recordElement) {
+        var type = PropertyType.getTypeByValue(recordElement);
+        if (recordElement.getOwner() != null) {
+          otherValue = type.copy(recordElement, session);
+        }
+      }
 
       if (curValue != null && curValue.exists()) {
         final var value = curValue.value;
@@ -3649,18 +3547,18 @@ public class EntityImpl extends RecordAbstract
 
         if (!bagsMerged && (value != null && !value.equals(otherValue))
             || (value == null && otherValue != null)) {
-          setPropertyInternal(f, otherValue);
+          setPropertyInternal(propertyName, otherValue);
         }
       } else {
-        setPropertyInternal(f, otherValue);
+        setPropertyInternal(propertyName, otherValue);
       }
     }
 
     if (!iUpdateOnlyMode) {
       // REMOVE PROPERTIES NOT FOUND IN OTHER ENTITY
-      for (var f : getPropertyNamesInternal()) {
-        if (!iOther.containsKey(f) || !iOther.get(f).exists()) {
-          removePropertyInternal(f);
+      for (var property : getPropertyNamesInternal()) {
+        if (!result.hasProperty(property)) {
+          removePropertyInternal(property);
         }
       }
     }
@@ -3677,7 +3575,7 @@ public class EntityImpl extends RecordAbstract
     }
 
     schema = null;
-    fetchSchemaIfCan();
+    fetchSchema();
     return super.fill(rid, version, buffer, dirty);
   }
 
@@ -3755,10 +3653,7 @@ public class EntityImpl extends RecordAbstract
   protected void rawField(
       final String iFieldName, final Object iFieldValue, final PropertyType iFieldType) {
     checkForBinding();
-
-    if (fields == null) {
-      fields = ordered ? new LinkedHashMap<>() : new HashMap<>();
-    }
+    checkForFields(iFieldName);
 
     var entry = getOrCreate(iFieldName);
     entry.disableTracking(this, entry.value);
@@ -3809,7 +3704,9 @@ public class EntityImpl extends RecordAbstract
     }
 
     checkForBinding();
-
+    if (!isEmbedded()) {
+      throw new IllegalStateException("This entity is not embedded and can not have an owner");
+    }
     var owner = getOwner();
     if (owner != null && !owner.equals(iOwner)) {
       throw new IllegalStateException(
@@ -3825,19 +3722,6 @@ public class EntityImpl extends RecordAbstract
     }
 
     this.owner = new WeakReference<>(iOwner);
-
-    var tx = session.getTransaction();
-    if (!tx.isActive()) {
-      return;
-    }
-
-    var optimistic = (FrontendTransactionOptimistic) tx;
-    optimistic.deleteRecordOperation(this);
-
-    recordId.reset();
-    if (Entity.DEFAULT_CLASS_NAME.equals(className)) {
-      setClassName(null);
-    }
   }
 
   public void removeOwner(final RecordElement iRecordElement) {
@@ -3953,19 +3837,20 @@ public class EntityImpl extends RecordAbstract
   }
 
   boolean checkForFields(final String... iFields) {
-    if (fields == null) {
-      fields = ordered ? new LinkedHashMap<>() : new HashMap<>();
-    }
+    checkForBinding();
+    if (status == RecordElement.STATUS.LOADED) {
+      if (fields == null) {
+        fields = ordered ? new LinkedHashMap<>() : new HashMap<>();
+      }
 
-    if (source != null) {
-      checkForBinding();
-
-      if (status == RecordElement.STATUS.LOADED) {
+      if (source != null) {
         return deserializeFields(iFields);
       }
+
+      return true;
     }
 
-    return true;
+    return false;
   }
 
   Object accessProperty(final String property) {
@@ -4058,12 +3943,10 @@ public class EntityImpl extends RecordAbstract
     }
   }
 
-  private void fetchSchemaIfCan() {
+  private void fetchSchema() {
     if (schema == null) {
-      if (!session.isClosed()) {
-        var metadata = session.getMetadata();
-        schema = metadata.getImmutableSchemaSnapshot();
-      }
+      var metadata = session.getMetadata();
+      schema = metadata.getImmutableSchemaSnapshot();
     }
   }
 
@@ -4132,19 +4015,23 @@ public class EntityImpl extends RecordAbstract
     }
   }
 
-  private PropertyType deriveFieldType(String iFieldName, EntityEntry entry,
-      PropertyType fieldType) {
+  private PropertyType deriveFieldType(String fieldName, EntityEntry entry,
+      PropertyType fieldType, Object value) {
     SchemaClass clazz = getImmutableSchemaClass(session);
     if (clazz != null) {
       // SCHEMA-FULL?
-      final var prop = clazz.getProperty(session, iFieldName);
+      final var prop = clazz.getProperty(session, fieldName);
       if (prop != null) {
-        entry.property = prop;
         fieldType = prop.getType(session);
-        if (fieldType != PropertyType.ANY) {
-          entry.type = fieldType;
-        }
       }
+    }
+
+    if (fieldType == null) {
+      fieldType = PropertyType.getTypeByValue(value);
+    }
+
+    if (fieldType == null && value != null) {
+      throw new DatabaseException(session, "Cannot determine the type of the field " + fieldName);
     }
 
     return fieldType;
@@ -4256,6 +4143,13 @@ public class EntityImpl extends RecordAbstract
 
   void checkEmbeddable() {
     checkForBinding();
+
+    var cls = getImmutableSchemaClass(session);
+    if (cls != null && !cls.isAbstract(session)) {
+      throw new DatabaseException(session,
+          "Embedded entities can be only of abstract classes. Provided class : " + cls.getName(
+              session) + " is not abstract");
+    }
     if (isVertex() || isStatefulEdge()) {
       throw new DatabaseException(session.getDatabaseName(),
           "Vertices or Edges cannot be stored as embedded");

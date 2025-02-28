@@ -19,14 +19,6 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
@@ -52,6 +44,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 import org.junit.Ignore;
 import org.junit.Test;
 
@@ -1824,7 +1823,6 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
     session.begin();
     session.command("INSERT INTO " + className + " set status = ?", PropertyType.STRING).close();
-    session.command("INSERT INTO " + className + " set status = ?", PropertyType.ANY).close();
     session.command("INSERT INTO " + className + " set status = ?", PropertyType.BYTE).close();
     session.commit();
 

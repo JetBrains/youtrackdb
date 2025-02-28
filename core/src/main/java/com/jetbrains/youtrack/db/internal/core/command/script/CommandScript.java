@@ -69,20 +69,20 @@ public class CommandScript extends CommandRequestTextAbstract {
     return this;
   }
 
-  public CommandRequestText fromStream(DatabaseSessionInternal db, byte[] iStream,
+  public CommandRequestText fromStream(DatabaseSessionInternal session, byte[] iStream,
       RecordSerializerNetwork serializer)
       throws SerializationException {
     final var buffer = new MemoryStream(iStream);
     language = buffer.getAsString();
-    fromStream(db, buffer, serializer);
+    fromStream(session, buffer, serializer);
     return this;
   }
 
-  public byte[] toStream(DatabaseSessionInternal db, RecordSerializerNetwork serializer)
+  public byte[] toStream(DatabaseSessionInternal session, RecordSerializerNetwork serializer)
       throws SerializationException {
     final var buffer = new MemoryStream();
     buffer.setUtf8(language);
-    return toStream(buffer);
+    return toStream(buffer, session);
   }
 
   public CompiledScript getCompiledScript() {

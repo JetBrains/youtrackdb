@@ -1,12 +1,10 @@
 package com.jetbrains.youtrack.db.internal.lucene.functions;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.lucene.test.BaseLuceneTest;
 import java.util.HashMap;
 import java.util.Map;
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -127,9 +125,6 @@ public class LuceneSearchOnIndexFunctionTest extends BaseLuceneTest {
   @Test
   public void shouldSupportParameterizedMetadata() throws Exception {
     final var query = "SELECT from Song where SEARCH_INDEX('Song.title', '*EVE*', ?) = true";
-
-    session.query(query, "{'allowLeadingWildcard': true}").close();
-    session.query(query, new EntityImpl(session, "allowLeadingWildcard", Boolean.TRUE)).close();
 
     Map<String, Object> mdMap = new HashMap();
     mdMap.put("allowLeadingWildcard", true);

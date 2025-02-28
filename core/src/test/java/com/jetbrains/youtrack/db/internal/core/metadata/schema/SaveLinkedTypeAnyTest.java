@@ -16,7 +16,7 @@ public class SaveLinkedTypeAnyTest extends DbTestBase {
   public void testRemoveLinkedType() {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("TestRemoveLinkedType");
-    classA.createProperty(session, "prop", PropertyType.EMBEDDEDLIST, PropertyType.ANY);
+    classA.createProperty(session, "prop", PropertyType.EMBEDDEDLIST);
 
     session.begin();
     session.command("insert into TestRemoveLinkedType set prop = [4]").close();
@@ -37,7 +37,7 @@ public class SaveLinkedTypeAnyTest extends DbTestBase {
   public void testAlterRemoveLinkedType() {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("TestRemoveLinkedType");
-    classA.createProperty(session, "prop", PropertyType.EMBEDDEDLIST, PropertyType.ANY);
+    classA.createProperty(session, "prop", PropertyType.EMBEDDEDLIST);
 
     session.command("alter property TestRemoveLinkedType.prop linkedtype null").close();
 

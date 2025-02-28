@@ -451,7 +451,21 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
 
   public void addRecordOperation(RecordAbstract record, byte status) {
     try {
-      validateState(record);
+      if (record.isUnloaded()) {
+        throw new DatabaseException(session,
+            "Record "
+                + record
+                + " is not bound to session, please call "
+                + DatabaseSession.class.getSimpleName()
+                + ".bindToSession(record) before changing it");
+      }
+      if (record.isEmbedded()) {
+        throw new DatabaseException(session,
+            "Record "
+                + record
+                + " is embedded and can not added to list of records to be saved");
+      }
+      checkTransactionValid();
       var rid = record.getIdentity();
 
       if (rid.getClusterId() == RID.CLUSTER_ID_INVALID) {
@@ -522,37 +536,6 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
       rollback(true, 0);
       throw e;
     }
-  }
-
-  private void validateState(RecordAbstract record) {
-    if (record.isUnloaded()) {
-      throw new DatabaseException(session,
-          "Record "
-              + record
-              + " is not bound to session, please call "
-              + DatabaseSession.class.getSimpleName()
-              + ".bindToSession(record) before changing it");
-    }
-    if (record.isEmbedded()) {
-      throw new DatabaseException(session,
-          "Record "
-              + record
-              + " is embedded and can not added to list of records to be saved");
-    }
-    checkTransactionValid();
-  }
-
-  public void deleteRecordOperation(RecordAbstract record) {
-    var identity = record.getIdentity();
-
-    if (generatedOriginalRecordIdMap.containsKey(identity)) {
-      throw new TransactionException(session,
-          "Cannot delete record operation for record with identity " + identity
-              + " because it was updated during transaction");
-    }
-
-    recordOperations.remove(identity);
-    updatedOperations.remove(identity);
   }
 
   private void doCommit() {
@@ -978,7 +961,6 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
   private static Dependency getTypeRidDependency(PropertyType type) {
     // fallback to the safest variant, just in case
     return switch (type) {
-      case ANY -> Dependency.Unknown;
       case EMBEDDED, LINK -> Dependency.Yes;
       case LINKLIST, LINKSET, LINKMAP, LINKBAG, EMBEDDEDLIST, EMBEDDEDSET, EMBEDDEDMAP ->
         // under normal conditions, collection field type is already resolved to its

@@ -1,8 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
-import static com.jetbrains.youtrack.db.internal.core.sql.executor.ExecutionPlanPrintUtils.printExecutionPlan;
-import static org.junit.Assert.assertEquals;
-
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -10,6 +7,7 @@ import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import static com.jetbrains.youtrack.db.internal.core.sql.executor.ExecutionPlanPrintUtils.printExecutionPlan;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -17,6 +15,7 @@ import java.util.Map;
 import org.assertj.core.api.Assertions;
 import org.junit.After;
 import org.junit.Assert;
+import static org.junit.Assert.assertEquals;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -698,7 +697,7 @@ public class UpdateStatementExecutionTest {
 
     session.begin();
     var doc = session.newInstance(className);
-    var emb = ((EntityImpl) session.newEntity());
+    var emb = ((EntityImpl) session.newEmbeddedEntity());
     emb.setProperty("sub", "foo");
     emb.setProperty("aaa", "bar");
     doc.setProperty("theProperty", emb);

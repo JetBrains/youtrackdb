@@ -5,10 +5,12 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
+import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
+import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -42,8 +44,7 @@ public class SQLArrayConcatExpression extends SimpleNode {
     this.childExpressions.add(elem);
   }
 
-  public Object apply(Object left, Object right) {
-
+  public static Object apply(Object left, Object right, DatabaseSessionInternal session) {
     if (left == null && right == null) {
       return null;
     }
@@ -64,40 +65,84 @@ public class SQLArrayConcatExpression extends SimpleNode {
       }
     }
 
-    List<Object> result = new ArrayList<>();
-    if (MultiValue.isMultiValue(left)) {
-      var leftIter = MultiValue.getMultiValueIterator(left);
-      while (leftIter.hasNext()) {
-        result.add(leftIter.next());
+    List<Object> result = null;
+    if (left instanceof TrackedMultiValue<?, ?> trackedMultiValue) {
+      var type = PropertyType.getTypeByValue(trackedMultiValue);
+      left = type.copy(trackedMultiValue, session);
+
+      if (left instanceof List<?> list) {
+        //noinspection unchecked
+        result = (List<Object>) list;
       }
-    } else {
-      result.add(left);
     }
 
-    if (MultiValue.isMultiValue(right)) {
-      var rigthIter = MultiValue.getMultiValueIterator(right);
-      while (rigthIter.hasNext()) {
-        result.add(rigthIter.next());
+    if (right instanceof TrackedMultiValue<?, ?> trackedMultiValue) {
+      var type = PropertyType.getTypeByValue(trackedMultiValue);
+      right = type.copy(trackedMultiValue, session);
+      if (result == null && right instanceof List<?> list) {
+        //noinspection unchecked
+        result = (List<Object>) list;
       }
-    } else {
-      result.add(right);
+    }
+
+    if (result == null) {
+      result = new ArrayList<>();
+    }
+
+    if (result != left) {
+      addValueToResultList(left, session, result);
+    }
+
+    if (result != right) {
+      addValueToResultList(right, session, result);
     }
 
     return result;
   }
 
+  private static void addValueToResultList(Object value, DatabaseSessionInternal session,
+      List<Object> result) {
+    if (MultiValue.isMultiValue(value)) {
+      var leftIter = MultiValue.getMultiValueIterator(value);
+      while (leftIter.hasNext()) {
+        if (result instanceof TrackedMultiValue<?, ?> trackedMultiValue) {
+          var item = leftIter.next();
+          var type = PropertyType.getTypeByValue(item);
+          if (type == null) {
+            throw new CommandExecutionException(session,
+                "Cannot concatenate values of not supported types : " + item.getClass() + " : "
+                    + item);
+          }
+          if (item instanceof RecordElement recordElement) {
+            var copy = type.copy(recordElement, session);
+            result.add(copy);
+          } else {
+            var converted = type.convert(item, session);
+            result.add(converted);
+          }
+        } else {
+          result.add(leftIter.next());
+        }
+      }
+    } else {
+      result.add(value);
+    }
+  }
+
   public Object execute(Identifiable iCurrentRecord, CommandContext ctx) {
-    var result = childExpressions.get(0).execute(iCurrentRecord, ctx);
+    var session = ctx.getDatabaseSession();
+    var result = childExpressions.getFirst().execute(iCurrentRecord, ctx);
     for (var i = 1; i < childExpressions.size(); i++) {
-      result = apply(result, childExpressions.get(i).execute(iCurrentRecord, ctx));
+      result = apply(result, childExpressions.get(i).execute(iCurrentRecord, ctx), session);
     }
     return result;
   }
 
   public Object execute(Result iCurrentRecord, CommandContext ctx) {
-    var result = childExpressions.get(0).execute(iCurrentRecord, ctx);
+    var session = ctx.getDatabaseSession();
+    var result = childExpressions.getFirst().execute(iCurrentRecord, ctx);
     for (var i = 1; i < childExpressions.size(); i++) {
-      result = apply(result, childExpressions.get(i).execute(iCurrentRecord, ctx));
+      result = apply(result, childExpressions.get(i).execute(iCurrentRecord, ctx), session);
     }
     return result;
   }
@@ -148,10 +193,6 @@ public class SQLArrayConcatExpression extends SimpleNode {
     }
   }
 
-  public AggregationContext getAggregationContext(CommandContext ctx) {
-    throw new UnsupportedOperationException(
-        "array concatenation expressions do not allow plain aggregation");
-  }
 
   public SQLArrayConcatExpression copy() {
     var result = new SQLArrayConcatExpression(-1);
@@ -182,7 +223,7 @@ public class SQLArrayConcatExpression extends SimpleNode {
         result.addAll(x);
       }
     }
-    if (result.size() == 0) {
+    if (result.isEmpty()) {
       return null;
     }
     return result;

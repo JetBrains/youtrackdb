@@ -204,12 +204,12 @@ public class CompositeKey
 
   @Override
   public EntityImpl toEntity(DatabaseSessionInternal db) {
-    final var entity = new EntityImpl(db);
+    final var entity = db.newEmbeddedEntity();
     for (var i = 0; i < keys.size(); i++) {
-      entity.field("key" + i, keys.get(i));
+      entity.setProperty("key" + i, keys.get(i));
     }
 
-    return entity;
+    return (EntityImpl) entity;
   }
 
   @Override

@@ -97,19 +97,19 @@ public abstract class SQLQuery<T> extends QueryAbstract<T> implements CommandReq
     return "sql." + text;
   }
 
-  public CommandRequestText fromStream(DatabaseSessionInternal db, final byte[] iStream,
+  public CommandRequestText fromStream(DatabaseSessionInternal session, final byte[] iStream,
       RecordSerializerNetwork serializer)
       throws SerializationException {
     final var buffer = new MemoryStream(iStream);
 
-    queryFromStream(db, buffer, serializer);
+    queryFromStream(session, buffer, serializer);
 
     return this;
   }
 
-  public byte[] toStream(DatabaseSessionInternal db, RecordSerializerNetwork serializer)
+  public byte[] toStream(DatabaseSessionInternal session, RecordSerializerNetwork serializer)
       throws SerializationException {
-    return queryToStream(db, serializer).toByteArray();
+    return queryToStream(session, serializer).toByteArray();
   }
 
   protected MemoryStream queryToStream(DatabaseSessionInternal db,

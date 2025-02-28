@@ -26,7 +26,6 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.QueryParsingException;
 import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryHook;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Locale;
 import java.util.Map;
@@ -64,10 +63,10 @@ public class CommandExecutorSQLLiveUnsubscribe extends CommandExecutorSQLAbstrac
                   + e.getClass().getName()
                   + " - "
                   + e.getMessage());
-      var result = new EntityImpl(null);
-      result.field("error-unsubscribe", unsubscribeToken);
-      result.field("error-description", e.getMessage());
-      result.field("error-type", e.getClass().getName());
+      var result = new ResultInternal(session);
+      result.setProperty("error-unsubscribe", unsubscribeToken);
+      result.setProperty("error-description", e.getMessage());
+      result.setProperty("error-type", e.getClass().getName());
 
       return result;
     }

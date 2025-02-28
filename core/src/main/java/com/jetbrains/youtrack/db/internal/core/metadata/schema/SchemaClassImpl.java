@@ -621,7 +621,7 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
   protected abstract SchemaPropertyImpl createPropertyInstance();
 
   public Entity toStream(DatabaseSessionInternal session) {
-    var entity = session.newEmbededEntity();
+    var entity = session.newEmbeddedEntity();
     entity.setProperty("name", name);
     entity.setProperty("shortName", shortName);
     entity.setProperty("description", description);
@@ -1375,9 +1375,6 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
       final String propertyName,
       final PropertyType type,
       SchemaClass linkedClass) {
-    if (PropertyType.ANY.equals(type)) {
-      return;
-    }
     final var strictSQL = session.getStorageInfo().getConfiguration().isStrictSql();
 
     final var builder = new StringBuilder(256);

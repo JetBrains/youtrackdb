@@ -337,8 +337,6 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
         bag.setOwner(owner);
         value = bag;
         break;
-      case ANY:
-        break;
     }
     return value;
   }
@@ -674,8 +672,6 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
       case LINKBAG:
         writeRidBag(session, bytes, (RidBag) value);
         break;
-      case ANY:
-        break;
     }
   }
 
@@ -790,7 +786,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
         type = prop.getType(session);
       }
     }
-    if (type == null || PropertyType.ANY == type) {
+    if (type == null) {
       type = PropertyType.getTypeByValue(entry.value);
     }
     return type;

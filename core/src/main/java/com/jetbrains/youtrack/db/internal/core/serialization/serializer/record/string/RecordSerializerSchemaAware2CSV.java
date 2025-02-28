@@ -169,7 +169,7 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
           } else {
             prop = null;
           }
-          if (prop != null && prop.getType(session) != PropertyType.ANY) {
+          if (prop != null) {
             // RECOGNIZED PROPERTY
             type = prop.getType(session);
             linkedClass = prop.getLinkedClass(session);
@@ -178,9 +178,6 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
           } else {
             // SCHEMA PROPERTY NOT FOUND FOR THIS FIELD: TRY TO AUTODETERMINE THE BEST TYPE
             type = record.getPropertyType(fieldName);
-            if (type == PropertyType.ANY) {
-              type = null;
-            }
             if (type != null) {
               setFieldType = true;
             }
@@ -380,14 +377,10 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
       fieldClassName = getClassName(fieldValue);
 
       type = record.getPropertyType(fieldName);
-      if (type == PropertyType.ANY) {
-        type = null;
-      }
-
       linkedClass = null;
       linkedType = null;
 
-      if (prop != null && prop.getType(session) != PropertyType.ANY) {
+      if (prop != null) {
         // RECOGNIZED PROPERTY
         type = prop.getType(session);
         linkedClass = prop.getLinkedClass(session);

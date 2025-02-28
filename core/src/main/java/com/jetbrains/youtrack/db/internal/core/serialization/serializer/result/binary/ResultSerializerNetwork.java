@@ -257,8 +257,6 @@ public class ResultSerializerNetwork {
         break;
       case LINKBAG:
         throw new UnsupportedOperationException("LINKBAG should never appear in a projection");
-      case ANY:
-        break;
     }
     return value;
   }
@@ -441,8 +439,6 @@ public class ResultSerializerNetwork {
         break;
       case LINKBAG:
         throw new UnsupportedOperationException("LINKBAG should never appear in a projection");
-      case ANY:
-        break;
     }
   }
 

@@ -1,8 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
@@ -11,6 +8,8 @@ import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
 import java.util.Set;
 import org.apache.commons.collections4.SetUtils;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import org.junit.Test;
 
 public class CollectionOfLinkInNestedEntityTest extends DbTestBase {
@@ -22,7 +21,7 @@ public class CollectionOfLinkInNestedEntityTest extends DbTestBase {
     doc1.field("value", "item 1");
     var doc2 = (EntityImpl) session.newEntity();
     doc2.field("value", "item 2");
-    var nested = (EntityImpl) session.newEntity();
+    var nested = (EntityImpl) session.newEmbeddedEntity();
     var set = new LinkSet(nested);
     set.add(doc1);
     set.add(doc2);
@@ -51,7 +50,7 @@ public class CollectionOfLinkInNestedEntityTest extends DbTestBase {
     doc1.field("value", "item 1");
     var doc2 = (EntityImpl) session.newEntity();
     doc2.field("value", "item 2");
-    var nested = (EntityImpl) session.newEntity();
+    var nested = (EntityImpl) session.newEmbeddedEntity();
     var list = new LinkList(nested);
     list.add(doc1);
     list.add(doc2);
@@ -78,7 +77,7 @@ public class CollectionOfLinkInNestedEntityTest extends DbTestBase {
     doc1.field("value", "item 1");
     var doc2 = (EntityImpl) session.newEntity();
     doc2.field("value", "item 2");
-    var nested = (EntityImpl) session.newEntity();
+    var nested = (EntityImpl) session.newEmbeddedEntity();
     var map = new LinkMap(nested);
     map.put("record1", doc1);
     map.put("record2", doc2);

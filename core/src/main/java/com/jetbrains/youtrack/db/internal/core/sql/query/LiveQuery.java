@@ -26,7 +26,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import javax.annotation.Nonnull;
 
 /**
@@ -61,9 +61,9 @@ public class LiveQuery<T> extends SQLSynchQuery<T> {
       var listener = new BackwardLiveQueryResultListener();
       var monitor = session.live(getText(), listener, iArgs);
       listener.token = monitor.getMonitorId();
-      var entity = new EntityImpl(null);
+      var entity = new ResultInternal(session);
       entity.setProperty("token", listener.token);
-      LegacyResultSet<EntityImpl> result = new BasicLegacyResultSet<>();
+      LegacyResultSet<Result> result = new BasicLegacyResultSet<>();
       result.add(entity);
       return (RET) result;
     }

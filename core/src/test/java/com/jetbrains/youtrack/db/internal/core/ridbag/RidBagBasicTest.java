@@ -1,12 +1,11 @@
 package com.jetbrains.youtrack.db.internal.core.ridbag;
 
-import static org.junit.Assert.fail;
-
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.embedded.EmbeddedRidBag;
+import static org.junit.Assert.fail;
 import org.junit.Test;
 
 public class RidBagBasicTest extends DbTestBase {
@@ -65,7 +64,7 @@ public class RidBagBasicTest extends DbTestBase {
         var record = session.newVertex();
         var valueSet = session.newEmbeddedMap();
 
-        var nested = session.newEmbededEntity();
+        var nested = session.newEmbeddedEntity();
         nested.setProperty("bag", new RidBag(session));
         valueSet.put("key", nested);
         record.setProperty("emb", valueSet);
@@ -80,7 +79,7 @@ public class RidBagBasicTest extends DbTestBase {
       session.executeInTx(() -> {
         var record = session.newVertex();
         var valueList = session.newEmbeddedList();
-        var nested = session.newEmbededEntity();
+        var nested = session.newEmbeddedEntity();
 
         nested.setProperty("bag", new RidBag(session));
         valueList.add(nested);
@@ -97,7 +96,7 @@ public class RidBagBasicTest extends DbTestBase {
         var record = session.newVertex();
         var valueSet = session.newEmbeddedSet();
 
-        var nested = session.newEmbededEntity();
+        var nested = session.newEmbeddedEntity();
         nested.setProperty("bag", new RidBag(session));
         valueSet.add(nested);
         record.setProperty("emb", valueSet);
@@ -111,7 +110,7 @@ public class RidBagBasicTest extends DbTestBase {
     try {
       session.executeInTx(() -> {
         var record = session.newVertex();
-        var nested = session.newEmbededEntity();
+        var nested = session.newEmbeddedEntity();
 
         nested.setProperty("bag", new RidBag(session));
         record.setEmbeddedEntity("emb", nested);

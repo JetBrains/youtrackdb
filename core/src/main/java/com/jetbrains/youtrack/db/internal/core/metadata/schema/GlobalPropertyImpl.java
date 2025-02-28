@@ -63,7 +63,7 @@ public class GlobalPropertyImpl implements GlobalProperty {
   }
 
   public Entity toEntity(DatabaseSessionInternal db) {
-    final var entity = db.newEmbededEntity();
+    final var entity = db.newEmbeddedEntity();
     entity.setString("name", name);
     entity.setString("type", type.name());
     entity.setInt("id", id);

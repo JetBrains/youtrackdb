@@ -106,7 +106,7 @@ public class SQLMethodInclude extends AbstractSQLMethod {
         return copy((EntityImpl) iThis, iParams, session);
       } else if (iThis instanceof Map) {
         // ACT ON MAP
-        return copy((Map) iThis, iParams);
+        return copy((Map) iThis, iParams, session);
       } else if (MultiValue.isMultiValue(iThis)) {
         // ACT ON MULTIPLE DOCUMENTS
         final List<Object> result = new ArrayList<Object>(MultiValue.getSize(iThis));
@@ -159,8 +159,8 @@ public class SQLMethodInclude extends AbstractSQLMethod {
   }
 
   private static Object copy(final Map map,
-      final Object[] iFieldNames) {
-    final var entity = new EntityImpl(null);
+      final Object[] iFieldNames, DatabaseSessionInternal session) {
+    final var entity = new ResultInternal(session);
     for (var iFieldName : iFieldNames) {
       if (iFieldName != null) {
         final var fieldName = iFieldName.toString();
@@ -175,11 +175,11 @@ public class SQLMethodInclude extends AbstractSQLMethod {
           }
 
           for (var f : toInclude) {
-            entity.field(fieldName, map.get(f));
+            entity.setProperty(fieldName, map.get(f));
           }
 
         } else {
-          entity.field(fieldName, map.get(fieldName));
+          entity.setProperty(fieldName, map.get(fieldName));
         }
       }
     }

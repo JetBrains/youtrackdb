@@ -24,7 +24,6 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.SimpleMultiValueTracker;
 import java.io.Serializable;
-import java.lang.ref.WeakReference;
 import java.util.AbstractSet;
 import java.util.Collection;
 import java.util.HashSet;
@@ -45,7 +44,7 @@ import javax.annotation.Nullable;
 public class TrackedSet<T> extends AbstractSet<T>
     implements RecordElement, TrackedMultiValue<T, T>, Serializable {
 
-  protected WeakReference<RecordElement> sourceRecord;
+  protected RecordElement sourceRecord;
   private final boolean embeddedCollection;
   protected Class<?> genericClass;
   private boolean dirty = false;
@@ -57,13 +56,13 @@ public class TrackedSet<T> extends AbstractSet<T>
 
   public TrackedSet(final RecordElement iSourceRecord) {
     this.set = new HashSet<>();
-    this.sourceRecord = new WeakReference<>(iSourceRecord);
+    this.sourceRecord = iSourceRecord;
     embeddedCollection = this.getClass().equals(TrackedSet.class);
   }
 
   public TrackedSet(final RecordElement iSourceRecord, int size) {
     this.set = new HashSet<>(size);
-    this.sourceRecord = new WeakReference<>(iSourceRecord);
+    this.sourceRecord = iSourceRecord;
     embeddedCollection = this.getClass().equals(TrackedSet.class);
   }
 
@@ -82,7 +81,7 @@ public class TrackedSet<T> extends AbstractSet<T>
   @Override
   public void setOwner(RecordElement newOwner) {
     if (newOwner != null) {
-      var owner = getOwner();
+      var owner = sourceRecord;
 
       if (owner != null && !owner.equals(newOwner)) {
         throw new IllegalStateException(
@@ -92,7 +91,7 @@ public class TrackedSet<T> extends AbstractSet<T>
                 + " content of current one.");
       }
 
-      sourceRecord = new WeakReference<>(newOwner);
+      sourceRecord = newOwner;
     } else {
       sourceRecord = null;
     }
@@ -100,10 +99,7 @@ public class TrackedSet<T> extends AbstractSet<T>
 
   @Override
   public RecordElement getOwner() {
-    if (sourceRecord == null) {
-      return null;
-    }
-    return sourceRecord.get();
+    return sourceRecord;
   }
 
   @Nonnull
@@ -202,7 +198,7 @@ public class TrackedSet<T> extends AbstractSet<T>
     this.dirty = true;
     this.transactionDirty = true;
 
-    var sourceRecord = getOwner();
+    var sourceRecord = this.sourceRecord;
     if (sourceRecord != null) {
       if (!(sourceRecord instanceof RecordAbstract)
           || !((RecordAbstract) sourceRecord).isDirty()) {
@@ -213,7 +209,7 @@ public class TrackedSet<T> extends AbstractSet<T>
 
   @Override
   public void setDirtyNoChanged() {
-    var sourceRecord = getOwner();
+    var sourceRecord = this.sourceRecord;
     if (sourceRecord != null) {
       sourceRecord.setDirtyNoChanged();
     }
@@ -254,8 +250,8 @@ public class TrackedSet<T> extends AbstractSet<T>
       TrackedMultiValue.nestedEnabled(this.iterator(), this);
     }
 
-    if (getOwner() != parent) {
-      this.sourceRecord = new WeakReference<>(parent);
+    if (sourceRecord != parent) {
+      this.sourceRecord = parent;
     }
   }
 
@@ -267,8 +263,8 @@ public class TrackedSet<T> extends AbstractSet<T>
 
     this.dirty = false;
 
-    if (getOwner() != parent) {
-      this.sourceRecord = new WeakReference<>(parent);
+    if (sourceRecord != parent) {
+      this.sourceRecord = parent;
     }
   }
 

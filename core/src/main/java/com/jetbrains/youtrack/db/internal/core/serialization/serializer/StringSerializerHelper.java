@@ -209,12 +209,6 @@ public abstract class StringSerializerHelper {
         final var value = (String) iValue;
         return RecordSerializerCSVAbstract.embeddedMapFromStream(db,
             entity, null, value, null);
-
-      case ANY:
-        if (iValue instanceof String s) {
-          return decode(IOUtils.getStringContent(s));
-        }
-        return iValue;
     }
 
     throw new IllegalArgumentException(

@@ -39,6 +39,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.EntitySerializable;
 import com.jetbrains.youtrack.db.internal.core.serialization.SerializableStream;
@@ -297,13 +298,19 @@ public enum PropertyType {
 
       return StringSerializerHelper.getBinaryContent(value);
     }
+
+    @Override
+    public byte[] copy(Object value, DatabaseSessionInternal session) {
+      value = convert(value, session);
+      return value == null ? null : ((byte[]) value).clone();
+    }
   },
 
   EMBEDDED(
       "Embedded",
       9,
       Entity.class,
-      new Class<?>[]{EntitySerializable.class, SerializableStream.class}) {
+      new Class<?>[]{Entity.class, EntitySerializable.class, SerializableStream.class}) {
     @Override
     public Entity convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
         DatabaseSessionInternal session) {
@@ -315,13 +322,13 @@ public enum PropertyType {
           return entity;
         }
         case Map<?, ?> map -> {
-          var entityImpl = session.newEmbededEntity(linkedClass);
+          var entityImpl = session.newEmbeddedEntity(linkedClass);
           //noinspection unchecked
           entityImpl.updateFromMap((Map<String, ?>) map);
           return entityImpl;
         }
         case String s -> {
-          var entityImpl = session.newEmbededEntity(linkedClass);
+          var entityImpl = session.newEmbeddedEntity(linkedClass);
           RecordSerializerJackson.fromString(session, s, (RecordAbstract) entityImpl);
           return entityImpl;
         }
@@ -329,6 +336,33 @@ public enum PropertyType {
           throw new DatabaseException(session, conversionErrorMessage(value, this));
         }
       }
+    }
+
+    @Override
+    public Object copy(Object value, DatabaseSessionInternal session) {
+      value = convert(value, session);
+
+      if (value == null) {
+        return null;
+      }
+
+      var entity = (EntityImpl) value;
+
+      var embeddedEntity = session.newEmbeddedEntity(entity.getSchemaClass());
+      for (var propertyName : entity.getPropertyNames()) {
+        var property = entity.getProperty(propertyName);
+        var type = entity.getPropertyType(propertyName);
+
+        if (type != null) {
+          var copy = type.copy(property, session);
+          embeddedEntity.setProperty(propertyName, copy, type);
+        } else {
+          throw new DatabaseException(session, "Can not determine type of property : "
+              + propertyName + " in entity : " + entity);
+        }
+      }
+
+      return embeddedEntity;
     }
   },
 
@@ -388,6 +422,47 @@ public enum PropertyType {
         }
       }
     }
+
+    @Override
+    public boolean isTypeInstance(Object value) {
+      if (value instanceof LinkList) {
+        return false;
+      }
+
+      return super.isTypeInstance(value);
+    }
+
+    @Override
+    public boolean isConvertibleFrom(Object value) {
+      if (value instanceof LinkList) {
+        return false;
+      }
+
+      return super.isConvertibleFrom(value);
+    }
+
+    @Override
+    public Object copy(Object value, DatabaseSessionInternal session) {
+      value = convert(value, session);
+
+      if (value == null) {
+        return null;
+      }
+
+      var trackedList = (TrackedList<?>) value;
+      var copy = session.newEmbeddedList(trackedList.size());
+      for (var item : trackedList) {
+        var type = PropertyType.getTypeByValue(item);
+        if (type == null) {
+          throw new DatabaseException(session, "Can not determine type of property : "
+              + item + " in list : " + value);
+        }
+
+        var converted = type.copy(item, session);
+        copy.add(converted);
+      }
+      return copy;
+    }
   },
 
   EMBEDDEDSET("EmbeddedSet", 11, TrackedSet.class, new Class<?>[]{Set.class}) {
@@ -439,6 +514,47 @@ public enum PropertyType {
         }
       }
     }
+
+    @Override
+    public boolean isTypeInstance(Object value) {
+      if (value instanceof LinkSet) {
+        return false;
+      }
+      return super.isTypeInstance(value);
+    }
+
+    @Override
+    public boolean isConvertibleFrom(Object value) {
+      if (value instanceof LinkSet) {
+        return false;
+      }
+      return super.isConvertibleFrom(value);
+    }
+
+    @Override
+    public Object copy(Object value, DatabaseSessionInternal session) {
+      value = convert(value, session);
+      if (value == null) {
+        return null;
+      }
+
+      var trackedSet = (TrackedSet<?>) value;
+      var copy = session.newEmbeddedSet(trackedSet.size());
+
+      for (var item : trackedSet) {
+        var type = PropertyType.getTypeByValue(item);
+
+        if (type == null) {
+          throw new DatabaseException(session, "Can not determine type of property : "
+              + item + " in set : " + value);
+        }
+
+        var converted = type.copy(item, session);
+        copy.add(converted);
+      }
+
+      return copy;
+    }
   },
 
   EMBEDDEDMAP("EmbeddedMap", 12, TrackedMap.class, new Class<?>[]{Map.class}) {
@@ -486,6 +602,47 @@ public enum PropertyType {
           return embeddedMap;
         }
       }
+    }
+
+    @Override
+    public boolean isTypeInstance(Object value) {
+      if (value instanceof LinkMap) {
+        return false;
+      }
+      return super.isTypeInstance(value);
+    }
+
+    @Override
+    public boolean isConvertibleFrom(Object value) {
+      if (value instanceof LinkMap) {
+        return false;
+      }
+      return super.isConvertibleFrom(value);
+    }
+
+    @Override
+    public Object copy(Object value, DatabaseSessionInternal session) {
+      value = convert(value, session);
+
+      if (value == null) {
+        return null;
+      }
+
+      var trackedMap = (TrackedMap<?>) value;
+      var copy = session.newEmbeddedMap(trackedMap.size());
+      for (var entry : trackedMap.entrySet()) {
+        var type = PropertyType.getTypeByValue(entry.getValue());
+
+        if (type == null) {
+          throw new DatabaseException(session, "Can not determine type of property : "
+              + entry.getValue() + " in map : " + value);
+        }
+
+        var converted = type.copy(entry.getValue(), session);
+        copy.put(entry.getKey(), converted);
+      }
+
+      return copy;
     }
   },
 
@@ -539,6 +696,44 @@ public enum PropertyType {
       }
       throw new DatabaseException(session, conversionErrorMessage(value, this));
     }
+
+    @Override
+    public boolean isTypeInstance(Object value) {
+      if (value instanceof Entity entity && entity.isEmbedded()) {
+        return false;
+      }
+      if (value instanceof RecordId rid && !rid.isValid()) {
+        return false;
+      }
+
+      return super.isTypeInstance(value);
+    }
+
+    @Override
+    public boolean isConvertibleFrom(Object value) {
+      if (value instanceof Entity entity && entity.isEmbedded()) {
+        return false;
+      }
+
+      if (value instanceof RecordId rid && !rid.isValid()) {
+        return false;
+      }
+
+      return super.isConvertibleFrom(value);
+    }
+
+    @Override
+    public Object copy(Object value, DatabaseSessionInternal session) {
+      value = convert(value, session);
+
+      if (value == null) {
+        return null;
+      }
+
+      var identifiable = (Identifiable) value;
+      var rid = identifiable.getIdentity();
+      return new RecordId(rid.getClusterId(), rid.getClusterPosition());
+    }
   },
 
   LINKLIST("LinkList", 14, LinkList.class, new Class<?>[]{List.class}) {
@@ -580,6 +775,42 @@ public enum PropertyType {
           return linkList;
         }
       }
+    }
+
+    @Override
+    public boolean isTypeInstance(Object value) {
+      var result = super.isTypeInstance(value);
+
+      if (result) {
+        return PropertyType.checkLinkCollection((Collection<?>) value);
+      }
+      return false;
+    }
+
+    @Override
+    public boolean isConvertibleFrom(Object object) {
+      var result = super.isConvertibleFrom(object);
+
+      if (result) {
+        return PropertyType.canBeLinkCollection((Collection<?>) object);
+      }
+
+      return false;
+    }
+
+    @Override
+    public Object copy(Object value, DatabaseSessionInternal session) {
+      value = convert(value, session);
+
+      if (value == null) {
+        return null;
+      }
+
+      var linkList = (LinkList) value;
+      var copy = session.newLinkList(linkList.size());
+      copy.addAll(linkList);
+
+      return copy;
     }
   },
 
@@ -625,6 +856,38 @@ public enum PropertyType {
         }
       }
     }
+
+    @Override
+    public boolean isTypeInstance(Object value) {
+      var result = super.isTypeInstance(value);
+      if (result) {
+        return PropertyType.checkLinkCollection((Collection<?>) value);
+      }
+      return false;
+    }
+
+    @Override
+    public boolean isConvertibleFrom(Object object) {
+      var result = super.isConvertibleFrom(object);
+      if (result) {
+        return PropertyType.canBeLinkCollection((Collection<?>) object);
+      }
+      return false;
+    }
+
+    @Override
+    public Object copy(Object value, DatabaseSessionInternal session) {
+      value = convert(value, session);
+      if (value == null) {
+        return null;
+      }
+
+      var linkSet = (LinkSet) value;
+      var copy = session.newLinkSet(linkSet.size());
+      copy.addAll(linkSet);
+
+      return copy;
+    }
   },
 
   LINKMAP("LinkMap", 16, LinkMap.class, new Class<?>[]{Map.class}) {
@@ -665,6 +928,41 @@ public enum PropertyType {
       throw new DatabaseException(session != null ? session.getDatabaseName() : null,
           conversionErrorMessage(value, this));
     }
+
+    @Override
+    public boolean isTypeInstance(Object value) {
+      var result = super.isTypeInstance(value);
+      if (result) {
+        return PropertyType.checkLinkCollection(((Map<?, ?>) value).values());
+      }
+
+      return false;
+    }
+
+
+    @Override
+    public boolean isConvertibleFrom(Object object) {
+      var result = super.isConvertibleFrom(object);
+      if (result) {
+        return PropertyType.canBeLinkCollection(((Map<?, ?>) object).values());
+      }
+
+      return false;
+    }
+
+    @Override
+    public Object copy(Object value, DatabaseSessionInternal session) {
+      value = convert(value, session);
+      if (value == null) {
+        return null;
+      }
+
+      var linkMap = (LinkMap) value;
+      var copy = session.newLinkMap(linkMap.size());
+      copy.putAll(linkMap);
+
+      return copy;
+    }
   },
 
   BYTE("Byte", 17, Byte.class, new Class<?>[]{Number.class}) {
@@ -694,6 +992,17 @@ public enum PropertyType {
       }
       return DATETIME.convert(value, linkedType, linkedClass, session);
     }
+
+    @Override
+    public Object copy(Object value, DatabaseSessionInternal session) {
+      value = convert(value, session);
+
+      if (value == null) {
+        return null;
+      }
+
+      return new Date(((Date) value).getTime());
+    }
   },
 
   DECIMAL("Decimal", 21, BigDecimal.class, new Class<?>[]{BigDecimal.class, Number.class}) {
@@ -708,6 +1017,17 @@ public enum PropertyType {
         default -> throw new DatabaseException(session != null ? session.getDatabaseName() : null,
             conversionErrorMessage(value, this));
       };
+    }
+
+    @Override
+    public Object copy(Object value, DatabaseSessionInternal session) {
+      value = convert(value, session);
+
+      if (value == null) {
+        return null;
+      }
+
+      return new BigDecimal(((BigDecimal) value).toPlainString());
     }
   },
 
@@ -732,13 +1052,22 @@ public enum PropertyType {
 
       throw new DatabaseException(session, conversionErrorMessage(value, this));
     }
-  },
 
-  ANY("Any", 23, null, new Class<?>[]{}) {
     @Override
-    public Object convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
-        DatabaseSessionInternal session) {
-      return value;
+    public Object copy(Object value, DatabaseSessionInternal session) {
+      value = convert(value, session);
+
+      if (value == null) {
+        return null;
+      }
+
+      var ridBag = (RidBag) value;
+      var copy = new RidBag(session);
+      for (var item : ridBag) {
+        copy.add(item);
+      }
+
+      return copy;
     }
   };
 
@@ -844,6 +1173,47 @@ public enum PropertyType {
   public abstract Object convert(Object value, PropertyType linkedType, SchemaClass linkedClass,
       DatabaseSessionInternal session);
 
+  public boolean isTypeInstance(Object value) {
+    var clazz = value.getClass();
+    return clazz == javaDefaultType;
+  }
+
+  public boolean isConvertibleFrom(Object object) {
+    if (isTypeInstance(object)) {
+      return true;
+    }
+
+    var clazz = object.getClass();
+    if (javaDefaultType.isAssignableFrom(clazz)) {
+      return true;
+    }
+
+    for (var type : allowAssignmentFrom) {
+      if (type.isAssignableFrom(clazz)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  public Object convert(Object value, DatabaseSessionInternal session) {
+    if (value == null || isTypeInstance(value)) {
+      return value;
+    }
+
+    if (isConvertibleFrom(value)) {
+      return convert(value, null, null, session);
+    }
+
+    throw new DatabaseException(session, "Cannot convert " + value + " to " + this + " type.");
+  }
+
+  public Object copy(Object value, DatabaseSessionInternal session) {
+    return convert(value, session);
+  }
+
+
   /**
    * Return the correspondent type by checking the "assignability" of the class received as
    * parameter.
@@ -893,24 +1263,6 @@ public enum PropertyType {
       return null;
     }
 
-    if (value instanceof Result result) {
-      if (result.isRecord()) {
-        if (result.isEntity()) {
-          var identifable = result.castToIdentifiable();
-          if (identifable instanceof Entity entity && entity.isEmbedded()) {
-            return EMBEDDED;
-          }
-        }
-
-        return LINK;
-      }
-      if (result.isProjection()) {
-        return EMBEDDEDMAP;
-      } else {
-        return null;
-      }
-    }
-
     var clazz = value.getClass();
     var type = TYPES_BY_CLASS.get(clazz);
     if (type != null) {
@@ -929,6 +1281,28 @@ public enum PropertyType {
     } else if (EMBEDDEDMAP == byType) {
       if (checkLinkCollection(((Map<?, ?>) value).values())) {
         return LINKMAP;
+      }
+    } else if (LINK == byType && value instanceof Entity entity && entity.isEmbedded()) {
+      return EMBEDDED;
+    }
+
+    if (byType == null) {
+      if (value instanceof Result result) {
+        if (result.isRecord()) {
+          if (result.isEntity()) {
+            var identifable = result.castToIdentifiable();
+            if (identifable instanceof Entity entity && entity.isEmbedded()) {
+              return EMBEDDED;
+            }
+          }
+
+          return LINK;
+        }
+        if (result.isProjection()) {
+          return EMBEDDEDMAP;
+        } else {
+          return null;
+        }
       }
     }
     return byType;

@@ -22,7 +22,7 @@ public class DefaultClusterTest {
           session.computeInTx(
               () -> {
                 final var vertex = session.newVertex("V");
-                vertex.setProperty("embedded", session.newEntity(), PropertyType.EMBEDDED);
+                vertex.setProperty("embedded", session.newEmbeddedEntity(), PropertyType.EMBEDDED);
                 return vertex;
               });
 

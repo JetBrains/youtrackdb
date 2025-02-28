@@ -15,6 +15,7 @@ package com.jetbrains.youtrack.db.internal.security.auditing;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RecordHookAbstract;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -29,12 +30,12 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.AuditingOperation;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -301,12 +302,9 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
 
     if (iRecord instanceof EntityImpl entity) {
       SchemaImmutableClass clazz = null;
-      if (entity != null) {
-        clazz = entity.getImmutableSchemaClass((DatabaseSessionInternal) session);
-      }
+      clazz = entity.getImmutableSchemaClass((DatabaseSessionInternal) session);
 
-      if (clazz.isUser() && Collections.singletonList(entity.getCallbackDirtyProperties())
-          .contains("password")) {
+      if (clazz.isUser() && Objects.equals(entity.getCallbackDirtyProperties(), "password")) {
         String name = entity.getProperty("name");
         var message = String.format("The password for user '%s' has been changed", name);
         log(session, AuditingOperation.CHANGED_PWD, session.getDatabaseName(),
@@ -344,7 +342,7 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
       return;
     }
 
-    EntityImpl changes = null;
+    Entity changes = null;
     String note = null;
 
     switch (operation) {
@@ -365,13 +363,13 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
         note = cfg.onUpdateMessage;
 
         if (iRecord instanceof EntityImpl entity && cfg.onUpdateChanges) {
-          changes = new EntityImpl((DatabaseSessionInternal) db);
+          changes = db.newEmbeddedEntity();
 
           for (var f : entity.getCallbackDirtyProperties()) {
-            var fieldChanges = new EntityImpl(null);
-            fieldChanges.field("from", entity.getOriginalValue(f));
-            fieldChanges.field("to", entity.rawField(f));
-            changes.field(f, fieldChanges, PropertyType.EMBEDDED);
+            var fieldChanges = db.newEntity();
+            fieldChanges.setProperty("from", entity.getOriginalValue(f));
+            fieldChanges.setProperty("to", entity.rawField(f));
+            changes.setProperty(f, fieldChanges, PropertyType.EMBEDDED);
           }
         }
         break;

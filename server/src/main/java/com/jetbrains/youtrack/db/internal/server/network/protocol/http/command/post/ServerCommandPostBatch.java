@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandDocumentAbstract;
@@ -144,7 +145,12 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
         } else if (type.equals("d")) {
           // DELETE
           final var entity = getRecord(db, operation);
-          db.delete(entity);
+          if (entity.isRecord()) {
+            entity.castToRecord().delete();
+          } else {
+            throw new IllegalArgumentException("Cannot delete a non-record entity");
+          }
+
           lastResult = entity.getIdentity();
         } else if (type.equals("cmd")) {
           // COMMAND
@@ -254,18 +260,18 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
     return false;
   }
 
-  public EntityImpl getRecord(DatabaseSessionInternal db, Map<Object, Object> operation) {
+  public static Result getRecord(DatabaseSessionInternal db, Map<Object, Object> operation) {
     var record = operation.get("record");
 
-    EntityImpl entity;
+    Result result;
     if (record instanceof Map<?, ?>)
     // CONVERT MAP IN DOCUMENT
     {
-      entity = new EntityImpl(db, (Map<String, Object>) record);
+      result = new ResultInternal(db, (Map<String, Object>) record);
     } else {
-      entity = (EntityImpl) record;
+      result = (EntityImpl) record;
     }
-    return entity;
+    return result;
   }
 
   @Override

@@ -24,7 +24,6 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.SimpleMultiValueTracker;
 import java.io.Serializable;
-import java.lang.ref.WeakReference;
 import java.util.AbstractMap;
 import java.util.AbstractSet;
 import java.util.HashMap;
@@ -43,7 +42,7 @@ import javax.annotation.Nullable;
 public class TrackedMap<T> extends AbstractMap<String, T>
     implements RecordElement, TrackedMultiValue<String, T>, Serializable {
 
-  protected WeakReference<RecordElement> sourceRecord;
+  protected RecordElement sourceRecord;
   protected Class<?> genericClass;
   private final boolean embeddedCollection;
   private boolean dirty = false;
@@ -64,13 +63,13 @@ public class TrackedMap<T> extends AbstractMap<String, T>
 
   public TrackedMap(final RecordElement iSourceRecord) {
     this.map = new HashMap<>();
-    this.sourceRecord = new WeakReference<>(iSourceRecord);
+    this.sourceRecord = iSourceRecord;
     embeddedCollection = this.getClass().equals(TrackedMap.class);
   }
 
   public TrackedMap(final RecordElement iSourceRecord, int size) {
     this.map = new HashMap<>(size);
-    this.sourceRecord = new WeakReference<>(iSourceRecord);
+    this.sourceRecord = iSourceRecord;
     embeddedCollection = this.getClass().equals(TrackedMap.class);
   }
 
@@ -89,7 +88,7 @@ public class TrackedMap<T> extends AbstractMap<String, T>
   @Override
   public void setOwner(RecordElement newOwner) {
     if (newOwner != null) {
-      var owner = getOwner();
+      var owner = sourceRecord;
       if (owner != null && !owner.equals(newOwner)) {
         throw new IllegalStateException(
             "This map is already owned by data container "
@@ -98,7 +97,7 @@ public class TrackedMap<T> extends AbstractMap<String, T>
                 + " content of current one.");
       }
 
-      this.sourceRecord = new WeakReference<>(newOwner);
+      this.sourceRecord = newOwner;
     } else {
       this.sourceRecord = null;
     }
@@ -111,10 +110,7 @@ public class TrackedMap<T> extends AbstractMap<String, T>
 
   @Override
   public RecordElement getOwner() {
-    if (sourceRecord == null) {
-      return null;
-    }
-    return sourceRecord.get();
+    return sourceRecord;
   }
 
   @Override
@@ -209,7 +205,7 @@ public class TrackedMap<T> extends AbstractMap<String, T>
     this.dirty = true;
     this.transactionDirty = true;
 
-    var sourceRecord = getOwner();
+    var sourceRecord = this.sourceRecord;
     if (sourceRecord != null) {
       if (!(sourceRecord instanceof RecordAbstract)
           || !((RecordAbstract) sourceRecord).isDirty()) {
@@ -220,7 +216,7 @@ public class TrackedMap<T> extends AbstractMap<String, T>
 
   @Override
   public void setDirtyNoChanged() {
-    var sourceRecord = getOwner();
+    var sourceRecord = this.sourceRecord;
     if (sourceRecord != null) {
       sourceRecord.setDirtyNoChanged();
     }
@@ -387,8 +383,8 @@ public class TrackedMap<T> extends AbstractMap<String, T>
       TrackedMultiValue.nestedEnabled(this.values().iterator(), this);
     }
 
-    if (getOwner() != parent) {
-      this.sourceRecord = new WeakReference<>(parent);
+    if (sourceRecord != parent) {
+      this.sourceRecord = parent;
     }
 
   }
@@ -400,8 +396,8 @@ public class TrackedMap<T> extends AbstractMap<String, T>
     }
     this.dirty = false;
 
-    if (getOwner() != parent) {
-      this.sourceRecord = new WeakReference<>(parent);
+    if (sourceRecord != parent) {
+      this.sourceRecord = parent;
     }
 
   }

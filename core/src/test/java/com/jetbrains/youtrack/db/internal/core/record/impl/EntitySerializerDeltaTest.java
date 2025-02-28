@@ -1,11 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
@@ -25,6 +19,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.assertj.core.api.Assertions;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public class EntitySerializerDeltaTest extends DbTestBase {
@@ -67,11 +66,12 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testGetFromNestedDelta() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var claz = session.createClass("TestClass");
+    var embeddedClaz = session.createAbstractClass("EmbeddedTestClass");
 
     session.begin();
     var doc = (EntityImpl) session.newEntity(claz);
-    var nestedDoc = (EntityImpl) session.newEmbededEntity(claz.getName(session));
+    var nestedDoc = (EntityImpl) session.newEmbeddedEntity(embeddedClaz.getName(session));
     var fieldName = "testField";
     var constantFieldName = "constantField";
     var originalValue = "orValue";
@@ -277,7 +277,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var variableField = "varField";
     List<EntityImpl> originalValue = doc.newEmbeddedList(fieldName);
     for (var i = 0; i < 2; i++) {
-      var containedDoc = (EntityImpl) session.newEmbededEntity();
+      var containedDoc = (EntityImpl) session.newEmbeddedEntity();
       containedDoc.setProperty(constantField, constValue);
       containedDoc.setProperty(variableField, "one" + i);
       originalValue.add(containedDoc);
@@ -320,10 +320,10 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     List<List<Entity>> originalValue = entity.newEmbeddedList(fieldName);
     for (var i = 0; i < 2; i++) {
       var containedList = session.<Entity>newEmbeddedList();
-      var d1 = (EntityImpl) session.newEmbededEntity();
+      var d1 = (EntityImpl) session.newEmbeddedEntity();
       d1.setProperty(constantField, constValue);
       d1.setProperty(variableField, "one");
-      var d2 = (EntityImpl) session.newEmbededEntity();
+      var d2 = (EntityImpl) session.newEmbeddedEntity();
       d2.setProperty(constantField, constValue);
       containedList.add(d1);
       containedList.add(d2);
@@ -409,7 +409,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     List<EntityImpl> originalValue = entity.newEmbeddedList(fieldName);
     for (var i = 0; i < 2; i++) {
-      var containedDoc = (EntityImpl) session.newEmbededEntity();
+      var containedDoc = (EntityImpl) session.newEmbeddedEntity();
       containedDoc.setProperty(constantField, constValue);
       List<String> listField = new ArrayList<>();
       for (var j = 0; j < 2; j++) {
@@ -623,10 +623,11 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var nestedFieldName = "nested";
 
     var claz = session.createClassIfNotExist("TestClass");
+    var embeddedClazz = session.createAbstractClass("EmbeddedTestClass");
     claz.createProperty(session, nestedFieldName, PropertyType.EMBEDDED);
 
     session.begin();
-    var entity = (EntityImpl) session.newEntity(claz);
+    var entity = (EntityImpl) session.newEmbeddedEntity(embeddedClazz);
     var fieldName = "testField";
     var constantFieldName = "constantField";
     var testValue = "testValue";
@@ -671,7 +672,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var variableField = "varField";
     List<EntityImpl> originalValue = entity.newEmbeddedList(fieldName);
     for (var i = 0; i < 2; i++) {
-      var containedDoc = (EntityImpl) session.newEmbededEntity();
+      var containedDoc = (EntityImpl) session.newEmbeddedEntity();
       containedDoc.setProperty(constantField, constValue);
       containedDoc.setProperty(variableField, "one" + i);
       originalValue.add(containedDoc);
@@ -785,10 +786,10 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var entity = (EntityImpl) session.newEntity(claz);
     var fieldName = "testField";
     Map<String, EntityImpl> mapValue = entity.newEmbeddedMap(fieldName);
-    var d1 = (EntityImpl) session.newEmbededEntity();
+    var d1 = (EntityImpl) session.newEmbeddedEntity();
     d1.setProperty("f1", "v1");
     mapValue.put("first", d1);
-    var d2 = (EntityImpl) session.newEmbededEntity();
+    var d2 = (EntityImpl) session.newEmbeddedEntity();
     d2.setProperty("f2", "v2");
     mapValue.put("second", d2);
     session.commit();
@@ -1191,7 +1192,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     Map<String, Entity> mapEmbedded = doc.newEmbeddedMap("mapEmbedded");
 
-    var embedded = session.newEmbededEntity();
+    var embedded = session.newEmbeddedEntity();
     embedded.setProperty("other", 1);
     mapEmbedded.put("first", embedded);
 
@@ -1199,7 +1200,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     session.begin();
     doc = session.bindToSession(doc);
-    var embedded1 = session.newEmbededEntity();
+    var embedded1 = session.newEmbeddedEntity();
     embedded1.setProperty("other", 1);
     doc.<Map<String, Entity>>getProperty("mapEmbedded").put("newDoc", embedded1);
     doc.<Map<String, String>>getProperty("map").put("value", "other");
@@ -1521,7 +1522,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.begin();
 
     var document = (EntityImpl) session.newEntity();
-    var embedded = (EntityImpl) session.newEntity();
+    var embedded = (EntityImpl) session.newEmbeddedEntity();
     embedded.field("name", "test");
     embedded.field("surname", "something");
     document.field("embed", embedded, PropertyType.EMBEDDED);
@@ -1662,7 +1663,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     var document = (EntityImpl) session.newEntity();
 
-    var embeddedInMap = (EntityImpl) session.newEmbededEntity();
+    var embeddedInMap = (EntityImpl) session.newEmbeddedEntity();
     embeddedInMap.field("name", "test");
     embeddedInMap.field("surname", "something");
     Map<String, EntityImpl> map = document.newEmbeddedMap("map");
@@ -1730,11 +1731,11 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.begin();
     var entity = session.newEntity();
 
-    var embeddedInList = (EntityImpl) session.newEmbededEntity();
+    var embeddedInList = (EntityImpl) session.newEmbeddedEntity();
     embeddedInList.field("name", "test");
     embeddedInList.field("surname", "something");
 
-    var embeddedInList2 = (EntityImpl) session.newEmbededEntity();
+    var embeddedInList2 = (EntityImpl) session.newEmbeddedEntity();
     embeddedInList2.field("name", "test1");
     embeddedInList2.field("surname", "something2");
 
@@ -1742,21 +1743,21 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     embeddedList.add(embeddedInList);
     embeddedList.add(embeddedInList2);
     embeddedList.add(null);
-    embeddedList.add((EntityImpl) session.newEmbededEntity());
+    embeddedList.add((EntityImpl) session.newEmbeddedEntity());
     entity.newEmbeddedList("embeddedList", embeddedList);
 
-    var embeddedInSet = (EntityImpl) session.newEmbededEntity();
+    var embeddedInSet = (EntityImpl) session.newEmbeddedEntity();
     embeddedInSet.field("name", "test2");
     embeddedInSet.field("surname", "something3");
 
-    var embeddedInSet2 = (EntityImpl) session.newEmbededEntity();
+    var embeddedInSet2 = (EntityImpl) session.newEmbeddedEntity();
     embeddedInSet2.field("name", "test5");
     embeddedInSet2.field("surname", "something6");
 
     Set<EntityImpl> embeddedSet = new HashSet<>();
     embeddedSet.add(embeddedInSet);
     embeddedSet.add(embeddedInSet2);
-    embeddedSet.add((EntityImpl) session.newEmbededEntity());
+    embeddedSet.add((EntityImpl) session.newEmbeddedEntity());
     entity.newEmbeddedSet("embeddedSet").addAll(embeddedSet);
 
     var serializerDelta = DocumentSerializerDelta.instance();

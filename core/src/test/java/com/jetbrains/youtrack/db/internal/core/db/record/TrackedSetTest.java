@@ -245,7 +245,7 @@ public class TrackedSetTest extends DbTestBase {
   @Test
   public void testStackOverflowOnRecursion() {
     session.begin();
-    final var entity = (EntityImpl) session.newEmbededEntity();
+    final var entity = (EntityImpl) session.newEmbeddedEntity();
     @SuppressWarnings("MismatchedQueryAndUpdateOfCollection") final var trackedSet = new TrackedSet<EntityImpl>(
         entity);
     trackedSet.add(entity);

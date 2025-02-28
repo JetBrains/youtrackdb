@@ -221,10 +221,11 @@ public class ResultInternal implements Result {
         return blob.getIdentity();
       }
       case Entity entity -> {
-        if (entity.isEmbedded() || !entity.getIdentity().isPersistent()) {
+        if (entity.isEmbedded()) {
           return entity.detach();
         }
-        return entity.getIdentity();
+
+        return session.refreshRid(entity.getIdentity());
       }
 
       case ContextualRecordId contextualRecordId -> {

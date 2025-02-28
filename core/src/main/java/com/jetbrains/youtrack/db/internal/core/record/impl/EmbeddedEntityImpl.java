@@ -13,6 +13,7 @@ public class EmbeddedEntityImpl extends EntityImpl {
 
   public EmbeddedEntityImpl(DatabaseSessionInternal session) {
     super(session);
+    status = STATUS.LOADED;
   }
 
   @Override

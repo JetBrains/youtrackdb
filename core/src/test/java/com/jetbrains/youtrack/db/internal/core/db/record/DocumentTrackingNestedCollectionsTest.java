@@ -1,15 +1,14 @@
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 /**
@@ -36,7 +35,7 @@ public class DocumentTrackingNestedCollectionsTest extends DbTestBase {
     objects = entity.getOrCreateEmbeddedSet("objects");
     subObjects = objects.iterator().next();
 
-    var nestedDoc = (EntityImpl) session.newEmbededEntity();
+    var nestedDoc = (EntityImpl) session.newEmbeddedEntity();
     subObjects.add(nestedDoc);
     session.commit();
 
@@ -59,7 +58,7 @@ public class DocumentTrackingNestedCollectionsTest extends DbTestBase {
     var subObjects = session.newEmbeddedSet();
     objects.add(subObjects);
 
-    var nestedDoc = (EntityImpl) session.newEmbededEntity();
+    var nestedDoc = (EntityImpl) session.newEmbeddedEntity();
     subObjects.add(nestedDoc);
 
     session.commit();
@@ -90,7 +89,7 @@ public class DocumentTrackingNestedCollectionsTest extends DbTestBase {
     var subObjects = session.newEmbeddedList();
     objects.add(subObjects);
 
-    var nestedDoc = (EntityImpl) session.newEmbededEntity();
+    var nestedDoc = (EntityImpl) session.newEmbeddedEntity();
     subObjects.add(nestedDoc);
 
     session.commit();
@@ -100,7 +99,7 @@ public class DocumentTrackingNestedCollectionsTest extends DbTestBase {
     objects = document.getEmbeddedList("objects");
     subObjects = (List) objects.iterator().next();
     subObjects.add("one");
-    subObjects.add(session.newEmbededEntity());
+    subObjects.add(session.newEmbeddedEntity());
 
     assertTrue(document.isDirty());
     var multiValueChangeEvents =
@@ -122,7 +121,7 @@ public class DocumentTrackingNestedCollectionsTest extends DbTestBase {
     var subObjects = session.newEmbeddedMap();
     objects.put("first", subObjects);
 
-    var nestedDoc = session.newEmbededEntity();
+    var nestedDoc = session.newEmbeddedEntity();
     subObjects.put("one", nestedDoc);
 
     session.commit();
@@ -132,7 +131,7 @@ public class DocumentTrackingNestedCollectionsTest extends DbTestBase {
     objects = entity.getOrCreateEmbeddedMap("objects");
     subObjects = objects.values().iterator().next();
     subObjects.put("one", "String");
-    subObjects.put("two", session.newEmbededEntity());
+    subObjects.put("two", session.newEmbeddedEntity());
 
     assertTrue(entity.isDirty());
     var multiValueChangeEvents =

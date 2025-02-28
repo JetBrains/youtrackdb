@@ -1,10 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.sql.select;
 
-import static org.junit.Assert.assertEquals;
-
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import static org.junit.Assert.assertEquals;
 import org.junit.Test;
 
 /**
@@ -29,7 +28,7 @@ public class TestNullFieldQuery extends DbTestBase {
   @Test
   public void testQueryNullValueSchemaFull() {
     var clazz = session.getMetadata().getSchema().createClass("Test");
-    clazz.createProperty(session, "name", PropertyType.ANY);
+    clazz.createProperty(session, "name", PropertyType.STRING);
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("Test");

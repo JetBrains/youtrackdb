@@ -31,14 +31,16 @@ public class DocumentTest extends DbTestBase {
 
   @Test
   public void testFromMapNotSaved() {
-    final var doc = new EntityImpl(session);
-    doc.field("name", "Jay");
-    doc.field("surname", "Miner");
-    var map = doc.toMap();
+    session.begin();
+    final var doc = session.newEntity();
+    doc.setString("name", "Jay");
+    doc.setString("surname", "Miner");
+    var map = doc.toMap(false);
 
     Assert.assertEquals(2, map.size());
     Assert.assertEquals("Jay", map.get("name"));
     Assert.assertEquals("Miner", map.get("surname"));
+    session.rollback();
   }
 
   @Test

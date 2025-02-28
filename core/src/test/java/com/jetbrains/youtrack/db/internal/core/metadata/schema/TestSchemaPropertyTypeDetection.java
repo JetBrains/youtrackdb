@@ -1,7 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
-import static org.junit.Assert.assertEquals;
-
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -30,6 +28,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import static org.junit.Assert.assertEquals;
 import org.junit.Test;
 
 public class TestSchemaPropertyTypeDetection extends DbTestBase {
@@ -216,7 +215,7 @@ public class TestSchemaPropertyTypeDetection extends DbTestBase {
     linkSet2.add(session.newEntity());
     assertEquals(PropertyType.LINKSET, PropertyType.getTypeByValue(linkSet2));
 
-    var document = (EntityImpl) session.newEntity();
+    var document = (EntityImpl) session.newEmbeddedEntity();
     document.setOwner((EntityImpl) session.newEntity());
     assertEquals(PropertyType.EMBEDDED, PropertyType.getTypeByValue(document));
     session.rollback();

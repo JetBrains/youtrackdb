@@ -23,6 +23,7 @@ package com.jetbrains.youtrack.db.internal.core.sql;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -63,19 +64,19 @@ public abstract class RecordsReturnHandler implements ReturnHandler {
       return record;
     } else {
       final Object itemResult;
-      final EntityImpl wrappingDoc;
       context.setVariable("current", record);
 
-      var db = context.getDatabaseSession();
+      var session = context.getDatabaseSession();
       itemResult =
           SQLHelper.getValue(returnExpression,
-              ((Identifiable) record).getRecord(db), context);
+              ((Identifiable) record).getRecord(session), context);
       if (itemResult instanceof Identifiable) {
         return itemResult;
       }
 
-      // WRAP WITH ODOCUMENT TO BE TRANSFERRED THROUGH BINARY DRIVER
-      return new EntityImpl(db, "value", itemResult);
+      var result = new ResultInternal(session);
+      result.setProperty("value", itemResult);
+      return result;
     }
   }
 }

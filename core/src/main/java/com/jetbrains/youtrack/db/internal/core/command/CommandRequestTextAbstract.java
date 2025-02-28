@@ -83,18 +83,18 @@ public abstract class CommandRequestTextAbstract extends CommandRequestAbstract
     return this;
   }
 
-  public CommandRequestText fromStream(DatabaseSessionInternal db, final byte[] iStream,
+  public CommandRequestText fromStream(DatabaseSessionInternal session, final byte[] iStream,
       RecordSerializerNetwork serializer)
       throws SerializationException {
     final var buffer = new MemoryStream(iStream);
-    fromStream(db, buffer, serializer);
+    fromStream(session, buffer, serializer);
     return this;
   }
 
-  public byte[] toStream(DatabaseSessionInternal db, RecordSerializerNetwork serializer)
+  public byte[] toStream(DatabaseSessionInternal session, RecordSerializerNetwork serializer)
       throws SerializationException {
     final var buffer = new MemoryStream();
-    return toStream(buffer);
+    return toStream(buffer, session);
   }
 
   @Override
@@ -102,7 +102,7 @@ public abstract class CommandRequestTextAbstract extends CommandRequestAbstract
     return "?." + text;
   }
 
-  protected byte[] toStream(final MemoryStream buffer) {
+  protected byte[] toStream(final MemoryStream buffer, DatabaseSessionInternal session) {
     buffer.setUtf8(text);
 
     if (parameters == null || parameters.isEmpty()) {
@@ -124,14 +124,14 @@ public abstract class CommandRequestTextAbstract extends CommandRequestAbstract
 
       buffer.set(!params.isEmpty());
       if (!params.isEmpty()) {
-        final var param = new EntityImpl(null);
+        final var param = (EntityImpl) session.newEmbeddedEntity();
         param.field("parameters", params);
         buffer.set(param.toStream());
       }
 
       buffer.set(!compositeKeyParams.isEmpty());
       if (!compositeKeyParams.isEmpty()) {
-        final var compositeKey = new EntityImpl(null);
+        final var compositeKey = (EntityImpl) session.newEmbeddedEntity();
         compositeKey.field("compositeKeyParams", compositeKeyParams);
         buffer.set(compositeKey.toStream());
       }
@@ -149,7 +149,7 @@ public abstract class CommandRequestTextAbstract extends CommandRequestAbstract
     final var simpleParams = buffer.getAsBoolean();
     if (simpleParams) {
       final var paramBuffer = buffer.getAsByteArray();
-      final var param = new EntityImpl(null);
+      final var param = (EntityImpl) session.newEmbeddedEntity();
       if (serializer != null) {
         serializer.fromStream(session, paramBuffer, param, null);
       } else {
@@ -188,7 +188,7 @@ public abstract class CommandRequestTextAbstract extends CommandRequestAbstract
     final var compositeKeyParamsPresent = buffer.getAsBoolean();
     if (compositeKeyParamsPresent) {
       final var paramBuffer = buffer.getAsByteArray();
-      final var param = new EntityImpl(null);
+      final var param = (EntityImpl) session.newEmbeddedEntity();
       if (serializer != null) {
         serializer.fromStream(session, paramBuffer, param, null);
       } else {

@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerCSVAbstract;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLUpdateItem;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
@@ -96,7 +97,7 @@ public class ServerCommandPostImportRecords extends ServerCommandDocumentAbstrac
               break;
             }
 
-            final var entity = new EntityImpl(session, cls);
+            final var entity = (EntityImpl) session.newEntity(cls);
             final var row = parsedRow.trim();
             final var cells = StringSerializerHelper.smartSplit(row, CSV_SEPARATOR);
 
@@ -123,7 +124,11 @@ public class ServerCommandPostImportRecords extends ServerCommandDocumentAbstrac
                 }
               }
 
-              entity.field(columns.get(col), value);
+              var immutableClass = entity.getImmutableSchemaClass(session);
+              var property = immutableClass != null ?
+                  immutableClass.getProperty(session, columns.get(col)) : null;
+              entity.setProperty(columns.get(col), SQLUpdateItem.cleanPropertyValue(value,
+                  session, property));
             }
 
             imported++;

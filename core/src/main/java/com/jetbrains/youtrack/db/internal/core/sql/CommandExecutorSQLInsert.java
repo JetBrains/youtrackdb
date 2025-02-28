@@ -22,6 +22,7 @@ package com.jetbrains.youtrack.db.internal.core.sql;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -39,6 +40,7 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField;
 import com.jetbrains.youtrack.db.internal.core.sql.query.SQLAsynchQuery;
 import java.util.ArrayList;
@@ -253,7 +255,12 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
       }
 
       // RETURN LAST ENTRY
-      return prepareReturnItem(session, new EntityImpl(session, result));
+      var resultInternal = new ResultInternal(session);
+      for (var entry : result.entrySet()) {
+        resultInternal.setProperty(entry.getKey(), entry.getValue());
+      }
+
+      return prepareReturnItem(session, resultInternal);
     } else {
       // CREATE NEW DOCUMENTS
       final List<EntityImpl> docs = new ArrayList<EntityImpl>();
@@ -390,7 +397,7 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
     return ret;
   }
 
-  protected Object prepareReturnItem(DatabaseSessionInternal db, EntityImpl item) {
+  protected Object prepareReturnItem(DatabaseSessionInternal db, Result item) {
     if (returnExpression == null) {
       return item; // No transformation
     }
@@ -400,11 +407,16 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
     if (res instanceof Identifiable) {
       return res;
     } else { // wrapping entity
-      final var wrappingDoc = new EntityImpl(db, "result", res);
-      wrappingDoc.field(
-          "rid", item.getIdentity()); // passing record id.In many cases usable on client side
-      wrappingDoc.field("version", item.getVersion()); // passing record version
-      return wrappingDoc;
+      final var wrappingResult = new ResultInternal(db);
+
+      wrappingResult.setProperty("value", res);
+      wrappingResult.setProperty(
+          "rid", item.getIdentity());
+      if (item.isRecord()) {
+        wrappingResult.setProperty("version", item.castToRecord().getVersion());
+      }
+
+      return wrappingResult;
     }
   }
 

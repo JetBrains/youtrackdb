@@ -60,7 +60,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   public RecordSerializer recordFormat;
   protected long dirty = 1;
   protected boolean contentChanged = true;
-  protected STATUS status = STATUS.LOADED;
+  protected STATUS status = STATUS.NOT_LOADED;
 
   @Nullable
   protected DatabaseSessionInternal session;

@@ -726,7 +726,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
 
     final var prop = result.getProperty(session, fieldName);
     final var propType =
-        prop != null && prop.getType(session) != PropertyType.ANY ? prop.getType(session) : null;
+        prop != null ? prop.getType(session) : null;
 
     switch (found) {
       case null -> {

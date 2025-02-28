@@ -569,7 +569,7 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
       globalRef = owner.owner.getGlobalPropertyById(globalId);
     } else {
       if (type == null) {
-        type = PropertyType.ANY;
+        throw new UnsupportedOperationException("Type is not defined for property " + name);
       }
       globalRef = owner.owner.findOrCreateGlobalProperty(name, type);
     }
@@ -626,7 +626,7 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
   }
 
   public Entity toStream(DatabaseSessionInternal session) {
-    var entity = session.newEmbededEntity();
+    var entity = session.newEmbeddedEntity();
     entity.setProperty("name", getName(session));
     entity.setProperty("type", getType(session).getId());
     entity.setProperty("globalId", globalRef.getId());

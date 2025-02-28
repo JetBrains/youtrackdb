@@ -1,7 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.db;
 
-import static org.junit.Assert.assertTrue;
-
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
@@ -17,6 +15,7 @@ import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClassDesce
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import org.junit.Assert;
+import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public class DatabaseDocumentTxTest extends DbTestBase {
@@ -127,7 +126,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
   public void testDocFromJsonEmbedded() {
     Schema schema = session.getMetadata().getSchema();
 
-    var c0 = schema.createClass("testDocFromJsonEmbedded_Class0");
+    var c0 = schema.createAbstractClass("testDocFromJsonEmbedded_Class0");
 
     var c1 = schema.createClass("testDocFromJsonEmbedded_Class1");
     c1.createProperty(session, "account", PropertyType.STRING);

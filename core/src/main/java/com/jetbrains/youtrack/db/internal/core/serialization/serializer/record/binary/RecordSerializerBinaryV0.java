@@ -20,28 +20,6 @@
 
 package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary;
 
-import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.MILLISEC_PER_DAY;
-import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.NULL_RECORD_ID;
-import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.bytesFromString;
-import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.convertDayToTimezone;
-import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.getGlobalProperty;
-import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.getTypeFromValueEmbedded;
-import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.readBinary;
-import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.readByte;
-import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.readInteger;
-import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.readLinkCollection;
-import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.readLong;
-import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.readOType;
-import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.readOptimizedLink;
-import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.readString;
-import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.stringFromBytesIntern;
-import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.writeBinary;
-import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.writeLinkCollection;
-import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.writeNullLink;
-import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.writeOType;
-import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.writeOptimizedLink;
-import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.writeString;
-
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
@@ -71,9 +49,30 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityEntry;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.serialization.EntitySerializable;
+import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.MILLISEC_PER_DAY;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.MapRecordInfo;
+import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.NULL_RECORD_ID;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.RecordInfo;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.Tuple;
+import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.bytesFromString;
+import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.convertDayToTimezone;
+import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.getGlobalProperty;
+import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.getTypeFromValueEmbedded;
+import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.readBinary;
+import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.readByte;
+import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.readInteger;
+import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.readLinkCollection;
+import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.readLong;
+import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.readOType;
+import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.readOptimizedLink;
+import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.readString;
+import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.stringFromBytesIntern;
+import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.writeBinary;
+import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.writeLinkCollection;
+import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.writeNullLink;
+import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.writeOType;
+import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.writeOptimizedLink;
+import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.writeString;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -169,16 +168,12 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
 
         if (!matchField) {
           // FIELD NOT INCLUDED: SKIP IT
-          bytes.skip(IntegerSerializer.INT_SIZE + (prop.getType() != PropertyType.ANY ? 0 : 1));
+          bytes.skip(IntegerSerializer.INT_SIZE);
           continue;
         }
 
         valuePos = readInteger(bytes);
-        if (prop.getType() != PropertyType.ANY) {
-          type = prop.getType();
-        } else {
-          type = readOType(bytes, false);
-        }
+        type = prop.getType();
       }
 
       if (valuePos != 0) {
@@ -259,12 +254,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
         final var prop = schema.getGlobalPropertyById(id);
         if (iFieldName.equals(prop.getName())) {
           final var valuePos = readInteger(bytes);
-          final PropertyType type;
-          if (prop.getType() != PropertyType.ANY) {
-            type = prop.getType();
-          } else {
-            type = readOType(bytes, false);
-          }
+          final var type = prop.getType();
 
           if (valuePos == 0) {
             return null;
@@ -275,12 +265,11 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
           }
 
           bytes.offset = valuePos;
-
           final var classProp = iClass.getProperty(session, iFieldName);
           return new BinaryField(
               iFieldName, type, bytes, classProp != null ? classProp.getCollate(session) : null);
         }
-        bytes.skip(IntegerSerializer.INT_SIZE + (prop.getType() != PropertyType.ANY ? 0 : 1));
+        bytes.skip(IntegerSerializer.INT_SIZE);
       }
     }
   }
@@ -320,11 +309,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
         prop = getGlobalProperty(entity, len);
         fieldName = prop.getName();
         valuePos = readInteger(bytes);
-        if (prop.getType() != PropertyType.ANY) {
-          type = prop.getType();
-        } else {
-          type = readOType(bytes, false);
-        }
+        type = prop.getType();
       }
 
       if (EntityInternalUtils.rawContainsField(entity, fieldName)) {
@@ -387,7 +372,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
         result.add(prop.getName());
 
         // SKIP THE REST
-        bytes.skip(IntegerSerializer.INT_SIZE + (prop.getType() != PropertyType.ANY ? 0 : 1));
+        bytes.skip(IntegerSerializer.INT_SIZE);
       }
     }
 
@@ -432,11 +417,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
 
       if (docEntry.property != null) {
         VarIntSerializer.write(bytes, (docEntry.property.getId() + 1) * -1);
-        if (docEntry.property.getType(session) != PropertyType.ANY) {
-          pos[i] = bytes.alloc(IntegerSerializer.INT_SIZE);
-        } else {
-          pos[i] = bytes.alloc(IntegerSerializer.INT_SIZE + 1);
-        }
+        pos[i] = bytes.alloc(IntegerSerializer.INT_SIZE);
       } else {
         writeString(bytes, entry.getKey());
         pos[i] = bytes.alloc(IntegerSerializer.INT_SIZE + 1);
@@ -466,8 +447,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
                 getLinkedType(session, entity, type, values[i].getKey()),
                 schema, encryption);
         IntegerSerializer.serializeLiteral(pointer, bytes.bytes, pos[i]);
-        if (values[i].getValue().property == null
-            || values[i].getValue().property.getType(session) == PropertyType.ANY) {
+        if (values[i].getValue().property == null) {
           writeOType(bytes, (pos[i] + IntegerSerializer.INT_SIZE), type);
         }
       }
@@ -761,8 +741,6 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
         bag.setOwner(owner);
         value = bag;
         break;
-      case ANY:
-        break;
     }
     return value;
   }
@@ -773,7 +751,8 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
     return bag;
   }
 
-  protected SchemaClass serializeClass(DatabaseSessionInternal session, final EntityImpl entity,
+  protected static SchemaClass serializeClass(DatabaseSessionInternal session,
+      final EntityImpl entity,
       final BytesContainer bytes) {
     SchemaImmutableClass result = null;
     if (entity != null) {
@@ -792,8 +771,6 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
       final Map<Object, Identifiable> map) {
     final var fullPos = VarIntSerializer.write(bytes, map.size());
     for (var entry : map.entrySet()) {
-      // TODO:check skip of complex types
-      // FIXME: changed to support only string key on map
       final var type = PropertyType.STRING;
       writeOType(bytes, bytes.alloc(1), type);
       writeString(bytes, entry.getKey().toString());
@@ -833,7 +810,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
   protected Object readEmbeddedMap(DatabaseSessionInternal db, final BytesContainer bytes,
       final RecordElement owner) {
     var size = VarIntSerializer.readAsInteger(bytes);
-    final var result = new TrackedMap<Object>(owner);
+    final var result = new TrackedMap<>(owner);
 
     var last = 0;
     while ((size--) > 0) {
@@ -866,11 +843,11 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
     final var items = VarIntSerializer.readAsInteger(bytes);
     var type = readOType(bytes, false);
 
-    if (type == PropertyType.ANY) {
-      final TrackedSet found = new TrackedSet<>(owner);
+    if (type != null) {
+      final var found = new TrackedSet<>(owner);
       for (var i = 0; i < items; i++) {
         var itemType = readOType(bytes, false);
-        if (itemType == PropertyType.ANY) {
+        if (itemType == null) {
           found.addInternal(null);
         } else {
           found.addInternal(deserializeValue(db, bytes, itemType, found));
@@ -878,7 +855,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
       }
       return found;
     }
-    // TODO: manage case where type is known
+
     return null;
   }
 
@@ -887,21 +864,21 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
 
     final var items = VarIntSerializer.readAsInteger(bytes);
     var type = readOType(bytes, false);
-
-    if (type == PropertyType.ANY) {
-      final TrackedList found = new TrackedList<>(owner);
-      for (var i = 0; i < items; i++) {
-        var itemType = readOType(bytes, false);
-        if (itemType == PropertyType.ANY) {
-          found.addInternal(null);
-        } else {
-          found.addInternal(deserializeValue(db, bytes, itemType, found));
-        }
-      }
-      return found;
+    if (type == null) {
+      return null;
     }
-    // TODO: manage case where type is known
-    return null;
+
+    final var found = new TrackedList<>(owner);
+    for (var i = 0; i < items; i++) {
+      var itemType = readOType(bytes, false);
+      if (itemType == null) {
+        found.addInternal(null);
+      } else {
+        found.addInternal(deserializeValue(db, bytes, itemType, found));
+      }
+    }
+
+    return found;
   }
 
   protected static PropertyType getLinkedType(DatabaseSessionInternal session, EntityImpl entity,
@@ -1032,8 +1009,6 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
       case LINKBAG:
         pointer = writeRidBag(session, bytes, (RidBag) value);
         break;
-      case ANY:
-        break;
     }
     return pointer;
   }
@@ -1053,8 +1028,6 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
     Entry<Object, Object>[] values = new Entry[map.size()];
     final var fullPos = VarIntSerializer.write(bytes, map.size());
     for (var entry : map.entrySet()) {
-      // TODO:check skip of complex types
-      // FIXME: changed to support only string key on map
       var type = PropertyType.STRING;
       writeOType(bytes, bytes.alloc(1), type);
       writeString(bytes, entry.getKey().toString());
@@ -1091,16 +1064,14 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
       ImmutableSchema schema,
       PropertyEncryption encryption) {
     final var pos = VarIntSerializer.write(bytes, value.size());
-    // TODO manage embedded type from schema and auto-determined.
-    writeOType(bytes, bytes.alloc(1), PropertyType.ANY);
+    writeOType(bytes, bytes.alloc(1), linkedType != null ? linkedType : PropertyType.EMBEDDED);
     for (var itemValue : value) {
-      // TODO:manage in a better way null entry
       if (itemValue == null) {
-        writeOType(bytes, bytes.alloc(1), PropertyType.ANY);
+        writeOType(bytes, bytes.alloc(1), null);
         continue;
       }
       PropertyType type;
-      if (linkedType == null || linkedType == PropertyType.ANY) {
+      if (linkedType == null) {
         type = getTypeFromValueEmbedded(itemValue);
       } else {
         type = linkedType;
@@ -1127,13 +1098,13 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
         type = prop.getType(session);
       }
     }
-    if (type == null || PropertyType.ANY == type) {
+    if (type == null) {
       type = PropertyType.getTypeByValue(entry.value);
     }
     return type;
   }
 
-  protected int writeEmptyString(final BytesContainer bytes) {
+  protected static int writeEmptyString(final BytesContainer bytes) {
     return VarIntSerializer.write(bytes, 0);
   }
 
@@ -1142,7 +1113,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
     return true;
   }
 
-  protected void skipClassName(BytesContainer bytes) {
+  protected static void skipClassName(BytesContainer bytes) {
     final var classNameLen = VarIntSerializer.readAsInteger(bytes);
     bytes.skip(classNameLen);
   }
@@ -1231,13 +1202,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
         final var prop = schema.getGlobalPropertyById(id);
         if (iFieldName.equals(prop.getName())) {
           final var valuePos = readInteger(bytes);
-          PropertyType type;
-          if (prop.getType() != PropertyType.ANY) {
-            type = prop.getType();
-          } else {
-            type = readOType(bytes, false);
-          }
-
+          var type = prop.getType();
           var fieldDataLength = -1;
           if (type.isEmbedded()) {
             fieldDataLength = getEmbeddedFieldSize(db, bytes, valuePos, type, schema);
@@ -1253,7 +1218,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
               schema);
           return (RET) value;
         }
-        bytes.skip(IntegerSerializer.INT_SIZE + (prop.getType() != PropertyType.ANY ? 0 : 1));
+        bytes.skip(IntegerSerializer.INT_SIZE);
       }
     }
   }
@@ -1317,11 +1282,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
           debugProperty.valuePos = valuePos;
           if (prop != null) {
             fieldName = prop.getName();
-            if (prop.getType() != PropertyType.ANY) {
-              type = prop.getType();
-            } else {
-              type = readOType(bytes, false);
-            }
+            type = prop.getType();
           } else {
             continue;
           }

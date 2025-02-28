@@ -28,6 +28,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaPropertyImp
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerStringAbstract;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLUpdateItem;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
@@ -37,6 +38,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 @SuppressWarnings("unchecked")
 public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstract {
@@ -289,7 +291,7 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
   }
 
   private void executeDocument(
-      DatabaseSessionInternal db, final HttpRequest iRequest,
+      DatabaseSessionInternal session, final HttpRequest iRequest,
       final HttpResponse iResponse,
       final String operation,
       final String rid,
@@ -303,22 +305,27 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
         throw new IllegalArgumentException("Record ID not found in request");
       }
 
-      var entity = new EntityImpl(db, className, new RecordId(rid));
+      var entity = (EntityImpl) session.loadEntity(new RecordId(rid));
+      if (!Objects.equals(entity.getSchemaClassName(), className)) {
+        throw new IllegalArgumentException(
+            "Record has different class name than the one provided in the request "
+                + entity.getSchemaClassName() + " != " + className);
+      }
       // BIND ALL CHANGED FIELDS
       for (var f : fields.entrySet()) {
-        final var oldValue = entity.rawField(f.getKey());
+        final var oldValue = entity.getProperty(f.getKey());
         var userValue = f.getValue();
 
         if (userValue != null && userValue.equals("undefined")) {
-          entity.removeField(f.getKey());
+          entity.removeProperty(f.getKey());
         } else {
-          var newValue = RecordSerializerStringAbstract.getTypeValue(db, userValue);
+          var newValue = RecordSerializerStringAbstract.getTypeValue(session, userValue);
 
           if (newValue != null) {
             if (newValue instanceof Collection) {
               final var array = new ArrayList<Object>();
               for (var s : (Collection<String>) newValue) {
-                var v = RecordSerializerStringAbstract.getTypeValue(db, s);
+                var v = RecordSerializerStringAbstract.getTypeValue(session, s);
                 array.add(v);
               }
               newValue = array;
@@ -331,7 +338,10 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
             continue;
           }
 
-          entity.field(f.getKey(), newValue);
+          var schemaClass = entity.getImmutableSchemaClass(session);
+          var property = schemaClass != null ? schemaClass.getProperty(session, f.getKey()) : null;
+          entity.setProperty(f.getKey(),
+              SQLUpdateItem.cleanPropertyValue(newValue, session, property));
         }
       }
 
@@ -344,7 +354,7 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
     } else if ("add".equals(operation)) {
       iRequest.getData().commandInfo = "Studio create entity";
 
-      final var entity = new EntityImpl(db, className);
+      final var entity = new EntityImpl(session, className);
 
       // BIND ALL CHANGED FIELDS
       for (var f : fields.entrySet()) {
@@ -365,7 +375,7 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
         throw new IllegalArgumentException("Record ID not found in request");
       }
 
-      final EntityImpl entity = new RecordId(rid).getRecord(db);
+      final EntityImpl entity = new RecordId(rid).getRecord(session);
       entity.delete();
       iResponse.send(
           HttpUtils.STATUS_OK_CODE,

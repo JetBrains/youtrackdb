@@ -1,10 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
@@ -15,6 +10,10 @@ import java.math.BigDecimal;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
@@ -115,12 +114,13 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
   public void testCreatePropertyFailOnExistingDataEmbeddetSet() {
     final Schema oSchema = session.getMetadata().getSchema();
     var oClass = oSchema.createClass("Test6");
+    oSchema.createAbstractClass("Test69");
 
     session.executeInTx(
         () -> {
           var entity = session.newEntity("Test6");
           var list = session.newEmbeddedSet();
-          list.add(session.newEmbededEntity("Test6"));
+          list.add(session.newEmbeddedEntity("Test69"));
           entity.setEmbeddedSet("someembededset", list);
         });
 
@@ -147,12 +147,13 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
   public void testCreatePropertyFailOnExistingDataEmbeddedMap() {
     final Schema oSchema = session.getMetadata().getSchema();
     var oClass = oSchema.createClass("Test8");
+    oSchema.createAbstractClass("Test89");
 
     session.executeInTx(
         () -> {
           var entity = session.newEntity("Test8");
           Map<String, EntityImpl> map = session.newEmbeddedMap();
-          map.put("test", (EntityImpl) session.newEmbededEntity("Test8"));
+          map.put("test", (EntityImpl) session.newEmbeddedEntity("Test89"));
           entity.setEmbeddedMap("someembededmap", map);
         });
 
@@ -515,28 +516,6 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     for (var s : validClassNamesSince30) {
       assertNotNull(oSchema.createClass(s));
     }
-  }
-
-  @Test
-  public void testTypeAny() {
-    var className = "testTypeAny";
-    final Schema oSchema = session.getMetadata().getSchema();
-
-    var oClass = oSchema.createClass(className);
-
-    session.executeInTx(
-        () -> {
-          var record = session.newInstance(className);
-          record.field("name", "foo");
-        });
-
-    oClass.createProperty(session, "name", PropertyType.ANY);
-
-    session.begin();
-    try (var result = session.query("select from " + className + " where name = 'foo'")) {
-      assertEquals(1, result.stream().count());
-    }
-    session.commit();
   }
 
   @Test

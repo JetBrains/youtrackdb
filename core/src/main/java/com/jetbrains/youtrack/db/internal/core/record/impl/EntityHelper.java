@@ -447,7 +447,7 @@ public class EntityHelper {
                   values.add(v);
                 }
               } else if (v instanceof Map) {
-                var entity = new EntityImpl(null);
+                var entity = (EntityImpl) session.newEmbeddedEntity();
                 entity.updateFromMap((Map<String, ? extends Object>) v);
                 var result = pred.evaluate(entity, entity, iContext);
                 if (Boolean.TRUE.equals(result)) {
@@ -859,7 +859,7 @@ public class EntityHelper {
           StringSerializerHelper.getParameters(iFunction.substring(iFunction.indexOf('(')));
 
       final var currentRecord =
-          iContext != null ? (DBRecord) iContext.getVariable("$current") : null;
+          iContext != null ? (Entity) iContext.getVariable("$current") : null;
       for (var i = 0; i < args.size(); ++i) {
         final var arg = args.get(i);
         final var o = SQLHelper.getValue(arg, currentRecord, iContext);

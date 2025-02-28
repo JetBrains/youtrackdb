@@ -397,7 +397,7 @@ public class SQLUpdateItem extends SimpleNode {
     if (item instanceof EntityInternal entity) {
       var currentType = entity.getImmutableSchemaClass(session);
       if (currentType == null || !currentType.isSubClassOf(session, linkedClass)) {
-        var result = session.newEmbededEntity(linkedClass);
+        var result = session.newEmbeddedEntity(linkedClass);
 
         for (var prop : entity.getPropertyNames()) {
           result.setProperty(prop, ((Entity) item).getProperty(prop));
@@ -408,7 +408,7 @@ public class SQLUpdateItem extends SimpleNode {
         return item;
       }
     } else if (item instanceof Map) {
-      var result = session.newEmbededEntity(linkedClass.getName(session));
+      var result = session.newEmbeddedEntity(linkedClass.getName(session));
 
       ((Map<String, Object>) item)
           .entrySet().stream().forEach(x -> result.setProperty(x.getKey(), x.getValue()));

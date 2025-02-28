@@ -1,7 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.db;
 
-import static com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTxInternal.closeAllOnShutdown;
-
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
@@ -32,6 +30,7 @@ import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
+import static com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTxInternal.closeAllOnShutdown;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
@@ -227,18 +226,18 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public Entity newEmbededEntity(String className) {
-    return internal.newEmbededEntity(className);
+  public Entity newEmbeddedEntity(SchemaClass schemaClass) {
+    return internal.newEmbeddedEntity(schemaClass);
   }
 
   @Override
-  public Entity newEmbededEntity(SchemaClass schemaClass) {
-    return internal.newEmbededEntity(schemaClass);
+  public Entity newEmbeddedEntity(String schemaClass) {
+    return internal.newEmbeddedEntity(schemaClass);
   }
 
   @Override
-  public Entity newEmbededEntity() {
-    return internal.newEmbededEntity();
+  public Entity newEmbeddedEntity() {
+    return internal.newEmbeddedEntity();
   }
 
   @Override

@@ -1,10 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
-import static com.jetbrains.youtrack.db.internal.core.sql.executor.ExecutionPlanPrintUtils.printExecutionPlan;
-
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
+import static com.jetbrains.youtrack.db.internal.core.sql.executor.ExecutionPlanPrintUtils.printExecutionPlan;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -391,7 +390,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
     var className1 = "testEmbeddedlistConversion1";
     var className2 = "testEmbeddedlistConversion2";
 
-    session.command("CREATE CLASS " + className1).close();
+    session.command("CREATE CLASS " + className1 + " abstract").close();
 
     session.command("CREATE CLASS " + className2 + ";").close();
     session.command("CREATE PROPERTY " + className2 + ".sub EMBEDDEDLIST " + className1 + ";")
@@ -427,7 +426,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
     var className1 = "testEmbeddedlistConversion21";
     var className2 = "testEmbeddedlistConversion22";
 
-    session.command("CREATE CLASS " + className1).close();
+    session.command("CREATE CLASS " + className1 + " abstract").close();
 
     session.command("CREATE CLASS " + className2 + ";").close();
     session.command("CREATE PROPERTY " + className2 + ".sub EMBEDDEDLIST " + className1 + ";")

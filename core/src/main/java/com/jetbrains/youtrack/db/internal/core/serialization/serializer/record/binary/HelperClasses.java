@@ -102,16 +102,21 @@ public class HelperClasses {
       bytes.offset++;
       return null;
     }
-    return PropertyType.getById(readByte(bytes));
+
+    var typeId = readByte(bytes);
+    if (typeId == -1) {
+      return null;
+    }
+
+    return PropertyType.getById(typeId);
   }
 
   public static void writeOType(BytesContainer bytes, int pos, PropertyType type) {
-    bytes.bytes[pos] = (byte) type.getId();
-  }
-
-  public static void writeType(BytesContainer bytes, PropertyType type) {
-    var pos = bytes.alloc(1);
-    bytes.bytes[pos] = (byte) type.getId();
+    if (type != null) {
+      bytes.bytes[pos] = (byte) type.getId();
+    } else {
+      bytes.bytes[pos] = -1;
+    }
   }
 
   public static PropertyType readType(BytesContainer bytes) {

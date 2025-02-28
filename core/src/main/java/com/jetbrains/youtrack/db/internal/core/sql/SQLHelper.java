@@ -21,7 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.sql;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -179,7 +179,7 @@ public class SQLHelper {
         Entity entity;
         if (parentProperty != null) {
           if (parentProperty.isEmbedded()) {
-            entity = session.newEmbededEntity(schemaClass);
+            entity = session.newEmbeddedEntity(schemaClass);
           } else if (parentProperty.isLink()) {
             entity = session.newEntity(schemaClass);
           } else {
@@ -254,7 +254,7 @@ public class SQLHelper {
           Entity entity;
           if (parentProperty != null) {
             if (parentProperty.isEmbedded()) {
-              entity = session.newEmbededEntity();
+              entity = session.newEmbeddedEntity();
             } else if (parentProperty.isLink()) {
               entity = session.newEntity();
             } else {
@@ -433,25 +433,29 @@ public class SQLHelper {
   }
 
   public static Object getValue(
-      final Object iObject, final DBRecord iRecord, final CommandContext iContext) {
-    if (iObject == null) {
-      return null;
-    }
-
-    if (iObject instanceof SQLFilterItem) {
-      if (iRecord instanceof Entity entity) {
-        return ((SQLFilterItem) iObject).getValue(entity, null, iContext);
-      } else {
-        throw new DatabaseExportException("Record is not an entity");
+      final Object iObject, final Result iRecord, final CommandContext iContext) {
+    switch (iObject) {
+      case null -> {
+        return null;
       }
-    } else if (iObject instanceof String) {
-      final var s = ((String) iObject).trim();
-      if (iRecord != null & !s.isEmpty()
-          && !IOUtils.isStringContent(iObject)
-          && !Character.isDigit(s.charAt(0)))
-      // INTERPRETS IT
-      {
-        return EntityHelper.getFieldValue(iContext.getDatabaseSession(), iRecord, s, iContext);
+      case SQLFilterItem sqlFilterItem -> {
+        if (iRecord instanceof Entity entity) {
+          return ((SQLFilterItem) iObject).getValue(entity, null, iContext);
+        } else {
+          throw new DatabaseExportException("Record is not an entity");
+        }
+      }
+      case String string -> {
+        final var s = string.trim();
+        if (iRecord != null & !s.isEmpty()
+            && !IOUtils.isStringContent(iObject)
+            && !Character.isDigit(s.charAt(0)))
+        // INTERPRETS IT
+        {
+          return EntityHelper.getFieldValue(iContext.getDatabaseSession(), iRecord, s, iContext);
+        }
+      }
+      default -> {
       }
     }
 

@@ -287,7 +287,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
         result.add(prop.getName());
 
         // SKIP THE REST
-        bytes.skip(IntegerSerializer.INT_SIZE + (prop.getType() != PropertyType.ANY ? 0 : 1));
+        bytes.skip(IntegerSerializer.INT_SIZE);
       }
     }
 
@@ -317,11 +317,20 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
   }
 
   protected PropertyType readOType(final BytesContainer bytes) {
-    return PropertyType.getById(readByte(bytes));
+    var res = readByte(bytes);
+    if (res == -1) {
+      return null;
+    }
+
+    return PropertyType.getById(res);
   }
 
   private void writeOType(BytesContainer bytes, int pos, PropertyType type) {
-    bytes.bytes[pos] = (byte) type.getId();
+    if (type == null) {
+      bytes.bytes[pos] = (byte) -1;
+    } else {
+      bytes.bytes[pos] = (byte) type.getId();
+    }
   }
 
   public Object deserializeValue(DatabaseSessionInternal session, BytesContainer bytes,
@@ -417,8 +426,6 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
         bag.setOwner(owner);
         value = bag;
         break;
-      case ANY:
-        break;
     }
     return value;
   }
@@ -502,10 +509,10 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
     final var items = VarIntSerializer.readAsInteger(bytes);
     var type = readOType(bytes);
 
-    if (type == PropertyType.ANY) {
+    if (type != null) {
       for (var i = 0; i < items; i++) {
         var itemType = readOType(bytes);
-        if (itemType == PropertyType.ANY) {
+        if (itemType == null) {
           found.add(null);
         } else {
           found.add(deserializeValue(db, bytes, itemType, owner));
@@ -644,8 +651,6 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
       case LINKBAG:
         pointer = ((RidBag) value).toStream(session, bytes);
         break;
-      case ANY:
-        break;
     }
     return pointer;
   }
@@ -754,11 +759,11 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
       PropertyEncryption encryption) {
     final var pos = VarIntSerializer.write(bytes, value.size());
     // TODO manage embedded type from schema and auto-determined.
-    writeOType(bytes, bytes.alloc(1), PropertyType.ANY);
+    writeOType(bytes, bytes.alloc(1), linkedType != null ? linkedType : PropertyType.EMBEDDED);
     for (var itemValue : value) {
       // TODO:manage in a better way null entry
       if (itemValue == null) {
-        writeOType(bytes, bytes.alloc(1), PropertyType.ANY);
+        writeOType(bytes, bytes.alloc(1), null);
         continue;
       }
       PropertyType type;
@@ -788,7 +793,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
         type = prop.getType(session);
       }
     }
-    if (type == null || PropertyType.ANY == type) {
+    if (type == null) {
       type = PropertyType.getTypeByValue(entry.value);
     }
     return type;

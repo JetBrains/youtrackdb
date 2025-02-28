@@ -67,9 +67,14 @@ public class SQLJson extends SimpleNode {
 
     EntityImpl entity;
     if (className == null) {
-      entity = (EntityImpl) session.newEmbededEntity();
+      entity = (EntityImpl) session.newEmbeddedEntity();
     } else {
-      entity = (EntityImpl) session.newEntity(className);
+      var cls = session.getMetadata().getImmutableSchemaSnapshot().getClass(className);
+      if (cls.isAbstract(session)) {
+        entity = (EntityImpl) session.newEmbeddedEntity();
+      } else {
+        entity = (EntityImpl) session.newEntity(className);
+      }
     }
 
     for (var item : items) {
@@ -96,9 +101,14 @@ public class SQLJson extends SimpleNode {
     var session = ctx.getDatabaseSession();
     EntityImpl retDoc;
     if (className == null) {
-      retDoc = (EntityImpl) session.newEmbededEntity();
+      retDoc = (EntityImpl) session.newEmbeddedEntity();
     } else {
-      retDoc = (EntityImpl) session.newEntity(className);
+      var cls = session.getMetadata().getImmutableSchemaSnapshot().getClass(className);
+      if (cls.isAbstract(session)) {
+        retDoc = (EntityImpl) session.newEmbeddedEntity(cls);
+      } else {
+        retDoc = (EntityImpl) session.newEntity(className);
+      }
     }
 
     var schemaClass = retDoc.getImmutableSchemaClass(session);

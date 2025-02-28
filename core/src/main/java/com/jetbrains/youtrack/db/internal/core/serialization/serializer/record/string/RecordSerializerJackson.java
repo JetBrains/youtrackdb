@@ -362,7 +362,12 @@ public class RecordSerializerJackson {
 
     boolean embeddedValue;
     if (embeddedFlag == null) {
-      embeddedValue = asValue && recordId == null && className == null;
+      if (className == null) {
+        embeddedValue = asValue && recordId == null;
+      } else {
+        var cls = session.getMetadata().getImmutableSchemaSnapshot().getClass(className);
+        embeddedValue = cls.isAbstract(session);
+      }
     } else {
       embeddedValue = embeddedFlag;
     }
@@ -916,10 +921,11 @@ public class RecordSerializerJackson {
 
     EmbeddedEntityImpl embedded;
     if (metadata.className != null) {
-      embedded = (EmbeddedEntityImpl) db.newEmbededEntity(metadata.className);
+      embedded = (EmbeddedEntityImpl) db.newEmbeddedEntity(metadata.className);
     } else {
-      embedded = (EmbeddedEntityImpl) db.newEmbededEntity();
+      embedded = (EmbeddedEntityImpl) db.newEmbeddedEntity();
     }
+
     parseProperties(db, embedded, metadata, jsonParser);
 
     return embedded;

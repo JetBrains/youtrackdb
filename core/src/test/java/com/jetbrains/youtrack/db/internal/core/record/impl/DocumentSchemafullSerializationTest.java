@@ -1,8 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
@@ -16,6 +13,8 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.R
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import org.junit.Test;
 
 public abstract class DocumentSchemafullSerializationTest extends BaseMemoryInternalDatabase {
@@ -69,7 +68,7 @@ public abstract class DocumentSchemafullSerializationTest extends BaseMemoryInte
     super.beforeTest();
     // databaseDocument.getMetadata().
     Schema schema = session.getMetadata().getSchema();
-    address = schema.createClass("Address");
+    address = schema.createAbstractClass("Address");
     address.createProperty(session, NAME, PropertyType.STRING);
     address.createProperty(session, NUMBER, PropertyType.INTEGER);
     address.createProperty(session, CITY, PropertyType.STRING);
@@ -86,7 +85,6 @@ public abstract class DocumentSchemafullSerializationTest extends BaseMemoryInte
     simple.createProperty(session, DATE_FIELD, PropertyType.DATETIME);
     simple.createProperty(session, RECORDID_FIELD, PropertyType.LINK);
     simple.createProperty(session, EMBEDDED_FIELD, PropertyType.EMBEDDED, address);
-    simple.createProperty(session, ANY_FIELD, PropertyType.ANY);
 
     embSimp = schema.createClass("EmbeddedCollectionSimple");
     embSimp.createProperty(session, LIST_BOOLEANS, PropertyType.EMBEDDEDLIST);
@@ -305,7 +303,7 @@ public abstract class DocumentSchemafullSerializationTest extends BaseMemoryInte
   public void testSimpleEmbeddedDoc() {
     session.begin();
     var document = (EntityImpl) session.newEntity(simple);
-    var embedded = (EntityImpl) session.newEntity(address);
+    var embedded = (EntityImpl) session.newEmbeddedEntity(address);
     embedded.field(NAME, "test");
     embedded.field(NUMBER, 1);
     embedded.field(CITY, "aaa");

@@ -20,7 +20,7 @@ public class TestTypeGuessingWorkingWithSQLAndMultiValues extends DbTestBase {
     session.execute(
             "sql",
             """
-                create class Address;
+                create class Address abstract;
                 create property Address.street String;
                 create property Address.city String;
                 create class Client;

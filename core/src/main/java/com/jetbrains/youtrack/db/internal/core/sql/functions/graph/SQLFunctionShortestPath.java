@@ -82,7 +82,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
 
     var session = iContext.getDatabaseSession();
     var record =
-        iCurrentRecord != null && iCurrentRecord.isRecord() ? iCurrentRecord.castToRecord() : null;
+        iCurrentRecord != null && iCurrentRecord.isEntity() ? iCurrentRecord.castToEntity() : null;
 
     final var ctx = new ShortestPathContext();
 

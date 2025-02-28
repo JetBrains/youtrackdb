@@ -243,8 +243,15 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   @Test
   public void queryContainsInDocumentSet() {
     var coll = new HashSet<EntityImpl>();
-    coll.add(new EntityImpl(session, "name", "Luca", "surname", "Garulli"));
-    coll.add(new EntityImpl(session, "name", "Jay", "surname", "Miner"));
+    var entity = session.newEntity();
+    entity.setProperty("name", "Luca");
+    entity.setProperty("surname", "Garulli");
+    coll.add((EntityImpl) entity);
+
+    entity = session.newEntity();
+    entity.setProperty("name", "Jay");
+    entity.setProperty("surname", "Miner");
+    coll.add((EntityImpl) entity);
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("Profile"));
@@ -269,8 +276,15 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   @Test
   public void queryContainsInDocumentList() {
     var coll = new ArrayList<>();
-    coll.add(new EntityImpl(session, "name", "Luca", "surname", "Garulli"));
-    coll.add(new EntityImpl(session, "name", "Jay", "surname", "Miner"));
+    var entity = session.newEntity();
+    entity.setProperty("name", "Luca");
+    entity.setProperty("surname", "Garulli");
+    coll.add(entity);
+
+    entity = session.newEntity();
+    entity.setProperty("name", "Jay");
+    entity.setProperty("surname", "Miner");
+    coll.add(entity);
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("Profile"));
@@ -297,8 +311,15 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   @Test
   public void queryContainsInEmbeddedMapClassic() {
     Map<String, EntityImpl> customReferences = new HashMap<>();
-    customReferences.put("first", new EntityImpl(session, "name", "Luca", "surname", "Garulli"));
-    customReferences.put("second", new EntityImpl(session, "name", "Jay", "surname", "Miner"));
+    var entity = session.newEntity();
+    entity.setProperty("name", "Luca");
+    entity.setProperty("surname", "Garulli");
+    customReferences.put("first", (EntityImpl) entity);
+
+    entity = session.newEntity();
+    entity.setProperty("name", "Jay");
+    entity.setProperty("surname", "Miner");
+    customReferences.put("second", (EntityImpl) entity);
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("Profile"));
@@ -369,8 +390,15 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   public void queryContainsInEmbeddedMapNew() {
     session.begin();
     Map<String, EntityImpl> customReferences = new HashMap<>();
-    customReferences.put("first", new EntityImpl(session, "name", "Luca", "surname", "Garulli"));
-    customReferences.put("second", new EntityImpl(session, "name", "Jay", "surname", "Miner"));
+    var entity = session.newEntity();
+    entity.setProperty("name", "Luca");
+    entity.setProperty("surname", "Garulli");
+    customReferences.put("first", (EntityImpl) entity);
+
+    entity = session.newEntity();
+    entity.setProperty("name", "Jay");
+    entity.setProperty("surname", "Miner");
+    customReferences.put("second", (EntityImpl) entity);
 
     var doc = ((EntityImpl) session.newEntity("Profile"));
     doc.field("customReferences", customReferences, PropertyType.EMBEDDEDMAP);

@@ -220,14 +220,13 @@ public class SQLExpression extends SimpleNode {
               builder); // only for translated input params, will disappear with new executor
     } else if (value instanceof String) {
       if (Boolean.TRUE.equals(singleQuotes)) {
-        builder.append("'" + value + "'");
+        builder.append("'").append(value).append("'");
       } else {
-        builder.append("\"" + value + "\"");
+        builder.append("\"").append(value).append("\"");
       }
 
     } else {
-      builder.append(
-          "" + value); // only for translated input params, will disappear with new executor
+      builder.append(value); // only for translated input params, will disappear with new executor
     }
   }
 
@@ -334,8 +333,6 @@ public class SQLExpression extends SimpleNode {
    *
    * @param target   the query target
    * @param context  the execution context
-   * @param operator
-   * @param right
    * @return true if current expression is an indexed funciton AND that function can also be
    * executed without using the index, false otherwise
    */
@@ -354,8 +351,6 @@ public class SQLExpression extends SimpleNode {
    *
    * @param target   the query target
    * @param context  the execution context
-   * @param operator
-   * @param right
    * @return true if current expression involves an indexed function AND that function can be used
    * on this target, false otherwise
    */
@@ -465,7 +460,7 @@ public class SQLExpression extends SimpleNode {
     if (mathExpression != null) {
       return mathExpression.getAggregationContext(ctx);
     } else if (arrayConcatExpression != null) {
-      return arrayConcatExpression.getAggregationContext(ctx);
+      throw new UnsupportedOperationException();
     } else {
       throw new CommandExecutionException(ctx.getDatabaseSession(), "Cannot aggregate on " + this);
     }

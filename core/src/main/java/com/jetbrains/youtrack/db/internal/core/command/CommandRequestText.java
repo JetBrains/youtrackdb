@@ -31,8 +31,8 @@ public interface CommandRequestText extends CommandRequestInternal {
 
   CommandRequestText setText(String iText);
 
-  CommandRequestText fromStream(DatabaseSessionInternal db, byte[] bytes,
+  CommandRequestText fromStream(DatabaseSessionInternal session, byte[] bytes,
       RecordSerializerNetwork serializer);
 
-  byte[] toStream(DatabaseSessionInternal db, RecordSerializerNetwork serializer);
+  byte[] toStream(DatabaseSessionInternal session, RecordSerializerNetwork serializer);
 }
