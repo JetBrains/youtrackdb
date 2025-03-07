@@ -94,9 +94,9 @@ public class SQLAlterPropertyStatement extends DDLStatement {
                     + Arrays.toString(SchemaProperty.ATTRIBUTES.values())),
             e);
       }
-      Object oldValue = property.get(attribute);
+      Object oldValue = property.get(ctx.getDatabase(), attribute);
       property.set(db, attribute, finalValue);
-      finalValue = property.get(attribute); // it makes some conversions...
+      finalValue = property.get(ctx.getDatabase(), attribute); // it makes some conversions...
 
       result.setProperty("operation", "alter property");
       result.setProperty("attribute", setting);

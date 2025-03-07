@@ -78,9 +78,9 @@ public class AlterSchemaPropertyTest extends DbTestBase {
     SchemaClass classA = schema.createClass("TestRemoveLinkedClass");
     SchemaClass classLinked = schema.createClass("LinkedClass");
     SchemaProperty prop = classA.createProperty(db, "propertyLink", PropertyType.LINK, classLinked);
-    assertNotNull(prop.getLinkedClass());
+    assertNotNull(prop.getLinkedClass(db));
     prop.setLinkedClass(db, null);
-    assertNull(prop.getLinkedClass());
+    assertNull(prop.getLinkedClass(db));
   }
 
   @Test
@@ -89,9 +89,9 @@ public class AlterSchemaPropertyTest extends DbTestBase {
     SchemaClass classA = schema.createClass("TestRemoveLinkedClass");
     SchemaClass classLinked = schema.createClass("LinkedClass");
     SchemaProperty prop = classA.createProperty(db, "propertyLink", PropertyType.LINK, classLinked);
-    assertNotNull(prop.getLinkedClass());
+    assertNotNull(prop.getLinkedClass(db));
     db.command("alter property TestRemoveLinkedClass.propertyLink linkedclass null").close();
-    assertNull(prop.getLinkedClass());
+    assertNull(prop.getLinkedClass(db));
   }
 
   @Test

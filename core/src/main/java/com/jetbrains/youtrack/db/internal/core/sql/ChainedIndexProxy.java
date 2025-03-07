@@ -136,7 +136,7 @@ public class ChainedIndexProxy<T> implements IndexInternal {
     final Collection<Index> result = new ArrayList<>();
 
     for (int i = 0; i < fieldChain.getItemCount() - 1; i++) {
-      oClass = (SchemaClassInternal) oClass.getProperty(fieldChain.getItemName(i)).getLinkedClass();
+      oClass = (SchemaClassInternal) oClass.getProperty(fieldChain.getItemName(i)).getLinkedClass(session);
       if (oClass == null) {
         return result;
       }
@@ -175,7 +175,7 @@ public class ChainedIndexProxy<T> implements IndexInternal {
       }
 
       result.add(bestIndex);
-      oClass = (SchemaClassInternal) oClass.getProperty(fieldChain.getItemName(i)).getLinkedClass();
+      oClass = (SchemaClassInternal) oClass.getProperty(fieldChain.getItemName(i)).getLinkedClass(session);
     }
     return result;
   }

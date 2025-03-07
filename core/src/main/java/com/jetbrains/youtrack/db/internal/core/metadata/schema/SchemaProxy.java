@@ -35,6 +35,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
 
@@ -75,7 +76,7 @@ public class SchemaProxy extends ProxedResource<SchemaShared> implements SchemaI
       return null;
     }
 
-    SchemaClass cls = delegate.getClass(iClassName.toLowerCase(Locale.ENGLISH));
+    SchemaClass cls = delegate.getClass(database, iClassName.toLowerCase(Locale.ENGLISH));
     if (cls != null) {
       return cls;
     }
@@ -142,7 +143,7 @@ public class SchemaProxy extends ProxedResource<SchemaShared> implements SchemaI
       return null;
     }
 
-    return delegate.getClass(iClass);
+    return delegate.getClass(database, iClass);
   }
 
   public SchemaClass getClass(final String iClassName) {
@@ -150,11 +151,17 @@ public class SchemaProxy extends ProxedResource<SchemaShared> implements SchemaI
       return null;
     }
 
-    return delegate.getClass(iClassName);
+    return delegate.getClass(database, iClassName);
   }
 
+  @Override
   public Collection<SchemaClass> getClasses(DatabaseSession db) {
-    return delegate.getClasses(database);
+    return delegate.getClassesSlow(database);
+  }
+
+  @Override
+  public Map<String, LazySchemaClass> getClassesRefs(DatabaseSession db) {
+    return delegate.getClassesRefs(database);
   }
 
   @Override
@@ -272,7 +279,7 @@ public class SchemaProxy extends ProxedResource<SchemaShared> implements SchemaI
 
   @Override
   public SchemaClassInternal getClassInternal(String iClassName) {
-    return delegate.getClass(iClassName);
+    return delegate.getClass(database, iClassName);
   }
 
   public IntSet getBlobClusters() {

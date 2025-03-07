@@ -293,7 +293,7 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
       SchemaClass nextClazz =
           clazz
               .getProperty(base.getIdentifier().suffix.getIdentifier().getStringValue())
-              .getLinkedClass();
+              .getLinkedClass(ctx.getDatabase());
       SQLParenthesisExpression newRight = new SQLParenthesisExpression(-1);
       newRight.statement =
           SQLBinaryCondition.indexChainToStatement(

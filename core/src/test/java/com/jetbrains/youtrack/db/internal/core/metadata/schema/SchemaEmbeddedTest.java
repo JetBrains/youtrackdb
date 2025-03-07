@@ -1,7 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
-import static org.junit.Assert.assertArrayEquals;
-
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
@@ -21,28 +19,6 @@ import org.junit.Test;
  */
 // todo remove this test, it only will work while migrating to new split schema
 public class SchemaEmbeddedTest extends DbTestBase {
-
-  @Test
-  public void testClassRefsContainsAllClassNames() {
-    try (YouTrackDB youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
-        YouTrackDBConfig.defaultConfig())) {
-      String dbName = SchemaEmbeddedTest.class.getSimpleName();
-      youTrackDB.execute(
-          "create database "
-              + dbName
-              + " memory users (admin identified by 'admin' role admin)");
-      var session = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
-      session.getSchema().createClass("logart");
-
-      session.begin();
-      EntityImpl schema =
-          session.getSharedContext().getSchema().toStream(session).copy();
-      session.commit();
-      String[] classNames = extractKeys(session, schema, "classes", String[]::new);
-      String[] classRefsNames = extractKeys(session, schema, "classesRefs", String[]::new);
-      assertArrayEquals(classNames, classRefsNames);
-    }
-  }
 
   @Test
   public void testFromStreamSchemaContainsAllClasses()

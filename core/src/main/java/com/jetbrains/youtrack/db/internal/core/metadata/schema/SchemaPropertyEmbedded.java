@@ -72,6 +72,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
       }
 
       this.globalRef = owner.owner.findOrCreateGlobalProperty(this.globalRef.getName(), iType);
+      owner.owner.markClassDirty(owner);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -101,6 +102,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
 
       owner.renameProperty(oldName, name);
       this.globalRef = owner.owner.findOrCreateGlobalProperty(name, this.globalRef.getType());
+      owner.owner.markClassDirty(owner);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -130,6 +132,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
       checkEmbedded(session);
 
       this.description = iDescription;
+      owner.owner.markClassDirty(owner);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -195,7 +198,6 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
                 indexToRecreate.getInternal()
                     .loadMetadata(indexToRecreate.getConfiguration(session));
 
-
             final List<String> fields = indexMetadata.getIndexDefinition().getFields();
             final String[] fieldsToIndex = fields.toArray(new String[0]);
 
@@ -232,6 +234,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
       checkEmbedded(session);
 
       customFields = null;
+      owner.owner.markClassDirty(owner);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -266,6 +269,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
       } else {
         customFields.put(iName, iValue);
       }
+      owner.owner.markClassDirty(owner);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -290,12 +294,14 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     acquireSchemaWriteLock(session);
     try {
       this.regexp = regexp;
+      owner.owner.markClassDirty(owner);
     } finally {
       releaseSchemaWriteLock(session);
     }
   }
 
-  public SchemaPropertyImpl setLinkedClass(DatabaseSession session, final SchemaClass linkedClass) {
+  public SchemaPropertyImpl setLinkedClass(DatabaseSession session,
+      final SchemaClass iLinkedClass) {
     var sessionInternal = (DatabaseSessionInternal) session;
     sessionInternal.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -303,7 +309,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
 
     acquireSchemaWriteLock(sessionInternal);
     try {
-      setLinkedClassInternal(sessionInternal, linkedClass);
+      setLinkedClassInternal(sessionInternal, iLinkedClass);
     } finally {
       releaseSchemaWriteLock(sessionInternal);
     }
@@ -319,6 +325,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     try {
       checkEmbedded(session);
 
+      owner.owner.markClassDirty(owner);
       this.linkedClass = iLinkedClass;
 
     } finally {
@@ -349,6 +356,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     try {
       checkEmbedded(session);
       this.linkedType = iLinkedType;
+      owner.owner.markClassDirty(owner);
 
     } finally {
       releaseSchemaWriteLock(session);
@@ -374,6 +382,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     acquireSchemaWriteLock(session);
     try {
       notNull = isNotNull;
+      owner.owner.markClassDirty(owner);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -405,6 +414,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
       checkEmbedded(session);
 
       this.defaultValue = defaultValue;
+      owner.owner.markClassDirty(owner);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -461,6 +471,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
 
       checkForDateFormat(sesisson, max);
       this.max = max;
+      owner.owner.markClassDirty(owner);
     } finally {
       releaseSchemaWriteLock(sesisson);
     }
@@ -490,6 +501,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
 
       checkForDateFormat(session, min);
       this.min = min;
+      owner.owner.markClassDirty(owner);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -517,6 +529,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
       checkEmbedded(session);
 
       this.readonly = isReadonly;
+      owner.owner.markClassDirty(owner);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -543,6 +556,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     try {
       checkEmbedded(session);
       this.mandatory = isMandatory;
+      owner.owner.markClassDirty(owner);
     } finally {
       releaseSchemaWriteLock(session);
     }

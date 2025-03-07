@@ -52,8 +52,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 
 /**
@@ -70,8 +72,8 @@ public abstract class SchemaShared implements CloseableInStorage {
 
   private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
-  protected final Map<String, SchemaClassInternal> classes = new HashMap<>();
-  protected final Map<String, RecordId> classesRefs = new HashMap<>();
+  protected final Set<SchemaClassImpl> dirtyClasses = new HashSet<>();
+  protected final Map<String, LazySchemaClass> classesRefs = new HashMap<>();
   protected final Int2ObjectOpenHashMap<SchemaClass> clustersToClasses = new Int2ObjectOpenHashMap<>();
 
   private final ClusterSelectionFactory clusterSelectionFactory = new ClusterSelectionFactory();
@@ -100,6 +102,10 @@ public abstract class SchemaShared implements CloseableInStorage {
     internalClasses.add("v");
     internalClasses.add("e");
     internalClasses.add("le");
+  }
+
+  public void markClassDirty(SchemaClass dirtyClass) {
+    this.dirtyClasses.add((SchemaClassImpl) dirtyClass);
   }
 
   protected static final class ClusterIdsAreEmptyException extends Exception {
@@ -216,7 +222,7 @@ public abstract class SchemaShared implements CloseableInStorage {
 
     acquireSchemaReadLock();
     try {
-      return classes.size();
+      return classesRefs.size();
     } finally {
       releaseSchemaReadLock();
     }
@@ -227,9 +233,15 @@ public abstract class SchemaShared implements CloseableInStorage {
    * Callback invoked when the schema is loaded, after all the initializations.
    */
   public void onPostIndexManagement(DatabaseSessionInternal session) {
-    for (SchemaClass c : classes.values()) {
-      if (c instanceof SchemaClassImpl) {
-        ((SchemaClassImpl) c).onPostIndexManagement(session);
+    for (LazySchemaClass c : classesRefs.values()) {
+      if (!c.isLoaded()) {
+        // todo maybe we don't need to eagerly fetch classes
+        c.load(session, createClassInstance(
+            // it's not an issue to send class id as a name since it will be immediately replaced by fromStream method
+            c.getId().toString()));
+      }
+      if (c.getDelegate() instanceof SchemaClassImpl) {
+        ((SchemaClassImpl) c.getDelegate()).onPostIndexManagement(session);
       }
     }
   }
@@ -363,28 +375,37 @@ public abstract class SchemaShared implements CloseableInStorage {
 
     acquireSchemaReadLock();
     try {
-      return classes.containsKey(iClassName.toLowerCase(Locale.ENGLISH));
+      return classesRefs.containsKey(normalizeClassName(iClassName));
     } finally {
       releaseSchemaReadLock();
     }
   }
 
-  public SchemaClass getClass(final Class<?> iClass) {
+  public SchemaClass getClass(DatabaseSessionInternal database, final Class<?> iClass) {
     if (iClass == null) {
       return null;
     }
 
-    return getClass(iClass.getSimpleName());
+    return getClass(database, iClass.getSimpleName());
   }
 
-  public SchemaClassInternal getClass(final String iClassName) {
+  public SchemaClassInternal getClass(DatabaseSessionInternal database, final String iClassName) {
     if (iClassName == null) {
       return null;
     }
 
     acquireSchemaReadLock();
     try {
-      return classes.get(iClassName.toLowerCase(Locale.ENGLISH));
+      String normalizedClassName = normalizeClassName(iClassName);
+      LazySchemaClass lazyClass = classesRefs.get(normalizedClassName);
+      // todo what will happen if someone concurrently modified the class?
+      if (lazyClass == null) {
+        return null;
+      }
+      if (!lazyClass.isLoaded()) {
+        lazyClass.load(database, createClassInstance(normalizedClassName));
+      }
+      return lazyClass.getDelegate();
     } finally {
       releaseSchemaReadLock();
     }
@@ -440,6 +461,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     }
   }
 
+  // this method not only changes name, but also creates it, if oldName is null
   void changeClassName(
       DatabaseSessionInternal database,
       final String oldName,
@@ -456,15 +478,17 @@ public abstract class SchemaShared implements CloseableInStorage {
       checkEmbedded();
 
       if (newName != null
-          && (classes.containsKey(newName.toLowerCase(Locale.ENGLISH)))) {
+          && (classesRefs.containsKey(normalizeClassName(newName)))) {
         throw new IllegalArgumentException("Class '" + newName + "' is already present in schema");
       }
 
+      LazySchemaClass existingClass = classesRefs.get(normalizeClassName(cls.getName()));
       if (oldName != null) {
-        classes.remove(oldName.toLowerCase(Locale.ENGLISH));
+        // todo remove class from storage
+        classesRefs.remove(oldName.toLowerCase(Locale.ENGLISH));
       }
       if (newName != null) {
-        classes.put(newName.toLowerCase(Locale.ENGLISH), cls);
+        classesRefs.put(normalizeClassName(newName), existingClass);
       }
 
     } finally {
@@ -515,46 +539,29 @@ public abstract class SchemaShared implements CloseableInStorage {
       // REGISTER ALL THE CLASSES
       clustersToClasses.clear();
 
-      final Map<String, SchemaClassInternal> newClasses = new HashMap<>();
-
-      Collection<EntityImpl> storedClasses = entity.field("classes");
-      for (EntityImpl c : storedClasses) {
-        String name = c.field("name");
-
-        SchemaClassImpl cls;
-        if (classes.containsKey(name.toLowerCase(Locale.ENGLISH))) {
-          cls = (SchemaClassImpl) classes.get(name.toLowerCase(Locale.ENGLISH));
-          cls.fromStream(c);
-        } else {
-          cls = createClassInstance(name);
-          cls.fromStream(c);
-        }
-
-        newClasses.put(cls.getName().toLowerCase(Locale.ENGLISH), cls);
-
-        if (cls.getShortName() != null) {
-          newClasses.put(cls.getShortName().toLowerCase(Locale.ENGLISH), cls);
-        }
-
+      Map<String, RecordId> storedClassesRefs = entity.field("classesRefs");
+      Map<String, LazySchemaClass> lazyClassesRefs = new HashMap<>(storedClassesRefs.size());
+      for (Entry<String, RecordId> entry : storedClassesRefs.entrySet()) {
+        LazySchemaClass lazySchemaClass = new LazySchemaClass(entry.getValue());
+        lazyClassesRefs.put(entry.getKey(), lazySchemaClass);
+      }
+      classesRefs.clear();
+      classesRefs.putAll(lazyClassesRefs);
+      for (LazySchemaClass lazySchemaClass : classesRefs.values()) {
+        lazySchemaClass.load(session, createClassInstance(lazySchemaClass.getId().toString()));
+        SchemaClassInternal cls = lazySchemaClass.getDelegate();
         addClusterClassMap(cls);
       }
-
-      classes.clear();
-      classes.putAll(newClasses);
-
-      Map<String, RecordId> storedClassesRefs = entity.field("classesRefs");
-      // todo maybe compare and swap the entire map, but I don't the performance impact would be crucible
-      classesRefs.clear();
-      classesRefs.putAll(storedClassesRefs);
       // REBUILD THE INHERITANCE TREE
       Collection<String> superClassNames;
       String legacySuperClassName;
       List<SchemaClass> superClasses;
       SchemaClass superClass;
 
-      for (EntityImpl c : storedClasses) {
-        superClassNames = c.field("superClasses");
-        legacySuperClassName = c.field("superClass");
+      for (LazySchemaClass c : classesRefs.values()) {
+        EntityImpl classEntity = session.load(c.getId());
+        superClassNames = classEntity.field("superClasses");
+        legacySuperClassName = classEntity.field("superClass");
         if (superClassNames == null) {
           superClassNames = new ArrayList<String>();
         }
@@ -567,25 +574,24 @@ public abstract class SchemaShared implements CloseableInStorage {
 
         if (!superClassNames.isEmpty()) {
           // HAS A SUPER CLASS or CLASSES
-          SchemaClassImpl cls =
-              (SchemaClassImpl) classes.get(((String) c.field("name")).toLowerCase(Locale.ENGLISH));
-          superClasses = new ArrayList<SchemaClass>(superClassNames.size());
+          LazySchemaClass cls = classesRefs.get(normalizeClassName(classEntity.field("name")));
+          superClasses = new ArrayList<>(superClassNames.size());
           for (String superClassName : superClassNames) {
 
-            superClass = classes.get(superClassName.toLowerCase(Locale.ENGLISH));
+            superClass = getClass(session, normalizeClassName(superClassName));
 
             if (superClass == null) {
               throw new ConfigurationException(
                   "Super class '"
                       + superClassName
                       + "' was declared in class '"
-                      + cls.getName()
+                      + cls.getDelegate().getName()
                       + "' but was not found in schema. Remove the dependency or create the class"
                       + " to continue.");
             }
             superClasses.add(superClass);
           }
-          cls.setSuperClassesInternal(session, superClasses);
+          ((SchemaClassImpl) cls.getDelegate()).setSuperClassesInternal(session, superClasses);
         }
       }
 
@@ -619,13 +625,6 @@ public abstract class SchemaShared implements CloseableInStorage {
       entity.setTrackingChanges(false);
       entity.field("schemaVersion", CURRENT_VERSION_NUMBER);
 
-      Set<EntityImpl> cc = new HashSet<EntityImpl>();
-      for (SchemaClass c : classes.values()) {
-        cc.add(((SchemaClassImpl) c).toNetworkStream());
-      }
-
-      entity.field("classes", cc, PropertyType.EMBEDDEDSET);
-
       List<EntityImpl> globalProperties = new ArrayList<EntityImpl>();
       for (GlobalProperty globalProperty : properties) {
         if (globalProperty != null) {
@@ -649,18 +648,10 @@ public abstract class SchemaShared implements CloseableInStorage {
       EntityImpl entity = db.load(identity);
       entity.field("schemaVersion", CURRENT_VERSION_NUMBER);
 
-      // These steps are needed because in classes there are duplicate due to aliases
-      Set<SchemaClassImpl> realClases = new HashSet<SchemaClassImpl>();
-      for (SchemaClass c : classes.values()) {
-        realClases.add(((SchemaClassImpl) c));
-      }
-
-      Set<EntityImpl> classesEntities = new HashSet<EntityImpl>();
-      for (SchemaClassImpl c : realClases) {
-        classesEntities.add(c.toStream());
-      }
-      entity.field("classes", classesEntities, PropertyType.EMBEDDEDSET);
-      entity.field("classesRefs", classesRefs, PropertyType.EMBEDDEDMAP);
+      Map<String, RecordId> classIds = classesRefs.entrySet().stream()
+          .map(e -> Map.entry(e.getKey(), e.getValue().getId()))
+          .collect(Collectors.toMap(Entry::getKey, Entry::getValue));
+      entity.field("classesRefs", classIds, PropertyType.EMBEDDEDMAP);
 
       List<EntityImpl> globalProperties = new ArrayList<EntityImpl>();
       for (GlobalProperty globalProperty : properties) {
@@ -676,11 +667,26 @@ public abstract class SchemaShared implements CloseableInStorage {
     }
   }
 
-  public Collection<SchemaClass> getClasses(DatabaseSessionInternal database) {
+  public Collection<SchemaClass> getClassesSlow(DatabaseSessionInternal database) {
     database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
     acquireSchemaReadLock();
     try {
-      return new HashSet<SchemaClass>(classes.values());
+      HashSet<SchemaClass> result = new HashSet<>(classesRefs.size());
+      for (String className : classesRefs.keySet()) {
+        SchemaClassInternal loadedClass = getClass(database, className);
+        result.add(loadedClass);
+      }
+      return result;
+    } finally {
+      releaseSchemaReadLock();
+    }
+  }
+
+  public Map<String, LazySchemaClass> getClassesRefs(DatabaseSessionInternal database) {
+    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
+    acquireSchemaReadLock();
+    try {
+      return new HashMap<>(classesRefs);
     } finally {
       releaseSchemaReadLock();
     }
@@ -694,7 +700,8 @@ public abstract class SchemaShared implements CloseableInStorage {
     try {
       final int clusterId = database.getClusterIdByName(clusterName);
       final Set<SchemaClass> result = new HashSet<SchemaClass>();
-      for (SchemaClass c : classes.values()) {
+      for (LazySchemaClass l : classesRefs.values()) {
+        SchemaClassInternal c = l.getDelegate();
         if (ArrayUtils.contains(c.getPolymorphicClusterIds(), clusterId)) {
           result.add(c);
         }
@@ -801,7 +808,6 @@ public abstract class SchemaShared implements CloseableInStorage {
   }
 
   private void saveInternal(DatabaseSessionInternal database) {
-
     var tx = database.getTransaction();
     if (tx.isActive()) {
       throw new SchemaException(
@@ -812,12 +818,24 @@ public abstract class SchemaShared implements CloseableInStorage {
     ScenarioThreadLocal.executeAsDistributed(
         () -> {
           database.executeInTx(() -> {
+            Collection<SchemaClassImpl> dirtyClasses = this.dirtyClasses;
+            for (SchemaClassImpl dirtyClass : dirtyClasses) {
+              // TODO FIX THIS, for now it's ok, but I need to forbid adding null dirty classes
+              if (dirtyClass != null) {
+                EntityImpl dirtyClassEntity = dirtyClass.toStream(database);
+                // todo replace copy with storing identity in the class like it used to be in schema
+                database.save(dirtyClassEntity, MetadataDefault.CLUSTER_INTERNAL_NAME);
+                // we don't ever need to remove it, just reload in place
+//                loadedClasses.remove(dirtyClassName);
+              }
+            }
             EntityImpl entity = toStream(database);
             database.save(entity, MetadataDefault.CLUSTER_INTERNAL_NAME);
           });
           return null;
         });
 
+    dirtyClasses.clear();
     forceSnapshot(database);
 
     for (MetadataUpdateListener listener : database.getSharedContext().browseListeners()) {
@@ -894,5 +912,9 @@ public abstract class SchemaShared implements CloseableInStorage {
 
   public void sendCommand(DatabaseSessionInternal database, String command) {
     throw new UnsupportedOperationException();
+  }
+
+  protected static String normalizeClassName(String className) {
+    return className.toLowerCase(Locale.ENGLISH);
   }
 }

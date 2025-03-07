@@ -40,10 +40,11 @@ public class CommandExecutorSQLTruncateTest extends DbTestBase {
     db.save(doc);
     db.commit();
 
-    db.getMetadata().getSchema().getClasses(db).stream()
-        .filter(oClass -> !oClass.getName().startsWith("OSecurity")) //
+    db.getMetadata().getSchema().getClassesRefs(db).keySet().stream()
+        .filter(className -> !className.startsWith("OSecurity"))
         .forEach(
-            oClass -> {
+            className -> {
+              SchemaClass oClass = db.getMetadata().getSchema().getClass(className);
               if (((SchemaClassInternal) oClass).count(db) > 0) {
                 db.command("truncate class " + oClass.getName() + " POLYMORPHIC UNSAFE").close();
               }

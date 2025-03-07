@@ -646,13 +646,13 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
   @Test
   public void testLimitWithMetadataQuery() {
-    ResultSet qResult = db.query("select expand(classes) from metadata:schema limit 3");
+    ResultSet qResult = db.query("select expand(classesRefs) from metadata:schema limit 3");
     assertEquals(3, qResult.stream().count());
   }
 
-  @Test
+  @Test // this test does not test order by... it just test that count is greater then 0
   public void testOrderByWithMetadataQuery() {
-    ResultSet qResult = db.query("select expand(classes) from metadata:schema order by name");
+    ResultSet qResult = db.query("select expand(classesRefs) from metadata:schema order by name");
     assertTrue(qResult.stream().count() > 0);
   }
 

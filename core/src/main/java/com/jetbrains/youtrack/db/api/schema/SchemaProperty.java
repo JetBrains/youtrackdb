@@ -65,7 +65,7 @@ public interface SchemaProperty extends Comparable<SchemaProperty> {
    *
    * @return
    */
-  SchemaClass getLinkedClass();
+  SchemaClass getLinkedClass(DatabaseSession session);
 
   SchemaProperty setLinkedClass(DatabaseSession session, SchemaClass oClass);
 
@@ -244,7 +244,7 @@ public interface SchemaProperty extends Comparable<SchemaProperty> {
 
   SchemaClass getOwnerClass();
 
-  Object get(ATTRIBUTES iAttribute);
+  Object get(DatabaseSession session, ATTRIBUTES iAttribute);
 
   Integer getId();
 

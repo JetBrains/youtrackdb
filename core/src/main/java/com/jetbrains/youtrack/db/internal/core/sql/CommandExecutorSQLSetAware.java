@@ -149,7 +149,7 @@ public abstract class CommandExecutorSQLSetAware extends CommandExecutorSQLAbstr
       // CHECK TYPE AND CONVERT IF NEEDED
       final SchemaProperty p = iClass.getProperty(fieldName);
       if (p != null) {
-        final SchemaClass embeddedType = p.getLinkedClass();
+        final SchemaClass embeddedType = p.getLinkedClass(context.getDatabase());
 
         switch (p.getType()) {
           case EMBEDDED:

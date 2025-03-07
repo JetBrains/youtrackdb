@@ -37,6 +37,7 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.ArrayUtils;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionFactory;
@@ -101,6 +102,8 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
     reserved.add("limit");
     reserved.add("timeout");
   }
+
+  private volatile RecordId identity;
 
   protected SchemaClassImpl(final SchemaShared iOwner, final String iName,
       final int[] iClusterIds) {
@@ -521,129 +524,148 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
     }
   }
 
-  public void fromStream(EntityImpl entity) {
-    subclasses = null;
-    superClasses.clear();
+  public void fromStream(DatabaseSessionInternal db, EntityImpl entity) {
+    acquireSchemaWriteLock(db);
+    try {
+      identity = entity.getIdentity();
+      subclasses = null;
+      superClasses.clear();
 
-    name = entity.field("name");
-    if (entity.containsField("shortName")) {
-      shortName = entity.field("shortName");
-    } else {
-      shortName = null;
-    }
-    if (entity.containsField("description")) {
-      description = entity.field("description");
-    } else {
-      description = null;
-    }
-    defaultClusterId = entity.field("defaultClusterId");
-    if (entity.containsField("strictMode")) {
-      strictMode = entity.field("strictMode");
-    } else {
-      strictMode = false;
-    }
-
-    if (entity.containsField("abstract")) {
-      abstractClass = entity.field("abstract");
-    } else {
-      abstractClass = false;
-    }
-
-    if (entity.field("overSize") != null) {
-      overSize = entity.field("overSize");
-    } else {
-      overSize = 0f;
-    }
-
-    final Object cc = entity.field("clusterIds");
-    if (cc instanceof Collection<?>) {
-      final Collection<Integer> coll = entity.field("clusterIds");
-      clusterIds = new int[coll.size()];
-      int i = 0;
-      for (final Integer item : coll) {
-        clusterIds[i++] = item;
+      name = entity.field("name");
+      if (entity.containsField("shortName")) {
+        shortName = entity.field("shortName");
+      } else {
+        shortName = null;
       }
-    } else {
-      clusterIds = (int[]) cc;
-    }
-    Arrays.sort(clusterIds);
+      if (entity.containsField("description")) {
+        description = entity.field("description");
+      } else {
+        description = null;
+      }
+      defaultClusterId = entity.field("defaultClusterId");
+      if (entity.containsField("strictMode")) {
+        strictMode = entity.field("strictMode");
+      } else {
+        strictMode = false;
+      }
 
-    if (clusterIds.length == 1 && clusterIds[0] == -1) {
-      setPolymorphicClusterIds(CommonConst.EMPTY_INT_ARRAY);
-    } else {
-      setPolymorphicClusterIds(clusterIds);
-    }
+      if (entity.containsField("abstract")) {
+        abstractClass = entity.field("abstract");
+      } else {
+        abstractClass = false;
+      }
 
-    // READ PROPERTIES
-    SchemaPropertyImpl prop;
+      if (entity.field("overSize") != null) {
+        overSize = entity.field("overSize");
+      } else {
+        overSize = 0f;
+      }
 
-    final Map<String, SchemaPropertyInternal> newProperties = new HashMap<>();
-    final Collection<EntityImpl> storedProperties = entity.field("properties");
-
-    if (storedProperties != null) {
-      for (Identifiable id : storedProperties) {
-        EntityImpl p = id.getRecord();
-        String name = p.field("name");
-        // To lower case ?
-        if (properties.containsKey(name)) {
-          prop = (SchemaPropertyImpl) properties.get(name);
-          prop.fromStream(p);
-        } else {
-          prop = createPropertyInstance();
-          prop.fromStream(p);
+      final Object cc = entity.field("clusterIds");
+      if (cc instanceof Collection<?>) {
+        final Collection<Integer> coll = entity.field("clusterIds");
+        clusterIds = new int[coll.size()];
+        int i = 0;
+        for (final Integer item : coll) {
+          clusterIds[i++] = item;
         }
-
-        newProperties.put(prop.getName(), prop);
+      } else {
+        clusterIds = (int[]) cc;
       }
-    }
+      Arrays.sort(clusterIds);
 
-    properties.clear();
-    properties.putAll(newProperties);
-    customFields = entity.field("customFields", PropertyType.EMBEDDEDMAP);
-    clusterSelection =
-        owner.getClusterSelectionFactory().getStrategy(entity.field("clusterSelection"));
+      if (clusterIds.length == 1 && clusterIds[0] == -1) {
+        setPolymorphicClusterIds(CommonConst.EMPTY_INT_ARRAY);
+      } else {
+        setPolymorphicClusterIds(clusterIds);
+      }
+
+      // READ PROPERTIES
+      SchemaPropertyImpl prop;
+
+      final Map<String, SchemaPropertyInternal> newProperties = new HashMap<>();
+      final Collection<EntityImpl> storedProperties = entity.field("properties");
+
+      if (storedProperties != null) {
+        for (Identifiable id : storedProperties) {
+          EntityImpl p = id.getRecord();
+          String name = p.field("name");
+          // To lower case ?
+          if (properties.containsKey(name)) {
+            prop = (SchemaPropertyImpl) properties.get(name);
+            prop.fromStream(p);
+          } else {
+            prop = createPropertyInstance();
+            prop.fromStream(p);
+          }
+
+          newProperties.put(prop.getName(), prop);
+        }
+      }
+
+      properties.clear();
+      properties.putAll(newProperties);
+      customFields = entity.field("customFields", PropertyType.EMBEDDEDMAP);
+      clusterSelection =
+          owner.getClusterSelectionFactory().getStrategy(entity.field("clusterSelection"));
+    } finally {
+      acquireSchemaWriteLock(db);
+    }
   }
 
   protected abstract SchemaPropertyImpl createPropertyInstance();
 
-  public EntityImpl toStream() {
-    EntityImpl entity = new EntityImpl();
-    entity.field("name", name);
-    entity.field("shortName", shortName);
-    entity.field("description", description);
-    entity.field("defaultClusterId", defaultClusterId);
-    entity.field("clusterIds", clusterIds);
-    entity.field("clusterSelection", clusterSelection.getName());
-    entity.field("overSize", overSize);
-    entity.field("strictMode", strictMode);
-    entity.field("abstract", abstractClass);
-
-    final Set<EntityImpl> props = new LinkedHashSet<EntityImpl>();
-    for (final SchemaProperty p : properties.values()) {
-      props.add(((SchemaPropertyImpl) p).toStream());
-    }
-    entity.field("properties", props, PropertyType.EMBEDDEDSET);
-
-    if (superClasses.isEmpty()) {
-      // Single super class is deprecated!
-      entity.field("superClass", null, PropertyType.STRING);
-      entity.field("superClasses", null, PropertyType.EMBEDDEDLIST);
-    } else {
-      // Single super class is deprecated!
-      entity.field("superClass", superClasses.get(0).getName(), PropertyType.STRING);
-      List<String> superClassesNames = new ArrayList<String>();
-      for (SchemaClassImpl superClass : superClasses) {
-        superClassesNames.add(superClass.getName());
+  public EntityImpl toStream(DatabaseSessionInternal db) {
+    acquireSchemaWriteLock(db);
+    try {
+      final EntityImpl entity;
+      // null identity means entity is new
+      if (identity != null && identity.isValid()) {
+        entity = db.load(identity);
+      } else {
+        entity = new EntityImpl(db);
+        // I don't like the solution, there should be a better way to make only one copy of identity present in the system
+        identity = entity.getIdentity();
       }
-      entity.field("superClasses", superClassesNames, PropertyType.EMBEDDEDLIST);
+      entity.field("name", name);
+      entity.field("shortName", shortName);
+      entity.field("description", description);
+      entity.field("defaultClusterId", defaultClusterId);
+      entity.field("clusterIds", clusterIds);
+      entity.field("clusterSelection", clusterSelection.getName());
+      entity.field("overSize", overSize);
+      entity.field("strictMode", strictMode);
+      entity.field("abstract", abstractClass);
+
+      final Set<EntityImpl> props = new LinkedHashSet<EntityImpl>();
+      for (final SchemaProperty p : properties.values()) {
+        props.add(((SchemaPropertyImpl) p).toStream());
+      }
+      entity.field("properties", props, PropertyType.EMBEDDEDSET);
+
+      if (superClasses.isEmpty()) {
+        // Single super class is deprecated!
+        entity.field("superClass", null, PropertyType.STRING);
+        entity.field("superClasses", null, PropertyType.EMBEDDEDLIST);
+      } else {
+        // Single super class is deprecated!
+        entity.field("superClass", superClasses.get(0).getName(), PropertyType.STRING);
+        List<String> superClassesNames = new ArrayList<String>();
+        for (SchemaClassImpl superClass : superClasses) {
+          superClassesNames.add(superClass.getName());
+        }
+        entity.field("superClasses", superClassesNames, PropertyType.EMBEDDEDLIST);
+      }
+
+      entity.field(
+          "customFields",
+          customFields != null && customFields.size() > 0 ? customFields : null,
+          PropertyType.EMBEDDEDMAP);
+
+      return entity;
+    } finally {
+      releaseSchemaWriteLock(db);
     }
-
-    entity.field(
-        "customFields",
-        customFields != null && customFields.size() > 0 ? customFields : null,
-        PropertyType.EMBEDDEDMAP);
-
-    return entity;
   }
 
   @Override

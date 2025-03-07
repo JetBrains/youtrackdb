@@ -108,6 +108,9 @@ public class ResultInternal implements Result {
     if (value instanceof Serializable) {
       return;
     }
+    if(value instanceof Map.Entry<?,?>){
+      return;
+    }
     throw new IllegalArgumentException(
         "Invalid property value for Result: " + value + " - " + value.getClass().getName());
   }

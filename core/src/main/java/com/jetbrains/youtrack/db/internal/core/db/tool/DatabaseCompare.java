@@ -297,8 +297,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
           }
         }
 
-        if (prop.getLinkedClass() != null) {
-          if (!prop.getLinkedClass().equals(prop2.getLinkedClass())) {
+        if (prop.getLinkedClass(databaseOne) != null) {
+          if (!prop.getLinkedClass(databaseOne).equals(prop2.getLinkedClass(databaseTwo))) {
             listener.onMessage(
                 "\n- ERR: Class definition for "
                     + clazz.getName()
@@ -309,7 +309,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
           }
         }
 
-        if (prop.getLinkedClass() != null) {
+        if (prop.getLinkedClass(databaseOne) != null) {
           if (!prop.getCustomKeys().equals(prop2.getCustomKeys())) {
             listener.onMessage(
                 "\n- ERR: Class definition for "

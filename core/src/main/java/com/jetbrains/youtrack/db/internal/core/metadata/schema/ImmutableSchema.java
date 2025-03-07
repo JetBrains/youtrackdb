@@ -51,6 +51,7 @@ public class ImmutableSchema implements SchemaInternal {
 
   private final Int2ObjectOpenHashMap<SchemaClass> clustersToClasses;
   private final Map<String, SchemaClassInternal> classes;
+  private final Map<String, LazySchemaClass> classesRefs;
   private final IntSet blobClusters;
 
   public final int version;
@@ -64,12 +65,16 @@ public class ImmutableSchema implements SchemaInternal {
     identity = schemaShared.getIdentity();
     clusterSelectionFactory = schemaShared.getClusterSelectionFactory();
 
-    clustersToClasses = new Int2ObjectOpenHashMap<>(schemaShared.getClasses(database).size() * 3);
-    classes = new HashMap<>(schemaShared.getClasses(database).size());
+    Map<String, LazySchemaClass> schemaSharedClassesRefs = schemaShared.getClassesRefs(database);
+    classesRefs = new HashMap<>(schemaSharedClassesRefs.size());
+    classesRefs.putAll(schemaSharedClassesRefs);
 
-    for (SchemaClass oClass : schemaShared.getClasses(database)) {
-      final SchemaImmutableClass immutableClass = new SchemaImmutableClass(database,
-          (SchemaClassInternal) oClass, this);
+    clustersToClasses = new Int2ObjectOpenHashMap<>(schemaSharedClassesRefs.size() * 3);
+    // TODO do we need to load all classes eagerly?
+    classes = new HashMap<>(schemaSharedClassesRefs.size());
+    for (String className : schemaSharedClassesRefs.keySet()) {
+      SchemaClassInternal oClass = schemaShared.getClass(database, className);
+      final SchemaImmutableClass immutableClass = new SchemaImmutableClass(database, oClass, this);
 
       classes.put(immutableClass.getName().toLowerCase(Locale.ENGLISH), immutableClass);
       if (immutableClass.getShortName() != null) {
@@ -227,6 +232,11 @@ public class ImmutableSchema implements SchemaInternal {
   public Collection<SchemaClass> getClasses(DatabaseSession db) {
     ((DatabaseSessionInternal) db).checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
     return new HashSet<>(classes.values());
+  }
+
+  @Override
+  public Map<String, LazySchemaClass> getClassesRefs(DatabaseSession db) {
+    return new HashMap<>(classesRefs);
   }
 
   @Override

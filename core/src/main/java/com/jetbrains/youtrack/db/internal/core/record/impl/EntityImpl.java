@@ -960,7 +960,7 @@ public class EntityImpl extends RecordAbstract
       // CHECK TYPE
       switch (type) {
         case LINK:
-          validateLink(schema, p, fieldValue, false);
+          validateLink(session, schema, p, fieldValue, false);
           break;
         case LINKLIST:
           if (!(fieldValue instanceof List)) {
@@ -970,7 +970,7 @@ public class EntityImpl extends RecordAbstract
                     + "' has been declared as LINKLIST but an incompatible type is used. Value: "
                     + fieldValue);
           }
-          validateLinkCollection(schema, p, (Collection<Object>) fieldValue, entry);
+          validateLinkCollection(session, schema, p, (Collection<Object>) fieldValue, entry);
           break;
         case LINKSET:
           if (!(fieldValue instanceof Set)) {
@@ -980,7 +980,7 @@ public class EntityImpl extends RecordAbstract
                     + "' has been declared as LINKSET but an incompatible type is used. Value: "
                     + fieldValue);
           }
-          validateLinkCollection(schema, p, (Collection<Object>) fieldValue, entry);
+          validateLinkCollection(session, schema, p, (Collection<Object>) fieldValue, entry);
           break;
         case LINKMAP:
           if (!(fieldValue instanceof Map)) {
@@ -990,7 +990,7 @@ public class EntityImpl extends RecordAbstract
                     + "' has been declared as LINKMAP but an incompatible type is used. Value: "
                     + fieldValue);
           }
-          validateLinkCollection(schema, p, ((Map<?, Object>) fieldValue).values(), entry);
+          validateLinkCollection(session, schema, p, ((Map<?, Object>) fieldValue).values(), entry);
           break;
 
         case LINKBAG:
@@ -1001,10 +1001,10 @@ public class EntityImpl extends RecordAbstract
                     + "' has been declared as LINKBAG but an incompatible type is used. Value: "
                     + fieldValue);
           }
-          validateLinkCollection(schema, p, (Iterable<Object>) fieldValue, entry);
+          validateLinkCollection(session, schema, p, (Iterable<Object>) fieldValue, entry);
           break;
         case EMBEDDED:
-          validateEmbedded(p, fieldValue);
+          validateEmbedded(session, p, fieldValue);
           break;
         case EMBEDDEDLIST:
           if (!(fieldValue instanceof List)) {
@@ -1015,9 +1015,9 @@ public class EntityImpl extends RecordAbstract
                     + " "
                     + fieldValue);
           }
-          if (p.getLinkedClass() != null) {
+          if (p.getLinkedClass(session) != null) {
             for (Object item : ((List<?>) fieldValue)) {
-              validateEmbedded(p, item);
+              validateEmbedded(session, p, item);
             }
           } else {
             if (p.getLinkedType() != null) {
@@ -1035,9 +1035,9 @@ public class EntityImpl extends RecordAbstract
                     + "' has been declared as EMBEDDEDSET but an incompatible type is used. Value: "
                     + fieldValue);
           }
-          if (p.getLinkedClass() != null) {
+          if (p.getLinkedClass(session) != null) {
             for (Object item : ((Set<?>) fieldValue)) {
-              validateEmbedded(p, item);
+              validateEmbedded(session, p, item);
             }
           } else {
             if (p.getLinkedType() != null) {
@@ -1055,9 +1055,9 @@ public class EntityImpl extends RecordAbstract
                     + "' has been declared as EMBEDDEDMAP but an incompatible type is used. Value: "
                     + fieldValue);
           }
-          if (p.getLinkedClass() != null) {
+          if (p.getLinkedClass(session) != null) {
             for (Entry<?, ?> colleEntry : ((Map<?, ?>) fieldValue).entrySet()) {
-              validateEmbedded(p, colleEntry.getValue());
+              validateEmbedded(session, p, colleEntry.getValue());
             }
           } else {
             if (p.getLinkedType() != null) {
@@ -1191,11 +1191,12 @@ public class EntityImpl extends RecordAbstract
   }
 
   private static void validateLinkCollection(
+      DatabaseSession session,
       ImmutableSchema schema,
       final SchemaProperty property,
       Iterable<Object> values,
       EntityEntry value) {
-    if (property.getLinkedClass() != null) {
+    if (property.getLinkedClass(session) != null) {
       if (value.getTimeLine() != null) {
         List<MultiValueChangeEvent<Object, Object>> event =
             value.getTimeLine().getMultiValueChangeEvents();
@@ -1203,12 +1204,12 @@ public class EntityImpl extends RecordAbstract
           if (object.getChangeType() == ChangeType.ADD
               || object.getChangeType() == ChangeType.UPDATE
               && object.getValue() != null) {
-            validateLink(schema, property, object.getValue(), true);
+            validateLink(session, schema, property, object.getValue(), true);
           }
         }
       } else {
         for (Object object : values) {
-          validateLink(schema, property, object, true);
+          validateLink(session, schema, property, object, true);
         }
       }
     }
@@ -1232,7 +1233,12 @@ public class EntityImpl extends RecordAbstract
   }
 
   private static void validateLink(
-      ImmutableSchema schema, final SchemaProperty p, final Object fieldValue, boolean allowNull) {
+      DatabaseSession session,
+      ImmutableSchema schema,
+      final SchemaProperty p,
+      final Object fieldValue,
+      boolean allowNull
+  ) {
     if (fieldValue == null) {
       if (allowNull) {
         return;
@@ -1255,7 +1261,7 @@ public class EntityImpl extends RecordAbstract
               + " but the value is not a record or a record-id");
     }
 
-    final SchemaClass schemaClass = p.getLinkedClass();
+    final SchemaClass schemaClass = p.getLinkedClass(session);
     if (schemaClass != null && !schemaClass.isSubClassOf(Identity.CLASS_NAME)) {
       // DON'T VALIDATE OUSER AND OROLE FOR SECURITY RESTRICTIONS
       var identifiable = (Identifiable) fieldValue;
@@ -1291,7 +1297,8 @@ public class EntityImpl extends RecordAbstract
     }
   }
 
-  private static void validateEmbedded(final SchemaProperty p, final Object fieldValue) {
+  private static void validateEmbedded(DatabaseSession session, final SchemaProperty p,
+      final Object fieldValue) {
     if (fieldValue == null) {
       return;
     }
@@ -1317,7 +1324,7 @@ public class EntityImpl extends RecordAbstract
 
         final DBRecord embeddedRecord = embedded.getRecord();
         if (embeddedRecord instanceof EntityImpl entity) {
-          final SchemaClass embeddedClass = p.getLinkedClass();
+          final SchemaClass embeddedClass = p.getLinkedClass(session);
           if (entity.isVertex()) {
             throw new ValidationException(
                 "The field '"
@@ -1345,7 +1352,7 @@ public class EntityImpl extends RecordAbstract
           }
         }
 
-        final SchemaClass embeddedClass = p.getLinkedClass();
+        final SchemaClass embeddedClass = p.getLinkedClass(session);
         if (embeddedClass != null) {
 
           if (!(embeddedRecord instanceof EntityImpl entity)) {
@@ -3338,9 +3345,9 @@ public class EntityImpl extends RecordAbstract
       for (SchemaProperty prop : clazz.properties(session)) {
         PropertyType type = prop.getType();
         PropertyType linkedType = prop.getLinkedType();
-        SchemaClass linkedClass = prop.getLinkedClass();
+        SchemaClass linkedClass = prop.getLinkedClass(session);
         if (type == PropertyType.EMBEDDED && linkedClass != null) {
-          convertToEmbeddedType(prop);
+          convertToEmbeddedType(session, prop);
           continue;
         }
         if (fields == null) {
@@ -3439,9 +3446,9 @@ public class EntityImpl extends RecordAbstract
     }
   }
 
-  private void convertToEmbeddedType(SchemaProperty prop) {
+  private void convertToEmbeddedType(DatabaseSession session, SchemaProperty prop) {
     final EntityEntry entry = fields.get(prop.getName());
-    SchemaClass linkedClass = prop.getLinkedClass();
+    SchemaClass linkedClass = prop.getLinkedClass(session);
     if (entry == null || linkedClass == null) {
       return;
     }

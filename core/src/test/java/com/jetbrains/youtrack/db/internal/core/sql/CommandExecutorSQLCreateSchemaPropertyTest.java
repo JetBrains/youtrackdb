@@ -94,7 +94,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     assertEquals(nameProperty.getName(), PROP_DIVISION);
     assertEquals(nameProperty.getFullName(), PROP_FULL_DIVISION);
     assertEquals(nameProperty.getType(), PropertyType.LINK);
-    assertEquals(nameProperty.getLinkedClass().getName(), "division");
+    assertEquals(nameProperty.getLinkedClass(db).getName(), "division");
     assertFalse(nameProperty.isMandatory());
     assertFalse(nameProperty.isNotNull());
     assertFalse(nameProperty.isReadonly());
@@ -353,7 +353,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     assertEquals(idProperty.getName(), PROP_ID);
     assertEquals(idProperty.getFullName(), PROP_FULL_ID);
     assertEquals(idProperty.getType(), PropertyType.EMBEDDEDLIST);
-    assertEquals(idProperty.getLinkedClass(), mandatoryClass);
+    assertEquals(idProperty.getLinkedClass(db), mandatoryClass);
     assertFalse(idProperty.isMandatory());
   }
 

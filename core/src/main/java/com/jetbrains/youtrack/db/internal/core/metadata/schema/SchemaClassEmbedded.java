@@ -104,6 +104,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       checkEmbedded();
 
       this.clusterSelection = owner.getClusterSelectionFactory().newInstance(clusterSelection);
+      owner.markClassDirty(this);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -140,6 +141,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       checkEmbedded();
 
       customFields = null;
+      owner.markClassDirty(this);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -177,6 +179,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       if (subclasses.remove(baseClass)) {
         removePolymorphicClusterIds(session, (SchemaClassImpl) baseClass);
       }
+      owner.markClassDirty(this);
 
       return this;
     } finally {
@@ -224,6 +227,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
 
         cls.addBaseClass(database, this);
         superClasses.add(cls);
+        owner.markClassDirty(this);
       }
     } finally {
       releaseSchemaWriteLock(database);
@@ -256,6 +260,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
         }
 
         superClasses.remove(superClass);
+        owner.markClassDirty(this);
       }
     } finally {
       releaseSchemaWriteLock(session);
@@ -332,6 +337,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       owner.changeClassName(database, this.name, name, this);
       this.name = name;
       renameCluster(database, oldName, this.name);
+      owner.markClassDirty(this);
     } finally {
       releaseSchemaWriteLock(database);
     }
@@ -343,6 +349,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     try {
       checkEmbedded();
       this.defaultClusterId = defaultClusterId;
+      owner.markClassDirty(this);
     } finally {
       releaseSchemaWriteLock(sessionInternal);
     }
@@ -384,6 +391,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       owner.changeClassName(database, oldName, iShortName, this);
 
       this.shortName = iShortName;
+      owner.markClassDirty(this);
     } finally {
       releaseSchemaWriteLock(database);
     }
@@ -432,6 +440,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       prop = createPropertyInstance(global);
 
       properties.put(name, prop);
+      owner.markClassDirty(this);
 
       if (linkedType != null) {
         prop.setLinkedTypeInternal(session, linkedType);
@@ -487,6 +496,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       checkEmbedded();
 
       this.strictMode = iStrict;
+      owner.markClassDirty(this);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -518,6 +528,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     try {
       checkEmbedded();
       this.description = iDescription;
+      owner.markClassDirty(this);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -605,6 +616,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       }
 
       ((SchemaEmbedded) owner).removeClusterForClass(database, clusterToRemove);
+      owner.markClassDirty(this);
     } finally {
       releaseSchemaWriteLock(database);
     }
@@ -633,6 +645,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
                 return null;
               });
 
+      owner.markClassDirty(this);
     } finally {
       releaseSchemaWriteLock(database);
     }
@@ -655,6 +668,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
         throw new SchemaException(
             "Property '" + iPropertyName + "' not found in class " + name + "'");
       }
+      owner.markClassDirty(this);
     } finally {
       releaseSchemaWriteLock(database);
     }
@@ -700,6 +714,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       checkEmbedded();
 
       this.overSize = overSize;
+      owner.markClassDirty(this);
     } finally {
       releaseSchemaWriteLock(database);
     }
@@ -733,6 +748,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       } else {
         customFields.put(name, value);
       }
+      owner.markClassDirty(this);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -787,6 +803,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       }
 
       this.abstractClass = isAbstract;
+      owner.markClassDirty(this);
     } finally {
       releaseSchemaWriteLock(database);
     }
@@ -827,6 +844,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       }
 
       ((SchemaEmbedded) owner).addClusterForClass(database, clusterId, this);
+      owner.markClassDirty(this);
     } finally {
       releaseSchemaWriteLock(database);
     }

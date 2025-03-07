@@ -2,6 +2,7 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
@@ -192,17 +193,19 @@ public class SQLUpdateItem extends SimpleNode {
     return null;
   }
 
-  private PropertyType calculateTypeForThisItem(ResultInternal entity, String propertyName,
+  private PropertyType calculateTypeForThisItem(DatabaseSession session, ResultInternal entity,
+      String propertyName,
       CommandContext ctx) {
     Entity elem = entity.toEntity();
     SchemaClass clazz = elem.getSchemaType().orElse(null);
     if (clazz == null) {
       return null;
     }
-    return calculateTypeForThisItem(clazz, left.getStringValue(), leftModifier, ctx);
+    return calculateTypeForThisItem(session, clazz, left.getStringValue(), leftModifier, ctx);
   }
 
   private PropertyType calculateTypeForThisItem(
+      DatabaseSession session,
       SchemaClass clazz, String propName, SQLModifier modifier, CommandContext ctx) {
     SchemaProperty prop = clazz.getProperty(propName);
     if (prop == null) {
@@ -210,12 +213,12 @@ public class SQLUpdateItem extends SimpleNode {
     }
     PropertyType type = prop.getType();
     if (type == PropertyType.LINKMAP && modifier != null) {
-      if (prop.getLinkedClass() != null && modifier.next != null) {
+      if (prop.getLinkedClass(session) != null && modifier.next != null) {
         if (modifier.suffix == null) {
           return null;
         }
-        return calculateTypeForThisItem(
-            prop.getLinkedClass(), modifier.suffix.toString(), modifier.next, ctx);
+        return calculateTypeForThisItem(session,
+            prop.getLinkedClass(session), modifier.suffix.toString(), modifier.next, ctx);
       }
       return PropertyType.LINK;
     }
@@ -280,7 +283,7 @@ public class SQLUpdateItem extends SimpleNode {
     }
 
     PropertyType type = prop.getType();
-    SchemaClass linkedClass = prop.getLinkedClass();
+    SchemaClass linkedClass = prop.getLinkedClass(entity.getBoundedToSession());
     return convertToType(newValue, type, linkedClass, ctx);
   }
 

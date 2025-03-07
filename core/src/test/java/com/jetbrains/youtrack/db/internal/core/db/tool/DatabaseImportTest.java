@@ -9,6 +9,8 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -19,6 +21,10 @@ public class DatabaseImportTest {
 
   @Test
   public void exportImportOnlySchemaTest() throws IOException {
+    // delete import path to make test work without clean step before it
+    final String importDbPath = "target/import_" + DatabaseImportTest.class.getSimpleName();
+    deleteDirectory(Path.of(importDbPath));
+
     String databaseName = "export";
     final String exportDbPath = "target/export_" + DatabaseImportTest.class.getSimpleName();
     YouTrackDB youTrackDB = YourTracks.embedded(exportDbPath, YouTrackDBConfig.defaultConfig());
@@ -37,7 +43,6 @@ public class DatabaseImportTest {
     youTrackDB.drop(databaseName);
     youTrackDB.close();
 
-    final String importDbPath = "target/import_" + DatabaseImportTest.class.getSimpleName();
     youTrackDB = YourTracks.embedded(importDbPath, YouTrackDBConfig.defaultConfig());
     databaseName = "import";
 
@@ -55,5 +60,21 @@ public class DatabaseImportTest {
     }
     youTrackDB.drop(databaseName);
     youTrackDB.close();
+  }
+
+  public static void deleteDirectory(Path dir) throws IOException {
+    if (!Files.exists(dir)) {
+      return;
+    }
+    try (var stream = Files.walk(dir)) {
+      stream.sorted((p1, p2) -> p2.compareTo(p1)) // Reverse order for deleting files first
+          .forEach(p -> {
+            try {
+              Files.delete(p);
+            } catch (IOException e) {
+              System.err.println("Failed to delete: " + p + " - " + e.getMessage());
+            }
+          });
+    }
   }
 }

@@ -80,8 +80,8 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
     type = property.getType();
     description = property.getDescription();
 
-    if (property.getLinkedClass() != null) {
-      linkedClassName = property.getLinkedClass().getName();
+    if (property.getLinkedClass(session) != null) {
+      linkedClassName = property.getLinkedClass(session).getName();
     } else {
       linkedClassName = null;
     }
@@ -260,7 +260,7 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
   }
 
   @Override
-  public SchemaClass getLinkedClass() {
+  public SchemaClass getLinkedClass(DatabaseSession session) {
     if (linkedClassName == null) {
       return null;
     }
@@ -437,13 +437,13 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
   }
 
   @Override
-  public Object get(ATTRIBUTES attribute) {
+  public Object get(DatabaseSession session, ATTRIBUTES attribute) {
     if (attribute == null) {
       throw new IllegalArgumentException("attribute is null");
     }
 
     return switch (attribute) {
-      case LINKEDCLASS -> getLinkedClass();
+      case LINKEDCLASS -> getLinkedClass(session);
       case LINKEDTYPE -> linkedType;
       case MIN -> min;
       case MANDATORY -> mandatory;

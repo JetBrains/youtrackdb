@@ -56,6 +56,7 @@ import com.jetbrains.youtrack.db.internal.core.index.RuntimeKeyIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.SimpleKeyIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.LazySchemaClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
@@ -99,6 +100,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
 
 /**
@@ -505,14 +507,15 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
         "\nNon merge mode (-merge=false): removing all default non security classes");
 
     final Schema schema = database.getMetadata().getSchema();
-    final Collection<SchemaClass> classes = schema.getClasses(database);
+    final Collection<String> classesNames = schema.getClassesRefs(database).keySet();
     final SchemaClass role = schema.getClass(Role.CLASS_NAME);
     final SchemaClass user = schema.getClass(SecurityUserIml.CLASS_NAME);
     final SchemaClass identity = schema.getClass(Identity.CLASS_NAME);
     // final SchemaClass oSecurityPolicy = schema.getClass(SecurityPolicy.class.getSimpleName());
     final Map<String, SchemaClass> classesToDrop = new HashMap<>();
     final Set<String> indexNames = new HashSet<>();
-    for (final SchemaClass dbClass : classes) {
+    for (final String dbClassName : classesNames) {
+      final SchemaClass dbClass = schema.getClass(dbClassName);
       final String className = dbClass.getName();
       if (!dbClass.isSuperClassOf(role)
           && !dbClass.isSuperClassOf(user)
@@ -1548,9 +1551,19 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       }
     }
 
+    // this seems like a hack, but I need to do it to submit my code for testing
+    // I hope I will fix it later
+    Set<RecordId> classIds
+        = database.getSchema().getClassesRefs(database).values().stream()
+        .map(LazySchemaClass::getId)
+        .collect(Collectors.toSet());
     // remove all records which were absent in new database but
     // exist in old database
     for (final RID leftOverRid : recordsBeforeImport) {
+      if (classIds.contains(leftOverRid)) {
+        // skip deleting class records
+        continue;
+      }
       database.executeInTx(() -> database.delete(leftOverRid));
     }
 

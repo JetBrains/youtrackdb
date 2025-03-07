@@ -43,7 +43,7 @@ public class ClassIndexFinder implements IndexFinder {
     for (String ele : rawPath) {
       SchemaPropertyInternal prop = (SchemaPropertyInternal) cand.cl.getProperty(ele);
       if (prop != null) {
-        SchemaClass linkedClass = prop.getLinkedClass();
+        SchemaClass linkedClass = prop.getLinkedClass(db);
         Collection<Index> indexes = prop.getAllIndexesInternal(db);
         if (prop.getType().isLink() && linkedClass != null) {
           boolean found = false;

@@ -20,8 +20,10 @@
 package com.jetbrains.youtrack.db.api.schema;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.LazySchemaClass;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import javax.annotation.Nonnull;
 
 public interface Schema {
@@ -73,6 +75,8 @@ public interface Schema {
   SchemaClass getOrCreateClass(String iClassName, SchemaClass... superClasses);
 
   Collection<SchemaClass> getClasses(DatabaseSession db);
+
+  Map<String, LazySchemaClass> getClassesRefs(DatabaseSession db);
 
   Collection<String> getIndexes(DatabaseSession db);
 

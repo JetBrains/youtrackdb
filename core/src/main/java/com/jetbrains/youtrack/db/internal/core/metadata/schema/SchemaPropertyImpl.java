@@ -257,11 +257,11 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
    *
    * @return
    */
-  public SchemaClass getLinkedClass() {
+  public SchemaClass getLinkedClass(DatabaseSession session) {
     acquireSchemaReadLock();
     try {
-      if (linkedClass == null && linkedClassName != null) {
-        linkedClass = owner.owner.getClass(linkedClassName);
+      if (this.linkedClass == null && linkedClassName != null) {
+        this.linkedClass = owner.owner.getClass((DatabaseSessionInternal) session, linkedClassName);
       }
       return linkedClass;
     } finally {
@@ -412,14 +412,14 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
     }
   }
 
-  public Object get(final ATTRIBUTES attribute) {
+  public Object get(DatabaseSession session, final ATTRIBUTES attribute) {
     if (attribute == null) {
       throw new IllegalArgumentException("attribute is null");
     }
 
     switch (attribute) {
       case LINKEDCLASS:
-        return getLinkedClass();
+        return getLinkedClass(session);
       case LINKEDTYPE:
         return getLinkedType();
       case MIN:
@@ -714,7 +714,7 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
     if (linkedType != null) {
       entity.field("linkedType", linkedType.getId());
     }
-    if (linkedClass != null || linkedClassName != null) {
+    if (this.linkedClass != null || linkedClassName != null) {
       entity.field("linkedClass", linkedClass != null ? linkedClass.getName() : linkedClassName);
     }
 

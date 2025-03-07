@@ -486,7 +486,7 @@ public class SQLModifier extends SimpleNode {
           && prop.getAllIndexesInternal(ctx.getDatabase()).stream()
           .anyMatch(idx -> idx.getDefinition().getFields().size() == 1)) {
         if (next != null) {
-          var linkedClazz = (SchemaClassInternal) prop.getLinkedClass();
+          var linkedClazz = (SchemaClassInternal) prop.getLinkedClass(ctx.getDatabase());
           return next.isIndexChain(ctx, linkedClazz);
         }
         return true;

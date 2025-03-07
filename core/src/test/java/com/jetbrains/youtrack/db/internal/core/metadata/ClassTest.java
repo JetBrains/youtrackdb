@@ -161,15 +161,23 @@ public class ClassTest extends BaseMemoryInternalDatabase {
   }
 
   private String queryShortName() {
-    String selectShortNameSQL =
-        "select shortName from ( select expand(classes) from metadata:schema )"
-            + " where name = \""
+    String selectShortNameSQL = "select expand(classesRefs.values()) from metadata:schema ";
+    try (ResultSet classIds = db.query(selectShortNameSQL)) {
+      for (var classId : classIds.toList()) {
+        ResultSet result = db.query("select from " + classId + " where name = \""
             + SHORTNAME_CLASS_NAME
-            + "\"";
-    try (ResultSet result = db.query(selectShortNameSQL)) {
-      String name = result.next().getProperty("shortName");
-      assertFalse(result.hasNext());
-      return name;
+            + "\""
+        );
+
+        try {
+          String name = result.next().getProperty("shortName");
+          assertFalse(result.hasNext());
+          return name;
+        } catch (IllegalStateException e) {
+          // ignore
+        }
+      }
     }
+    throw new IllegalStateException("Class not found");
   }
 }

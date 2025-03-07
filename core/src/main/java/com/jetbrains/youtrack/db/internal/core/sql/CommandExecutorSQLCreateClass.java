@@ -308,7 +308,7 @@ public class CommandExecutorSQLCreateClass extends CommandExecutorSQLAbstract
             .createClass(className, clusterIds, superClasses.toArray(new SchemaClass[0]));
       }
     }
-    return database.getMetadata().getSchema().getClasses(database).size();
+    return database.getMetadata().getSchema().getClassesRefs(database).size();
   }
 
   @Override

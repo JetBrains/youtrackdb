@@ -51,7 +51,8 @@ public class SchemaEmbedded extends SchemaShared {
         result = doCreateClass(database, className, clusterIds, retry, superClasses);
         break;
       } catch (ClusterIdsAreEmptyException ignore) {
-        classes.remove(className.toLowerCase(Locale.ENGLISH));
+        String normalizedClassName = normalizeClassName(className);
+        classesRefs.remove(normalizedClassName);
         clusterIds = createClusters(database, className);
         retry++;
       }
@@ -93,7 +94,7 @@ public class SchemaEmbedded extends SchemaShared {
     try {
 
       final String key = className.toLowerCase(Locale.ENGLISH);
-      if (classes.containsKey(key)) {
+      if (classesRefs.containsKey(key)) {
         throw new SchemaException("Class '" + className + "' already exists in current database");
       }
       List<SchemaClass> superClassesList = new ArrayList<>();
@@ -116,7 +117,7 @@ public class SchemaEmbedded extends SchemaShared {
 
       doRealCreateClass(database, className, superClassesList, clusterIds);
 
-      result = classes.get(className.toLowerCase(Locale.ENGLISH));
+      result = classesRefs.get(normalizeClassName(className)).getDelegate();
       // WAKE UP DB LIFECYCLE LISTENER
       for (Iterator<DatabaseLifecycleListener> it = YouTrackDBEnginesManager.instance()
           .getDbLifecycleListeners();
@@ -174,20 +175,22 @@ public class SchemaEmbedded extends SchemaShared {
 
       database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_CREATE);
 
-      final String key = className.toLowerCase(Locale.ENGLISH);
+      final String key = normalizeClassName(className);
 
-      if (classes.containsKey(key)) {
+      if (classesRefs.containsKey(key)) {
         throw new SchemaException("Class '" + className + "' already exists in current database");
       }
 
       SchemaClassImpl cls = createClassInstance(className, clusterIds);
 
-      classes.put(key, cls);
-      EntityImpl classEntity = cls.toStream();
+      EntityImpl classEntity = cls.toStream(database);
       // do we need to save or to batch
+      // todo move to schema lock release step
       EntityImpl savedClassEntity = database.computeInTx(
           () -> database.save(classEntity, MetadataDefault.CLUSTER_INTERNAL_NAME));
-      classesRefs.put(key, savedClassEntity.getIdentity());
+
+      classesRefs.put(key, new LazySchemaClass(savedClassEntity.getIdentity(), cls));
+      this.markClassDirty(cls);
 
       if (superClasses != null && !superClasses.isEmpty()) {
         cls.setSuperClassesInternal(database, superClasses);
@@ -232,9 +235,12 @@ public class SchemaEmbedded extends SchemaShared {
 
     acquireSchemaReadLock();
     try {
-      SchemaClass cls = classes.get(iClassName.toLowerCase(Locale.ENGLISH));
-      if (cls != null) {
-        return cls;
+      LazySchemaClass lazySchemaClass = classesRefs.get(normalizeClassName(iClassName));
+      if (lazySchemaClass != null) {
+        SchemaClassInternal cls = lazySchemaClass.getDelegate();
+        if (cls != null) {
+          return cls;
+        }
       }
     } finally {
       releaseSchemaReadLock();
@@ -249,9 +255,12 @@ public class SchemaEmbedded extends SchemaShared {
       try {
         acquireSchemaWriteLock(database);
         try {
-          cls = classes.get(iClassName.toLowerCase(Locale.ENGLISH));
-          if (cls != null) {
-            return cls;
+          LazySchemaClass lazySchemaClass = classesRefs.get(normalizeClassName(iClassName));
+          if (lazySchemaClass != null) {
+            cls = lazySchemaClass.getDelegate();
+            if (cls != null) {
+              return cls;
+            }
           }
 
           cls = doCreateClass(database, iClassName, clusterIds, retry, superClasses);
@@ -286,7 +295,7 @@ public class SchemaEmbedded extends SchemaShared {
     try {
 
       final String key = className.toLowerCase(Locale.ENGLISH);
-      if (classes.containsKey(key) && retry == 0) {
+      if (classesRefs.containsKey(key) && retry == 0) {
         throw new SchemaException("Class '" + className + "' already exists in current database");
       }
 
@@ -312,7 +321,7 @@ public class SchemaEmbedded extends SchemaShared {
 
       doRealCreateClass(database, className, superClassesList, clusterIds);
 
-      result = classes.get(className.toLowerCase(Locale.ENGLISH));
+      result = classesRefs.get(normalizeClassName(className)).getDelegate();
 
       // WAKE UP DB LIFECYCLE LISTENER
       for (Iterator<DatabaseLifecycleListener> it = YouTrackDBEnginesManager.instance()
@@ -417,7 +426,7 @@ public class SchemaEmbedded extends SchemaShared {
 
       final String key = className.toLowerCase(Locale.ENGLISH);
 
-      SchemaClass cls = classes.get(key);
+      SchemaClass cls = classesRefs.get(key).getDelegate();
 
       if (cls == null) {
         throw new SchemaException("Class '" + className + "' was not found in current database");
@@ -462,7 +471,7 @@ public class SchemaEmbedded extends SchemaShared {
 
       final String key = className.toLowerCase(Locale.ENGLISH);
 
-      final SchemaClass cls = classes.get(key);
+      final SchemaClass cls = classesRefs.get(key).getDelegate();
       if (cls == null) {
         throw new SchemaException("Class '" + className + "' was not found in current database");
       }
@@ -490,12 +499,12 @@ public class SchemaEmbedded extends SchemaShared {
 
       dropClassIndexes(database, cls);
 
-      classes.remove(key);
+      classesRefs.remove(key);
 
       if (cls.getShortName() != null)
       // REMOVE THE ALIAS TOO
       {
-        classes.remove(cls.getShortName().toLowerCase(Locale.ENGLISH));
+        classesRefs.remove(cls.getShortName().toLowerCase(Locale.ENGLISH));
       }
 
       removeClusterClassMap(cls);

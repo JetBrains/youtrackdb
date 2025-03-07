@@ -1028,7 +1028,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     for (int i = 0; i < 1; i++) {
       Assert.assertTrue(result.hasNext());
       Result item = result.next();
-      Assert.assertNotNull(item.getProperty("classes"));
+      Assert.assertNotNull(item.getProperty("classesRefs"));
     }
     Assert.assertFalse(result.hasNext());
     result.close();

@@ -534,10 +534,11 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
     //noinspection deprecation
     writer.writeAttribute(2, true, "version", schema.getVersion());
     writer.writeAttribute(2, false, "blob-clusters", database.getBlobClusterIds());
-    if (!schema.getClasses(database).isEmpty()) {
+    Collection<SchemaClass> schemaClasses = schema.getClasses(database);
+    if (!schemaClasses.isEmpty()) {
       writer.beginCollection(2, true, "classes");
 
-      final List<SchemaClass> classes = new ArrayList<>(schema.getClasses(database));
+      final List<SchemaClass> classes = new ArrayList<>(schemaClasses);
       Collections.sort(classes);
 
       for (SchemaClass cls : classes) {
@@ -579,8 +580,8 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
             if (p.isNotNull()) {
               writer.writeAttribute(0, false, "not-null", p.isNotNull());
             }
-            if (p.getLinkedClass() != null) {
-              writer.writeAttribute(0, false, "linked-class", p.getLinkedClass().getName());
+            if (p.getLinkedClass(database) != null) {
+              writer.writeAttribute(0, false, "linked-class", p.getLinkedClass(database).getName());
             }
             if (p.getLinkedType() != null) {
               writer.writeAttribute(0, false, "linked-type", p.getLinkedType().toString());
@@ -630,7 +631,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
 
     writer.endObject(1, true);
 
-    listener.onMessage("OK (" + schema.getClasses(database).size() + " classes)");
+    listener.onMessage("OK (" + schemaClasses.size() + " classes)");
   }
 
   private boolean exportRecord(

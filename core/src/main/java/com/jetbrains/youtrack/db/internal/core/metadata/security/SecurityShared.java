@@ -673,7 +673,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   public SecurityUserIml create(final DatabaseSessionInternal session) {
-    if (!session.getMetadata().getSchema().getClasses(session).isEmpty()) {
+    if (!session.getMetadata().getSchema().getClassesRefs(session).isEmpty()) {
       return null;
     }
 

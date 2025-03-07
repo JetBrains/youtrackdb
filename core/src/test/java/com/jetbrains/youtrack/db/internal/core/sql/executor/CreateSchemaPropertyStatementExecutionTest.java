@@ -74,7 +74,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
     assertEquals(nameProperty.getName(), PROP_DIVISION);
     assertEquals(nameProperty.getFullName(), "testCreatePropertyWithLinkedClass_2.division");
     assertEquals(nameProperty.getType(), PropertyType.LINK);
-    assertEquals(nameProperty.getLinkedClass().getName(), "testCreatePropertyWithLinkedClass_1");
+    assertEquals(nameProperty.getLinkedClass(db).getName(), "testCreatePropertyWithLinkedClass_1");
     assertFalse(nameProperty.isMandatory());
     assertFalse(nameProperty.isNotNull());
     assertFalse(nameProperty.isReadonly());
@@ -316,7 +316,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
     assertEquals(idProperty.getName(), PROP_ID);
     assertEquals(idProperty.getFullName(), "testMandatoryAsLinkedName.id");
     assertEquals(idProperty.getType(), PropertyType.EMBEDDEDLIST);
-    assertEquals(idProperty.getLinkedClass(), mandatoryClass);
+    assertEquals(idProperty.getLinkedClass(db), mandatoryClass);
     assertFalse(idProperty.isMandatory());
   }
 
