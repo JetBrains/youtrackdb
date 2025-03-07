@@ -1,12 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <youtrackdb-server>
   <handlers>
-    <handler class="com.jetbrains.youtrack.db.internal.server.handler.JMXPlugin">
-      <parameters>
-        <parameter value="true" name="enabled"/>
-        <parameter value="true" name="profilerManaged"/>
-      </parameters>
-    </handler>
     <handler class="com.jetbrains.youtrack.db.internal.server.handler.AutomaticBackup">
       <parameters>
         <parameter value="false" name="enabled"/>

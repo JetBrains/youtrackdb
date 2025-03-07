@@ -275,7 +275,7 @@ public class AutomaticBackup extends ServerPluginAbstract implements OServerPlug
       if (firstTime == null) {
         serverInstance.getDatabases().schedule(task, delay, delay);
       } else {
-        YouTrackDBEnginesManager.instance().scheduleTask(task, firstTime, delay);
+        YouTrackDBEnginesManager.instance().getScheduler().scheduleTask(task, firstTime, delay);
       }
     } else {
       LogManager.instance().info(this, "Automatic Backup plugin is disabled");

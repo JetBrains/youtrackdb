@@ -1,10 +1,8 @@
 package com.jetbrains.youtrack.db.internal.core.db;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.internal.common.listener.ListenerManger;
-import com.jetbrains.youtrack.db.internal.common.profiler.Profiler;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.internal.common.listener.ListenerManger;
 import com.jetbrains.youtrack.db.internal.core.index.IndexManagerAbstract;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.FunctionLibraryImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaShared;
@@ -27,8 +25,6 @@ import java.util.concurrent.Callable;
  *
  */
 public abstract class SharedContext extends ListenerManger<MetadataUpdateListener> {
-
-  protected static final Profiler PROFILER = YouTrackDBEnginesManager.instance().getProfiler();
 
   protected YouTrackDBInternal youtrackDB;
   protected StorageInfo storage;

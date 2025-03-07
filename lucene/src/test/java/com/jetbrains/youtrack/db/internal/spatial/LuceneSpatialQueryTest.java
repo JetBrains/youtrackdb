@@ -62,6 +62,7 @@ public class LuceneSpatialQueryTest extends BaseLuceneTest {
         ZipEntry entry = entries.nextElement();
 
         YouTrackDBEnginesManager.instance()
+            .getScheduler()
             .scheduleTask(
                 new Runnable() {
                   @Override

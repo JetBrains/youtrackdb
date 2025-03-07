@@ -7,11 +7,14 @@ import com.jetbrains.youtrack.db.internal.common.directmemory.DirectMemoryAlloca
 import com.jetbrains.youtrack.db.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrack.db.internal.common.directmemory.Pointer;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.common.profiler.metrics.CoreMetrics;
+import com.jetbrains.youtrack.db.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrack.db.internal.common.thread.ThreadPoolExecutors;
 import com.jetbrains.youtrack.db.internal.common.types.ModifiableLong;
 import com.jetbrains.youtrack.db.internal.common.util.RawPairLongObject;
+import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.exception.EncryptionKeyAbsentException;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidStorageEncryptionKeyException;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
@@ -138,6 +141,8 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
 
   private final Path walLocation;
   private final String storageName;
+
+  private final TimeRate diskWriteMeter;
 
   private final DirectMemoryAllocator allocator = DirectMemoryAllocator.instance();
 
@@ -267,6 +272,9 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
 
     pageSize = CASWALPage.DEFAULT_PAGE_SIZE;
     maxRecordSize = CASWALPage.DEFAULT_MAX_RECORD_SIZE;
+    this.diskWriteMeter = YouTrackDBEnginesManager.instance()
+        .getMetricsRegistry()
+        .databaseMetric(CoreMetrics.DISK_WRITE_RATE, storageName);
 
     LogManager.instance()
         .info(
@@ -2075,9 +2083,11 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
       assert buffer.limit() == limit;
       assert file.position() == expectedPosition - buffer.limit();
 
+      long totalWritten = 0;
       while (buffer.remaining() > 0) {
         final int initialPos = buffer.position();
         final int written = file.write(buffer);
+        totalWritten += written;
         assert buffer.position() == initialPos + written;
         assert file.position() == expectedPosition - buffer.limit() + initialPos + written
             : "File position "
@@ -2089,6 +2099,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
             + " written "
             + written;
       }
+      diskWriteMeter.record(totalWritten);
 
       assert file.position() == expectedPosition;
 

@@ -19,14 +19,13 @@
  */
 package com.jetbrains.youtrack.db.internal.enterprise.channel.binary;
 
+import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.exception.InvalidBinaryChunkException;
 import com.jetbrains.youtrack.db.internal.common.io.YTIOException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.serialization.BinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.SocketChannel;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -66,8 +65,6 @@ public abstract class SocketChannelBinary extends SocketChannel
   }
 
   public byte readByte() throws IOException {
-    updateMetricReceivedBytes(BinaryProtocol.SIZE_BYTE);
-
     if (debug) {
       LogManager.instance()
           .info(this, "%s - Reading byte (1 byte)...", socket.getRemoteSocketAddress());
@@ -81,8 +78,6 @@ public abstract class SocketChannelBinary extends SocketChannel
   }
 
   public boolean readBoolean() throws IOException {
-    updateMetricReceivedBytes(BinaryProtocol.SIZE_BYTE);
-
     if (debug) {
       LogManager.instance()
           .info(this, "%s - Reading boolean (1 byte)...", socket.getRemoteSocketAddress());
@@ -96,8 +91,6 @@ public abstract class SocketChannelBinary extends SocketChannel
   }
 
   public int readInt() throws IOException {
-    updateMetricReceivedBytes(BinaryProtocol.SIZE_INT);
-
     if (debug) {
       LogManager.instance()
           .info(this, "%s - Reading int (4 bytes)...", socket.getRemoteSocketAddress());
@@ -111,8 +104,6 @@ public abstract class SocketChannelBinary extends SocketChannel
   }
 
   public long readLong() throws IOException {
-    updateMetricReceivedBytes(BinaryProtocol.SIZE_LONG);
-
     if (debug) {
       LogManager.instance()
           .info(this, "%s - Reading long (8 bytes)...", socket.getRemoteSocketAddress());
@@ -126,8 +117,6 @@ public abstract class SocketChannelBinary extends SocketChannel
   }
 
   public short readShort() throws IOException {
-    updateMetricReceivedBytes(BinaryProtocol.SIZE_SHORT);
-
     if (debug) {
       LogManager.instance()
           .info(this, "%s - Reading short (2 bytes)...", socket.getRemoteSocketAddress());
@@ -165,8 +154,6 @@ public abstract class SocketChannelBinary extends SocketChannel
       final byte[] tmp = new byte[len];
       in.readFully(tmp);
 
-      updateMetricReceivedBytes(BinaryProtocol.SIZE_INT + len);
-
       final String value = new String(tmp, StandardCharsets.UTF_8);
       LogManager.instance()
           .info(this, "%s - Read string: %s", socket.getRemoteSocketAddress(), value);
@@ -180,8 +167,6 @@ public abstract class SocketChannelBinary extends SocketChannel
 
     final byte[] tmp = new byte[len];
     in.readFully(tmp);
-
-    updateMetricReceivedBytes(BinaryProtocol.SIZE_INT + len);
 
     return new String(tmp, StandardCharsets.UTF_8);
   }
@@ -204,7 +189,6 @@ public abstract class SocketChannelBinary extends SocketChannel
               + maxChunkSize
               + " see NETWORK_BINARY_MAX_CONTENT_LENGTH settings ");
     }
-    updateMetricReceivedBytes(BinaryProtocol.SIZE_INT + len);
 
     if (debug) {
       LogManager.instance()
@@ -254,7 +238,6 @@ public abstract class SocketChannelBinary extends SocketChannel
     }
 
     out.write(iContent);
-    updateMetricTransmittedBytes(BinaryProtocol.SIZE_BYTE);
     return this;
   }
 
@@ -266,7 +249,6 @@ public abstract class SocketChannelBinary extends SocketChannel
     }
 
     out.writeBoolean(iContent);
-    updateMetricTransmittedBytes(BinaryProtocol.SIZE_BYTE);
     return this;
   }
 
@@ -277,7 +259,6 @@ public abstract class SocketChannelBinary extends SocketChannel
     }
 
     out.writeInt(iContent);
-    updateMetricTransmittedBytes(BinaryProtocol.SIZE_INT);
     return this;
   }
 
@@ -288,7 +269,6 @@ public abstract class SocketChannelBinary extends SocketChannel
     }
 
     out.writeLong(iContent);
-    updateMetricTransmittedBytes(BinaryProtocol.SIZE_LONG);
     return this;
   }
 
@@ -300,7 +280,6 @@ public abstract class SocketChannelBinary extends SocketChannel
     }
 
     out.writeShort(iContent);
-    updateMetricTransmittedBytes(BinaryProtocol.SIZE_SHORT);
     return this;
   }
 
@@ -318,7 +297,6 @@ public abstract class SocketChannelBinary extends SocketChannel
 
     if (iContent == null) {
       out.writeInt(-1);
-      updateMetricTransmittedBytes(BinaryProtocol.SIZE_INT);
     } else {
       final byte[] buffer = iContent.getBytes(StandardCharsets.UTF_8);
       if (buffer.length > maxChunkSize) {
@@ -332,7 +310,6 @@ public abstract class SocketChannelBinary extends SocketChannel
 
       out.writeInt(buffer.length);
       out.write(buffer, 0, buffer.length);
-      updateMetricTransmittedBytes(BinaryProtocol.SIZE_INT + buffer.length);
     }
 
     return this;
@@ -357,7 +334,6 @@ public abstract class SocketChannelBinary extends SocketChannel
 
     if (iContent == null) {
       out.writeInt(-1);
-      updateMetricTransmittedBytes(BinaryProtocol.SIZE_INT);
     } else {
       if (iLength > maxChunkSize) {
         throw new InvalidBinaryChunkException(
@@ -370,7 +346,6 @@ public abstract class SocketChannelBinary extends SocketChannel
 
       out.writeInt(iLength);
       out.write(iContent, 0, iLength);
-      updateMetricTransmittedBytes(BinaryProtocol.SIZE_INT + iLength);
     }
     return this;
   }
@@ -399,7 +374,6 @@ public abstract class SocketChannelBinary extends SocketChannel
         dirtyBuffer.append(c);
       }
     }
-    updateMetricReceivedBytes(i);
 
     final String message =
         "Received unread response from "
@@ -424,8 +398,6 @@ public abstract class SocketChannelBinary extends SocketChannel
               "%s - Flush",
               socket != null ? " null possible previous close" : socket.getRemoteSocketAddress());
     }
-
-    updateMetricFlushes();
 
     if (out != null)
     // IT ALREADY CALL THE UNDERLYING FLUSH

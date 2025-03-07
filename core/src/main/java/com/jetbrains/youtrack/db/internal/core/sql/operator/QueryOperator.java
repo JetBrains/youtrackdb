@@ -19,16 +19,13 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.operator;
 
-import com.jetbrains.youtrack.db.internal.common.profiler.Profiler;
-import com.jetbrains.youtrack.db.internal.common.util.RawPair;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializer;
 import com.jetbrains.youtrack.db.internal.core.sql.IndexSearchResult;
@@ -255,38 +252,9 @@ public abstract class QueryOperator {
   protected void updateProfiler(
       final CommandContext iContext,
       final Index index,
-      final List<Object> keyParams,
-      final IndexDefinition indexDefinition) {
+      final List<Object> keyParams) {
     if (iContext.isRecordingMetrics()) {
       iContext.updateMetric("compositeIndexUsed", +1);
-    }
-
-    final Profiler profiler = YouTrackDBEnginesManager.instance().getProfiler();
-    if (profiler.isRecording()) {
-      profiler.updateCounter(
-          profiler.getDatabaseMetric(index.getDatabaseName(), "query.indexUsed"),
-          "Used index in query",
-          +1);
-
-      int params = indexDefinition.getParamCount();
-      if (params > 1) {
-        final String profiler_prefix =
-            profiler.getDatabaseMetric(index.getDatabaseName(), "query.compositeIndexUsed");
-
-        profiler.updateCounter(profiler_prefix, "Used composite index in query", +1);
-        profiler.updateCounter(
-            profiler_prefix + "." + params,
-            "Used composite index in query with " + params + " params",
-            +1);
-        profiler.updateCounter(
-            profiler_prefix + "." + params + '.' + keyParams.size(),
-            "Used composite index in query with "
-                + params
-                + " params and "
-                + keyParams.size()
-                + " keys",
-            +1);
-      }
     }
   }
 

@@ -24,10 +24,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
-import com.jetbrains.youtrack.db.internal.common.profiler.Profiler;
-import com.jetbrains.youtrack.db.internal.common.profiler.ProfilerStub;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexCursor;
@@ -391,8 +388,6 @@ public class ChainedIndexProxy<T> implements IndexInternal {
         newKeys = prepareKeys(session, nextIndex, keys);
       }
 
-      updateStatistic(currentIndex);
-
       currentKeys = newKeys;
     }
 
@@ -413,8 +408,6 @@ public class ChainedIndexProxy<T> implements IndexInternal {
         result = stream.map((pair) -> pair.second).collect(Collectors.toList());
       }
     }
-
-    updateStatistic(firstIndex);
 
     return result;
   }
@@ -447,35 +440,6 @@ public class ChainedIndexProxy<T> implements IndexInternal {
       return newKeys;
     } else {
       return Collections.singleton((Comparable) indexDefinition.createValue(session, keys));
-    }
-  }
-
-  /**
-   * Register statistic information about usage of index in {@link ProfilerStub}.
-   *
-   * @param index which usage is registering.
-   */
-  private static void updateStatistic(Index index) {
-
-    final Profiler profiler = YouTrackDBEnginesManager.instance().getProfiler();
-    if (profiler.isRecording()) {
-      YouTrackDBEnginesManager.instance()
-          .getProfiler()
-          .updateCounter(
-              profiler.getDatabaseMetric(index.getDatabaseName(), "query.indexUsed"),
-              "Used index in query",
-              +1);
-
-      final int paramCount = index.getDefinition().getParamCount();
-      if (paramCount > 1) {
-        final String profiler_prefix =
-            profiler.getDatabaseMetric(index.getDatabaseName(), "query.compositeIndexUsed");
-        profiler.updateCounter(profiler_prefix, "Used composite index in query", +1);
-        profiler.updateCounter(
-            profiler_prefix + "." + paramCount,
-            "Used composite index in query with " + paramCount + " params",
-            +1);
-      }
     }
   }
 

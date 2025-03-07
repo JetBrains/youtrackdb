@@ -19,8 +19,6 @@
  */
 package com.jetbrains.youtrack.db.internal.core.metadata;
 
-import com.jetbrains.youtrack.db.internal.common.profiler.Profiler;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SharedContext;
 import com.jetbrains.youtrack.db.internal.core.index.IndexManager;
@@ -53,8 +51,6 @@ public class MetadataDefault implements MetadataInternal {
   protected FunctionLibraryProxy functionLibrary;
   protected SchedulerProxy scheduler;
   protected SequenceLibraryProxy sequenceLibrary;
-
-  protected static final Profiler PROFILER = YouTrackDBEnginesManager.instance().getProfiler();
 
   private ImmutableSchema immutableSchema = null;
   private int immutableCount = 0;

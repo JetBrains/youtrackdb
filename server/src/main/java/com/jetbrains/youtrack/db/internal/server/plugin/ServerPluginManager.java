@@ -102,6 +102,7 @@ public class ServerPluginManager implements Service {
     if (hotReload) {
       autoReloadTimerTask =
           YouTrackDBEnginesManager.instance()
+              .getScheduler()
               .scheduleTask(this::updatePlugins, CHECK_DELAY, CHECK_DELAY);
     }
   }

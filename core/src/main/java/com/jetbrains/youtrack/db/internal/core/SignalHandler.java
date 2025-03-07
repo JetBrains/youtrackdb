@@ -22,6 +22,7 @@ package com.jetbrains.youtrack.db.internal.core;
 
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.internal.common.profiler.Profiler;
 import java.util.ArrayList;
 import java.util.Hashtable;
 import java.util.List;
@@ -74,9 +75,9 @@ public class SignalHandler implements sun.misc.SignalHandler {
       System.out.println();
       GlobalConfiguration.dumpConfiguration(System.out);
       System.out.println();
-      YouTrackDBEnginesManager.instance().getProfiler().dump(System.out);
+      System.out.println(Profiler.dumpEnvironment());
       System.out.println();
-      System.out.println(YouTrackDBEnginesManager.instance().getProfiler().threadDump());
+      System.out.println(Profiler.threadDump());
     } else {
       sun.misc.SignalHandler redefinedHandler = redefinedHandlers.get(signal);
       if (redefinedHandler != null) {

@@ -135,7 +135,7 @@ public class QueryOperatorMinor extends QueryOperatorEqualityNotNulls {
           .streamEntriesBetween(iContext.getDatabase(), keyOne, true, keyTwo, false, ascSortOrder);
     }
 
-    updateProfiler(iContext, index, keyParams, indexDefinition);
+    updateProfiler(iContext, index, keyParams);
     return stream;
   }
 

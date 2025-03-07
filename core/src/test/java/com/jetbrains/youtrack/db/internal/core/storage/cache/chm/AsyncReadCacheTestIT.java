@@ -4,10 +4,12 @@ import com.jetbrains.youtrack.db.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrack.db.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrack.db.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrack.db.internal.common.directmemory.Pointer;
+import com.jetbrains.youtrack.db.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrack.db.internal.common.types.ModifiableBoolean;
+import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrack.db.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.PageDataVerificationError;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.BackgroundExceptionListener;
@@ -39,7 +41,7 @@ public class AsyncReadCacheTestIT {
     final ByteBufferPool byteBufferPool = new ByteBufferPool(pageSize, allocator, 256);
     final long maxMemory = 1024 * 1024 * 1024;
 
-    final AsyncReadCache readCache = new AsyncReadCache(byteBufferPool, maxMemory, pageSize, true);
+    final AsyncReadCache readCache = new AsyncReadCache(byteBufferPool, maxMemory, pageSize);
     final WriteCache writeCache = new MockedWriteCache(byteBufferPool);
 
     final ExecutorService executor = Executors.newCachedThreadPool();
@@ -96,7 +98,6 @@ public class AsyncReadCacheTestIT {
             + " megabytes, "
             + ((long) pageCount * pageSize) / 1024 / 1024
             + " megabytes were accessed.");
-    System.out.println("Hit rate " + readCache.hitRate());
 
     timer.cancel();
 
@@ -115,7 +116,7 @@ public class AsyncReadCacheTestIT {
     final ByteBufferPool byteBufferPool = new ByteBufferPool(pageSize, allocator, 2048);
     final long maxMemory = 1024 * 1024 * 1024;
 
-    final AsyncReadCache readCache = new AsyncReadCache(byteBufferPool, maxMemory, pageSize, true);
+    final AsyncReadCache readCache = new AsyncReadCache(byteBufferPool, maxMemory, pageSize);
     final WriteCache writeCache = new MockedWriteCache(byteBufferPool);
 
     final ExecutorService executor = Executors.newCachedThreadPool();
@@ -173,7 +174,6 @@ public class AsyncReadCacheTestIT {
             + " megabytes, "
             + ((long) pageCount) * pageSize / 1024 / 1024
             + " megabytes were accessed.");
-    System.out.println("Hit rate " + readCache.hitRate());
     final long total = end - start;
     final long nsPerPage = total / pageCount;
     final long opPerSec = 1_000_000_000 / nsPerPage;

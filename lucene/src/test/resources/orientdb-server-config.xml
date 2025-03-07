@@ -18,12 +18,6 @@
 
 <youtrackdb-server>
   <handlers>
-    <handler class="com.jetbrains.youtrack.db.internal.server.handler.JMXPlugin">
-      <parameters>
-        <parameter value="true" name="enabled"/>
-        <parameter value="true" name="profilerManaged"/>
-      </parameters>
-    </handler>
     <!--<handler class="com.orientechnologies.lucene.OLuceneSpatialIndexPlugin">-->
 
     <!--</handler>-->

@@ -19,14 +19,12 @@
  */
 package com.jetbrains.youtrack.db.internal.core.cache;
 
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.core.record.RecordVersionHelper;
+import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
+import com.jetbrains.youtrack.db.internal.core.record.RecordVersionHelper;
 
 /**
  * Local cache. it's one to one with record database instances. It is needed to avoid cases when
@@ -34,27 +32,11 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
  */
 public class LocalRecordCache extends AbstractRecordCache {
 
-  private String cacheHit;
-  private String cacheMiss;
-
   public LocalRecordCache() {
     super(
         YouTrackDBEnginesManager.instance()
             .getLocalRecordCache()
             .newInstance(GlobalConfiguration.CACHE_LOCAL_IMPL.getValueAsString()));
-  }
-
-  @Override
-  public void startup() {
-    DatabaseSessionInternal db = DatabaseRecordThreadLocal.instance().get();
-
-    profilerPrefix = "db." + db.getName() + ".cache.level1.";
-    profilerMetadataPrefix = "db.*.cache.level1.";
-
-    cacheHit = profilerPrefix + "cache.found";
-    cacheMiss = profilerPrefix + "cache.notFound";
-
-    super.startup();
   }
 
   /**
@@ -91,25 +73,7 @@ public class LocalRecordCache extends AbstractRecordCache {
    * @return record stored in cache if any, otherwise - {@code null}
    */
   public RecordAbstract findRecord(final RID rid) {
-    RecordAbstract record;
-    record = underlying.get(rid);
-
-    if (record != null) {
-      YouTrackDBEnginesManager.instance()
-          .getProfiler()
-          .updateCounter(
-              cacheHit, "Record found in Level1 Cache", 1L, "db.*.cache.level1.cache.found");
-    } else {
-      YouTrackDBEnginesManager.instance()
-          .getProfiler()
-          .updateCounter(
-              cacheMiss,
-              "Record not found in Level1 Cache",
-              1L,
-              "db.*.cache.level1.cache.notFound");
-    }
-
-    return record;
+    return underlying.get(rid);
   }
 
   /**

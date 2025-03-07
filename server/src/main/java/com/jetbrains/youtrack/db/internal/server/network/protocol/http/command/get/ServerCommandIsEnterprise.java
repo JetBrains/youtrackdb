@@ -58,16 +58,11 @@ public class ServerCommandIsEnterprise extends ServerCommandAuthenticatedServerA
 
     if ("isEE".equalsIgnoreCase(parts[0])) {
 
-      EntityImpl context = YouTrackDBEnginesManager.instance().getProfiler().getContext();
-
-      if (context.getProperty("enterprise") == null) {
-        context.setProperty("enterprise", false);
-      }
       iResponse.send(
           HttpUtils.STATUS_OK_CODE,
           "OK",
           HttpUtils.CONTENT_JSON,
-          context.toJSON("prettyPrint"),
+          "{\"enterprise\": true}",
           null);
 
     } else {

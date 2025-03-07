@@ -143,6 +143,7 @@ public class DirectMemoryAllocator implements DirectMemoryAllocatorMXBean {
     if (PROFILE_MEMORY) {
       final long printInterval = (long) MEMORY_STATISTICS_PRINTING_INTERVAL * 60 * 1_000;
       YouTrackDBEnginesManager.instance()
+          .getScheduler()
           .scheduleTask(new MemoryStatPrinter(consumptionMaps), printInterval, printInterval);
     }
   }

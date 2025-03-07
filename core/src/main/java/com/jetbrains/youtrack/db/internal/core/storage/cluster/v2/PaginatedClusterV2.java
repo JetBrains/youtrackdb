@@ -18,6 +18,7 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.ByteSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
@@ -32,6 +33,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.MetadataInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrack.db.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
+import com.jetbrains.youtrack.db.internal.core.storage.StorageCluster;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrack.db.internal.core.storage.cluster.ClusterPage;
 import com.jetbrains.youtrack.db.internal.core.storage.cluster.ClusterPositionMap;
@@ -76,6 +78,8 @@ public final class PaginatedClusterV2 extends PaginatedCluster {
   private final FreeSpaceMap freeSpaceMap;
   private final String storageName;
 
+  private StorageCluster.Meters meters = Meters.NOOP;
+
   private volatile int id;
   private long fileId;
   private RecordConflictStrategy recordConflictStrategy;
@@ -102,6 +106,7 @@ public final class PaginatedClusterV2 extends PaginatedCluster {
     clusterPositionMap = new ClusterPositionMapV2(storage, getName(), getFullName(), cpmExtension);
     freeSpaceMap = new FreeSpaceMap(storage, name, fsmExtension, getFullName());
     storageName = storage.getName();
+
   }
 
   @Override
@@ -1256,6 +1261,14 @@ public final class PaginatedClusterV2 extends PaginatedCluster {
               .getStrategy(conflictStrategy);
     }
 
+    final var metrics = YouTrackDBEnginesManager.instance().getMetricsRegistry();
+    this.meters = new Meters(
+        metrics.classMetric(CoreMetrics.RECORD_CREATE_RATE, storageName, name),
+        metrics.classMetric(CoreMetrics.RECORD_READ_RATE, storageName, name),
+        metrics.classMetric(CoreMetrics.RECORD_UPDATE_RATE, storageName, name),
+        metrics.classMetric(CoreMetrics.RECORD_DELETE_RATE, storageName, name),
+        metrics.classMetric(CoreMetrics.RECORD_CONFLICT_RATE, storageName, name)
+    );
     this.id = id;
   }
 
@@ -1430,5 +1443,10 @@ public final class PaginatedClusterV2 extends PaginatedCluster {
     } finally {
       atomicOperationsManager.releaseReadLock(this);
     }
+  }
+
+  @Override
+  public Meters meters() {
+    return meters;
   }
 }

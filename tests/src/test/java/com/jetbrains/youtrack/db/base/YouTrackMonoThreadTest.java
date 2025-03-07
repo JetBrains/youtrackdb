@@ -32,6 +32,6 @@ public abstract class YouTrackMonoThreadTest extends SpeedTestMonoThread {
 
   @Override
   public void deinit() {
-    System.out.println(YouTrackDBEnginesManager.instance().getProfiler().dump());
+//    System.out.println(YouTrackDBEnginesManager.instance().getProfiler().dump());
   }
 }

@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.storage;
 
+import com.jetbrains.youtrack.db.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrack.db.internal.core.config.StorageClusterConfiguration;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.ClusterBrowsePage;
@@ -153,4 +154,25 @@ public interface StorageCluster {
   ClusterBrowsePage nextPage(long lastPosition) throws IOException;
 
   int getBinaryVersion();
+
+  default Meters meters() {
+    return Meters.NOOP;
+  }
+
+  record Meters(
+      TimeRate create,
+      TimeRate read,
+      TimeRate update,
+      TimeRate delete,
+      TimeRate conflict
+  ) {
+
+    public static final Meters NOOP = new Meters(
+        TimeRate.NOOP,
+        TimeRate.NOOP,
+        TimeRate.NOOP,
+        TimeRate.NOOP,
+        TimeRate.NOOP
+    );
+  }
 }

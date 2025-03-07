@@ -137,7 +137,7 @@ public class QueryOperatorMajor extends QueryOperatorEqualityNotNulls {
           .streamEntriesBetween(iContext.getDatabase(), keyOne, false, keyTwo, true, ascSortOrder);
     }
 
-    updateProfiler(iContext, index, keyParams, indexDefinition);
+    updateProfiler(iContext, index, keyParams);
     return stream;
   }
 

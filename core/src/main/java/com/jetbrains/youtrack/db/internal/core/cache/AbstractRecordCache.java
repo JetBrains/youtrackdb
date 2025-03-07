@@ -20,9 +20,6 @@
 package com.jetbrains.youtrack.db.internal.core.cache;
 
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.common.profiler.AbstractProfiler.ProfilerHookValue;
-import com.jetbrains.youtrack.db.internal.common.profiler.Profiler.METRIC_TYPE;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -33,8 +30,6 @@ import java.util.Set;
 public abstract class AbstractRecordCache {
 
   protected RecordCache underlying;
-  protected String profilerPrefix = "noname";
-  protected String profilerMetadataPrefix = "noname";
   protected int excludedCluster = -1;
 
   /**
@@ -129,19 +124,6 @@ public abstract class AbstractRecordCache {
    */
   public void startup() {
     underlying.startup();
-
-    YouTrackDBEnginesManager.instance()
-        .getProfiler()
-        .registerHookValue(
-            profilerPrefix + "current",
-            "Number of entries in cache",
-            METRIC_TYPE.SIZE,
-            new ProfilerHookValue() {
-              public Object getValue() {
-                return getSize();
-              }
-            },
-            profilerMetadataPrefix + "current");
   }
 
   /**
@@ -149,13 +131,5 @@ public abstract class AbstractRecordCache {
    */
   public void shutdown() {
     underlying.shutdown();
-
-    if (YouTrackDBEnginesManager.instance().getProfiler() != null) {
-      YouTrackDBEnginesManager.instance().getProfiler()
-          .unregisterHookValue(profilerPrefix + "enabled");
-      YouTrackDBEnginesManager.instance().getProfiler()
-          .unregisterHookValue(profilerPrefix + "current");
-      YouTrackDBEnginesManager.instance().getProfiler().unregisterHookValue(profilerPrefix + "max");
-    }
   }
 }

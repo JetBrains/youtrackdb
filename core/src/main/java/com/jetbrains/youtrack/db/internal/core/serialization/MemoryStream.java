@@ -19,10 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.serialization;
 
-import com.jetbrains.youtrack.db.internal.common.profiler.AbstractProfiler.ProfilerHookValue;
-import com.jetbrains.youtrack.db.internal.common.profiler.Profiler.METRIC_TYPE;
 import com.jetbrains.youtrack.db.internal.common.util.ArrayUtils;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.Charset;
@@ -43,20 +40,6 @@ public class MemoryStream extends OutputStream {
 
   private static final int NATIVE_COPY_THRESHOLD = 9;
   private static long metricResize = 0;
-
-  static {
-    YouTrackDBEnginesManager.instance()
-        .getProfiler()
-        .registerHookValue(
-            "system.memory.stream.resize",
-            "Number of resizes of memory stream buffer",
-            METRIC_TYPE.COUNTER,
-            new ProfilerHookValue() {
-              public Object getValue() {
-                return metricResize;
-              }
-            });
-  }
 
   public MemoryStream() {
     this(DEF_SIZE);

@@ -21,8 +21,6 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.internal.common.profiler.Profiler;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.util.List;
@@ -110,7 +108,7 @@ public class PolymorphicQueryTest extends BaseDBTest {
   public void testSubclassesIndexes() throws Exception {
     database.begin();
 
-    Profiler profiler = YouTrackDBEnginesManager.instance().getProfiler();
+    ProfilerStub profiler = ProfilerStub.INSTANCE;
 
     long indexUsage = profiler.getCounter("db.demo.query.indexUsed");
     long indexUsageReverted = profiler.getCounter("db.demo.query.indexUseAttemptedAndReverted");
@@ -123,7 +121,6 @@ public class PolymorphicQueryTest extends BaseDBTest {
       indexUsageReverted = 0;
     }
 
-    profiler.startRecording();
     for (int i = 0; i < 10000; i++) {
 
       final EntityImpl doc1 = new EntityImpl("IndexInSubclassesTestChild1");
@@ -171,14 +168,13 @@ public class PolymorphicQueryTest extends BaseDBTest {
       Assert.assertTrue(lastName.compareTo(currentName) >= 0);
       lastName = currentName;
     }
-    profiler.stopRecording();
   }
 
   @Test
   public void testBaseWithoutIndexAndSubclassesIndexes() throws Exception {
     database.begin();
 
-    Profiler profiler = YouTrackDBEnginesManager.instance().getProfiler();
+    ProfilerStub profiler = ProfilerStub.INSTANCE;
 
     long indexUsage = profiler.getCounter("db.demo.query.indexUsed");
     long indexUsageReverted = profiler.getCounter("db.demo.query.indexUseAttemptedAndReverted");
@@ -191,7 +187,6 @@ public class PolymorphicQueryTest extends BaseDBTest {
       indexUsageReverted = 0;
     }
 
-    profiler.startRecording();
     for (int i = 0; i < 10000; i++) {
       final EntityImpl doc0 = new EntityImpl("IndexInSubclassesTestBase");
       doc0.field("name", "name" + i);
@@ -242,15 +237,13 @@ public class PolymorphicQueryTest extends BaseDBTest {
       Assert.assertTrue(lastName.compareTo(currentName) >= 0);
       lastName = currentName;
     }
-    profiler.stopRecording();
   }
 
   @Test
   public void testSubclassesIndexesFailed() throws Exception {
     database.begin();
 
-    Profiler profiler = YouTrackDBEnginesManager.instance().getProfiler();
-    profiler.startRecording();
+    ProfilerStub profiler = ProfilerStub.INSTANCE;
 
     for (int i = 0; i < 10000; i++) {
 
@@ -295,8 +288,6 @@ public class PolymorphicQueryTest extends BaseDBTest {
     }
 
     Assert.assertEquals(lastIndexUsage - indexUsage, lastIndexUsageReverted - indexUsageReverted);
-
-    profiler.stopRecording();
   }
 
   @Test

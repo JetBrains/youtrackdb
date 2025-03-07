@@ -19,14 +19,10 @@
  */
 package com.jetbrains.youtrack.db.internal.enterprise.channel;
 
+import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.AdaptiveLock;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.common.profiler.AbstractProfiler.ProfilerHookValue;
-import com.jetbrains.youtrack.db.internal.common.profiler.Profiler;
-import com.jetbrains.youtrack.db.internal.common.profiler.Profiler.METRIC_TYPE;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -37,14 +33,9 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.util.Enumeration;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 
 public abstract class SocketChannel {
 
-  private static final Profiler PROFILER = YouTrackDBEnginesManager.instance().getProfiler();
-  private static final AtomicLong metricGlobalTransmittedBytes = new AtomicLong();
-  private static final AtomicLong metricGlobalReceivedBytes = new AtomicLong();
-  private static final AtomicLong metricGlobalFlushes = new AtomicLong();
   private final AdaptiveLock lockRead = new AdaptiveLock();
   private final AdaptiveLock lockWrite = new AdaptiveLock();
   public volatile Socket socket;
@@ -52,42 +43,6 @@ public abstract class SocketChannel {
   public OutputStream outStream;
   public int socketBufferSize;
   protected long timeout;
-  private long metricTransmittedBytes = 0;
-  private long metricReceivedBytes = 0;
-  private long metricFlushes = 0;
-  private String profilerMetric;
-
-  static {
-    final String profilerMetric = PROFILER.getProcessMetric("network.channel.binary");
-
-    PROFILER.registerHookValue(
-        profilerMetric + ".transmittedBytes",
-        "Bytes transmitted to all the network channels",
-        METRIC_TYPE.SIZE,
-        new ProfilerHookValue() {
-          public Object getValue() {
-            return metricGlobalTransmittedBytes.get();
-          }
-        });
-    PROFILER.registerHookValue(
-        profilerMetric + ".receivedBytes",
-        "Bytes received from all the network channels",
-        METRIC_TYPE.SIZE,
-        new ProfilerHookValue() {
-          public Object getValue() {
-            return metricGlobalReceivedBytes.get();
-          }
-        });
-    PROFILER.registerHookValue(
-        profilerMetric + ".flushes",
-        "Number of times the network channels have been flushed",
-        METRIC_TYPE.COUNTER,
-        new ProfilerHookValue() {
-          public Object getValue() {
-            return metricGlobalFlushes.get();
-          }
-        });
-  }
 
   public SocketChannel(final Socket iSocket, final ContextConfiguration iConfig)
       throws IOException {
@@ -159,9 +114,6 @@ public abstract class SocketChannel {
   }
 
   public synchronized void close() {
-    PROFILER.unregisterHookValue(profilerMetric + ".transmittedBytes");
-    PROFILER.unregisterHookValue(profilerMetric + ".receivedBytes");
-    PROFILER.unregisterHookValue(profilerMetric + ".flushes");
 
     try {
       if (socket != null) {
@@ -195,65 +147,10 @@ public abstract class SocketChannel {
   }
 
   public void connected() {
-    final String dictProfilerMetric = PROFILER.getProcessMetric("network.channel.binary.*");
-
-    profilerMetric =
-        PROFILER.getProcessMetric(
-            "network.channel.binary."
-                + socket.getRemoteSocketAddress().toString()
-                + ":"
-                + socket.getLocalPort()
-                + "".replace('.', '_'));
-
-    PROFILER.registerHookValue(
-        profilerMetric + ".transmittedBytes",
-        "Bytes transmitted to a network channel",
-        METRIC_TYPE.SIZE,
-        new ProfilerHookValue() {
-          public Object getValue() {
-            return metricTransmittedBytes;
-          }
-        },
-        dictProfilerMetric + ".transmittedBytes");
-    PROFILER.registerHookValue(
-        profilerMetric + ".receivedBytes",
-        "Bytes received from a network channel",
-        METRIC_TYPE.SIZE,
-        new ProfilerHookValue() {
-          public Object getValue() {
-            return metricReceivedBytes;
-          }
-        },
-        dictProfilerMetric + ".receivedBytes");
-    PROFILER.registerHookValue(
-        profilerMetric + ".flushes",
-        "Number of times the network channel has been flushed",
-        METRIC_TYPE.COUNTER,
-        new ProfilerHookValue() {
-          public Object getValue() {
-            return metricFlushes;
-          }
-        },
-        dictProfilerMetric + ".flushes");
   }
 
   @Override
   public String toString() {
     return socket != null ? socket.getRemoteSocketAddress().toString() : "Not connected";
-  }
-
-  protected void updateMetricTransmittedBytes(final int iDelta) {
-    metricGlobalTransmittedBytes.addAndGet(iDelta);
-    metricTransmittedBytes += iDelta;
-  }
-
-  protected void updateMetricReceivedBytes(final int iDelta) {
-    metricGlobalReceivedBytes.addAndGet(iDelta);
-    metricReceivedBytes += iDelta;
-  }
-
-  protected void updateMetricFlushes() {
-    metricGlobalFlushes.incrementAndGet();
-    metricFlushes++;
   }
 }

@@ -19,17 +19,16 @@
  */
 package com.jetbrains.youtrack.db.internal.core;
 
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrack.db.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrack.db.internal.common.listener.ListenerManger;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.common.profiler.AbstractProfiler;
 import com.jetbrains.youtrack.db.internal.common.profiler.Profiler;
-import com.jetbrains.youtrack.db.internal.common.profiler.ProfilerStub;
+import com.jetbrains.youtrack.db.internal.common.profiler.metrics.MetricsRegistry;
 import com.jetbrains.youtrack.db.internal.common.util.ClassLoaderHelper;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCacheFactory;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCacheFactoryImpl;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategyFactory;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseThreadLocalFactory;
@@ -45,7 +44,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.Date;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -55,8 +53,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
-import java.util.Timer;
-import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.Lock;
@@ -65,6 +61,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener> {
+
   public static final String YOUTRACKDB_HOME = "YOUTRACKDB_HOME";
   public static final String URL_SYNTAX =
       "<engine>:<db-type>:<db-name>[?<db-param>=<db-value>[&]]*";
@@ -96,6 +93,9 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       Collections.newSetFromMap(
           new ConcurrentHashMap<WeakHashSetValueHolder<YouTrackDBShutdownListener>, Boolean>());
 
+  private final YouTrackDBScheduler scheduler = new YouTrackDBScheduler();
+  private volatile Profiler profiler;
+
   private final PriorityQueue<ShutdownHandler> shutdownHandlers =
       new PriorityQueue<ShutdownHandler>(
           11,
@@ -123,10 +123,8 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
 
   private final String os;
 
-  private volatile Timer timer;
   private volatile RecordFactoryManager recordFactoryManager = new RecordFactoryManager();
   private YouTrackDBShutdownHook shutdownHook;
-  private volatile AbstractProfiler profiler;
   private DatabaseThreadLocalFactory databaseThreadFactory;
   private volatile boolean active = false;
   private SignalHandler signalHandler;
@@ -258,11 +256,10 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
         return this;
       }
 
-      if (timer == null) {
-        timer = new Timer(true);
-      }
+      profiler = new Profiler(scheduler);
 
-      profiler = new ProfilerStub(false);
+      registerWeakYouTrackDBStartupListener(profiler);
+      registerWeakYouTrackDBShutdownListener(profiler);
 
       shutdownHook = new YouTrackDBShutdownHook();
       if (signalHandler == null) {
@@ -277,6 +274,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       }
 
       active = true;
+      scheduler.activate();
 
       for (YouTrackDBStartupListener l : startupListeners) {
         try {
@@ -304,7 +302,6 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       }
 
       initShutdownQueue();
-      registerWeakYouTrackDBStartupListener(profiler);
     } finally {
       engineLock.writeLock().unlock();
     }
@@ -332,7 +329,6 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
   private void initShutdownQueue() {
     addShutdownHandler(new ShutdownYouTrackDBInstancesHandler());
     addShutdownHandler(new ShutdownPendingThreadsHandler());
-    addShutdownHandler(new ShutdownProfilerHandler());
     addShutdownHandler(new ShutdownCallListenersHandler());
   }
 
@@ -383,6 +379,8 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       }
 
       shutdownHandlers.clear();
+      weakShutdownListeners.clear();
+      weakStartupListeners.clear();
 
       LogManager.instance().info(this, "Clearing byte buffer pool");
       ByteBufferPool.instance(null).clear();
@@ -405,90 +403,6 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     }
 
     return this;
-  }
-
-  public TimerTask scheduleTask(final Runnable task, final long delay, final long period) {
-    engineLock.readLock().lock();
-    try {
-      final TimerTask timerTask =
-          new TimerTask() {
-            @Override
-            public void run() {
-              try {
-                task.run();
-              } catch (Exception e) {
-                LogManager.instance()
-                    .error(
-                        this,
-                        "Error during execution of task " + task.getClass().getSimpleName(),
-                        e);
-              } catch (Error e) {
-                LogManager.instance()
-                    .error(
-                        this,
-                        "Error during execution of task " + task.getClass().getSimpleName(),
-                        e);
-                throw e;
-              }
-            }
-          };
-
-      if (active) {
-        if (period > 0) {
-          timer.schedule(timerTask, delay, period);
-        } else {
-          timer.schedule(timerTask, delay);
-        }
-      } else {
-        LogManager.instance().warn(this, "YouTrackDB engine is down. Task will not be scheduled.");
-      }
-
-      return timerTask;
-    } finally {
-      engineLock.readLock().unlock();
-    }
-  }
-
-  public TimerTask scheduleTask(final Runnable task, final Date firstTime, final long period) {
-    engineLock.readLock().lock();
-    try {
-      final TimerTask timerTask =
-          new TimerTask() {
-            @Override
-            public void run() {
-              try {
-                task.run();
-              } catch (Exception e) {
-                LogManager.instance()
-                    .error(
-                        this,
-                        "Error during execution of task " + task.getClass().getSimpleName(),
-                        e);
-              } catch (Error e) {
-                LogManager.instance()
-                    .error(
-                        this,
-                        "Error during execution of task " + task.getClass().getSimpleName(),
-                        e);
-                throw e;
-              }
-            }
-          };
-
-      if (active) {
-        if (period > 0) {
-          timer.schedule(timerTask, firstTime, period);
-        } else {
-          timer.schedule(timerTask, firstTime);
-        }
-      } else {
-        LogManager.instance().warn(this, "YouTrackDB engine is down. Task will not be scheduled.");
-      }
-
-      return timerTask;
-    } finally {
-      engineLock.readLock().unlock();
-    }
   }
 
   public boolean isActive() {
@@ -653,12 +567,12 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     recordFactoryManager = iRecordFactoryManager;
   }
 
-  public Profiler getProfiler() {
-    return profiler;
+  public YouTrackDBScheduler getScheduler() {
+    return scheduler;
   }
 
-  public void setProfiler(final AbstractProfiler iProfiler) {
-    profiler = iProfiler;
+  public MetricsRegistry getMetricsRegistry() {
+    return profiler.getMetricsRegistry();
   }
 
   public void registerThreadDatabaseFactory(final DatabaseThreadLocalFactory iDatabaseFactory) {
@@ -802,8 +716,8 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
   }
 
   /**
-   * Interrupts all threads in YouTrackDB thread group and stops timer is used in methods
-   * {@link #scheduleTask(Runnable, Date, long)} and {@link #scheduleTask(Runnable, long, long)}.
+   * Interrupts all threads in YouTrackDB thread group and stops all tasks that are being run on the
+   * YouTrackDB scheduler.
    */
   private class ShutdownPendingThreadsHandler implements ShutdownHandler {
 
@@ -820,10 +734,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
         threadGroup.interrupt();
       }
 
-      if (timer != null) {
-        timer.cancel();
-        timer = null;
-      }
+      scheduler.shutdown();
     }
 
     @Override
@@ -831,28 +742,6 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       // it is strange but windows defender block compilation if we get class name programmatically
       // using Class instance
       return "ShutdownPendingThreadsHandler";
-    }
-  }
-
-  /**
-   * Shutdown YouTrackDB profiler.
-   */
-  private class ShutdownProfilerHandler implements ShutdownHandler {
-
-    @Override
-    public int getPriority() {
-      return SHUTDOWN_PROFILER_PRIORITY;
-    }
-
-    @Override
-    public void shutdown() throws Exception {
-      // NOTE: DON'T REMOVE PROFILER TO AVOID NPE AROUND THE CODE IF ANY THREADS IS STILL WORKING
-      profiler.shutdown();
-    }
-
-    @Override
-    public String toString() {
-      return getClass().getSimpleName();
     }
   }
 

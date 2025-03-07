@@ -6,8 +6,11 @@ import com.jetbrains.youtrack.db.internal.common.directmemory.DirectMemoryAlloca
 import com.jetbrains.youtrack.db.internal.common.directmemory.Pointer;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.common.profiler.metrics.CoreMetrics;
+import com.jetbrains.youtrack.db.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrack.db.internal.common.util.RawPairIntegerInteger;
 import com.jetbrains.youtrack.db.internal.common.util.RawPairLongLong;
+import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
@@ -73,6 +76,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
 
   private Path storagePath;
   private String storageName;
+  private TimeRate diskWriteMeter = TimeRate.NOOP;
 
   private int pageSize;
 
@@ -121,6 +125,9 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
       this.pageSize = pageSize;
       this.storagePath = storagePath;
       this.storageName = storageName;
+      this.diskWriteMeter = YouTrackDBEnginesManager.instance()
+          .getMetricsRegistry()
+          .databaseMetric(CoreMetrics.DISK_WRITE_RATE, storageName);
 
       this.tailSegments = new LongArrayList();
       this.pageMap = new HashMap<>();
@@ -287,6 +294,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
         assert currentFile.size() == segmentPosition;
         var written = IOUtils.writeByteBuffer(containerBuffer, currentFile, segmentPosition);
         currentFile.force(true);
+        diskWriteMeter.record(written);
         segmentPosition += written;
         assert currentFile.size() == segmentPosition;
       } finally {

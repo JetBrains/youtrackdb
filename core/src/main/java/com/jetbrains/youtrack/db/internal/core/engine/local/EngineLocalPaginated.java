@@ -113,7 +113,7 @@ public class EngineLocalPaginated extends EngineAbstract {
       pages.clear();
     }
 
-    readCache = new AsyncReadCache(ByteBufferPool.instance(null), diskCacheSize, pageSize, false);
+    readCache = new AsyncReadCache(ByteBufferPool.instance(null), diskCacheSize, pageSize);
   }
 
   private static long calculateReadCacheMaxMemory(final long cacheSize) {

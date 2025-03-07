@@ -9,8 +9,6 @@ import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.common.profiler.Profiler;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.schema.Schema;
@@ -30,7 +28,6 @@ public class MatchStatementExecutionTest extends DbTestBase {
 
   public void beforeTest() throws Exception {
     super.beforeTest();
-    getProfilerInstance().startRecording();
 
     db.command("CREATE class Person extends V").close();
     db.command("CREATE class Friend extends E").close();
@@ -1902,9 +1899,5 @@ public class MatchStatementExecutionTest extends DbTestBase {
 
   private List<Identifiable> collectIdentifiable(ResultSet set) {
     return set.stream().map((r) -> (EntityImpl) r.toEntity()).collect(Collectors.toList());
-  }
-
-  private Profiler getProfilerInstance() {
-    return YouTrackDBEnginesManager.instance().getProfiler();
   }
 }

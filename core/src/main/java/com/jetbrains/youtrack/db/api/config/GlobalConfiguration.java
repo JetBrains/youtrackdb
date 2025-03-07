@@ -21,12 +21,9 @@ package com.jetbrains.youtrack.db.api.config;
 
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.common.profiler.Profiler;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.config.ConfigurationChangeCallback;
 import com.jetbrains.youtrack.db.internal.core.storage.ChecksumMode;
-
 import java.io.PrintStream;
 import java.util.Locale;
 import java.util.Map;
@@ -992,49 +989,22 @@ public enum GlobalConfiguration {
       Boolean.class,
       true),
 
-  // PROFILER
-
-  PROFILER_ENABLED(
-      "profiler.enabled",
-      "Enables the recording of statistics and counters",
-      Boolean.class,
-      false,
-      new ProfileEnabledChangeCallbac()),
-
-  PROFILER_CONFIG(
-      "profiler.config",
-      "Configures the profiler as <seconds-for-snapshot>,<archive-snapshot-size>,<summary-size>",
-      String.class,
-      null,
-      new ProfileConfigChangeCallback()),
-
-  PROFILER_AUTODUMP_INTERVAL(
-      "profiler.autoDump.interval",
-      "Dumps the profiler values at regular intervals (in seconds)",
-      Integer.class,
-      0,
-      new ProfileDumpIntervalChangeCallback()),
-
   /**
    * @since 2.2.27
    */
-  PROFILER_AUTODUMP_TYPE(
-      "profiler.autoDump.type",
-      "Type of profiler dump between 'full' or 'performance'",
-      String.class,
-      "full"),
-
-  PROFILER_MAXVALUES(
-      "profiler.maxValues",
-      "Maximum values to store. Values are managed in a LRU",
-      Integer.class,
-      200),
-
   PROFILER_MEMORYCHECK_INTERVAL(
-      "profiler.memoryCheckInterval",
+      "youtrackdb.profiler.memoryCheckInterval",
       "Checks the memory usage every configured milliseconds. Use 0 to disable it",
       Long.class,
       120000),
+
+  PROFILER_TICKER_GRANULARITY(
+      "youtrackdb.profiler.tickerGranularity",
+      "Granularity (in nanoseconds) of the profiler ticker. Controls the precision of metrics"
+          + " collection and long-running queries detection.",
+      Long.class,
+      10_000_000L
+  ),
 
   // SEQUENCES
 
@@ -2040,35 +2010,5 @@ public enum GlobalConfiguration {
 
   public String getDescription() {
     return description;
-  }
-
-  private static class ProfileEnabledChangeCallbac implements ConfigurationChangeCallback {
-    public void change(final Object iCurrentValue, final Object iNewValue) {
-      YouTrackDBEnginesManager instance = YouTrackDBEnginesManager.instance();
-      if (instance != null) {
-        final Profiler prof = instance.getProfiler();
-        if (prof != null) {
-          if ((Boolean) iNewValue) {
-            prof.startRecording();
-          } else {
-            prof.stopRecording();
-          }
-        }
-      }
-    }
-  }
-
-  private static class ProfileConfigChangeCallback implements ConfigurationChangeCallback {
-
-    public void change(final Object iCurrentValue, final Object iNewValue) {
-      YouTrackDBEnginesManager.instance().getProfiler().configure(iNewValue.toString());
-    }
-  }
-
-  private static class ProfileDumpIntervalChangeCallback implements ConfigurationChangeCallback {
-
-    public void change(final Object iCurrentValue, final Object iNewValue) {
-      YouTrackDBEnginesManager.instance().getProfiler().setAutoDump((Integer) iNewValue);
-    }
   }
 }

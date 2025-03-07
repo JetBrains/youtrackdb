@@ -49,25 +49,21 @@ public class SocketChannelText extends SocketChannel {
       pos += read;
     }
 
-    updateMetricReceivedBytes(read);
     return pos - iStartingPosition;
   }
 
   public byte read() throws IOException {
-    updateMetricReceivedBytes(1);
     return (byte) inStream.read();
   }
 
   public byte[] readBytes(final int iTotal) throws IOException {
     final byte[] buffer = new byte[iTotal];
-    updateMetricReceivedBytes(iTotal);
     inStream.read(buffer);
     return buffer;
   }
 
   public SocketChannelText writeBytes(final byte[] iContent) throws IOException {
     outStream.write(iContent);
-    updateMetricTransmittedBytes(iContent.length);
     return this;
   }
 }

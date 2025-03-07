@@ -19,17 +19,20 @@
  */
 package com.jetbrains.youtrack.db.internal.core.storage.cache.local;
 
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.api.exception.SecurityException;
 import com.jetbrains.youtrack.db.internal.common.collection.closabledictionary.ClosableEntry;
 import com.jetbrains.youtrack.db.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.LockManager;
-import com.jetbrains.youtrack.db.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.PartitionedLockManager;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.ReadersWriterSpinLock;
+import com.jetbrains.youtrack.db.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrack.db.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrack.db.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrack.db.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrack.db.internal.common.directmemory.Pointer;
-import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySerializer;
@@ -40,11 +43,8 @@ import com.jetbrains.youtrack.db.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.common.util.RawPairLongObject;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidStorageEncryptionKeyException;
-import com.jetbrains.youtrack.db.api.exception.SecurityException;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.internal.core.exception.WriteCacheException;
 import com.jetbrains.youtrack.db.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.AbstractWriteCache;
@@ -1921,7 +1921,11 @@ public final class WOWCache extends AbstractWriteCache
   private File createFileInstance(final String fileName, final int fileId) {
     final String internalFileName = createInternalFileName(fileName, fileId);
     return new AsyncFile(
-        storagePath.resolve(internalFileName), pageSize, logFileDeletion, this.executor);
+        storagePath.resolve(internalFileName),
+        pageSize,
+        logFileDeletion,
+        this.executor,
+        storageName);
   }
 
   private static String createInternalFileName(final String fileName, final int fileId) {
@@ -2005,7 +2009,8 @@ public final class WOWCache extends AbstractWriteCache
         if (files.get(externalId) == null) {
           final Path path =
               storagePath.resolve(idFileNameMap.get((nameIdEntry.getValue().intValue())));
-          final AsyncFile file = new AsyncFile(path, pageSize, logFileDeletion, this.executor);
+          final AsyncFile file =
+              new AsyncFile(path, pageSize, logFileDeletion, this.executor, storageName);
 
           if (file.exists()) {
             file.open();
@@ -2073,7 +2078,8 @@ public final class WOWCache extends AbstractWriteCache
         if (files.get(externalId) == null) {
           final Path path =
               storagePath.resolve(idFileNameMap.get((nameIdEntry.getValue().intValue())));
-          final AsyncFile file = new AsyncFile(path, pageSize, logFileDeletion, this.executor);
+          final AsyncFile file =
+              new AsyncFile(path, pageSize, logFileDeletion, this.executor, storageName);
 
           if (file.exists()) {
             file.open();
@@ -2151,7 +2157,8 @@ public final class WOWCache extends AbstractWriteCache
                   storagePath.resolve(nameIdEntry.getKey()),
                   pageSize,
                   logFileDeletion,
-                  this.executor);
+                  this.executor,
+                  storageName);
 
           if (fileClassic.exists()) {
             fileClassic.open();

@@ -2792,22 +2792,6 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     }
   }
 
-  @ConsoleCommand(description = "Execute a command against the profiler")
-  public void profiler(
-      @ConsoleParameter(
-          name = "profiler command",
-          description = "command to execute against the profiler") final String iCommandName) {
-    if (iCommandName.equalsIgnoreCase("on")) {
-      YouTrackDBEnginesManager.instance().getProfiler().startRecording();
-      message("\nProfiler is ON now, use 'profiler off' to turn off.");
-    } else if (iCommandName.equalsIgnoreCase("off")) {
-      YouTrackDBEnginesManager.instance().getProfiler().stopRecording();
-      message("\nProfiler is OFF now, use 'profiler on' to turn on.");
-    } else if (iCommandName.equalsIgnoreCase("dump")) {
-      out.println(YouTrackDBEnginesManager.instance().getProfiler().dump());
-    }
-  }
-
   @ConsoleCommand(description = "Return the value of a configuration value")
   public void configGet(
       @ConsoleParameter(name = "config-name", description = "Name of the configuration") final String iConfigName)

@@ -241,7 +241,7 @@ public class QueryOperatorEquals extends QueryOperatorEqualityNotNulls {
       }
     }
 
-    updateProfiler(iContext, index, keyParams, indexDefinition);
+    updateProfiler(iContext, index, keyParams);
     return stream;
   }
 

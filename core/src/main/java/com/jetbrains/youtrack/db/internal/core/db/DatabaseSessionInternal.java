@@ -36,6 +36,7 @@ import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.api.session.SessionListener;
+import com.jetbrains.youtrack.db.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
@@ -988,6 +989,10 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   LocalRecordCache getLocalCache();
 
+  default TransactionMeters transactionMeters() {
+    return TransactionMeters.NOOP;
+  }
+
   /**
    * retrieves a class from the schema
    *
@@ -1009,4 +1014,16 @@ public interface DatabaseSessionInternal extends DatabaseSession {
     VALIDATION
   }
 
+  record TransactionMeters(
+      TimeRate totalTransactions,
+      TimeRate writeTransactions,
+      TimeRate writeRollbackTransactions
+  ) {
+
+    public static TransactionMeters NOOP = new TransactionMeters(
+        TimeRate.NOOP,
+        TimeRate.NOOP,
+        TimeRate.NOOP
+    );
+  }
 }

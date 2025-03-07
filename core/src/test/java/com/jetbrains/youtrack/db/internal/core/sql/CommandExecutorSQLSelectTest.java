@@ -29,8 +29,6 @@ import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.common.profiler.Profiler;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
@@ -64,7 +62,6 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
   public void beforeTest() throws Exception {
     super.beforeTest();
-    getProfilerInstance().startRecording();
 
     db.command("CREATE class foo").close();
     db.command("CREATE property foo.name STRING").close();
@@ -386,8 +383,8 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     }
   }
 
-  private static Profiler getProfilerInstance() {
-    return YouTrackDBEnginesManager.instance().getProfiler();
+  private static ProfilerStub getProfilerInstance() {
+    return ProfilerStub.INSTANCE;
   }
 
   @Test
@@ -400,6 +397,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     assertEquals(1, qResult.size());
   }
 
+  @Ignore("Should be rewritten using the new JFR-based monitoring")
   @Test
   public void testUseIndexWithOr() throws Exception {
     long idxUsagesBefore = indexUsages(db);
@@ -424,6 +422,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     assertEquals(indexUsages(db), idxUsagesBefore);
   }
 
+  @Ignore("Should be rewritten using the new JFR-based monitoring")
   @Test
   public void testCompositeIndex() {
     long idxUsagesBefore = indexUsages(db);
@@ -459,6 +458,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     }
   }
 
+  @Ignore("Should be rewritten using the new JFR-based monitoring")
   @Test
   public void testCompositeIndex2() {
     long idxUsagesBefore = indexUsages(db);

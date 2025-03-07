@@ -172,7 +172,7 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
       }
     }
 
-    updateProfiler(iContext, internalIndex, keyParams, indexDefinition);
+    updateProfiler(iContext, internalIndex, keyParams);
     return stream;
   }
 
