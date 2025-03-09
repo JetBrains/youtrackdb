@@ -249,7 +249,7 @@ public class LuceneTextOperator extends QueryTargetOperator {
           SchemaClassInternal oClass = cls;
           for (int i = 0; i < fieldChain.getItemCount() - 1; i++) {
             oClass = (SchemaClassInternal) oClass.getProperty(fieldChain.getItemName(i))
-                .getLinkedClass();
+                .getLinkedClass(session);
           }
           if (oClass != null) {
             cls = oClass;

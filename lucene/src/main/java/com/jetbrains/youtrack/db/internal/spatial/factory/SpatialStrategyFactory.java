@@ -45,7 +45,7 @@ public class SpatialStrategyFactory {
 
     SchemaProperty property = aClass.getProperty(indexDefinition.getFields().get(0));
 
-    SchemaClass linkedClass = property.getLinkedClass();
+    SchemaClass linkedClass = property.getLinkedClass(db);
 
     if ("OPoint".equalsIgnoreCase(linkedClass.getName())) {
       RecursivePrefixTreeStrategy strategy =

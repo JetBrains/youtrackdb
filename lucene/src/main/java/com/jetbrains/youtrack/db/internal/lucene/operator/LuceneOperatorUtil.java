@@ -107,14 +107,14 @@ public class LuceneOperatorUtil {
 
     if (result.lastField.isLong()) {
       final int fieldCount = result.lastField.getItemCount();
-      SchemaClass cls = iSchemaClass.getProperty(result.lastField.getItemName(0)).getLinkedClass();
+      SchemaClass cls = iSchemaClass.getProperty(result.lastField.getItemName(0)).getLinkedClass(session);
 
       for (int i = 1; i < fieldCount; i++) {
         if (cls == null || !cls.areIndexed(session, result.lastField.getItemName(i))) {
           return false;
         }
 
-        cls = cls.getProperty(result.lastField.getItemName(i)).getLinkedClass();
+        cls = cls.getProperty(result.lastField.getItemName(i)).getLinkedClass(session);
       }
     }
     return true;

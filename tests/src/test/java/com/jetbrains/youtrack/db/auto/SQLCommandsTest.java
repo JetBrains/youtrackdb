@@ -67,7 +67,7 @@ public class SQLCommandsTest extends BaseDBTest {
             .getSchema()
             .getClass("account")
             .getProperty("knows")
-            .getLinkedClass(),
+            .getLinkedClass(database),
         database.getMetadata().getSchema().getClass("account"));
   }
 

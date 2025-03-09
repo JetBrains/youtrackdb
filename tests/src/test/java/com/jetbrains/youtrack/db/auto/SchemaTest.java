@@ -79,7 +79,7 @@ public class SchemaTest extends BaseDBTest {
     assert schema
         .getClass("whiz")
         .getProperty("account")
-        .getLinkedClass()
+        .getLinkedClass(database)
         .getName()
         .equalsIgnoreCase("Account");
     assert schema.getClass("WHIZ").getProperty("date").getType() == PropertyType.DATE;
@@ -91,7 +91,7 @@ public class SchemaTest extends BaseDBTest {
     assert schema
         .getClass("Whiz")
         .getProperty("replyTo")
-        .getLinkedClass()
+        .getLinkedClass(database)
         .getName()
         .equalsIgnoreCase("Account");
   }
