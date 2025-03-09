@@ -39,7 +39,7 @@ public class SQLMetadataTest extends BaseDBTest {
     List<EntityImpl> result =
         database
             .command(
-                new SQLSynchQuery<EntityImpl>("select expand(classes) from metadata:schema"))
+                new SQLSynchQuery<EntityImpl>("select expand(classesRefs) from metadata:schema"))
             .execute(database);
 
     Assert.assertTrue(result.size() != 0);
@@ -51,7 +51,7 @@ public class SQLMetadataTest extends BaseDBTest {
         database
             .command(
                 new SQLSynchQuery<EntityImpl>(
-                    "select expand(properties) from (select expand(classes) from metadata:schema)"
+                    "select expand(properties) from (select expand(classesRefs) from metadata:schema)"
                         + " where name = 'OUser'"))
             .execute(database);
 
