@@ -96,8 +96,8 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
       for (final SchemaProperty prop : cls.properties(db)) {
         json.beginObject();
         json.writeAttribute("name", prop.getName());
-        if (prop.getLinkedClass() != null) {
-          json.writeAttribute("linkedClass", prop.getLinkedClass().getName());
+        if (prop.getLinkedClass(db) != null) {
+          json.writeAttribute("linkedClass", prop.getLinkedClass(db).getName());
         }
         if (prop.getLinkedType() != null) {
           json.writeAttribute("linkedType", prop.getLinkedType().toString());

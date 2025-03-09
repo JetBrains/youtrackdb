@@ -12,6 +12,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaPropertyImp
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -93,10 +94,24 @@ public class SchemaClassRemote extends SchemaClassImpl {
 
       session.command(cmd.toString()).close();
       getOwner().reload(session);
+      reload(session);
 
       return getProperty(propertyName);
     } finally {
       releaseSchemaWriteLock(session);
+    }
+  }
+
+  private void reload(DatabaseSessionInternal database) {
+    acquireSchemaWriteLock(database);
+    try {
+      database.executeInTx(
+          () -> {
+            EntityImpl entity = database.load(identity);
+            fromStream(database, entity);
+          });
+    } finally {
+      releaseSchemaWriteLock(database);
     }
   }
 

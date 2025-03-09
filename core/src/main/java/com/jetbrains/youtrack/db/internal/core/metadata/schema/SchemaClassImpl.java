@@ -90,6 +90,8 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
 
   private static final Set<String> reserved = new HashSet<String>();
 
+  protected volatile RecordId identity;
+
   static {
     // reserved.add("select");
     reserved.add("traverse");
@@ -102,8 +104,6 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
     reserved.add("limit");
     reserved.add("timeout");
   }
-
-  private volatile RecordId identity;
 
   protected SchemaClassImpl(final SchemaShared iOwner, final String iName,
       final int[] iClusterIds) {
@@ -609,7 +609,7 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
       clusterSelection =
           owner.getClusterSelectionFactory().getStrategy(entity.field("clusterSelection"));
     } finally {
-      acquireSchemaWriteLock(db);
+      releaseSchemaWriteLock(db);
     }
   }
 

@@ -302,8 +302,8 @@ public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerA
       for (final SchemaProperty prop : cls.properties(db)) {
         json.beginObject(4, true, null);
         json.writeAttribute(4, true, "name", prop.getName());
-        if (prop.getLinkedClass() != null) {
-          json.writeAttribute(4, true, "linkedClass", prop.getLinkedClass().getName());
+        if (prop.getLinkedClass(db) != null) {
+          json.writeAttribute(4, true, "linkedClass", prop.getLinkedClass(db).getName());
         }
         if (prop.getLinkedType() != null) {
           json.writeAttribute(4, true, "linkedType", prop.getLinkedType().toString());

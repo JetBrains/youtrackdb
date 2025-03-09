@@ -6,6 +6,7 @@ import com.jetbrains.youtrack.db.api.session.SessionListener;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.LazySchemaClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
@@ -38,9 +39,14 @@ public class SchemaRemote extends SchemaShared {
 
     acquireSchemaReadLock();
     try {
-      SchemaClass cls = classes.get(iClassName.toLowerCase(Locale.ENGLISH));
+      LazySchemaClass cls = classesRefs.get(normalizeClassName(iClassName));
       if (cls != null) {
-        return cls;
+        if (cls.isLoaded()) {
+          return cls.getDelegate();
+        } else {
+          cls.load(database, createClassInstance(iClassName));
+          return cls.getDelegate();
+        }
       }
     } finally {
       releaseSchemaReadLock();
@@ -52,9 +58,14 @@ public class SchemaRemote extends SchemaShared {
 
     acquireSchemaWriteLock(database);
     try {
-      cls = classes.get(iClassName.toLowerCase(Locale.ENGLISH));
-      if (cls != null) {
-        return cls;
+      LazySchemaClass lazySchemaClass = classesRefs.get(normalizeClassName(iClassName));
+      if (lazySchemaClass != null) {
+        if (lazySchemaClass.isLoaded()) {
+          return lazySchemaClass.getDelegate();
+        } else {
+          lazySchemaClass.load(database, createClassInstance(iClassName));
+          return lazySchemaClass.getDelegate();
+        }
       }
 
       cls = createClass(database, iClassName, clusterIds, superClasses);
@@ -96,7 +107,7 @@ public class SchemaRemote extends SchemaShared {
     try {
 
       final String key = className.toLowerCase(Locale.ENGLISH);
-      if (classes.containsKey(key)) {
+      if (classesRefs.containsKey(key)) {
         throw new SchemaException("Class '" + className + "' already exists in current database");
       }
 
@@ -145,7 +156,7 @@ public class SchemaRemote extends SchemaShared {
       database.command(cmd.toString()).close();
       reload(database);
 
-      result = classes.get(className.toLowerCase(Locale.ENGLISH));
+      result = classesRefs.get(normalizeClassName(className)).getDelegate();
 
       // WAKE UP DB LIFECYCLE LISTENER
       for (Iterator<DatabaseLifecycleListener> it = YouTrackDBEnginesManager.instance()
@@ -190,7 +201,7 @@ public class SchemaRemote extends SchemaShared {
     try {
 
       final String key = className.toLowerCase(Locale.ENGLISH);
-      if (classes.containsKey(key)) {
+      if (classesRefs.containsKey(key)) {
         throw new SchemaException("Class '" + className + "' already exists in current database");
       }
 
@@ -226,7 +237,7 @@ public class SchemaRemote extends SchemaShared {
 
       database.command(cmd.toString()).close();
       reload(database);
-      result = classes.get(className.toLowerCase(Locale.ENGLISH));
+      result = classesRefs.get(normalizeClassName(className)).getDelegate();
 
       // WAKE UP DB LIFECYCLE LISTENER
       for (Iterator<DatabaseLifecycleListener> it = YouTrackDBEnginesManager.instance()
@@ -282,7 +293,7 @@ public class SchemaRemote extends SchemaShared {
 
       final String key = className.toLowerCase(Locale.ENGLISH);
 
-      SchemaClass cls = classes.get(key);
+      SchemaClass cls = classesRefs.get(key).getDelegate();
 
       if (cls == null) {
         throw new SchemaException("Class '" + className + "' was not found in current database");

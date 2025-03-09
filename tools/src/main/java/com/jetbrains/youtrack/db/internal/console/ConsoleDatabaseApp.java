@@ -1873,7 +1873,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
           row.field("TYPE", (Object) p.getType());
           row.field(
               "LINKED-TYPE/CLASS",
-              p.getLinkedClass() != null ? p.getLinkedClass() : p.getLinkedType());
+              p.getLinkedClass(currentDatabase) != null ? p.getLinkedClass(currentDatabase) : p.getLinkedType());
           row.field("MANDATORY", p.isMandatory());
           row.field("READONLY", p.isReadonly());
           row.field("NOT-NULL", p.isNotNull());
@@ -1984,7 +1984,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     message("\nMaximum value........: " + prop.getMax());
     message("\nREGEXP...............: " + prop.getRegexp());
     message("\nCollate..............: " + prop.getCollate());
-    message("\nLinked class.........: " + prop.getLinkedClass());
+    message("\nLinked class.........: " + prop.getLinkedClass(currentDatabase));
     message("\nLinked type..........: " + prop.getLinkedType());
 
     if (prop.getCustomKeys().size() > 0) {

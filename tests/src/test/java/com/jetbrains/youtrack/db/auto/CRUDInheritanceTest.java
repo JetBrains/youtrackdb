@@ -228,7 +228,7 @@ public class CRUDInheritanceTest extends BaseDBTest {
     SchemaProperty prop = iClass.getProperty(iPropertyName);
     Assert.assertNotNull(prop);
     Assert.assertEquals(prop.getType(), iType);
-    Assert.assertEquals(prop.getLinkedClass(), iLinkedClass);
+    Assert.assertEquals(prop.getLinkedClass(database), iLinkedClass);
   }
 
   protected void checkProperty(

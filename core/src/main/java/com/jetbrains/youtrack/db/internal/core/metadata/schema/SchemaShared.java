@@ -434,8 +434,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     try {
       if (modificationCounter.intValue() == 1) {
         // if it is embedded storage modification of schema is done by internal methods otherwise it
-        // is done by
-        // by sql commands and we need to reload local replica
+        // is done by sql commands and we need to reload local replica
 
         if (iSave) {
           if (database.getStorage() instanceof AbstractPaginatedStorage) {
