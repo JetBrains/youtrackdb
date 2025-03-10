@@ -29,7 +29,7 @@ public class SQLUpdateMapTest extends DbTestBase {
 
     session.begin();
     session.command(
-            "update " + ret.getIdentity() + " set attrs =  {'test1':" + ret1.getIdentity() + " }")
+            "update " + ret.getIdentity() + " set attrs =  {'test1':'first test' }")
         .close();
     session.commit();
     reOpen("admin", "adminpwd");
@@ -38,9 +38,11 @@ public class SQLUpdateMapTest extends DbTestBase {
     session.command("update " + ret.getIdentity() + " set attrs['test'] = 'test value' ").close();
     session.commit();
 
+    session.begin();
     ret = session.bindToSession(ret);
     assertEquals(2, ((Map) ret.field("attrs")).size());
     assertEquals("test value", ((Map) ret.field("attrs")).get("test"));
-    assertEquals(ret1.getIdentity(), ((Map) ret.field("attrs")).get("test1"));
+    assertEquals("first test", ((Map) ret.field("attrs")).get("test1"));
+    session.commit();
   }
 }

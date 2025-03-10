@@ -327,18 +327,27 @@ public class SQLModifier extends SimpleNode {
   private void doSetValue(Result currentRecord, Object target, Object value,
       CommandContext ctx, @Nullable SchemaProperty schemaProperty) {
     value = SQLUpdateItem.convertResultToDocument(value);
-    value = SQLUpdateItem.cleanPropertyValue(value, ctx.getDatabaseSession(), schemaProperty);
+
+    var session = ctx.getDatabaseSession();
     if (methodCall != null) {
       // do nothing
     } else if (suffix != null) {
+      value = SQLUpdateItem.cleanPropertyValue(value, session, schemaProperty);
       suffix.setValue(target, value, ctx);
     } else if (arrayRange != null) {
+      value = SQLUpdateItem.cleanPropertyValue(value, session, schemaProperty);
       arrayRange.setValue(target, value, ctx);
     } else if (condition != null) {
       // TODO
       throw new UnsupportedOperationException(
           "SET value on conditional filtering will be supported soon");
     } else if (arraySingleValues != null) {
+      if (schemaProperty != null) {
+        var linkedType = schemaProperty.getLinkedType(session);
+        if (linkedType != null) {
+          value = linkedType.convert(value, session);
+        }
+      }
       arraySingleValues.setValue(currentRecord, target, value, ctx);
     } else if (rightBinaryCondition != null) {
       throw new UnsupportedOperationException(
