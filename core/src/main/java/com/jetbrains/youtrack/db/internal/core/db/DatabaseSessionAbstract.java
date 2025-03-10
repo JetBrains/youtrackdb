@@ -1064,7 +1064,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
           var blobs = getBlobClusterIds();
           if (blobs.length == 0) {
             throw new DatabaseException(getDatabaseName(),
-                "Cannot blob (2) " + record + ": no cluster defined");
+                "Cannot save blob (2) " + record + ": no cluster defined");
           } else {
             rid.setClusterId(blobs[ThreadLocalRandom.current().nextInt(blobs.length)]);
           }

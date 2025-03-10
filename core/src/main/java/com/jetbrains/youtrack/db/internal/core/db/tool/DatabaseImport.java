@@ -27,6 +27,7 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
@@ -1104,9 +1105,10 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
             if (isSystemRecord(beforeImportSchemaSnapshot, clusterId)) {
               var recordStream = record.toStream();
               //or we will find ourselves.
+              var name = ((Entity) record).getString("name");
               record.delete();
               var systemRecord = findRelatedSystemRecord(beforeImportSchemaSnapshot, clusterId,
-                  record);
+                  name);
               if (systemRecord != null) {
                 if (!record.getClass().isAssignableFrom(systemRecord.getClass())) {
                   throw new IllegalStateException(
@@ -1173,17 +1175,16 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
   }
 
   private EntityImpl findRelatedSystemRecord(Schema beforeImportSchemaSnapshot, int clusterId,
-      RecordAbstract record) {
+      String name) {
     EntityImpl systemRecord = null;
     var cls = beforeImportSchemaSnapshot.getClassByClusterId(clusterId);
     if (cls != null) {
-      assert record instanceof EntityImpl;
 
       if (cls.getName(session).equals(SecurityUserImpl.CLASS_NAME)) {
         try (var resultSet =
             session.query(
                 "select from " + SecurityUserImpl.CLASS_NAME + " where name = ?",
-                ((EntityImpl) record).<String>getProperty("name"))) {
+                name)) {
           if (resultSet.hasNext()) {
             systemRecord = (EntityImpl) resultSet.next().castToEntity();
           }
@@ -1192,7 +1193,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
         try (var resultSet =
             session.query(
                 "select from " + Role.CLASS_NAME + " where name = ?",
-                ((EntityImpl) record).<String>getProperty("name"))) {
+                name)) {
           if (resultSet.hasNext()) {
             systemRecord = (EntityImpl) resultSet.next().castToEntity();
           }
@@ -1201,7 +1202,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
         try (var resultSet =
             session.query(
                 "select from " + SecurityPolicy.class.getSimpleName() + " where name = ?",
-                ((EntityImpl) record).<String>getProperty("name"))) {
+                name)) {
           if (resultSet.hasNext()) {
             systemRecord = (EntityImpl) resultSet.next().castToEntity();
           }
@@ -1242,18 +1243,18 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
     cls.createProperty(session, "value", PropertyType.STRING);
     final var begin = System.currentTimeMillis();
 
-    var tr = session.computeInTx(() -> {
-      long totalRecords = 0;
-      try {
-        long total = 0;
-        jsonReader.readNext(JSONReader.BEGIN_COLLECTION);
+    long totalRecords = 0;
+    try {
+      long total = 0;
+      jsonReader.readNext(JSONReader.BEGIN_COLLECTION);
 
-        listener.onMessage("\n\nImporting records...");
+      listener.onMessage("\n\nImporting records...");
 
-        // the only security records are left at this moment so we need to overwrite them
-        // and then remove left overs
-        final var recordsBeforeImport = new HashSet<RID>();
+      // the only security records are left at this moment so we need to overwrite them
+      // and then remove left overs
+      final var recordsBeforeImport = new HashSet<RID>();
 
+      session.executeInTx(() -> {
         for (final var clusterName : session.getClusterNames()) {
           final Iterator<DBRecord> recordIterator = session.browseCluster(clusterName);
           while (recordIterator.hasNext()) {
@@ -1267,66 +1268,66 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
             recordsBeforeImport.add(identity);
           }
         }
+      });
 
-        RID rid;
-        RID lastRid = new ChangeableRecordId();
+      RID rid;
+      RID lastRid = new ChangeableRecordId();
 
-        long lastLapRecords = 0;
-        var last = begin;
-        Set<String> involvedClusters = new HashSet<>();
+      long lastLapRecords = 0;
+      var last = begin;
+      Set<String> involvedClusters = new HashSet<>();
 
-        LogManager.instance().debug(this, "Detected exporter version " + exporterVersion + ".");
-        while (jsonReader.lastChar() != ']') {
-          rid = importRecord(recordsBeforeImport, beforeImportSchemaSnapshot);
+      LogManager.instance().debug(this, "Detected exporter version " + exporterVersion + ".");
+      while (jsonReader.lastChar() != ']') {
+        rid = importRecord(recordsBeforeImport, beforeImportSchemaSnapshot);
 
-          total++;
-          if (rid != null) {
-            ++lastLapRecords;
-            ++totalRecords;
+        total++;
+        if (rid != null) {
+          ++lastLapRecords;
+          ++totalRecords;
 
-            if (rid.getClusterId() != lastRid.getClusterId() || involvedClusters.isEmpty()) {
-              involvedClusters.add(session.getClusterNameById(rid.getClusterId()));
-            }
-            lastRid = rid;
+          if (rid.getClusterId() != lastRid.getClusterId() || involvedClusters.isEmpty()) {
+            involvedClusters.add(session.getClusterNameById(rid.getClusterId()));
           }
-
-          final var now = System.currentTimeMillis();
-          if (now - last > IMPORT_RECORD_DUMP_LAP_EVERY_MS) {
-            final List<String> sortedClusters = new ArrayList<>(involvedClusters);
-            Collections.sort(sortedClusters);
-
-            listener.onMessage(
-                String.format(
-                    "\n"
-                        + "- Imported %,d records into clusters: %s. Total JSON records imported so for"
-                        + " %,d .Total records imported so far: %,d (%,.2f/sec)",
-                    lastLapRecords,
-                    total,
-                    sortedClusters.size(),
-                    totalRecords,
-                    (float) lastLapRecords * 1000 / (float) IMPORT_RECORD_DUMP_LAP_EVERY_MS));
-
-            // RESET LAP COUNTERS
-            last = now;
-            lastLapRecords = 0;
-            involvedClusters.clear();
-          }
+          lastRid = rid;
         }
 
-        // remove all records which were absent in new database but
-        // exist in old database
+        final var now = System.currentTimeMillis();
+        if (now - last > IMPORT_RECORD_DUMP_LAP_EVERY_MS) {
+          final List<String> sortedClusters = new ArrayList<>(involvedClusters);
+          Collections.sort(sortedClusters);
+
+          listener.onMessage(
+              String.format(
+                  "\n"
+                      + "- Imported %,d records into clusters: %s. Total JSON records imported so for"
+                      + " %,d .Total records imported so far: %,d (%,.2f/sec)",
+                  lastLapRecords,
+                  total,
+                  sortedClusters.size(),
+                  totalRecords,
+                  (float) lastLapRecords * 1000 / (float) IMPORT_RECORD_DUMP_LAP_EVERY_MS));
+
+          // RESET LAP COUNTERS
+          last = now;
+          lastLapRecords = 0;
+          involvedClusters.clear();
+        }
+      }
+
+      // remove all records which were absent in new database but
+      // exist in old database
+      session.executeInTx(() -> {
         for (final var leftOverRid : recordsBeforeImport) {
           var record = session.load(leftOverRid);
           session.delete(record);
         }
-      } catch (Exception e) {
-        listener.onMessage("ERROR: " + e);
-        throw BaseException.wrapException(new DatabaseImportException("Error on importing records"),
-            e, session);
-      }
-
-      return totalRecords;
-    });
+      });
+    } catch (Exception e) {
+      listener.onMessage("ERROR: " + e);
+      throw BaseException.wrapException(new DatabaseImportException("Error on importing records"),
+          e, session);
+    }
 
     session.getMetadata().reload();
 
@@ -1336,7 +1337,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
     listener.onMessage(
         String.format(
             "\n\nDone. Imported %,d records in %,.2f secs\n",
-            tr, ((float) (System.currentTimeMillis() - begin)) / 1000));
+            totalRecords, ((float) (System.currentTimeMillis() - begin)) / 1000));
 
     jsonReader.readNext(JSONReader.COMMA_SEPARATOR);
   }
@@ -1394,9 +1395,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
                       var entity = new EntityImpl(session);
                       entity.updateFromJSON(jsonEngineProperties);
                       Map<String, ?> map = entity.toMap();
-                      if (map != null) {
-                        map.replaceAll((k, v) -> v);
-                      }
+                      map.replaceAll((k, v) -> v);
                       jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
                     }
                   }

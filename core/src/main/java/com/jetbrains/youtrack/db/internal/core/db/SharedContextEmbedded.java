@@ -134,29 +134,38 @@ public class SharedContextEmbedded extends SharedContext {
     }
   }
 
-  public void create(DatabaseSessionInternal database) {
+  public void create(DatabaseSessionInternal session) {
     lock.lock();
     try {
-      schema.create(database);
-      indexManager.create(database);
-      security.create(database);
-      FunctionLibraryImpl.create(database);
-      SequenceLibraryImpl.create(database);
-      security.createClassTrigger(database);
-      SchedulerImpl.create(database);
-      schema.forceSnapshot(database);
+      schema.create(session);
+      indexManager.create(session);
+      security.create(session);
+      FunctionLibraryImpl.create(session);
+      SequenceLibraryImpl.create(session);
+      security.createClassTrigger(session);
+      SchedulerImpl.create(session);
+      schema.forceSnapshot(session);
 
       // CREATE BASE VERTEX AND EDGE CLASSES
-      schema.createClass(database, Entity.DEFAULT_CLASS_NAME);
-      schema.createClass(database, "V");
-      schema.createClass(database, "E");
+      schema.createClass(session, Entity.DEFAULT_CLASS_NAME);
+      schema.createClass(session, "V");
+      schema.createClass(session, "E");
+
+      var config = storage.getConfiguration();
+      var blobClustersCount = config.getContextConfiguration()
+          .getValueAsInteger(GlobalConfiguration.STORAGE_BLOB_CLUSTERS_COUNT);
+
+      for (var i = 0; i < blobClustersCount; i++) {
+        var blobClusterId = session.addCluster("$blob" + i);
+        schema.addBlobCluster(session, blobClusterId);
+      }
 
       // create geospatial classes
       try {
         IndexFactory factory = Indexes.getFactory(SchemaClass.INDEX_TYPE.SPATIAL.toString(),
             "LUCENE");
         if (factory instanceof DatabaseLifecycleListener) {
-          ((DatabaseLifecycleListener) factory).onCreate(database);
+          ((DatabaseLifecycleListener) factory).onCreate(session);
         }
       } catch (IndexException x) {
         // the index does not exist
