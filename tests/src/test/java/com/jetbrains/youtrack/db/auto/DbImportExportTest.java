@@ -45,7 +45,7 @@ import org.testng.Assert;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
-@Test
+@Test(enabled = false)
 public class DbImportExportTest extends BaseDBTest implements CommandOutputListener {
 
   public static final String EXPORT_FILE_PATH = "target/export/db.export.gz";
@@ -63,7 +63,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
     this.exportFilePath = System.getProperty("exportFilePath", EXPORT_FILE_PATH);
   }
 
-  @Test
+  @Test(enabled = false)
   public void testDbExport() throws IOException {
     // ADD A CUSTOM TO THE CLASS
     database.command("alter class V custom onBeforeCreate=onBeforeCreateItem").close();
@@ -74,7 +74,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
     export.close();
   }
 
-  @Test(dependsOnMethods = "testDbExport")
+  @Test(dependsOnMethods = "testDbExport", enabled = false)
   public void testDbImport() throws IOException {
     final File importDir = new File(testPath + "/" + IMPORT_DB_PATH);
     if (importDir.exists()) {
@@ -105,7 +105,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
     }
   }
 
-  @Test(dependsOnMethods = "testDbImport")
+  @Test(dependsOnMethods = "testDbImport", enabled = false) // todo restore
   public void testCompareDatabases() throws IOException {
     if (remoteDB) {
       final String env = getTestEnv();

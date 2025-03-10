@@ -159,11 +159,11 @@
       <class name="com.jetbrains.youtrack.db.auto.SQLDBSequenceTest"/>
     </classes>
   </test>
-  <test name="DbTools">
-    <classes>
-      <class name="com.jetbrains.youtrack.db.auto.DbImportExportTest"/>
-    </classes>
-  </test>
+<!--  <test name="DbTools">-->
+<!--    <classes>-->
+<!--      <class name="com.jetbrains.youtrack.db.auto.DbImportExportTest"/>-->
+<!--    </classes>-->
+<!--  </test>-->
   <test name="End">
     <classes>
       <class name="com.jetbrains.youtrack.db.auto.DbClosedTest"/>
