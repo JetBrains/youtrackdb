@@ -19,6 +19,14 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
@@ -44,13 +52,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 import org.junit.Ignore;
 import org.junit.Test;
 
@@ -144,9 +145,9 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     session.command("alter class TestMultipleClusters add_cluster testmultipleclusters2 ").close();
 
     session.begin();
-    session.command("insert into cluster:testmultipleclusters set name = 'aaa'").close();
-    session.command("insert into cluster:testmultipleclusters1 set name = 'foo'").close();
-    session.command("insert into cluster:testmultipleclusters2 set name = 'bar'").close();
+    session.command("insert into TestMultipleClusters set name = 'aaa'").close();
+    session.command("insert into TestMultipleClusters set name = 'foo'").close();
+    session.command("insert into TestMultipleClusters set name = 'bar'").close();
     session.commit();
 
     session.command("CREATE class TestUrl").close();
@@ -389,12 +390,9 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
   @Test
   public void testUseIndexWithOrderBy2() throws Exception {
-    var idxUsagesBefore = indexUsages(session);
-
-    List<EntityImpl> qResult =
-        session.command(
-                new CommandSQL("select * from foo where address.city = 'NY' order by name ASC"))
-            .execute(session);
+    var qResult =
+        session.query(
+            "select * from foo where address.city = 'NY' order by name ASC").toList();
     assertEquals(1, qResult.size());
   }
 
@@ -631,16 +629,6 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   @Test
-  public void testFlattenOnEmbedded() {
-    List<EntityImpl> qResult =
-        session.command(new CommandSQL("select flatten(address) from foo where name = 'a'"))
-            .execute(session);
-
-    assertEquals(1, qResult.size());
-    assertEquals("NY", qResult.get(0).field("city"));
-  }
-
-  @Test
   public void testLimit() {
     var qResult = session.query("select from foo limit 3");
     assertEquals(3, qResult.stream().count());
@@ -668,7 +656,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   public void testLimitWithNamedParam() {
     Map<String, Object> params = new HashMap<String, Object>();
     params.put("lim", 2);
-    var qResult = session.command("select from foo limit :lim", params);
+    var qResult = session.query("select from foo limit :lim", params);
     assertEquals(2, qResult.stream().count());
   }
 

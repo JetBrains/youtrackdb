@@ -638,31 +638,41 @@ public class ResultInternal implements Result {
   @Nonnull
   public Entity castToEntity() {
     checkSession();
-    if (identifiable instanceof Entity entity) {
-      return entity;
+
+    if (identifiable instanceof Entity) {
+      bindToSession();
+      return (Entity) identifiable;
     }
 
     if (isEntity()) {
-      var result = identifiable.getEntity(session);
-      this.identifiable = result;
-      return result;
+      this.identifiable = identifiable.getEntity(session);
+      return castToEntity();
     }
 
     throw new IllegalStateException("Result is not an entity");
   }
 
+  private void bindToSession() {
+    if (session != null && identifiable instanceof RecordAbstract recordAbstract) {
+      if (recordAbstract.isNotBound(session)) {
+        identifiable = session.bindToSession(recordAbstract);
+      }
+    }
+  }
+
+
   @Nullable
   @Override
   public Entity asEntity() {
     checkSession();
-    if (identifiable instanceof Entity entity) {
-      return entity;
+    if (identifiable instanceof Entity) {
+      bindToSession();
+      return (Entity) identifiable;
     }
 
     if (isEntity()) {
-      var result = identifiable.getEntity(session);
-      this.identifiable = result;
-      return result;
+      this.identifiable = identifiable.getEntity(session);
+      return asEntity();
     }
 
     return null;
@@ -695,11 +705,14 @@ public class ResultInternal implements Result {
     if (identifiable == null) {
       throw new IllegalStateException("Result is not a record");
     }
-    if (identifiable instanceof DBRecord record) {
-      return record;
+
+    if (identifiable instanceof DBRecord) {
+      bindToSession();
+      return (DBRecord) identifiable;
     }
 
-    return this.identifiable.getRecord(session);
+    this.identifiable = identifiable.getRecord(session);
+    return castToRecord();
   }
 
   @Nullable
@@ -710,13 +723,13 @@ public class ResultInternal implements Result {
       return null;
     }
 
-    if (identifiable instanceof DBRecord record) {
-      return record;
+    if (identifiable instanceof DBRecord) {
+      bindToSession();
+      return (DBRecord) identifiable;
     }
 
-    var result = this.identifiable.getRecord(session);
-    this.identifiable = result;
-    return result;
+    this.identifiable = this.identifiable.getRecord(session);
+    return asRecord();
   }
 
   @Override
@@ -740,14 +753,15 @@ public class ResultInternal implements Result {
   @Override
   public Blob castToBlob() {
     checkSession();
-    if (identifiable instanceof Blob blob) {
-      return blob;
+
+    if (identifiable instanceof Blob) {
+      bindToSession();
+      return (Blob) identifiable;
     }
 
     if (isBlob()) {
-      var result = this.identifiable.getBlob(session);
-      this.identifiable = result;
-      return result;
+      this.identifiable = this.identifiable.getBlob(session);
+      return castToBlob();
     }
 
     throw new IllegalStateException("Result is not a blob");
@@ -761,14 +775,14 @@ public class ResultInternal implements Result {
   @Override
   public Blob asBlob() {
     checkSession();
-    if (identifiable instanceof Blob blob) {
-      return blob;
+    if (identifiable instanceof Blob) {
+      bindToSession();
+      return (Blob) identifiable;
     }
 
     if (isBlob()) {
-      var result = this.identifiable.getBlob(session);
-      this.identifiable = result;
-      return result;
+      this.identifiable = this.identifiable.getBlob(session);
+      return asBlob();
     }
 
     return null;
@@ -880,7 +894,7 @@ public class ResultInternal implements Result {
         return true;
       }
       case Entity entity -> {
-        return entity.isStatefulEdge();
+        return castToEntity().isStatefulEdge();
       }
       default -> {
       }

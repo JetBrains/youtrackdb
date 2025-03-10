@@ -43,59 +43,59 @@ public class UpdatableResult extends ResultInternal {
   @Override
   public Entity getEntity(@Nonnull String name) {
     checkSession();
-    return ((Entity) identifiable).getEntity(name);
+    return castToEntity().getEntity(name);
   }
 
   @Nullable
   @Override
   public Result getResult(@Nonnull String name) {
     checkSession();
-    return ((Entity) identifiable).getResult(name);
+    return castToEntity().getResult(name);
   }
 
   @Override
   public Vertex getVertex(@Nonnull String name) {
     checkSession();
-    return ((Entity) identifiable).getVertex(name);
+    return castToEntity().getVertex(name);
   }
 
   @Override
   public Edge getEdge(@Nonnull String name) {
     checkSession();
-    return ((Entity) identifiable).getEdge(name);
+    return castToEntity().getEdge(name);
   }
 
   @Nullable
   @Override
   public RID getLink(@Nonnull String name) {
     checkSession();
-    return ((Entity) identifiable).getLink(name);
+    return castToEntity().getLink(name);
   }
 
   @Override
   public Blob getBlob(String name) {
     checkSession();
-    return ((Entity) identifiable).getBlob(name);
+    return castToEntity().getBlob(name);
   }
 
   @Nonnull
   @Override
   public Collection<String> getPropertyNames() {
     checkSession();
-    return ((Entity) identifiable).getPropertyNames();
+    return castToEntity().getPropertyNames();
   }
 
   @Override
   public boolean hasProperty(@Nonnull String propName) {
     checkSession();
-    return ((Entity) identifiable).hasProperty(propName);
+    return castToEntity().hasProperty(propName);
   }
 
   @Override
   @Nonnull
   public Result detach() {
     checkSession();
-    return ((Entity) identifiable).detach();
+    return castToEntity().detach();
   }
 
   @Override
@@ -108,6 +108,17 @@ public class UpdatableResult extends ResultInternal {
   @Override
   public Entity castToEntity() {
     checkSession();
+    var entity = ((Entity) identifiable);
+
+    if (session != null) {
+      if (entity.isNotBound(session)) {
+        entity = session.bindToSession(entity);
+        identifiable = entity;
+      }
+
+      return entity;
+    }
+
     return ((Entity) identifiable);
   }
 
@@ -115,7 +126,7 @@ public class UpdatableResult extends ResultInternal {
   @Override
   public Entity asEntity() {
     checkSession();
-    return ((Entity) identifiable);
+    return castToEntity();
   }
 
   @Override
@@ -134,14 +145,14 @@ public class UpdatableResult extends ResultInternal {
   @Override
   public DBRecord castToRecord() {
     checkSession();
-    return ((Entity) identifiable);
+    return castToEntity();
   }
 
   @Nullable
   @Override
   public DBRecord asRecord() {
     checkSession();
-    return ((Entity) identifiable);
+    return castToEntity();
   }
 
   @Override
@@ -185,40 +196,40 @@ public class UpdatableResult extends ResultInternal {
   @Override
   public Map<String, Object> toMap() {
     checkSession();
-    return ((Entity) identifiable).toMap();
+    return castToEntity().toMap();
   }
 
   @Override
   public boolean isEdge() {
     checkSession();
-    return ((Entity) identifiable).isEdge();
+    return castToEntity().isEdge();
   }
 
   @Override
   public boolean isStatefulEdge() {
     checkSession();
-    return ((Entity) identifiable).isStatefulEdge();
+    return castToEntity().isStatefulEdge();
   }
 
   @Nonnull
   @Override
   public Edge castToEdge() {
     checkSession();
-    return ((Entity) identifiable).castToEdge();
+    return castToEntity().castToEdge();
   }
 
   @Nullable
   @Override
   public Edge asEdge() {
     checkSession();
-    return ((Entity) identifiable).asEdge();
+    return castToEntity().asEdge();
   }
 
   @Nonnull
   @Override
   public String toJSON() {
     checkSession();
-    return ((Entity) identifiable).toJSON();
+    return castToEntity().toJSON();
   }
 
   @Override

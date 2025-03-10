@@ -1,5 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.db;
 
+import static com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTxInternal.closeAllOnShutdown;
+
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
@@ -30,7 +32,6 @@ import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
-import static com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTxInternal.closeAllOnShutdown;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
@@ -576,15 +577,15 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public <T extends DBRecord> T fromJson(String json) {
+  public <T extends DBRecord> T createOrLoadRecordFromJson(String json) {
     checkOpenness();
-    return internal.fromJson(json);
+    return internal.createOrLoadRecordFromJson(json);
   }
 
   @Override
-  public Entity entityFromJson(String json) {
+  public Entity createOrLoadEntityFromJson(String json) {
     checkOpenness();
-    return internal.entityFromJson(json);
+    return internal.createOrLoadEntityFromJson(json);
   }
 
   @Override
