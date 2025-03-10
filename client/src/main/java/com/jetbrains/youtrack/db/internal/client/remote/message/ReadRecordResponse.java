@@ -78,7 +78,7 @@ public final class ReadRecordResponse implements BinaryResponse {
   }
 
   @Override
-  public void read(DatabaseSessionInternal db, ChannelDataInput network,
+  public void read(DatabaseSessionInternal sessionInternal, ChannelDataInput network,
       StorageRemoteSession session) throws IOException {
     var serializer = RecordSerializerNetworkV37Client.INSTANCE;
     if (network.readByte() == 0) {
@@ -94,17 +94,18 @@ public final class ReadRecordResponse implements BinaryResponse {
     // TODO: This should not be here, move it in a callback or similar
     RecordAbstract record;
     while (network.readByte() == 2) {
-      record = (RecordAbstract) MessageHelper.readIdentifiable(db, network, serializer);
+      record = (RecordAbstract) MessageHelper.readIdentifiable(sessionInternal, network,
+          serializer);
 
-      if (db != null && record != null) {
-        var cacheRecord = db.getLocalCache().findRecord(record.getIdentity());
+      if (sessionInternal != null && record != null) {
+        var cacheRecord = sessionInternal.getLocalCache().findRecord(record.getIdentity());
 
         if (cacheRecord != record) {
           if (cacheRecord != null) {
             cacheRecord.fromStream(record.toStream());
             cacheRecord.setVersion(record.getVersion());
           } else {
-            db.getLocalCache().updateRecord(record);
+            sessionInternal.getLocalCache().updateRecord(record, sessionInternal);
           }
         }
       }

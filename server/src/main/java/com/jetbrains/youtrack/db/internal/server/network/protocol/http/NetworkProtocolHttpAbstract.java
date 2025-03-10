@@ -39,7 +39,6 @@ import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.NetworkProto
 import com.jetbrains.youtrack.db.internal.enterprise.channel.text.SocketChannelTextServer;
 import com.jetbrains.youtrack.db.internal.server.ClientConnection;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
-import com.jetbrains.youtrack.db.internal.server.config.ServerCommandConfiguration;
 import com.jetbrains.youtrack.db.internal.server.monitoring.HttpRequestEvent;
 import com.jetbrains.youtrack.db.internal.server.monitoring.HttpRequestEvent.Error;
 import com.jetbrains.youtrack.db.internal.server.network.ServerNetworkListener;

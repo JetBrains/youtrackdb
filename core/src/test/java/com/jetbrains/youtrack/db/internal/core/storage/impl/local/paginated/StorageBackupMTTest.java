@@ -48,14 +48,14 @@ public class StorageBackupMTTest {
 
     dbName = StorageBackupMTTest.class.getSimpleName();
 
-    final String buildDirectory =
+    final var buildDirectory =
         System.getProperty("buildDirectory", ".") + File.separator + getClass().getSimpleName();
-    final File backupDir = new File(buildDirectory, "backupDir");
+    final var backupDir = new File(buildDirectory, "backupDir");
 
     FileUtils.deleteRecursively(backupDir);
     FileUtils.deleteRecursively(new File(DbTestBase.getBaseDirectoryPath(getClass())));
 
-    final String backupDbName = StorageBackupMTTest.class.getSimpleName() + "BackUp";
+    final var backupDbName = StorageBackupMTTest.class.getSimpleName() + "BackUp";
     try {
       youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
           YouTrackDBConfig.defaultConfig());
@@ -74,11 +74,11 @@ public class StorageBackupMTTest {
         Assert.assertTrue(backupDir.mkdirs());
       }
 
-      try (final ExecutorService executor = Executors.newCachedThreadPool()) {
+      try (var executor = Executors.newCachedThreadPool()) {
         final List<Future<Void>> futures = new ArrayList<>();
 
-        for (int i = 0; i < 4; i++) {
-          Stack<CountDownLatch> producerIterationRecordCount = new Stack<>();
+        for (var i = 0; i < 4; i++) {
+          var producerIterationRecordCount = new Stack<CountDownLatch>();
           producerIterationRecordCount.addAll(backupIterationRecordCount);
           futures.add(executor.submit(new DataWriterCallable(producerIterationRecordCount, 1000)));
         }
@@ -89,7 +89,7 @@ public class StorageBackupMTTest {
 
         finished.await();
 
-        for (Future<Void> future : futures) {
+        for (var future : futures) {
           future.get();
         }
       }
@@ -106,7 +106,7 @@ public class StorageBackupMTTest {
       youTrackDB.restore(backupDbName, null, null, backupDir.getAbsolutePath(),
           YouTrackDBConfig.defaultConfig());
 
-      final DatabaseCompare compare =
+      final var compare =
           new DatabaseCompare(
               (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin"),
               (DatabaseSessionInternal) youTrackDB.open(backupDbName, "admin", "admin"),
@@ -152,16 +152,16 @@ public class StorageBackupMTTest {
       backupIterationRecordCount.add(latch);
     }
 
-    String testDirectory = DbTestBase.getBaseDirectoryPath(getClass());
+    var testDirectory = DbTestBase.getBaseDirectoryPath(getClass());
     FileUtils.deleteRecursively(new File(testDirectory));
 
     FileUtils.createDirectoryTree(testDirectory);
-    final String backupDbName = StorageBackupMTTest.class.getSimpleName() + "BackUp";
-    final File backupDir = new File(testDirectory, "backupDir");
+    final var backupDbName = StorageBackupMTTest.class.getSimpleName() + "BackUp";
+    final var backupDir = new File(testDirectory, "backupDir");
     FileUtils.deleteRecursively(backupDir);
 
     dbName = StorageBackupMTTest.class.getSimpleName();
-    final YouTrackDBConfigImpl config =
+    final var config =
         (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_ENCRYPTION_KEY,
                 "T1JJRU5UREJfSVNfQ09PTA==")
@@ -184,11 +184,11 @@ public class StorageBackupMTTest {
         Assert.assertTrue(backupDir.mkdirs());
       }
 
-      try (final ExecutorService executor = Executors.newCachedThreadPool()) {
+      try (final var executor = Executors.newCachedThreadPool()) {
         final List<Future<Void>> futures = new ArrayList<>();
 
-        for (int i = 0; i < 4; i++) {
-          Stack<CountDownLatch> producerIterationRecordCount = new Stack<>();
+        for (var i = 0; i < 4; i++) {
+          var producerIterationRecordCount = new Stack<CountDownLatch>();
           producerIterationRecordCount.addAll(backupIterationRecordCount);
           futures.add(executor.submit(new DataWriterCallable(producerIterationRecordCount, 1000)));
         }
@@ -199,7 +199,7 @@ public class StorageBackupMTTest {
 
         finished.await();
 
-        for (Future<Void> future : futures) {
+        for (var future : futures) {
           future.get();
         }
       }
@@ -215,7 +215,7 @@ public class StorageBackupMTTest {
       youTrackDB.restore(backupDbName, null, null,
           backupDir.getAbsolutePath(), config);
 
-      final DatabaseCompare compare =
+      final var compare =
           new DatabaseCompare(
               (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin"),
               (DatabaseSessionInternal) youTrackDB.open(backupDbName, "admin", "admin"),
@@ -267,7 +267,7 @@ public class StorageBackupMTTest {
 
       System.out.println(Thread.currentThread() + " - start writing");
 
-      try (var db = youTrackDB.open(dbName, "admin", "admin")) {
+      try (var session = youTrackDB.open(dbName, "admin", "admin")) {
 
         var random = new Random();
         List<RID> ids = new ArrayList<>();
@@ -275,20 +275,20 @@ public class StorageBackupMTTest {
 
           for (var i = 0; i < count; i++) {
             try {
-              db.begin();
+              session.begin();
               final var data = new byte[random.nextInt(1024)];
               random.nextBytes(data);
 
               final var num = random.nextInt();
               if (!ids.isEmpty() && i % 8 == 0) {
-                RID id = ids.removeFirst();
-                db.delete(id);
+                var id = ids.removeFirst();
+                session.delete(id.getEntity(session));
               } else if (!ids.isEmpty() && i % 4 == 0) {
-                RID id = ids.removeFirst();
-                final EntityImpl document = db.load(id);
+                var id = ids.removeFirst();
+                final EntityImpl document = session.load(id);
                 document.field("data", data);
               } else {
-                final var document = ((EntityImpl) db.newEntity("BackupClass"));
+                final var document = ((EntityImpl) session.newEntity("BackupClass"));
                 document.field("num", num);
                 document.field("data", data);
 
@@ -297,7 +297,7 @@ public class StorageBackupMTTest {
                   ids.add(id);
                 }
               }
-              db.commit();
+              session.commit();
 
             } catch (ModificationOperationProhibitedException e) {
               System.out.println("Modification prohibited ... wait ...");

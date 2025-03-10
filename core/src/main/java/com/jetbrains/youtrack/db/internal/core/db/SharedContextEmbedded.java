@@ -3,7 +3,6 @@ package com.jetbrains.youtrack.db.internal.core.db;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
 import com.jetbrains.youtrack.db.internal.core.index.IndexFactory;
 import com.jetbrains.youtrack.db.internal.core.index.IndexManagerShared;
@@ -14,16 +13,12 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.sequence.SequenceLibraryImpl;
 import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryHook;
 import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryHookV2.LiveQueryOps;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.schedule.SchedulerImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.QueryStats;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.ExecutionPlanCache;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.StatementCache;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -95,7 +90,6 @@ public class SharedContextEmbedded extends SharedContext {
       functionLibrary.load(database);
       scheduler.load(database);
       sequenceLibrary.load(database);
-      schema.onPostIndexManagement(database);
       loaded = true;
     } finally {
       lock.unlock();
@@ -117,7 +111,6 @@ public class SharedContextEmbedded extends SharedContext {
       executionPlanCache.invalidate();
       liveQueryOps.close();
       liveQueryOpsV2.close();
-      activeDistributedQueries.values().forEach(DistributedQueryContext::close);
       loaded = false;
     } finally {
       lock.unlock();
@@ -147,7 +140,7 @@ public class SharedContextEmbedded extends SharedContext {
       schema.create(database);
       indexManager.create(database);
       security.create(database);
-      functionLibrary.create(database);
+      FunctionLibraryImpl.create(database);
       SequenceLibraryImpl.create(database);
       security.createClassTrigger(database);
       SchedulerImpl.create(database);

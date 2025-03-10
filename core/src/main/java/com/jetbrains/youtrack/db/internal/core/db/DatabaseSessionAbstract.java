@@ -944,7 +944,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
           ((EntityImpl) record).checkClass(this);
         }
 
-        localCache.updateRecord(record);
+        localCache.updateRecord(record, this);
 
         assert !record.isUnloaded();
         assert record.getSession() == this;
@@ -999,7 +999,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
       RecordInternal.fromStream(record, recordBuffer.buffer);
       afterReadOperations(record);
 
-      localCache.updateRecord(record);
+      localCache.updateRecord(record, this);
 
       assert !record.isUnloaded();
       assert record.getSession() == this;

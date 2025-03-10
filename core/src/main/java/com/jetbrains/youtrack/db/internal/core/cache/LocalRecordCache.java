@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.RecordVersionHelper;
 
@@ -42,9 +43,9 @@ public class LocalRecordCache extends AbstractRecordCache {
   /**
    * Pushes record to cache. Identifier of record used as access key
    *
-   * @param record record that should be cached
+   * @param record  record that should be cached
    */
-  public void updateRecord(final RecordAbstract record) {
+  public void updateRecord(final RecordAbstract record, DatabaseSessionInternal session) {
     assert !record.isUnloaded();
     var rid = record.getIdentity();
     if (rid.getClusterId() != excludedCluster
@@ -56,7 +57,7 @@ public class LocalRecordCache extends AbstractRecordCache {
       if (loadedRecord == null) {
         underlying.put(record);
       } else if (loadedRecord != record) {
-        throw new DatabaseException(db.getDatabaseName(),
+        throw new DatabaseException(session,
             "Record with id "
                 + record.getIdentity()
                 + " already registered in current session, please load "

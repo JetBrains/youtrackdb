@@ -1136,7 +1136,7 @@ public class ResultInternal implements Result {
           return;
         }
 
-        db.getLocalCache().updateRecord(record);
+        db.getLocalCache().updateRecord(record, session);
       }
     }
   }

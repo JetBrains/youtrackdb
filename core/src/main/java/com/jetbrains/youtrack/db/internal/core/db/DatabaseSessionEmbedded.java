@@ -111,7 +111,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     implements QueryLifecycleListener {
 
   private YouTrackDBConfigImpl config;
-  private Storage storage; // todo: make this final when "removeStorage" is removed
+  private final Storage storage; // todo: make this final when "removeStorage" is removed
 
   private FrontendTransactionNoTx.NonTxReadMode nonTxReadMode;
 
@@ -164,14 +164,14 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
 
       final var metrics = YouTrackDBEnginesManager.instance().getMetricsRegistry();
       freezeDurationMetric =
-          metrics.databaseMetric(CoreMetrics.DATABASE_FREEZE_DURATION, getName());
+          metrics.databaseMetric(CoreMetrics.DATABASE_FREEZE_DURATION, getDatabaseName());
       releaseDurationMetric =
-          metrics.databaseMetric(CoreMetrics.DATABASE_RELEASE_DURATION, getName());
+          metrics.databaseMetric(CoreMetrics.DATABASE_RELEASE_DURATION, getDatabaseName());
 
       this.transactionMeters = new TransactionMeters(
-          metrics.databaseMetric(CoreMetrics.TRANSACTION_RATE, getName()),
-          metrics.databaseMetric(CoreMetrics.TRANSACTION_WRITE_RATE, getName()),
-          metrics.databaseMetric(CoreMetrics.TRANSACTION_WRITE_ROLLBACK_RATE, getName())
+          metrics.databaseMetric(CoreMetrics.TRANSACTION_RATE, getDatabaseName()),
+          metrics.databaseMetric(CoreMetrics.TRANSACTION_WRITE_RATE, getDatabaseName()),
+          metrics.databaseMetric(CoreMetrics.TRANSACTION_WRITE_ROLLBACK_RATE, getDatabaseName())
       );
 
     } catch (Exception t) {
@@ -1648,9 +1648,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     }
 
     freezeDurationMetric.timed(() -> {
-      final FreezableStorageComponent storage = getFreezableStorage();
+      final var storage = getFreezableStorage();
       if (storage != null) {
-        storage.freeze(throwException);
+        storage.freeze(this, throwException);
       }
     });
   }
@@ -1682,9 +1682,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     }
 
     releaseDurationMetric.timed(() -> {
-      final FreezableStorageComponent storage = getFreezableStorage();
+      final var storage = getFreezableStorage();
       if (storage != null) {
-        storage.release();
+        storage.release(this);
       }
     });
   }

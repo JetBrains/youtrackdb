@@ -400,7 +400,7 @@ public final class CommandResponse implements BinaryResponse {
                 cacheRecord.setVersion(record.getVersion());
                 coll.add(cacheRecord);
               } else {
-                database.getLocalCache().updateRecord(record);
+                database.getLocalCache().updateRecord(record, session);
                 coll.add(resultItem);
               }
             } else {
@@ -430,7 +430,7 @@ public final class CommandResponse implements BinaryResponse {
                   cachedRecord.setVersion(rec.getVersion());
                   coll.add(cachedRecord);
                 } else {
-                  database.getLocalCache().updateRecord(rec);
+                  database.getLocalCache().updateRecord(rec, session);
                   coll.add(rec);
                 }
               } else {
@@ -467,7 +467,7 @@ public final class CommandResponse implements BinaryResponse {
             cachedRecord.setVersion(record.getVersion());
             record = cachedRecord;
           } else {
-            database.getLocalCache().updateRecord(record);
+            database.getLocalCache().updateRecord(record, session);
           }
         }
 
@@ -480,15 +480,15 @@ public final class CommandResponse implements BinaryResponse {
     return result;
   }
 
-  private static void updateCachedRecord(DatabaseSessionInternal database, RecordAbstract record) {
-    var cachedRecord = database.getLocalCache().findRecord(record.getIdentity());
+  private static void updateCachedRecord(DatabaseSessionInternal session, RecordAbstract record) {
+    var cachedRecord = session.getLocalCache().findRecord(record.getIdentity());
 
     if (cachedRecord != record) {
       if (cachedRecord != null) {
         cachedRecord.fromStream(record.toStream());
         cachedRecord.setVersion(record.getVersion());
       } else {
-        database.getLocalCache().updateRecord(record);
+        session.getLocalCache().updateRecord(record, session);
       }
     }
   }

@@ -301,7 +301,7 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
             cached.setIdentity(record.getIdentity());
             rec = cached;
           } else {
-            session.getLocalCache().updateRecord(record);
+            session.getLocalCache().updateRecord(record, session);
           }
         }
       }

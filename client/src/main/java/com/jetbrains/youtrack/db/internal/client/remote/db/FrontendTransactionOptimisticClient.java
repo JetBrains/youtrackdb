@@ -88,7 +88,7 @@ public class FrontendTransactionOptimisticClient extends FrontendTransactionOpti
       RecordInternal.setContentChanged(record, operation.isContentChanged());
       if (operation.getType() == RecordOperation.UPDATED
           || operation.getType() == RecordOperation.CREATED) {
-        localCache.updateRecord(record);
+        localCache.updateRecord(record, session);
       } else if (operation.getType() == RecordOperation.DELETED) {
         localCache.deleteRecord(operation.getOldId());
       } else {

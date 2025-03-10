@@ -67,10 +67,10 @@ public final class AsyncFile implements File {
 
     this.diskReadMeter = YouTrackDBEnginesManager.instance()
         .getMetricsRegistry()
-        .databaseMetric(CoreMetrics.DISK_READ_RATE, storageName);
+        .databaseMetric(CoreMetrics.DISK_READ_RATE, dbName);
     this.diskWriteMeter = YouTrackDBEnginesManager.instance()
         .getMetricsRegistry()
-        .databaseMetric(CoreMetrics.DISK_WRITE_RATE, storageName);
+        .databaseMetric(CoreMetrics.DISK_WRITE_RATE, dbName);
   }
 
   @Override
@@ -263,12 +263,11 @@ public final class AsyncFile implements File {
   @Override
   public void read(long offset, ByteBuffer buffer, boolean throwOnEof) throws IOException {
     lock.sharedLock();
-    int read = 0;
+    var read = 0;
     try {
       checkForClose();
       checkPosition(offset);
 
-      var read = 0;
       do {
         buffer.position(read);
         final var readFuture = fileChannel.read(buffer, offset + HEADER_SIZE + read);

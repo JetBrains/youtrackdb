@@ -40,8 +40,6 @@ import com.jetbrains.youtrack.db.api.exception.StorageExistsException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
-import com.jetbrains.youtrack.db.api.session.SessionListener;
 import com.jetbrains.youtrack.db.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.ScalableRWLock;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.ThreadInterruptedException;
@@ -94,7 +92,6 @@ import com.jetbrains.youtrack.db.internal.core.index.engine.V1IndexEngine;
 import com.jetbrains.youtrack.db.internal.core.index.engine.v1.CellBTreeMultiValueIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.index.engine.v1.CellBTreeSingleValueIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.query.QueryAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordVersionHelper;
@@ -313,7 +310,7 @@ public abstract class AbstractPaginatedStorage
     stateLock = new ScalableRWLock();
 
     this.id = id;
-    sbTreeCollectionManager = new SBTreeCollectionManagerShared(this);
+    sbTreeCollectionManager = new BTreeCollectionManagerShared(this);
     dropDuration = YouTrackDBEnginesManager.instance()
         .getMetricsRegistry()
         .databaseMetric(CoreMetrics.DATABASE_DROP_DURATION, this.name);
@@ -2115,9 +2112,8 @@ public abstract class AbstractPaginatedStorage
     //
     //
     try {
-      final DatabaseSessionInternal database = transaction.getDatabase();
-      final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
-      final TreeMap<String, FrontendTransactionIndexChanges> indexOperations =
+      final var session = transaction.getDatabaseSession();
+      final var indexOperations =
           getSortedIndexOperations(transaction);
 
       session.getMetadata().makeThreadLocalSchemaSnapshot();
@@ -2158,12 +2154,9 @@ public abstract class AbstractPaginatedStorage
               && record instanceof EntityImpl) {
             // TRY TO FIX CLUSTER ID TO THE DEFAULT CLUSTER ID DEFINED IN SCHEMA CLASS
 
-            SchemaImmutableClass class_ = null;
-            if (record != null) {
-              class_ = ((EntityImpl) record).getImmutableSchemaClass(session);
-            }
-            if (class_ != null) {
-              clusterId = class_.getClusterForNewInstance(session, (EntityImpl) record);
+            var cls = ((EntityImpl) record).getImmutableSchemaClass(session);
+            if (cls != null) {
+              clusterId = cls.getClusterForNewInstance(session, (EntityImpl) record);
               clusterOverrides.put(recordOperation, clusterId);
             }
           }
@@ -3444,7 +3437,7 @@ public abstract class AbstractPaginatedStorage
       try {
 
         final var synchStartedAt = System.nanoTime();
-        final long lockId = atomicOperationsManager.freezeAtomicOperations(null, null);
+        final var lockId = atomicOperationsManager.freezeAtomicOperations(null, null);
         try {
           checkOpennessAndMigration();
 

@@ -1,8 +1,10 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.HashMap;
@@ -16,7 +18,7 @@ public class LocalResultSet implements ResultSet {
   @Nullable
   private DatabaseSessionInternal session;
 
-  public LocalResultSet(InternalExecutionPlan executionPlan) {
+  public LocalResultSet(DatabaseSessionInternal session, InternalExecutionPlan executionPlan) {
     this.executionPlan = executionPlan;
     this.session = session;
     start();

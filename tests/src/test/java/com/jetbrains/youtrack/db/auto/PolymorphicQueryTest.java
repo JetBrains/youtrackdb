@@ -19,8 +19,6 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.util.List;
@@ -108,7 +106,7 @@ public class PolymorphicQueryTest extends BaseDBTest {
   public void testSubclassesIndexes() throws Exception {
     session.begin();
 
-    ProfilerStub profiler = ProfilerStub.INSTANCE;
+    var profiler = ProfilerStub.INSTANCE;
 
     var indexUsage = profiler.getCounter("db.demo.query.indexUsed");
     var indexUsageReverted = profiler.getCounter("db.demo.query.indexUseAttemptedAndReverted");
@@ -121,7 +119,7 @@ public class PolymorphicQueryTest extends BaseDBTest {
       indexUsageReverted = 0;
     }
 
-    for (int i = 0; i < 10000; i++) {
+    for (var i = 0; i < 10000; i++) {
 
       final var doc1 = ((EntityImpl) session.newEntity("IndexInSubclassesTestChild1"));
       doc1.field("name", "name" + i);
@@ -141,7 +139,7 @@ public class PolymorphicQueryTest extends BaseDBTest {
                 "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
                     + " 'name9999' order by name ASC"));
     Assert.assertEquals(result.size(), 6);
-    String lastName = result.get(0).field("name");
+    String lastName = result.getFirst().field("name");
 
     for (var i = 1; i < result.size(); i++) {
       var current = result.get(i);
@@ -160,7 +158,7 @@ public class PolymorphicQueryTest extends BaseDBTest {
                 "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
                     + " 'name9999' order by name DESC"));
     Assert.assertEquals(result.size(), 6);
-    lastName = result.get(0).field("name");
+    lastName = result.getFirst().field("name");
     for (var i = 1; i < result.size(); i++) {
       var current = result.get(i);
       String currentName = current.field("name");
@@ -173,7 +171,7 @@ public class PolymorphicQueryTest extends BaseDBTest {
   public void testBaseWithoutIndexAndSubclassesIndexes() throws Exception {
     session.begin();
 
-    ProfilerStub profiler = ProfilerStub.INSTANCE;
+    var profiler = ProfilerStub.INSTANCE;
 
     var indexUsage = profiler.getCounter("db.demo.query.indexUsed");
     var indexUsageReverted = profiler.getCounter("db.demo.query.indexUseAttemptedAndReverted");
@@ -186,8 +184,8 @@ public class PolymorphicQueryTest extends BaseDBTest {
       indexUsageReverted = 0;
     }
 
-    for (int i = 0; i < 10000; i++) {
-      final EntityImpl doc0 = new EntityImpl("IndexInSubclassesTestBase");
+    for (var i = 0; i < 10000; i++) {
+      final var doc0 = session.newInstance("IndexInSubclassesTestBase");
       doc0.field("name", "name" + i);
 
       final var doc1 = ((EntityImpl) session.newEntity("IndexInSubclassesTestChild1"));
@@ -208,7 +206,7 @@ public class PolymorphicQueryTest extends BaseDBTest {
                 "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
                     + " 'name9999' order by name ASC"));
     Assert.assertEquals(result.size(), 9);
-    String lastName = result.get(0).field("name");
+    String lastName = result.getFirst().field("name");
     for (var i = 1; i < result.size(); i++) {
       var current = result.get(i);
       String currentName = current.field("name");
@@ -227,7 +225,7 @@ public class PolymorphicQueryTest extends BaseDBTest {
                 "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
                     + " 'name9999' order by name DESC"));
     Assert.assertEquals(result.size(), 9);
-    lastName = result.get(0).field("name");
+    lastName = result.getFirst().field("name");
     for (var i = 1; i < result.size(); i++) {
       var current = result.get(i);
       String currentName = current.field("name");
@@ -240,7 +238,7 @@ public class PolymorphicQueryTest extends BaseDBTest {
   public void testSubclassesIndexesFailed() throws Exception {
     session.begin();
 
-    ProfilerStub profiler = ProfilerStub.INSTANCE;
+    var profiler = ProfilerStub.INSTANCE;
 
     for (var i = 0; i < 10000; i++) {
 

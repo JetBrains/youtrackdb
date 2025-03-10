@@ -8,7 +8,6 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SharedContext;
 import com.jetbrains.youtrack.db.internal.core.db.StringCache;
 import com.jetbrains.youtrack.db.internal.core.index.IndexManagerRemote;
-import com.jetbrains.youtrack.db.internal.core.metadata.function.FunctionLibraryImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.sequence.SequenceLibraryImpl;
 import com.jetbrains.youtrack.db.internal.core.schedule.SchedulerImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
@@ -55,7 +54,6 @@ public class SharedContextRemote extends SharedContext {
       schema.forceSnapshot(database);
       security.load(database);
       sequenceLibrary.load(database);
-      schema.onPostIndexManagement(database);
       loaded = true;
     } finally {
       lock.unlock();

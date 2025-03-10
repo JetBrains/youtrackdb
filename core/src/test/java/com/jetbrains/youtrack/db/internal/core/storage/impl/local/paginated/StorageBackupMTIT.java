@@ -15,7 +15,6 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -256,11 +255,9 @@ public class StorageBackupMTIT {
 
             databaseSession.executeInTx(() -> {
 
-              final EntityImpl document = new EntityImpl("BackupClass");
-              document.field("num", num);
-              document.field("data", data);
-
-              document.save();
+              var entity = databaseSession.newEntity("BackupClass");
+              entity.setProperty("num", num);
+              entity.setProperty("data", data);
             });
           } catch (ModificationOperationProhibitedException e) {
             System.out.println("Modification prohibited ... wait ...");

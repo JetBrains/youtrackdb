@@ -132,7 +132,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
 
       var time = System.nanoTime();
 
-      database.executeInTx(() -> {
+      session.executeInTx(() -> {
         try {
           exportInfo();
           exportClusters();
@@ -141,7 +141,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
           exportIndexDefinitions();
         } catch (IOException e) {
           throw new DatabaseExportException(
-              "Error on exporting database '" + database.getName() + "' to: " + fileName, e);
+              "Error on exporting database '" + session.getDatabaseName() + "' to: " + fileName, e);
         }
       });
 

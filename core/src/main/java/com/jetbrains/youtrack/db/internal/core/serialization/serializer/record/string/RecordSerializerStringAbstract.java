@@ -24,7 +24,6 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
@@ -209,9 +208,7 @@ public abstract class RecordSerializerStringAbstract {
             session,
             iBuffer,
             null,
-            null,
-            iValue,
-            true);
+            iValue);
         break;
 
       case EMBEDDED:
@@ -221,10 +218,6 @@ public abstract class RecordSerializerStringAbstract {
         } else {
           StringSerializerEmbedded.INSTANCE.toStream(session, iBuffer, iValue);
         }
-        break;
-
-      case CUSTOM:
-        StringSerializerAnyStreamable.INSTANCE.toStream(iBuffer, iValue);
         break;
 
       default:
@@ -681,10 +674,6 @@ public abstract class RecordSerializerStringAbstract {
   }
 
   public byte[] toStream(DatabaseSessionInternal session, final RecordAbstract iRecord) {
-    return toString(iRecord, new StringBuilder(2048), null, true)
-        .toString()
-        .getBytes(StandardCharsets.UTF_8);
-
       return toString(session, iRecord, new StringWriter(2048), null, true)
           .toString()
           .getBytes(StandardCharsets.UTF_8);

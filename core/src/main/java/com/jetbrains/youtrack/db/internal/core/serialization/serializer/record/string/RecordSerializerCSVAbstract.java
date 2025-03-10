@@ -536,16 +536,16 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
 
       case EMBEDDEDLIST:
         embeddedCollectionToStream(
-            null, iOutput, iLinkedClass, iLinkedType, iValue, iSaveOnlyDirty, false);
+            session, iOutput, iLinkedClass, iLinkedType, iValue, false);
         break;
 
       case EMBEDDEDSET:
         embeddedCollectionToStream(
-            null, iOutput, iLinkedClass, iLinkedType, iValue, iSaveOnlyDirty, true);
+            session, iOutput, iLinkedClass, iLinkedType, iValue, true);
         break;
 
       case EMBEDDEDMAP: {
-        embeddedMapToStream(null, iOutput, iLinkedClass, iLinkedType, iValue, iSaveOnlyDirty);
+        embeddedMapToStream(session, iOutput, iLinkedType, iValue);
         break;
       }
 
