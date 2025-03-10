@@ -55,7 +55,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     session.command("INSERT INTO company SET name = 'MyCompany'").close();
     session.commit();
 
-    final var r = session.query("SELECT FROM company").findFirst().castToEntity();
+    final var r = session.query("SELECT FROM company").findFirst(Result::castToEntity);
 
     session.begin();
     session.command("INSERT INTO employee SET name = 'Philipp'").close();

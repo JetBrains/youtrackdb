@@ -8,8 +8,10 @@ import com.jetbrains.youtrack.db.api.record.Vertex;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Spliterator;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import javax.annotation.Nonnull;
@@ -80,40 +82,147 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
   }
 
   @Nonnull
-  default Result findFirst() {
-    return stream().findFirst().orElse(null);
+  default <R> R findFirst(@Nonnull Function<Result, R> function) {
+    try {
+      if (hasNext()) {
+        return function.apply(next());
+      } else {
+        throw new NoSuchElementException();
+      }
+    } finally {
+      close();
+    }
   }
 
-  default Result findFirstOrThrow() {
-    return stream().findFirst().orElseThrow(() -> new IllegalStateException("No result found"));
+  default <R> R findFirstOrNull(@Nonnull Function<Result, R> function) {
+    try {
+      if (hasNext()) {
+        return function.apply(next());
+      } else {
+        return null;
+      }
+    } finally {
+      close();
+    }
   }
 
-  default Entity findFirstEntity() {
-    return entityStream().findFirst().orElse(null);
+  default <R> R findFirstEntity(@Nonnull Function<Entity, R> function) {
+    try {
+      if (hasNext()) {
+        return function.apply(next().castToEntity());
+      } else {
+        throw new NoSuchElementException();
+      }
+    } finally {
+      close();
+    }
   }
 
-  default Entity findFirstEntityOrThrow() {
-    return entityStream().findFirst()
-        .orElseThrow(() -> new IllegalStateException("No entity found"));
+  default <R> R findFirstEntityOrNull(@Nonnull Function<Entity, R> function) {
+    try {
+      if (hasNext()) {
+        var entity = next().asEntity();
+
+        if (entity != null) {
+          return function.apply(entity);
+        }
+
+        return null;
+      } else {
+        throw null;
+      }
+    } finally {
+      close();
+    }
   }
 
-  default Vertex findFirstVertex() {
-    return vertexStream().findFirst().orElse(null);
+  default <R> R findFirstVertex(@Nonnull Function<Vertex, R> function) {
+    try {
+      if (hasNext()) {
+        return function.apply(next().castToVertex());
+      } else {
+        throw new NoSuchElementException();
+      }
+    } finally {
+      close();
+    }
   }
 
-  default Vertex findFirstVertexOrThrow() {
-    return vertexStream().findFirst()
-        .orElseThrow(() -> new IllegalStateException("No vertex found"));
+  default <R> R findFirstVertexOrNull(@Nonnull Function<Vertex, R> function) {
+    try {
+      if (hasNext()) {
+        var vertex = next().asVertex();
+        if (vertex != null) {
+          return function.apply(vertex);
+        }
+
+        return null;
+      } else {
+        throw null;
+      }
+    } finally {
+      close();
+    }
   }
 
-  default Edge findFirstEdge() {
-    return edgeStream().findFirst().orElse(null);
+  default <R> R findFirstEdge(@Nonnull Function<Edge, R> function) {
+    try {
+      if (hasNext()) {
+        return function.apply(next().castToEdge());
+      } else {
+        throw new NoSuchElementException();
+      }
+    } finally {
+      close();
+    }
   }
 
-  default Edge findFirstEdgeOrThrow() {
-    return edgeStream().findFirst()
-        .orElseThrow(() -> new IllegalStateException("No edge found"));
+  default <R> R findFirstEdgeOrNull(@Nonnull Function<Edge, R> function) {
+    try {
+      if (hasNext()) {
+        var edge = next().asEdge();
+        if (edge != null) {
+          return function.apply(edge);
+        }
+
+        return null;
+      } else {
+        throw null;
+      }
+    } finally {
+      close();
+    }
   }
+
+  default <R> R findFirstStateFullEdge(@Nonnull Function<Edge, R> function) {
+    try {
+      if (hasNext()) {
+        return function.apply(next().castToStatefulEdge());
+      } else {
+        throw new NoSuchElementException();
+      }
+    } finally {
+      close();
+    }
+  }
+
+  default <R> R findFirstSateFullEdgeOrNull(@Nonnull Function<Edge, R> function) {
+    try {
+      if (hasNext()) {
+        var edge = next().asStatefulEdge();
+        if (edge != null) {
+          return function.apply(edge);
+        }
+
+        return null;
+      } else {
+        throw null;
+      }
+    } finally {
+      close();
+    }
+  }
+
 
   /**
    * Detaches the result set from the underlying session and returns the results as a list.

@@ -2,9 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.sql;
 
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.session.SessionPool;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
@@ -75,28 +73,26 @@ public class CreateLightWeightEdgesSQLTest {
 
     IntStream.range(0, 10)
         .forEach(
-            (i) -> {
-              new Thread(
-                  () -> {
-                    try (var session1 = pool.acquire()) {
-                      for (var j = 0; j < 100; j++) {
+            (i) -> new Thread(
+                () -> {
+                  try (var session1 = pool.acquire()) {
+                    for (var j = 0; j < 100; j++) {
 
-                        try {
-                          session1.begin();
-                          session1.command(
-                              "create edge lightweight from (select from v where id=1) to (select from v"
-                                  + " where id=2) ");
-                          session1.commit();
-                        } catch (ConcurrentModificationException e) {
-                          // ignore
-                        }
+                      try {
+                        session1.begin();
+                        session1.command(
+                            "create edge lightweight from (select from v where id=1) to (select from v"
+                                + " where id=2) ");
+                        session1.commit();
+                      } catch (ConcurrentModificationException e) {
+                        // ignore
                       }
-                    } finally {
-                      latch.countDown();
                     }
-                  })
-                  .start();
-            });
+                  } finally {
+                    latch.countDown();
+                  }
+                })
+                .start());
 
     latch.await();
 
@@ -106,8 +102,8 @@ public class CreateLightWeightEdgesSQLTest {
         var res1 = session.query(
             "select sum(in('lightweight').size()) as size from V where id = 2")) {
 
-      Integer s1 = res.findFirst().getProperty("size");
-      Integer s2 = res1.findFirst().getProperty("size");
+      var s1 = res.findFirst(r -> r.getInt("size"));
+      var s2 = res1.findFirst(r -> r.getInt("size"));
       assertEquals(s1, s2);
 
     } finally {

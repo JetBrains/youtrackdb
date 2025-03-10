@@ -66,23 +66,24 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
     script.append("commit;");
     script.append("return $b;\n");
 
-    var qResult = session.execute("sql", script.toString()).findFirst();
-    Assert.assertNotNull(qResult);
+    var json = session.execute("sql", script.toString())
+        .findFirst(result -> result.getString("json"));
+    Assert.assertNotNull(json);
 
     session.begin();
-    session.createOrLoadEntityFromJson(qResult.getString("json"));
+    session.createOrLoadEntityFromJson(json);
     session.commit();
 
     script = new StringBuilder();
     script.append("let $a = select from V limit 2;\n");
     script.append("return $a.toJSON();\n");
     session.begin();
-    var result = session.execute("sql", script.toString()).findFirst().getString("value");
+    json = session.execute("sql", script.toString()).findFirst(r -> r.getString("value"));
 
-    Assert.assertNotNull(result);
-    result = result.trim();
-    Assert.assertTrue(result.startsWith("["));
-    Assert.assertTrue(result.endsWith("]"));
+    Assert.assertNotNull(json);
+    json = json.trim();
+    Assert.assertTrue(!json.isEmpty() && json.charAt(0) == '[');
+    Assert.assertEquals(']', json.charAt(json.length() - 1));
   }
 
   @Test
@@ -139,7 +140,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
             """;
     var qResult = session.execute("sql", script);
     assertThat(
-        session.bindToSession(qResult.findFirst().castToEntity()).getInt("weight")).isEqualTo(4);
+        qResult.findFirstEntity(e -> e.getInt("weight")).intValue()).isEqualTo(4);
   }
 
   @Test

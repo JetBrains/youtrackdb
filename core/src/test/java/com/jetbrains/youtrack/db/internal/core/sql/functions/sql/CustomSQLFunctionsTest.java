@@ -30,17 +30,17 @@ public class CustomSQLFunctionsTest extends DbTestBase {
   @Test
   public void testAbsDouble() {
     var result = session.query("select math_abs(-5.0d) as abs");
-    assertEquals(5.0, result.findFirst().getProperty("abs"), 0.0);
+    assertEquals(5.0, result.findFirst(r -> r.getProperty("abs")), 0.0);
   }
 
   @Test
   public void testAbsFloat() {
     var result = session.query("select math_abs(-5.0f) as abs");
-    assertEquals(5.0f, result.findFirst().<Float>getProperty("abs"), 0.0);
+    assertEquals(5.0f, result.findFirst(r -> r.<Float>getProperty("abs")), 0.0f);
   }
 
   @Test(expected = QueryParsingException.class)
   public void testNonExistingFunction() {
-    session.query("select math_min('boom', 'boom') as boom").findFirst();
+    session.query("select math_min('boom', 'boom') as boom").findFirst(r -> r.getProperty("boom"));
   }
 }

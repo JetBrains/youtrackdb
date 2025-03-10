@@ -116,7 +116,7 @@ public class SystemDatabase {
           () -> {
             Entity info;
             if (session.query("select count(*) as count from " + clz.getName(session)).
-                findFirst().<Long>getProperty("count") == 0) {
+                findFirst(r -> r.<Long>getProperty("count") == 0)) {
               info = session.newEntity(SERVER_INFO_CLASS);
             } else {
               info = session.browseClass(clz.getName(session)).next();

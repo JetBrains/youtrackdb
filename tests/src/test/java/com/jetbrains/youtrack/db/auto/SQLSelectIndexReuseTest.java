@@ -2965,7 +2965,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       if (!remoteDB) {
         Assert.assertEquals(indexesUsed(rs.getExecutionPlan()), 1);
       }
-      Assert.assertEquals(rs.findFirst().<Long>getProperty("count"), 0L);
+      Assert.assertEquals(rs.findFirst(r -> r.getLong("count")).longValue(), 0L);
     }
   }
 
@@ -3008,7 +3008,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       if (!remoteDB) {
         Assert.assertEquals(indexesUsed(rs.getExecutionPlan()), 1);
       }
-      Assert.assertEquals(rs.findFirst().<Long>getProperty("count"), 2L);
+      Assert.assertEquals(rs.findFirst(r -> r.getLong("count")).longValue(), 2L);
     }
 
     session.begin();

@@ -35,7 +35,6 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ExecutionStepInternal;
@@ -51,6 +50,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
 
@@ -396,7 +396,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
   @Ignore("Should be rewritten using the new JFR-based monitoring")
   @Test
-  public void testUseIndexWithOr() throws Exception {
+  public void testUseIndexWithOr() {
     var idxUsagesBefore = indexUsages(session);
 
     List<EntityImpl> qResult =
@@ -408,15 +408,9 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   @Test
-  public void testDoNotUseIndexWithOrNotIndexed() throws Exception {
-
-    var idxUsagesBefore = indexUsages(session);
-
-    List<EntityImpl> qResult =
-        session.command(new CommandSQL("select * from foo where bar = 2 or notIndexed = 3"))
-            .execute(session);
-
-    assertEquals(indexUsages(session), idxUsagesBefore);
+  @Ignore("Should be rewritten using the new JFR-based monitoring")
+  public void testDoNotUseIndexWithOrNotIndexed() {
+    session.query("select * from foo where bar = 2 or notIndexed = 3").close();
   }
 
   @Ignore("Should be rewritten using the new JFR-based monitoring")
@@ -472,158 +466,157 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
   @Test
   public void testOperatorPriority() {
-
     var qResult =
-        session.command("select * from foo where name ='a' and bar = 1000 or name = 'b'").stream()
-            .toList();
+        session.query("select * from foo where name ='a' and bar = 1000 or name = 'b'").stream()
+            .count();
 
     var qResult2 =
-        session.command("select * from foo where name = 'b' or name ='a' and bar = 1000").stream()
-            .toList();
+        session.query("select * from foo where name = 'b' or name ='a' and bar = 1000").stream()
+            .count();
 
     var qResult3 =
-        session.command("select * from foo where name = 'b' or (name ='a' and bar = 1000)").stream()
-            .toList();
+        session.query("select * from foo where name = 'b' or (name ='a' and bar = 1000)").stream()
+            .count();
 
     var qResult4 =
-        session.command("select * from foo where (name ='a' and bar = 1000) or name = 'b'").stream()
-            .toList();
+        session.query("select * from foo where (name ='a' and bar = 1000) or name = 'b'").stream()
+            .count();
 
     var qResult5 =
-        session.command("select * from foo where ((name ='a' and bar = 1000) or name = 'b')")
+        session.query("select * from foo where ((name ='a' and bar = 1000) or name = 'b')")
             .stream()
-            .toList();
+            .count();
 
     var qResult6 =
-        session.command("select * from foo where ((name ='a' and (bar = 1000)) or name = 'b')")
+        session.query("select * from foo where ((name ='a' and (bar = 1000)) or name = 'b')")
             .stream()
-            .toList();
+            .count();
 
     var qResult7 =
-        session.command("select * from foo where (((name ='a' and bar = 1000)) or name = 'b')")
+        session.query("select * from foo where (((name ='a' and bar = 1000)) or name = 'b')")
             .stream()
-            .toList();
+            .count();
 
     var qResult8 =
         session
-            .command("select * from foo where (((name ='a' and bar = 1000)) or (name = 'b'))")
+            .query("select * from foo where (((name ='a' and bar = 1000)) or (name = 'b'))")
             .stream()
-            .toList();
+            .count();
 
-    assertEquals(qResult.size(), qResult2.size());
-    assertEquals(qResult.size(), qResult3.size());
-    assertEquals(qResult.size(), qResult4.size());
-    assertEquals(qResult.size(), qResult5.size());
-    assertEquals(qResult.size(), qResult6.size());
-    assertEquals(qResult.size(), qResult7.size());
-    assertEquals(qResult.size(), qResult8.size());
+    assertEquals(qResult, qResult2);
+    assertEquals(qResult, qResult3);
+    assertEquals(qResult, qResult4);
+    assertEquals(qResult, qResult5);
+    assertEquals(qResult, qResult6);
+    assertEquals(qResult, qResult7);
+    assertEquals(qResult, qResult8);
   }
 
   @Test
   public void testOperatorPriority2() {
     var qResult =
         session
-            .command(
+            .query(
                 "select * from bar where name ='a' and foo = 1 or name='b' or name='c' and foo = 3"
                     + " and other = 4 or name = 'e' and foo = 5 or name = 'm' and foo > 2 ")
             .stream()
-            .toList();
+            .count();
 
     var qResult2 =
         session
-            .command(
+            .query(
                 "select * from bar where (name ='a' and foo = 1) or name='b' or (name='c' and foo ="
                     + " 3 and other = 4) or (name = 'e' and foo = 5) or (name = 'm' and foo > 2)")
             .stream()
-            .toList();
+            .count();
 
     var qResult3 =
         session
-            .command(
+            .query(
                 "select * from bar where (name ='a' and foo = 1) or (name='b') or (name='c' and foo"
                     + " = 3 and other = 4) or (name ='e' and foo = 5) or (name = 'm' and foo > 2)")
             .stream()
-            .toList();
+            .count();
 
     var qResult4 =
         session
-            .command(
+            .query(
                 "select * from bar where (name ='a' and foo = 1) or ((name='b') or (name='c' and"
                     + " foo = 3 and other = 4)) or (name = 'e' and foo = 5) or (name = 'm' and foo"
                     + " > 2)")
             .stream()
-            .toList();
+            .count();
 
     var qResult5 =
         session
-            .command(
+            .query(
                 "select * from bar where (name ='a' and foo = 1) or ((name='b') or (name='c' and"
                     + " foo = 3 and other = 4) or (name = 'e' and foo = 5)) or (name = 'm' and foo"
                     + " > 2)")
             .stream()
-            .toList();
+            .count();
 
-    assertEquals(qResult.size(), qResult2.size());
-    assertEquals(qResult.size(), qResult3.size());
-    assertEquals(qResult.size(), qResult4.size());
-    assertEquals(qResult.size(), qResult5.size());
+    assertEquals(qResult, qResult2);
+    assertEquals(qResult, qResult3);
+    assertEquals(qResult, qResult4);
+    assertEquals(qResult, qResult5);
   }
 
   @Test
   public void testOperatorPriority3() {
     var qResult =
         session
-            .command(
+            .query(
                 "select * from bar where name <> 'a' and foo = 1 or name='b' or name='c' and foo ="
                     + " 3 and other <> 4 or name = 'e' and foo = 5 or name = 'm' and foo > 2 ")
             .stream()
-            .toList();
+            .count();
 
     var qResult2 =
         session
-            .command(
+            .query(
                 "select * from bar where (name <> 'a' and foo = 1) or name='b' or (name='c' and foo"
                     + " = 3 and other <>  4) or (name = 'e' and foo = 5) or (name = 'm' and foo >"
                     + " 2)")
             .stream()
-            .toList();
+            .count();
 
     var qResult3 =
         session
-            .command(
+            .query(
                 "select * from bar where ( name <> 'a' and foo = 1) or (name='b') or (name='c' and"
                     + " foo = 3 and other <>  4) or (name ='e' and foo = 5) or (name = 'm' and foo"
                     + " > 2)")
             .stream()
-            .toList();
+            .count();
 
     var qResult4 =
         session
-            .command(
+            .query(
                 "select * from bar where (name <> 'a' and foo = 1) or ( (name='b') or (name='c' and"
                     + " foo = 3 and other <>  4)) or  (name = 'e' and foo = 5) or (name = 'm' and"
                     + " foo > 2)")
             .stream()
-            .toList();
+            .count();
 
     var qResult5 =
         session
-            .command(
+            .query(
                 "select * from bar where (name <> 'a' and foo = 1) or ((name='b') or (name='c' and"
                     + " foo = 3 and other <>  4) or (name = 'e' and foo = 5)) or (name = 'm' and"
                     + " foo > 2)")
             .stream()
-            .toList();
+            .count();
 
-    assertEquals(qResult.size(), qResult2.size());
-    assertEquals(qResult.size(), qResult3.size());
-    assertEquals(qResult.size(), qResult4.size());
-    assertEquals(qResult.size(), qResult5.size());
+    assertEquals(qResult, qResult2);
+    assertEquals(qResult, qResult3);
+    assertEquals(qResult, qResult4);
+    assertEquals(qResult, qResult5);
   }
 
   @Test
   public void testExpandOnEmbedded() {
-    try (var qResult = session.command("select expand(address) from foo where name = 'a'")) {
+    try (var qResult = session.query("select expand(address) from foo where name = 'a'")) {
       assertEquals("NY", qResult.next().getProperty("city"));
       assertFalse(qResult.hasNext());
     }
@@ -664,18 +657,18 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   @Test
   public void testLimitWithNamedParam2() {
     // issue #5493
-    Map<String, Object> params = new HashMap<String, Object>();
+    Map<String, Object> params = new HashMap<>();
     params.put("limit", 2);
-    var qResult = session.command("select from foo limit :limit", params);
+    var qResult = session.query("select from foo limit :limit", params);
     assertEquals(2, qResult.stream().count());
   }
 
   @Test
   public void testParamsInLetSubquery() {
-    Map<String, Object> params = new HashMap<String, Object>();
+    Map<String, Object> params = new HashMap<>();
     params.put("name", "foo");
     var qResult =
-        session.command(
+        session.query(
             "select from TestParams let $foo = (select name from TestParams where surname = :name)"
                 + " where surname in $foo.name ",
             params);
@@ -686,13 +679,13 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   public void testBooleanParams() {
     // issue #4224
     var qResult =
-        session.command("select name from TestParams where name = ? and active = ?", "foo", true);
+        session.query("select name from TestParams where name = ? and active = ?", "foo", true);
     assertEquals(1, qResult.stream().count());
   }
 
   @Test
   public void testFromInSquareBrackets() {
-    try (var qResult = session.command("select tags[' from '] as a from TestFromInSquare")) {
+    try (var qResult = session.query("select tags[' from '] as a from TestFromInSquare")) {
       assertEquals("foo", qResult.next().getProperty("a"));
       assertFalse(qResult.hasNext());
     }
@@ -700,7 +693,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
   @Test
   public void testNewline() {
-    var qResult = session.command("select\n1 as ACTIVE\nFROM foo");
+    var qResult = session.query("select\n1 as ACTIVE\nFROM foo");
     assertEquals(5, qResult.stream().count());
   }
 
@@ -741,122 +734,129 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
   @Test
   public void testUnwind() {
-    var qResult =
-        session.command("select from unwindtest unwind coll").stream().toList();
+    var qResult = session.query("select from unwindtest unwind coll").stream();
 
-    assertEquals(4, qResult.size());
-    for (var doc : qResult) {
+    var count = new int[1];
+
+    qResult.forEach(doc -> {
       String name = doc.getProperty("name");
       String coll = doc.getProperty("coll");
       assertTrue(coll.startsWith(name));
-      assertNull(doc.getIdentity());
-    }
+      count[0]++;
+    });
+
+    assertEquals(4, count[0]);
   }
 
   @Test
   public void testUnwind2() {
     var qResult =
-        session.command("select from unwindtest2 unwind coll").stream().toList();
+        session.query("select from unwindtest2 unwind coll").stream();
 
-    assertEquals(1, qResult.size());
-    for (var doc : qResult) {
-      var coll = doc.getProperty("coll");
+    var count = new int[1];
+
+    qResult.forEach(result -> {
+      var coll = result.getProperty("coll");
       assertNull(coll);
-      assertNull(doc.getIdentity());
-    }
+      assertNull(result.getIdentity());
+      count[0]++;
+    });
+
+    assertEquals(1, count[0]);
   }
 
   @Test
   public void testUnwindOrder() {
     var qResult =
-        session.command("select from unwindtest order by coll unwind coll").stream()
-            .toList();
+        session.query("select from unwindtest order by coll unwind coll").stream();
 
-    assertEquals(4, qResult.size());
-    for (var doc : qResult) {
-      String name = doc.getProperty("name");
-      String coll = doc.getProperty("coll");
+    var count = new int[1];
+    qResult.forEach(result -> {
+      String name = result.getProperty("name");
+      String coll = result.getProperty("coll");
       assertTrue(coll.startsWith(name));
-      assertNull(doc.getIdentity());
-    }
+
+      assertNull(result.getIdentity());
+      count[0]++;
+    });
+
+    Assert.assertEquals(4, count[0]);
   }
 
   @Test
   public void testUnwindSkip() {
     var qResult =
-        session.command("select from unwindtest unwind coll skip 1").stream()
-            .toList();
+        session.query("select from unwindtest unwind coll skip 1").stream();
 
-    assertEquals(3, qResult.size());
-    for (var doc : qResult) {
-      String name = doc.getProperty("name");
-      String coll = doc.getProperty("coll");
+    var count = new int[1];
+    qResult.forEach(result -> {
+      String name = result.getProperty("name");
+      String coll = result.getProperty("coll");
       assertTrue(coll.startsWith(name));
-    }
+      count[0]++;
+    });
+
+    Assert.assertEquals(3, count[0]);
   }
 
   @Test
   public void testUnwindLimit() {
     var qResult =
-        session.command("select from unwindtest unwind coll limit 1").stream()
-            .toList();
+        session.query("select from unwindtest unwind coll limit 1").stream();
 
-    assertEquals(1, qResult.size());
-    for (var doc : qResult) {
-      String name = doc.getProperty("name");
-      String coll = doc.getProperty("coll");
+    var count = new int[1];
+
+    qResult.forEach(result -> {
+      String name = result.getProperty("name");
+      String coll = result.getProperty("coll");
       assertTrue(coll.startsWith(name));
-    }
+      count[0]++;
+    });
+
+    assertEquals(1, count[0]);
   }
 
   @Test
   public void testUnwindLimit3() {
     var qResult =
-        session.command("select from unwindtest unwind coll limit 3").stream()
-            .toList();
+        session.query("select from unwindtest unwind coll limit 3").stream();
 
-    assertEquals(3, qResult.size());
-    for (var doc : qResult) {
-      String name = doc.getProperty("name");
-      String coll = doc.getProperty("coll");
+    var count = new int[1];
+    qResult.forEach(result -> {
+      String name = result.getProperty("name");
+      String coll = result.getProperty("coll");
       assertTrue(coll.startsWith(name));
-    }
+      count[0]++;
+    });
+
+    assertEquals(3, count[0]);
   }
 
   @Test
   public void testUnwindSkipAndLimit() {
     var qResult =
-        session.command("select from unwindtest unwind coll skip 1 limit 1").stream()
-            .toList();
+        session.query("select from unwindtest unwind coll skip 1 limit 1").stream();
 
-    assertEquals(1, qResult.size());
-    for (var doc : qResult) {
+    var count = new int[1];
+    qResult.forEach(doc -> {
       String name = doc.getProperty("name");
       String coll = doc.getProperty("coll");
       assertTrue(coll.startsWith(name));
-    }
-  }
+      count[0]++;
+    });
 
-  @Test
-  public void testMultipleClusters() {
-    var qResult = session.command("select from cluster:[testmultipleclusters1]");
-
-    assertEquals(1, qResult.stream().count());
-
-    qResult = session.command("select from cluster:[testmultipleclusters1, testmultipleclusters2]");
-
-    assertEquals(2, qResult.stream().count());
+    Assert.assertEquals(1, count[0]);
   }
 
   @Test
   public void testMatches() {
     var result =
         session.query(
-            new SQLSynchQuery<Object>(
-                "select from foo where name matches"
-                    + " '(?i)(^\\\\Qa\\\\E$)|(^\\\\Qname2\\\\E$)|(^\\\\Qname3\\\\E$)' and bar ="
-                    + " 1"));
-    assertEquals(1, result.size());
+
+            "select from foo where name matches"
+                + " '(?i)(^\\\\Qa\\\\E$)|(^\\\\Qname2\\\\E$)|(^\\\\Qname3\\\\E$)' and bar ="
+                + " 1");
+    assertEquals(1, result.stream().count());
   }
 
   @Test
@@ -866,21 +866,21 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
             .collect(Collectors.toList());
 
     assertEquals(1, result.size());
-    assertEquals("a", result.get(0).getProperty("blabla"));
+    assertEquals("a", result.getFirst().getProperty("blabla"));
 
     result =
         session.query("select name as blabla, * from foo where name = 'a'").stream()
             .collect(Collectors.toList());
 
     assertEquals(1, result.size());
-    assertEquals("a", result.get(0).getProperty("blabla"));
+    assertEquals("a", result.getFirst().getProperty("blabla"));
 
     result =
         session.query("select name as blabla, *, fff as zzz from foo where name = 'a'").stream()
             .collect(Collectors.toList());
 
     assertEquals(1, result.size());
-    assertEquals("a", result.get(0).getProperty("blabla"));
+    assertEquals("a", result.getFirst().getProperty("blabla"));
   }
 
   @Test
@@ -895,26 +895,29 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     var qResult = session.command("select from TestUrl").stream().toList();
 
     assertEquals(1, qResult.size());
-    assertEquals("http://www.google.com", qResult.get(0).getProperty("url"));
+    assertEquals("http://www.google.com", qResult.getFirst().getProperty("url"));
   }
 
   @Test
   public void testUnwindSkipAndLimit2() {
     var qResult =
-        session.command("select from unwindtest unwind coll skip 1 limit 2").stream()
-            .toList();
+        session.query("select from unwindtest unwind coll skip 1 limit 2").stream();
 
-    assertEquals(2, qResult.size());
-    for (var doc : qResult) {
-      String name = doc.getProperty("name");
-      String coll = doc.getProperty("coll");
+    var count = new int[1];
+
+    qResult.forEach(result -> {
+      String name = result.getProperty("name");
+      String coll = result.getProperty("coll");
       assertTrue(coll.startsWith(name));
-    }
+      count[0]++;
+    });
+
+    assertEquals(2, count[0]);
   }
 
   @Test
   public void testMultipleParamsWithSameName() {
-    Map<String, Object> params = new HashMap<String, Object>();
+    Map<String, Object> params = new HashMap<>();
     params.put("param1", "foo");
     var qResult =
         session.query("select from TestParams where name like '%' + :param1 + '%'", params);
@@ -927,7 +930,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
             params);
     assertEquals(1, qResult.stream().count());
 
-    params = new HashMap<String, Object>();
+    params = new HashMap<>();
     params.put("param1", "bar");
 
     qResult = session.query("select from TestParams where surname like '%' + :param1 + '%'",
@@ -984,8 +987,8 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
         "SELECT $ll as lll from unwindtest let $ll = coll.asList().asString() where name = 'bar'";
     var results = session.query(sql).stream().toList();
     assertEquals(1, results.size());
-    assertNotNull(results.get(0).getProperty("lll"));
-    assertEquals("[bar1, bar2]", results.get(0).getProperty("lll"));
+    assertNotNull(results.getFirst().getProperty("lll"));
+    assertEquals("[bar1, bar2]", results.getFirst().getProperty("lll"));
   }
 
   @Test
@@ -996,7 +999,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
             + " collection_sum, avg(data.size) as collection_avg from"
             + " OCommandExecutorSQLSelectTest_aggregations").toList();
     assertEquals(1, results.size());
-    var doc = results.get(0);
+    var doc = results.getFirst();
 
     assertThat(doc.<Integer>getProperty("collection_size")).isEqualTo(5);
     assertThat(doc.<Integer>getProperty("collection_sum")).isEqualTo(130);
@@ -1041,7 +1044,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
     var results = session.query(sql).stream().toList();
     assertEquals(1, results.size());
-    var doc = results.get(0);
+    var doc = results.getFirst();
     assertThat(doc.<Integer>getProperty("integer")).isEqualTo(1);
     assertEquals("Test", doc.getProperty("string"));
     assertNull(doc.getProperty("nothing"));
@@ -1319,22 +1322,25 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     // issue http://www.prjhub.com/#/issues/6199
 
     var sql = "SELECT FROM FilterAndOrderByTest WHERE active = true ORDER BY dc DESC";
-    var results = session.query(sql).stream().toList();
-    assertEquals(3, results.size());
+    var results = session.query(sql).stream();
+    var iter = results.iterator();
 
     Calendar cal = new GregorianCalendar();
 
-    Date date = results.get(0).getProperty("dc");
+    Date date = iter.next().getProperty("dc");
     cal.setTime(date);
     assertEquals(2016, cal.get(Calendar.YEAR));
 
-    date = results.get(1).getProperty("dc");
+    date = iter.next().getProperty("dc");
     cal.setTime(date);
     assertEquals(2010, cal.get(Calendar.YEAR));
 
-    date = results.get(2).getProperty("dc");
+    date = iter.next().getProperty("dc");
     cal.setTime(date);
     assertEquals(2009, cal.get(Calendar.YEAR));
+
+    Assert.assertFalse(iter.hasNext());
+    results.close();
   }
 
   @Test
@@ -1345,13 +1351,13 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     var sql = "SELECT expand(collection[name = 'n1']) FROM ComplexFilterInSquareBrackets2";
     var results = session.query(sql).stream().collect(Collectors.toList());
     assertEquals(1, results.size());
-    assertEquals("n1", results.iterator().next().getProperty("name"));
+    assertEquals("n1", results.getFirst().getProperty("name"));
 
     sql =
         "SELECT expand(collection[name = 'n1' and value = 1]) FROM ComplexFilterInSquareBrackets2";
     results = session.query(sql).stream().collect(Collectors.toList());
     assertEquals(1, results.size());
-    assertEquals("n1", results.iterator().next().getProperty("name"));
+    assertEquals("n1", results.getFirst().getProperty("name"));
 
     sql =
         "SELECT expand(collection[name = 'n1' and value > 1]) FROM ComplexFilterInSquareBrackets2";
@@ -1376,7 +1382,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     results = session.query(sql).stream().collect(Collectors.toList());
     assertEquals(1, results.size());
     //    assertEquals(results.iterator().next().field("value"), -1);
-    assertThat(results.iterator().next().<Integer>getProperty("value")).isEqualTo(-1);
+    assertThat(results.getFirst().<Integer>getProperty("value")).isEqualTo(-1);
 
     sql = "SELECT expand(collection[2]) FROM ComplexFilterInSquareBrackets2";
     results = session.query(sql).stream().collect(Collectors.toList());
@@ -1450,7 +1456,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     assertEquals(1, results.size());
     //    assertEquals(results.iterator().next().field("count"), 0l);
 
-    assertThat(results.iterator().next().<Long>getProperty("count")).isEqualTo(0L);
+    assertThat(results.getFirst().<Long>getProperty("count")).isEqualTo(0L);
   }
 
   @Test
@@ -1461,7 +1467,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     assertEquals(1, results.size());
 
     //    assertEquals(results.get(0).field("value"), 86400000l * 26);
-    assertThat(results.get(0).<Long>getProperty("value")).isEqualTo(86400000L * 26);
+    assertThat(results.getFirst().<Long>getProperty("value")).isEqualTo(86400000L * 26);
   }
 
   @Test
@@ -1554,7 +1560,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
         session.query("select date('2015-07-20', 'yyyy-MM-dd').format('dd.MM.yyyy') as dd").stream()
             .toList();
     assertEquals(1, results.size());
-    assertEquals("20.07.2015", results.get(0).getProperty("dd"));
+    assertEquals("20.07.2015", results.getFirst().getProperty("dd"));
   }
 
   @Test
@@ -1575,7 +1581,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
         session.query("select '1'.asLong() as long").stream().toList();
     assertEquals(1, results.size());
     //    assertEquals(results.get(0).field("long"), 1L);
-    assertThat(results.get(0).<Long>getProperty("long")).isEqualTo(1L);
+    assertThat(results.getFirst().<Long>getProperty("long")).isEqualTo(1L);
   }
 
   @Test
@@ -1585,7 +1591,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
         session.query("select difference([1,2,3],[1,2]) as difference").stream()
             .toList();
     assertEquals(1, results.size());
-    var differenceFieldValue = results.get(0).getProperty("difference");
+    var differenceFieldValue = results.getFirst().getProperty("difference");
     assertTrue(differenceFieldValue instanceof Collection);
     assertEquals(1, ((Collection) differenceFieldValue).size());
     assertEquals(3, ((Collection) differenceFieldValue).iterator().next());
@@ -1713,7 +1719,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
             .stream()
             .collect(Collectors.toList());
     assertEquals(1, results.size());
-    assertEquals((Object) 1L, results.get(0).getProperty("count"));
+    assertEquals((Object) 1L, results.getFirst().getProperty("count"));
 
     results =
         session
@@ -1721,7 +1727,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
             .stream()
             .collect(Collectors.toList());
     assertEquals(1, results.size());
-    assertEquals((Object) 2L, results.get(0).getProperty("count"));
+    assertEquals((Object) 2L, results.getFirst().getProperty("count"));
 
     results =
         session
@@ -1731,7 +1737,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
             .stream()
             .collect(Collectors.toList());
     assertEquals(1, results.size());
-    assertEquals((Object) 3L, results.get(0).getProperty("count"));
+    assertEquals((Object) 3L, results.getFirst().getProperty("count"));
   }
 
   @Test
@@ -1740,7 +1746,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
     var results = session.query("select 1e-2 as a").stream().toList();
     assertEquals(1, results.size());
-    assertEquals((Object) 0.01f, results.get(0).getProperty("a"));
+    assertEquals((Object) 0.01f, results.getFirst().getProperty("a"));
   }
 
   @Test
@@ -1779,7 +1785,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
         session.query(
             "select tagz.values()[0][name = 'a'] as t from " + className).toList();
     assertEquals(1, results.size());
-    var result = results.get(0).<Map>getProperty("t");
+    var result = results.getFirst().<Map>getProperty("t");
     assertEquals("b", result.get("surname"));
   }
 
