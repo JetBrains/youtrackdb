@@ -4,8 +4,12 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrack.db.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrack.db.internal.common.directmemory.DirectMemoryAllocator.Intention;
+import com.jetbrains.youtrack.db.internal.common.directmemory.Pointer;
+import com.jetbrains.youtrack.db.internal.common.profiler.metrics.CoreMetrics;
+import com.jetbrains.youtrack.db.internal.common.profiler.metrics.Ratio;
 import com.jetbrains.youtrack.db.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrack.db.internal.common.util.RawPairLongInteger;
+import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.CacheEntry;
@@ -24,7 +28,6 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -54,11 +57,6 @@ public final class AsyncReadCache implements ReadCache {
   private final AtomicInteger cacheSize = new AtomicInteger();
   private final int maxCacheSize;
 
-  private final boolean trackHitRate;
-
-  private final LongAdder requests = new LongAdder();
-  private final LongAdder hits = new LongAdder();
-
   /**
    * Status which indicates whether flush of buffers should be performed or may be delayed.
    */
@@ -68,17 +66,17 @@ public final class AsyncReadCache implements ReadCache {
 
   private final ByteBufferPool bufferPool;
 
+  private final Ratio cacheHitRatio;
+
   public AsyncReadCache(
       final ByteBufferPool bufferPool,
       final long maxCacheSizeInBytes,
-      final int pageSize,
-      final boolean trackHitRate) {
+      final int pageSize) {
     evictionLock.lock();
     try {
       this.pageSize = pageSize;
       this.bufferPool = bufferPool;
 
-      this.trackHitRate = trackHitRate;
       this.maxCacheSize = (int) (maxCacheSizeInBytes / pageSize);
       this.data = new ConcurrentHashMap<>(this.maxCacheSize, 0.5f, N_CPU * 2);
       policy = new WTinyLFUPolicy(data, new FrequencySketch(), cacheSize);
@@ -86,6 +84,10 @@ public final class AsyncReadCache implements ReadCache {
     } finally {
       evictionLock.unlock();
     }
+
+    this.cacheHitRatio = YouTrackDBEnginesManager.instance()
+        .getMetricsRegistry()
+        .globalMetric(CoreMetrics.CACHE_HIT_RATIO);
   }
 
   @Override
@@ -193,84 +195,81 @@ public final class AsyncReadCache implements ReadCache {
     final var fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), extFileId);
     final var pageKey = new PageKey(fileId, pageIndex);
 
-    if (trackHitRate) {
-      requests.increment();
-    }
+    boolean success = false;
 
-    while (true) {
-      checkWriteBuffer();
+    try {
+      while (true) {
+        checkWriteBuffer();
 
-      CacheEntry cacheEntry;
+        CacheEntry cacheEntry;
 
-      cacheEntry = data.get(pageKey);
+        cacheEntry = data.get(pageKey);
 
-      if (cacheEntry != null) {
-        if (cacheEntry.acquireEntry()) {
-          afterRead(cacheEntry);
-
-          if (trackHitRate) {
-            hits.increment();
-          }
-
-          return cacheEntry;
-        }
-      } else {
-        final var read = new boolean[1];
-
-        cacheEntry =
-            data.compute(
-                pageKey,
-                (page, entry) -> {
-                  if (entry == null) {
-                    try {
-                      final var pointer =
-                          writeCache.load(
-                              fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
-                      if (pointer == null) {
-                        return null;
-                      }
-
-                      cacheSize.incrementAndGet();
-                      return new CacheEntryImpl(
-                          page.getFileId(), page.getPageIndex(), pointer, true, this);
-                    } catch (final IOException e) {
-                      throw BaseException.wrapException(
-                          new StorageException(writeCache.getStorageName(),
-                              "Error during loading of page " + pageIndex + " for file " + fileId),
-                          e, writeCache.getStorageName());
-                    }
-                  } else {
-                    read[0] = true;
-                    return entry;
-                  }
-                });
-
-        if (cacheEntry == null) {
-          return null;
-        }
-
-        if (cacheEntry.acquireEntry()) {
-          if (read[0]) {
-            if (trackHitRate) {
-              hits.increment();
-            }
-
+        if (cacheEntry != null) {
+          if (cacheEntry.acquireEntry()) {
             afterRead(cacheEntry);
-          } else {
-            afterAdd(cacheEntry);
+            success = true;
 
-            try {
-              writeCache.checkCacheOverflow();
-            } catch (final java.lang.InterruptedException e) {
-              throw BaseException.wrapException(
-                  new ThreadInterruptedException("Check of write cache overflow was interrupted"),
-                  e, writeCache.getStorageName());
-            }
+            return cacheEntry;
+          }
+        } else {
+          final var read = new boolean[1];
+
+          cacheEntry =
+              data.compute(
+                  pageKey,
+                  (page, entry) -> {
+                    if (entry == null) {
+                      try {
+                        final var pointer =
+                            writeCache.load(
+                                fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
+                        if (pointer == null) {
+                          return null;
+                        }
+
+                        cacheSize.incrementAndGet();
+                        return new CacheEntryImpl(
+                            page.getFileId(), page.getPageIndex(), pointer, true, this);
+                      } catch (final IOException e) {
+                        throw BaseException.wrapException(
+                            new StorageException(writeCache.getStorageName(),
+                                "Error during loading of page " + pageIndex + " for file "
+                                    + fileId),
+                            e, writeCache.getStorageName());
+                      }
+                    } else {
+                      read[0] = true;
+                      return entry;
+                    }
+                  });
+
+          if (cacheEntry == null) {
+            return null;
           }
 
-          return cacheEntry;
+          if (cacheEntry.acquireEntry()) {
+            if (read[0]) {
+              success = true;
+              afterRead(cacheEntry);
+            } else {
+              afterAdd(cacheEntry);
+
+              try {
+                writeCache.checkCacheOverflow();
+              } catch (final java.lang.InterruptedException e) {
+                throw BaseException.wrapException(
+                    new ThreadInterruptedException("Check of write cache overflow was interrupted"),
+                    e, writeCache.getStorageName());
+              }
+            }
+
+            return cacheEntry;
+          }
         }
       }
+    } finally {
+      cacheHitRatio.record(success);
     }
   }
 
@@ -620,15 +619,6 @@ public final class AsyncReadCache implements ReadCache {
     } finally {
       evictionLock.unlock();
     }
-  }
-
-  int hitRate() {
-    final var reqSum = requests.sum();
-    if (reqSum == 0) {
-      return -1;
-    }
-
-    return (int) ((hits.sum() * 100) / reqSum);
   }
 
   private enum DrainStatus {

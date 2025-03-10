@@ -1931,7 +1931,10 @@ public final class WOWCache extends AbstractWriteCache
   private File createFileInstance(final String fileName, final int fileId) {
     final var internalFileName = createInternalFileName(fileName, fileId);
     return new AsyncFile(
-        storagePath.resolve(internalFileName), pageSize, logFileDeletion, this.executor,
+        storagePath.resolve(internalFileName),
+        pageSize,
+        logFileDeletion,
+        this.executor,
         storageName);
   }
 
@@ -2016,8 +2019,8 @@ public final class WOWCache extends AbstractWriteCache
         if (files.get(externalId) == null) {
           final var path =
               storagePath.resolve(idFileNameMap.get((nameIdEntry.getValue().intValue())));
-          final var file = new AsyncFile(path, pageSize, logFileDeletion, this.executor,
-              storageName);
+          final AsyncFile file =
+              new AsyncFile(path, pageSize, logFileDeletion, this.executor, storageName);
 
           if (file.exists()) {
             file.open();
@@ -2085,8 +2088,8 @@ public final class WOWCache extends AbstractWriteCache
         if (files.get(externalId) == null) {
           final var path =
               storagePath.resolve(idFileNameMap.get((nameIdEntry.getValue().intValue())));
-          final var file = new AsyncFile(path, pageSize, logFileDeletion, this.executor,
-              storageName);
+          final AsyncFile file =
+              new AsyncFile(path, pageSize, logFileDeletion, this.executor, storageName);
 
           if (file.exists()) {
             file.open();
@@ -2164,7 +2167,8 @@ public final class WOWCache extends AbstractWriteCache
                   storagePath.resolve(nameIdEntry.getKey()),
                   pageSize,
                   logFileDeletion,
-                  this.executor, storageName);
+                  this.executor,
+                  storageName);
 
           if (fileClassic.exists()) {
             fileClassic.open();

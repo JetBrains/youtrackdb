@@ -692,9 +692,9 @@ public class WOWCacheTestIT {
     var fileName = wowCache.nativeFileNameById(fileId);
     assert fileName != null;
 
-    final var path = storagePath.resolve(fileName);
+    final Path path = storagePath.resolve(fileName);
     final File file = new AsyncFile(path, pageSize, false, Executors.newCachedThreadPool(),
-        wowCache.getStorageName());
+        storageName);
     file.open();
     file.write(
         DurablePage.NEXT_FREE_POSITION,
@@ -732,9 +732,9 @@ public class WOWCacheTestIT {
     var fileName = wowCache.nativeFileNameById(fileId);
     assert fileName != null;
 
-    final var path = storagePath.resolve(fileName);
+    final Path path = storagePath.resolve(fileName);
     final File file = new AsyncFile(path, pageSize, false, Executors.newCachedThreadPool(),
-        wowCache.getStorageName());
+        storageName);
     file.open();
     file.write(0, ByteBuffer.wrap(new byte[]{1}).order(ByteOrder.nativeOrder()));
     file.close();
@@ -770,9 +770,9 @@ public class WOWCacheTestIT {
     var fileName = wowCache.nativeFileNameById(fileId);
     assert fileName != null;
 
-    final var path = storagePath.resolve(fileName);
+    final Path path = storagePath.resolve(fileName);
     final File file = new AsyncFile(path, pageSize, false, Executors.newCachedThreadPool(),
-        wowCache.getStorageName());
+        storageName);
     file.open();
     file.write(
         DurablePage.NEXT_FREE_POSITION,
@@ -805,9 +805,9 @@ public class WOWCacheTestIT {
     var fileName = wowCache.nativeFileNameById(fileId);
     assert fileName != null;
 
-    final var path = storagePath.resolve(fileName);
+    final Path path = storagePath.resolve(fileName);
     final File file = new AsyncFile(path, pageSize, false, Executors.newCachedThreadPool(),
-        wowCache.getStorageName());
+        storageName);
     file.open();
     file.write(
         DurablePage.NEXT_FREE_POSITION,
@@ -840,9 +840,9 @@ public class WOWCacheTestIT {
     var fileName = wowCache.nativeFileNameById(fileId);
     assert fileName != null;
 
-    final var path = storagePath.resolve(fileName);
+    final Path path = storagePath.resolve(fileName);
     final File file = new AsyncFile(path, pageSize, false, Executors.newCachedThreadPool(),
-        wowCache.getStorageName());
+        storageName);
     file.open();
     file.write(
         DurablePage.NEXT_FREE_POSITION,
@@ -875,9 +875,9 @@ public class WOWCacheTestIT {
     var fileName = wowCache.nativeFileNameById(fileId);
     assert fileName != null;
 
-    final var path = storagePath.resolve(fileName);
+    final Path path = storagePath.resolve(fileName);
     final File file = new AsyncFile(path, pageSize, false, Executors.newCachedThreadPool(),
-        wowCache.getStorageName());
+        storageName);
     file.open();
     file.write(
         DurablePage.NEXT_FREE_POSITION,
@@ -893,7 +893,7 @@ public class WOWCacheTestIT {
     File fileClassic =
         new AsyncFile(
             storagePath.resolve(fileName), pageSize, false, Executors.newCachedThreadPool(),
-            wowCache.getStorageName());
+            storageName);
     fileClassic.open();
     var content = new byte[8 + DurablePage.NEXT_FREE_POSITION];
     fileClassic.read(
@@ -933,7 +933,7 @@ public class WOWCacheTestIT {
     File fileClassic =
         new AsyncFile(
             storagePath.resolve(fileName), pageSize, false, Executors.newCachedThreadPool(),
-            wowCache.getStorageName());
+            storageName);
     fileClassic.open();
     var content = new byte[8 + DurablePage.NEXT_FREE_POSITION];
     fileClassic.read(

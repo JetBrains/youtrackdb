@@ -57,6 +57,7 @@ public class LuceneSpatialQueryTest extends BaseLuceneTest {
         var entry = entries.nextElement();
 
         YouTrackDBEnginesManager.instance()
+            .getScheduler()
             .scheduleTask(
                 new Runnable() {
                   @Override

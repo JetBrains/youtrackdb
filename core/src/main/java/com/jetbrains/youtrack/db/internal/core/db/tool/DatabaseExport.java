@@ -132,11 +132,18 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
 
       var time = System.nanoTime();
 
-      exportInfo();
-      exportClusters();
-      exportSchema();
-      exportRecords();
-      exportIndexDefinitions();
+      database.executeInTx(() -> {
+        try {
+          exportInfo();
+          exportClusters();
+          exportSchema();
+          exportRecords();
+          exportIndexDefinitions();
+        } catch (IOException e) {
+          throw new DatabaseExportException(
+              "Error on exporting database '" + database.getName() + "' to: " + fileName, e);
+        }
+      });
 
       listener.onMessage(
           "\n\nDatabase export completed in " + ((System.nanoTime() - time) / 1000000) + "ms");

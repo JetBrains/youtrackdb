@@ -4,7 +4,9 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -30,7 +32,7 @@ public class LuceneSpatialDropTest {
     // @maggiolo00 set cont to 0 and the test will not fail anymore
     insertcount = 100;
 
-    final var dbPath = LuceneBaseTest.getDirectoryPath(getClass());
+    final var dbPath = LuceneBaseTest.getBaseDirectoryPath(getClass());
 
     // clean up the data from the previous runs
     FileUtils.deleteRecursively(new File(dbPath));

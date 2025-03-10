@@ -370,8 +370,6 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
       return;
     }
 
-    final var timer = PROFILER.startChrono();
-
     switch (iType) {
       case LINK: {
         if (!(iValue instanceof Identifiable)) {
@@ -400,10 +398,6 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
           {
             iRecord.field(iName, link);
           }
-          PROFILER.stopChrono(
-              PROFILER.getProcessMetric("serializer.record.string.link2string"),
-              "Serialize link to string",
-              timer);
         }
         break;
       }
@@ -459,10 +453,6 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         }
 
         iOutput.append(StringSerializerHelper.LIST_END);
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.linkList2string"),
-            "Serialize linklist to string",
-            timer);
         break;
       }
 
@@ -485,11 +475,6 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
           // LAZY SET
           coll.toStream(session, iOutput);
         }
-
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.linkSet2string"),
-            "Serialize linkset to string",
-            timer);
         break;
       }
 
@@ -528,10 +513,6 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         }
 
         iOutput.append(StringSerializerHelper.MAP_END);
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.linkMap2string"),
-            "Serialize linkmap to string",
-            timer);
         break;
       }
 
@@ -551,36 +532,20 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         } else {
           iOutput.append(iValue.toString());
         }
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.embed2string"),
-            "Serialize embedded to string",
-            timer);
         break;
 
       case EMBEDDEDLIST:
         embeddedCollectionToStream(
-            null, iOutput, iLinkedClass, iLinkedType, iValue, false);
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.embedList2string"),
-            "Serialize embeddedlist to string",
-            timer);
+            null, iOutput, iLinkedClass, iLinkedType, iValue, iSaveOnlyDirty, false);
         break;
 
       case EMBEDDEDSET:
         embeddedCollectionToStream(
-            null, iOutput, iLinkedClass, iLinkedType, iValue, true);
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.embedSet2string"),
-            "Serialize embeddedset to string",
-            timer);
+            null, iOutput, iLinkedClass, iLinkedType, iValue, iSaveOnlyDirty, true);
         break;
 
       case EMBEDDEDMAP: {
-        embeddedMapToStream(null, iOutput, iLinkedType, iValue);
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.embedMap2string"),
-            "Serialize embeddedmap to string",
-            timer);
+        embeddedMapToStream(null, iOutput, iLinkedClass, iLinkedType, iValue, iSaveOnlyDirty);
         break;
       }
 

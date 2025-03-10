@@ -35,8 +35,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.common.profiler.Profiler;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ExecutionStepInternal;
@@ -61,7 +60,6 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
   public void beforeTest() throws Exception {
     super.beforeTest();
-    getProfilerInstance().startRecording();
 
     session.command("CREATE class foo").close();
     session.command("CREATE property foo.name STRING").close();
@@ -384,8 +382,8 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     }
   }
 
-  private static Profiler getProfilerInstance() {
-    return YouTrackDBEnginesManager.instance().getProfiler();
+  private static ProfilerStub getProfilerInstance() {
+    return ProfilerStub.INSTANCE;
   }
 
   @Test
@@ -396,6 +394,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     assertEquals(1, qResult.size());
   }
 
+  @Ignore("Should be rewritten using the new JFR-based monitoring")
   @Test
   public void testUseIndexWithOr() throws Exception {
     var idxUsagesBefore = indexUsages(session);
@@ -420,6 +419,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     assertEquals(indexUsages(session), idxUsagesBefore);
   }
 
+  @Ignore("Should be rewritten using the new JFR-based monitoring")
   @Test
   public void testCompositeIndex() {
     var idxUsagesBefore = indexUsages(session);
@@ -456,6 +456,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     }
   }
 
+  @Ignore("Should be rewritten using the new JFR-based monitoring")
   @Test
   public void testCompositeIndex2() {
     var idxUsagesBefore = indexUsages(session);

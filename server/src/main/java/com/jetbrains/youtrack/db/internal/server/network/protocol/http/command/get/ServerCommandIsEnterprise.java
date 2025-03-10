@@ -55,11 +55,12 @@ public class ServerCommandIsEnterprise extends ServerCommandAuthenticatedServerA
       throws IOException {
 
     if ("isEE".equalsIgnoreCase(parts[0])) {
+
       iResponse.send(
           HttpUtils.STATUS_OK_CODE,
           "OK",
           HttpUtils.CONTENT_JSON,
-          "{\"enterprise\":true}",
+          "{\"enterprise\": true}",
           null);
 
     } else {

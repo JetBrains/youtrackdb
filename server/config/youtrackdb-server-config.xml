@@ -20,13 +20,6 @@
 
 <youtrackdb-server>
   <handlers>
-    <!-- JMX SERVER, TO TURN ON SET THE 'ENABLED' PARAMETER TO 'true' -->
-    <handler class="com.jetbrains.youtrack.db.internal.server.handler.JMXPlugin">
-      <parameters>
-        <parameter name="enabled" value="false"/>
-        <parameter name="profilerManaged" value="true"/>
-      </parameters>
-    </handler>
     <!-- AUTOMATIC BACKUP, TO TURN ON SET THE 'ENABLED' PARAMETER TO 'true' -->
     <handler class="com.jetbrains.youtrack.db.internal.server.handler.AutomaticBackup">
       <parameters>

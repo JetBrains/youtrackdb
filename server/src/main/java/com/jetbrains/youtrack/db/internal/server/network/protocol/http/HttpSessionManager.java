@@ -48,6 +48,7 @@ public class HttpSessionManager extends SharedResourceAbstract {
             * 1000;
 
     YouTrackDBEnginesManager.instance()
+        .getScheduler()
         .scheduleTask(
             new Runnable() {
               @Override

@@ -39,12 +39,14 @@ public class YouTrackDBEmbeddedTests {
 
   @Test
   public void testCompatibleUrl() {
-    new YouTrackDBImpl(
-        "plocal:" + DbTestBase.getDirectoryPath(getClass()) + "compatibleUrl",
-        YouTrackDBConfig.defaultConfig()).close();
-    new YouTrackDBImpl(
-        "memory:" + DbTestBase.getDirectoryPath(getClass()) + "compatibleUrl",
-        YouTrackDBConfig.defaultConfig()).close();
+    try (YouTrackDB youTrackDb = new YouTrackDBImpl(
+        "plocal:" + DbTestBase.getBaseDirectoryPath(getClass()) + "compatibleUrl",
+        YouTrackDBConfig.defaultConfig())) {
+    }
+    try (YouTrackDB youTrackDb = new YouTrackDBImpl(
+        "memory:" + DbTestBase.getBaseDirectoryPath(getClass()) + "compatibleUrl",
+        YouTrackDBConfig.defaultConfig())) {
+    }
   }
 
   @Test(expected = IllegalArgumentException.class)
@@ -160,13 +162,13 @@ public class YouTrackDBEmbeddedTests {
 
       final var youtrackEmbedded = (YouTrackDBEmbedded) youtrack.internal;
       assertEquals(0, youtrackEmbedded.listDatabases("", "").size());
-      youtrackEmbedded.initCustomStorage("database1", DbTestBase.getDirectoryPath(getClass()) +
+      youtrackEmbedded.initCustomStorage("database1", DbTestBase.getBaseDirectoryPath(getClass()) +
               "testRegisterDatabase/database1",
           "", "");
       try (final DatabaseSession db = youtrackEmbedded.open("database1", "admin", "admin")) {
         assertEquals("database1", db.getDatabaseName());
       }
-      youtrackEmbedded.initCustomStorage("database2", DbTestBase.getDirectoryPath(getClass()) +
+      youtrackEmbedded.initCustomStorage("database2", DbTestBase.getBaseDirectoryPath(getClass()) +
               "testRegisterDatabase/database2",
           "", "");
 
@@ -178,7 +180,7 @@ public class YouTrackDBEmbeddedTests {
       youtrackEmbedded.close();
     } finally {
       FileUtils.deleteRecursively(
-          new File(DbTestBase.getDirectoryPath(getClass()) + "testRegisterDatabase"));
+          new File(DbTestBase.getBaseDirectoryPath(getClass()) + "testRegisterDatabase"));
     }
   }
 
@@ -301,7 +303,7 @@ public class YouTrackDBEmbeddedTests {
   @Test
   public void testClosePool() {
     try (var youTrackDB = YourTracks.embedded(
-        DbTestBase.getDirectoryPath(getClass()) + "testClosePool",
+        DbTestBase.getBaseDirectoryPath(getClass()) + "testClosePool",
         YouTrackDBConfig.defaultConfig())) {
       if (!youTrackDB.exists("test")) {
         youTrackDB.create("test", DatabaseType.PLOCAL, "admin",

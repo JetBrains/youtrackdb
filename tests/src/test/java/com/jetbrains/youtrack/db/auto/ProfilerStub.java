@@ -1,6 +1,6 @@
 /*
  *
- *  *  Copyright YouTrackDB
+ *
  *  *
  *  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  *  you may not use this file except in compliance with the License.
@@ -17,18 +17,19 @@
  *
  *
  */
-package com.jetbrains.youtrack.db.internal.common.profiler;
+package com.jetbrains.youtrack.db.auto;
 
 /**
- *
+ * This is a leftover from the old profiler implementation, still used in some tests. Not removing
+ * it for now, so that the original logic in the tests is clear. Should be removed, when the tests
+ * are refactored.
  */
-public interface ProfilerListener {
+@Deprecated
+public class ProfilerStub {
 
-  void onUpdateCounter(String iName, long counter, long recordingFrom, long recordingTo);
+  public static ProfilerStub INSTANCE = new ProfilerStub();
 
-  void onUpdateChrono(ProfilerEntry chrono);
-
-  void onSnapshotCreated(Object snapshot);
-
-  boolean canSleep();
+  public long getCounter(String iStatName) {
+    return 0;
+  }
 }

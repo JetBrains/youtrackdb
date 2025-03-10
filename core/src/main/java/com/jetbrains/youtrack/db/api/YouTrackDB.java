@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.api;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.session.SessionPool;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
@@ -237,6 +238,23 @@ public interface YouTrackDB extends AutoCloseable {
    */
   SessionPool cachedPool(
       String database, String user, String password, YouTrackDBConfig config);
+
+  /**
+   * Creates database by restoring it from incremental backup. The backup should be created with
+   * {@link DatabaseSession#incrementalBackup(Path)}.
+   * <p/>
+   * At the moment only disk based databases are supported, you can not restore memory databases.
+   *
+   * @param name     Name of database to be created.
+   * @param user     Name of server user, not needed for local databases.
+   * @param password User password, not needed for local databases.
+   * @param path     Path to the backup directory.
+   * @param config   YouTrackDB config, the same as for
+   *                 {@link #create(String, DatabaseType, YouTrackDBConfig)}
+   */
+  void restore(String name, String user, String password, String path,
+      YouTrackDBConfig config);
+
 
   ResultSet execute(String script, Map<String, Object> params);
 

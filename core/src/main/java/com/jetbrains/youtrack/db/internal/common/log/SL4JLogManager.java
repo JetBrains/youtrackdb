@@ -22,7 +22,6 @@ import org.slf4j.event.Level;
  * {@link #log(Object, Level, String, Throwable, Object...)} method.
  */
 public abstract class SL4JLogManager {
-
   private final ConcurrentHashMap<String, Logger> loggersCache = new ConcurrentHashMap<>();
 
   protected static final String DEFAULT_LOG = "com.jetbrains.youtrack.db";

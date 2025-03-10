@@ -14,11 +14,13 @@ import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Ignore;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
+@Ignore("Rewrite these tests for the new SQL engine")
 public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
   @Parameters(value = "remote")

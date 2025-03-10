@@ -69,11 +69,11 @@ public class DbTestBase {
   }
 
   public static String embeddedDBUrl(Class<?> testClass) {
-    return "embedded:" + getDirectoryPath(testClass);
+    return "embedded:" + getBaseDirectoryPath(testClass);
   }
 
-  public static String getDirectoryPath(Class<?> testClass) {
-    final var buildDirectory = Path.of(System.getProperty("buildDirectory", "./target"))
+  public static String getBaseDirectoryPath(Class<?> testClass) {
+    final String buildDirectory = Path.of(System.getProperty("buildDirectory", "./target"))
         .toAbsolutePath().toString();
     return
         buildDirectory + File.separator + "databases" + File.separator + testClass
@@ -85,7 +85,7 @@ public class DbTestBase {
   }
 
   protected YouTrackDBImpl createContext() {
-    var directoryPath = getDirectoryPath(getClass());
+    var directoryPath = getBaseDirectoryPath(getClass());
     var builder = YouTrackDBConfig.builder();
     var config = createConfig((YouTrackDBConfigBuilderImpl) builder);
 

@@ -127,7 +127,7 @@ public class QueryOperatorMajorEquals extends QueryOperatorEqualityNotNulls {
               ascSortOrder);
     }
 
-    updateProfiler(iContext, index, keyParams, indexDefinition);
+    updateProfiler(iContext, index, keyParams);
     return stream;
   }
 

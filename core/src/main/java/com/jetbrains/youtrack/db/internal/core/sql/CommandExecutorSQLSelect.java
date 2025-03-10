@@ -41,7 +41,6 @@ import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.common.util.PatternConst;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
@@ -744,12 +743,6 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
     }
 
     if (tipLimitThreshold > 0 && resultCount > tipLimitThreshold && getLimit() == -1) {
-      reportTip(
-          String.format(
-              "Query '%s' returned a result set with more than %d records. Check if you really need"
-                  + " all these records, or reduce the resultset by using a LIMIT to improve both"
-                  + " performance and used RAM",
-              parserText, tipLimitThreshold));
       tipLimitThreshold = 0;
     }
 
@@ -885,19 +878,6 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
       }
     }
     return result;
-  }
-
-  /**
-   * Report the tip to the profiler and collect it in context to be reported by tools like Studio
-   */
-  protected void reportTip(final String iMessage) {
-    YouTrackDBEnginesManager.instance().getProfiler().reportTip(iMessage);
-    var tips = (List<String>) context.getVariable("tips");
-    if (tips == null) {
-      tips = new ArrayList<String>(3);
-      context.setVariable("tips", tips);
-    }
-    tips.add(iMessage);
   }
 
   protected RuntimeResult getProjectionGroup(
@@ -1398,55 +1378,6 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
       }
     }
     return restrictedClasses;
-  }
-
-  protected void revertSubclassesProfiler(final CommandContext iContext, int num) {
-    final var profiler = YouTrackDBEnginesManager.instance().getProfiler();
-    if (profiler.isRecording()) {
-      profiler.updateCounter(
-          profiler.getDatabaseMetric(iContext.getDatabaseSession().getDatabaseName(),
-              "query.indexUseAttemptedAndReverted"),
-          "Reverted index usage in query",
-          num);
-    }
-  }
-
-  protected void revertProfiler(
-      final CommandContext iContext,
-      final Index index,
-      final List<Object> keyParams,
-      final IndexDefinition indexDefinition) {
-    if (iContext.isRecordingMetrics()) {
-      iContext.updateMetric("compositeIndexUsed", -1);
-    }
-
-    final var profiler = YouTrackDBEnginesManager.instance().getProfiler();
-    if (profiler.isRecording()) {
-      profiler.updateCounter(
-          profiler.getDatabaseMetric(index.getDatabaseName(), "query.indexUsed"),
-          "Used index in query",
-          -1);
-
-      var params = indexDefinition.getParamCount();
-      if (params > 1) {
-        final var profiler_prefix =
-            profiler.getDatabaseMetric(index.getDatabaseName(), "query.compositeIndexUsed");
-
-        profiler.updateCounter(profiler_prefix, "Used composite index in query", -1);
-        profiler.updateCounter(
-            profiler_prefix + "." + params,
-            "Used composite index in query with " + params + " params",
-            -1);
-        profiler.updateCounter(
-            profiler_prefix + "." + params + '.' + keyParams.size(),
-            "Used composite index in query with "
-                + params
-                + " params and "
-                + keyParams.size()
-                + " keys",
-            -1);
-      }
-    }
   }
 
   /**
@@ -2053,7 +1984,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
       fullySorted = fullySorted && fullySortedByIndex;
       if (substreams == null || substreams.isEmpty()) {
         if (attempted > 0) {
-          revertSubclassesProfiler(context, attempted);
+//          revertSubclassesProfiler(context, attempted);
         }
         return false;
       }
@@ -2433,13 +2364,6 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
                 }
               }
 
-              final var profiler = YouTrackDBEnginesManager.instance().getProfiler();
-              if (profiler.isRecording()) {
-                profiler.updateCounter(
-                    profiler.getDatabaseMetric(db.getDatabaseName(), "query.indexUsed"),
-                    "Used index in query",
-                    +1);
-              }
               if (tempResult == null) {
                 tempResult = new ArrayList<>();
               }
@@ -2464,12 +2388,12 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
       indexUseAttempts.clear();
       return true;
     } finally {
-      for (var wastedIndexUsage : indexUseAttempts) {
-        revertProfiler(
-            context,
-            wastedIndexUsage.index,
-            wastedIndexUsage.keyParams,
-            wastedIndexUsage.indexDefinition);
+      for (IndexUsageLog wastedIndexUsage : indexUseAttempts) {
+//        revertProfiler(
+//            context,
+//            wastedIndexUsage.index,
+//            wastedIndexUsage.keyParams,
+//            wastedIndexUsage.indexDefinition);
       }
     }
   }

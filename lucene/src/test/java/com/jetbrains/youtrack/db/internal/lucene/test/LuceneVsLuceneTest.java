@@ -19,7 +19,9 @@ package com.jetbrains.youtrack.db.internal.lucene.test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.lucene.analyzer.LucenePerFieldAnalyzerWrapper;
 import java.io.File;
 import java.io.IOException;
@@ -73,7 +75,7 @@ public class LuceneVsLuceneTest extends BaseLuceneTest {
   }
 
   private File getPath() {
-    return new File(getDirectoryPath(getClass()));
+    return new File(getBaseDirectoryPath(getClass()));
   }
 
   @Test

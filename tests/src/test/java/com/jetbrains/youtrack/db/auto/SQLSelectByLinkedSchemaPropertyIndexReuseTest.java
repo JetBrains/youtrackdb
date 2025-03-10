@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Ignore;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
@@ -33,7 +34,8 @@ import org.testng.annotations.Test;
  * <p>Prefix "lpirt" in class names means "LinkedPropertyIndexReuseTest".
  */
 @SuppressWarnings("SuspiciousMethodCalls")
-@Test
+@Test(groups = {"index"})
+@Ignore("Rewrite these tests for the new SQL engine")
 public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndexReuseTest {
 
   @Parameters(value = "remote")

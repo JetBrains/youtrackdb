@@ -58,7 +58,7 @@ public class LuceneDirectoryFactoryTest extends BaseLuceneTest {
       var directory = fc.createDirectory(db.getStorage(), "index.name", meta).getDirectory();
       assertThat(directory).isInstanceOf(NIOFSDirectory.class);
       assertThat(new File(
-          getDirectoryPath(getClass()) + File.separator + databaseName
+          getBaseDirectoryPath(getClass()) + File.separator + databaseName
               + "/luceneIndexes/index.name"))
           .exists();
       ctx.drop(databaseName);
@@ -80,7 +80,7 @@ public class LuceneDirectoryFactoryTest extends BaseLuceneTest {
       var directory = fc.createDirectory(db.getStorage(), "index.name", meta).getDirectory();
       assertThat(directory).isInstanceOf(MMapDirectory.class);
       assertThat(new File(
-          getDirectoryPath(getClass()) + File.separator + databaseName
+          getBaseDirectoryPath(getClass()) + File.separator + databaseName
               + "/luceneIndexes/index.name"))
           .exists();
       ctx.drop(databaseName);

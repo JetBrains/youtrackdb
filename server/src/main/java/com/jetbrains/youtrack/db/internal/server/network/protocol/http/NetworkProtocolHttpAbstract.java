@@ -29,7 +29,6 @@ import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.LockException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -40,6 +39,9 @@ import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.NetworkProto
 import com.jetbrains.youtrack.db.internal.enterprise.channel.text.SocketChannelTextServer;
 import com.jetbrains.youtrack.db.internal.server.ClientConnection;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
+import com.jetbrains.youtrack.db.internal.server.config.ServerCommandConfiguration;
+import com.jetbrains.youtrack.db.internal.server.monitoring.HttpRequestEvent;
+import com.jetbrains.youtrack.db.internal.server.monitoring.HttpRequestEvent.Error;
 import com.jetbrains.youtrack.db.internal.server.network.ServerNetworkListener;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.NetworkProtocol;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommand;
@@ -768,26 +770,35 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
 
   @Override
   protected void execute() throws Exception {
-    if (channel.socket.isInputShutdown() || channel.socket.isClosed()) {
-      connectionClosed();
-      return;
-    }
 
-    connection.getData().commandInfo = "Listening";
-    connection.getData().commandDetail = null;
+    final var event = new HttpRequestEvent();
 
     try {
+      if (channel.socket.getInetAddress() != null) {
+        event.setClientAddress(channel.socket.getInetAddress().getHostAddress());
+      }
+      if (channel.socket.isInputShutdown() || channel.socket.isClosed()) {
+        event.setError(Error.CONNECTION_CLOSED);
+        sendShutdown();
+        return;
+      }
+
+      connection.getData().commandInfo = "Listening";
+      connection.getData().commandDetail = null;
+
       channel.socket.setSoTimeout(socketTimeout);
       connection.getStats().lastCommandReceived = -1;
 
       var c = (char) channel.read();
 
       if (channel.inStream.available() == 0) {
-        connectionClosed();
+        event.setError(Error.CONNECTION_CLOSED);
+        sendShutdown();
         return;
       }
 
       channel.socket.setSoTimeout(socketTimeout);
+      event.begin();
       connection.getStats().lastCommandReceived = System.currentTimeMillis();
 
       request = new HttpRequestImpl(this, channel.inStream, connection.getData(), configuration);
@@ -880,10 +891,12 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
       }
 
     } catch (SocketException e) {
-      connectionError();
+      event.setError(Error.SOCKET_ERROR);
+      sendShutdown();
 
     } catch (SocketTimeoutException e) {
-      timeout();
+      event.setError(Error.TIMEOUT);
+      sendShutdown();
 
     } catch (Exception t) {
       if (request.getHttpMethod() != null && request.getUrl() != null) {
@@ -912,16 +925,12 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
 
       readAllContent(request);
     } finally {
-      if (connection.getStats().lastCommandReceived > -1) {
-        YouTrackDBEnginesManager.instance()
-            .getProfiler()
-            .stopChrono(
-                "server.network.requests",
-                "Total received requests",
-                connection.getStats().lastCommandReceived,
-                "server.network.requests");
+      if (request != null) {
+        event.setMethod(request.getHttpMethod());
+        event.setUrl(request.getUrl());
       }
-
+      event.setListeningAddress(listeningAddress);
+      event.commit();
       request = null;
       response = null;
     }
@@ -962,39 +971,6 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
       }
     }
     return null;
-  }
-
-  protected void connectionClosed() {
-    YouTrackDBEnginesManager.instance()
-        .getProfiler()
-        .updateCounter(
-            "server.http." + listeningAddress + ".closed",
-            "Close HTTP connection",
-            +1,
-            "server.http.*.closed");
-    sendShutdown();
-  }
-
-  protected void timeout() {
-    YouTrackDBEnginesManager.instance()
-        .getProfiler()
-        .updateCounter(
-            "server.http." + listeningAddress + ".timeout",
-            "Timeout of HTTP connection",
-            +1,
-            "server.http.*.timeout");
-    sendShutdown();
-  }
-
-  protected void connectionError() {
-    YouTrackDBEnginesManager.instance()
-        .getProfiler()
-        .updateCounter(
-            "server.http." + listeningAddress + ".errors",
-            "Error on HTTP connection",
-            +1,
-            "server.http.*.errors");
-    sendShutdown();
   }
 
   public static void registerHandlers(

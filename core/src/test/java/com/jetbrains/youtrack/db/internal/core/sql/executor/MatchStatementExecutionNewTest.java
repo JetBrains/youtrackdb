@@ -5,8 +5,9 @@ import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.common.profiler.Profiler;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
 import java.util.List;
@@ -19,10 +20,8 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
   public void beforeTest() throws Exception {
     super.beforeTest();
 
-    getProfilerInstance().startRecording();
-
-    session.command("CREATE class Person extends V").close();
-    session.command("CREATE class Friend extends E").close();
+    db.command("CREATE class Person extends V").close();
+    db.command("CREATE class Friend extends E").close();
 
     session.begin();
     session.command("CREATE VERTEX Person set name = 'n1'").close();
@@ -2527,10 +2526,6 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
       Assert.assertEquals(1L, rs.stream().count());
     }
     session.commit();
-  }
-
-  private Profiler getProfilerInstance() {
-    return YouTrackDBEnginesManager.instance().getProfiler();
   }
 
   private void printExecutionPlan(ResultSet result) {

@@ -19,12 +19,14 @@
  */
 package com.jetbrains.youtrack.db.internal.core.metadata.function;
 
-import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.command.ScriptExecutor;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.RetryQueryException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -239,9 +241,8 @@ public class Function extends IdentityWrapper {
 
   @Deprecated
   public Object execute(DatabaseSessionInternal session, final Map<Object, Object> iArgs) {
-    final var start = YouTrackDBEnginesManager.instance().getProfiler().startChrono();
-
     Object result;
+
     while (true) {
       try {
         if (callback != null) {
@@ -262,16 +263,6 @@ public class Function extends IdentityWrapper {
 
       } catch (NeedRetryException | RetryQueryException ignore) {
       }
-    }
-
-    if (YouTrackDBEnginesManager.instance().getProfiler().isRecording()) {
-      YouTrackDBEnginesManager.instance()
-          .getProfiler()
-          .stopChrono(
-              "db." + session.getDatabaseName() + ".function.execute",
-              "Time to execute a function",
-              start,
-              "db.*.function.execute");
     }
 
     return result;

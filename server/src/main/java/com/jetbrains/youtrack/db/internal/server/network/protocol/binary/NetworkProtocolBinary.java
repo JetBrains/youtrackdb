@@ -40,7 +40,7 @@ import com.jetbrains.youtrack.db.internal.common.exception.ErrorCode;
 import com.jetbrains.youtrack.db.internal.common.exception.InvalidBinaryChunkException;
 import com.jetbrains.youtrack.db.internal.common.io.YTIOException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
@@ -61,6 +61,12 @@ import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.TokenSecurit
 import com.jetbrains.youtrack.db.internal.server.ClientConnection;
 import com.jetbrains.youtrack.db.internal.server.ConnectionBinaryExecutor;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
+import com.jetbrains.youtrack.db.internal.server.distributed.DistributedException;
+import com.jetbrains.youtrack.db.internal.server.distributed.DistributedRequest;
+import com.jetbrains.youtrack.db.internal.server.distributed.DistributedResponse;
+import com.jetbrains.youtrack.db.internal.server.distributed.ODistributedDatabase;
+import com.jetbrains.youtrack.db.internal.server.distributed.ODistributedServerManager;
+import com.jetbrains.youtrack.db.internal.server.monitoring.BinaryProtocolRequestEvent;
 import com.jetbrains.youtrack.db.internal.server.network.ServerNetworkListener;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.NetworkProtocol;
 import com.jetbrains.youtrack.db.internal.server.plugin.ServerPluginHelper;
@@ -261,11 +267,11 @@ public class NetworkProtocolBinary extends NetworkProtocol {
 
   private void sessionRequest(@Nonnull ClientConnection connection, int requestType,
       int clientTxId) {
-    long timer;
 
-    timer = YouTrackDBEnginesManager.instance().getProfiler().startChrono();
     LogManager.instance().debug(this, "Request id:" + clientTxId + " type:" + requestType);
 
+    final var event = new BinaryProtocolRequestEvent();
+    event.begin();
     try {
       var request = factory.apply(requestType);
       if (request != null) {
@@ -403,14 +409,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
       }
 
     } finally {
-
-      YouTrackDBEnginesManager.instance()
-          .getProfiler()
-          .stopChrono(
-              "server.network.requests",
-              "Total received requests",
-              timer,
-              "server.network.requests");
+      event.commit();
 
       SerializationThreadLocal.INSTANCE.get().clear();
     }

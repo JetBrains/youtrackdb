@@ -29,8 +29,6 @@ import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.log.AnsiCode;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
-import com.jetbrains.youtrack.db.internal.common.profiler.AbstractProfiler.ProfilerHookValue;
-import com.jetbrains.youtrack.db.internal.common.profiler.Profiler.METRIC_TYPE;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTxInternal;
@@ -140,11 +138,6 @@ public class YouTrackDBServer {
     System.setProperty("com.sun.management.jmxremote", "true");
 
     YouTrackDBEnginesManager.instance().startup();
-
-    if (GlobalConfiguration.PROFILER_ENABLED.getValueAsBoolean()
-        && !YouTrackDBEnginesManager.instance().getProfiler().isRecording()) {
-      YouTrackDBEnginesManager.instance().getProfiler().startRecording();
-    }
 
     if (shutdownEngineOnExit) {
       shutdownHook = new ServerShutdownHook(this);
@@ -409,26 +402,6 @@ public class YouTrackDBServer {
     LogManager.instance()
         .info(this, "Databases directory: " + new File(databaseDirectory).getAbsolutePath());
 
-    YouTrackDBEnginesManager.instance()
-        .getProfiler()
-        .registerHookValue(
-            "system.databases",
-            "List of databases configured in Server",
-            METRIC_TYPE.TEXT,
-            new ProfilerHookValue() {
-              @Override
-              public Object getValue() {
-                final var dbs = new StringBuilder(64);
-                for (var dbName : getAvailableStorageNames().keySet()) {
-                  if (dbs.length() > 0) {
-                    dbs.append(',');
-                  }
-                  dbs.append(dbName);
-                }
-                return dbs.toString();
-              }
-            });
-
     return this;
   }
 
@@ -584,9 +557,7 @@ public class YouTrackDBServer {
         shutdownHook.cancel();
       }
 
-      YouTrackDBEnginesManager.instance().getProfiler().unregisterHookValue("system.databases");
-
-      for (var l : lifecycleListeners) {
+      for (OServerLifecycleListener l : lifecycleListeners) {
         l.onBeforeDeactivate();
       }
 

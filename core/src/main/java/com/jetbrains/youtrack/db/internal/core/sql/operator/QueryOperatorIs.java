@@ -136,7 +136,7 @@ public class QueryOperatorIs extends QueryOperatorEquality {
       }
     }
 
-    updateProfiler(iContext, index, keyParams, indexDefinition);
+    updateProfiler(iContext, index, keyParams);
     return stream;
   }
 

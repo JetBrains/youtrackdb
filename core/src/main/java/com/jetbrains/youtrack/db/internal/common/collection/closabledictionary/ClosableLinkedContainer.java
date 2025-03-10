@@ -2,6 +2,8 @@ package com.jetbrains.youtrack.db.internal.common.collection.closabledictionary;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.common.profiler.metrics.CoreMetrics;
+import com.jetbrains.youtrack.db.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -196,6 +198,8 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
    * Amount of simultaneously open files in container
    */
   private final AtomicInteger openFiles = new AtomicInteger();
+
+  private TimeRate fileEvictionRate;
 
   /**
    * Creates new instance of container and set limit of open files which may be hold by container.
@@ -822,10 +826,8 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
   }
 
   private void evict() {
-    final var start = YouTrackDBEnginesManager.instance().getProfiler().startChrono();
-
-    final var initialSize = lruList.size();
-    var closedFiles = 0;
+    final int initialSize = lruList.size();
+    int closedFiles = 0;
 
     while (lruList.size() > openLimit) {
       // we may only close items in open state so we "peek" them first
@@ -852,6 +854,7 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
     }
 
     if (closedFiles > 0) {
+      fileEvictionRate().record(closedFiles);
       LogManager.instance()
           .debug(
               this,
@@ -863,13 +866,6 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
               closedFiles,
               GlobalConfiguration.OPEN_FILES_LIMIT.getKey());
     }
-
-    YouTrackDBEnginesManager.instance()
-        .getProfiler()
-        .stopChrono(
-            "disk.closeFiles",
-            "Close the opened files because reached the configured limit",
-            start);
   }
 
   private class LogAdd implements Runnable {
@@ -947,5 +943,17 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
     };
 
     abstract boolean shouldBeDrained(boolean readBufferOverflow);
+  }
+
+  private TimeRate fileEvictionRate() {
+    // lazy initialization, because YouTrackDBEnginesManager.instance() can be
+    // not initialized at the moment of container creation.
+    if (fileEvictionRate == null) {
+      fileEvictionRate = YouTrackDBEnginesManager.instance()
+          .getMetricsRegistry()
+          .globalMetric(CoreMetrics.FILE_EVICTION_RATE);
+    }
+
+    return fileEvictionRate;
   }
 }

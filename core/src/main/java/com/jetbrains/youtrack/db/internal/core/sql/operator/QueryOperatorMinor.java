@@ -125,7 +125,7 @@ public class QueryOperatorMinor extends QueryOperatorEqualityNotNulls {
               ascSortOrder);
     }
 
-    updateProfiler(iContext, index, keyParams, indexDefinition);
+    updateProfiler(iContext, index, keyParams);
     return stream;
   }
 

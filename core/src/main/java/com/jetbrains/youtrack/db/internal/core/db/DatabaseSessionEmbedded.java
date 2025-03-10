@@ -41,6 +41,8 @@ import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.common.profiler.metrics.CoreMetrics;
+import com.jetbrains.youtrack.db.internal.common.profiler.metrics.Stopwatch;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
@@ -109,9 +111,14 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     implements QueryLifecycleListener {
 
   private YouTrackDBConfigImpl config;
-  private final Storage storage;
+  private Storage storage; // todo: make this final when "removeStorage" is removed
 
   private FrontendTransactionNoTx.NonTxReadMode nonTxReadMode;
+
+  private final Stopwatch freezeDurationMetric;
+  private final Stopwatch releaseDurationMetric;
+
+  private final TransactionMeters transactionMeters;
 
   public DatabaseSessionEmbedded(final Storage storage) {
     activateOnCurrentThread();
@@ -154,6 +161,18 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       init();
 
       databaseOwner = this;
+
+      final var metrics = YouTrackDBEnginesManager.instance().getMetricsRegistry();
+      freezeDurationMetric =
+          metrics.databaseMetric(CoreMetrics.DATABASE_FREEZE_DURATION, getName());
+      releaseDurationMetric =
+          metrics.databaseMetric(CoreMetrics.DATABASE_RELEASE_DURATION, getName());
+
+      this.transactionMeters = new TransactionMeters(
+          metrics.databaseMetric(CoreMetrics.TRANSACTION_RATE, getName()),
+          metrics.databaseMetric(CoreMetrics.TRANSACTION_WRITE_RATE, getName()),
+          metrics.databaseMetric(CoreMetrics.TRANSACTION_WRITE_ROLLBACK_RATE, getName())
+      );
 
     } catch (Exception t) {
       activeSession.remove();
@@ -1628,18 +1647,12 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       return;
     }
 
-    final var startTime = YouTrackDBEnginesManager.instance().getProfiler().startChrono();
-
-    final var storage = getFreezableStorage();
-    if (storage != null) {
-      storage.freeze(this, throwException);
-    }
-
-    YouTrackDBEnginesManager.instance()
-        .getProfiler()
-        .stopChrono(
-            "db." + getDatabaseName() + ".freeze", "Time to freeze the database", startTime,
-            "db.*.freeze");
+    freezeDurationMetric.timed(() -> {
+      final FreezableStorageComponent storage = getFreezableStorage();
+      if (storage != null) {
+        storage.freeze(throwException);
+      }
+    });
   }
 
   /**
@@ -1668,20 +1681,12 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       return;
     }
 
-    final var startTime = YouTrackDBEnginesManager.instance().getProfiler().startChrono();
-
-    final var storage = getFreezableStorage();
-    if (storage != null) {
-      storage.release(this);
-    }
-
-    YouTrackDBEnginesManager.instance()
-        .getProfiler()
-        .stopChrono(
-            "db." + getDatabaseName() + ".release",
-            "Time to release the database",
-            startTime,
-            "db.*.release");
+    releaseDurationMetric.timed(() -> {
+      final FreezableStorageComponent storage = getFreezableStorage();
+      if (storage != null) {
+        storage.release();
+      }
+    });
   }
 
   private FreezableStorageComponent getFreezableStorage() {
@@ -1870,5 +1875,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   public void truncateCluster(String clusterName) {
     assert assertIfNotActive();
     truncateClusterInternal(clusterName);
+  }
+
+  @Override
+  public TransactionMeters transactionMeters() {
+    return transactionMeters;
   }
 }

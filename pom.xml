@@ -40,6 +40,7 @@
     <module>lucene</module>
     <module>jdbc</module>
     <module>distribution</module>
+    <module>console-distribution</module>
   </modules>
 
   <scm>
@@ -171,7 +172,7 @@
         </plugin>
         <plugin>
           <artifactId>maven-clean-plugin</artifactId>
-          <version>3.4.0</version>
+          <version>3.4.1</version>
         </plugin>
 
         <plugin>
@@ -364,6 +365,11 @@
               </goals>
             </execution>
           </executions>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-shade-plugin</artifactId>
+          <version>3.6.0</version>
         </plugin>
       </plugins>
 

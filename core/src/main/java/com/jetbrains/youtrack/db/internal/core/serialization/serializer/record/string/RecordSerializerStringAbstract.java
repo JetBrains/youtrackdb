@@ -24,8 +24,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
-import com.jetbrains.youtrack.db.internal.common.profiler.Profiler;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
@@ -46,7 +45,6 @@ import java.util.Set;
 @SuppressWarnings("serial")
 public abstract class RecordSerializerStringAbstract {
 
-  protected static final Profiler PROFILER = YouTrackDBEnginesManager.instance().getProfiler();
   private static final char DECIMAL_SEPARATOR = '.';
   private static final String MAX_INTEGER_AS_STRING = String.valueOf(Integer.MAX_VALUE);
   private static final int MAX_INTEGER_DIGITS = MAX_INTEGER_AS_STRING.length();
@@ -121,8 +119,6 @@ public abstract class RecordSerializerStringAbstract {
       return;
     }
 
-    final var timer = PROFILER.startChrono();
-
     if (iType == null) {
       if (iValue instanceof RID) {
         iType = PropertyType.LINK;
@@ -134,98 +130,50 @@ public abstract class RecordSerializerStringAbstract {
     switch (iType) {
       case STRING:
         simpleValueToStream(session, iBuffer, iType, iValue);
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.string2string"),
-            "Serialize string to string",
-            timer);
         break;
 
       case BOOLEAN:
         simpleValueToStream(session, iBuffer, iType, iValue);
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.bool2string"),
-            "Serialize boolean to string",
-            timer);
         break;
 
       case INTEGER:
         simpleValueToStream(session, iBuffer, iType, iValue);
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.int2string"),
-            "Serialize integer to string",
-            timer);
         break;
 
       case FLOAT:
         simpleValueToStream(session, iBuffer, iType, iValue);
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.float2string"),
-            "Serialize float to string",
-            timer);
         break;
 
       case DECIMAL:
         simpleValueToStream(session, iBuffer, iType, iValue);
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.decimal2string"),
-            "Serialize decimal to string",
-            timer);
         break;
 
       case LONG:
         simpleValueToStream(session, iBuffer, iType, iValue);
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.long2string"),
-            "Serialize long to string",
-            timer);
         break;
 
       case DOUBLE:
         simpleValueToStream(session, iBuffer, iType, iValue);
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.double2string"),
-            "Serialize double to string",
-            timer);
         break;
 
       case SHORT:
         simpleValueToStream(session, iBuffer, iType, iValue);
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.short2string"),
-            "Serialize short to string",
-            timer);
         break;
 
       case BYTE:
         simpleValueToStream(session, iBuffer, iType, iValue);
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.byte2string"),
-            "Serialize byte to string",
-            timer);
         break;
 
       case BINARY:
         simpleValueToStream(session, iBuffer, iType, iValue);
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.binary2string"),
-            "Serialize binary to string",
-            timer);
         break;
 
       case DATE:
         simpleValueToStream(session, iBuffer, iType, iValue);
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.date2string"),
-            "Serialize date to string",
-            timer);
         break;
 
       case DATETIME:
         simpleValueToStream(session, iBuffer, iType, iValue);
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.datetime2string"),
-            "Serialize datetime to string",
-            timer);
         break;
 
       case LINK:
@@ -234,10 +182,6 @@ public abstract class RecordSerializerStringAbstract {
         } else {
           iBuffer.append(((Identifiable) iValue).getIdentity().toString());
         }
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.link2string"),
-            "Serialize link to string",
-            timer);
         break;
 
       case EMBEDDEDSET:
@@ -248,10 +192,6 @@ public abstract class RecordSerializerStringAbstract {
             null,
             iValue,
             true);
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.embedSet2string"),
-            "Serialize embeddedset to string",
-            timer);
         break;
 
       case EMBEDDEDLIST:
@@ -262,10 +202,6 @@ public abstract class RecordSerializerStringAbstract {
             null,
             iValue,
             false);
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.embedList2string"),
-            "Serialize embeddedlist to string",
-            timer);
         break;
 
       case EMBEDDEDMAP:
@@ -273,12 +209,9 @@ public abstract class RecordSerializerStringAbstract {
             session,
             iBuffer,
             null,
-            iValue
-        );
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.embedMap2string"),
-            "Serialize embeddedmap to string",
-            timer);
+            null,
+            iValue,
+            true);
         break;
 
       case EMBEDDED:
@@ -288,10 +221,10 @@ public abstract class RecordSerializerStringAbstract {
         } else {
           StringSerializerEmbedded.INSTANCE.toStream(session, iBuffer, iValue);
         }
-        PROFILER.stopChrono(
-            PROFILER.getProcessMetric("serializer.record.string.embed2string"),
-            "Serialize embedded to string",
-            timer);
+        break;
+
+      case CUSTOM:
+        StringSerializerAnyStreamable.INSTANCE.toStream(iBuffer, iValue);
         break;
 
       default:
@@ -743,33 +676,18 @@ public abstract class RecordSerializerStringAbstract {
   public RecordAbstract fromStream(
       DatabaseSessionInternal db, final byte[] iSource, final RecordAbstract iRecord,
       final String[] iFields) {
-    final var timer = PROFILER.startChrono();
 
-    try {
-      return fromString(db, new String(iSource, StandardCharsets.UTF_8), iRecord, iFields);
-    } finally {
-
-      PROFILER.stopChrono(
-          PROFILER.getProcessMetric("serializer.record.string.fromStream"),
-          "Deserialize record from stream",
-          timer);
-    }
+    return fromString(db, new String(iSource, StandardCharsets.UTF_8), iRecord, iFields);
   }
 
   public byte[] toStream(DatabaseSessionInternal session, final RecordAbstract iRecord) {
-    final var timer = PROFILER.startChrono();
+    return toString(iRecord, new StringBuilder(2048), null, true)
+        .toString()
+        .getBytes(StandardCharsets.UTF_8);
 
-    try {
       return toString(session, iRecord, new StringWriter(2048), null, true)
           .toString()
           .getBytes(StandardCharsets.UTF_8);
-    } finally {
-
-      PROFILER.stopChrono(
-          PROFILER.getProcessMetric("serializer.record.string.toStream"),
-          "Serialize record to stream",
-          timer);
-    }
   }
 
   protected abstract StringWriter toString(

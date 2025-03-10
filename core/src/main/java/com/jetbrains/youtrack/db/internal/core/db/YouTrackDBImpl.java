@@ -473,6 +473,12 @@ public class YouTrackDBImpl implements YouTrackDB {
         key -> new SessionPoolImpl(this, internalPool));
   }
 
+  @Override
+  public void restore(String name, String user, String password, String path,
+      YouTrackDBConfig config) {
+    internal.restore(name, user, password, null, path, config);
+  }
+
   public void invalidateCachedPools() {
     synchronized (this) {
       cachedPools.forEach((internalPool, pool) -> pool.close());

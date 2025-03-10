@@ -4,7 +4,10 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.ScalableRWLock;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.common.profiler.metrics.CoreMetrics;
+import com.jetbrains.youtrack.db.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrack.db.internal.common.util.RawPairLongObject;
+import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import java.io.EOFException;
 import java.io.IOException;
@@ -41,6 +44,9 @@ public final class AsyncFile implements File {
   private final ExecutorService executor;
   private final String dbName;
 
+  private final TimeRate diskReadMeter;
+  private final TimeRate diskWriteMeter;
+
   private final Semaphore syncSemaphore = new Semaphore(Integer.MAX_VALUE);
   private static final Set<OpenOption> options;
 
@@ -58,6 +64,13 @@ public final class AsyncFile implements File {
     this.executor = executor;
     this.logFileDeletion = logFileDeletion;
     this.dbName = dbName;
+
+    this.diskReadMeter = YouTrackDBEnginesManager.instance()
+        .getMetricsRegistry()
+        .databaseMetric(CoreMetrics.DISK_READ_RATE, storageName);
+    this.diskWriteMeter = YouTrackDBEnginesManager.instance()
+        .getMetricsRegistry()
+        .databaseMetric(CoreMetrics.DISK_WRITE_RATE, storageName);
   }
 
   @Override
@@ -250,6 +263,7 @@ public final class AsyncFile implements File {
   @Override
   public void read(long offset, ByteBuffer buffer, boolean throwOnEof) throws IOException {
     lock.sharedLock();
+    int read = 0;
     try {
       checkForClose();
       checkPosition(offset);
@@ -282,6 +296,7 @@ public final class AsyncFile implements File {
       } while (read < buffer.limit());
     } finally {
       lock.sharedUnlock();
+      diskReadMeter.record(read);
     }
   }
 
@@ -438,7 +453,9 @@ public final class AsyncFile implements File {
     }
 
     @Override
-    public void completed(Integer result, CountDownLatch attachment) {
+    public void completed(Integer bytesWritten, CountDownLatch attachment) {
+      diskWriteMeter.record(bytesWritten);
+
       if (byteBuffer.remaining() > 0) {
         lock.sharedLock();
         try {
