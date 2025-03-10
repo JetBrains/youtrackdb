@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
@@ -109,6 +110,12 @@ public class RemoteResultSet implements ResultSet {
   public Map<String, Long> getQueryStats() {
     assert session == null || session.assertIfNotActive();
     return queryStats;
+  }
+
+  @Nullable
+  @Override
+  public DatabaseSession getBoundToSession() {
+    return session;
   }
 
   public void add(ResultInternal item) {

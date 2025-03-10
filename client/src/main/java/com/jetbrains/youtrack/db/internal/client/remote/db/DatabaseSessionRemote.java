@@ -310,17 +310,20 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   private void checkAndSendTransaction() {
-    if (this.currentTx.isActive() && ((FrontendTransactionOptimistic) this.currentTx).isChanged()) {
+    if (this.currentTx.isActive()) {
       var optimistic = (FrontendTransactionOptimistic) this.currentTx;
+      optimistic.preProcessRecordsAndExecuteCallCallbacks();
 
-      if (((FrontendTransactionOptimistic) this.getTransaction()).isStartedOnServer()) {
-        storage.sendTransactionState(optimistic);
-      } else {
-        storage.beginTransaction(optimistic);
+      if (optimistic.isChanged()) {
+        if (((FrontendTransactionOptimistic) this.getTransaction()).isStartedOnServer()) {
+          storage.sendTransactionState(optimistic);
+        } else {
+          storage.beginTransaction(optimistic);
+        }
+
+        optimistic.resetChangesTracking();
+        optimistic.setSentToServer(true);
       }
-
-      optimistic.resetChangesTracking();
-      optimistic.setSentToServer(true);
     }
   }
 
@@ -328,6 +331,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   public ResultSet query(String query, Object... args) {
     checkOpenness();
     assert assertIfNotActive();
+    beginReadOnly();
     checkAndSendTransaction();
 
     var result = storage.query(this, query, args);
@@ -342,6 +346,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   public ResultSet query(String query, Map args) {
     checkOpenness();
     assert assertIfNotActive();
+    beginReadOnly();
     checkAndSendTransaction();
 
     var result = storage.query(this, query, args);
@@ -385,6 +390,13 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   protected FrontendTransactionOptimistic newTxInstance() {
     assert assertIfNotActive();
     return new FrontendTransactionOptimisticClient(this);
+  }
+
+
+  @Override
+  protected FrontendTransactionOptimistic newReadOnlyTxInstance() {
+    assert assertIfNotActive();
+    return new FrontendTransactionOptimisticClient(this, true);
   }
 
   @Override

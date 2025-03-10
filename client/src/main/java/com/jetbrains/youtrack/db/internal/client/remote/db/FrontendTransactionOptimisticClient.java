@@ -29,6 +29,10 @@ public class FrontendTransactionOptimisticClient extends FrontendTransactionOpti
 
   private final Set<String> indexChanged = new HashSet<>();
 
+  public FrontendTransactionOptimisticClient(DatabaseSessionAbstract iDatabase, boolean readOnly) {
+    super(iDatabase, readOnly);
+  }
+
   public FrontendTransactionOptimisticClient(DatabaseSessionAbstract iDatabase) {
     super(iDatabase);
   }

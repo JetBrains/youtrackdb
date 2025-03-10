@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
@@ -108,5 +109,11 @@ public class LocalResultSet implements ResultSet {
   @Override
   public Map<String, Long> getQueryStats() {
     return new HashMap<>(); // TODO
+  }
+
+  @Nullable
+  @Override
+  public DatabaseSession getBoundToSession() {
+    return session;
   }
 }

@@ -571,9 +571,11 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   public ResultSet query(String query, Object[] args) {
     checkOpenness();
     assert assertIfNotActive();
+    beginReadOnly();
+    currentTx.preProcessRecordsAndExecuteCallCallbacks();
     getSharedContext().getYouTrackDB().startCommand(Optional.empty());
+    preQueryStart();
     try {
-      preQueryStart();
       var statement = SQLEngine.parse(query, this);
       if (!statement.isIdempotent()) {
         throw new CommandExecutionException(getDatabaseName(),
@@ -596,6 +598,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   public ResultSet query(String query, Map args) {
     checkOpenness();
     assert assertIfNotActive();
+    beginReadOnly();
+    currentTx.preProcessRecordsAndExecuteCallCallbacks();
     getSharedContext().getYouTrackDB().startCommand(Optional.empty());
     preQueryStart();
     try {
@@ -619,6 +623,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     checkOpenness();
     assert assertIfNotActive();
 
+    currentTx.preProcessRecordsAndExecuteCallCallbacks();
     getSharedContext().getYouTrackDB().startCommand(Optional.empty());
     preQueryStart();
     try {
@@ -649,6 +654,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     checkOpenness();
     assert assertIfNotActive();
 
+    currentTx.preProcessRecordsAndExecuteCallCallbacks();
     getSharedContext().getYouTrackDB().startCommand(Optional.empty());
     try {
       preQueryStart();
@@ -684,6 +690,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     if (!"sql".equalsIgnoreCase(language)) {
       checkSecurity(Rule.ResourceGeneric.COMMAND, Role.PERMISSION_EXECUTE, language);
     }
+    currentTx.preProcessRecordsAndExecuteCallCallbacks();
     getSharedContext().getYouTrackDB().startCommand(Optional.empty());
     try {
       preQueryStart();
@@ -727,7 +734,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   private void preQueryStart() {
-    currentTx.preProcessRecordsAndExecuteCallCallbacks();
     this.queryState.push(new QueryDatabaseState());
   }
 
@@ -738,6 +744,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     if (!"sql".equalsIgnoreCase(language)) {
       checkSecurity(Rule.ResourceGeneric.COMMAND, Role.PERMISSION_EXECUTE, language);
     }
+    currentTx.preProcessRecordsAndExecuteCallCallbacks();
     getSharedContext().getYouTrackDB().startCommand(Optional.empty());
     try {
       preQueryStart();
@@ -768,6 +775,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   public LocalResultSetLifecycleDecorator query(ExecutionPlan plan, Map<Object, Object> params) {
     checkOpenness();
     assert assertIfNotActive();
+    currentTx.preProcessRecordsAndExecuteCallCallbacks();
     getSharedContext().getYouTrackDB().startCommand(Optional.empty());
     try {
       preQueryStart();

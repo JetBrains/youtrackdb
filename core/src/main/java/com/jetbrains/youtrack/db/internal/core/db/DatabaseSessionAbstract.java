@@ -1128,6 +1128,16 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     return begin(newTxInstance());
   }
 
+  public void beginReadOnly() {
+    assert assertIfNotActive();
+
+    if (currentTx.isActive()) {
+      return;
+    }
+
+    begin(newReadOnlyTxInstance());
+  }
+
   public int begin(FrontendTransactionOptimistic transaction) {
     checkOpenness();
     assert assertIfNotActive();
@@ -1161,6 +1171,12 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     assert assertIfNotActive();
     return new FrontendTransactionOptimistic(this);
   }
+
+  protected FrontendTransactionOptimistic newReadOnlyTxInstance() {
+    assert assertIfNotActive();
+    return new FrontendTransactionOptimistic(this, true);
+  }
+
 
   public void setDefaultTransactionMode() {
     if (!(currentTx instanceof FrontendTransactionNoTx)) {

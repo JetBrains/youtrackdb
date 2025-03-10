@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
@@ -82,5 +83,11 @@ public class InternalResultSet implements ResultSet, Resettable {
     var result = new InternalResultSet(session);
     result.content = this.content;
     return result;
+  }
+
+  @Nullable
+  @Override
+  public DatabaseSession getBoundToSession() {
+    return session;
   }
 }

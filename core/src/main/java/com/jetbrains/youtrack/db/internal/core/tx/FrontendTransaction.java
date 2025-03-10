@@ -177,6 +177,8 @@ public interface FrontendTransaction {
     return getId();
   }
 
+  boolean isReadOnly();
+
   long getId();
 
 

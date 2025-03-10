@@ -167,6 +167,11 @@ public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
   }
 
   @Override
+  public boolean isReadOnly() {
+    return true;
+  }
+
+  @Override
   public Object getCustomData(String iName) {
     throw new UnsupportedOperationException("Operation not supported in no tx mode");
   }

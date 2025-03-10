@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
@@ -69,5 +70,11 @@ public class ExplainResultSet implements ResultSet {
   public Map<String, Long> getQueryStats() {
     assert session == null || session.assertIfNotActive();
     return new HashMap<>();
+  }
+
+  @Nullable
+  @Override
+  public DatabaseSession getBoundToSession() {
+    return session;
   }
 }

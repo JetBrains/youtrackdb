@@ -87,15 +87,22 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
   private boolean isAlreadyStartedOnServer = false;
   protected int txStartCounter;
   private boolean sentToServer = false;
+  private final boolean readOnly;
 
   public FrontendTransactionOptimistic(final DatabaseSessionInternal iDatabase) {
+    this(iDatabase, false);
+  }
+
+  public FrontendTransactionOptimistic(final DatabaseSessionInternal iDatabase, boolean readOnly) {
     super(iDatabase);
     this.id = txSerial.incrementAndGet();
+    this.readOnly = readOnly;
   }
 
   protected FrontendTransactionOptimistic(final DatabaseSessionInternal iDatabase, long id) {
     super(iDatabase);
     this.id = id;
+    readOnly = false;
   }
 
   public int begin() {
@@ -450,6 +457,10 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
   }
 
   public void addRecordOperation(RecordAbstract record, byte status) {
+    if (readOnly) {
+      throw new DatabaseException(session, "Transaction is read-only");
+    }
+
     try {
       if (record.isUnloaded()) {
         throw new DatabaseException(session,
@@ -896,6 +907,11 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
   @Override
   public void setCustomData(String iName, Object iValue) {
     userData.put(iName, iValue);
+  }
+
+  @Override
+  public boolean isReadOnly() {
+    return readOnly;
   }
 
   @Override

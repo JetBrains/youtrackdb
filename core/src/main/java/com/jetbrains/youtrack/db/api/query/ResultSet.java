@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.api.query;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -35,6 +36,9 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
   ExecutionPlan getExecutionPlan();
 
   Map<String, Long> getQueryStats();
+
+  @Nullable
+  DatabaseSession getBoundToSession();
 
   default void reset() {
     throw new UnsupportedOperationException("Implement RESET on " + getClass().getSimpleName());
