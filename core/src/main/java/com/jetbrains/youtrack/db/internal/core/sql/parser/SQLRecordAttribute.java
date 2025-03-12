@@ -93,7 +93,7 @@ public class SQLRecordAttribute extends SimpleNode {
         var schemaClass = ((EntityInternal) iCurrentResult.castToEntity()).getImmutableSchemaClass(
             session);
         if (schemaClass != null) {
-          return schemaClass.getName(session);
+          return schemaClass.getName();
         }
       }
 

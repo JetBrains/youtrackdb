@@ -18,9 +18,9 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
     var className = "testPlain";
     var propertyName = "foo";
     Schema schema = session.getMetadata().getSchema();
-    schema.createClass(className).createProperty(session, propertyName, PropertyType.STRING);
+    schema.createClass(className).createProperty(propertyName, PropertyType.STRING);
 
-    Assert.assertNotNull(schema.getClass(className).getProperty(session, propertyName));
+    Assert.assertNotNull(schema.getClass(className).getProperty(propertyName));
     var result = session.command("drop property " + className + "." + propertyName);
     Assert.assertTrue(result.hasNext());
     var next = result.next();
@@ -28,7 +28,7 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
     Assert.assertFalse(result.hasNext());
     result.close();
 
-    Assert.assertNull(schema.getClass(className).getProperty(session, propertyName));
+    Assert.assertNull(schema.getClass(className).getProperty(propertyName));
   }
 
   @Test
@@ -38,10 +38,10 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
     Schema schema = session.getMetadata().getSchema();
     schema
         .createClass(className)
-        .createProperty(session, propertyName, PropertyType.STRING)
-        .createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+        .createProperty(propertyName, PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
-    Assert.assertNotNull(schema.getClass(className).getProperty(session, propertyName));
+    Assert.assertNotNull(schema.getClass(className).getProperty(propertyName));
     var result = session.command("drop property " + className + "." + propertyName + " force");
     for (var i = 0; i < 2; i++) {
       Assert.assertTrue(result.hasNext());
@@ -52,7 +52,7 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
 
     result.close();
 
-    Assert.assertNull(schema.getClass(className).getProperty(session, propertyName));
+    Assert.assertNull(schema.getClass(className).getProperty(propertyName));
   }
 
   @Test
@@ -63,10 +63,10 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
     Schema schema = session.getMetadata().getSchema();
     schema
         .createClass(className)
-        .createProperty(session, propertyName, PropertyType.STRING)
-        .createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+        .createProperty(propertyName, PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
-    Assert.assertNotNull(schema.getClass(className).getProperty(session, propertyName));
+    Assert.assertNotNull(schema.getClass(className).getProperty(propertyName));
     try {
       session.command("drop property " + className + "." + propertyName);
       Assert.fail();

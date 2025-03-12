@@ -166,9 +166,6 @@ public class CommandExecutorSQLAlterClass extends CommandExecutorSQLAbstract
               + " force it");
     }
 
-    if (value != null && attribute == ATTRIBUTES.SUPERCLASS) {
-      checkClassExists(session, className, decodeClassName(value));
-    }
     if (value != null && attribute == ATTRIBUTES.SUPERCLASSES) {
       var classes = value.split(",\\s*");
       for (var cName : classes) {

@@ -33,16 +33,16 @@ public class OrderByIndexReuseTest extends BaseDBTest {
 
     final var orderByIndexReuse = schema.createClass("OrderByIndexReuse", 1, null);
 
-    orderByIndexReuse.createProperty(session, "firstProp", PropertyType.INTEGER);
-    orderByIndexReuse.createProperty(session, "secondProp", PropertyType.INTEGER);
-    orderByIndexReuse.createProperty(session, "thirdProp", PropertyType.STRING);
-    orderByIndexReuse.createProperty(session, "prop4", PropertyType.STRING);
+    orderByIndexReuse.createProperty("firstProp", PropertyType.INTEGER);
+    orderByIndexReuse.createProperty("secondProp", PropertyType.INTEGER);
+    orderByIndexReuse.createProperty("thirdProp", PropertyType.STRING);
+    orderByIndexReuse.createProperty("prop4", PropertyType.STRING);
 
-    orderByIndexReuse.createIndex(session,
+    orderByIndexReuse.createIndex(
         "OrderByIndexReuseIndexSecondThirdProp",
         SchemaClass.INDEX_TYPE.UNIQUE,
         "secondProp", "thirdProp");
-    orderByIndexReuse.createIndex(session,
+    orderByIndexReuse.createIndex(
         "OrderByIndexReuseIndexFirstPropNotUnique", SchemaClass.INDEX_TYPE.NOTUNIQUE, "firstProp");
 
     for (var i = 0; i < 100; i++) {

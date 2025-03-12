@@ -12,7 +12,7 @@ public class LinksetInTransactionTest extends DbTestBase {
   @Test
   public void test() {
 
-    session.createClass("WithLinks").createProperty(session, "links", PropertyType.LINKSET);
+    session.createClass("WithLinks").createProperty("links", PropertyType.LINKSET);
     session.createClass("Linked");
 
     session.begin();

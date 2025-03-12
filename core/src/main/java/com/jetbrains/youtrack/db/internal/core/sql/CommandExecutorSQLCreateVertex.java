@@ -158,7 +158,7 @@ public class CommandExecutorSQLCreateVertex extends CommandExecutorSQLSetAware
     if (clazz != null) {
       return Collections.singleton(
           session.getClusterNameById(
-              clazz.getClusterSelection(session).getCluster(session, clazz, null)));
+              clazz.getClusterSelection().getCluster(session, clazz, null)));
     } else if (clusterName != null) {
       return getInvolvedClustersOfClusters(session, Collections.singleton(clusterName));
     }

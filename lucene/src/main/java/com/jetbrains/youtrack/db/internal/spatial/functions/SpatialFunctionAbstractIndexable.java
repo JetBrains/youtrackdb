@@ -62,7 +62,7 @@ public abstract class SpatialFunctionAbstractIndexable extends SpatialFunctionAb
     var className = identifier.getStringValue();
     var indices =
         dbMetadata.getImmutableSchemaSnapshot().getClassInternal(className)
-            .getIndexesInternal(session).stream()
+            .getIndexesInternal().stream()
             .filter(idx -> idx instanceof LuceneSpatialIndex)
             .map(idx -> (LuceneSpatialIndex) idx)
             .filter(

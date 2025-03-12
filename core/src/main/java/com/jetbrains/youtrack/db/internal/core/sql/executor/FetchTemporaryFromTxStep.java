@@ -94,10 +94,10 @@ public class FetchTemporaryFromTxStep extends AbstractExecutionStep {
     SchemaClass schema = result;
     if (schema == null) {
       return className == null;
-    } else if (schema.getName(session).equals(className)) {
+    } else if (schema.getName().equals(className)) {
       return true;
     } else {
-      return schema.isSubClassOf(session, className);
+      return schema.isSubClassOf(className);
     }
   }
 

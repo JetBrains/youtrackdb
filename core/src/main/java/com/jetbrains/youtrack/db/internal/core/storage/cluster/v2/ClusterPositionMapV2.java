@@ -160,8 +160,7 @@ public final class ClusterPositionMapV2 extends ClusterPositionMap {
     CacheEntry cacheEntry;
     var clear = false;
 
-    final var entryPointEntry = loadPageForWrite(atomicOperation, fileId, 0, true);
-    try {
+    try (var entryPointEntry = loadPageForWrite(atomicOperation, fileId, 0, true)) {
       final var mapEntryPoint = new MapEntryPoint(entryPointEntry);
       final var lastPage = mapEntryPoint.getFileSize();
 
@@ -211,8 +210,6 @@ public final class ClusterPositionMapV2 extends ClusterPositionMap {
       } finally {
         cacheEntry.close();
       }
-    } finally {
-      entryPointEntry.close();
     }
   }
 
@@ -270,13 +267,14 @@ public final class ClusterPositionMapV2 extends ClusterPositionMap {
     }
   }
 
-  long[] higherPositions(final long clusterPosition, final AtomicOperation atomicOperation)
+  long[] higherPositions(final long clusterPosition, final AtomicOperation atomicOperation,
+      int limit)
       throws IOException {
     if (clusterPosition == Long.MAX_VALUE) {
       return CommonConst.EMPTY_LONG_ARRAY;
     }
 
-    return ceilingPositions(clusterPosition + 1, atomicOperation);
+    return ceilingPositions(clusterPosition + 1, atomicOperation, limit);
   }
 
   ClusterPositionEntry[] higherPositionsEntries(
@@ -346,7 +344,7 @@ public final class ClusterPositionMapV2 extends ClusterPositionMap {
     return result;
   }
 
-  long[] ceilingPositions(long clusterPosition, final AtomicOperation atomicOperation)
+  long[] ceilingPositions(long clusterPosition, final AtomicOperation atomicOperation, int limit)
       throws IOException {
     if (clusterPosition < 0) {
       clusterPosition = 0;
@@ -361,12 +359,15 @@ public final class ClusterPositionMapV2 extends ClusterPositionMap {
       return CommonConst.EMPTY_LONG_ARRAY;
     }
 
+    if (limit <= 0) {
+      limit = Integer.MAX_VALUE;
+    }
+
     long[] result = null;
     do {
       try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
-
         final var bucket = new ClusterPositionMapBucket(cacheEntry);
-        final var resultSize = bucket.getSize() - index;
+        var resultSize = bucket.getSize() - index;
 
         if (resultSize <= 0) {
           pageIndex++;
@@ -377,7 +378,9 @@ public final class ClusterPositionMapV2 extends ClusterPositionMap {
               (long) cacheEntry.getPageIndex() * ClusterPositionMapBucket.MAX_ENTRIES + index;
 
           result = new long[resultSize];
-          for (var i = 0; i < resultSize; i++) {
+
+          var currentLimit = Math.min(limit, resultSize);
+          for (var i = 0; i < resultSize && entriesCount < currentLimit; i++) {
             if (bucket.exists(i + index)) {
               result[entriesCount] = startIndex + i - ClusterPositionMapBucket.MAX_ENTRIES;
               entriesCount++;
@@ -402,16 +405,18 @@ public final class ClusterPositionMapV2 extends ClusterPositionMap {
     return result;
   }
 
-  long[] lowerPositions(final long clusterPosition, final AtomicOperation atomicOperation)
+  long[] lowerPositions(final long clusterPosition, final AtomicOperation atomicOperation,
+      int limit)
       throws IOException {
     if (clusterPosition == 0) {
       return CommonConst.EMPTY_LONG_ARRAY;
     }
 
-    return floorPositions(clusterPosition - 1, atomicOperation);
+    return floorPositions(clusterPosition - 1, atomicOperation, limit);
   }
 
-  long[] floorPositions(final long clusterPosition, final AtomicOperation atomicOperation)
+  long[] floorPositions(final long clusterPosition, final AtomicOperation atomicOperation,
+      int limit)
       throws IOException {
     if (clusterPosition < 0) {
       return CommonConst.EMPTY_LONG_ARRAY;
@@ -432,24 +437,29 @@ public final class ClusterPositionMapV2 extends ClusterPositionMap {
       return CommonConst.EMPTY_LONG_ARRAY;
     }
 
+    if (limit <= 0) {
+      limit = Integer.MAX_VALUE;
+    }
+
     do {
       try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
-
         final var bucket = new ClusterPositionMapBucket(cacheEntry);
+        var bucketSize = bucket.getSize();
         if (index == Integer.MIN_VALUE) {
-          index = bucket.getSize() - 1;
+          index = bucketSize - 1;
         }
 
-        final var resultSize = index + 1;
+        var resultSize = index + 1;
         var entriesCount = 0;
 
         final var startPosition =
             (long) cacheEntry.getPageIndex() * ClusterPositionMapBucket.MAX_ENTRIES;
+        var currentLimit = Math.min(resultSize, limit);
         result = new long[resultSize];
 
-        for (var i = 0; i < resultSize; i++) {
-          if (bucket.exists(i)) {
-            result[entriesCount] = startPosition + i - ClusterPositionMapBucket.MAX_ENTRIES;
+        for (var i = resultSize - 1; i >= 0 && entriesCount < currentLimit; index--, i--) {
+          if (bucket.exists(index)) {
+            result[entriesCount] = startPosition + index - ClusterPositionMapBucket.MAX_ENTRIES;
             entriesCount++;
           }
         }

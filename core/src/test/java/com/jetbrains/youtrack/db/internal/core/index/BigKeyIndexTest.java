@@ -12,8 +12,8 @@ public class BigKeyIndexTest extends DbTestBase {
   @Test
   public void testBigKey() {
     var cl = session.createClass("One");
-    var prop = cl.createProperty(session, "two", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    var prop = cl.createProperty("two", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
 
     for (var i = 0; i < 100; i++) {
       session.begin();
@@ -31,8 +31,8 @@ public class BigKeyIndexTest extends DbTestBase {
   @Test(expected = TooBigIndexKeyException.class)
   public void testTooBigKey() {
     var cl = session.createClass("One");
-    var prop = cl.createProperty(session, "two", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    var prop = cl.createProperty("two", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
 
     session.begin();
     EntityImpl doc = session.newInstance("One");

@@ -48,11 +48,11 @@ public class PolygonShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
 
     Schema schema = db.getMetadata().getSchema();
     var polygon = schema.createAbstractClass(getName(), superClass(db));
-    polygon.createProperty(db, COORDINATES, PropertyType.EMBEDDEDLIST, PropertyType.EMBEDDEDLIST);
+    polygon.createProperty(COORDINATES, PropertyType.EMBEDDEDLIST, PropertyType.EMBEDDEDLIST);
 
     if (GlobalConfiguration.SPATIAL_ENABLE_DIRECT_WKT_READER.getValueAsBoolean()) {
       var polygonZ = schema.createAbstractClass(getName() + "Z", superClass(db));
-      polygonZ.createProperty(db, COORDINATES, PropertyType.EMBEDDEDLIST,
+      polygonZ.createProperty(COORDINATES, PropertyType.EMBEDDEDLIST,
           PropertyType.EMBEDDEDLIST);
     }
   }

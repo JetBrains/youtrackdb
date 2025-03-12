@@ -31,7 +31,7 @@ public class LuceneGraphTXTest extends BaseLuceneTest {
   @Before
   public void init() {
     var type = session.createVertexClass("City");
-    type.createProperty(session, "name", PropertyType.STRING);
+    type.createProperty("name", PropertyType.STRING);
 
     session.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE").close();
   }

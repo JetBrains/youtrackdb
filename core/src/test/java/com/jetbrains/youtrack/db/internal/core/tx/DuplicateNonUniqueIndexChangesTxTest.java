@@ -45,8 +45,8 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
     final var class_ = session.getMetadata().getSchema().createClass("Person");
     var indexName =
         class_
-            .createProperty(session, "name", PropertyType.STRING)
-            .createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+            .createProperty("name", PropertyType.STRING)
+            .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
     index = session.getIndex(indexName);
   }
 

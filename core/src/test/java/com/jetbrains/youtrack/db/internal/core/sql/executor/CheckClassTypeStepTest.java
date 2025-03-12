@@ -17,7 +17,7 @@ public class CheckClassTypeStepTest extends TestUtilsFixture {
     var parentClass = createClassInstance();
     var childClass = createChildClassInstance(parentClass);
     var step =
-        new CheckClassTypeStep(childClass.getName(session), parentClass.getName(session), context,
+        new CheckClassTypeStep(childClass.getName(), parentClass.getName(), context,
             false);
 
     var result = step.start(context);
@@ -28,7 +28,7 @@ public class CheckClassTypeStepTest extends TestUtilsFixture {
   public void shouldCheckOneType() {
     var context = new BasicCommandContext();
     context.setDatabaseSession(session);
-    var className = createClassInstance().getName(session);
+    var className = createClassInstance().getName();
     var step = new CheckClassTypeStep(className, className, context, false);
 
     var result = step.start(context);
@@ -41,7 +41,7 @@ public class CheckClassTypeStepTest extends TestUtilsFixture {
     context.setDatabaseSession(session);
     var step =
         new CheckClassTypeStep(
-            createClassInstance().getName(session), createClassInstance().getName(session), context,
+            createClassInstance().getName(), createClassInstance().getName(), context,
             false);
 
     step.start(context);

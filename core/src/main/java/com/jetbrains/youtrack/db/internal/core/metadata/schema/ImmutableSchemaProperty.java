@@ -41,6 +41,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nonnull;
 
 /**
  * @since 10/21/14
@@ -72,9 +73,11 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
   private final Comparable<Object> minComparable;
   private final Comparable<Object> maxComparable;
   private final Collection<Index> allIndexes;
-  private final boolean isRemote;
 
-  public ImmutableSchemaProperty(DatabaseSessionInternal session, SchemaPropertyInternal property,
+  private int hashCode;
+
+  public ImmutableSchemaProperty(@Nonnull DatabaseSessionInternal session,
+      @Nonnull SchemaPropertyImpl property,
       SchemaImmutableClass owner) {
     name = property.getName(session);
     fullName = property.getFullName(session);
@@ -214,7 +217,6 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
     } else {
       this.allIndexes = Collections.emptyList();
     }
-    this.isRemote = session.isRemote();
   }
 
   private <T> T safeConvert(DatabaseSessionInternal session, Object value, Class<T> target,
@@ -231,42 +233,42 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
   }
 
   @Override
-  public String getName(DatabaseSession session) {
+  public String getName() {
     return name;
   }
 
   @Override
-  public String getFullName(DatabaseSession session) {
+  public String getFullName() {
     return fullName;
   }
 
   @Override
-  public SchemaProperty setName(DatabaseSession session, String iName) {
+  public SchemaProperty setName(String iName) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public String getDescription(DatabaseSession session) {
+  public String getDescription() {
     return description;
   }
 
   @Override
-  public SchemaProperty setDescription(DatabaseSession session, String iDescription) {
+  public SchemaProperty setDescription(String iDescription) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void set(DatabaseSession session, ATTRIBUTES attribute, Object iValue) {
+  public void set(ATTRIBUTES attribute, Object iValue) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public PropertyType getType(DatabaseSession db) {
+  public PropertyType getType() {
     return type;
   }
 
   @Override
-  public SchemaClass getLinkedClass(DatabaseSession session) {
+  public SchemaClass getLinkedClass() {
     if (linkedClassName == null) {
       return null;
     }
@@ -282,162 +284,158 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
   }
 
   @Override
-  public SchemaProperty setLinkedClass(DatabaseSession session, SchemaClass oClass) {
+  public SchemaProperty setLinkedClass(SchemaClass oClass) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public PropertyType getLinkedType(DatabaseSession session) {
+  public PropertyType getLinkedType() {
     return linkedType;
   }
 
   @Override
-  public SchemaProperty setLinkedType(DatabaseSession session, PropertyType type) {
+  public SchemaProperty setLinkedType(PropertyType type) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public boolean isNotNull(DatabaseSession session) {
+  public boolean isNotNull() {
     return notNull;
   }
 
   @Override
-  public SchemaProperty setNotNull(DatabaseSession session, boolean iNotNull) {
+  public SchemaProperty setNotNull(boolean iNotNull) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public Collate getCollate(DatabaseSession session) {
+  public Collate getCollate() {
     return collate;
   }
 
   @Override
-  public SchemaProperty setCollate(DatabaseSession session, String iCollateName) {
+  public SchemaProperty setCollate(String iCollateName) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public SchemaProperty setCollate(DatabaseSession session, Collate collate) {
+  public SchemaProperty setCollate(Collate collate) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public boolean isMandatory(DatabaseSession session) {
+  public boolean isMandatory() {
     return mandatory;
   }
 
   @Override
-  public SchemaProperty setMandatory(DatabaseSession session, boolean mandatory) {
+  public SchemaProperty setMandatory(boolean mandatory) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public boolean isReadonly(DatabaseSession session) {
+  public boolean isReadonly() {
     return readOnly;
   }
 
   @Override
-  public SchemaProperty setReadonly(DatabaseSession session, boolean iReadonly) {
+  public SchemaProperty setReadonly(boolean iReadonly) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public String getMin(DatabaseSession session) {
+  public String getMin() {
     return min;
   }
 
   @Override
-  public SchemaProperty setMin(DatabaseSession session, String min) {
+  public SchemaProperty setMin(String min) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public String getMax(DatabaseSession session) {
+  public String getMax() {
     return max;
   }
 
   @Override
-  public SchemaProperty setMax(DatabaseSession session, String max) {
+  public SchemaProperty setMax(String max) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public String getDefaultValue(DatabaseSession session) {
+  public String getDefaultValue() {
     return defaultValue;
   }
 
   @Override
-  public SchemaProperty setDefaultValue(DatabaseSession session, String defaultValue) {
+  public SchemaProperty setDefaultValue(String defaultValue) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public String createIndex(DatabaseSession session, INDEX_TYPE iType) {
+  public String createIndex(INDEX_TYPE iType) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public String createIndex(DatabaseSession session, String iType) {
+  public String createIndex(String iType) {
     throw new UnsupportedOperationException();
   }
 
 
-  public String createIndex(DatabaseSession session, String iType, Map<String, ?> metadata) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public String createIndex(DatabaseSession session, INDEX_TYPE iType, Map<String, ?> metadata) {
+  public String createIndex(String iType, Map<String, Object> metadata) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public Collection<String> getAllIndexes(DatabaseSession session) {
-    if (isRemote) {
-      throw new UnsupportedOperationException("Not supported in remote environment");
-    }
+  public String createIndex(INDEX_TYPE iType, Map<String, Object> metadata) {
+    throw new UnsupportedOperationException();
+  }
 
+  @Override
+  public Collection<String> getAllIndexes() {
     return this.allIndexes.stream().map(Index::getName).toList();
   }
 
 
   @Override
-  public String getRegexp(DatabaseSession session) {
+  public String getRegexp() {
     return regexp;
   }
 
   @Override
-  public SchemaProperty setRegexp(DatabaseSession session, String regexp) {
+  public SchemaProperty setRegexp(String regexp) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public SchemaProperty setType(DatabaseSession session, PropertyType iType) {
+  public SchemaProperty setType(PropertyType iType) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public String getCustom(DatabaseSession db, String iName) {
+  public String getCustom(String iName) {
     return customProperties.get(iName);
   }
 
   @Override
-  public SchemaProperty setCustom(DatabaseSession session, String iName, String iValue) {
+  public SchemaProperty setCustom(String iName, String iValue) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void removeCustom(DatabaseSession session, String iName) {
+  public void removeCustom(String iName) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void clearCustom(DatabaseSession session) {
+  public void clearCustom() {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public Set<String> getCustomKeys(DatabaseSession db) {
+  public Set<String> getCustomKeys() {
     return Collections.unmodifiableSet(customProperties.keySet());
   }
 
@@ -447,13 +445,13 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
   }
 
   @Override
-  public Object get(DatabaseSession db, ATTRIBUTES attribute) {
+  public Object get(ATTRIBUTES attribute) {
     if (attribute == null) {
       throw new IllegalArgumentException("attribute is null");
     }
 
     return switch (attribute) {
-      case LINKEDCLASS -> getLinkedClass(db);
+      case LINKEDCLASS -> getLinkedClass();
       case LINKEDTYPE -> linkedType;
       case MIN -> min;
       case MANDATORY -> mandatory;
@@ -490,11 +488,40 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
   }
 
   @Override
-  public Collection<Index> getAllIndexesInternal(DatabaseSession session) {
-    if (isRemote) {
-      throw new UnsupportedOperationException("Not supported in remote environment");
+  public Collection<Index> getAllIndexesInternal() {
+    return this.allIndexes;
+  }
+
+  @Override
+  public DatabaseSession getBoundToSession() {
+    return null;
+  }
+
+  @Override
+  public int hashCode() {
+    if (hashCode == 0) {
+      hashCode = name.hashCode() + 31 * owner.getName().hashCode();
     }
 
-    return this.allIndexes;
+    return hashCode;
+  }
+
+  @Override
+  public boolean equals(Object obj) {
+    if (obj == this) {
+      return true;
+    }
+
+    if (obj instanceof SchemaPropertyInternal schemaProperty) {
+      if (schemaProperty.getBoundToSession() != null) {
+        return false;
+      }
+
+      return name.equals(schemaProperty.getName())
+          && owner.getName()
+          .equals(schemaProperty.getOwnerClass().getName());
+    }
+
+    return false;
   }
 }

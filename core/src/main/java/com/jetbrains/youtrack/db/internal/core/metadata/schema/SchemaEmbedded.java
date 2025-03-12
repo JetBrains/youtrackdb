@@ -3,7 +3,6 @@ package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
@@ -19,11 +18,11 @@ public class SchemaEmbedded extends SchemaShared {
     super();
   }
 
-  public SchemaClass createClass(
+  public SchemaClassImpl createClass(
       DatabaseSessionInternal session,
       final String className,
       int[] clusterIds,
-      SchemaClass... superClasses) {
+      SchemaClassImpl... superClasses) {
     final var wrongCharacter = SchemaShared.checkClassNameIfValid(className);
     //noinspection ConstantValue
     if (wrongCharacter != null) {
@@ -35,7 +34,7 @@ public class SchemaEmbedded extends SchemaShared {
               + "'");
     }
 
-    SchemaClass result;
+    SchemaClassImpl result;
     var retry = 0;
 
     while (true) {
@@ -51,11 +50,11 @@ public class SchemaEmbedded extends SchemaShared {
     return result;
   }
 
-  public SchemaClass createClass(
+  public SchemaClassImpl createClass(
       DatabaseSessionInternal session,
       final String className,
       int clusters,
-      SchemaClass... superClasses) {
+      SchemaClassImpl... superClasses) {
     final var wrongCharacter = SchemaShared.checkClassNameIfValid(className);
     //noinspection ConstantValue
     if (wrongCharacter != null) {
@@ -70,12 +69,12 @@ public class SchemaEmbedded extends SchemaShared {
     return doCreateClass(session, className, clusters, superClasses);
   }
 
-  private SchemaClass doCreateClass(
+  private SchemaClassImpl doCreateClass(
       DatabaseSessionInternal session,
       final String className,
       final int clusters,
-      SchemaClass... superClasses) {
-    SchemaClass result;
+      SchemaClassImpl... superClasses) {
+    SchemaClassImpl result;
 
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_CREATE);
     if (superClasses != null) {
@@ -89,7 +88,7 @@ public class SchemaEmbedded extends SchemaShared {
         throw new SchemaException(session.getDatabaseName(),
             "Class '" + className + "' already exists in current database");
       }
-      List<SchemaClass> superClassesList = new ArrayList<>();
+      List<SchemaClassImpl> superClassesList = new ArrayList<>();
       if (superClasses != null) {
         for (var superClass : superClasses) {
           // Filtering for null
@@ -119,7 +118,7 @@ public class SchemaEmbedded extends SchemaShared {
       }
 
       for (var oSessionListener : session.getListeners()) {
-        oSessionListener.onCreateClass(session, result);
+        oSessionListener.onCreateClass(session, new SchemaClassProxy(result, session));
       }
 
     } catch (ClusterIdsAreEmptyException e) {
@@ -137,7 +136,7 @@ public class SchemaEmbedded extends SchemaShared {
   protected void doRealCreateClass(
       DatabaseSessionInternal database,
       String className,
-      List<SchemaClass> superClassesList,
+      List<SchemaClassImpl> superClassesList,
       int[] clusterIds)
       throws ClusterIdsAreEmptyException {
     createClassInternal(database, className, clusterIds, superClassesList);
@@ -147,7 +146,7 @@ public class SchemaEmbedded extends SchemaShared {
       DatabaseSessionInternal session,
       final String className,
       final int[] clusterIdsToAdd,
-      final List<SchemaClass> superClasses)
+      final List<SchemaClassImpl> superClasses)
       throws ClusterIdsAreEmptyException {
     acquireSchemaWriteLock(session);
     try {
@@ -190,7 +189,7 @@ public class SchemaEmbedded extends SchemaShared {
             clusterNames[i] = session.getClusterNameById(clustersToIndex[i]);
           }
 
-          for (var index : ((SchemaClassInternal) superClass).getIndexesInternal(session)) {
+          for (var index : superClass.getIndexesInternal(session)) {
             for (var clusterName : clusterNames) {
               if (clusterName != null) {
                 session
@@ -214,16 +213,16 @@ public class SchemaEmbedded extends SchemaShared {
     return new SchemaClassEmbedded(this, className, clusterIds);
   }
 
-  public SchemaClass getOrCreateClass(
+  public SchemaClassImpl getOrCreateClass(
       DatabaseSessionInternal session, final String iClassName,
-      final SchemaClass... superClasses) {
+      final SchemaClassImpl... superClasses) {
     if (iClassName == null) {
       return null;
     }
 
     acquireSchemaReadLock(session);
     try {
-      SchemaClass cls = classes.get(iClassName.toLowerCase(Locale.ENGLISH));
+      var cls = classes.get(iClassName.toLowerCase(Locale.ENGLISH));
       if (cls != null) {
         return cls;
       }
@@ -231,7 +230,7 @@ public class SchemaEmbedded extends SchemaShared {
       releaseSchemaReadLock(session);
     }
 
-    SchemaClass cls;
+    SchemaClassImpl cls;
 
     int[] clusterIds = null;
     var retry = 0;
@@ -260,14 +259,14 @@ public class SchemaEmbedded extends SchemaShared {
     return cls;
   }
 
-  protected SchemaClass doCreateClass(
+  protected SchemaClassImpl doCreateClass(
       DatabaseSessionInternal session,
       final String className,
       int[] clusterIds,
       int retry,
-      SchemaClass... superClasses)
+      SchemaClassImpl... superClasses)
       throws ClusterIdsAreEmptyException {
-    SchemaClass result;
+    SchemaClassImpl result;
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_CREATE);
     if (superClasses != null) {
       SchemaClassImpl.checkParametersConflict(session, Arrays.asList(superClasses));
@@ -291,7 +290,7 @@ public class SchemaEmbedded extends SchemaShared {
                 className,
                 session.getStorageInfo().getConfiguration().getMinimumClusters());
       }
-      List<SchemaClass> superClassesList = new ArrayList<>();
+      List<SchemaClassImpl> superClassesList = new ArrayList<>();
       if (superClasses != null) {
         for (var superClass : superClasses) {
           if (superClass != null) {
@@ -304,7 +303,7 @@ public class SchemaEmbedded extends SchemaShared {
 
       result = classes.get(className.toLowerCase(Locale.ENGLISH));
       for (var oSessionListener : session.getListeners()) {
-        oSessionListener.onCreateClass(session, result);
+        oSessionListener.onCreateClass(session, new SchemaClassProxy(result, session));
       }
 
     } finally {
@@ -398,7 +397,7 @@ public class SchemaEmbedded extends SchemaShared {
 
       final var key = className.toLowerCase(Locale.ENGLISH);
 
-      SchemaClass cls = classes.get(key);
+      var cls = classes.get(key);
 
       if (cls == null) {
         throw new SchemaException(session.getDatabaseName(),
@@ -444,7 +443,7 @@ public class SchemaEmbedded extends SchemaShared {
 
       final var key = className.toLowerCase(Locale.ENGLISH);
 
-      final SchemaClass cls = classes.get(key);
+      final var cls = classes.get(key);
       if (cls == null) {
         throw new SchemaException(session.getDatabaseName(),
             "Class '" + className + "' was not found in current database");
@@ -463,7 +462,7 @@ public class SchemaEmbedded extends SchemaShared {
 
       for (var superClass : cls.getSuperClasses(session)) {
         // REMOVE DEPENDENCY FROM SUPERCLASS
-        ((SchemaClassImpl) superClass).removeBaseClassInternal(session, cls);
+        superClass.removeBaseClassInternal(session, cls);
       }
       for (var id : cls.getClusterIds(session)) {
         if (id != -1) {
@@ -474,12 +473,6 @@ public class SchemaEmbedded extends SchemaShared {
       dropClassIndexes(session, cls);
 
       classes.remove(key);
-
-      if (cls.getShortName(session) != null)
-      // REMOVE THE ALIAS TOO
-      {
-        classes.remove(cls.getShortName(session).toLowerCase(Locale.ENGLISH));
-      }
 
       removeClusterClassMap(session, cls);
 
@@ -492,7 +485,7 @@ public class SchemaEmbedded extends SchemaShared {
       }
 
       for (var oSessionListener : session.getListeners()) {
-        oSessionListener.onDropClass(session, cls);
+        oSessionListener.onDropClass(session, new SchemaClassProxy(cls, session));
       }
     } finally {
       releaseSchemaWriteLock(session);
@@ -504,7 +497,7 @@ public class SchemaEmbedded extends SchemaShared {
   }
 
 
-  private static void dropClassIndexes(DatabaseSessionInternal session, final SchemaClass cls) {
+  private static void dropClassIndexes(DatabaseSessionInternal session, final SchemaClassImpl cls) {
     final var indexManager = session.getMetadata().getIndexManagerInternal();
 
     for (final var index : indexManager.getClassIndexes(session, cls.getName(session))) {
@@ -518,7 +511,7 @@ public class SchemaEmbedded extends SchemaShared {
       final var iteratorCluster = session.browseCluster(clusterName);
       if (iteratorCluster != null) {
         session.executeInTxBatches(
-            (Iterable<DBRecord>) iteratorCluster, (s, record) -> record.delete());
+            iteratorCluster, (s, record) -> record.delete());
         session.dropClusterInternal(clusterId);
       }
     }
@@ -526,7 +519,7 @@ public class SchemaEmbedded extends SchemaShared {
     session.getLocalCache().freeCluster(clusterId);
   }
 
-  private void removeClusterClassMap(DatabaseSessionInternal session, final SchemaClass cls) {
+  private void removeClusterClassMap(DatabaseSessionInternal session, final SchemaClassImpl cls) {
     for (var clusterId : cls.getClusterIds(session)) {
       if (clusterId < 0) {
         continue;
@@ -540,7 +533,7 @@ public class SchemaEmbedded extends SchemaShared {
   }
 
   void addClusterForClass(
-      DatabaseSessionInternal session, final int clusterId, final SchemaClass cls) {
+      DatabaseSessionInternal session, final int clusterId, final SchemaClassImpl cls) {
     acquireSchemaWriteLock(session);
     try {
       if (clusterId < 0) {

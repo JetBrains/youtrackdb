@@ -66,7 +66,7 @@ public class CheckClusterTypeStep extends AbstractExecutionStep {
     }
 
     var found = false;
-    for (var clust : clazz.getPolymorphicClusterIds(db)) {
+    for (var clust : clazz.getPolymorphicClusterIds()) {
       if (clust == clusterId) {
         found = true;
         break;

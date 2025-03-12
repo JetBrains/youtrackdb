@@ -812,11 +812,11 @@ public class MatchExecutionPlanner {
     Schema schema = db.getMetadata().getSchema();
     var class1 = schema.getClass(className1);
     var class2 = schema.getClass(className2);
-    if (class1.isSubClassOf(db, class2)) {
-      return class1.getName(db);
+    if (class1.isSubClassOf(class2)) {
+      return class1.getName();
     }
-    if (class2.isSubClassOf(db, class1)) {
-      return class2.getName(db);
+    if (class2.isSubClassOf(class1)) {
+      return class2.getName();
     }
     return null;
   }
@@ -885,7 +885,7 @@ public class MatchExecutionPlanner {
         if (filter != null) {
           upperBound = filter.estimate(oClass, this.threshold, ctx);
         } else {
-          upperBound = oClass.count(db);
+          upperBound = oClass.count(ctx.getDatabaseSession());
         }
         result.put(alias, upperBound);
       } else {

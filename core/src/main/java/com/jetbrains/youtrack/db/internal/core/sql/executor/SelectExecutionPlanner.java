@@ -322,7 +322,7 @@ public class SelectExecutionPlanner {
     if (clazz == null) {
       return false;
     }
-    return security.isReadRestrictedBySecurityPolicy(db, "database.class." + clazz.getName(db));
+    return security.isReadRestrictedBySecurityPolicy(db, "database.class." + clazz.getName());
   }
 
   private static boolean handleHardwiredCountOnClassUsingIndex(
@@ -381,7 +381,7 @@ public class SelectExecutionPlanner {
       return false;
     }
 
-    for (var classIndex : clazz.getClassIndexesInternal(ctx.getDatabaseSession())) {
+    for (var classIndex : clazz.getClassIndexesInternal()) {
       var fields = classIndex.getDefinition().getFields();
       if (fields.size() == 1
           && fields.getFirst()
@@ -1086,7 +1086,7 @@ public class SelectExecutionPlanner {
         var from = new SQLFromClause(-1);
         var item = new SQLFromItem(-1);
         from.setItem(item);
-        item.setIdentifier(new SQLIdentifier(schemaClass.getName(session)));
+        item.setIdentifier(new SQLIdentifier(schemaClass.getName()));
         handleClassAsTarget(result, from, info, ctx, profilingEnabled);
       }
       case String s -> {
@@ -1439,9 +1439,9 @@ public class SelectExecutionPlanner {
               .forEach(
                   item -> {
                     var possibleEdgeProperty =
-                        targetClass.getProperty(session, "out_" + item.getAlias());
+                        targetClass.getProperty("out_" + item.getAlias());
                     if (possibleEdgeProperty != null
-                        && possibleEdgeProperty.getType(session) == PropertyType.LINKBAG) {
+                        && possibleEdgeProperty.getType() == PropertyType.LINKBAG) {
                       item.setEdge(true);
                     }
                   });
@@ -1525,7 +1525,7 @@ public class SelectExecutionPlanner {
 
   private static IntArrayList classClustersFiltered(
       DatabaseSessionInternal db, SchemaClass clazz, Set<String> filterClusters) {
-    var ids = clazz.getPolymorphicClusterIds(db);
+    var ids = clazz.getPolymorphicClusterIds();
     var filtered = new IntArrayList();
     for (var id : ids) {
       if (filterClusters.contains(db.getClusterNameById(id))) {
@@ -1569,7 +1569,7 @@ public class SelectExecutionPlanner {
       var db = ctx.getDatabaseSession();
       if (indexedFunctionConditions == null || indexedFunctionConditions.isEmpty()) {
         var bestIndex = findBestIndexFor(ctx,
-            clazz.getIndexesInternal(db),
+            clazz.getIndexesInternal(),
             block, clazz);
         if (bestIndex != null) {
 
@@ -1582,7 +1582,7 @@ public class SelectExecutionPlanner {
           if (filterClusters != null) {
             filterClusterIds = classClustersFiltered(db, clazz, filterClusters);
           } else {
-            filterClusterIds = IntArrayList.of(clazz.getPolymorphicClusterIds(db));
+            filterClusterIds = IntArrayList.of(clazz.getPolymorphicClusterIds());
           }
           subPlan.chain(new GetValueFromIndexEntryStep(ctx, filterClusterIds, profilingEnabled));
           if (bestIndex.requiresDistinctStep()) {
@@ -1604,7 +1604,7 @@ public class SelectExecutionPlanner {
           FetchFromClassExecutionStep step;
           step =
               new FetchFromClassExecutionStep(
-                  clazz.getName(db), filterClusters, ctx, true, profilingEnabled);
+                  clazz.getName(), filterClusters, ctx, true, profilingEnabled);
 
           var subPlan = new SelectExecutionPlan(ctx);
           subPlan.chain(step);
@@ -1768,7 +1768,7 @@ public class SelectExecutionPlanner {
 
     var db = ctx.getDatabaseSession();
     for (var idx :
-        clazz.getIndexesInternal(db).stream()
+        clazz.getIndexesInternal().stream()
             .filter(Index::supportsOrderedIterations)
             .filter(i -> i.getDefinition() != null)
             .toList()) {
@@ -1809,7 +1809,7 @@ public class SelectExecutionPlanner {
         if (filterClusters != null) {
           filterClusterIds = classClustersFiltered(db, clazz, filterClusters);
         } else {
-          filterClusterIds = IntArrayList.of(clazz.getPolymorphicClusterIds(db));
+          filterClusterIds = IntArrayList.of(clazz.getPolymorphicClusterIds());
         }
         plan.chain(new GetValueFromIndexEntryStep(ctx, filterClusterIds, profilingEnabled));
         info.orderApplied = true;
@@ -1857,20 +1857,20 @@ public class SelectExecutionPlanner {
           "Class not found: " + targetClass);
     }
 
-    var db = ctx.getDatabaseSession();
-    if (clazz.count(db, false) != 0 || clazz.getSubclasses(db).isEmpty()
-        || isDiamondHierarchy(db, clazz)) {
+    var session = ctx.getDatabaseSession();
+    if (clazz.count(session, false) != 0 || clazz.getSubclasses().isEmpty()
+        || isDiamondHierarchy(session, clazz)) {
       return false;
     }
     // try subclasses
 
-    var subclasses = clazz.getSubclasses(db);
+    var subclasses = clazz.getSubclasses();
 
     List<InternalExecutionPlan> subclassPlans = new ArrayList<>();
     for (var subClass : subclasses) {
       var subSteps =
           handleClassAsTargetWithIndexRecursive(
-              subClass.getName(db), filterClusters, info, ctx, profilingEnabled);
+              subClass.getName(), filterClusters, info, ctx, profilingEnabled);
       if (subSteps == null || subSteps.isEmpty()) {
         return false;
       }
@@ -1895,7 +1895,7 @@ public class SelectExecutionPlanner {
     while (!stack.isEmpty()) {
       var current = stack.removeFirst();
       traversed.add(current);
-      for (var sub : current.getSubclasses(db)) {
+      for (var sub : current.getSubclasses()) {
         if (traversed.contains(sub)) {
           return true;
         }
@@ -1914,7 +1914,7 @@ public class SelectExecutionPlanner {
       boolean profilingEnabled) {
     var result =
         handleClassAsTargetWithIndex(targetClass, filterClusters, info, ctx, profilingEnabled);
-    var db = ctx.getDatabaseSession();
+    var session = ctx.getDatabaseSession();
     if (result == null) {
       result = new ArrayList<>();
       var clazz = getSchemaFromContext(ctx).getClassInternal(targetClass);
@@ -1922,19 +1922,19 @@ public class SelectExecutionPlanner {
         throw new CommandExecutionException(ctx.getDatabaseSession(),
             "Cannot find class " + targetClass);
       }
-      if (clazz.count(db, false) != 0
-          || clazz.getSubclasses(db).isEmpty()
-          || isDiamondHierarchy(db, clazz)) {
+      if (clazz.count(session, false) != 0
+          || clazz.getSubclasses().isEmpty()
+          || isDiamondHierarchy(session, clazz)) {
         return null;
       }
 
-      var subclasses = clazz.getSubclasses(db);
+      var subclasses = clazz.getSubclasses();
 
       List<InternalExecutionPlan> subclassPlans = new ArrayList<>();
       for (var subClass : subclasses) {
         var subSteps =
             handleClassAsTargetWithIndexRecursive(
-                subClass.getName(db), filterClusters, info, ctx, profilingEnabled);
+                subClass.getName(), filterClusters, info, ctx, profilingEnabled);
         if (subSteps == null || subSteps.isEmpty()) {
           return null;
         }
@@ -1965,7 +1965,7 @@ public class SelectExecutionPlanner {
           "Cannot find class " + targetClass);
     }
 
-    var indexes = clazz.getIndexesInternal(ctx.getDatabaseSession());
+    var indexes = clazz.getIndexesInternal();
 
     final SchemaClass c = clazz;
     var indexSearchDescriptors =
@@ -2003,7 +2003,7 @@ public class SelectExecutionPlanner {
       if (filterClusters != null) {
         filterClusterIds = classClustersFiltered(ctx.getDatabaseSession(), clazz, filterClusters);
       } else {
-        filterClusterIds = IntArrayList.of(clazz.getPolymorphicClusterIds(db));
+        filterClusterIds = IntArrayList.of(clazz.getPolymorphicClusterIds());
       }
       result.add(new GetValueFromIndexEntryStep(ctx, filterClusterIds, profilingEnabled));
       if (desc.requiresDistinctStep()) {
@@ -2187,7 +2187,7 @@ public class SelectExecutionPlanner {
         }
       }
       if (matching != null) {
-        if (clazz.getName(db).equals(desc.getIndex().getDefinition().getClassName())) {
+        if (clazz.getName().equals(desc.getIndex().getDefinition().getClassName())) {
           results.remove(matching);
           results.add(desc);
         }
@@ -2381,11 +2381,11 @@ public class SelectExecutionPlanner {
 
   private static boolean isMap(DatabaseSessionInternal session, SchemaClass clazz,
       String indexField) {
-    var prop = clazz.getProperty(session, indexField);
+    var prop = clazz.getProperty(indexField);
     if (prop == null) {
       return false;
     }
-    return prop.getType(session) == PropertyType.EMBEDDEDMAP;
+    return prop.getType() == PropertyType.EMBEDDEDMAP;
   }
 
   private static boolean allowsRangeQueries(Index index) {
@@ -2468,7 +2468,7 @@ public class SelectExecutionPlanner {
     }
 
     if (tryByIndex) {
-      var clazz = new SQLIdentifier(candidateClass.getName(db));
+      var clazz = new SQLIdentifier(candidateClass.getName());
       if (handleClassAsTargetWithIndexedFunction(
           plan, clusterNames, clazz, info, ctx, profilingEnabled)) {
         return;

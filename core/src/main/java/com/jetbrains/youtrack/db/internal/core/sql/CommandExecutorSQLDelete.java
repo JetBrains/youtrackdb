@@ -348,13 +348,13 @@ public class CommandExecutorSQLDelete extends CommandExecutorSQLAbstract
         }
         final SchemaClass cls = result;
         if (cls != null) {
-          if (cls.isSubClassOf(session, "V"))
+          if (cls.isSubClassOf("V"))
           // FOUND VERTEX
           {
             throw new CommandExecutionException(session,
                 "'DELETE' command cannot delete vertices. Use 'DELETE VERTEX' command instead, or"
                     + " apply the 'UNSAFE' keyword to force it");
-          } else if (cls.isSubClassOf(session, "E"))
+          } else if (cls.isSubClassOf("E"))
           // FOUND EDGE
           {
             throw new CommandExecutionException(session,

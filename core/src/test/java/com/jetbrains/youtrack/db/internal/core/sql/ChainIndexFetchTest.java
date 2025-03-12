@@ -13,14 +13,14 @@ public class ChainIndexFetchTest extends DbTestBase {
   @Test
   public void testFetchChaninedIndex() {
     var baseClass = session.getMetadata().getSchema().createClass("BaseClass");
-    var propr = baseClass.createProperty(session, "ref", PropertyType.LINK);
+    var propr = baseClass.createProperty("ref", PropertyType.LINK);
 
     var linkedClass = session.getMetadata().getSchema().createClass("LinkedClass");
-    var id = linkedClass.createProperty(session, "id", PropertyType.STRING);
-    id.createIndex(session, INDEX_TYPE.UNIQUE);
+    var id = linkedClass.createProperty("id", PropertyType.STRING);
+    id.createIndex(INDEX_TYPE.UNIQUE);
 
-    propr.setLinkedClass(session, linkedClass);
-    propr.createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    propr.setLinkedClass(linkedClass);
+    propr.createIndex(INDEX_TYPE.NOTUNIQUE);
 
     session.begin();
     var doc = (EntityImpl) session.newEntity(linkedClass);

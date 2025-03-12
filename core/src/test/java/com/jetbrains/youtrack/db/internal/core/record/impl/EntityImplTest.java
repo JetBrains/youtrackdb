@@ -136,10 +136,10 @@ public class EntityImplTest extends DbTestBase {
           CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
       var clazz = session.getMetadata().getSchema().createClass("Test");
-      clazz.createProperty(session, "integer", PropertyType.INTEGER);
-      clazz.createProperty(session, "link", PropertyType.LINK);
-      clazz.createProperty(session, "string", PropertyType.STRING);
-      clazz.createProperty(session, "binary", PropertyType.BINARY);
+      clazz.createProperty("integer", PropertyType.INTEGER);
+      clazz.createProperty("link", PropertyType.LINK);
+      clazz.createProperty("string", PropertyType.STRING);
+      clazz.createProperty("binary", PropertyType.BINARY);
 
       session.begin();
 
@@ -201,9 +201,9 @@ public class EntityImplTest extends DbTestBase {
 
       Schema schema = db.getMetadata().getSchema();
       var classA = schema.createClass("TestRemovingField2");
-      classA.createProperty(db, "name", PropertyType.STRING);
-      var property = classA.createProperty(db, "property", PropertyType.STRING);
-      property.setReadonly(db, true);
+      classA.createProperty("name", PropertyType.STRING);
+      var property = classA.createProperty("property", PropertyType.STRING);
+      property.setReadonly(true);
       db.begin();
       var doc = (EntityImpl) db.newEntity(classA);
       doc.field("name", "My Name");
@@ -241,8 +241,8 @@ public class EntityImplTest extends DbTestBase {
 
       Schema schema = session.getMetadata().getSchema();
       var classA = schema.createClass("TestUndo");
-      classA.createProperty(session, "name", PropertyType.STRING);
-      classA.createProperty(session, "property", PropertyType.STRING);
+      classA.createProperty("name", PropertyType.STRING);
+      classA.createProperty("property", PropertyType.STRING);
 
       session.begin();
       var doc = (EntityImpl) session.newEntity(classA);

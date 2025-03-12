@@ -70,7 +70,7 @@ public class SQLJson extends SimpleNode {
       entity = (EntityImpl) session.newEmbeddedEntity();
     } else {
       var cls = session.getMetadata().getImmutableSchemaSnapshot().getClass(className);
-      if (cls.isAbstract(session)) {
+      if (cls.isAbstract()) {
         entity = (EntityImpl) session.newEmbeddedEntity();
       } else {
         entity = (EntityImpl) session.newEntity(className);
@@ -90,7 +90,7 @@ public class SQLJson extends SimpleNode {
       }
 
       var schemaClass = entity.getImmutableSchemaClass(session);
-      var schemaProperty = schemaClass != null ? schemaClass.getProperty(session, name) : null;
+      var schemaProperty = schemaClass != null ? schemaClass.getProperty(name) : null;
       entity.setProperty(name, SQLUpdateItem.cleanPropertyValue(value, session, schemaProperty));
     }
 
@@ -104,7 +104,7 @@ public class SQLJson extends SimpleNode {
       retDoc = (EntityImpl) session.newEmbeddedEntity();
     } else {
       var cls = session.getMetadata().getImmutableSchemaSnapshot().getClass(className);
-      if (cls.isAbstract(session)) {
+      if (cls.isAbstract()) {
         retDoc = (EntityImpl) session.newEmbeddedEntity(cls);
       } else {
         retDoc = (EntityImpl) session.newEntity(className);
@@ -131,7 +131,7 @@ public class SQLJson extends SimpleNode {
 
       var value = item.right.execute(source, ctx);
       value = SQLUpdateItem.cleanPropertyValue(value, session, schemaClass != null ?
-          schemaClass.getProperty(session, name) : null);
+          schemaClass.getProperty(name) : null);
       Character charType;
       if (types != null) {
         charType = types.get(name);

@@ -21,10 +21,10 @@ package com.jetbrains.youtrack.db.internal.core.tx;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
@@ -32,6 +32,7 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import java.util.List;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public interface FrontendTransaction {
 
@@ -60,7 +61,8 @@ public interface FrontendTransaction {
   void clearRecordEntries();
 
   @Nonnull
-  DBRecord loadRecord(RID rid) throws RecordNotFoundException;
+  LoadRecordResult loadRecord(RID rid)
+      throws RecordNotFoundException;
 
   boolean exists(RID rid);
 
@@ -181,8 +183,21 @@ public interface FrontendTransaction {
 
   long getId();
 
-
   void addRecordOperation(RecordAbstract record, byte status);
+
+  @Nullable
+  RecordId getFirstRid(int clusterId);
+
+  @Nullable
+  RecordId getLastRid(int clusterId);
+
+  @Nullable
+  RecordId getNextRidInCluster(@Nonnull RecordId rid);
+
+  @Nullable
+  RecordId getPreviousRidInCluster(@Nonnull RecordId rid);
+
+  boolean isDeletedInTx(@Nonnull RID rid);
 
   default void preProcessRecordsAndExecuteCallCallbacks() {
   }

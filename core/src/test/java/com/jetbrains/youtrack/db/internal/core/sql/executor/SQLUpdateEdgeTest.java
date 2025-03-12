@@ -34,15 +34,15 @@ public class SQLUpdateEdgeTest extends DbTestBase {
     // VERTEXES
     session.begin();
     var v1 = session.command("create vertex").next().castToEntity();
-    assertEquals("V", v1.getSchemaClass().getName(session));
+    assertEquals("V", v1.getSchemaClass().getName());
 
     var v2 = session.command("create vertex V1").next().castToEntity();
-    assertEquals("V1", v2.getSchemaClass().getName(session));
+    assertEquals("V1", v2.getSchemaClass().getName());
 
     var v3 =
         session.command("create vertex set vid = 'v3', brand = 'fiat'").next().castToEntity();
 
-    assertEquals("V", v3.getSchemaClass().getName(session));
+    assertEquals("V", v3.getSchemaClass().getName());
     assertEquals("fiat", v3.getProperty("brand"));
 
     var v4 =

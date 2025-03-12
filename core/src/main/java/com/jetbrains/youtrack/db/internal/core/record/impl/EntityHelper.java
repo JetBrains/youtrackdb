@@ -135,9 +135,9 @@ public class EntityHelper {
 
     var immutableSchemaClass = entity.getImmutableSchemaClass(session);
     var property =
-        immutableSchemaClass != null ? immutableSchemaClass.getProperty(session, fieldName) : null;
-    value = type.convert(value, property != null ? property.getLinkedType(session) : null,
-        property != null ? property.getLinkedClass(session) : null, session);
+        immutableSchemaClass != null ? immutableSchemaClass.getProperty(fieldName) : null;
+    value = type.convert(value, property != null ? property.getLinkedType() : null,
+        property != null ? property.getLinkedClass() : null, session);
 
     return (RET) value;
   }

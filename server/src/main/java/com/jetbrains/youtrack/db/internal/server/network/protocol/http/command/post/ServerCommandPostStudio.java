@@ -140,11 +140,11 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
             || type == PropertyType.LINKMAP) {
           prop =
               (SchemaPropertyImpl)
-                  cls.createProperty(db,
+                  cls.createProperty(
                       fields.get("name"),
                       type, db.getMetadata().getSchema().getClass(fields.get("linkedClass")));
         } else {
-          prop = (SchemaPropertyImpl) cls.createProperty(db, fields.get("name"), type);
+          prop = (SchemaPropertyImpl) cls.createProperty(fields.get("name"), type);
         }
 
         if (fields.get("linkedType") != null) {
@@ -184,7 +184,7 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
     } else if ("del".equals(operation)) {
       iRequest.getData().commandInfo = "Studio delete property";
 
-      cls.dropProperty(db, className);
+      cls.dropProperty(className);
 
       iResponse.send(
           HttpUtils.STATUS_OK_CODE,
@@ -215,13 +215,8 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
           superClass = null;
         }
 
-        final var cls = db.getMetadata().getSchema()
+        db.getMetadata().getSchema()
             .createClass(fields.get("name"), superClass);
-
-        final var alias = fields.get("alias");
-        if (alias != null) {
-          cls.setShortName(db, alias);
-        }
 
         iResponse.send(
             HttpUtils.STATUS_OK_CODE,
@@ -339,7 +334,7 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
           }
 
           var schemaClass = entity.getImmutableSchemaClass(session);
-          var property = schemaClass != null ? schemaClass.getProperty(session, f.getKey()) : null;
+          var property = schemaClass != null ? schemaClass.getProperty(f.getKey()) : null;
           entity.setProperty(f.getKey(),
               SQLUpdateItem.cleanPropertyValue(newValue, session, property));
         }
@@ -392,14 +387,14 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
   private static void executeClassIndexes(
       final HttpRequest iRequest,
       final HttpResponse iResponse,
-      final DatabaseSessionInternal db,
+      final DatabaseSessionInternal session,
       final String operation,
       final String rid,
       final String className,
       final Map<String, String> fields)
       throws IOException {
     // GET THE TARGET CLASS
-    final var cls = db.getMetadata().getSchemaInternal().getClassInternal(rid);
+    final var cls = session.getMetadata().getSchemaInternal().getClassInternal(rid);
     if (cls == null) {
       iResponse.send(
           HttpUtils.STATUS_INTERNALERROR_CODE,
@@ -418,7 +413,7 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
             PatternConst.PATTERN_COMMA_SEPARATED.split(fields.get("fields").trim());
         final var indexType = fields.get("type");
 
-        cls.createIndex(db, fields.get("name"), indexType, fieldNames);
+        cls.createIndex(fields.get("name"), indexType, fieldNames);
 
         iResponse.send(
             HttpUtils.STATUS_OK_CODE,
@@ -439,7 +434,7 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
       iRequest.getData().commandInfo = "Studio delete index";
 
       try {
-        final var index = cls.getClassIndex(db, className);
+        final var index = cls.getClassIndex(session, className);
         if (index == null) {
           iResponse.send(
               HttpUtils.STATUS_INTERNALERROR_CODE,
@@ -450,7 +445,7 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
           return;
         }
 
-        db.getMetadata().getIndexManagerInternal().dropIndex(db, index.getName());
+        session.getMetadata().getIndexManagerInternal().dropIndex(session, index.getName());
 
         iResponse.send(
             HttpUtils.STATUS_OK_CODE,

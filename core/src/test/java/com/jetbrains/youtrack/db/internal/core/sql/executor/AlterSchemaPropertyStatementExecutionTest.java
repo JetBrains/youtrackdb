@@ -16,12 +16,12 @@ public class AlterSchemaPropertyStatementExecutionTest extends DbTestBase {
   public void testSetProperty() {
     var className = "testSetProperty";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    var prop = clazz.createProperty(session, "name", PropertyType.STRING);
-    prop.setMax(session, "15");
+    var prop = clazz.createProperty("name", PropertyType.STRING);
+    prop.setMax("15");
 
     var result = session.command("alter property " + className + ".name max 30");
     printExecutionPlan(null, result);
-    Object currentValue = prop.getMax(session);
+    Object currentValue = prop.getMax();
 
     Assert.assertNotNull(result);
     Assert.assertTrue(result.hasNext());
@@ -37,12 +37,12 @@ public class AlterSchemaPropertyStatementExecutionTest extends DbTestBase {
   public void testSetCustom() {
     var className = "testSetCustom";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    var prop = clazz.createProperty(session, "name", PropertyType.STRING);
-    prop.setCustom(session, "foo", "bar");
+    var prop = clazz.createProperty("name", PropertyType.STRING);
+    prop.setCustom("foo", "bar");
 
     var result = session.command("alter property " + className + ".name custom foo='baz'");
     printExecutionPlan(null, result);
-    Object currentValue = prop.getCustom(session, "foo");
+    Object currentValue = prop.getCustom("foo");
 
     Assert.assertNotNull(result);
     Assert.assertTrue(result.hasNext());

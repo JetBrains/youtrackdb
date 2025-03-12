@@ -7,15 +7,12 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder.Operation;
-import java.util.Optional;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -41,10 +38,10 @@ public class IndexFinderTest {
   @Test
   public void testFindSimpleMatchIndex() {
     var cl = this.session.createClass("cl");
-    var prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE);
-    var prop1 = cl.createProperty(session, "surname", PropertyType.STRING);
-    prop1.createIndex(session, INDEX_TYPE.UNIQUE);
+    var prop = cl.createProperty("name", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    var prop1 = cl.createProperty("surname", PropertyType.STRING);
+    prop1.createIndex(INDEX_TYPE.UNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -61,10 +58,10 @@ public class IndexFinderTest {
   @Test
   public void testFindSimpleMatchHashIndex() {
     var cl = this.session.createClass("cl");
-    var prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE);
-    var prop1 = cl.createProperty(session, "surname", PropertyType.STRING);
-    prop1.createIndex(session, INDEX_TYPE.UNIQUE);
+    var prop = cl.createProperty("name", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    var prop1 = cl.createProperty("surname", PropertyType.STRING);
+    prop1.createIndex(INDEX_TYPE.UNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -81,10 +78,10 @@ public class IndexFinderTest {
   @Test
   public void testFindRangeMatchIndex() {
     var cl = this.session.createClass("cl");
-    var prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE);
-    var prop1 = cl.createProperty(session, "surname", PropertyType.STRING);
-    prop1.createIndex(session, INDEX_TYPE.UNIQUE);
+    var prop = cl.createProperty("name", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    var prop1 = cl.createProperty("surname", PropertyType.STRING);
+    prop1.createIndex(INDEX_TYPE.UNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -103,13 +100,13 @@ public class IndexFinderTest {
   public void testFindRangeNotMatchIndex() {
     var cl = this.session.createClass("cl");
 
-    var prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    var prop = cl.createProperty("name", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
 
-    var prop1 = cl.createProperty(session, "surname", PropertyType.STRING);
-    prop1.createIndex(session, INDEX_TYPE.UNIQUE);
+    var prop1 = cl.createProperty("surname", PropertyType.STRING);
+    prop1.createIndex(INDEX_TYPE.UNIQUE);
 
-    cl.createProperty(session, "third", PropertyType.STRING);
+    cl.createProperty("third", PropertyType.STRING);
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -132,7 +129,7 @@ public class IndexFinderTest {
   @Test
   public void testFindByKey() {
     var cl = this.session.createClass("cl");
-    cl.createProperty(session, "map", PropertyType.EMBEDDEDMAP);
+    cl.createProperty("map", PropertyType.EMBEDDEDMAP);
     this.session.command("create index cl.map on cl(map by key) NOTUNIQUE").close();
 
     IndexFinder finder = new ClassIndexFinder("cl");
@@ -145,7 +142,7 @@ public class IndexFinderTest {
   @Test
   public void testFindByValue() {
     var cl = this.session.createClass("cl");
-    cl.createProperty(session, "map", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
+    cl.createProperty("map", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
     this.session.command("create index cl.map on cl(map by value) NOTUNIQUE").close();
 
     IndexFinder finder = new ClassIndexFinder("cl");
@@ -158,10 +155,10 @@ public class IndexFinderTest {
   @Test
   public void testFindChainMatchIndex() {
     var cl = this.session.createClass("cl");
-    var prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE);
-    var prop1 = cl.createProperty(session, "friend", PropertyType.LINK, cl);
-    prop1.createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    var prop = cl.createProperty("name", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    var prop1 = cl.createProperty("friend", PropertyType.LINK, cl);
+    prop1.createIndex(INDEX_TYPE.NOTUNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -175,10 +172,10 @@ public class IndexFinderTest {
   @Test
   public void testFindChainRangeIndex() {
     var cl = this.session.createClass("cl");
-    var prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE);
-    var prop1 = cl.createProperty(session, "friend", PropertyType.LINK, cl);
-    prop1.createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    var prop = cl.createProperty("name", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    var prop1 = cl.createProperty("friend", PropertyType.LINK, cl);
+    prop1.createIndex(INDEX_TYPE.NOTUNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -192,10 +189,10 @@ public class IndexFinderTest {
   @Test
   public void testFindChainByKeyIndex() {
     var cl = this.session.createClass("cl");
-    cl.createProperty(session, "map", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
+    cl.createProperty("map", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
     this.session.command("create index cl.map on cl(map by key) NOTUNIQUE").close();
-    var prop1 = cl.createProperty(session, "friend", PropertyType.LINK, cl);
-    prop1.createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    var prop1 = cl.createProperty("friend", PropertyType.LINK, cl);
+    prop1.createIndex(INDEX_TYPE.NOTUNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -209,10 +206,10 @@ public class IndexFinderTest {
   @Test
   public void testFindChainByValueIndex() {
     var cl = this.session.createClass("cl");
-    cl.createProperty(session, "map", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
+    cl.createProperty("map", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
     this.session.command("create index cl.map on cl(map by value) NOTUNIQUE").close();
-    var prop1 = cl.createProperty(session, "friend", PropertyType.LINK, cl);
-    prop1.createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    var prop1 = cl.createProperty("friend", PropertyType.LINK, cl);
+    prop1.createIndex(INDEX_TYPE.NOTUNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -226,9 +223,9 @@ public class IndexFinderTest {
   @Test
   public void testFindMultivalueMatchIndex() {
     var cl = this.session.createClass("cl");
-    cl.createProperty(session, "name", PropertyType.STRING);
-    cl.createProperty(session, "surname", PropertyType.STRING);
-    cl.createIndex(session, "cl.name_surname", INDEX_TYPE.NOTUNIQUE, "name", "surname");
+    cl.createProperty("name", PropertyType.STRING);
+    cl.createProperty("surname", PropertyType.STRING);
+    cl.createIndex("cl.name_surname", INDEX_TYPE.NOTUNIQUE, "name", "surname");
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);

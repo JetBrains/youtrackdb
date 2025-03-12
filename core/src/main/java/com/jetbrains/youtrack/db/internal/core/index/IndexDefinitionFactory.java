@@ -23,7 +23,6 @@ package com.jetbrains.youtrack.db.internal.core.index;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -40,23 +39,20 @@ public class IndexDefinitionFactory {
   /**
    * Creates an instance of {@link IndexDefinition} for automatic index.
    *
-   * @param session
    * @param oClass     class which will be indexed
    * @param fieldNames list of properties which will be indexed. Format should be '<property> [by
    *                   key|value]', use 'by key' or 'by value' to describe how to index maps. By
    *                   default maps indexed by key
    * @param types      types of indexed properties
-   * @param collates
-   * @param indexKind
    * @return index definition instance
    */
   public static IndexDefinition createIndexDefinition(
-      DatabaseSessionInternal session, final SchemaClass oClass,
+      final SchemaClass oClass,
       final List<String> fieldNames,
       final List<PropertyType> types,
       List<Collate> collates,
       String indexKind) {
-    checkTypes(session, oClass, fieldNames, types);
+    checkTypes(oClass, fieldNames, types);
 
     if (fieldNames.size() == 1) {
       Collate collate = null;
@@ -65,23 +61,23 @@ public class IndexDefinitionFactory {
       var field = fieldNames.getFirst();
       final var fieldName =
           SchemaClassImpl.decodeClassName(
-              adjustFieldName(session, oClass, extractFieldName(field)));
+              adjustFieldName(oClass, extractFieldName(field)));
       if (collates != null) {
         collate = collates.getFirst();
       }
-      var property = oClass.getProperty(session, fieldName);
+      var property = oClass.getProperty(fieldName);
       if (property != null) {
         if (collate == null) {
-          collate = property.getCollate(session);
+          collate = property.getCollate();
         }
-        linkedType = property.getLinkedType(session);
+        linkedType = property.getLinkedType();
       }
 
       final var indexBy = extractMapIndexSpecifier(field);
       return createSingleFieldIndexDefinition(
-          oClass.getName(session), fieldName, type, linkedType, collate, indexKind, indexBy);
+          oClass.getName(), fieldName, type, linkedType, collate, indexKind, indexBy);
     } else {
-      return createMultipleFieldIndexDefinition(session,
+      return createMultipleFieldIndexDefinition(
           oClass, fieldNames, types, collates, indexKind);
     }
   }
@@ -118,12 +114,12 @@ public class IndexDefinitionFactory {
   }
 
   private static IndexDefinition createMultipleFieldIndexDefinition(
-      DatabaseSessionInternal session, final SchemaClass oClass,
+      final SchemaClass oClass,
       final List<String> fieldsToIndex,
       final List<PropertyType> types,
       List<Collate> collates,
       String indexKind) {
-    final var className = oClass.getName(session);
+    final var className = oClass.getName();
     final var compositeIndex = new CompositeIndexDefinition(className);
 
     for (int i = 0, fieldsToIndexSize = fieldsToIndex.size(); i < fieldsToIndexSize; i++) {
@@ -137,13 +133,13 @@ public class IndexDefinitionFactory {
       var field = fieldsToIndex.get(i);
       final var fieldName =
           SchemaClassImpl.decodeClassName(
-              adjustFieldName(session, oClass, extractFieldName(field)));
-      var property = oClass.getProperty(session, fieldName);
+              adjustFieldName(oClass, extractFieldName(field)));
+      var property = oClass.getProperty(fieldName);
       if (property != null) {
         if (collate == null) {
-          collate = property.getCollate(session);
+          collate = property.getCollate();
         }
-        linkedType = property.getLinkedType(session);
+        linkedType = property.getLinkedType();
       }
       final var indexBy = extractMapIndexSpecifier(field);
 
@@ -155,7 +151,7 @@ public class IndexDefinitionFactory {
     return compositeIndex;
   }
 
-  private static void checkTypes(DatabaseSessionInternal session, SchemaClass oClass,
+  private static void checkTypes(SchemaClass oClass,
       List<String> fieldNames,
       List<PropertyType> types) {
     if (fieldNames.size() != types.size()) {
@@ -171,8 +167,8 @@ public class IndexDefinitionFactory {
       final var fieldName = fieldNames.get(i);
       final var type = types.get(i);
 
-      final var property = oClass.getProperty(session, fieldName);
-      if (property != null && !type.equals(property.getType(session))) {
+      final var property = oClass.getProperty(fieldName);
+      if (property != null && !type.equals(property.getType())) {
         throw new IllegalArgumentException("Property type list not match with real property types");
       }
     }
@@ -274,11 +270,11 @@ public class IndexDefinitionFactory {
             + '\'');
   }
 
-  private static String adjustFieldName(DatabaseSessionInternal session, final SchemaClass clazz,
+  private static String adjustFieldName(final SchemaClass clazz,
       final String fieldName) {
-    final var property = clazz.getProperty(session, fieldName);
+    final var property = clazz.getProperty(fieldName);
     if (property != null) {
-      return property.getName(session);
+      return property.getName();
     } else {
       return fieldName;
     }

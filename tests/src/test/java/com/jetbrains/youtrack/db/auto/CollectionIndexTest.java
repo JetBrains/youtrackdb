@@ -43,11 +43,11 @@ public class CollectionIndexTest extends BaseDBTest {
       session.getMetadata().getSchema().dropClass("Collector");
     }
     final var collector = session.createClass("Collector");
-    collector.createProperty(session, "id", PropertyType.STRING);
+    collector.createProperty("id", PropertyType.STRING);
     collector
-        .createProperty(session, "stringCollection", PropertyType.EMBEDDEDLIST,
+        .createProperty("stringCollection", PropertyType.EMBEDDEDLIST,
             PropertyType.STRING)
-        .createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
   }
 
   @AfterMethod

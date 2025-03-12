@@ -55,9 +55,9 @@ public class SQLInstanceofCondition extends SQLBooleanExpression {
       return false;
     }
     if (right != null) {
-      return clazz.isSubClassOf(session, right.getStringValue());
+      return clazz.isSubClassOf(right.getStringValue());
     } else if (rightString != null) {
-      return clazz.isSubClassOf(session, decode(rightString));
+      return clazz.isSubClassOf(decode(rightString));
     }
     return false;
   }
@@ -85,9 +85,9 @@ public class SQLInstanceofCondition extends SQLBooleanExpression {
       return false;
     }
     if (right != null) {
-      return clazz.isSubClassOf(session, right.getStringValue());
+      return clazz.isSubClassOf(right.getStringValue());
     } else if (rightString != null) {
-      return clazz.isSubClassOf(session, decode(rightString));
+      return clazz.isSubClassOf(decode(rightString));
     }
     return false;
   }

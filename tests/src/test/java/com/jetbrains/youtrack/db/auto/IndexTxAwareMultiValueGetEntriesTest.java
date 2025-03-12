@@ -36,13 +36,13 @@ public class IndexTxAwareMultiValueGetEntriesTest extends BaseDBTest {
     super.beforeClass();
 
     final var cls = session.getMetadata().getSchema().createClass(CLASS_NAME);
-    cls.createProperty(session, FIELD_NAME, PropertyType.INTEGER);
-    cls.createIndex(session, INDEX_NAME, SchemaClass.INDEX_TYPE.NOTUNIQUE, FIELD_NAME);
+    cls.createProperty(FIELD_NAME, PropertyType.INTEGER);
+    cls.createIndex(INDEX_NAME, SchemaClass.INDEX_TYPE.NOTUNIQUE, FIELD_NAME);
   }
 
   @AfterMethod
   public void afterMethod() throws Exception {
-    session.getMetadata().getSchema().getClassInternal(CLASS_NAME).truncate(session);
+    session.getMetadata().getSchema().getClassInternal(CLASS_NAME).truncate();
     super.afterMethod();
   }
 

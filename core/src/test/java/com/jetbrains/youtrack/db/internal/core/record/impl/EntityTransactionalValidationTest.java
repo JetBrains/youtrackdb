@@ -16,18 +16,18 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
   @Test(expected = ValidationException.class)
   public void simpleConstraintShouldBeCheckedOnCommitFalseTest() {
     var clazz = session.createVertexClass("Validation");
-    clazz.createProperty(session, "int", PropertyType.INTEGER).setMandatory(session, true);
+    clazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
     session.begin();
-    var vertex = session.newVertex(clazz.getName(session));
+    var vertex = session.newVertex(clazz.getName());
     session.commit();
   }
 
   @Test()
   public void simpleConstraintShouldBeCheckedOnCommitTrueTest() {
     var clazz = session.createVertexClass("Validation");
-    clazz.createProperty(session, "int", PropertyType.INTEGER).setMandatory(session, true);
+    clazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
     session.begin();
-    var vertex = session.newVertex(clazz.getName(session));
+    var vertex = session.newVertex(clazz.getName());
     vertex.setProperty("int", 11);
     session.commit();
     session.begin();
@@ -39,9 +39,9 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
   @Test()
   public void simpleConstraintShouldBeCheckedOnCommitWithTypeConvert() {
     var clazz = session.createVertexClass("Validation");
-    clazz.createProperty(session, "int", PropertyType.INTEGER).setMandatory(session, true);
+    clazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
     session.begin();
-    var vertex = session.newVertex(clazz.getName(session));
+    var vertex = session.newVertex(clazz.getName());
     vertex.setProperty("int", "11");
     session.commit();
     session.begin();
@@ -52,11 +52,11 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
   @Test
   public void stringRegexpPatternValidationCheck() {
     var clazz = session.createVertexClass("Validation");
-    clazz.createProperty(session, "str", PropertyType.STRING).setMandatory(session, true)
-        .setRegexp(session, "aba.*");
+    clazz.createProperty("str", PropertyType.STRING).setMandatory(true)
+        .setRegexp("aba.*");
     Vertex vertex;
     session.begin();
-    vertex = session.newVertex(clazz.getName(session));
+    vertex = session.newVertex(clazz.getName());
     vertex.setProperty("str", "first");
     vertex.setProperty("str", "second");
     vertex.setProperty("str", "abacorrect");
@@ -69,11 +69,11 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
   @Test(expected = ValidationException.class)
   public void stringRegexpPatternValidationCheckFails() {
     var clazz = session.createVertexClass("Validation");
-    clazz.createProperty(session, "str", PropertyType.STRING).setMandatory(session, true)
-        .setRegexp(session, "aba.*");
+    clazz.createProperty("str", PropertyType.STRING).setMandatory(true)
+        .setRegexp("aba.*");
     Vertex vertex;
     session.begin();
-    vertex = session.newVertex(clazz.getName(session));
+    vertex = session.newVertex(clazz.getName());
     vertex.setProperty("str", "first");
     session.commit();
   }
@@ -83,11 +83,11 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
     var edgeClass = session.createEdgeClass("lst");
     var clazz = session.createVertexClass("Validation");
     var linkClass = session.createVertexClass("links");
-    var edgePropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClass.getName(session));
-    clazz.createProperty(session, edgePropertyName, PropertyType.LINKBAG, linkClass)
-        .setMandatory(session, true);
+    var edgePropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClass.getName());
+    clazz.createProperty(edgePropertyName, PropertyType.LINKBAG, linkClass)
+        .setMandatory(true);
     session.begin();
-    session.newVertex(clazz.getName(session));
+    session.newVertex(clazz.getName());
     session.commit();
   }
 
@@ -96,12 +96,12 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
     var edgeClass = session.createLightweightEdgeClass("lst");
     var clazz = session.createVertexClass("Validation");
     var linkClass = session.createVertexClass("links");
-    var edgePropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClass.getName(session));
-    clazz.createProperty(session, edgePropertyName, PropertyType.LINKBAG, linkClass)
-        .setMandatory(session, true);
+    var edgePropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClass.getName());
+    clazz.createProperty(edgePropertyName, PropertyType.LINKBAG, linkClass)
+        .setMandatory(true);
     session.begin();
-    var vrt = session.newVertex(clazz.getName(session));
-    var link = session.newVertex(linkClass.getName(session));
+    var vrt = session.newVertex(clazz.getName());
+    var link = session.newVertex(linkClass.getName());
     vrt.addLightWeightEdge(link, edgeClass);
     session.commit();
   }
@@ -111,13 +111,13 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
     var edgeClass = session.createEdgeClass("lst");
     var clazz = session.createVertexClass("Validation");
     var linkClass = session.createVertexClass("links");
-    var edgePropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClass.getName(session));
-    clazz.createProperty(session, edgePropertyName, PropertyType.LINKBAG, linkClass)
-        .setMandatory(session, true)
-        .setMin(session, "1");
+    var edgePropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClass.getName());
+    clazz.createProperty(edgePropertyName, PropertyType.LINKBAG, linkClass)
+        .setMandatory(true)
+        .setMin("1");
     session.begin();
-    var vrt = session.newVertex(clazz.getName(session));
-    var link = session.newVertex(linkClass.getName(session));
+    var vrt = session.newVertex(clazz.getName());
+    var link = session.newVertex(linkClass.getName());
     vrt.addEdge(link, edgeClass);
     session.commit();
     session.begin();
@@ -128,10 +128,10 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
   @Test(expected = ValidationException.class)
   public void requiredArrayFailsIfBecomesEmpty() {
     var clazz = session.createVertexClass("Validation");
-    clazz.createProperty(session, "arr", PropertyType.EMBEDDEDLIST).setMandatory(session, true)
-        .setMin(session, "1");
+    clazz.createProperty("arr", PropertyType.EMBEDDEDLIST).setMandatory(true)
+        .setMin("1");
     session.begin();
-    var vrt = session.newVertex(clazz.getName(session));
+    var vrt = session.newVertex(clazz.getName());
     vrt.getOrCreateEmbeddedList("arr").addAll(Arrays.asList(1, 2, 3));
     session.commit();
     session.begin();
@@ -146,18 +146,18 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
     var edgeClass = session.createLightweightEdgeClass("lst");
     var clazz = session.createVertexClass("Validation");
     var linkClass = session.createVertexClass("links");
-    var edgePropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClass.getName(session));
-    clazz.createProperty(session, edgePropertyName, PropertyType.LINKBAG, linkClass)
-        .setMandatory(session, true);
+    var edgePropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClass.getName());
+    clazz.createProperty(edgePropertyName, PropertyType.LINKBAG, linkClass)
+        .setMandatory(true);
     session.begin();
-    var vrt = session.newVertex(clazz.getName(session));
-    var link = session.newVertex(linkClass.getName(session));
+    var vrt = session.newVertex(clazz.getName());
+    var link = session.newVertex(linkClass.getName());
     vrt.addLightWeightEdge(link, edgeClass);
     session.commit();
     session.begin();
     vrt = session.bindToSession(vrt);
     vrt.getEdges(Direction.OUT, edgeClass).forEach(Edge::delete);
-    var link2 = session.newVertex(linkClass.getName(session));
+    var link2 = session.newVertex(linkClass.getName());
     vrt.addLightWeightEdge(link2, edgeClass);
     session.commit();
     session.begin();
@@ -171,10 +171,10 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
   @Test
   public void maxConstraintOnFloatPropertyDuringTransaction() {
     var clazz = session.createVertexClass("Validation");
-    clazz.createProperty(session, "dbl", PropertyType.FLOAT).setMandatory(session, true).setMin(
-        session, "-10");
+    clazz.createProperty("dbl", PropertyType.FLOAT).setMandatory(true).setMin(
+        "-10");
     session.begin();
-    var vertex = session.newVertex(clazz.getName(session));
+    var vertex = session.newVertex(clazz.getName());
     vertex.setProperty("dbl", -100.0);
     vertex.setProperty("dbl", 2.39);
     session.commit();
@@ -188,10 +188,10 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
   @Test(expected = ValidationException.class)
   public void maxConstraintOnFloatPropertyOnTransaction() {
     var clazz = session.createVertexClass("Validation");
-    clazz.createProperty(session, "dbl", PropertyType.FLOAT).setMandatory(session, true).setMin(
-        session, "-10");
+    clazz.createProperty("dbl", PropertyType.FLOAT).setMandatory(true).setMin(
+        "-10");
     session.begin();
-    var vertex = session.newVertex(clazz.getName(session));
+    var vertex = session.newVertex(clazz.getName());
     vertex.setProperty("dbl", -100.0);
     session.commit();
   }

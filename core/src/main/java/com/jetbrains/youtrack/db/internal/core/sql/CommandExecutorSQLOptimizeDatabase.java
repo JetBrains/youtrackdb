@@ -117,11 +117,9 @@ public class CommandExecutorSQLOptimizeDatabase extends CommandExecutorSQLAbstra
       long lastLapBrowsed = 0;
       var lastLapTime = System.currentTimeMillis();
 
-      for (var entity : db.browseClass("E")) {
-        if (Thread.currentThread().isInterrupted()) {
-          break;
-        }
-
+      var edgeIterator = db.browseClass("E");
+      while (edgeIterator.hasNext() && !Thread.currentThread().isInterrupted()) {
+        var entity = edgeIterator.next();
         browsedEdges++;
 
         if (entity != null) {

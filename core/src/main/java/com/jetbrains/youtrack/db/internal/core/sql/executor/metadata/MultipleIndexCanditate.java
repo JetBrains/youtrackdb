@@ -75,7 +75,7 @@ public class MultipleIndexCanditate implements IndexCandidate {
         var lastProperties = lastCandidate.properties();
         if (properties.size() == 1
             && lastProperties.size() == 1
-            && properties.get(0).getName(sesssion) == lastProperties.get(0).getName(sesssion)) {
+            && properties.get(0).getName() == lastProperties.get(0).getName()) {
           if (canditate.getOperation().isRange() || lastCandidate.getOperation().isRange()) {
             newCanditates.add(new RangeIndexCanditate(canditate.getName(), properties.get(0)));
             canditates.remove(z);
@@ -106,7 +106,7 @@ public class MultipleIndexCanditate implements IndexCandidate {
         for (var field : index.getDefinition().getFields()) {
           var found = false;
           for (var property : propeties) {
-            if (property.getName(session).equals(field)) {
+            if (property.getName().equals(field)) {
               found = true;
               foundProps.add(property);
               break;

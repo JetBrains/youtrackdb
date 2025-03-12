@@ -49,8 +49,8 @@ public class SQLCommandsTest extends BaseDBTest {
     session.command("create property account.timesheet string").close();
 
     Assert.assertEquals(
-        session.getMetadata().getSchema().getClass("account").getProperty(session, "timesheet")
-            .getType(session),
+        session.getMetadata().getSchema().getClass("account").getProperty("timesheet")
+            .getType(),
         PropertyType.STRING);
   }
 
@@ -59,16 +59,16 @@ public class SQLCommandsTest extends BaseDBTest {
     session.command("create property account.knows embeddedmap account").close();
 
     Assert.assertEquals(
-        session.getMetadata().getSchema().getClass("account").getProperty(session, "knows")
-            .getType(session),
+        session.getMetadata().getSchema().getClass("account").getProperty("knows")
+            .getType(),
         PropertyType.EMBEDDEDMAP);
     Assert.assertEquals(
         session
             .getMetadata()
             .getSchema()
             .getClass("account")
-            .getProperty(session, "knows")
-            .getLinkedClass(session),
+            .getProperty("knows")
+            .getLinkedClass(),
         session.getMetadata().getSchema().getClass("account"));
   }
 
@@ -77,12 +77,12 @@ public class SQLCommandsTest extends BaseDBTest {
     session.command("create property account.tags embeddedlist string").close();
 
     Assert.assertEquals(
-        session.getMetadata().getSchema().getClass("account").getProperty(session, "tags")
-            .getType(session),
+        session.getMetadata().getSchema().getClass("account").getProperty("tags")
+            .getType(),
         PropertyType.EMBEDDEDLIST);
     Assert.assertEquals(
-        session.getMetadata().getSchema().getClass("account").getProperty(session, "tags")
-            .getLinkedType(session),
+        session.getMetadata().getSchema().getClass("account").getProperty("tags")
+            .getLinkedType(),
         PropertyType.STRING);
   }
 
@@ -92,9 +92,9 @@ public class SQLCommandsTest extends BaseDBTest {
     session.command("drop property account.tags").close();
 
     Assert.assertFalse(
-        session.getMetadata().getSchema().getClass("account").existsProperty(session, "timesheet"));
+        session.getMetadata().getSchema().getClass("account").existsProperty("timesheet"));
     Assert.assertFalse(
-        session.getMetadata().getSchema().getClass("account").existsProperty(session, "tags"));
+        session.getMetadata().getSchema().getClass("account").existsProperty("tags"));
   }
 
   @Test(dependsOnMethods = "removeProperty")

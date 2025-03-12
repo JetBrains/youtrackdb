@@ -119,7 +119,7 @@ public class GraphRepair {
 
           final var edgeClass = schema.getClass(SchemaClass.EDGE_CLASS_NAME);
           if (edgeClass != null) {
-            final var countEdges = session.countClass(edgeClass.getName(session));
+            final var countEdges = session.countClass(edgeClass.getName());
 
             var skipEdges = 0L;
             if (options != null && options.get("-skipEdges") != null) {
@@ -133,7 +133,9 @@ public class GraphRepair {
             var parsedEdges = 0L;
             final var beginTime = System.currentTimeMillis();
 
-            for (var edge : session.browseClass(edgeClass.getName(session))) {
+            var edgeIterator = session.browseClass(edgeClass.getName());
+            while (edgeIterator.hasNext() && !Thread.currentThread().isInterrupted()) {
+              final var edge = edgeIterator.next();
               if (!edge.isStatefulEdge()) {
                 continue;
               }
@@ -304,7 +306,7 @@ public class GraphRepair {
 
     final var vertexClass = schema.getClass(SchemaClass.VERTEX_CLASS_NAME);
     if (vertexClass != null) {
-      final var countVertices = db.countClass(vertexClass.getName(session));
+      final var countVertices = db.countClass(vertexClass.getName());
       session.executeInTx(
           () -> {
             var skipVertices = 0L;
@@ -317,7 +319,9 @@ public class GraphRepair {
             var parsedVertices = new long[]{0L};
             final var beginTime = System.currentTimeMillis();
 
-            for (var vertex : db.browseClass(vertexClass.getName(session))) {
+            var vertexIterator = db.browseClass(vertexClass.getName());
+            while (vertexIterator.hasNext() && !Thread.currentThread().isInterrupted()) {
+              var vertex = vertexIterator.next();
               parsedVertices[0]++;
               if (skipVertices > 0 && parsedVertices[0] <= skipVertices) {
                 continue;
@@ -524,12 +528,12 @@ public class GraphRepair {
           immutableClass = record.getImmutableSchemaClass(session);
         }
         if (immutableClass == null
-            || (!immutableClass.isVertexType(session) && !immutableClass.isEdgeType(session)))
+            || (!immutableClass.isVertexType() && !immutableClass.isEdgeType()))
         // INVALID RECORD TYPE: NULL OR NOT GRAPH TYPE
         {
           broken = true;
         } else {
-          if (immutableClass.isVertexType(session)) {
+          if (immutableClass.isVertexType()) {
             // VERTEX -> LIGHTWEIGHT EDGE
             final var inverseFieldName =
                 getInverseConnectionFieldName(fieldName, useVertexFieldsForEdgeLabels);

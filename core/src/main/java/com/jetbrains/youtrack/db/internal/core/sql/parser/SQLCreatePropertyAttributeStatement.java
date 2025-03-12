@@ -7,6 +7,7 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaPropertyImpl;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaPropertyInternal;
 import java.util.Map;
 import java.util.Objects;
 
@@ -72,31 +73,31 @@ public class SQLCreatePropertyAttributeStatement extends SimpleNode {
     return result;
   }
 
-  public Object setOnProperty(SchemaPropertyImpl internalProp, CommandContext ctx) {
+  public Object setOnProperty(SchemaPropertyInternal internalProp, CommandContext ctx) {
     var attrName = settingName.getStringValue();
     var session = ctx.getDatabaseSession();
     var attrValue =
         this.settingValue == null ? true : this.settingValue.execute((Identifiable) null, ctx);
     try {
       if (attrName.equalsIgnoreCase("readonly")) {
-        internalProp.setReadonly(session, (boolean) attrValue);
+        internalProp.setReadonly((boolean) attrValue);
       } else if (attrName.equalsIgnoreCase("mandatory")) {
-        internalProp.setMandatory(session, (boolean) attrValue);
+        internalProp.setMandatory((boolean) attrValue);
       } else if (attrName.equalsIgnoreCase("notnull")) {
-        internalProp.setNotNull(session, (boolean) attrValue);
+        internalProp.setNotNull((boolean) attrValue);
       } else if (attrName.equalsIgnoreCase("max")) {
-        internalProp.setMax(session, "" + attrValue);
+        internalProp.setMax("" + attrValue);
       } else if (attrName.equalsIgnoreCase("min")) {
-        internalProp.setMin(session, "" + attrValue);
+        internalProp.setMin("" + attrValue);
       } else if (attrName.equalsIgnoreCase("default")) {
         if (this.settingValue == null) {
           throw new CommandExecutionException(session, "");
         }
-        internalProp.setDefaultValue(session, "" + attrValue);
+        internalProp.setDefaultValue("" + attrValue);
       } else if (attrName.equalsIgnoreCase("collate")) {
-        internalProp.setCollate(session, "" + attrValue);
+        internalProp.setCollate("" + attrValue);
       } else if (attrName.equalsIgnoreCase("regexp")) {
-        internalProp.setRegexp(session, "" + attrValue);
+        internalProp.setRegexp("" + attrValue);
       } else {
         throw new CommandExecutionException(session,
             "Invalid attribute definition: '" + attrName + "'");

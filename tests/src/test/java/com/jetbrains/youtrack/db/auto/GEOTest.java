@@ -38,10 +38,10 @@ public class GEOTest extends BaseDBTest {
   @Test
   public void geoSchema() {
     final var mapPointClass = session.getMetadata().getSchema().createClass("MapPoint");
-    mapPointClass.createProperty(session, "x", PropertyType.DOUBLE)
-        .createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
-    mapPointClass.createProperty(session, "y", PropertyType.DOUBLE)
-        .createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    mapPointClass.createProperty("x", PropertyType.DOUBLE)
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    mapPointClass.createProperty("y", PropertyType.DOUBLE)
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     if (!remoteDB) {
       final var xIndexes =

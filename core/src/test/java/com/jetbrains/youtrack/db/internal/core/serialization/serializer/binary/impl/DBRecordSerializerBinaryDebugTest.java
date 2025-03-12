@@ -61,8 +61,8 @@ public class DBRecordSerializerBinaryDebugTest extends DbTestBase {
   @Test
   public void testSchemaFullDocumentDebug() {
     var clazz = session.getMetadata().getSchema().createClass("some");
-    clazz.createProperty(session, "testP", PropertyType.STRING);
-    clazz.createProperty(session, "theInt", PropertyType.INTEGER);
+    clazz.createProperty("testP", PropertyType.STRING);
+    clazz.createProperty("theInt", PropertyType.INTEGER);
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("some");
@@ -126,8 +126,8 @@ public class DBRecordSerializerBinaryDebugTest extends DbTestBase {
   @Test
   public void testBrokenSchemaFullDocumentDebug() {
     var clazz = session.getMetadata().getSchema().createClass("some");
-    clazz.createProperty(session, "testP", PropertyType.STRING);
-    clazz.createProperty(session, "theInt", PropertyType.INTEGER);
+    clazz.createProperty("testP", PropertyType.STRING);
+    clazz.createProperty("theInt", PropertyType.INTEGER);
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("some");

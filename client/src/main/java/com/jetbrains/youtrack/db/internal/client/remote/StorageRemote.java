@@ -35,8 +35,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransaction
 import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CeilingPhysicalPositionsRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CleanOutRecordRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CleanOutRecordResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseQueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CommandRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Commit38Request;
@@ -45,7 +43,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.CountRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.DropClusterRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransaction38Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FloorPhysicalPositionsRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.GetClusterDataRangeRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.GetRecordMetadataRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.GetSizeRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.HigherPhysicalPositionsRequest;
@@ -105,13 +102,12 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSe
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.sql.query.LiveQuery;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
-import com.jetbrains.youtrack.db.internal.core.storage.RawBuffer;
+import com.jetbrains.youtrack.db.internal.core.storage.ReadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.storage.RecordCallback;
 import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageCluster;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
-import com.jetbrains.youtrack.db.internal.core.storage.cluster.PaginatedCluster;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
@@ -824,11 +820,9 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return response.isRecordExists();
   }
 
-  public @Nonnull RawBuffer readRecord(
-      DatabaseSessionInternal session, final RecordId iRid,
-      final boolean iIgnoreCache,
-      boolean prefetchRecords,
-      final RecordCallback<RawBuffer> iCallback) {
+  public @Nonnull ReadRecordResult readRecord(
+      DatabaseSessionInternal session, final RecordId iRid, boolean fetchPreviousRid,
+      boolean fetchNextRid) {
 
     var remoteSession = (DatabaseSessionRemote) session;
     if (getCurrentSession(remoteSession).commandExecuting)
@@ -839,7 +833,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
               + " a different connection");
     }
 
-    var request = new ReadRecordRequest(iIgnoreCache, iRid, null, false);
+    var request = new ReadRecordRequest(false, iRid, null, false);
     var response = networkOperation(remoteSession, request,
         "Error on read record " + iRid);
 
@@ -853,11 +847,6 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
         networkOperationNoRetry((DatabaseSessionRemote) session, request,
             "Error on incremental backup");
     return response.getFileName();
-  }
-
-  public boolean supportIncremental() {
-    // THIS IS FALSE HERE THOUGH WE HAVE SOME SUPPORT FOR SOME SPECIFIC CASES FROM REMOTE
-    return false;
   }
 
   public void fullIncrementalBackup(final OutputStream stream)
@@ -877,28 +866,6 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
       throws UnsupportedOperationException {
     throw new UnsupportedOperationException(
         "This operations is part of internal API and is not supported in remote storage");
-  }
-
-  public boolean cleanOutRecord(
-      DatabaseSessionInternal session, final RecordId recordId,
-      final int recordVersion,
-      final int iMode,
-      final RecordCallback<Boolean> callback) {
-
-    RecordCallback<CleanOutRecordResponse> realCallback = null;
-    if (callback != null) {
-      realCallback = (iRID, response) -> callback.call(iRID, response.getResult());
-    }
-
-    final var request = new CleanOutRecordRequest(recordVersion, recordId);
-    final var response =
-        asyncNetworkOperationNoRetry((DatabaseSessionRemote) session,
-            request, iMode, recordId, realCallback, "Error on delete record " + recordId);
-    Boolean result = null;
-    if (response != null) {
-      result = response.getResult();
-    }
-    return result != null ? result : false;
   }
 
   public List<String> backup(
@@ -937,19 +904,11 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return count(session, new int[]{iClusterId}, countTombstones);
   }
 
-  public long[] getClusterDataRange(DatabaseSessionInternal session, final int iClusterId) {
-    var request = new GetClusterDataRangeRequest(iClusterId);
-    var response =
-        networkOperation((DatabaseSessionRemote) session,
-            request, "Error on getting last entry position count in cluster: " + iClusterId);
-    return response.getPos();
-  }
-
   public PhysicalPosition[] higherPhysicalPositions(
       DatabaseSessionInternal session, final int iClusterId,
-      final PhysicalPosition iClusterPosition) {
+      final PhysicalPosition iClusterPosition, int limit) {
     var request =
-        new HigherPhysicalPositionsRequest(iClusterId, iClusterPosition);
+        new HigherPhysicalPositionsRequest(iClusterId, iClusterPosition, limit);
 
     var response =
         networkOperation((DatabaseSessionRemote) session,
@@ -960,10 +919,10 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
 
   public PhysicalPosition[] ceilingPhysicalPositions(
       DatabaseSessionInternal session, final int clusterId,
-      final PhysicalPosition physicalPosition) {
+      final PhysicalPosition physicalPosition, int limit) {
 
     var request =
-        new CeilingPhysicalPositionsRequest(clusterId, physicalPosition);
+        new CeilingPhysicalPositionsRequest(clusterId, physicalPosition, limit);
 
     var response =
         networkOperation((DatabaseSessionRemote) session,
@@ -974,9 +933,9 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
 
   public PhysicalPosition[] lowerPhysicalPositions(
       DatabaseSessionInternal session, final int iClusterId,
-      final PhysicalPosition physicalPosition) {
+      final PhysicalPosition physicalPosition, int limit) {
     var request =
-        new LowerPhysicalPositionsRequest(physicalPosition, iClusterId);
+        new LowerPhysicalPositionsRequest(physicalPosition, iClusterId, limit);
     var response =
         networkOperation((DatabaseSessionRemote) session,
             request,
@@ -986,9 +945,9 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
 
   public PhysicalPosition[] floorPhysicalPositions(
       DatabaseSessionInternal session, final int clusterId,
-      final PhysicalPosition physicalPosition) {
+      final PhysicalPosition physicalPosition, int limit) {
     var request =
-        new FloorPhysicalPositionsRequest(physicalPosition, clusterId);
+        new FloorPhysicalPositionsRequest(physicalPosition, clusterId, limit);
     var response =
         networkOperation((DatabaseSessionRemote) session,
             request,
@@ -1314,7 +1273,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
 
     updateCollectionsFromChanges(
-        tx.getDatabaseSession().getSbTreeCollectionManager(), response.getCollectionChanges(),
+        tx.getDatabaseSession().getBTreeCollectionManager(), response.getCollectionChanges(),
         tx.getDatabaseSession());
     // SET ALL THE RECORDS AS UNDIRTY
     for (var txEntry : tx.getRecordOperations()) {
@@ -1403,18 +1362,6 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
   }
 
   public boolean isSystemCluster(int clusterId) {
-    throw new UnsupportedOperationException();
-  }
-
-  public long getLastClusterPosition(int clusterId) {
-    throw new UnsupportedOperationException();
-  }
-
-  public long getClusterNextPosition(int clusterId) {
-    throw new UnsupportedOperationException();
-  }
-
-  public PaginatedCluster.RECORD_STATUS getRecordStatus(RID rid) {
     throw new UnsupportedOperationException();
   }
 
@@ -2379,10 +2326,6 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
 
   public SharedContext getSharedContext() {
     return sharedContext;
-  }
-
-  public boolean isDistributed() {
-    return false;
   }
 
   public STATUS getStatus() {

@@ -381,13 +381,13 @@ public class SQLBaseIdentifier extends SimpleNode {
   public boolean isIndexChain(CommandContext ctx, SchemaClassInternal clazz) {
     var db = ctx.getDatabaseSession();
     if (suffix != null && suffix.isBaseIdentifier()) {
-      var prop = clazz.getPropertyInternal(db,
+      var prop = clazz.getPropertyInternal(
           suffix.getIdentifier().getStringValue());
       if (prop == null) {
         return false;
       }
 
-      var allIndexes = prop.getAllIndexesInternal(db);
+      var allIndexes = prop.getAllIndexesInternal();
 
       return allIndexes != null
           && allIndexes.stream().anyMatch(idx -> idx.getDefinition().getFields().size() == 1);

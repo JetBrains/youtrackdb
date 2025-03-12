@@ -31,12 +31,12 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     db.createClass("SomeTx2");
 
     var klass = db.createClass("IndexedTx");
-    klass.createProperty(db, "name", PropertyType.STRING)
-        .createIndex(db, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    klass.createProperty("name", PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     var uniqueClass = db.createClass("UniqueIndexedTx");
-    uniqueClass.createProperty(db, "name", PropertyType.STRING)
-        .createIndex(db, SchemaClass.INDEX_TYPE.UNIQUE);
+    uniqueClass.createProperty("name", PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
   }
 
   @Test

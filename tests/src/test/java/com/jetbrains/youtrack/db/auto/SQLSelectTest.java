@@ -326,7 +326,6 @@ public class SQLSelectTest extends AbstractSelectTest {
     entity.setProperty("surname", "Miner");
     customReferences.put("second", (EntityImpl) entity);
 
-
     var doc = ((EntityImpl) session.newEntity("Profile"));
     doc.field("customReferences", customReferences, PropertyType.EMBEDDEDMAP);
 
@@ -538,7 +537,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void queryWhereRidDirectMatching() {
-    var clusterId = session.getMetadata().getSchema().getClass("ORole").getClusterIds(session)[0];
+    var clusterId = session.getMetadata().getSchema().getClass("ORole").getClusterIds()[0];
     var positions = getValidPositions(clusterId);
 
     var result =
@@ -754,7 +753,7 @@ public class SQLSelectTest extends AbstractSelectTest {
   @Test
   public void queryRecordTargetRid() {
     var profileClusterId =
-        session.getMetadata().getSchema().getClass("Profile").getClusterIds(session)[0];
+        session.getMetadata().getSchema().getClass("Profile").getClusterIds()[0];
     var positions = getValidPositions(profileClusterId);
 
     var result =
@@ -771,7 +770,7 @@ public class SQLSelectTest extends AbstractSelectTest {
   @Test
   public void queryRecordTargetRids() {
     var profileClusterId =
-        session.getMetadata().getSchema().getClass("Profile").getClusterIds(session)[0];
+        session.getMetadata().getSchema().getClass("Profile").getClusterIds()[0];
     var positions = getValidPositions(profileClusterId);
 
     var result =
@@ -799,7 +798,7 @@ public class SQLSelectTest extends AbstractSelectTest {
   public void queryRecordAttribRid() {
 
     var profileClusterId =
-        session.getMetadata().getSchema().getClass("Profile").getClusterIds(session)[0];
+        session.getMetadata().getSchema().getClass("Profile").getClusterIds()[0];
     var postions = getValidPositions(profileClusterId);
 
     var result =
@@ -872,7 +871,9 @@ public class SQLSelectTest extends AbstractSelectTest {
     var tot = session.countClass("V");
 
     var count = 0;
-    for (var record : session.browseClass("V")) {
+    var entityIterator = session.browseClass("V");
+    while (entityIterator.hasNext()) {
+      entityIterator.next();
       count++;
     }
 
@@ -1042,7 +1043,7 @@ public class SQLSelectTest extends AbstractSelectTest {
                           .next()
                           .getRecord(session))
                       .getSchemaClass())
-              .getName(session),
+              .getName(),
           "Address");
     }
   }
@@ -1064,7 +1065,7 @@ public class SQLSelectTest extends AbstractSelectTest {
                           .next()
                           .getRecord(session))
                       .getSchemaClass())
-              .getName(session)
+              .getName()
               .equals("Address"));
     }
   }
@@ -1073,8 +1074,8 @@ public class SQLSelectTest extends AbstractSelectTest {
     var test = session.getMetadata().getSchema().getClass("test");
     if (test == null) {
       test = session.getMetadata().getSchema().createClass("test");
-      test.createProperty(session, "f1", PropertyType.STRING);
-      test.createProperty(session, "f2", PropertyType.STRING);
+      test.createProperty("f1", PropertyType.STRING);
+      test.createProperty("f2", PropertyType.STRING);
     }
     var document = ((EntityImpl) session.newEntity(test));
     document.field("f1", "a").field("f2", "a");
@@ -1145,8 +1146,8 @@ public class SQLSelectTest extends AbstractSelectTest {
     if (facClass == null) {
       facClass = schema.createClass("FicheAppelCDI");
     }
-    if (!facClass.existsProperty(session, "date")) {
-      facClass.createProperty(session, "date", PropertyType.DATE);
+    if (!facClass.existsProperty("date")) {
+      facClass.createProperty("date", PropertyType.DATE);
     }
 
     final var currentYear = Calendar.getInstance();
@@ -1166,7 +1167,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     var result =
         executeQuery(
-            "select * from " + facClass.getName(session) + " where context = 'test' order by date",
+            "select * from " + facClass.getName() + " where context = 'test' order by date",
             1);
 
     var smaller = Calendar.getInstance();
@@ -1175,7 +1176,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     result =
         executeQuery(
-            "select * from " + facClass.getName(session)
+            "select * from " + facClass.getName()
                 + " where context = 'test' order by date DESC",
             1);
 
@@ -1223,9 +1224,9 @@ public class SQLSelectTest extends AbstractSelectTest {
   @Test
   public void testSelectFromListParameter() {
     var placeClass = session.getMetadata().getSchema().createClass("Place", 1);
-    placeClass.createProperty(session, "id", PropertyType.STRING);
-    placeClass.createProperty(session, "descr", PropertyType.STRING);
-    placeClass.createIndex(session, "place_id_index", INDEX_TYPE.UNIQUE, "id");
+    placeClass.createProperty("id", PropertyType.STRING);
+    placeClass.createProperty("descr", PropertyType.STRING);
+    placeClass.createIndex("place_id_index", INDEX_TYPE.UNIQUE, "id");
 
     var odoc = ((EntityImpl) session.newEntity("Place"));
     odoc.field("id", "adda");
@@ -1257,9 +1258,9 @@ public class SQLSelectTest extends AbstractSelectTest {
   @Test
   public void testSelectRidFromListParameter() {
     var placeClass = session.getMetadata().getSchema().createClass("Place", 1);
-    placeClass.createProperty(session, "id", PropertyType.STRING);
-    placeClass.createProperty(session, "descr", PropertyType.STRING);
-    placeClass.createIndex(session, "place_id_index", INDEX_TYPE.UNIQUE, "id");
+    placeClass.createProperty("id", PropertyType.STRING);
+    placeClass.createProperty("descr", PropertyType.STRING);
+    placeClass.createIndex("place_id_index", INDEX_TYPE.UNIQUE, "id");
 
     List<RID> inputValues = new ArrayList<>();
 
@@ -1378,13 +1379,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void testMultipleClustersWithPagination() {
-    final var cls = session.getMetadata().getSchema()
-        .createClass("PersonMultipleClusters");
-    cls.addCluster(session, "PersonMultipleClusters_1");
-    cls.addCluster(session, "PersonMultipleClusters_2");
-    cls.addCluster(session, "PersonMultipleClusters_3");
-    cls.addCluster(session, "PersonMultipleClusters_4");
-
+    session.getMetadata().getSchema().createClass("PersonMultipleClusters");
     try {
       Set<String> names =
           new HashSet<>(Arrays.asList("Luca", "Jill", "Sara", "Tania", "Gianluca", "Marco"));
@@ -1488,8 +1483,8 @@ public class SQLSelectTest extends AbstractSelectTest {
     Schema schema = session.getMetadata().getSchema();
     var v = schema.getClass("V");
     final var cls = schema.createClass("TestExpandSkip", v);
-    cls.createProperty(session, "name", PropertyType.STRING);
-    cls.createIndex(session, "TestExpandSkip.name", INDEX_TYPE.UNIQUE, "name");
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createIndex("TestExpandSkip.name", INDEX_TYPE.UNIQUE, "name");
 
     session.begin();
     session.command("CREATE VERTEX TestExpandSkip set name = '1'").close();

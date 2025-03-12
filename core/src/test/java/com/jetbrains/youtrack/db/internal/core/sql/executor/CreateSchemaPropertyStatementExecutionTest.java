@@ -29,14 +29,14 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
     session.command("CREATE property testBasicCreateProperty.name STRING").close();
 
     var companyClass = session.getMetadata().getSchema().getClass("testBasicCreateProperty");
-    var nameProperty = companyClass.getProperty(session, PROP_NAME);
+    var nameProperty = companyClass.getProperty(PROP_NAME);
 
-    assertEquals(PROP_NAME, nameProperty.getName(session));
-    assertEquals("testBasicCreateProperty.name", nameProperty.getFullName(session));
-    assertEquals(PropertyType.STRING, nameProperty.getType(session));
-    assertFalse(nameProperty.isMandatory(session));
-    assertFalse(nameProperty.isNotNull(session));
-    assertFalse(nameProperty.isReadonly(session));
+    assertEquals(PROP_NAME, nameProperty.getName());
+    assertEquals("testBasicCreateProperty.name", nameProperty.getFullName());
+    assertEquals(PropertyType.STRING, nameProperty.getType());
+    assertFalse(nameProperty.isMandatory());
+    assertFalse(nameProperty.isNotNull());
+    assertFalse(nameProperty.isReadonly());
   }
 
   @Test
@@ -46,14 +46,14 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
     var companyClass = session.getMetadata().getSchema()
         .getClass("testBasicUnsafeCreateProperty");
-    var nameProperty = companyClass.getProperty(session, PROP_NAME);
+    var nameProperty = companyClass.getProperty(PROP_NAME);
 
-    assertEquals(PROP_NAME, nameProperty.getName(session));
-    assertEquals("testBasicUnsafeCreateProperty.name", nameProperty.getFullName(session));
-    assertEquals(PropertyType.STRING, nameProperty.getType(session));
-    assertFalse(nameProperty.isMandatory(session));
-    assertFalse(nameProperty.isNotNull(session));
-    assertFalse(nameProperty.isReadonly(session));
+    assertEquals(PROP_NAME, nameProperty.getName());
+    assertEquals("testBasicUnsafeCreateProperty.name", nameProperty.getFullName());
+    assertEquals(PropertyType.STRING, nameProperty.getType());
+    assertFalse(nameProperty.isMandatory());
+    assertFalse(nameProperty.isNotNull());
+    assertFalse(nameProperty.isReadonly());
   }
 
   @Test
@@ -67,17 +67,17 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
     var companyClass =
         session.getMetadata().getSchema().getClass("testCreatePropertyWithLinkedClass_2");
-    var nameProperty = companyClass.getProperty(session, PROP_DIVISION);
+    var nameProperty = companyClass.getProperty(PROP_DIVISION);
 
-    assertEquals(PROP_DIVISION, nameProperty.getName(session));
-    assertEquals("testCreatePropertyWithLinkedClass_2.division", nameProperty.getFullName(session));
-    assertEquals(PropertyType.LINK, nameProperty.getType(session));
+    assertEquals(PROP_DIVISION, nameProperty.getName());
+    assertEquals("testCreatePropertyWithLinkedClass_2.division", nameProperty.getFullName());
+    assertEquals(PropertyType.LINK, nameProperty.getType());
     assertEquals("testCreatePropertyWithLinkedClass_1",
-        nameProperty.getLinkedClass(session).getName(
-            session));
-    assertFalse(nameProperty.isMandatory(session));
-    assertFalse(nameProperty.isNotNull(session));
-    assertFalse(nameProperty.isReadonly(session));
+        nameProperty.getLinkedClass().getName(
+        ));
+    assertFalse(nameProperty.isMandatory());
+    assertFalse(nameProperty.isNotNull());
+    assertFalse(nameProperty.isReadonly());
   }
 
   @Test
@@ -89,15 +89,15 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
     var companyClass =
         session.getMetadata().getSchema().getClass("testCreatePropertyWithEmbeddedType");
-    var nameProperty = companyClass.getProperty(session, PROP_OFFICERS);
+    var nameProperty = companyClass.getProperty(PROP_OFFICERS);
 
-    assertEquals(PROP_OFFICERS, nameProperty.getName(session));
-    assertEquals("testCreatePropertyWithEmbeddedType.officers", nameProperty.getFullName(session));
-    assertEquals(PropertyType.EMBEDDEDLIST, nameProperty.getType(session));
-    assertEquals(PropertyType.STRING, nameProperty.getLinkedType(session));
-    assertFalse(nameProperty.isMandatory(session));
-    assertFalse(nameProperty.isNotNull(session));
-    assertFalse(nameProperty.isReadonly(session));
+    assertEquals(PROP_OFFICERS, nameProperty.getName());
+    assertEquals("testCreatePropertyWithEmbeddedType.officers", nameProperty.getFullName());
+    assertEquals(PropertyType.EMBEDDEDLIST, nameProperty.getType());
+    assertEquals(PropertyType.STRING, nameProperty.getLinkedType());
+    assertFalse(nameProperty.isMandatory());
+    assertFalse(nameProperty.isNotNull());
+    assertFalse(nameProperty.isReadonly());
   }
 
   @Test
@@ -106,13 +106,13 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
     session.command("CREATE property testCreateMandatoryProperty.name STRING (MANDATORY)").close();
 
     var companyClass = session.getMetadata().getSchema().getClass("testCreateMandatoryProperty");
-    var nameProperty = companyClass.getProperty(session, PROP_NAME);
+    var nameProperty = companyClass.getProperty(PROP_NAME);
 
-    assertEquals(PROP_NAME, nameProperty.getName(session));
-    assertEquals("testCreateMandatoryProperty.name", nameProperty.getFullName(session));
-    assertTrue(nameProperty.isMandatory(session));
-    assertFalse(nameProperty.isNotNull(session));
-    assertFalse(nameProperty.isReadonly(session));
+    assertEquals(PROP_NAME, nameProperty.getName());
+    assertEquals("testCreateMandatoryProperty.name", nameProperty.getFullName());
+    assertTrue(nameProperty.isMandatory());
+    assertFalse(nameProperty.isNotNull());
+    assertFalse(nameProperty.isReadonly());
   }
 
   @Test
@@ -121,13 +121,13 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
     session.command("CREATE property testCreateNotNullProperty.name STRING (NOTNULL)").close();
 
     var companyClass = session.getMetadata().getSchema().getClass("testCreateNotNullProperty");
-    var nameProperty = companyClass.getProperty(session, PROP_NAME);
+    var nameProperty = companyClass.getProperty(PROP_NAME);
 
-    assertEquals(PROP_NAME, nameProperty.getName(session));
-    assertEquals("testCreateNotNullProperty.name", nameProperty.getFullName(session));
-    assertFalse(nameProperty.isMandatory(session));
-    assertTrue(nameProperty.isNotNull(session));
-    assertFalse(nameProperty.isReadonly(session));
+    assertEquals(PROP_NAME, nameProperty.getName());
+    assertEquals("testCreateNotNullProperty.name", nameProperty.getFullName());
+    assertFalse(nameProperty.isMandatory());
+    assertTrue(nameProperty.isNotNull());
+    assertFalse(nameProperty.isReadonly());
   }
 
   @Test
@@ -136,13 +136,13 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
     session.command("CREATE property testCreateReadOnlyProperty.name STRING (READONLY)").close();
 
     var companyClass = session.getMetadata().getSchema().getClass("testCreateReadOnlyProperty");
-    var nameProperty = companyClass.getProperty(session, PROP_NAME);
+    var nameProperty = companyClass.getProperty(PROP_NAME);
 
-    assertEquals(PROP_NAME, nameProperty.getName(session));
-    assertEquals("testCreateReadOnlyProperty.name", nameProperty.getFullName(session));
-    assertFalse(nameProperty.isMandatory(session));
-    assertFalse(nameProperty.isNotNull(session));
-    assertTrue(nameProperty.isReadonly(session));
+    assertEquals(PROP_NAME, nameProperty.getName());
+    assertEquals("testCreateReadOnlyProperty.name", nameProperty.getFullName());
+    assertFalse(nameProperty.isMandatory());
+    assertFalse(nameProperty.isNotNull());
+    assertTrue(nameProperty.isReadonly());
   }
 
   @Test
@@ -153,11 +153,11 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
     var companyClass = session.getMetadata().getSchema()
         .getClass("testCreateReadOnlyFalseProperty");
-    var nameProperty = companyClass.getProperty(session, PROP_NAME);
+    var nameProperty = companyClass.getProperty(PROP_NAME);
 
-    assertEquals(PROP_NAME, nameProperty.getName(session));
-    assertEquals("testCreateReadOnlyFalseProperty.name", nameProperty.getFullName(session));
-    assertFalse(nameProperty.isReadonly(session));
+    assertEquals(PROP_NAME, nameProperty.getName());
+    assertEquals("testCreateReadOnlyFalseProperty.name", nameProperty.getFullName());
+    assertFalse(nameProperty.isReadonly());
   }
 
   @Test
@@ -170,16 +170,16 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
     var companyClass =
         session.getMetadata().getSchema().getClass("testCreateMandatoryPropertyWithEmbeddedType");
-    var nameProperty = companyClass.getProperty(session, PROP_OFFICERS);
+    var nameProperty = companyClass.getProperty(PROP_OFFICERS);
 
-    assertEquals(PROP_OFFICERS, nameProperty.getName(session));
+    assertEquals(PROP_OFFICERS, nameProperty.getName());
     assertEquals(
-        "testCreateMandatoryPropertyWithEmbeddedType.officers", nameProperty.getFullName(session));
-    assertEquals(PropertyType.EMBEDDEDLIST, nameProperty.getType(session));
-    assertEquals(PropertyType.STRING, nameProperty.getLinkedType(session));
-    assertTrue(nameProperty.isMandatory(session));
-    assertFalse(nameProperty.isNotNull(session));
-    assertFalse(nameProperty.isReadonly(session));
+        "testCreateMandatoryPropertyWithEmbeddedType.officers", nameProperty.getFullName());
+    assertEquals(PropertyType.EMBEDDEDLIST, nameProperty.getType());
+    assertEquals(PropertyType.STRING, nameProperty.getLinkedType());
+    assertTrue(nameProperty.isMandatory());
+    assertFalse(nameProperty.isNotNull());
+    assertFalse(nameProperty.isReadonly());
   }
 
   @Test
@@ -192,13 +192,13 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
     var companyClass =
         session.getMetadata().getSchema().getClass("testCreateUnsafePropertyWithEmbeddedType");
-    var nameProperty = companyClass.getProperty(session, PROP_OFFICERS);
+    var nameProperty = companyClass.getProperty(PROP_OFFICERS);
 
-    assertEquals(PROP_OFFICERS, nameProperty.getName(session));
+    assertEquals(PROP_OFFICERS, nameProperty.getName());
     assertEquals("testCreateUnsafePropertyWithEmbeddedType.officers",
-        nameProperty.getFullName(session));
-    assertEquals(PropertyType.EMBEDDEDLIST, nameProperty.getType(session));
-    assertEquals(PropertyType.STRING, nameProperty.getLinkedType(session));
+        nameProperty.getFullName());
+    assertEquals(PropertyType.EMBEDDEDLIST, nameProperty.getType());
+    assertEquals(PropertyType.STRING, nameProperty.getLinkedType());
   }
 
   @Test
@@ -210,15 +210,15 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
         .close();
 
     var companyClass = session.getMetadata().getSchema().getClass("testComplexCreateProperty");
-    var nameProperty = companyClass.getProperty(session, PROP_OFFICERS);
+    var nameProperty = companyClass.getProperty(PROP_OFFICERS);
 
-    assertEquals(PROP_OFFICERS, nameProperty.getName(session));
-    assertEquals("testComplexCreateProperty.officers", nameProperty.getFullName(session));
-    assertEquals(PropertyType.EMBEDDEDLIST, nameProperty.getType(session));
-    assertEquals(PropertyType.STRING, nameProperty.getLinkedType(session));
-    assertTrue(nameProperty.isMandatory(session));
-    assertTrue(nameProperty.isNotNull(session));
-    assertTrue(nameProperty.isReadonly(session));
+    assertEquals(PROP_OFFICERS, nameProperty.getName());
+    assertEquals("testComplexCreateProperty.officers", nameProperty.getFullName());
+    assertEquals(PropertyType.EMBEDDEDLIST, nameProperty.getType());
+    assertEquals(PropertyType.STRING, nameProperty.getLinkedType());
+    assertTrue(nameProperty.isMandatory());
+    assertTrue(nameProperty.isNotNull());
+    assertTrue(nameProperty.isReadonly());
   }
 
   @Test
@@ -231,19 +231,19 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
     var companyClass =
         session.getMetadata().getSchema().getClass("testLinkedTypeDefaultAndMinMaxUnsafeProperty");
-    var idProperty = companyClass.getProperty(session, PROP_ID);
+    var idProperty = companyClass.getProperty(PROP_ID);
 
-    assertEquals(PROP_ID, idProperty.getName(session));
+    assertEquals(PROP_ID, idProperty.getName());
     assertEquals("testLinkedTypeDefaultAndMinMaxUnsafeProperty.id",
-        idProperty.getFullName(session));
-    assertEquals(PropertyType.EMBEDDEDLIST, idProperty.getType(session));
-    assertEquals(PropertyType.INTEGER, idProperty.getLinkedType(session));
-    assertFalse(idProperty.isMandatory(session));
-    assertFalse(idProperty.isNotNull(session));
-    assertFalse(idProperty.isReadonly(session));
-    assertEquals("5", idProperty.getDefaultValue(session));
-    assertEquals("1", idProperty.getMin(session));
-    assertEquals("10", idProperty.getMax(session));
+        idProperty.getFullName());
+    assertEquals(PropertyType.EMBEDDEDLIST, idProperty.getType());
+    assertEquals(PropertyType.INTEGER, idProperty.getLinkedType());
+    assertFalse(idProperty.isMandatory());
+    assertFalse(idProperty.isNotNull());
+    assertFalse(idProperty.isReadonly());
+    assertEquals("5", idProperty.getDefaultValue());
+    assertEquals("1", idProperty.getMin());
+    assertEquals("10", idProperty.getMax());
   }
 
   @Test
@@ -256,18 +256,18 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
     var companyClass =
         session.getMetadata().getSchema().getClass("testDefaultAndMinMaxUnsafeProperty");
-    var idProperty = companyClass.getProperty(session, PROP_ID);
+    var idProperty = companyClass.getProperty(PROP_ID);
 
-    assertEquals(PROP_ID, idProperty.getName(session));
-    assertEquals("testDefaultAndMinMaxUnsafeProperty.id", idProperty.getFullName(session));
-    assertEquals(PropertyType.INTEGER, idProperty.getType(session));
-    assertNull(idProperty.getLinkedType(session));
-    assertFalse(idProperty.isMandatory(session));
-    assertFalse(idProperty.isNotNull(session));
-    assertFalse(idProperty.isReadonly(session));
-    assertEquals("5", idProperty.getDefaultValue(session));
-    assertEquals("1", idProperty.getMin(session));
-    assertEquals("10", idProperty.getMax(session));
+    assertEquals(PROP_ID, idProperty.getName());
+    assertEquals("testDefaultAndMinMaxUnsafeProperty.id", idProperty.getFullName());
+    assertEquals(PropertyType.INTEGER, idProperty.getType());
+    assertNull(idProperty.getLinkedType());
+    assertFalse(idProperty.isMandatory());
+    assertFalse(idProperty.isNotNull());
+    assertFalse(idProperty.isReadonly());
+    assertEquals("5", idProperty.getDefaultValue());
+    assertEquals("1", idProperty.getMin());
+    assertEquals("10", idProperty.getMax());
   }
 
   @Test
@@ -278,14 +278,14 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
         .close();
 
     var companyClass = session.getMetadata().getSchema().getClass("testExtraSpaces");
-    var idProperty = companyClass.getProperty(session, PROP_ID);
+    var idProperty = companyClass.getProperty(PROP_ID);
 
-    assertEquals(PROP_ID, idProperty.getName(session));
-    assertEquals("testExtraSpaces.id", idProperty.getFullName(session));
-    assertEquals(PropertyType.INTEGER, idProperty.getType(session));
-    assertNull(idProperty.getLinkedType(session));
-    assertTrue(idProperty.isMandatory(session));
-    assertEquals("5", idProperty.getDefaultValue(session));
+    assertEquals(PROP_ID, idProperty.getName());
+    assertEquals("testExtraSpaces.id", idProperty.getFullName());
+    assertEquals(PropertyType.INTEGER, idProperty.getType());
+    assertNull(idProperty.getLinkedType());
+    assertTrue(idProperty.isMandatory());
+    assertEquals("5", idProperty.getDefaultValue());
   }
 
   @Test(expected = CommandExecutionException.class)
@@ -316,13 +316,13 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
     var companyClass = session.getMetadata().getSchema().getClass("testMandatoryAsLinkedName");
     var mandatoryClass = session.getMetadata().getSchema()
         .getClass("testMandatoryAsLinkedName_2");
-    var idProperty = companyClass.getProperty(session, PROP_ID);
+    var idProperty = companyClass.getProperty(PROP_ID);
 
-    assertEquals(PROP_ID, idProperty.getName(session));
-    assertEquals("testMandatoryAsLinkedName.id", idProperty.getFullName(session));
-    assertEquals(PropertyType.EMBEDDEDLIST, idProperty.getType(session));
-    assertEquals(idProperty.getLinkedClass(session), mandatoryClass);
-    assertFalse(idProperty.isMandatory(session));
+    assertEquals(PROP_ID, idProperty.getName());
+    assertEquals("testMandatoryAsLinkedName.id", idProperty.getFullName());
+    assertEquals(PropertyType.EMBEDDEDLIST, idProperty.getType());
+    assertEquals(idProperty.getLinkedClass(), mandatoryClass);
+    assertFalse(idProperty.isMandatory());
   }
 
   @Test
@@ -331,19 +331,19 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
     session.command("CREATE property testIfNotExists.name if not exists STRING").close();
 
     var clazz = session.getMetadata().getSchema().getClass("testIfNotExists");
-    var nameProperty = clazz.getProperty(session, PROP_NAME);
+    var nameProperty = clazz.getProperty(PROP_NAME);
 
-    assertEquals(PROP_NAME, nameProperty.getName(session));
-    assertEquals("testIfNotExists.name", nameProperty.getFullName(session));
-    assertEquals(PropertyType.STRING, nameProperty.getType(session));
+    assertEquals(PROP_NAME, nameProperty.getName());
+    assertEquals("testIfNotExists.name", nameProperty.getFullName());
+    assertEquals(PropertyType.STRING, nameProperty.getType());
 
     session.command("CREATE property testIfNotExists.name if not exists STRING").close();
 
     clazz = session.getMetadata().getSchema().getClass("testIfNotExists");
-    nameProperty = clazz.getProperty(session, PROP_NAME);
+    nameProperty = clazz.getProperty(PROP_NAME);
 
-    assertEquals(PROP_NAME, nameProperty.getName(session));
-    assertEquals("testIfNotExists.name", nameProperty.getFullName(session));
-    assertEquals(PropertyType.STRING, nameProperty.getType(session));
+    assertEquals(PROP_NAME, nameProperty.getName());
+    assertEquals("testIfNotExists.name", nameProperty.getFullName());
+    assertEquals(PropertyType.STRING, nameProperty.getType());
   }
 }

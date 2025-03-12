@@ -33,9 +33,9 @@ public class LinkBagIndexTest extends BaseDBTest {
     final var ridBagIndexTestClass =
         session.getMetadata().getSchema().createClass("RidBagIndexTestClass");
 
-    ridBagIndexTestClass.createProperty(session, "ridBag", PropertyType.LINKBAG);
+    ridBagIndexTestClass.createProperty("ridBag", PropertyType.LINKBAG);
 
-    ridBagIndexTestClass.createIndex(session, "ridBagIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+    ridBagIndexTestClass.createIndex("ridBagIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "ridBag");
 
     session.close();

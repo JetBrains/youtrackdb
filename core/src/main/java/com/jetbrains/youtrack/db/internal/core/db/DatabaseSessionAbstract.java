@@ -49,6 +49,7 @@ import com.jetbrains.youtrack.db.api.session.SessionListener;
 import com.jetbrains.youtrack.db.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrack.db.internal.common.listener.ListenerManger;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
@@ -93,6 +94,7 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.B
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrack.db.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
@@ -122,6 +124,7 @@ import java.util.function.BiFunction;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Entity API entrypoint.
@@ -240,58 +243,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
       return (RET) iIdentifiable;
     }
     return load(iIdentifiable.getIdentity());
-  }
-
-  /**
-   * Deletes the record checking the version.
-   */
-  private void delete(final RID iRecord, final int iVersion) {
-    final var record = load(iRecord);
-    RecordInternal.setVersion(record, iVersion);
-    delete(record);
-  }
-
-  public DatabaseSessionInternal cleanOutRecord(final RID iRecord, final int iVersion) {
-    assert assertIfNotActive();
-    delete(iRecord, iVersion);
-    return this;
-  }
-
-  public <REC extends DBRecord> RecordIteratorCluster<REC> browseCluster(
-      final String iClusterName, final Class<REC> iClass) {
-    assert assertIfNotActive();
-    return (RecordIteratorCluster<REC>) browseCluster(iClusterName);
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  @Deprecated
-  public <REC extends DBRecord> RecordIteratorCluster<REC> browseCluster(
-      final String iClusterName,
-      final Class<REC> iRecordClass,
-      final long startClusterPosition,
-      final long endClusterPosition,
-      final boolean loadTombstones) {
-    checkSecurity(Rule.ResourceGeneric.CLUSTER, Role.PERMISSION_READ, iClusterName);
-    assert assertIfNotActive();
-    final var clusterId = getClusterIdByName(iClusterName);
-    return new RecordIteratorCluster<>(
-        this, clusterId, startClusterPosition, endClusterPosition);
-  }
-
-  @Override
-  public <REC extends DBRecord> RecordIteratorCluster<REC> browseCluster(
-      String iClusterName,
-      Class<REC> iRecordClass,
-      long startClusterPosition,
-      long endClusterPosition) {
-    assert assertIfNotActive();
-    checkSecurity(Rule.ResourceGeneric.CLUSTER, Role.PERMISSION_READ, iClusterName);
-    final var clusterId = getClusterIdByName(iClusterName);
-    //noinspection deprecation
-    return new RecordIteratorCluster<>(this, clusterId, startClusterPosition, endClusterPosition);
   }
 
   /**
@@ -733,13 +684,13 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     assert assertIfNotActive();
     // CHECK FOR ORESTRICTED
     final var classes =
-        getMetadata().getImmutableSchemaSnapshot().getClassesRelyOnCluster(this, iClusterName);
+        getMetadata().getImmutableSchemaSnapshot().getClassesRelyOnCluster(iClusterName);
 
     for (var c : classes) {
-      if (c.isSubClassOf(this, SecurityShared.RESTRICTED_CLASSNAME)) {
+      if (c.isSubClassOf(SecurityShared.RESTRICTED_CLASSNAME)) {
         throw new SecurityException(getDatabaseName(),
             "Class '"
-                + c.getName(this)
+                + c.getName()
                 + "' cannot be truncated because has record level security enabled (extends '"
                 + SecurityShared.RESTRICTED_CLASSNAME
                 + "')");
@@ -828,7 +779,49 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   @Override
   public <RET extends DBRecord> RET load(final RID recordId) {
     assert assertIfNotActive();
-    return (RET) currentTx.loadRecord(recordId);
+    return (RET) currentTx.loadRecord(recordId).recordAbstract();
+  }
+
+  @Nullable
+  @Override
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndNextRidInCluster(
+      @Nonnull RecordId recordId) {
+    assert assertIfNotActive();
+
+    while (true) {
+      var result = executeReadRecord(recordId, false, true, false);
+
+      if (result.recordAbstract() == null) {
+        if (result.nextRecordId() == null) {
+          return null;
+        } else {
+          recordId = result.nextRecordId();
+          continue;
+        }
+      }
+
+      return new RawPair<>((RET) result.recordAbstract(), result.nextRecordId());
+    }
+  }
+
+  @Nullable
+  @Override
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndPreviousRidInCluster(
+      @Nonnull RecordId recordId) {
+    assert assertIfNotActive();
+
+    while (true) {
+      var result = executeReadRecord(recordId, true, false, false);
+      if (result.recordAbstract() == null) {
+        if (result.previousRecordId() == null) {
+          return null;
+        } else {
+          recordId = result.previousRecordId();
+          continue;
+        }
+      }
+      return new RawPair<>((RET) result.recordAbstract(), result.previousRecordId());
+    }
   }
 
   @Override
@@ -902,7 +895,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
           "Cannot bind record to session with not persisted rid: " + rid);
     }
 
-    var result = executeReadRecord((RecordId) rid);
+    var result = executeReadRecord((RecordId) rid, false,
+        false, true).recordAbstract();
 
     assert !result.isUnloaded();
     assert result.getSession() == this;
@@ -910,33 +904,141 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     return (T) result;
   }
 
-  @Nonnull
-  public final <RET extends RecordAbstract> RET executeReadRecord(final RecordId rid) {
+  @Nullable
+  @Override
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadFirstRecordAndNextRidInCluster(
+      int clusterId) {
+    assert assertIfNotActive();
+    checkOpenness();
+
+    var firstPosition = getStorage().ceilingPhysicalPositions(this, clusterId,
+        new PhysicalPosition(0), 1);
+    var firstTxRid = currentTx.getFirstRid(clusterId);
+
+    if ((firstPosition == null || firstPosition.length == 0) && firstTxRid == null) {
+      return null;
+    }
+
+    RecordId firstRid;
+    if (firstPosition == null || firstPosition.length == 0) {
+      firstRid = firstTxRid;
+    } else if (firstTxRid == null) {
+      firstRid = new RecordId(clusterId, firstPosition[0].clusterPosition);
+    } else if (firstPosition[0].clusterPosition < firstTxRid.getClusterPosition()) {
+      firstRid = new RecordId(clusterId, firstPosition[0].clusterPosition);
+    } else {
+      firstRid = firstTxRid;
+    }
+
+    if (currentTx.isDeletedInTx(firstRid)) {
+      firstRid = fetchNextRid(firstRid);
+    }
+
+    if (firstRid == null) {
+      return null;
+    }
+
+    var recordId = firstRid;
+    while (true) {
+      var result = executeReadRecord(recordId, false, true, false);
+
+      if (result.recordAbstract() == null) {
+        if (result.nextRecordId() == null) {
+          return null;
+        } else {
+          recordId = result.nextRecordId();
+          continue;
+        }
+      }
+
+      return new RawPair<>((RET) result.recordAbstract(), result.nextRecordId());
+    }
+  }
+
+  @Nullable
+  @Override
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadLastRecordAndPreviousRidInCluster(
+      int clusterId) {
+    assert assertIfNotActive();
+    checkOpenness();
+
+    var lastPosition = getStorage().floorPhysicalPositions(this, clusterId,
+        new PhysicalPosition(Long.MAX_VALUE), 1);
+    var lastTxRid = currentTx.getLastRid(clusterId);
+
+    if ((lastPosition == null || lastPosition.length == 0) && lastTxRid == null) {
+      return null;
+    }
+
+    RecordId lastRid;
+    if (lastPosition == null || lastPosition.length == 0) {
+      lastRid = lastTxRid;
+    } else if (lastTxRid == null) {
+      lastRid = new RecordId(clusterId, lastPosition[0].clusterPosition);
+    } else if (lastPosition[0].clusterPosition > lastTxRid.getClusterPosition()) {
+      lastRid = new RecordId(clusterId, lastPosition[0].clusterPosition);
+    } else {
+      lastRid = lastTxRid;
+    }
+
+    if (currentTx.isDeletedInTx(lastRid)) {
+      lastRid = fetchPreviousRid(lastRid);
+    }
+
+    if (lastRid == null) {
+      return null;
+    }
+
+    var recordId = lastRid;
+    while (true) {
+      var result = executeReadRecord(recordId, true, false, false);
+      if (result.recordAbstract() == null) {
+        if (result.previousRecordId() == null) {
+          return null;
+        } else {
+          recordId = result.previousRecordId();
+          continue;
+        }
+      }
+      return new RawPair<>((RET) result.recordAbstract(), result.previousRecordId());
+    }
+  }
+
+  @Nullable
+  public final LoadRecordResult executeReadRecord(final @Nonnull RecordId rid,
+      boolean fetchPreviousRid, boolean fetchNextRid, boolean throwExceptionIfRecordNotFound) {
     checkOpenness();
     assert assertIfNotActive();
 
+    RecordId previousRid = null;
+    RecordId nextRid = null;
     getMetadata().makeThreadLocalSchemaSnapshot();
     try {
       checkSecurity(
           Rule.ResourceGeneric.CLUSTER,
           Role.PERMISSION_READ,
           getClusterNameById(rid.getClusterId()));
-
       // SEARCH IN LOCAL TX
       var record = getTransaction().getRecord(rid);
       if (record == FrontendTransactionAbstract.DELETED_RECORD) {
         // DELETED IN TX
-        throw new RecordNotFoundException(getDatabaseName(), rid);
+        return createRecordNotFoundResult(rid, fetchPreviousRid, fetchNextRid,
+            throwExceptionIfRecordNotFound);
       }
 
       var cachedRecord = localCache.findRecord(rid);
       if (record == null) {
         record = cachedRecord;
       }
+      if (record != null && record.isUnloaded()) {
+        throw new IllegalStateException(
+            "Unloaded record with rid " + rid + " was found in local cache");
+      }
 
-      if (record != null && !record.isUnloaded()) {
+      if (record != null) {
         if (beforeReadOperations(record)) {
-          throw new RecordNotFoundException(getDatabaseName(), rid);
+          return createRecordNotFoundResult(rid, fetchPreviousRid, fetchNextRid,
+              throwExceptionIfRecordNotFound);
         }
 
         afterReadOperations(record);
@@ -949,36 +1051,51 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
         assert !record.isUnloaded();
         assert record.getSession() == this;
 
-        return (RET) record;
-      }
-
-      if (cachedRecord != null) {
-        if (cachedRecord.isDirty()) {
-          throw new IllegalStateException("Cached record is dirty");
+        if (fetchPreviousRid) {
+          previousRid = fetchPreviousRid(rid);
         }
 
-        record = cachedRecord;
+        if (fetchNextRid) {
+          nextRid = fetchNextRid(rid);
+        }
+
+        return new LoadRecordResult(record, previousRid, nextRid);
       }
 
       loadedRecordsCount++;
+
       final RawBuffer recordBuffer;
       if (!rid.isValid()) {
         recordBuffer = null;
       } else {
-        recordBuffer = getStorage().readRecord(this, rid, false, prefetchRecords, null);
+        try {
+          var readRecordResult =
+              getStorage().readRecord(this, rid, fetchPreviousRid, fetchNextRid);
+          recordBuffer = readRecordResult.buffer();
+
+          previousRid = readRecordResult.previousRecordId();
+          nextRid = readRecordResult.nextRecordId();
+        } catch (RecordNotFoundException e) {
+          if (throwExceptionIfRecordNotFound) {
+            throw e;
+          } else {
+            if (fetchNextRid) {
+              nextRid = fetchNextRid(rid);
+            }
+            if (fetchPreviousRid) {
+              previousRid = fetchPreviousRid(rid);
+            }
+
+            return new LoadRecordResult(null, previousRid, nextRid);
+          }
+        }
       }
 
-      if (recordBuffer == null) {
-        throw new RecordNotFoundException(getDatabaseName(), rid);
-      }
-
-      if (record == null) {
-        record =
-            YouTrackDBEnginesManager.instance()
-                .getRecordFactoryManager()
-                .newInstance(recordBuffer.recordType, rid, this);
-        RecordInternal.unsetDirty(record);
-      }
+      record =
+          YouTrackDBEnginesManager.instance()
+              .getRecordFactoryManager()
+              .newInstance(recordBuffer.recordType, rid, this);
+      RecordInternal.unsetDirty(record);
 
       if (RecordInternal.getRecordType(this, record) != recordBuffer.recordType) {
         throw new DatabaseException(getDatabaseName(),
@@ -993,7 +1110,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
       }
 
       if (beforeReadOperations(record)) {
-        throw new RecordNotFoundException(getDatabaseName(), rid);
+        return createRecordNotFoundResult(rid, fetchPreviousRid, fetchNextRid,
+            throwExceptionIfRecordNotFound);
       }
 
       RecordInternal.fromStream(record, recordBuffer.buffer);
@@ -1004,7 +1122,39 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
       assert !record.isUnloaded();
       assert record.getSession() == this;
 
-      return (RET) record;
+      if (fetchPreviousRid) {
+        var previousTxRid = currentTx.getPreviousRidInCluster(rid);
+
+        if (previousRid == null) {
+          if (previousTxRid != null) {
+            previousRid = previousTxRid;
+          }
+        } else if (previousTxRid != null && previousTxRid.compareTo(previousRid) > 0) {
+          previousRid = previousTxRid;
+        }
+
+        if (previousRid != null && currentTx.isDeletedInTx(previousRid)) {
+          previousRid = fetchPreviousRid(previousRid);
+        }
+      }
+
+      if (fetchNextRid) {
+        var nextTxRid = currentTx.getNextRidInCluster(rid);
+
+        if (nextRid == null) {
+          if (nextTxRid != null) {
+            nextRid = nextTxRid;
+          }
+        } else if (nextTxRid != null && nextTxRid.compareTo(nextRid) < 0) {
+          nextRid = nextTxRid;
+        }
+
+        if (nextRid != null && currentTx.isDeletedInTx(nextRid)) {
+          nextRid = fetchNextRid(nextRid);
+        }
+      }
+
+      return new LoadRecordResult(record, previousRid, nextRid);
     } catch (OfflineClusterException | RecordNotFoundException t) {
       throw t;
     } catch (Exception t) {
@@ -1027,6 +1177,91 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     }
   }
 
+  private LoadRecordResult createRecordNotFoundResult(RecordId rid, boolean fetchPreviousRid,
+      boolean fetchNextRid, boolean throwExceptionIfRecordNotFound) {
+    RecordId previousRid = null;
+    RecordId nextRid = null;
+    if (throwExceptionIfRecordNotFound) {
+      throw new RecordNotFoundException(getDatabaseName(), rid);
+    } else {
+      if (fetchNextRid) {
+        nextRid = fetchNextRid(rid);
+      }
+      if (fetchPreviousRid) {
+        previousRid = fetchPreviousRid(rid);
+      }
+
+      return new LoadRecordResult(null, previousRid, nextRid);
+    }
+  }
+
+  private RecordId fetchNextRid(RecordId rid) {
+    RecordId nextRid;
+    while (true) {
+      var higherPositions = getStorage().higherPhysicalPositions(this, rid.getClusterId(),
+          new PhysicalPosition(rid.getClusterPosition()), 1);
+      var txNextRid = currentTx.getNextRidInCluster(rid);
+
+      if (higherPositions != null && higherPositions.length > 0) {
+        if (txNextRid == null) {
+          nextRid = new RecordId(rid.getClusterId(), higherPositions[0].clusterPosition);
+        } else if (higherPositions[0].clusterPosition > txNextRid.getClusterPosition()) {
+          nextRid = txNextRid;
+        } else {
+          nextRid = new RecordId(rid.getClusterId(), higherPositions[0].clusterPosition);
+        }
+      } else {
+        nextRid = txNextRid;
+      }
+
+      if (nextRid == null) {
+        return null;
+      }
+
+      if (currentTx.isDeletedInTx(nextRid)) {
+        rid = nextRid;
+        continue;
+      }
+
+      break;
+    }
+
+    return nextRid;
+  }
+
+  private RecordId fetchPreviousRid(RecordId rid) {
+    RecordId previousRid;
+
+    while (true) {
+      var lowerPositions = getStorage().lowerPhysicalPositions(this, rid.getClusterId(),
+          new PhysicalPosition(rid.getClusterPosition()), 1);
+      var txPreviousRid = currentTx.getPreviousRidInCluster(rid);
+      if (lowerPositions != null && lowerPositions.length > 0) {
+        if (txPreviousRid == null) {
+          previousRid = new RecordId(rid.getClusterId(), lowerPositions[0].clusterPosition);
+        } else if (lowerPositions[0].clusterPosition < txPreviousRid.getClusterPosition()) {
+          previousRid = txPreviousRid;
+        } else {
+          previousRid = new RecordId(rid.getClusterId(), lowerPositions[0].clusterPosition);
+        }
+      } else {
+        previousRid = txPreviousRid;
+      }
+
+      if (previousRid == null) {
+        return null;
+      }
+
+      if (currentTx.isDeletedInTx(previousRid)) {
+        rid = previousRid;
+        continue;
+      }
+
+      break;
+    }
+    return previousRid;
+  }
+
   public int assignAndCheckCluster(DBRecord record, String clusterName) {
     assert assertIfNotActive();
 
@@ -1044,17 +1279,15 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     if (rid.getClusterId() <= RID.CLUSTER_ID_INVALID
         && getStorageInfo().isAssigningClusterIds()) {
       if (record instanceof EntityImpl) {
-        SchemaImmutableClass result = null;
-        result = ((EntityImpl) record).getImmutableSchemaClass(this);
-        schemaClass = result;
+        schemaClass = ((EntityImpl) record).getImmutableSchemaClass(this);
         if (schemaClass != null) {
-          if (schemaClass.isAbstract(this)) {
+          if (schemaClass.isAbstract()) {
             throw new SchemaException(getDatabaseName(),
                 "Entity belongs to abstract class "
-                    + schemaClass.getName(this)
+                    + schemaClass.getName()
                     + " and cannot be saved");
           }
-          rid.setClusterId(schemaClass.getClusterForNewInstance(this, (EntityImpl) record));
+          rid.setClusterId(schemaClass.getClusterForNewInstance((EntityImpl) record));
         } else {
           throw new DatabaseException(getDatabaseName(),
               "Cannot save (1) entity " + record + ": no class or cluster defined");
@@ -1076,11 +1309,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
       }
     } else {
       if (record instanceof EntityImpl) {
-        SchemaImmutableClass result = null;
-        if (record != null) {
-          result = ((EntityImpl) record).getImmutableSchemaClass(this);
-        }
-        schemaClass = result;
+        schemaClass = ((EntityImpl) record).getImmutableSchemaClass(this);
       }
     }
     // If the cluster id was set check is validity
@@ -1095,9 +1324,9 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
                   + "' (id="
                   + rid.getClusterId()
                   + ") is not configured to store the class '"
-                  + schemaClass.getName(this)
+                  + schemaClass.getName()
                   + "', valid are "
-                  + Arrays.toString(schemaClass.getClusterIds(this)));
+                  + Arrays.toString(schemaClass.getClusterIds()));
         }
       }
     }
@@ -1289,7 +1518,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   @Override
   public Entity newEmbeddedEntity(SchemaClass schemaClass) {
     assert assertIfNotActive();
-    return new EmbeddedEntityImpl(schemaClass != null ? schemaClass.getName(this) : null, this);
+    return new EmbeddedEntityImpl(schemaClass != null ? schemaClass.getName() : null, this);
   }
 
   @Override
@@ -1307,7 +1536,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   public Entity newEntity(SchemaClass clazz) {
     assert assertIfNotActive();
-    return newInstance(clazz.getName(this));
+    return newInstance(clazz.getName());
   }
 
   public Vertex newVertex(final String className) {
@@ -1334,17 +1563,17 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     if (type == null) {
       return newVertex("V");
     }
-    return newVertex(type.getName(this));
+    return newVertex(type.getName());
   }
 
   @Override
   public StatefulEdge newStatefulEdge(Vertex from, Vertex to, String type) {
     assert assertIfNotActive();
     var cl = getMetadata().getImmutableSchemaSnapshot().getClass(type);
-    if (cl == null || !cl.isEdgeType(this)) {
+    if (cl == null || !cl.isEdgeType()) {
       throw new IllegalArgumentException(type + " is not a regular edge class");
     }
-    if (cl.isAbstract(this)) {
+    if (cl.isAbstract()) {
       throw new IllegalArgumentException(
           type + " is an abstract class and can not be used for creation of regular edge");
     }
@@ -1356,10 +1585,10 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull String type) {
     assert assertIfNotActive();
     var cl = getMetadata().getImmutableSchemaSnapshot().getClass(type);
-    if (cl == null || !cl.isEdgeType(this)) {
+    if (cl == null || !cl.isEdgeType()) {
       throw new IllegalArgumentException(type + " is not a lightweight edge class");
     }
-    if (!cl.isAbstract(this)) {
+    if (!cl.isAbstract()) {
       throw new IllegalArgumentException(
           type + " is not an abstract class and can not be used for creation of lightweight edge");
     }
@@ -1374,13 +1603,13 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
       return newStatefulEdge(from, to, "E");
     }
 
-    return newStatefulEdge(from, to, type.getName(this));
+    return newStatefulEdge(from, to, type.getName());
   }
 
   @Override
   public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull SchemaClass type) {
     assert assertIfNotActive();
-    return newLightweightEdge(from, to, type.getName(this));
+    return newLightweightEdge(from, to, type.getName());
   }
 
   private EdgeInternal addEdgeInternal(
@@ -1427,11 +1656,11 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
       throw new IllegalArgumentException("Class " + className + " does not exist");
     }
 
-    className = edgeType.getName(this);
+    className = edgeType.getName();
 
     var createLightweightEdge =
         !isRegular
-            && (edgeType.isAbstract(this) || className.equals(EdgeInternal.CLASS_NAME));
+            && (edgeType.isAbstract() || className.equals(EdgeInternal.CLASS_NAME));
     if (!isRegular && !createLightweightEdge) {
       throw new IllegalArgumentException(
           "Cannot create lightweight edge for class " + className + " because it is not abstract");
@@ -1485,7 +1714,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   /**
    * {@inheritDoc}
    */
-  public RecordIteratorClass<EntityImpl> browseClass(final @Nonnull String className) {
+  public RecordIteratorClass browseClass(final @Nonnull String className) {
     assert assertIfNotActive();
     return browseClass(className, true);
   }
@@ -1493,8 +1722,14 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   /**
    * {@inheritDoc}
    */
-  public RecordIteratorClass<EntityImpl> browseClass(
+  public RecordIteratorClass browseClass(
       final @Nonnull String className, final boolean iPolymorphic) {
+    return browseClass(className, iPolymorphic, true);
+  }
+
+  @Override
+  public RecordIteratorClass browseClass(@Nonnull String className, boolean iPolymorphic,
+      boolean forwardDirection) {
     assert assertIfNotActive();
     if (getMetadata().getImmutableSchemaSnapshot().getClass(className) == null) {
       throw new IllegalArgumentException(
@@ -1502,18 +1737,28 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     }
 
     checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_READ, className);
-    return new RecordIteratorClass<>(this, className, iPolymorphic, false);
+    return new RecordIteratorClass(this, className, iPolymorphic, forwardDirection);
+  }
+
+  @Override
+  public RecordIteratorClass browseClass(@Nonnull SchemaClass clz) {
+    assert assertIfNotActive();
+
+    checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_READ, clz.getName());
+    return new RecordIteratorClass(this, (SchemaClassInternal) clz,
+        true, true);
   }
 
   /**
    * {@inheritDoc}
    */
   @Override
-  public RecordIteratorCluster<DBRecord> browseCluster(final String iClusterName) {
+  public <REC extends RecordAbstract> RecordIteratorCluster<REC> browseCluster(
+      final String iClusterName) {
     assert assertIfNotActive();
     checkSecurity(Rule.ResourceGeneric.CLUSTER, Role.PERMISSION_READ, iClusterName);
 
-    return new RecordIteratorCluster<>(this, getClusterIdByName(iClusterName));
+    return new RecordIteratorCluster<>(this, getClusterIdByName(iClusterName), true);
   }
 
   /**
@@ -1523,23 +1768,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   public Iterable<SessionListener> getListeners() {
     assert assertIfNotActive();
     return getListenersCopy();
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  @Deprecated
-  public RecordIteratorCluster<EntityImpl> browseCluster(
-      String iClusterName,
-      long startClusterPosition,
-      long endClusterPosition,
-      boolean loadTombstones) {
-    assert assertIfNotActive();
-    checkSecurity(Rule.ResourceGeneric.CLUSTER, Role.PERMISSION_READ, iClusterName);
-
-    return new RecordIteratorCluster<>(
-        this, getClusterIdByName(iClusterName), startClusterPosition, endClusterPosition);
   }
 
   /**
@@ -1573,22 +1801,19 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
     long deletedInTx = 0;
     long addedInTx = 0;
-    var className = cls.getName(this);
+    var className = cls.getName();
     if (getTransaction().isActive()) {
       for (var op : getTransaction().getRecordOperations()) {
         if (op.type == RecordOperation.DELETED) {
           final DBRecord rec = op.record;
           if (rec instanceof EntityImpl) {
-            SchemaImmutableClass result = null;
-            result = ((EntityImpl) rec).getImmutableSchemaClass(this);
-            SchemaClass schemaClass = result;
+            var schemaClass = ((EntityImpl) rec).getImmutableSchemaClass(this);
             if (iPolymorphic) {
-              if (schemaClass.isSubClassOf(this, className)) {
+              if (schemaClass.isSubClassOf(className)) {
                 deletedInTx++;
               }
             } else {
-              if (schemaClass != null && (className.equals(schemaClass.getName(this))
-                  || className.equals(schemaClass.getShortName(this)))) {
+              if (schemaClass != null && (className.equals(schemaClass.getName()))) {
                 deletedInTx++;
               }
             }
@@ -1597,17 +1822,14 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
         if (op.type == RecordOperation.CREATED) {
           final DBRecord rec = op.record;
           if (rec instanceof EntityImpl) {
-            SchemaImmutableClass result = null;
-            result = ((EntityImpl) rec).getImmutableSchemaClass(this);
-            SchemaClass schemaClass = result;
+            var schemaClass = ((EntityImpl) rec).getImmutableSchemaClass(this);
             if (schemaClass != null) {
               if (iPolymorphic) {
-                if (schemaClass.isSubClassOf(this, className)) {
+                if (schemaClass.isSubClassOf(className)) {
                   addedInTx++;
                 }
               } else {
-                if (className.equals(schemaClass.getName(this))
-                    || className.equals(schemaClass.getShortName(this))) {
+                if (className.equals(schemaClass.getName())) {
                   addedInTx++;
                 }
               }
@@ -1974,7 +2196,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     assert assertIfNotActive();
     var cl = getMetadata().getImmutableSchemaSnapshot().getClass(iClassName);
 
-    if (cl == null || !cl.isEdgeType(this)) {
+    if (cl == null || !cl.isEdgeType()) {
       throw new IllegalArgumentException(iClassName + " is not an edge class");
     }
 
@@ -2042,14 +2264,14 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   public boolean isClusterEdge(int cluster) {
     assert assertIfNotActive();
     var clazz = getMetadata().getImmutableSchemaSnapshot().getClassByClusterId(cluster);
-    return clazz != null && clazz.isEdgeType(this);
+    return clazz != null && clazz.isEdgeType();
   }
 
   @Override
   public boolean isClusterVertex(int cluster) {
     assert assertIfNotActive();
     var clazz = getMetadata().getImmutableSchemaSnapshot().getClassByClusterId(cluster);
-    return clazz != null && clazz.isVertexType(this);
+    return clazz != null && clazz.isVertexType();
   }
 
 
@@ -2272,7 +2494,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Override
   public <T> List<T> newEmbeddedList() {
-    return new TrackedList<T>();
+    return new TrackedList<>();
   }
 
   @Override

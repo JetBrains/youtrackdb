@@ -55,12 +55,12 @@ public class MultiLineStringShapeBuilder extends ComplexShapeBuilder<JtsGeometry
   public void initClazz(DatabaseSessionInternal db) {
     Schema schema = db.getMetadata().getSchema();
     var lineString = schema.createAbstractClass(getName(), superClass(db));
-    lineString.createProperty(db, COORDINATES, PropertyType.EMBEDDEDLIST,
+    lineString.createProperty(COORDINATES, PropertyType.EMBEDDEDLIST,
         PropertyType.EMBEDDEDLIST);
 
     if (GlobalConfiguration.SPATIAL_ENABLE_DIRECT_WKT_READER.getValueAsBoolean()) {
       var lineStringZ = schema.createAbstractClass(getName() + "Z", superClass(db));
-      lineStringZ.createProperty(db, COORDINATES, PropertyType.EMBEDDEDLIST,
+      lineStringZ.createProperty(COORDINATES, PropertyType.EMBEDDEDLIST,
           PropertyType.EMBEDDEDLIST);
     }
   }

@@ -89,9 +89,9 @@ public class GraphDatabaseTest extends BaseDBTest {
       oc = (SchemaClassInternal) session.createVertexClass("vertexA");
     }
 
-    if (!oc.existsProperty(session, "name")) {
-      oc.createProperty(session, "name", PropertyType.STRING);
-      oc.createIndex(session, "vertexA_name_idx", SchemaClass.INDEX_TYPE.UNIQUE, "name");
+    if (!oc.existsProperty("name")) {
+      oc.createProperty("name", PropertyType.STRING);
+      oc.createIndex("vertexA_name_idx", SchemaClass.INDEX_TYPE.UNIQUE, "name");
     }
 
     session.begin();

@@ -337,7 +337,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
             var session = connection.getDatabaseSession();
             if (session != null) {
               final var collectionManager =
-                  connection.getDatabaseSession().getSbTreeCollectionManager();
+                  connection.getDatabaseSession().getBTreeCollectionManager();
               if (collectionManager != null) {
                 collectionManager.clearChangedIds(session);
               }

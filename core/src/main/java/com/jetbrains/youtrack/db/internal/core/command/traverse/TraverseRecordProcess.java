@@ -131,7 +131,7 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
             }
 
             final var className = cfgField.substring(0, pos);
-            if (!cls.isSubClassOf(database, className))
+            if (!cls.isSubClassOf(className))
             // JUMP IT BECAUSE IT'S NOT A INSTANCEOF THE CLASS
             {
               continue;

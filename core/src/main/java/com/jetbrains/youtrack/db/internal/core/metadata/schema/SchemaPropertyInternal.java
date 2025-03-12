@@ -10,7 +10,9 @@ public interface SchemaPropertyInternal extends SchemaProperty {
   /**
    * @return All indexes in which this property participates.
    */
-  Collection<String> getAllIndexes(DatabaseSession session);
+  Collection<String> getAllIndexes();
 
-  Collection<Index> getAllIndexesInternal(DatabaseSession session);
+  Collection<Index> getAllIndexesInternal();
+
+  DatabaseSession getBoundToSession();
 }

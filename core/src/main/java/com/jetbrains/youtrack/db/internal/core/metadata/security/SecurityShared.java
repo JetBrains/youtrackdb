@@ -593,10 +593,10 @@ public class SecurityShared implements SecurityInternal {
       }
       Set<SchemaClass> allClasses = new HashSet<>();
       allClasses.add(clazz);
-      allClasses.addAll(clazz.getAllSubclasses(session));
+      allClasses.addAll(clazz.getAllSubclasses());
       allClasses.addAll(clazz.getAllSuperClasses());
       for (var c : allClasses) {
-        for (var index : ((SchemaClassInternal) c).getIndexesInternal(session)) {
+        for (var index : ((SchemaClassInternal) c).getIndexesInternal()) {
           var indexFields = index.getDefinition().getFields();
           if (indexFields.size() > 1
               && indexFields.contains(((SecurityResourceProperty) res).getPropertyName())) {
@@ -953,26 +953,26 @@ public class SecurityShared implements SecurityInternal {
               .createAbstractClass(RESTRICTED_CLASSNAME);
       unsafe = true;
     }
-    if (!restrictedClass.existsProperty(database, ALLOW_ALL_FIELD)) {
-      restrictedClass.createProperty(database,
+    if (!restrictedClass.existsProperty(ALLOW_ALL_FIELD)) {
+      restrictedClass.createProperty(
           ALLOW_ALL_FIELD,
           PropertyType.LINKSET,
           database.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
     }
-    if (!restrictedClass.existsProperty(database, ALLOW_READ_FIELD)) {
-      restrictedClass.createProperty(database,
+    if (!restrictedClass.existsProperty(ALLOW_READ_FIELD)) {
+      restrictedClass.createProperty(
           ALLOW_READ_FIELD,
           PropertyType.LINKSET,
           database.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
     }
-    if (!restrictedClass.existsProperty(database, ALLOW_UPDATE_FIELD)) {
-      restrictedClass.createProperty(database,
+    if (!restrictedClass.existsProperty(ALLOW_UPDATE_FIELD)) {
+      restrictedClass.createProperty(
           ALLOW_UPDATE_FIELD,
           PropertyType.LINKSET,
           database.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
     }
-    if (!restrictedClass.existsProperty(database, ALLOW_DELETE_FIELD)) {
-      restrictedClass.createProperty(database,
+    if (!restrictedClass.existsProperty(ALLOW_DELETE_FIELD)) {
+      restrictedClass.createProperty(
           ALLOW_DELETE_FIELD,
           PropertyType.LINKSET,
           database.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
@@ -988,44 +988,44 @@ public class SecurityShared implements SecurityInternal {
       userClass = (SchemaClassInternal) database.getMetadata().getSchema()
           .createClass("OUser", identityClass);
       unsafe = true;
-    } else if (!userClass.getSuperClasses(database).contains(identityClass))
+    } else if (!userClass.getSuperClasses().contains(identityClass))
     // MIGRATE AUTOMATICALLY TO 1.2.0
     {
-      userClass.setSuperClasses(database, Collections.singletonList(identityClass));
+      userClass.setSuperClasses(Collections.singletonList(identityClass));
     }
 
-    if (!userClass.existsProperty(database, "name")) {
+    if (!userClass.existsProperty("name")) {
       userClass
-          .createProperty(database, "name", PropertyType.STRING, (PropertyType) null, unsafe)
-          .setMandatory(database, true)
-          .setNotNull(database, true)
-          .setCollate(database, "ci")
-          .setMin(database, "1")
-          .setRegexp(database, "\\S+(.*\\S+)*");
-      userClass.createIndex(database, "OUser.name", INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE,
+          .createProperty("name", PropertyType.STRING, (PropertyType) null, unsafe)
+          .setMandatory(true)
+          .setNotNull(true)
+          .setCollate("ci")
+          .setMin("1")
+          .setRegexp("\\S+(.*\\S+)*");
+      userClass.createIndex("OUser.name", INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE,
           "name");
     } else {
-      var name = userClass.getPropertyInternal(database, "name");
-      if (name.getAllIndexes(database).isEmpty()) {
-        userClass.createIndex(database,
+      var name = userClass.getPropertyInternal("name");
+      if (name.getAllIndexes().isEmpty()) {
+        userClass.createIndex(
             "OUser.name", INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE, "name");
       }
     }
-    if (!userClass.existsProperty(database, SecurityUserImpl.PASSWORD_PROPERTY)) {
+    if (!userClass.existsProperty(SecurityUserImpl.PASSWORD_PROPERTY)) {
       userClass
-          .createProperty(database, SecurityUserImpl.PASSWORD_PROPERTY, PropertyType.STRING,
+          .createProperty(SecurityUserImpl.PASSWORD_PROPERTY, PropertyType.STRING,
               (PropertyType) null, unsafe)
-          .setMandatory(database, true)
-          .setNotNull(database, true);
+          .setMandatory(true)
+          .setNotNull(true);
     }
-    if (!userClass.existsProperty(database, "roles")) {
-      userClass.createProperty(database, "roles", PropertyType.LINKSET, roleClass, unsafe);
+    if (!userClass.existsProperty("roles")) {
+      userClass.createProperty("roles", PropertyType.LINKSET, roleClass, unsafe);
     }
-    if (!userClass.existsProperty(database, "status")) {
+    if (!userClass.existsProperty("status")) {
       userClass
-          .createProperty(database, "status", PropertyType.STRING, (PropertyType) null, unsafe)
-          .setMandatory(database, true)
-          .setNotNull(database, true);
+          .createProperty("status", PropertyType.STRING, (PropertyType) null, unsafe)
+          .setMandatory(true)
+          .setNotNull(true);
     }
   }
 
@@ -1040,49 +1040,49 @@ public class SecurityShared implements SecurityInternal {
       unsafe = true;
     }
 
-    if (!policyClass.existsProperty(database, "name")) {
+    if (!policyClass.existsProperty("name")) {
       policyClass
-          .createProperty(database, "name", PropertyType.STRING, (PropertyType) null, unsafe)
-          .setMandatory(database, true)
-          .setNotNull(database, true)
-          .setCollate(database, "ci");
-      policyClass.createIndex(database,
+          .createProperty("name", PropertyType.STRING, (PropertyType) null, unsafe)
+          .setMandatory(true)
+          .setNotNull(true)
+          .setCollate("ci");
+      policyClass.createIndex(
           "OSecurityPolicy.name", INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE, "name");
     } else {
-      var name = policyClass.getPropertyInternal(database, "name");
-      if (name.getAllIndexes(database).isEmpty()) {
-        policyClass.createIndex(database,
+      var name = policyClass.getPropertyInternal("name");
+      if (name.getAllIndexes().isEmpty()) {
+        policyClass.createIndex(
             "OSecurityPolicy.name", INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE, "name");
       }
     }
 
-    if (!policyClass.existsProperty(database, "create")) {
-      policyClass.createProperty(database, "create", PropertyType.STRING, (PropertyType) null,
+    if (!policyClass.existsProperty("create")) {
+      policyClass.createProperty("create", PropertyType.STRING, (PropertyType) null,
           unsafe);
     }
-    if (!policyClass.existsProperty(database, "read")) {
-      policyClass.createProperty(database, "read", PropertyType.STRING, (PropertyType) null,
+    if (!policyClass.existsProperty("read")) {
+      policyClass.createProperty("read", PropertyType.STRING, (PropertyType) null,
           unsafe);
     }
-    if (!policyClass.existsProperty(database, "beforeUpdate")) {
-      policyClass.createProperty(database, "beforeUpdate", PropertyType.STRING, (PropertyType) null,
+    if (!policyClass.existsProperty("beforeUpdate")) {
+      policyClass.createProperty("beforeUpdate", PropertyType.STRING, (PropertyType) null,
           unsafe);
     }
-    if (!policyClass.existsProperty(database, "afterUpdate")) {
-      policyClass.createProperty(database, "afterUpdate", PropertyType.STRING, (PropertyType) null,
+    if (!policyClass.existsProperty("afterUpdate")) {
+      policyClass.createProperty("afterUpdate", PropertyType.STRING, (PropertyType) null,
           unsafe);
     }
-    if (!policyClass.existsProperty(database, "delete")) {
-      policyClass.createProperty(database, "delete", PropertyType.STRING, (PropertyType) null,
+    if (!policyClass.existsProperty("delete")) {
+      policyClass.createProperty("delete", PropertyType.STRING, (PropertyType) null,
           unsafe);
     }
-    if (!policyClass.existsProperty(database, "execute")) {
-      policyClass.createProperty(database, "execute", PropertyType.STRING, (PropertyType) null,
+    if (!policyClass.existsProperty("execute")) {
+      policyClass.createProperty("execute", PropertyType.STRING, (PropertyType) null,
           unsafe);
     }
 
-    if (!policyClass.existsProperty(database, "active")) {
-      policyClass.createProperty(database, "active", PropertyType.BOOLEAN, (PropertyType) null,
+    if (!policyClass.existsProperty("active")) {
+      policyClass.createProperty("active", PropertyType.BOOLEAN, (PropertyType) null,
           unsafe);
     }
 
@@ -1097,43 +1097,43 @@ public class SecurityShared implements SecurityInternal {
       roleClass = (SchemaClassInternal) database.getMetadata().getSchema()
           .createClass(Role.CLASS_NAME, identityClass);
       unsafe = true;
-    } else if (!roleClass.getSuperClasses(database).contains(identityClass))
+    } else if (!roleClass.getSuperClasses().contains(identityClass))
     // MIGRATE AUTOMATICALLY TO 1.2.0
     {
-      roleClass.setSuperClasses(database, Collections.singletonList(identityClass));
+      roleClass.setSuperClasses(Collections.singletonList(identityClass));
     }
 
-    if (!roleClass.existsProperty(database, "name")) {
+    if (!roleClass.existsProperty("name")) {
       roleClass
-          .createProperty(database, "name", PropertyType.STRING, (PropertyType) null, unsafe)
-          .setMandatory(database, true)
-          .setNotNull(database, true)
-          .setCollate(database, "ci");
-      roleClass.createIndex(database, Role.CLASS_NAME + "." + Role.NAME, INDEX_TYPE.UNIQUE,
+          .createProperty("name", PropertyType.STRING, (PropertyType) null, unsafe)
+          .setMandatory(true)
+          .setNotNull(true)
+          .setCollate("ci");
+      roleClass.createIndex(Role.CLASS_NAME + "." + Role.NAME, INDEX_TYPE.UNIQUE,
           NullOutputListener.INSTANCE,
           "name");
     } else {
-      var name = roleClass.getPropertyInternal(database, "name");
-      if (name.getAllIndexes(database).isEmpty()) {
-        roleClass.createIndex(database,
+      var name = roleClass.getPropertyInternal("name");
+      if (name.getAllIndexes().isEmpty()) {
+        roleClass.createIndex(
             "ORole.name", INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE, "name");
       }
     }
 
-    if (!roleClass.existsProperty(database, "mode")) {
-      roleClass.createProperty(database, "mode", PropertyType.BYTE, (PropertyType) null, unsafe);
+    if (!roleClass.existsProperty("mode")) {
+      roleClass.createProperty("mode", PropertyType.BYTE, (PropertyType) null, unsafe);
     }
 
-    if (!roleClass.existsProperty(database, "rules")) {
-      roleClass.createProperty(database, "rules", PropertyType.EMBEDDEDMAP, PropertyType.BYTE,
+    if (!roleClass.existsProperty("rules")) {
+      roleClass.createProperty("rules", PropertyType.EMBEDDEDMAP, PropertyType.BYTE,
           unsafe);
     }
-    if (!roleClass.existsProperty(database, "inheritedRole")) {
-      roleClass.createProperty(database, "inheritedRole", PropertyType.LINK, roleClass, unsafe);
+    if (!roleClass.existsProperty("inheritedRole")) {
+      roleClass.createProperty("inheritedRole", PropertyType.LINK, roleClass, unsafe);
     }
 
-    if (!roleClass.existsProperty(database, "policies")) {
-      roleClass.createProperty(database,
+    if (!roleClass.existsProperty("policies")) {
+      roleClass.createProperty(
           "policies", PropertyType.LINKMAP, database.getClass("OSecurityPolicy"), unsafe);
     }
 
@@ -1145,23 +1145,23 @@ public class SecurityShared implements SecurityInternal {
         .getClassInternal("OUser");
     if (userClass != null) {
       // @COMPATIBILITY <1.3.0
-      if (!userClass.existsProperty(session, "status")) {
-        userClass.createProperty(session, "status", PropertyType.STRING).setMandatory(session, true)
-            .setNotNull(session, true);
+      if (!userClass.existsProperty("status")) {
+        userClass.createProperty("status", PropertyType.STRING).setMandatory(true)
+            .setNotNull(true);
       }
-      var p = userClass.getProperty(session, "name");
+      var p = userClass.getProperty("name");
       if (p == null) {
         p =
             userClass
-                .createProperty(session, "name", PropertyType.STRING)
-                .setMandatory(session, true)
-                .setNotNull(session, true)
-                .setMin(session, "1")
-                .setRegexp(session, "\\S+(.*\\S+)*");
+                .createProperty("name", PropertyType.STRING)
+                .setMandatory(true)
+                .setNotNull(true)
+                .setMin("1")
+                .setRegexp("\\S+(.*\\S+)*");
       }
 
       if (userClass.getInvolvedIndexes(session, "name") == null) {
-        p.createIndex(session, INDEX_TYPE.UNIQUE);
+        p.createIndex(INDEX_TYPE.UNIQUE);
       }
 
       // ROLE
@@ -1179,21 +1179,23 @@ public class SecurityShared implements SecurityInternal {
         .getClass(SecurityPolicy.CLASS_NAME);
     if (securityPolicyClass == null) {
       createOrUpdateOSecurityPolicyClass(session);
-      var adminRole = getRole(session, "admin");
-      if (adminRole != null) {
-        setDefaultAdminPermissions(session, adminRole);
-      }
-      var readerRole = getRole(session, DEFAULT_READER_ROLE_NAME);
-      if (readerRole != null) {
-        setDefaultReaderPermissions(session, readerRole);
-      }
+      session.executeInTx(() -> {
+        var adminRole = getRole(session, "admin");
+        if (adminRole != null) {
+          setDefaultAdminPermissions(session, adminRole);
+        }
+        var readerRole = getRole(session, DEFAULT_READER_ROLE_NAME);
+        if (readerRole != null) {
+          setDefaultReaderPermissions(session, readerRole);
+        }
 
-      var writerRole = getRole(session, DEFAULT_WRITER_ROLE_NAME);
-      if (writerRole != null) {
-        sedDefaultWriterPermissions(session, writerRole);
-      }
+        var writerRole = getRole(session, DEFAULT_WRITER_ROLE_NAME);
+        if (writerRole != null) {
+          sedDefaultWriterPermissions(session, writerRole);
+        }
 
-      incrementVersion(session);
+        incrementVersion(session);
+      });
     }
   }
 
@@ -1353,7 +1355,7 @@ public class SecurityShared implements SecurityInternal {
                                 new SecurityPolicyImpl(policy)))) {
                           var roleMap =
                               result.computeIfAbsent(roleName, k -> new HashMap<>());
-                          roleMap.put(clazz.getName(session), true);
+                          roleMap.put(clazz.getName(), true);
                         }
                       }
                     } catch (RecordNotFoundException rne) {
@@ -1391,10 +1393,10 @@ public class SecurityShared implements SecurityInternal {
     }
     if (res instanceof SecurityResourceClass) {
       var resourceClass = ((SecurityResourceClass) res).getClassName();
-      return clazz.isSubClassOf(db, resourceClass);
+      return clazz.isSubClassOf(resourceClass);
     } else if (res instanceof SecurityResourceProperty) {
       var resourceClass = ((SecurityResourceProperty) res).getClassName();
-      return clazz.isSubClassOf(db, resourceClass);
+      return clazz.isSubClassOf(resourceClass);
     }
     return false;
   }
@@ -1423,7 +1425,7 @@ public class SecurityShared implements SecurityInternal {
         if (roleMap == null) {
           return Collections.emptySet(); // TODO hierarchy...?
         }
-        var val = roleMap.get(clazz.getName(session));
+        var val = roleMap.get(clazz.getName());
         if (!(Boolean.TRUE.equals(val))) {
           return Collections.emptySet(); // TODO hierarchy...?
         }
@@ -1437,7 +1439,7 @@ public class SecurityShared implements SecurityInternal {
           SecurityEngine.getPredicateForSecurityResource(
               session,
               this,
-              "database.class.`" + clazz.getName(session) + "`.`" + prop + "`",
+              "database.class.`" + clazz.getName() + "`.`" + prop + "`",
               SecurityPolicy.Scope.READ);
       if (!SecurityEngine.evaluateSecuirtyPolicyPredicate(session, predicate, (DBRecord) entity)) {
         result.add(prop);

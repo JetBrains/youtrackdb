@@ -89,7 +89,7 @@ public class SQLWhereClause extends SimpleNode {
 
     var indexesCount = 0L;
     var flattenedConditions = flatten();
-    var indexes = oClass.getIndexesInternal(session);
+    var indexes = oClass.getIndexesInternal();
     for (var condition : flattenedConditions) {
 
       var indexedFunctConditions =
@@ -101,7 +101,7 @@ public class SQLWhereClause extends SimpleNode {
         for (var cond : indexedFunctConditions) {
           var from = new SQLFromClause(-1);
           from.item = new SQLFromItem(-1);
-          from.item.setIdentifier(new SQLIdentifier(oClass.getName(session)));
+          from.item.setIdentifier(new SQLIdentifier(oClass.getName()));
           var newCount = cond.estimateIndexed(from, ctx);
           if (newCount < conditionEstimation) {
             conditionEstimation = newCount;

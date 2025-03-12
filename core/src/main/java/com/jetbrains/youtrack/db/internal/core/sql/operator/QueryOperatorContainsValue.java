@@ -166,9 +166,9 @@ public class QueryOperatorContainsValue extends QueryOperatorEqualityNotNulls {
           result = ((EntityImpl) entity).getImmutableSchemaClass(session);
           var property =
               result
-                  .getProperty(session, fieldName);
-          if (property != null && property.getType(session).isMultiValue()) {
-            type = property.getLinkedType(session);
+                  .getProperty(fieldName);
+          if (property != null && property.getType().isMultiValue()) {
+            type = property.getLinkedType();
           }
         }
       }

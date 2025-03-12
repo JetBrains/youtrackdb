@@ -36,9 +36,9 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
     Schema schema = session.getMetadata().getSchema();
     var v = schema.getClass("V");
     var oClass = schema.createClass("City");
-    oClass.setSuperClass(session, v);
-    oClass.createProperty(session, "location", PropertyType.EMBEDDED, schema.getClass("OPoint"));
-    oClass.createProperty(session, "name", PropertyType.STRING);
+    oClass.addSuperClass(v);
+    oClass.createProperty("location", PropertyType.EMBEDDED, schema.getClass("OPoint"));
+    oClass.createProperty("name", PropertyType.STRING);
 
     session.command("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
 
@@ -81,9 +81,9 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
     Schema schema = session.getMetadata().getSchema();
     var v = schema.getClass("V");
     var oClass = schema.createClass("City");
-    oClass.setSuperClass(session, v);
-    oClass.createProperty(session, "location", PropertyType.EMBEDDED, schema.getClass("OPoint"));
-    oClass.createProperty(session, "name", PropertyType.STRING);
+    oClass.addSuperClass(v);
+    oClass.createProperty("location", PropertyType.EMBEDDED, schema.getClass("OPoint"));
+    oClass.createProperty("name", PropertyType.STRING);
 
     session.command("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
 

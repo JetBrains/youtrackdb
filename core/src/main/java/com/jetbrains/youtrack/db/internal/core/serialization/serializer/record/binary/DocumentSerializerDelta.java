@@ -97,7 +97,7 @@ public class DocumentSerializerDelta {
     final SchemaClass clazz = result;
     String name = null;
     if (clazz != null) {
-      name = clazz.getName(session);
+      name = clazz.getName();
     }
     if (name == null) {
       name = entity.getSchemaClassName();
@@ -662,7 +662,7 @@ public class DocumentSerializerDelta {
   protected void serializeDeltaLinkBag(DatabaseSessionInternal session, BytesContainer bytes,
       RidBag value) {
     UUID uuid = null;
-    final var bTreeCollectionManager = session.getSbTreeCollectionManager();
+    final var bTreeCollectionManager = session.getBTreeCollectionManager();
     if (bTreeCollectionManager != null) {
       uuid = bTreeCollectionManager.listenForChanges(value, session);
     }
@@ -992,7 +992,7 @@ public class DocumentSerializerDelta {
     if (type == null) {
       final var prop = entry.property;
       if (prop != null) {
-        type = prop.getType(session);
+        type = prop.getType();
       }
     }
     if (type == null) {
@@ -1464,7 +1464,7 @@ public class DocumentSerializerDelta {
 
   private static void writeRidBag(DatabaseSessionInternal session, BytesContainer bytes,
       RidBag bag) {
-    final var bTreeCollectionManager = session.getSbTreeCollectionManager();
+    final var bTreeCollectionManager = session.getBTreeCollectionManager();
     UUID uuid = null;
     if (bTreeCollectionManager != null) {
       uuid = bTreeCollectionManager.listenForChanges(bag, session);

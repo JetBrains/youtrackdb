@@ -92,7 +92,7 @@ public interface StorageCluster {
       AtomicOperation atomicOperation);
 
   @Nonnull
-  RawBuffer readRecord(long clusterPosition, boolean prefetchRecords) throws IOException;
+  RawBuffer readRecord(long clusterPosition) throws IOException;
 
   boolean exists();
 
@@ -115,7 +115,7 @@ public interface StorageCluster {
 
   long getLastPosition() throws IOException;
 
-  long getNextPosition() throws IOException;
+  long getNextFreePosition() throws IOException;
 
   String getFileName();
 
@@ -134,13 +134,13 @@ public interface StorageCluster {
 
   boolean isSystemCluster();
 
-  PhysicalPosition[] higherPositions(PhysicalPosition position) throws IOException;
+  PhysicalPosition[] higherPositions(PhysicalPosition position, int limit) throws IOException;
 
-  PhysicalPosition[] ceilingPositions(PhysicalPosition position) throws IOException;
+  PhysicalPosition[] ceilingPositions(PhysicalPosition position, int limit) throws IOException;
 
-  PhysicalPosition[] lowerPositions(PhysicalPosition position) throws IOException;
+  PhysicalPosition[] lowerPositions(PhysicalPosition position, int limit) throws IOException;
 
-  PhysicalPosition[] floorPositions(PhysicalPosition position) throws IOException;
+  PhysicalPosition[] floorPositions(PhysicalPosition position, int limit) throws IOException;
 
   RecordConflictStrategy getRecordConflictStrategy();
 

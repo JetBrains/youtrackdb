@@ -34,9 +34,9 @@ public class LiveIndexRebuildTest {
     db.create();
 
     final var clazz = db.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(db, propertyName, PropertyType.INTEGER);
+    clazz.createProperty(propertyName, PropertyType.INTEGER);
 
-    clazz.createIndex(db, indexName, SchemaClass.INDEX_TYPE.UNIQUE, propertyName);
+    clazz.createIndex(indexName, SchemaClass.INDEX_TYPE.UNIQUE, propertyName);
 
     for (var i = 0; i < 1000000; i++) {
       var document = (EntityImpl) db.newEntity(className);

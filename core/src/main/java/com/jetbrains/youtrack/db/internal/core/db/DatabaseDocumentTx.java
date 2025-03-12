@@ -28,6 +28,7 @@ import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.api.session.SessionListener;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
@@ -169,7 +170,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public boolean executeExists(RID rid) {
+  public boolean executeExists(@Nonnull RID rid) {
     return false;
   }
 
@@ -242,11 +243,11 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public BTreeCollectionManager getSbTreeCollectionManager() {
+  public BTreeCollectionManager getBTreeCollectionManager() {
     if (internal == null) {
       return null;
     }
-    return internal.getSbTreeCollectionManager();
+    return internal.getBTreeCollectionManager();
   }
 
   @Override
@@ -290,10 +291,43 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
 
   @Nonnull
   @Override
-  public <RET extends RecordAbstract> RET executeReadRecord(RecordId rid) {
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadFirstRecordAndNextRidInCluster(
+      int clusterId) {
+    checkOpenness();
+    return internal.loadFirstRecordAndNextRidInCluster(clusterId);
+  }
+
+  @Nonnull
+  @Override
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadLastRecordAndPreviousRidInCluster(
+      int clusterId) {
+    checkOpenness();
+    return internal.loadLastRecordAndPreviousRidInCluster(clusterId);
+  }
+
+  @Nonnull
+  @Override
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndNextRidInCluster(
+      @Nonnull RecordId recordId) {
+    checkOpenness();
+    return internal.loadRecordAndNextRidInCluster(recordId);
+  }
+
+  @Nonnull
+  @Override
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndPreviousRidInCluster(
+      @Nonnull RecordId recordId) {
+    checkOpenness();
+    return internal.loadRecordAndPreviousRidInCluster(recordId);
+  }
+
+  @Nonnull
+  @Override
+  public LoadRecordResult executeReadRecord(@Nonnull RecordId rid, boolean fetchPreviousRid,
+      boolean fetchNextRid, boolean throwIfNotFound) {
     checkOpenness();
 
-    return internal.executeReadRecord(rid);
+    return internal.executeReadRecord(rid, fetchPreviousRid, fetchNextRid, throwIfNotFound);
   }
 
   @Override
@@ -499,16 +533,29 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public RecordIteratorClass<EntityImpl> browseClass(@Nonnull String className) {
+  public RecordIteratorClass browseClass(@Nonnull String className) {
     checkOpenness();
     return internal.browseClass(className);
   }
 
   @Override
-  public RecordIteratorClass<EntityImpl> browseClass(@Nonnull String className,
+  public RecordIteratorClass browseClass(@Nonnull SchemaClass clz) {
+    checkOpenness();
+    return internal.browseClass(clz);
+  }
+
+  @Override
+  public RecordIteratorClass browseClass(@Nonnull String className,
       boolean iPolymorphic) {
     checkOpenness();
     return internal.browseClass(className, iPolymorphic);
+  }
+
+  @Override
+  public RecordIteratorClass browseClass(@Nonnull String className, boolean iPolymorphic,
+      boolean forwardDirection) {
+    checkOpenness();
+    return internal.browseClass(className, iPolymorphic, forwardDirection);
   }
 
   @Override
@@ -627,12 +674,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
     internal.delete(record);
   }
 
-  @Override
-  public DatabaseSessionInternal cleanOutRecord(RID rid, int version) {
-    checkOpenness();
-    internal.cleanOutRecord(rid, version);
-    return this;
-  }
 
   @Override
   public void startExclusiveMetadataChange() {
@@ -692,47 +733,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   public RecordIteratorCluster<EntityImpl> browseCluster(String iClusterName) {
     checkOpenness();
     return internal.browseCluster(iClusterName);
-  }
-
-  @Override
-  public RecordIteratorCluster<EntityImpl> browseCluster(
-      String iClusterName,
-      long startClusterPosition,
-      long endClusterPosition,
-      boolean loadTombstones) {
-    checkOpenness();
-    return internal.browseCluster(
-        iClusterName, startClusterPosition, endClusterPosition, loadTombstones);
-  }
-
-  @Override
-  public <REC extends DBRecord> RecordIteratorCluster<REC> browseCluster(
-      String iClusterName, Class<REC> iRecordClass) {
-    checkOpenness();
-    return internal.browseCluster(iClusterName, iRecordClass);
-  }
-
-  @Override
-  public <REC extends DBRecord> RecordIteratorCluster<REC> browseCluster(
-      String iClusterName,
-      Class<REC> iRecordClass,
-      long startClusterPosition,
-      long endClusterPosition) {
-    checkOpenness();
-    return internal.browseCluster(
-        iClusterName, iRecordClass, startClusterPosition, endClusterPosition);
-  }
-
-  @Override
-  public <REC extends DBRecord> RecordIteratorCluster<REC> browseCluster(
-      String iClusterName,
-      Class<REC> iRecordClass,
-      long startClusterPosition,
-      long endClusterPosition,
-      boolean loadTombstones) {
-    checkOpenness();
-    return internal.browseCluster(
-        iClusterName, iRecordClass, startClusterPosition, endClusterPosition, loadTombstones);
   }
 
   @Override
@@ -1493,16 +1493,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   @Override
   public boolean dropClusterInternal(int clusterId) {
     return internal.dropClusterInternal(clusterId);
-  }
-
-  @Override
-  public long[] getClusterDataRange(int currentClusterId) {
-    return internal.getClusterDataRange(currentClusterId);
-  }
-
-  @Override
-  public long getLastClusterPosition(int clusterId) {
-    return internal.getLastClusterPosition(clusterId);
   }
 
   @Override

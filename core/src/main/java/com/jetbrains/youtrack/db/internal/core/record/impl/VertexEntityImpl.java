@@ -16,7 +16,7 @@ public class VertexEntityImpl extends EntityImpl implements VertexInternal {
 
   public VertexEntityImpl(DatabaseSessionInternal session, String klass) {
     super(session, klass);
-    if (!getImmutableSchemaClass(session).isVertexType(session)) {
+    if (!getImmutableSchemaClass(session).isVertexType()) {
       throw new IllegalArgumentException(getSchemaClassName() + " is not a vertex class");
     }
   }

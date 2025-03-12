@@ -127,7 +127,7 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
               "Class " + subjectName + " not found in database");
         }
 
-        if (!unsafe && cls.isSubClassOf(session, "E"))
+        if (!unsafe && cls.isSubClassOf("E"))
         // FOUND EDGE
         {
           throw new CommandExecutionException(session.getDatabaseName(),
@@ -135,7 +135,7 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
                   + " the 'UNSAFE' keyword to force it");
         }
 
-        className = cls.getName(session);
+        className = cls.getName();
         clazz = session.getMetadata().getSchema().getClass(className);
         if (clazz == null) {
           throw new QueryParsingException(session.getDatabaseName(),
@@ -148,7 +148,7 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
         if (clusterId >= 0) {
           clazz = session.getMetadata().getSchema().getClassByClusterId(clusterId);
           if (clazz != null) {
-            className = clazz.getName(session);
+            className = clazz.getName();
           }
         }
       }
@@ -304,7 +304,7 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
           session.getMetadata().getImmutableSchemaSnapshot().getClassInternal(className);
       return Collections.singleton(
           session.getClusterNameById(
-              clazz.getClusterSelection(session).getCluster(session, clazz, null)));
+              clazz.getClusterSelection().getCluster(session, clazz, null)));
     } else if (clusterName != null) {
       return getInvolvedClustersOfClusters(session, Collections.singleton(clusterName));
     }
@@ -333,7 +333,7 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
     if (rec instanceof Entity) {
       var entity = (EntityInternal) rec;
 
-      if (oldClass != null && oldClass.isSubClassOf(session, "V")) {
+      if (oldClass != null && oldClass.isSubClassOf("V")) {
         LogManager.instance()
             .warn(
                 this,
@@ -351,7 +351,7 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
                 result = edgeRec.getImmutableSchemaClass(session);
               }
               SchemaClass clazz = result;
-              if (clazz != null && clazz.isSubClassOf(session, "E")) {
+              if (clazz != null && clazz.isSubClassOf("E")) {
                 entity.removeProperty(field);
               }
             } else if (edges instanceof Iterable) {
@@ -360,7 +360,7 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
                   var edgeRec = (EntityInternal) identifiable.getEntity(session);
                   var schemaClass = edgeRec.getImmutableSchemaClass(session);
                   if (schemaClass != null
-                      && schemaClass.isSubClassOf(session, "E")) {
+                      && schemaClass.isSubClassOf("E")) {
                     entity.removeProperty(field);
                     break;
                   }

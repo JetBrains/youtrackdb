@@ -26,7 +26,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.AddClusterReques
 import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransaction38Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransactionRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CeilingPhysicalPositionsRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CleanOutRecordRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseQueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CommandRequest;
@@ -45,7 +44,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransaction
 import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransactionRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FloorPhysicalPositionsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FreezeDatabaseRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.GetClusterDataRangeRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.GetGlobalConfigurationRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.GetRecordMetadataRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.GetSizeRequest;
@@ -122,7 +120,6 @@ public class NetworkBinaryProtocolFactory {
       case ChannelBinaryProtocol.REQUEST_DB_SIZE -> new GetSizeRequest();
       case ChannelBinaryProtocol.REQUEST_DB_COUNTRECORDS -> new CountRecordsRequest();
       case ChannelBinaryProtocol.REQUEST_CLUSTER_COUNT -> new CountRequest();
-      case ChannelBinaryProtocol.REQUEST_CLUSTER_DATARANGE -> new GetClusterDataRangeRequest();
       case ChannelBinaryProtocol.REQUEST_CLUSTER_ADD -> new AddClusterRequest();
       case ChannelBinaryProtocol.REQUEST_CLUSTER_DROP -> new DropClusterRequest();
       case ChannelBinaryProtocol.REQUEST_RECORD_METADATA -> new GetRecordMetadataRequest();
@@ -145,7 +142,6 @@ public class NetworkBinaryProtocolFactory {
       case ChannelBinaryProtocol.REQUEST_CONFIG_LIST -> new ListGlobalConfigurationsRequest();
       case ChannelBinaryProtocol.REQUEST_DB_FREEZE -> new FreezeDatabaseRequest();
       case ChannelBinaryProtocol.REQUEST_DB_RELEASE -> new ReleaseDatabaseRequest();
-      case ChannelBinaryProtocol.REQUEST_RECORD_CLEAN_OUT -> new CleanOutRecordRequest();
       case ChannelBinaryProtocol.REQUEST_CREATE_SBTREE_BONSAI -> new SBTCreateTreeRequest();
       case ChannelBinaryProtocol.REQUEST_SBTREE_BONSAI_GET -> new SBTGetRequest();
       case ChannelBinaryProtocol.REQUEST_SBTREE_BONSAI_FIRST_KEY -> new SBTFirstKeyRequest();
@@ -183,7 +179,6 @@ public class NetworkBinaryProtocolFactory {
       case ChannelBinaryProtocol.REQUEST_DB_SIZE -> new GetSizeRequest();
       case ChannelBinaryProtocol.REQUEST_DB_COUNTRECORDS -> new CountRecordsRequest();
       case ChannelBinaryProtocol.REQUEST_CLUSTER_COUNT -> new CountRequest();
-      case ChannelBinaryProtocol.REQUEST_CLUSTER_DATARANGE -> new GetClusterDataRangeRequest();
       case ChannelBinaryProtocol.REQUEST_CLUSTER_ADD -> new AddClusterRequest();
       case ChannelBinaryProtocol.REQUEST_CLUSTER_DROP -> new DropClusterRequest();
       case ChannelBinaryProtocol.REQUEST_RECORD_METADATA -> new GetRecordMetadataRequest();
@@ -202,7 +197,6 @@ public class NetworkBinaryProtocolFactory {
       case ChannelBinaryProtocol.REQUEST_CONFIG_LIST -> new ListGlobalConfigurationsRequest();
       case ChannelBinaryProtocol.REQUEST_DB_FREEZE -> new FreezeDatabaseRequest();
       case ChannelBinaryProtocol.REQUEST_DB_RELEASE -> new ReleaseDatabaseRequest();
-      case ChannelBinaryProtocol.REQUEST_RECORD_CLEAN_OUT -> new CleanOutRecordRequest();
       case ChannelBinaryProtocol.REQUEST_CREATE_SBTREE_BONSAI -> new SBTCreateTreeRequest();
       case ChannelBinaryProtocol.REQUEST_SBTREE_BONSAI_GET -> new SBTGetRequest();
       case ChannelBinaryProtocol.REQUEST_SBTREE_BONSAI_FIRST_KEY -> new SBTFirstKeyRequest();

@@ -14,8 +14,8 @@ public class UniqueHashIndexForDateTest extends DbTestBase {
   @Test
   public void testSimpleUniqueDateIndex() throws ParseException {
     var clazz = session.getMetadata().getSchema().createClass("test_edge");
-    var prop = clazz.createProperty(session, "date", PropertyType.DATETIME);
-    prop.createIndex(session, INDEX_TYPE.UNIQUE);
+    var prop = clazz.createProperty("date", PropertyType.DATETIME);
+    prop.createIndex(INDEX_TYPE.UNIQUE);
     session.begin();
     var doc = (EntityImpl) session.newEntity("test_edge");
     doc.field("date", "2015-03-24 08:54:49");

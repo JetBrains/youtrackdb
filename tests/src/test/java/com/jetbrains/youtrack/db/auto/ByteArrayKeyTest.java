@@ -26,17 +26,17 @@ public class ByteArrayKeyTest extends BaseDBTest {
 
     final var byteArrayKeyTest =
         session.getMetadata().getSchema().createClass("ByteArrayKeyTest");
-    byteArrayKeyTest.createProperty(session, "byteArrayKey", PropertyType.BINARY);
+    byteArrayKeyTest.createProperty("byteArrayKey", PropertyType.BINARY);
 
-    byteArrayKeyTest.createIndex(session, "byteArrayKeyIndex", SchemaClass.INDEX_TYPE.UNIQUE,
+    byteArrayKeyTest.createIndex("byteArrayKeyIndex", SchemaClass.INDEX_TYPE.UNIQUE,
         "byteArrayKey");
 
     final var compositeByteArrayKeyTest =
         session.getMetadata().getSchema().createClass("CompositeByteArrayKeyTest");
-    compositeByteArrayKeyTest.createProperty(session, "byteArrayKey", PropertyType.BINARY);
-    compositeByteArrayKeyTest.createProperty(session, "intKey", PropertyType.INTEGER);
+    compositeByteArrayKeyTest.createProperty("byteArrayKey", PropertyType.BINARY);
+    compositeByteArrayKeyTest.createProperty("intKey", PropertyType.INTEGER);
 
-    compositeByteArrayKeyTest.createIndex(session,
+    compositeByteArrayKeyTest.createIndex(
         "compositeByteArrayKey", SchemaClass.INDEX_TYPE.UNIQUE, "byteArrayKey", "intKey");
   }
 

@@ -37,11 +37,11 @@ public class SQLTruncateClassStatement extends DDLStatement {
 
     final var recs = clazz.count(session, polymorphic);
     if (recs > 0 && !unsafe) {
-      if (clazz.isSubClassOf(session, "V")) {
+      if (clazz.isSubClassOf("V")) {
         throw new CommandExecutionException(session,
             "'TRUNCATE CLASS' command cannot be used on not empty vertex classes. Apply the"
                 + " 'UNSAFE' keyword to force it (at your own risk)");
-      } else if (clazz.isSubClassOf(session, "E")) {
+      } else if (clazz.isSubClassOf("E")) {
         throw new CommandExecutionException(session,
             "'TRUNCATE CLASS' command cannot be used on not empty edge classes. Apply the 'UNSAFE'"
                 + " keyword to force it (at your own risk)");
@@ -49,27 +49,27 @@ public class SQLTruncateClassStatement extends DDLStatement {
     }
 
     List<Result> rs = new ArrayList<>();
-    var subclasses = clazz.getAllSubclasses(session);
+    var subclasses = clazz.getAllSubclasses();
     if (polymorphic && !unsafe) { // for multiple inheritance
       for (var subclass : subclasses) {
         var subclassRecs = clazz.count(session);
         if (subclassRecs > 0) {
-          if (subclass.isSubClassOf(session, "V")) {
+          if (subclass.isSubClassOf("V")) {
             throw new CommandExecutionException(session,
                 "'TRUNCATE CLASS' command cannot be used on not empty vertex classes ("
-                    + subclass.getName(session)
+                    + subclass.getName()
                     + "). Apply the 'UNSAFE' keyword to force it (at your own risk)");
-          } else if (subclass.isSubClassOf(session, "E")) {
+          } else if (subclass.isSubClassOf("E")) {
             throw new CommandExecutionException(session,
                 "'TRUNCATE CLASS' command cannot be used on not empty edge classes ("
-                    + subclass.getName(session)
+                    + subclass.getName()
                     + "). Apply the 'UNSAFE' keyword to force it (at your own risk)");
           }
         }
       }
     }
 
-    var count = session.truncateClass(clazz.getName(session), false);
+    var count = session.truncateClass(clazz.getName(), false);
     var result = new ResultInternal(session);
     result.setProperty("operation", "truncate class");
     result.setProperty("className", className.getStringValue());
@@ -77,7 +77,7 @@ public class SQLTruncateClassStatement extends DDLStatement {
     rs.add(result);
     if (polymorphic) {
       for (var subclass : subclasses) {
-        count = session.truncateClass(subclass.getName(session), false);
+        count = session.truncateClass(subclass.getName(), false);
         result = new ResultInternal(session);
         result.setProperty("operation", "truncate class");
         result.setProperty("className", className.getStringValue());

@@ -15,8 +15,8 @@ public class TestOrderByIndexPropDesc extends DbTestBase {
   public void beforeTest() throws Exception {
     super.beforeTest();
     var oclass = session.getMetadata().getSchema().createClass(DOCUMENT_CLASS_NAME);
-    oclass.createProperty(session, PROP_INDEXED_STRING, PropertyType.INTEGER);
-    oclass.createIndex(session, "index", INDEX_TYPE.NOTUNIQUE, PROP_INDEXED_STRING);
+    oclass.createProperty(PROP_INDEXED_STRING, PropertyType.INTEGER);
+    oclass.createIndex("index", INDEX_TYPE.NOTUNIQUE, PROP_INDEXED_STRING);
   }
 
   @Test

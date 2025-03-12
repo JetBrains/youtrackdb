@@ -113,7 +113,6 @@ public class MetadataDefault implements MetadataInternal {
   /**
    * {@inheritDoc}
    */
-  @Deprecated
   public IndexManager getIndexManager() {
     return indexManager;
   }

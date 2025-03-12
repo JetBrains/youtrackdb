@@ -198,7 +198,7 @@ public class CommandExecutorSQLDeleteEdge extends CommandExecutorSQLSetAware
           query =
               session.command(
                   new SQLAsynchQuery<EntityImpl>(
-                      "select from `" + clazz.getName(session) + "` " + where, this));
+                      "select from `" + clazz.getName() + "` " + where, this));
         }
       }
 

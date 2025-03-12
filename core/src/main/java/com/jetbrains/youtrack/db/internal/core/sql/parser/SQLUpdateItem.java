@@ -151,7 +151,7 @@ public class SQLUpdateItem extends SimpleNode {
     if (result.isEntity()) {
       var entity = (EntityInternal) result.castToEntity();
       var cls = entity.getImmutableSchemaClass(session);
-      schemaProperty = cls != null ? cls.getProperty(session, propertyName) : null;
+      schemaProperty = cls != null ? cls.getProperty(propertyName) : null;
     }
 
     if (leftModifier == null) {
@@ -179,7 +179,7 @@ public class SQLUpdateItem extends SimpleNode {
     if (oClass == null) {
       return null;
     }
-    var prop = oClass.getProperty(session, propName);
+    var prop = oClass.getProperty(propName);
 
     Object result = null;
     if (prop == null) {
@@ -188,16 +188,16 @@ public class SQLUpdateItem extends SimpleNode {
         entity.setProperty(propName, result);
       }
     } else {
-      if (prop.getType(session) == PropertyType.EMBEDDEDMAP
-          || prop.getType(session) == PropertyType.LINKMAP) {
+      if (prop.getType() == PropertyType.EMBEDDEDMAP
+          || prop.getType() == PropertyType.LINKMAP) {
         result = session.newLinkMap();
         entity.setProperty(propName, result);
-      } else if (prop.getType(session) == PropertyType.EMBEDDEDLIST
-          || prop.getType(session) == PropertyType.LINKLIST) {
+      } else if (prop.getType() == PropertyType.EMBEDDEDLIST
+          || prop.getType() == PropertyType.LINKLIST) {
         result = session.newEmbeddedList();
         entity.setProperty(propName, result);
-      } else if (prop.getType(session) == PropertyType.EMBEDDEDSET
-          || prop.getType(session) == PropertyType.LINKSET) {
+      } else if (prop.getType() == PropertyType.EMBEDDEDSET
+          || prop.getType() == PropertyType.LINKSET) {
         result = session.newEmbeddedSet();
         entity.setProperty(propName, result);
       }
@@ -303,15 +303,15 @@ public class SQLUpdateItem extends SimpleNode {
       return null;
     }
 
-    var type = schemaProperty != null ? schemaProperty.getType(session) : null;
+    var type = schemaProperty != null ? schemaProperty.getType() : null;
     if (type == null) {
       type = PropertyType.getTypeByValue(newValue);
     }
 
     if (type != null) {
       return type.convert(newValue,
-          schemaProperty != null ? schemaProperty.getLinkedType(session) : null,
-          schemaProperty != null ? schemaProperty.getLinkedClass(session) : null, session);
+          schemaProperty != null ? schemaProperty.getLinkedType() : null,
+          schemaProperty != null ? schemaProperty.getLinkedClass() : null, session);
     }
 
     throw new IllegalStateException("Unexpected value: " + newValue);
@@ -327,13 +327,13 @@ public class SQLUpdateItem extends SimpleNode {
       return newValue;
     }
 
-    var prop = optSchema.getProperty(ctx.getDatabaseSession(), attrName.getStringValue());
+    var prop = optSchema.getProperty(attrName.getStringValue());
     if (prop == null) {
       return newValue;
     }
 
-    var type = prop.getType(session);
-    var linkedClass = prop.getLinkedClass(session);
+    var type = prop.getType();
+    var linkedClass = prop.getLinkedClass();
     return convertToType(newValue, type, linkedClass, ctx);
   }
 
@@ -396,7 +396,7 @@ public class SQLUpdateItem extends SimpleNode {
     var session = ctx.getDatabaseSession();
     if (item instanceof EntityInternal entity) {
       var currentType = entity.getImmutableSchemaClass(session);
-      if (currentType == null || !currentType.isSubClassOf(session, linkedClass)) {
+      if (currentType == null || !currentType.isSubClassOf(linkedClass)) {
         var result = session.newEmbeddedEntity(linkedClass);
 
         for (var prop : entity.getPropertyNames()) {
@@ -408,7 +408,7 @@ public class SQLUpdateItem extends SimpleNode {
         return item;
       }
     } else if (item instanceof Map) {
-      var result = session.newEmbeddedEntity(linkedClass.getName(session));
+      var result = session.newEmbeddedEntity(linkedClass.getName());
 
       ((Map<String, Object>) item)
           .entrySet().stream().forEach(x -> result.setProperty(x.getKey(), x.getValue()));

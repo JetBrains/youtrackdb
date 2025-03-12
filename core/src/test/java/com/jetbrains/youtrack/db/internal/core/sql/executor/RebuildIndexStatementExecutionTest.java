@@ -18,9 +18,9 @@ public class RebuildIndexStatementExecutionTest extends DbTestBase {
     var className = "IndexClusterTest";
 
     var oclass = schema.createClass(className);
-    oclass.createProperty(session, "key", PropertyType.STRING);
-    oclass.createProperty(session, "value", PropertyType.INTEGER);
-    oclass.createIndex(session, className + "index1", SchemaClass.INDEX_TYPE.NOTUNIQUE, "key");
+    oclass.createProperty("key", PropertyType.STRING);
+    oclass.createProperty("value", PropertyType.INTEGER);
+    oclass.createIndex(className + "index1", SchemaClass.INDEX_TYPE.NOTUNIQUE, "key");
 
     session.begin();
     var ele = session.newEntity(className);

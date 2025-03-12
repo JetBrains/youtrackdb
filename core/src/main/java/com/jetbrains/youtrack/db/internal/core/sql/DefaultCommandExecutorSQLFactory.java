@@ -103,11 +103,6 @@ public class DefaultCommandExecutorSQLFactory implements CommandExecutorSQLFacto
             + CommandExecutorSQLAlterProperty.KEYWORD_PROPERTY,
         CommandExecutorSQLAlterProperty.class);
     commands.put(
-        CommandExecutorSQLDropCluster.KEYWORD_DROP
-            + " "
-            + CommandExecutorSQLDropCluster.KEYWORD_CLUSTER,
-        CommandExecutorSQLDropCluster.class);
-    commands.put(
         CommandExecutorSQLDropClass.KEYWORD_DROP
             + " "
             + CommandExecutorSQLDropClass.KEYWORD_CLASS,
@@ -127,11 +122,6 @@ public class DefaultCommandExecutorSQLFactory implements CommandExecutorSQLFacto
             + " "
             + CommandExecutorSQLTruncateClass.KEYWORD_CLASS,
         CommandExecutorSQLTruncateClass.class);
-    commands.put(
-        CommandExecutorSQLTruncateCluster.KEYWORD_TRUNCATE
-            + " "
-            + CommandExecutorSQLTruncateCluster.KEYWORD_CLUSTER,
-        CommandExecutorSQLTruncateCluster.class);
     commands.put(
         CommandExecutorSQLAlterCluster.KEYWORD_ALTER
             + " "

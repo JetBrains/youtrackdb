@@ -36,9 +36,9 @@ public class LuceneCreateJavaApiTest extends LuceneBaseTest {
   @Before
   public void init() {
     var song = session.createVertexClass("Song");
-    song.createProperty(session, "title", PropertyType.STRING);
-    song.createProperty(session, "author", PropertyType.STRING);
-    song.createProperty(session, "description", PropertyType.STRING);
+    song.createProperty("title", PropertyType.STRING);
+    song.createProperty("author", PropertyType.STRING);
+    song.createProperty("description", PropertyType.STRING);
   }
 
   @Test
@@ -47,9 +47,9 @@ public class LuceneCreateJavaApiTest extends LuceneBaseTest {
 
     var song = schema.getClass("Song");
 
-    var meta = Map.of("analyzer", StandardAnalyzer.class.getName());
+    var meta = Map.<String, Object>of("analyzer", StandardAnalyzer.class.getName());
 
-    song.createIndex(session,
+    song.createIndex(
         "Song.title",
         SchemaClass.INDEX_TYPE.FULLTEXT.toString(),
         null,
@@ -70,7 +70,7 @@ public class LuceneCreateJavaApiTest extends LuceneBaseTest {
     Schema schema = session.getMetadata().getSchema();
     var song = schema.getClass("Song");
 
-    song.createIndex(session,
+    song.createIndex(
         "Song.author_description",
         SchemaClass.INDEX_TYPE.FULLTEXT.toString(),
         null,

@@ -31,11 +31,11 @@ public class CollateTest extends BaseDBTest {
     final Schema schema = session.getMetadata().getSchema();
     var clazz = schema.createClass("collateTest");
 
-    var csp = clazz.createProperty(session, "csp", PropertyType.STRING);
-    csp.setCollate(session, DefaultCollate.NAME);
+    var csp = clazz.createProperty("csp", PropertyType.STRING);
+    csp.setCollate(DefaultCollate.NAME);
 
-    var cip = clazz.createProperty(session, "cip", PropertyType.STRING);
-    cip.setCollate(session, CaseInsensitiveCollate.NAME);
+    var cip = clazz.createProperty("cip", PropertyType.STRING);
+    cip.setCollate(CaseInsensitiveCollate.NAME);
 
     for (var i = 0; i < 10; i++) {
       var document = ((EntityImpl) session.newEntity("collateTest"));
@@ -78,8 +78,8 @@ public class CollateTest extends BaseDBTest {
     final Schema schema = session.getMetadata().getSchema();
     var clazz = schema.createClass("collateTestNotNull");
 
-    var csp = clazz.createProperty(session, "bar", PropertyType.STRING);
-    csp.setCollate(session, CaseInsensitiveCollate.NAME);
+    var csp = clazz.createProperty("bar", PropertyType.STRING);
+    csp.setCollate(CaseInsensitiveCollate.NAME);
 
     var document = ((EntityImpl) session.newEntity("collateTestNotNull"));
     document.field("bar", "baz");
@@ -113,14 +113,14 @@ public class CollateTest extends BaseDBTest {
     final Schema schema = session.getMetadata().getSchema();
     var clazz = schema.createClass("collateIndexTest");
 
-    var csp = clazz.createProperty(session, "csp", PropertyType.STRING);
-    csp.setCollate(session, DefaultCollate.NAME);
+    var csp = clazz.createProperty("csp", PropertyType.STRING);
+    csp.setCollate(DefaultCollate.NAME);
 
-    var cip = clazz.createProperty(session, "cip", PropertyType.STRING);
-    cip.setCollate(session, CaseInsensitiveCollate.NAME);
+    var cip = clazz.createProperty("cip", PropertyType.STRING);
+    cip.setCollate(CaseInsensitiveCollate.NAME);
 
-    clazz.createIndex(session, "collateIndexCSP", SchemaClass.INDEX_TYPE.NOTUNIQUE, "csp");
-    clazz.createIndex(session, "collateIndexCIP", SchemaClass.INDEX_TYPE.NOTUNIQUE, "cip");
+    clazz.createIndex("collateIndexCSP", SchemaClass.INDEX_TYPE.NOTUNIQUE, "csp");
+    clazz.createIndex("collateIndexCIP", SchemaClass.INDEX_TYPE.NOTUNIQUE, "cip");
 
     for (var i = 0; i < 10; i++) {
       var document = ((EntityImpl) session.newEntity("collateIndexTest"));
@@ -169,10 +169,10 @@ public class CollateTest extends BaseDBTest {
     final Schema schema = session.getMetadata().getSchema();
     var clazz = schema.createClass("collateWasChangedIndexTest");
 
-    var cp = clazz.createProperty(session, "cp", PropertyType.STRING);
-    cp.setCollate(session, DefaultCollate.NAME);
+    var cp = clazz.createProperty("cp", PropertyType.STRING);
+    cp.setCollate(DefaultCollate.NAME);
 
-    clazz.createIndex(session, "collateWasChangedIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "cp");
+    clazz.createIndex("collateWasChangedIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "cp");
 
     for (var i = 0; i < 10; i++) {
       var document = ((EntityImpl) session.newEntity("collateWasChangedIndexTest"));
@@ -202,8 +202,8 @@ public class CollateTest extends BaseDBTest {
     Assert.assertTrue(
         explain.<Set<String>>field("involvedIndexes").contains("collateWasChangedIndex"));
 
-    cp = clazz.getProperty(session, "cp");
-    cp.setCollate(session, CaseInsensitiveCollate.NAME);
+    cp = clazz.getProperty("cp");
+    cp.setCollate(CaseInsensitiveCollate.NAME);
 
     query = "select from collateWasChangedIndexTest where cp = 'VaL'";
     //noinspection deprecation
@@ -224,13 +224,13 @@ public class CollateTest extends BaseDBTest {
     final Schema schema = session.getMetadata().getSchema();
     var clazz = schema.createClass("CompositeIndexQueryCSTest");
 
-    var csp = clazz.createProperty(session, "csp", PropertyType.STRING);
-    csp.setCollate(session, DefaultCollate.NAME);
+    var csp = clazz.createProperty("csp", PropertyType.STRING);
+    csp.setCollate(DefaultCollate.NAME);
 
-    var cip = clazz.createProperty(session, "cip", PropertyType.STRING);
-    cip.setCollate(session, CaseInsensitiveCollate.NAME);
+    var cip = clazz.createProperty("cip", PropertyType.STRING);
+    cip.setCollate(CaseInsensitiveCollate.NAME);
 
-    clazz.createIndex(session, "collateCompositeIndexCS", SchemaClass.INDEX_TYPE.NOTUNIQUE, "csp",
+    clazz.createIndex("collateCompositeIndexCS", SchemaClass.INDEX_TYPE.NOTUNIQUE, "csp",
         "cip");
 
     for (var i = 0; i < 10; i++) {
@@ -301,12 +301,12 @@ public class CollateTest extends BaseDBTest {
     final Schema schema = session.getMetadata().getSchema();
     var clazz = schema.createClass("CompositeIndexQueryCollateWasChangedTest");
 
-    var csp = clazz.createProperty(session, "csp", PropertyType.STRING);
-    csp.setCollate(session, DefaultCollate.NAME);
+    var csp = clazz.createProperty("csp", PropertyType.STRING);
+    csp.setCollate(DefaultCollate.NAME);
 
-    clazz.createProperty(session, "cip", PropertyType.STRING);
+    clazz.createProperty("cip", PropertyType.STRING);
 
-    clazz.createIndex(session,
+    clazz.createIndex(
         "collateCompositeIndexCollateWasChanged", SchemaClass.INDEX_TYPE.NOTUNIQUE, "csp", "cip");
 
     for (var i = 0; i < 10; i++) {
@@ -340,8 +340,8 @@ public class CollateTest extends BaseDBTest {
             .<Set<String>>field("involvedIndexes")
             .contains("collateCompositeIndexCollateWasChanged"));
 
-    csp = clazz.getProperty(session, "csp");
-    csp.setCollate(session, CaseInsensitiveCollate.NAME);
+    csp = clazz.getProperty("csp");
+    csp.setCollate(CaseInsensitiveCollate.NAME);
 
     query = "select from CompositeIndexQueryCollateWasChangedTest where csp = 'VaL'";
     //noinspection deprecation
@@ -364,8 +364,8 @@ public class CollateTest extends BaseDBTest {
     final Schema schema = session.getMetadata().getSchema();
     var clazz = schema.createClass("collateTestViaSQL");
 
-    clazz.createProperty(session, "csp", PropertyType.STRING);
-    clazz.createProperty(session, "cip", PropertyType.STRING);
+    clazz.createProperty("csp", PropertyType.STRING);
+    clazz.createProperty("cip", PropertyType.STRING);
 
     //noinspection deprecation
     session

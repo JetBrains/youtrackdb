@@ -17,61 +17,6 @@ public class ClassTest extends BaseMemoryInternalDatabase {
   public static final String SHORTNAME_CLASS_NAME = "TestShortName";
 
   @Test
-  public void testShortName() {
-    Schema schema = session.getMetadata().getSchema();
-    var oClass = schema.createClass(SHORTNAME_CLASS_NAME);
-    Assert.assertNull(oClass.getShortName(session));
-    Assert.assertNull(queryShortName());
-
-    final var storage = session.getStorage();
-
-    if (storage instanceof AbstractPaginatedStorage paginatedStorage) {
-      final var writeCache = paginatedStorage.getWriteCache();
-      Assert.assertTrue(
-          writeCache.exists(
-              SHORTNAME_CLASS_NAME.toLowerCase(Locale.ENGLISH) + PaginatedCluster.DEF_EXTENSION));
-    }
-
-    var shortName = "shortname";
-    oClass.setShortName(session, shortName);
-    assertEquals(shortName, oClass.getShortName(session));
-    assertEquals(shortName, queryShortName());
-
-    // FAILS, saves null value and stores "null" string (not null value) internally
-    shortName = "null";
-    oClass.setShortName(session, shortName);
-    assertEquals(shortName, oClass.getShortName(session));
-    assertEquals(shortName, queryShortName());
-
-    oClass.setShortName(session, null);
-    Assert.assertNull(oClass.getShortName(session));
-    Assert.assertNull(queryShortName());
-
-    oClass.setShortName(session, "");
-    Assert.assertNull(oClass.getShortName(session));
-    Assert.assertNull(queryShortName());
-  }
-
-  @Test
-  public void testShortNameSnapshot() {
-    Schema schema = session.getMetadata().getSchema();
-    var oClass = schema.createClass(SHORTNAME_CLASS_NAME);
-    Assert.assertNull(oClass.getShortName(session));
-
-    var shortName = "shortName";
-    oClass.setShortName(session, shortName);
-    assertEquals(shortName, oClass.getShortName(session));
-    var shorted = schema.getClass(shortName);
-    Assert.assertNotNull(shorted);
-    assertEquals(shortName, shorted.getShortName(session));
-    var intern = session.getMetadata();
-    var immSchema = intern.getImmutableSchemaSnapshot();
-    shorted = immSchema.getClass(shortName);
-    Assert.assertNotNull(shorted);
-    assertEquals(shortName, shorted.getShortName(session));
-  }
-
-  @Test
   public void testRename() {
     Schema schema = session.getMetadata().getSchema();
     var oClass = schema.createClass("ClassName");
@@ -81,12 +26,12 @@ public class ClassTest extends BaseMemoryInternalDatabase {
     final var writeCache = paginatedStorage.getWriteCache();
     Assert.assertTrue(writeCache.exists("classname" + PaginatedCluster.DEF_EXTENSION));
 
-    oClass.setName(session, "ClassNameNew");
+    oClass.setName("ClassNameNew");
 
     assertFalse(writeCache.exists("classname" + PaginatedCluster.DEF_EXTENSION));
     Assert.assertTrue(writeCache.exists("classnamenew" + PaginatedCluster.DEF_EXTENSION));
 
-    oClass.setName(session, "ClassName");
+    oClass.setName("ClassName");
 
     assertFalse(writeCache.exists("classnamenew" + PaginatedCluster.DEF_EXTENSION));
     Assert.assertTrue(writeCache.exists("classname" + PaginatedCluster.DEF_EXTENSION));
@@ -96,20 +41,20 @@ public class ClassTest extends BaseMemoryInternalDatabase {
   public void testOClassAndOPropertyDescription() {
     final Schema oSchema = session.getMetadata().getSchema();
     var oClass = oSchema.createClass("DescriptionTest");
-    var property = oClass.createProperty(session, "property", PropertyType.STRING);
-    oClass.setDescription(session, "DescriptionTest-class-description");
-    property.setDescription(session, "DescriptionTest-property-description");
-    assertEquals("DescriptionTest-class-description", oClass.getDescription(session));
-    assertEquals("DescriptionTest-property-description", property.getDescription(session));
+    var property = oClass.createProperty("property", PropertyType.STRING);
+    oClass.setDescription("DescriptionTest-class-description");
+    property.setDescription("DescriptionTest-property-description");
+    assertEquals("DescriptionTest-class-description", oClass.getDescription());
+    assertEquals("DescriptionTest-property-description", property.getDescription());
     oClass = oSchema.getClass("DescriptionTest");
-    property = oClass.getProperty(session, "property");
-    assertEquals("DescriptionTest-class-description", oClass.getDescription(session));
-    assertEquals("DescriptionTest-property-description", property.getDescription(session));
+    property = oClass.getProperty("property");
+    assertEquals("DescriptionTest-class-description", oClass.getDescription());
+    assertEquals("DescriptionTest-property-description", property.getDescription());
 
     oClass = session.getMetadata().getImmutableSchemaSnapshot().getClass("DescriptionTest");
-    property = oClass.getProperty(session, "property");
-    assertEquals("DescriptionTest-class-description", oClass.getDescription(session));
-    assertEquals("DescriptionTest-property-description", property.getDescription(session));
+    property = oClass.getProperty("property");
+    assertEquals("DescriptionTest-class-description", oClass.getDescription());
+    assertEquals("DescriptionTest-property-description", property.getDescription());
   }
 
   private String queryShortName() {

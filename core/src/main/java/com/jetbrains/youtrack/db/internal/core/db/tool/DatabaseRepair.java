@@ -70,7 +70,9 @@ public class DatabaseRepair extends DatabaseTool {
 
     message("\n- Removing broken links...");
     for (var clusterName : session.getClusterNames()) {
-      for (var rec : session.browseCluster(clusterName)) {
+      var recIterator = session.browseCluster(clusterName);
+      while (recIterator.hasNext()) {
+        final var rec = recIterator.next();
         try {
           if (rec instanceof EntityImpl entity) {
             var changed = false;

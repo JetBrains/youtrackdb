@@ -39,8 +39,8 @@ public class IndexChangesQueryTest {
 
     final Schema schema = db.getMetadata().getSchema();
     final var cls = schema.createClass(CLASS_NAME);
-    cls.createProperty(db, FIELD_NAME, PropertyType.INTEGER);
-    cls.createIndex(db, INDEX_NAME, SchemaClass.INDEX_TYPE.NOTUNIQUE, FIELD_NAME);
+    cls.createProperty(FIELD_NAME, PropertyType.INTEGER);
+    cls.createIndex(INDEX_NAME, SchemaClass.INDEX_TYPE.NOTUNIQUE, FIELD_NAME);
   }
 
   @After

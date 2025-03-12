@@ -28,13 +28,13 @@ public class DefaultClusterSelectionStrategy implements ClusterSelectionStrategy
 
   public int getCluster(DatabaseSession session, final SchemaClass iClass,
       final EntityImpl entity) {
-    return iClass.getClusterIds(session)[0];
+    return iClass.getClusterIds()[0];
   }
 
   @Override
   public int getCluster(DatabaseSession session, SchemaClass iClass, int[] selection,
       EntityImpl entity) {
-    return iClass.getClusterIds(session)[0];
+    return iClass.getClusterIds()[0];
   }
 
   @Override

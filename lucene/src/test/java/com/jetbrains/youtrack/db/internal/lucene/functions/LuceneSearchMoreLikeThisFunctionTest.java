@@ -23,7 +23,7 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
   public void shouldSearchMoreLikeThisWithRid() throws Exception {
     session.command("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE ");
     var clazz = session.getMetadata().getSchema().getClass("Song");
-    var defCluster = clazz.getClusterIds(session)[0];
+    var defCluster = clazz.getClusterIds()[0];
 
     try (var resultSet =
         session.query(
@@ -42,7 +42,7 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
     session.command("create index Song.multi on Song (title,author) FULLTEXT ENGINE LUCENE ");
 
     var clazz = session.getMetadata().getSchema().getClass("Song");
-    var defCluster = clazz.getClusterIds(session)[0];
+    var defCluster = clazz.getClusterIds()[0];
 
     try (var resultSet =
         session.query(
@@ -60,7 +60,7 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
     session.command("create index Song.multi on Song (title) FULLTEXT ENGINE LUCENE ");
 
     var clazz = session.getMetadata().getSchema().getClass("Song");
-    var defCluster = clazz.getClusterIds(session)[0];
+    var defCluster = clazz.getClusterIds()[0];
 
     try (var resultSet =
         session.query(
@@ -83,7 +83,7 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
     session.command("create index Song.multi on Song (title) FULLTEXT ENGINE LUCENE ");
 
     var clazz = session.getMetadata().getSchema().getClass("Song");
-    var defCluster = clazz.getClusterIds(session)[0];
+    var defCluster = clazz.getClusterIds()[0];
 
     try (var resultSet =
         session.query(
@@ -106,7 +106,7 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
     session.command("create index Song.multi on Song (title,author) FULLTEXT ENGINE LUCENE ");
 
     var clazz = session.getMetadata().getSchema().getClass("Song");
-    var defCluster = clazz.getClusterIds(session)[0];
+    var defCluster = clazz.getClusterIds()[0];
 
     try (var resultSet =
         session.query(

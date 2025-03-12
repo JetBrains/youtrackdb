@@ -33,8 +33,8 @@ public class LuceneInheritanceQueryTest extends LuceneBaseTest {
   @Before
   public void setUp() throws Exception {
     final var c1 = session.createVertexClass("C1");
-    c1.createProperty(session, "name", PropertyType.STRING);
-    c1.createIndex(session, "C1.name", "FULLTEXT", null, null, "LUCENE", new String[]{"name"});
+    c1.createProperty("name", PropertyType.STRING);
+    c1.createIndex("C1.name", "FULLTEXT", null, null, "LUCENE", new String[]{"name"});
 
     final var c2 = session.createClass("C2", "C1");
   }

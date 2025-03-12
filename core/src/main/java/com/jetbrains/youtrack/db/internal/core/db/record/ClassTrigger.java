@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -32,6 +33,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableCl
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import java.lang.reflect.Method;
+import java.util.HashSet;
 import javax.script.Invocable;
 import javax.script.ScriptContext;
 import javax.script.ScriptException;
@@ -170,20 +172,40 @@ public class ClassTrigger {
   private static Object checkClzAttribute(
       final EntityImpl entity, String attr, DatabaseSessionInternal session) {
     SchemaImmutableClass clz = null;
+
     if (entity != null) {
       clz = entity.getImmutableSchemaClass(session);
     }
+
     if (clz != null && clz.isTriggered()) {
       Function func = null;
-      var fieldName = clz.getCustom(session, attr);
-      var superClz = clz.getSuperClass(session);
+
+      var fieldName = clz.getCustom(attr);
+      var superClasses = new HashSet<>(clz.getSuperClasses());
+
       while (fieldName == null || fieldName.isEmpty()) {
-        if (superClz == null || superClz.getName(session).equals(CLASSNAME)) {
+        if (superClasses.isEmpty()) {
           break;
         }
-        fieldName = superClz.getCustom(session, attr);
-        superClz = superClz.getSuperClass(session);
+
+        var superNames = new HashSet<>(clz.getSuperClassesNames());
+        if (superNames.contains(CLASSNAME)) {
+          break;
+        }
+
+        var newSuperClasses = new HashSet<SchemaClass>();
+        for (var superClz : superClasses) {
+          fieldName = superClz.getCustom(attr);
+          if (fieldName != null && !fieldName.isEmpty()) {
+            break;
+          }
+
+          newSuperClasses.addAll(clz.getSuperClasses());
+        }
+
+        superClasses = newSuperClasses;
       }
+
       if (fieldName != null && !fieldName.isEmpty()) {
         // check if it is reflection or not
         final var clzMethod = ClassTrigger.checkMethod(fieldName);

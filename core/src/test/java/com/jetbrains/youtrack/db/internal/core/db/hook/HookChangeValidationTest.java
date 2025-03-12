@@ -18,9 +18,9 @@ public class HookChangeValidationTest extends DbTestBase {
 
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("TestClass");
-    classA.createProperty(session, "property1", PropertyType.STRING).setNotNull(session, true);
-    classA.createProperty(session, "property2", PropertyType.STRING).setReadonly(session, true);
-    classA.createProperty(session, "property3", PropertyType.STRING).setMandatory(session, true);
+    classA.createProperty("property1", PropertyType.STRING).setNotNull(true);
+    classA.createProperty("property2", PropertyType.STRING).setReadonly(true);
+    classA.createProperty("property3", PropertyType.STRING).setMandatory(true);
     session.registerHook(
         new DocumentHookAbstract(session) {
           @Override
@@ -56,9 +56,9 @@ public class HookChangeValidationTest extends DbTestBase {
 
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("TestClass");
-    classA.createProperty(session, "property1", PropertyType.STRING).setNotNull(session, true);
-    classA.createProperty(session, "property2", PropertyType.STRING).setReadonly(session, true);
-    classA.createProperty(session, "property3", PropertyType.STRING).setMandatory(session, true);
+    classA.createProperty("property1", PropertyType.STRING).setNotNull(true);
+    classA.createProperty("property2", PropertyType.STRING).setReadonly(true);
+    classA.createProperty("property3", PropertyType.STRING).setMandatory(true);
     session.registerHook(
         new DocumentHookAbstract(session) {
           @Override

@@ -68,7 +68,7 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
     }
     var session = ctx.getDatabaseSession();
     var clazz = loadClassFromSchema(className, ctx);
-    var classClusters = clazz.getPolymorphicClusterIds(session);
+    var classClusters = clazz.getPolymorphicClusterIds();
     var filteredClassClusters = new IntArrayList();
 
     for (var clusterId : classClusters) {

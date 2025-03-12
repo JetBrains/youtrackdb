@@ -16,6 +16,7 @@ import com.jetbrains.youtrack.db.internal.core.index.IndexException;
 import com.jetbrains.youtrack.db.internal.core.index.Indexes;
 import com.jetbrains.youtrack.db.internal.core.index.SimpleKeyIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
@@ -138,7 +139,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
           throw new DatabaseException(session,
               "Impossible to create an index, class not found: " + split[0]);
         }
-        if (oClass.getProperty(session, split[1]) == null) {
+        if (oClass.getProperty(split[1]) == null) {
           throw new DatabaseException(session,
               "Impossible to create an index, property not found: " + name.getValue());
         }
@@ -174,7 +175,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
     Index idx;
     if ((keyTypes == null || keyTypes.isEmpty()) && collatesList == null) {
       var indexName = name.getValue();
-      oClass.createIndex(session,
+      oClass.createIndex(
           indexName, type.getStringValue(), null, metadataDoc != null ? metadataDoc.toMap() : null,
           engine, fields);
       idx = session.getIndex(indexName);
@@ -182,12 +183,12 @@ public class SQLCreateIndexStatement extends DDLStatement {
       final List<PropertyType> fieldTypeList;
       if (keyTypes == null || keyTypes.isEmpty() && fields.length > 0) {
         for (final var fieldName : fields) {
-          if (!fieldName.equals("@rid") && !oClass.existsProperty(session, fieldName)) {
+          if (!fieldName.equals("@rid") && !oClass.existsProperty(fieldName)) {
             throw new IndexException(session,
                 "Index with name : '"
                     + name.getValue()
                     + "' cannot be created on class : '"
-                    + oClass.getName(session)
+                    + oClass.getName()
                     + "' because field: '"
                     + fieldName
                     + "' is absent in class definition.");
@@ -202,7 +203,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
       }
 
       final var idxDef =
-          IndexDefinitionFactory.createIndexDefinition(session,
+          IndexDefinitionFactory.createIndexDefinition(
               oClass,
               Arrays.asList(fields),
               fieldTypeList,
@@ -218,7 +219,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
                   name.getValue(),
                   type.getStringValue(),
                   idxDef,
-                  oClass.getPolymorphicClusterIds(session),
+                  oClass.getPolymorphicClusterIds(),
                   null,
                   metadataDoc != null ? metadataDoc.toMap() : null,
                   engine);

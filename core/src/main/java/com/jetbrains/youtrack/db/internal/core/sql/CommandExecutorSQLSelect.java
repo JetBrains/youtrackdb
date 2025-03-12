@@ -65,6 +65,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableCl
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityShared;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -1284,9 +1285,9 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
     return true;
   }
 
-  protected boolean optimizeExecution(DatabaseSessionInternal db) {
+  protected boolean optimizeExecution(DatabaseSessionInternal session) {
     if (compiledFilter != null) {
-      mergeRangeConditionsToBetweenOperators(db, compiledFilter);
+      mergeRangeConditionsToBetweenOperators(session, compiledFilter);
     }
 
     if ((compiledFilter == null || (compiledFilter.getRootCondition() == null))
@@ -1304,7 +1305,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
               && rf.configuredParameters.length == 1
               && "*".equals(rf.configuredParameters[0])) {
 
-            final var restrictedClasses = isUsingRestrictedClasses(db);
+            final var restrictedClasses = isUsingRestrictedClasses(session);
 
             if (!restrictedClasses) {
               long count = 0;
@@ -1312,21 +1313,21 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
               if (parsedTarget.getTargetClasses() != null) {
                 final var className = parsedTarget.getTargetClasses().keySet().iterator().next();
                 var cls =
-                    (SchemaClassInternal) db.getMetadata().getImmutableSchemaSnapshot()
+                    (SchemaClassInternal) session.getMetadata().getImmutableSchemaSnapshot()
                         .getClass(className);
-                count = cls.count(db);
+                count = cls.count(session);
               } else if (parsedTarget.getTargetClusters() != null) {
                 for (var cluster : parsedTarget.getTargetClusters().keySet()) {
-                  count += db.countClusterElements(cluster);
+                  count += session.countClusterElements(cluster);
                 }
               } else if (parsedTarget.getTargetIndex() != null) {
                 count +=
-                    db
+                    session
                         .getMetadata()
                         .getIndexManagerInternal()
-                        .getIndex(db, parsedTarget.getTargetIndex())
+                        .getIndex(session, parsedTarget.getTargetIndex())
                         .getInternal()
-                        .size(db);
+                        .size(session);
               } else {
                 final var recs = parsedTarget.getTargetRecords();
                 if (recs != null) {
@@ -1344,7 +1345,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
                 tempResult = new ArrayList<>();
               }
               ((Collection<Identifiable>) tempResult)
-                  .add(new EntityImpl(db).field(entry.getKey(), count));
+                  .add(new EntityImpl(session).field(entry.getKey(), count));
               return true;
             }
           }
@@ -1371,7 +1372,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
       for (var className : parsedTarget.getTargetClasses().keySet()) {
         final var cls =
             db.getMetadata().getImmutableSchemaSnapshot().getClass(className);
-        if (cls.isSubClassOf(db, SecurityShared.RESTRICTED_CLASSNAME)) {
+        if (cls.isSubClassOf(SecurityShared.RESTRICTED_CLASSNAME)) {
           restrictedClasses = true;
           break;
         }
@@ -1873,7 +1874,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
       final int iClusterId,
       final int current,
       final boolean[] results) {
-    final var it = new RecordIteratorCluster(localDatabase, iClusterId);
+    final var it = new RecordIteratorCluster<>(localDatabase, iClusterId, true);
 
     while (it.hasNext()) {
       final var next = it.next();
@@ -1939,7 +1940,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
 
   private boolean searchForSubclassIndexes(
       DatabaseSessionInternal db, final SchemaClass iSchemaClass) {
-    var subclasses = iSchemaClass.getSubclasses(db);
+    var subclasses = iSchemaClass.getSubclasses();
     if (subclasses.size() == 0) {
       return false;
     }
@@ -1964,7 +1965,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
     var cursor = new SortedMultiIterator<>(db, order);
     var fullySorted = true;
 
-    if (!iSchemaClass.isAbstract(db)) {
+    if (!iSchemaClass.isAbstract()) {
       var parentClassIterator =
           (Iterator<Identifiable>) searchInClasses(db, iSchemaClass, false, true);
       if (parentClassIterator.hasNext()) {
@@ -2187,7 +2188,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
     db.checkSecurity(
         Rule.ResourceGeneric.CLASS,
         Role.PERMISSION_READ,
-        iSchemaClass.getName(db).toLowerCase(Locale.ENGLISH));
+        iSchemaClass.getName().toLowerCase(Locale.ENGLISH));
 
     // fetch all possible variants of subqueries that can be used in indexes.
     if (compiledFilter == null) {

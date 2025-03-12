@@ -24,10 +24,10 @@ public class CompositeIndexGrowShrinkIT extends DbTestBase {
   public void testCompositeGrowShirnk() {
     final Schema schema = session.getMetadata().getSchema();
     var clazz = schema.createClass("CompositeIndex");
-    clazz.createProperty(session, "id", PropertyType.INTEGER);
-    clazz.createProperty(session, "bar", PropertyType.INTEGER);
-    clazz.createProperty(session, "tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
-    clazz.createProperty(session, "name", PropertyType.STRING);
+    clazz.createProperty("id", PropertyType.INTEGER);
+    clazz.createProperty("bar", PropertyType.INTEGER);
+    clazz.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
+    clazz.createProperty("name", PropertyType.STRING);
 
     session.command(
             "create index CompositeIndex_id_tags_name on CompositeIndex (id, tags, name) NOTUNIQUE")
@@ -57,10 +57,10 @@ public class CompositeIndexGrowShrinkIT extends DbTestBase {
 
     final Schema schema = session.getMetadata().getSchema();
     var clazz = schema.createClass("CompositeIndex");
-    clazz.createProperty(session, "id", PropertyType.INTEGER);
-    clazz.createProperty(session, "bar", PropertyType.INTEGER);
-    clazz.createProperty(session, "tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
-    clazz.createProperty(session, "name", PropertyType.STRING);
+    clazz.createProperty("id", PropertyType.INTEGER);
+    clazz.createProperty("bar", PropertyType.INTEGER);
+    clazz.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
+    clazz.createProperty("name", PropertyType.STRING);
 
     session.command(
             "create index CompositeIndex_id_tags_name on CompositeIndex (id, tags, name) NOTUNIQUE")

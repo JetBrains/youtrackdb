@@ -15,13 +15,10 @@ package com.jetbrains.youtrack.db.internal.spatial.shape;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.List;
-import org.locationtech.spatial4j.shape.Point;
 import org.locationtech.spatial4j.shape.Rectangle;
 
 public class RectangleShapeBuilder extends ShapeBuilder<Rectangle> {
@@ -43,11 +40,11 @@ public class RectangleShapeBuilder extends ShapeBuilder<Rectangle> {
 
     Schema schema = db.getMetadata().getSchema();
     var rectangle = schema.createAbstractClass(NAME, superClass(db));
-    var coordinates = rectangle.createProperty(db, COORDINATES,
+    var coordinates = rectangle.createProperty(COORDINATES,
         PropertyType.EMBEDDEDLIST,
         PropertyType.DOUBLE);
-    coordinates.setMin(db, "4");
-    coordinates.setMin(db, "4");
+    coordinates.setMin("4");
+    coordinates.setMin("4");
   }
 
   @Override

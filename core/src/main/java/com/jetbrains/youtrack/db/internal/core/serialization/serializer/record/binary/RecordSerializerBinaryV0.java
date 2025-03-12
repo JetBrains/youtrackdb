@@ -265,9 +265,9 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
           }
 
           bytes.offset = valuePos;
-          final var classProp = iClass.getProperty(session, iFieldName);
+          final var classProp = iClass.getProperty(iFieldName);
           return new BinaryField(
-              iFieldName, type, bytes, classProp != null ? classProp.getCollate(session) : null);
+              iFieldName, type, bytes, classProp != null ? classProp.getCollate() : null);
         }
         bytes.skip(IntegerSerializer.INT_SIZE);
       }
@@ -394,7 +394,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
 
     final var clazz = serializeClass(session, entity, bytes);
 
-    final var props = clazz != null ? clazz.propertiesMap(session) : null;
+    final var props = clazz != null ? clazz.propertiesMap() : null;
 
     final var fields = EntityInternalUtils.rawEntries(entity);
 
@@ -410,7 +410,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
       }
       if (docEntry.property == null && props != null) {
         var prop = props.get(entry.getKey());
-        if (prop != null && docEntry.type == prop.getType(session)) {
+        if (prop != null && docEntry.type == prop.getType()) {
           docEntry.property = prop;
         }
       }
@@ -760,7 +760,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
     }
     final SchemaClass clazz = result;
     if (clazz != null) {
-      writeString(bytes, clazz.getName(session));
+      writeString(bytes, clazz.getName());
     } else {
       writeEmptyString(bytes);
     }
@@ -893,9 +893,9 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
     }
     SchemaClass immutableClass = result;
     if (immutableClass != null) {
-      var prop = immutableClass.getProperty(session, key);
+      var prop = immutableClass.getProperty(key);
       if (prop != null) {
-        return prop.getLinkedType(session);
+        return prop.getLinkedType();
       }
     }
     return null;
@@ -1095,7 +1095,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
     if (type == null) {
       final var prop = entry.property;
       if (prop != null) {
-        type = prop.getType(session);
+        type = prop.getType();
       }
     }
     if (type == null) {

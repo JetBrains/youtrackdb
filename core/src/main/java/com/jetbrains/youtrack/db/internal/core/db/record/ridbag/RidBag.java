@@ -239,7 +239,7 @@ public class RidBag
     checkAndConvert();
 
     final var oldUuid = uuid;
-    final var bTreeCollectionManager = session.getSbTreeCollectionManager();
+    final var bTreeCollectionManager = session.getBTreeCollectionManager();
     if (bTreeCollectionManager != null) {
       uuid = bTreeCollectionManager.listenForChanges(this, session);
     } else {
@@ -279,7 +279,7 @@ public class RidBag
   public void checkAndConvert() {
     if (session != null && !session.isRemote()) {
       if (isEmbedded()
-          && session.getSbTreeCollectionManager() != null
+          && session.getBTreeCollectionManager() != null
           && delegate.size() >= topThreshold) {
         convertToTree();
       } else if (bottomThreshold >= 0 && !isEmbedded() && delegate.size() <= bottomThreshold) {

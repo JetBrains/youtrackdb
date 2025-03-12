@@ -21,11 +21,11 @@ public class LuceneRangeTest extends LuceneBaseTest {
     Schema schema = session.getMetadata().getSchema();
 
     var cls = schema.createClass("Person");
-    cls.createProperty(session, "name", PropertyType.STRING);
-    cls.createProperty(session, "surname", PropertyType.STRING);
-    cls.createProperty(session, "date", PropertyType.DATETIME);
-    cls.createProperty(session, "age", PropertyType.INTEGER);
-    cls.createProperty(session, "weight", PropertyType.FLOAT);
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createProperty("surname", PropertyType.STRING);
+    cls.createProperty("date", PropertyType.DATETIME);
+    cls.createProperty("age", PropertyType.INTEGER);
+    cls.createProperty("weight", PropertyType.FLOAT);
 
     var names =
         Arrays.asList(

@@ -98,13 +98,13 @@ public class BTreeBasedRidBag implements RidBagDelegate {
     this.session = session;
     this.changes.putAll(changes);
     this.size = -1;
-    this.collectionManager = session.getSbTreeCollectionManager();
+    this.collectionManager = session.getBTreeCollectionManager();
   }
 
   public BTreeBasedRidBag(@Nonnull DatabaseSessionInternal session) {
     this.session = session;
     collectionPointer = null;
-    this.collectionManager = session.getSbTreeCollectionManager();
+    this.collectionManager = session.getBTreeCollectionManager();
   }
 
   @Override
@@ -387,7 +387,7 @@ public class BTreeBasedRidBag implements RidBagDelegate {
           assert atomicOperation != null;
           collectionPointer =
               session
-                  .getSbTreeCollectionManager()
+                  .getBTreeCollectionManager()
                   .createSBTree(clusterId, atomicOperation, ownerUuid, session);
         } catch (IOException e) {
           throw BaseException.wrapException(

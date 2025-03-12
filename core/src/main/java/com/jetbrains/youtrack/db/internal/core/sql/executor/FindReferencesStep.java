@@ -11,6 +11,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLCluster;
@@ -79,7 +80,7 @@ public class FindReferencesStep extends AbstractExecutionStep {
     return results.stream();
   }
 
-  private List<RecordIteratorCluster<DBRecord>> initClusterIterators(CommandContext ctx) {
+  private List<RecordIteratorCluster<RecordAbstract>> initClusterIterators(CommandContext ctx) {
     var session = ctx.getDatabaseSession();
     Collection<String> targetClusterNames = new HashSet<>();
 
@@ -108,7 +109,7 @@ public class FindReferencesStep extends AbstractExecutionStep {
             throw new CommandExecutionException(ctx.getDatabaseSession(),
                 "Class not found: " + className);
           }
-          for (var clusterId : clazz.getPolymorphicClusterIds(session)) {
+          for (var clusterId : clazz.getPolymorphicClusterIds()) {
             targetClusterNames.add(session.getClusterNameById(clusterId));
           }
         }
@@ -117,7 +118,7 @@ public class FindReferencesStep extends AbstractExecutionStep {
 
     return targetClusterNames.stream()
         .map(clusterName -> new RecordIteratorCluster<>(session,
-            session.getClusterIdByName(clusterName)))
+            session.getClusterIdByName(clusterName), true))
         .collect(Collectors.toList());
   }
 

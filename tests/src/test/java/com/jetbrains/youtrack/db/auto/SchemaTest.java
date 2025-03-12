@@ -63,42 +63,42 @@ public class SchemaTest extends BaseDBTest {
 
     assert schema != null;
     assert schema.getClass("Profile") != null;
-    assert schema.getClass("Profile").getProperty(session, "nick").getType(session)
+    assert schema.getClass("Profile").getProperty("nick").getType()
         == PropertyType.STRING;
-    assert schema.getClass("Profile").getProperty(session, "name").getType(session)
+    assert schema.getClass("Profile").getProperty("name").getType()
         == PropertyType.STRING;
-    assert schema.getClass("Profile").getProperty(session, "surname").getType(session)
+    assert schema.getClass("Profile").getProperty("surname").getType()
         == PropertyType.STRING;
     assert
-        schema.getClass("Profile").getProperty(session, "registeredOn").getType(session)
+        schema.getClass("Profile").getProperty("registeredOn").getType()
             == PropertyType.DATETIME;
     assert
-        schema.getClass("Profile").getProperty(session, "lastAccessOn").getType(session)
+        schema.getClass("Profile").getProperty("lastAccessOn").getType()
             == PropertyType.DATETIME;
 
     assert schema.getClass("Whiz") != null;
-    assert schema.getClass("whiz").getProperty(session, "account").getType(session)
+    assert schema.getClass("whiz").getProperty("account").getType()
         == PropertyType.LINK;
     assert schema
         .getClass("whiz")
-        .getProperty(session, "account")
-        .getLinkedClass(session)
-        .getName(session)
+        .getProperty("account")
+        .getLinkedClass()
+        .getName()
         .equalsIgnoreCase("Account");
     assert
-        schema.getClass("WHIZ").getProperty(session, "date").getType(session) == PropertyType.DATE;
-    assert schema.getClass("WHIZ").getProperty(session, "text").getType(session)
+        schema.getClass("WHIZ").getProperty("date").getType() == PropertyType.DATE;
+    assert schema.getClass("WHIZ").getProperty("text").getType()
         == PropertyType.STRING;
-    assert schema.getClass("WHIZ").getProperty(session, "text").isMandatory(session);
-    assert schema.getClass("WHIZ").getProperty(session, "text").getMin(session).equals("1");
-    assert schema.getClass("WHIZ").getProperty(session, "text").getMax(session).equals("140");
-    assert schema.getClass("whiz").getProperty(session, "replyTo").getType(session)
+    assert schema.getClass("WHIZ").getProperty("text").isMandatory();
+    assert schema.getClass("WHIZ").getProperty("text").getMin().equals("1");
+    assert schema.getClass("WHIZ").getProperty("text").getMax().equals("140");
+    assert schema.getClass("whiz").getProperty("replyTo").getType()
         == PropertyType.LINK;
     assert schema
         .getClass("Whiz")
-        .getProperty(session, "replyTo")
-        .getLinkedClass(session)
-        .getName(session)
+        .getProperty("replyTo")
+        .getLinkedClass()
+        .getName()
         .equalsIgnoreCase("Account");
   }
 
@@ -132,8 +132,8 @@ public class SchemaTest extends BaseDBTest {
   public void checkClusters() {
 
     for (var cls : session.getMetadata().getSchema().getClasses()) {
-      assert cls.isAbstract(session)
-          || session.getClusterNameById(cls.getClusterIds(session)[0]) != null;
+      assert cls.isAbstract()
+          || session.getClusterNameById(cls.getClusterIds()[0]) != null;
     }
   }
 
@@ -183,7 +183,7 @@ public class SchemaTest extends BaseDBTest {
     final var testClassName = "dropTestClass";
     final int clusterId;
     var dropTestClass = session.getMetadata().getSchema().createClass(testClassName);
-    clusterId = dropTestClass.getClusterIds(session)[0];
+    clusterId = dropTestClass.getClusterIds()[0];
     dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
     Assert.assertNotNull(dropTestClass);
     Assert.assertEquals(session.getStorage().getClusterIdByName(testClassName), clusterId);
@@ -211,7 +211,7 @@ public class SchemaTest extends BaseDBTest {
     final var testClassName = "dropTestClass";
     final int clusterId;
     var dropTestClass = session.getMetadata().getSchema().createClass(testClassName);
-    clusterId = dropTestClass.getClusterIds(session)[0];
+    clusterId = dropTestClass.getClusterIds()[0];
     dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
     Assert.assertNotNull(dropTestClass);
     Assert.assertEquals(session.getStorage().getClusterIdByName(testClassName), clusterId);
@@ -242,16 +242,16 @@ public class SchemaTest extends BaseDBTest {
         .getMetadata()
         .getSchema()
         .getClass("Profile")
-        .getProperty(session, "nick")
-        .setCustom(session, "stereotype", "icon");
+        .getProperty("nick")
+        .setCustom("stereotype", "icon");
 
     Assert.assertEquals(
         session
             .getMetadata()
             .getSchema()
             .getClass("Profile")
-            .getProperty(session, "nick")
-            .getCustom(session, "stereotype"),
+            .getProperty("nick")
+            .getCustom("stereotype"),
         "icon");
 
     // TEST CUSTOM PROPERTY EXISTS EVEN AFTER REOPEN
@@ -261,8 +261,8 @@ public class SchemaTest extends BaseDBTest {
             .getMetadata()
             .getSchema()
             .getClass("Profile")
-            .getProperty(session, "nick")
-            .getCustom(session, "stereotype"),
+            .getProperty("nick")
+            .getCustom("stereotype"),
         "icon");
 
     // TEST CUSTOM PROPERTY REMOVAL
@@ -270,30 +270,30 @@ public class SchemaTest extends BaseDBTest {
         .getMetadata()
         .getSchema()
         .getClass("Profile")
-        .getProperty(session, "nick")
-        .setCustom(session, "stereotype", null);
+        .getProperty("nick")
+        .setCustom("stereotype", null);
     Assert.assertNull(
         session
             .getMetadata()
             .getSchema()
             .getClass("Profile")
-            .getProperty(session, "nick")
-            .getCustom(session, "stereotype"));
+            .getProperty("nick")
+            .getCustom("stereotype"));
 
     // TEST CUSTOM PROPERTY UPDATE
     session
         .getMetadata()
         .getSchema()
         .getClass("Profile")
-        .getProperty(session, "nick")
-        .setCustom(session, "stereotype", "polygon");
+        .getProperty("nick")
+        .setCustom("stereotype", "polygon");
     Assert.assertEquals(
         session
             .getMetadata()
             .getSchema()
             .getClass("Profile")
-            .getProperty(session, "nick")
-            .getCustom(session, "stereotype"),
+            .getProperty("nick")
+            .getCustom("stereotype"),
         "polygon");
 
     // TEST CUSTOM PROPERTY UDPATED EVEN AFTER REOPEN
@@ -303,8 +303,8 @@ public class SchemaTest extends BaseDBTest {
             .getMetadata()
             .getSchema()
             .getClass("Profile")
-            .getProperty(session, "nick")
-            .getCustom(session, "stereotype"),
+            .getProperty("nick")
+            .getCustom("stereotype"),
         "polygon");
 
     // TEST CUSTOM PROPERTY WITH =
@@ -313,16 +313,16 @@ public class SchemaTest extends BaseDBTest {
         .getMetadata()
         .getSchema()
         .getClass("Profile")
-        .getProperty(session, "nick")
-        .setCustom(session, "equal", "this = that");
+        .getProperty("nick")
+        .setCustom("equal", "this = that");
 
     Assert.assertEquals(
         session
             .getMetadata()
             .getSchema()
             .getClass("Profile")
-            .getProperty(session, "nick")
-            .getCustom(session, "equal"),
+            .getProperty("nick")
+            .getCustom("equal"),
         "this = that");
 
     // TEST CUSTOM PROPERTY WITH = AFTER REOPEN
@@ -332,20 +332,21 @@ public class SchemaTest extends BaseDBTest {
             .getMetadata()
             .getSchema()
             .getClass("Profile")
-            .getProperty(session, "nick")
-            .getCustom(session, "equal"),
+            .getProperty("nick")
+            .getCustom("equal"),
         "this = that");
   }
 
   @Test
   public void alterAttributes() {
-
     var company = session.getMetadata().getSchema().getClass("Company");
-    var superClass = company.getSuperClass(session);
+    var superClasses = company.getSuperClasses();
+    Assert.assertEquals(superClasses.size(), 1);
+    var superClass = superClasses.getFirst();
 
     Assert.assertNotNull(superClass);
     var found = false;
-    for (var c : superClass.getSubclasses(session)) {
+    for (var c : superClass.getSubclasses()) {
       if (c.equals(company)) {
         found = true;
         break;
@@ -353,23 +354,24 @@ public class SchemaTest extends BaseDBTest {
     }
     Assert.assertTrue(found);
 
-    company.setSuperClass(session, null);
-    Assert.assertNull(company.getSuperClass(session));
-    for (var c : superClass.getSubclasses(session)) {
+    company.removeSuperClass(superClass);
+    Assert.assertTrue(company.getSuperClasses().isEmpty());
+
+    for (var c : superClass.getSubclasses()) {
       Assert.assertNotSame(c, company);
     }
 
     session
-        .command("alter class " + company.getName(session) + " superclass " + superClass.getName(
-            session))
+        .command("alter class " + company.getName() + " superclasses " + superClass.getName())
         .close();
 
     company = session.getMetadata().getSchema().getClass("Company");
-    superClass = company.getSuperClass(session);
+    superClasses = company.getSuperClasses();
+    Assert.assertEquals(superClasses.size(), 1);
+    superClass = superClasses.getFirst();
 
-    Assert.assertNotNull(company.getSuperClass(session));
     found = false;
-    for (var c : superClass.getSubclasses(session)) {
+    for (var c : superClass.getSubclasses()) {
       if (c.equals(company)) {
         found = true;
         break;
@@ -430,7 +432,7 @@ public class SchemaTest extends BaseDBTest {
     Assert.assertEquals(result.stream().count(), 2);
     session.commit();
 
-    oClass.set(session, SchemaClass.ATTRIBUTES.NAME, "RenameClassTest2");
+    oClass.set(SchemaClass.ATTRIBUTES.NAME, "RenameClassTest2");
 
     session.begin();
     result = session.query("select from RenameClassTest2");
@@ -500,24 +502,14 @@ public class SchemaTest extends BaseDBTest {
   }
 
   public void testRenameWithSameNameIsNop() {
-    session.getMetadata().getSchema().getClass("V").setName(session, "V");
+    session.getMetadata().getSchema().getClass("V").setName("V");
   }
 
   public void testRenameWithExistentName() {
     try {
-      session.getMetadata().getSchema().getClass("V").setName(session, "OUser");
+      session.getMetadata().getSchema().getClass("V").setName("OUser");
       Assert.fail();
-    } catch (SchemaException e) {
-    } catch (CommandExecutionException e) {
-    }
-  }
-
-  public void testShortNameAlreadyExists() {
-    try {
-      session.getMetadata().getSchema().getClass("V").setShortName(session, "OUser");
-      Assert.fail();
-    } catch (IllegalArgumentException e) {
-    } catch (CommandExecutionException e) {
+    } catch (SchemaException | CommandExecutionException ignore) {
     }
   }
 
@@ -527,7 +519,7 @@ public class SchemaTest extends BaseDBTest {
     var oRestricted = schema.getClass(SecurityShared.RESTRICTED_CLASSNAME);
     var classA = schema.createClass("TestDeletionOfDependentClassA", oRestricted);
     var classB = schema.createClass("TestDeletionOfDependentClassB", classA);
-    schema.dropClass(classB.getName(session));
+    schema.dropClass(classB.getName());
   }
 
   @Test
@@ -641,7 +633,7 @@ public class SchemaTest extends BaseDBTest {
     var schema = (SchemaInternal) session.getSchema();
     if (!remoteDB) {
       var clazz = schema.getClassInternal(className);
-      var idx = clazz.getIndexesInternal(session);
+      var idx = clazz.getIndexesInternal();
 
       Set<String> indexes = new HashSet<>();
       for (var id : idx) {

@@ -470,9 +470,9 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
       var session = ctx.getDatabaseSession();
       var nextClazz =
           clazz
-              .getProperty(session,
+              .getProperty(
                   base.getIdentifier().suffix.getIdentifier().getStringValue())
-              .getLinkedClass(session);
+              .getLinkedClass();
       result.rightStatement =
           indexChainToStatement(
               ((SQLBaseExpression) left.mathExpression).modifier, nextClazz, right, ctx);
@@ -489,7 +489,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
     result.target = new SQLFromClause(-1);
     result.target.setItem(new SQLFromItem(-1));
     result.target.getItem().identifier = new SQLIdentifier(
-        queryClass.getName(ctx.getDatabaseSession()));
+        queryClass.getName());
 
     result.whereClause = new SQLWhereClause(-1);
     var base = new SQLBinaryCondition(-1);

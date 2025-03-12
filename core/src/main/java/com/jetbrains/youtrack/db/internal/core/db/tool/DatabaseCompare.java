@@ -90,7 +90,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
     final var cls = schemaTwo.getClass(DatabaseImport.EXPORT_IMPORT_CLASS_NAME);
 
     if (cls != null) {
-      final var clusterIds = cls.getClusterIds(sessionTwo);
+      final var clusterIds = cls.getClusterIds();
       clusterDifference = clusterIds.length;
     }
   }
@@ -192,165 +192,165 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
         database2 -> database2.getMetadata().getImmutableSchemaSnapshot());
     var ok = true;
     for (var clazz : schema1.getClasses()) {
-      var clazz2 = schema2.getClass(clazz.getName(sessionTwo));
+      var clazz2 = schema2.getClass(clazz.getName());
 
       if (clazz2 == null) {
         listener.onMessage(
-            "\n- ERR: Class definition " + clazz.getName(sessionOne) + " for DB2 is null.");
+            "\n- ERR: Class definition " + clazz.getName() + " for DB2 is null.");
         continue;
       }
 
-      final var sc1 = clazz.getSuperClassesNames(sessionOne);
-      final var sc2 = clazz2.getSuperClassesNames(sessionTwo);
+      final var sc1 = clazz.getSuperClassesNames();
+      final var sc2 = clazz2.getSuperClassesNames();
 
       if (!sc1.isEmpty() || !sc2.isEmpty()) {
         if (!new HashSet<>(sc1).containsAll(sc2) || !new HashSet<>(sc2).containsAll(sc1)) {
           listener.onMessage(
               "\n- ERR: Class definition for "
-                  + clazz.getName(sessionOne)
+                  + clazz.getName()
                   + " in DB1 is not equals in superclasses in DB2.");
           ok = false;
         }
       }
 
-      if (!((SchemaClassInternal) clazz).getClassIndexes(sessionOne)
-          .equals(((SchemaClassInternal) clazz2).getClassIndexes(sessionTwo))) {
+      if (!((SchemaClassInternal) clazz).getClassIndexes()
+          .equals(((SchemaClassInternal) clazz2).getClassIndexes())) {
         listener.onMessage(
             "\n- ERR: Class definition for "
-                + clazz.getName(sessionOne)
+                + clazz.getName()
                 + " in DB1 is not equals in indexes in DB2.");
         ok = false;
       }
 
-      if (!Arrays.equals(clazz.getClusterIds(sessionOne), clazz2.getClusterIds(sessionOne))) {
+      if (!Arrays.equals(clazz.getClusterIds(), clazz2.getClusterIds())) {
         listener.onMessage(
             "\n- ERR: Class definition for "
-                + clazz.getName(sessionOne)
+                + clazz.getName()
                 + " in DB1 is not equals in clusters in DB2.");
         ok = false;
       }
-      if (!clazz.getCustomKeys(sessionOne).equals(clazz2.getCustomKeys(sessionTwo))) {
+      if (!clazz.getCustomKeys().equals(clazz2.getCustomKeys())) {
         listener.onMessage(
             "\n- ERR: Class definition for "
-                + clazz.getName(sessionOne)
+                + clazz.getName()
                 + " in DB1 is not equals in custom keys in DB2.");
         ok = false;
       }
 
-      for (var prop1 : clazz.declaredProperties(sessionOne)) {
-        var prop2 = clazz2.getProperty(sessionTwo, prop1.getName(sessionTwo));
+      for (var prop1 : clazz.declaredProperties()) {
+        var prop2 = clazz2.getProperty(prop1.getName());
         if (prop2 == null) {
           listener.onMessage(
               "\n- ERR: Class definition for "
-                  + clazz.getName(sessionOne)
+                  + clazz.getName()
                   + " as missed property "
-                  + prop1.getName(sessionOne)
+                  + prop1.getName()
                   + "in DB2.");
           ok = false;
           continue;
         }
-        if (prop1.getType(sessionOne) != prop2.getType(sessionTwo)) {
+        if (prop1.getType() != prop2.getType()) {
           listener.onMessage(
               "\n- ERR: Class definition for "
-                  + clazz.getName(sessionOne)
+                  + clazz.getName()
                   + " as not same type for property "
-                  + prop1.getName(sessionOne)
+                  + prop1.getName()
                   + "in DB2. ");
           ok = false;
         }
 
-        if (prop1.getLinkedType(sessionOne) != prop2.getLinkedType(sessionTwo)) {
+        if (prop1.getLinkedType() != prop2.getLinkedType()) {
           listener.onMessage(
               "\n- ERR: Class definition for "
-                  + clazz.getName(sessionOne)
+                  + clazz.getName()
                   + " as not same linkedtype for property "
-                  + prop1.getName(sessionOne)
+                  + prop1.getName()
                   + "in DB2.");
           ok = false;
         }
 
-        if (prop1.getMin(sessionOne) != null) {
-          if (!prop1.getMin(sessionOne).equals(prop2.getMin(sessionTwo))) {
+        if (prop1.getMin() != null) {
+          if (!prop1.getMin().equals(prop2.getMin())) {
             listener.onMessage(
                 "\n- ERR: Class definition for "
-                    + clazz.getName(sessionOne)
+                    + clazz.getName()
                     + " as not same min for property "
-                    + prop1.getName(sessionOne)
+                    + prop1.getName()
                     + "in DB2.");
             ok = false;
           }
         }
-        if (prop1.getMax(sessionOne) != null) {
-          if (!prop1.getMax(sessionOne).equals(prop2.getMax(sessionTwo))) {
+        if (prop1.getMax() != null) {
+          if (!prop1.getMax().equals(prop2.getMax())) {
             listener.onMessage(
                 "\n- ERR: Class definition for "
-                    + clazz.getName(sessionOne)
+                    + clazz.getName()
                     + " as not same max for property "
-                    + prop1.getName(sessionOne)
+                    + prop1.getName()
                     + "in DB2.");
             ok = false;
           }
         }
 
-        if (prop1.getMax(sessionOne) != null) {
-          if (!prop1.getMax(sessionOne).equals(prop2.getMax(sessionTwo))) {
+        if (prop1.getMax() != null) {
+          if (!prop1.getMax().equals(prop2.getMax())) {
             listener.onMessage(
                 "\n- ERR: Class definition for "
-                    + clazz.getName(sessionOne)
+                    + clazz.getName()
                     + " as not same regexp for property "
-                    + prop1.getName(sessionOne)
+                    + prop1.getName()
                     + "in DB2.");
             ok = false;
           }
         }
 
-        if (prop1.getLinkedClass(sessionOne) != null) {
-          if (!prop1.getLinkedClass(sessionOne).equals(prop2.getLinkedClass(sessionTwo))) {
+        if (prop1.getLinkedClass() != null) {
+          if (!prop1.getLinkedClass().equals(prop2.getLinkedClass())) {
             listener.onMessage(
                 "\n- ERR: Class definition for "
-                    + clazz.getName(sessionOne)
+                    + clazz.getName()
                     + " as not same linked class for property "
-                    + prop1.getName(sessionOne)
+                    + prop1.getName()
                     + "in DB2.");
             ok = false;
           }
         }
 
-        if (prop1.getLinkedClass(sessionOne) != null) {
-          if (!prop1.getCustomKeys(sessionOne).equals(prop2.getCustomKeys(sessionTwo))) {
+        if (prop1.getLinkedClass() != null) {
+          if (!prop1.getCustomKeys().equals(prop2.getCustomKeys())) {
             listener.onMessage(
                 "\n- ERR: Class definition for "
-                    + clazz.getName(sessionOne)
+                    + clazz.getName()
                     + " as not same custom keys for property "
-                    + prop1.getName(sessionOne)
+                    + prop1.getName()
                     + "in DB2.");
             ok = false;
           }
         }
-        if (prop1.isMandatory(sessionOne) != prop2.isMandatory(sessionTwo)) {
+        if (prop1.isMandatory() != prop2.isMandatory()) {
           listener.onMessage(
               "\n- ERR: Class definition for "
-                  + clazz.getName(sessionOne)
+                  + clazz.getName()
                   + " as not same mandatory flag for property "
-                  + prop1.getName(sessionOne)
+                  + prop1.getName()
                   + "in DB2.");
           ok = false;
         }
-        if (prop1.isNotNull(sessionOne) != prop2.isNotNull(sessionTwo)) {
+        if (prop1.isNotNull() != prop2.isNotNull()) {
           listener.onMessage(
               "\n- ERR: Class definition for "
-                  + clazz.getName(sessionOne)
+                  + clazz.getName()
                   + " as not same nut null flag for property "
-                  + prop1.getName(sessionOne)
+                  + prop1.getName()
                   + "in DB2.");
           ok = false;
         }
-        if (prop1.isReadonly(sessionOne) != prop2.isReadonly(sessionTwo)) {
+        if (prop1.isReadonly() != prop2.isReadonly()) {
           listener.onMessage(
               "\n- ERR: Class definition for "
-                  + clazz.getName(sessionOne)
+                  + clazz.getName()
                   + " as not same readonly flag setting for property "
-                  + prop1.getName(sessionOne)
+                  + prop1.getName()
                   + "in DB2.");
           ok = false;
         }
@@ -744,7 +744,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
               database ->
                   database
                       .getStorage()
-                      .ceilingPhysicalPositions(sessionOne, clusterId1, new PhysicalPosition(0)));
+                      .ceilingPhysicalPositions(sessionOne, clusterId1, new PhysicalPosition(0),
+                          Integer.MAX_VALUE));
 
       var configuration1 =
           makeDbCall(sessionOne, database -> database.getStorageInfo().getConfiguration());
@@ -794,170 +795,151 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                 makeDbCall(
                     sessionOne,
                     database -> database.getStorage()
-                        .readRecord(sessionOne, rid1, true, false, null));
+                        .readRecord(sessionOne, rid1, false, false)).buffer();
             final var buffer2 =
                 makeDbCall(
                     sessionTwo,
                     database -> database.getStorage()
-                        .readRecord(sessionTwo, rid2, true, false, null));
+                        .readRecord(sessionTwo, rid2, false, false)).buffer();
+
+            if (buffer1.recordType != buffer2.recordType) {
+              listener.onMessage(
+                  "\n- ERR: RID="
+                      + clusterId1
+                      + ":"
+                      + position
+                      + " recordType is different: "
+                      + (char) buffer1.recordType
+                      + " <-> "
+                      + (char) buffer2.recordType);
+              ++differences;
+            }
 
             //noinspection StatementWithEmptyBody
-            if (buffer1 == null && buffer2 == null) {
-              // BOTH RECORD NULL, OK
+            if (buffer1.buffer == null && buffer2.buffer == null) {
+              // Both null so both equals
             } else {
-              if (buffer1 == null) {
-                // REC1 NULL
+              if (buffer1.buffer == null) {
                 listener.onMessage(
-                    "\n- ERR: RID=" + clusterId1 + ":" + position + " is null in DB1");
+                    "\n- ERR: RID="
+                        + clusterId1
+                        + ":"
+                        + position
+                        + " content is different: null <-> "
+                        + buffer2.buffer.length);
                 ++differences;
-              } else {
-                if (buffer2 == null) {
-                  // REC2 NULL
-                  listener.onMessage(
-                      "\n- ERR: RID=" + clusterId1 + ":" + position + " is null in DB2");
-                  ++differences;
-                } else {
-                  if (buffer1.recordType != buffer2.recordType) {
-                    listener.onMessage(
-                        "\n- ERR: RID="
-                            + clusterId1
-                            + ":"
-                            + position
-                            + " recordType is different: "
-                            + (char) buffer1.recordType
-                            + " <-> "
-                            + (char) buffer2.recordType);
-                    ++differences;
-                  }
 
-                  //noinspection StatementWithEmptyBody
-                  if (buffer1.buffer == null && buffer2.buffer == null) {
-                    // Both null so both equals
-                  } else {
-                    if (buffer1.buffer == null) {
+              } else {
+                if (buffer2.buffer == null) {
+                  listener.onMessage(
+                      "\n- ERR: RID="
+                          + clusterId1
+                          + ":"
+                          + position
+                          + " content is different: "
+                          + buffer1.buffer.length
+                          + " <-> null");
+                  ++differences;
+
+                } else {
+                  if (buffer1.recordType == EntityImpl.RECORD_TYPE) {
+                    // ENTITY: TRY TO INSTANTIATE AND COMPARE
+
+                    makeDbCall(
+                        sessionOne,
+                        database -> {
+                          RecordInternal.unsetDirty(entity1);
+                          RecordInternal.fromStream(entity1, buffer1.buffer);
+                          return null;
+                        });
+
+                    makeDbCall(
+                        sessionTwo,
+                        database -> {
+                          RecordInternal.unsetDirty(entity2);
+                          RecordInternal.fromStream(entity2, buffer2.buffer);
+                          return null;
+                        });
+
+                    if (rid1.toString().equals(configuration1.getSchemaRecordId())
+                        && rid1.toString().equals(configuration2.getSchemaRecordId())) {
+                      makeDbCall(
+                          sessionOne,
+                          database -> {
+                            convertSchemaDoc(entity1);
+                            return null;
+                          });
+
+                      makeDbCall(
+                          sessionTwo,
+                          database -> {
+                            convertSchemaDoc(entity2);
+                            return null;
+                          });
+                    }
+
+                    if (!EntityHelper.hasSameContentOf(
+                        entity1, sessionOne, entity2, sessionTwo, ridMapper)) {
                       listener.onMessage(
                           "\n- ERR: RID="
                               + clusterId1
                               + ":"
                               + position
-                              + " content is different: null <-> "
-                              + buffer2.buffer.length);
+                              + " entity content is different");
+                      //noinspection ObjectAllocationInLoop
+                      listener.onMessage("\n--- REC1: " + new String(buffer1.buffer));
+                      //noinspection ObjectAllocationInLoop
+                      listener.onMessage("\n--- REC2: " + new String(buffer2.buffer));
+                      listener.onMessage("\n");
                       ++differences;
+                    }
+                  } else {
+                    if (buffer1.buffer.length != buffer2.buffer.length) {
+                      // CHECK IF THE TRIMMED SIZE IS THE SAME
+                      @SuppressWarnings("ObjectAllocationInLoop") final var rec1 = new String(
+                          buffer1.buffer).trim();
+                      @SuppressWarnings("ObjectAllocationInLoop") final var rec2 = new String(
+                          buffer2.buffer).trim();
 
-                    } else {
-                      if (buffer2.buffer == null) {
+                      if (rec1.length() != rec2.length()) {
                         listener.onMessage(
                             "\n- ERR: RID="
                                 + clusterId1
                                 + ":"
                                 + position
-                                + " content is different: "
+                                + " content length is different: "
                                 + buffer1.buffer.length
-                                + " <-> null");
+                                + " <-> "
+                                + buffer2.buffer.length);
+
+                        if (buffer2.recordType == EntityImpl.RECORD_TYPE) {
+                          listener.onMessage("\n--- REC2: " + rec2);
+                        }
+
+                        listener.onMessage("\n");
+
                         ++differences;
-
-                      } else {
-                        if (buffer1.recordType == EntityImpl.RECORD_TYPE) {
-                          // ENTITY: TRY TO INSTANTIATE AND COMPARE
-
-                          makeDbCall(
-                              sessionOne,
-                              database -> {
-                                RecordInternal.unsetDirty(entity1);
-                                RecordInternal.fromStream(entity1, buffer1.buffer);
-                                return null;
-                              });
-
-                          makeDbCall(
-                              sessionTwo,
-                              database -> {
-                                RecordInternal.unsetDirty(entity2);
-                                RecordInternal.fromStream(entity2, buffer2.buffer);
-                                return null;
-                              });
-
-                          if (rid1.toString().equals(configuration1.getSchemaRecordId())
-                              && rid1.toString().equals(configuration2.getSchemaRecordId())) {
-                            makeDbCall(
-                                sessionOne,
-                                database -> {
-                                  convertSchemaDoc(entity1);
-                                  return null;
-                                });
-
-                            makeDbCall(
-                                sessionTwo,
-                                database -> {
-                                  convertSchemaDoc(entity2);
-                                  return null;
-                                });
-                          }
-
-                          if (!EntityHelper.hasSameContentOf(
-                              entity1, sessionOne, entity2, sessionTwo, ridMapper)) {
-                            listener.onMessage(
-                                "\n- ERR: RID="
-                                    + clusterId1
-                                    + ":"
-                                    + position
-                                    + " entity content is different");
-                            //noinspection ObjectAllocationInLoop
-                            listener.onMessage("\n--- REC1: " + new String(buffer1.buffer));
-                            //noinspection ObjectAllocationInLoop
-                            listener.onMessage("\n--- REC2: " + new String(buffer2.buffer));
-                            listener.onMessage("\n");
-                            ++differences;
-                          }
-                        } else {
-                          if (buffer1.buffer.length != buffer2.buffer.length) {
-                            // CHECK IF THE TRIMMED SIZE IS THE SAME
-                            @SuppressWarnings("ObjectAllocationInLoop") final var rec1 = new String(
-                                buffer1.buffer).trim();
-                            @SuppressWarnings("ObjectAllocationInLoop") final var rec2 = new String(
-                                buffer2.buffer).trim();
-
-                            if (rec1.length() != rec2.length()) {
-                              listener.onMessage(
-                                  "\n- ERR: RID="
-                                      + clusterId1
-                                      + ":"
-                                      + position
-                                      + " content length is different: "
-                                      + buffer1.buffer.length
-                                      + " <-> "
-                                      + buffer2.buffer.length);
-
-                              if (buffer2.recordType == EntityImpl.RECORD_TYPE) {
-                                listener.onMessage("\n--- REC2: " + rec2);
-                              }
-
-                              listener.onMessage("\n");
-
-                              ++differences;
-                            }
-                          } else {
-                            // CHECK BYTE PER BYTE
-                            for (var b = 0; b < buffer1.buffer.length; ++b) {
-                              if (buffer1.buffer[b] != buffer2.buffer[b]) {
-                                listener.onMessage(
-                                    "\n- ERR: RID="
-                                        + clusterId1
-                                        + ":"
-                                        + position
-                                        + " content is different at byte #"
-                                        + b
-                                        + ": "
-                                        + buffer1.buffer[b]
-                                        + " <-> "
-                                        + buffer2.buffer[b]);
-                                listener.onMessage("\n--- REC1: " + new String(buffer1.buffer));
-                                listener.onMessage("\n--- REC2: " + new String(buffer2.buffer));
-                                listener.onMessage("\n");
-                                ++differences;
-                                break;
-                              }
-                            }
-                          }
+                      }
+                    } else {
+                      // CHECK BYTE PER BYTE
+                      for (var b = 0; b < buffer1.buffer.length; ++b) {
+                        if (buffer1.buffer[b] != buffer2.buffer[b]) {
+                          listener.onMessage(
+                              "\n- ERR: RID="
+                                  + clusterId1
+                                  + ":"
+                                  + position
+                                  + " content is different at byte #"
+                                  + b
+                                  + ": "
+                                  + buffer1.buffer[b]
+                                  + " <-> "
+                                  + buffer2.buffer[b]);
+                          listener.onMessage("\n--- REC1: " + new String(buffer1.buffer));
+                          listener.onMessage("\n--- REC2: " + new String(buffer2.buffer));
+                          listener.onMessage("\n");
+                          ++differences;
+                          break;
                         }
                       }
                     }
@@ -979,7 +961,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                     database
                         .getStorage()
                         .higherPhysicalPositions(sessionOne, clusterId1,
-                            curPosition[curPosition.length - 1]));
+                            curPosition[curPosition.length - 1], Integer.MAX_VALUE));
         if (recordsCounter % 10000 == 0) {
           listener.onMessage(
               "\n"

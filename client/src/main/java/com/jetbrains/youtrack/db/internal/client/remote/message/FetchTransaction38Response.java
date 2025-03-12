@@ -53,7 +53,7 @@ public class FetchTransaction38Response implements BinaryResponse {
           && txEntry.record instanceof EntityImpl entity) {
         var result =
             database.getStorage()
-                .readRecord(database, entity.getIdentity(), false, false, null);
+                .readRecord(database, entity.getIdentity(), false, false).buffer();
 
         var entityFromPersistence = new EntityImpl(db, entity.getIdentity());
         RecordInternal.unsetDirty(entityFromPersistence);

@@ -34,8 +34,8 @@ public class TransactionQueryIndexTests {
   @Test
   public void test() {
     var clazz = database.createClass("test");
-    var prop = clazz.createProperty(database, "test", PropertyType.STRING);
-    prop.createIndex(database, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    var prop = clazz.createProperty("test", PropertyType.STRING);
+    prop.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     database.begin();
     EntityImpl doc = database.newInstance("test");
@@ -53,9 +53,9 @@ public class TransactionQueryIndexTests {
   @Test
   public void test2() {
     var clazz = database.createClass("Test2");
-    clazz.createProperty(database, "foo", PropertyType.STRING);
-    clazz.createProperty(database, "bar", PropertyType.STRING);
-    clazz.createIndex(database, "Test2.foo_bar", SchemaClass.INDEX_TYPE.NOTUNIQUE, "foo", "bar");
+    clazz.createProperty("foo", PropertyType.STRING);
+    clazz.createProperty("bar", PropertyType.STRING);
+    clazz.createIndex("Test2.foo_bar", SchemaClass.INDEX_TYPE.NOTUNIQUE, "foo", "bar");
 
     database.begin();
     EntityImpl doc = database.newInstance("Test2");

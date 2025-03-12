@@ -41,10 +41,10 @@ public class StorageBackupTest {
 
     final Schema schema = db.getMetadata().getSchema();
     final var backupClass = schema.createClass("BackupClass");
-    backupClass.createProperty(db, "num", PropertyType.INTEGER);
-    backupClass.createProperty(db, "data", PropertyType.BINARY);
+    backupClass.createProperty("num", PropertyType.INTEGER);
+    backupClass.createProperty("data", PropertyType.BINARY);
 
-    backupClass.createIndex(db, "backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
+    backupClass.createIndex("backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
 
     final var random = new Random();
     for (var i = 0; i < 1000; i++) {
@@ -120,10 +120,10 @@ public class StorageBackupTest {
 
     final Schema schema = db.getMetadata().getSchema();
     final var backupClass = schema.createClass("BackupClass");
-    backupClass.createProperty(db, "num", PropertyType.INTEGER);
-    backupClass.createProperty(db, "data", PropertyType.BINARY);
+    backupClass.createProperty("num", PropertyType.INTEGER);
+    backupClass.createProperty("data", PropertyType.BINARY);
 
-    backupClass.createIndex(db, "backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
+    backupClass.createIndex("backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
 
     final var random = new Random();
     for (var i = 0; i < 1000; i++) {
@@ -221,10 +221,10 @@ public class StorageBackupTest {
 
     final Schema schema = db.getMetadata().getSchema();
     final var backupClass = schema.createClass("BackupClass");
-    backupClass.createProperty(db, "num", PropertyType.INTEGER);
-    backupClass.createProperty(db, "data", PropertyType.BINARY);
+    backupClass.createProperty("num", PropertyType.INTEGER);
+    backupClass.createProperty("data", PropertyType.BINARY);
 
-    backupClass.createIndex(db, "backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
+    backupClass.createIndex("backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
 
     final var random = new Random();
     for (var i = 0; i < 1000; i++) {

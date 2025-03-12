@@ -56,8 +56,7 @@ import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.engine.v1.CellBTreeMultiValueIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.storage.ChecksumMode;
-import com.jetbrains.youtrack.db.internal.core.storage.RawBuffer;
-import com.jetbrains.youtrack.db.internal.core.storage.RecordCallback;
+import com.jetbrains.youtrack.db.internal.core.storage.ReadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
@@ -923,11 +922,6 @@ public class LocalPaginatedStorage extends AbstractPaginatedStorage {
   public String incrementalBackup(DatabaseSessionInternal session, final String backupDirectory,
       CallableFunction<Void, Void> started) {
     return incrementalBackup(new java.io.File(backupDirectory), started);
-  }
-
-  @Override
-  public boolean supportIncremental() {
-    return true;
   }
 
   @Override
@@ -1975,14 +1969,12 @@ public class LocalPaginatedStorage extends AbstractPaginatedStorage {
   }
 
   @Override
-  public @Nonnull RawBuffer readRecord(
-      DatabaseSessionInternal session, RecordId iRid,
-      boolean iIgnoreCache,
-      boolean prefetchRecords,
-      RecordCallback<RawBuffer> iCallback) {
+  public @Nonnull ReadRecordResult readRecord(
+      DatabaseSessionInternal session, RecordId iRid, boolean fetchPreviousRid,
+      boolean fetchNextRid) {
 
     try {
-      return super.readRecord(session, iRid, iIgnoreCache, prefetchRecords, iCallback);
+      return super.readRecord(session, iRid, fetchPreviousRid, fetchNextRid);
     } finally {
       listeners.forEach(EnterpriseStorageOperationListener::onRead);
     }

@@ -25,9 +25,12 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import javax.annotation.Nonnull;
 
 /**
  * Iterator to browse multiple clusters forward and backward. Once browsed in a direction, the
@@ -36,378 +39,35 @@ import java.util.Objects;
  * item in any cluster the iterator is browsing. If the cluster are hot removed by from the database
  * the iterator could be invalid and throw exception of cluster not found.
  */
-public class RecordIteratorClusters<REC extends DBRecord> extends IdentifiableIterator<REC> {
+public class RecordIteratorClusters<REC extends RecordAbstract> implements Iterator<REC> {
 
-  protected int[] clusterIds;
-  protected int currentClusterIdx;
-  protected DBRecord currentRecord;
-  protected RID beginRange;
-  protected RID endRange;
+  private RecordIteratorCluster<REC>[] clusterIterators;
+  private int clusterIndex = 0;
 
-  @Deprecated
+  private REC currentRecord;
+  private RecordIteratorCluster currentClusterIterator;
+
+  @Nonnull
+  private final DatabaseSessionInternal session;
+  private final int[] clusterIds;
+
   public RecordIteratorClusters(
-      final DatabaseSessionInternal iDatabase, final int[] iClusterIds) {
-    super(iDatabase);
+      @Nonnull final DatabaseSessionInternal session, final int[] iClusterIds,
+      boolean forwardDirection) {
+    this.session = session;
 
-    checkForSystemClusters(iDatabase, iClusterIds);
-
-    clusterIds = iClusterIds;
-
+    clusterIds = iClusterIds.clone();
     Arrays.sort(clusterIds);
 
-    config();
-  }
+    //noinspection unchecked
+    clusterIterators = new RecordIteratorCluster[clusterIds.length];
 
-  @Deprecated
-  protected RecordIteratorClusters(final DatabaseSessionInternal iDatabase) {
-    super(iDatabase);
-  }
-
-  public RecordIteratorClusters<REC> setRange(final RID iBegin, final RID iEnd) {
-    final var oldBegin = beginRange;
-    final var oldEnd = endRange;
-
-    beginRange = iBegin;
-    endRange = iEnd;
-
-    if ((Objects.equals(oldBegin, iBegin)) && (Objects.equals(oldEnd, iEnd))) {
-      return this;
+    for (var i = 0; i < clusterIds.length; ++i) {
+      clusterIterators[i] = new RecordIteratorCluster<>(session, clusterIds[i],
+          forwardDirection);
     }
 
-    if (currentRecord != null && outsideOfTheRange(currentRecord.getIdentity())) {
-      currentRecord = null;
-    }
-
-    begin();
-    return this;
-  }
-
-  @Override
-  public boolean hasPrevious() {
-    checkDirection(false);
-
-    if (currentRecord != null) {
-      return true;
-    }
-
-    if (limit > -1 && browsedRecords >= limit)
-    // LIMIT REACHED
-    {
-      return false;
-    }
-
-    if (browsedRecords >= totalAvailableRecords) {
-      return false;
-    }
-
-    if (liveUpdated) {
-      updateClusterRange();
-    }
-
-    // ITERATE UNTIL THE PREVIOUS GOOD RECORD
-    while (currentClusterIdx > -1) {
-      while (prevPosition()) {
-        currentRecord = readCurrentRecord(0);
-
-        if (currentRecord != null) {
-          if (include(currentRecord))
-          // FOUND
-          {
-            return true;
-          }
-        }
-      }
-
-      // CLUSTER EXHAUSTED, TRY WITH THE PREVIOUS ONE
-      currentClusterIdx--;
-
-      if (currentClusterIdx < 0) {
-        break;
-      }
-
-      updateClusterRange();
-    }
-
-    if (txEntries != null && txEntries.size() - (currentTxEntryPosition + 1) > 0) {
-      return true;
-    }
-
-    currentRecord = null;
-    return false;
-  }
-
-  public boolean hasNext() {
-    checkDirection(true);
-
-    if (Thread.interrupted())
-    // INTERRUPTED
-    {
-      return false;
-    }
-
-    if (currentRecord != null) {
-      return true;
-    }
-
-    if (limit > -1 && browsedRecords >= limit)
-    // LIMIT REACHED
-    {
-      return false;
-    }
-
-    if (browsedRecords >= totalAvailableRecords) {
-      return false;
-    }
-
-    // COMPUTE THE NUMBER OF RECORDS TO BROWSE
-    if (liveUpdated) {
-      updateClusterRange();
-    }
-
-    // ITERATE UNTIL THE NEXT GOOD RECORD
-    while (currentClusterIdx < clusterIds.length) {
-      while (nextPosition()) {
-        if (outsideOfTheRange(current)) {
-          continue;
-        }
-
-        try {
-          currentRecord = readCurrentRecord(0);
-        } catch (Exception e) {
-          if (e instanceof HighLevelException) {
-            throw (RuntimeException) e;
-          }
-
-          LogManager.instance().error(this, "Error during read of record", e);
-
-          currentRecord = null;
-        }
-
-        if (currentRecord != null) {
-          if (include(currentRecord))
-          // FOUND
-          {
-            return true;
-          }
-        }
-      }
-
-      // CLUSTER EXHAUSTED, TRY WITH THE NEXT ONE
-      currentClusterIdx++;
-      if (currentClusterIdx >= clusterIds.length) {
-        break;
-      }
-
-      updateClusterRange();
-    }
-
-    // CHECK IN TX IF ANY
-    if (txEntries != null && txEntries.size() - (currentTxEntryPosition + 1) > 0) {
-      return true;
-    }
-
-    currentRecord = null;
-    return false;
-  }
-
-  /**
-   * Return the element at the current position and move forward the stream to the next position
-   * available.
-   *
-   * @return the next record found, otherwise the NoSuchElementException exception is thrown when no
-   * more records are found.
-   */
-  @SuppressWarnings("unchecked")
-  public REC next() {
-    checkDirection(true);
-
-    if (currentRecord != null) {
-      try {
-        // RETURN LAST LOADED RECORD
-        return (REC) currentRecord;
-      } finally {
-        currentRecord = null;
-      }
-    }
-
-    DBRecord record;
-
-    // MOVE FORWARD IN THE CURRENT CLUSTER
-    while (hasNext()) {
-      if (currentRecord != null) {
-        try {
-          // RETURN LAST LOADED RECORD
-          return (REC) currentRecord;
-        } finally {
-          currentRecord = null;
-        }
-      }
-
-      record = getTransactionEntry();
-      if (record == null) {
-        record = readCurrentRecord(+1);
-      }
-
-      if (record != null)
-      // FOUND
-      {
-        if (include(record)) {
-          return (REC) record;
-        }
-      }
-    }
-
-    record = getTransactionEntry();
-    if (record != null) {
-      return (REC) record;
-    }
-
-    throw new NoSuchElementException(
-        "Direction: forward, last position was: "
-            + current
-            + ", range: "
-            + beginRange
-            + "-"
-            + endRange);
-  }
-
-  /**
-   * Return the element at the current position and move backward the stream to the previous
-   * position available.
-   *
-   * @return the previous record found, otherwise the NoSuchElementException exception is thrown
-   * when no more records are found.
-   */
-  @SuppressWarnings("unchecked")
-  @Override
-  public REC previous() {
-    checkDirection(false);
-
-    if (currentRecord != null) {
-      try {
-        // RETURN LAST LOADED RECORD
-        return (REC) currentRecord;
-      } finally {
-        currentRecord = null;
-      }
-    }
-
-    // MOVE BACKWARD IN THE CURRENT CLUSTER
-    while (hasPrevious()) {
-      if (currentRecord != null) {
-        try {
-          // RETURN LAST LOADED RECORD
-          return (REC) currentRecord;
-        } finally {
-          currentRecord = null;
-        }
-      }
-
-      var record = getTransactionEntry();
-      if (record == null) {
-        record = readCurrentRecord(-1);
-      }
-
-      if (record != null)
-      // FOUND
-      {
-        if (include(record)) {
-          return (REC) record;
-        }
-      }
-    }
-
-    var record = getTransactionEntry();
-    if (record != null) {
-      return (REC) record;
-    }
-
-    return null;
-  }
-
-  /**
-   * Move the iterator to the begin of the range. If no range was specified move to the first record
-   * of the cluster.
-   *
-   * @return The object itself
-   */
-  @Override
-  public RecordIteratorClusters<REC> begin() {
-    if (clusterIds.length == 0) {
-      return this;
-    }
-
-    browsedRecords = 0;
-    currentClusterIdx = 0;
-    current.setClusterId(clusterIds[currentClusterIdx]);
-
-    updateClusterRange();
-
-    resetCurrentPosition();
-    nextPosition();
-
-    currentRecord = readCurrentRecord(0);
-
-    if (currentRecord != null && !include(currentRecord)) {
-      currentRecord = null;
-      hasNext();
-    }
-
-    return this;
-  }
-
-  /**
-   * Move the iterator to the end of the range. If no range was specified move to the last record of
-   * the cluster.
-   *
-   * @return The object itself
-   */
-  @Override
-  public RecordIteratorClusters<REC> last() {
-    if (clusterIds.length == 0) {
-      return this;
-    }
-
-    browsedRecords = 0;
-    currentClusterIdx = clusterIds.length - 1;
-
-    updateClusterRange();
-
-    current.setClusterId(clusterIds[currentClusterIdx]);
-
-    resetCurrentPosition();
-    prevPosition();
-
-    currentRecord = readCurrentRecord(0);
-
-    if (currentRecord != null && !include(currentRecord)) {
-      currentRecord = null;
-      hasPrevious();
-    }
-
-    return this;
-  }
-
-  /**
-   * Tell to the iterator that the upper limit must be checked at every cycle. Useful when
-   * concurrent deletes or additions change the size of the cluster while you're browsing it.
-   * Default is false.
-   *
-   * @param iLiveUpdated True to activate it, otherwise false (default)
-   * @see #isLiveUpdated()
-   */
-  @Override
-  public RecordIteratorClusters<REC> setLiveUpdated(boolean iLiveUpdated) {
-    super.setLiveUpdated(iLiveUpdated);
-
-    if (iLiveUpdated) {
-      firstClusterEntry = 0;
-      lastClusterEntry = Long.MAX_VALUE;
-    } else {
-      updateClusterRange();
-    }
-
-    return this;
+    currentClusterIterator = clusterIterators[clusterIndex];
   }
 
   public int[] getClusterIds() {
@@ -415,83 +75,47 @@ public class RecordIteratorClusters<REC extends DBRecord> extends IdentifiableIt
   }
 
   @Override
-  public String toString() {
-    return String.format(
-        "RecordIteratorCluster.clusters(%s).currentRecord(%s).range(%s-%s)",
-        Arrays.toString(clusterIds), currentRecord, beginRange, endRange);
-  }
-
-  protected boolean include(final DBRecord iRecord) {
-    return true;
-  }
-
-  protected void updateClusterRange() {
-    if (clusterIds.length == 0) {
-      return;
+  public boolean hasNext() {
+    if (currentClusterIterator == null) {
+      return false;
     }
 
-    // ADJUST IDX CHECKING BOUNDARIES
-    if (currentClusterIdx >= clusterIds.length) {
-      currentClusterIdx = clusterIds.length - 1;
-    } else if (currentClusterIdx < 0) {
-      currentClusterIdx = 0;
-    }
-
-    current.setClusterId(clusterIds[currentClusterIdx]);
-    final var range = session.getClusterDataRange(current.getClusterId());
-
-    if (beginRange != null
-        && beginRange.getClusterId() == current.getClusterId()
-        && beginRange.getClusterPosition() > range[0]) {
-      firstClusterEntry = beginRange.getClusterPosition();
-    } else {
-      firstClusterEntry = range[0];
-    }
-
-    if (endRange != null
-        && endRange.getClusterId() == current.getClusterId()
-        && endRange.getClusterPosition() < range[1]) {
-      lastClusterEntry = endRange.getClusterPosition();
-    } else {
-      lastClusterEntry = range[1];
-    }
-
-    resetCurrentPosition();
-  }
-
-  protected void config() {
-    if (clusterIds.length == 0) {
-      return;
-    }
-
-    currentClusterIdx = 0; // START FROM THE FIRST CLUSTER
-
-    updateClusterRange();
-
-    totalAvailableRecords = session.countClusterElements(clusterIds);
-
-    txEntries = session.getTransaction().getNewRecordEntriesByClusterIds(clusterIds);
-
-    if (txEntries != null)
-    // ADJUST TOTAL ELEMENT BASED ON CURRENT TRANSACTION'S ENTRIES
-    {
-      for (var entry : txEntries) {
-        if (!entry.record.getIdentity().isPersistent() && entry.type != RecordOperation.DELETED) {
-          totalAvailableRecords++;
-        } else if (entry.type == RecordOperation.DELETED) {
-          totalAvailableRecords--;
-        }
+    while (currentClusterIterator != null && !currentClusterIterator.hasNext()) {
+      if (clusterIndex < clusterIterators.length - 1) {
+        clusterIndex++;
+        currentClusterIterator = clusterIterators[clusterIndex];
+      } else {
+        currentClusterIterator = null;
       }
     }
 
-    begin();
+    return currentClusterIterator != null;
   }
 
-  private boolean outsideOfTheRange(RID orid) {
-    if (beginRange != null && orid.compareTo(beginRange) < 0) {
-      return true;
+  @Override
+  public REC next() {
+    //noinspection unchecked
+    currentRecord = (REC) currentClusterIterator.next();
+
+    while (currentClusterIterator != null && !currentClusterIterator.hasNext()) {
+      if (clusterIndex < clusterIterators.length - 1) {
+        clusterIndex++;
+        currentClusterIterator = clusterIterators[clusterIndex];
+      } else {
+        currentClusterIterator = null;
+      }
     }
 
-    return endRange != null && orid.compareTo(endRange) > 0;
+    return currentRecord;
+  }
+
+  @Override
+  public void remove() {
+    if (currentRecord == null) {
+      throw new NoSuchElementException();
+    }
+
+    session.delete(currentRecord);
+    currentRecord = null;
   }
 }

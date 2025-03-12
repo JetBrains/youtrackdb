@@ -113,7 +113,7 @@ public class SQLHelper {
     }
 
     if (propertyType == null && schemaProperty != null) {
-      propertyType = schemaProperty.getType(context.getDatabaseSession());
+      propertyType = schemaProperty.getType();
     }
 
     iValue = iValue.trim();
@@ -156,8 +156,8 @@ public class SQLHelper {
       }
 
       if (schemaProperty != null) {
-        var linkedType = schemaProperty.getLinkedType(session);
-        var linkedClass = schemaProperty.getLinkedClass(session);
+        var linkedType = schemaProperty.getLinkedType();
+        var linkedClass = schemaProperty.getLinkedClass();
         for (var item : items) {
           coll.add(parseValue(item, context, resolveContextVariables,
               linkedClass,
@@ -224,8 +224,8 @@ public class SQLHelper {
           Object key;
           Object value;
           if (schemaProperty != null) {
-            var linkedType = schemaProperty.getLinkedType(session);
-            var linkedClass = schemaProperty.getLinkedClass(session);
+            var linkedType = schemaProperty.getLinkedType();
+            var linkedClass = schemaProperty.getLinkedClass();
             key = parseValue(parts.get(0), context, resolveContextVariables,
                 null,
                 null, PropertyType.STRING, propertyType);
@@ -543,9 +543,9 @@ public class SQLHelper {
             immutableClass = e.getImmutableSchemaClass(session);
           }
           if (immutableClass != null) {
-            final var prop = immutableClass.getProperty(session, fieldName);
+            final var prop = immutableClass.getProperty(fieldName);
             if (prop != null) {
-              if (prop.getType(session) == PropertyType.LINK) {
+              if (prop.getType() == PropertyType.LINK) {
                 if (MultiValue.isMultiValue(fieldValue)) {
                   final var size = MultiValue.getSize(fieldValue);
                   if (size == 1)
@@ -559,7 +559,7 @@ public class SQLHelper {
                   }
                 }
               }
-            } else if (immutableClass.isEdgeType(session)
+            } else if (immutableClass.isEdgeType()
                 && ("out".equals(fieldName) || "in".equals(fieldName))
                 && (fieldValue instanceof List lst)) {
               if (lst.size() == 1) {

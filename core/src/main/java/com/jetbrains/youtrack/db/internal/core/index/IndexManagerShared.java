@@ -466,7 +466,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
       final IndexDefinition indexDefinition,
       final int[] clusterIdsToIndex,
       ProgressListener progressListener,
-      Map<String, ?> metadata) {
+      Map<String, Object> metadata) {
     return createIndex(
         session,
         iName,
@@ -499,7 +499,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
       final IndexDefinition indexDefinition,
       final int[] clusterIdsToIndex,
       ProgressListener progressListener,
-      Map<String, ?> metadata,
+      Map<String, Object> metadata,
       String algorithm) {
 
     final var manualIndexesAreUsed =
@@ -617,8 +617,8 @@ public class IndexManagerShared implements IndexManagerAbstract {
     if (clazz == null) {
       return;
     }
-    clazz.getAllSubclasses(database).forEach(x -> classesToCheck.add(x.getName(database)));
-    clazz.getAllSuperClasses().forEach(x -> classesToCheck.add(x.getName(database)));
+    clazz.getAllSubclasses().forEach(x -> classesToCheck.add(x.getName()));
+    clazz.getAllSuperClasses().forEach(x -> classesToCheck.add(x.getName()));
     var allFilteredProperties =
         security.getAllFilteredProperties(database);
 

@@ -142,7 +142,7 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
     createAccountClass();
 
     final Set<Integer> accountClusterIds =
-        Arrays.stream(session.getMetadata().getSchema().getClass("Account").getClusterIds(session))
+        Arrays.stream(session.getMetadata().getSchema().getClass("Account").getClusterIds())
             .asLongStream()
             .mapToObj(i -> (int) i)
             .collect(HashSet::new, HashSet::add, HashSet::addAll);
@@ -313,7 +313,7 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
     }
 
     var cls = session.createClass("Country");
-    cls.createProperty(session, "name", PropertyType.STRING);
+    cls.createProperty("name", PropertyType.STRING);
     return cls;
   }
 
@@ -325,8 +325,8 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
     }
 
     var cls = session.createClass("City");
-    cls.createProperty(session, "name", PropertyType.STRING);
-    cls.createProperty(session, "country", PropertyType.LINK, countryCls);
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createProperty("country", PropertyType.LINK, countryCls);
 
     return cls;
   }
@@ -338,9 +338,9 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
 
     var cityCls = createCityClass();
     var cls = session.createClass("Address");
-    cls.createProperty(session, "type", PropertyType.STRING);
-    cls.createProperty(session, "street", PropertyType.STRING);
-    cls.createProperty(session, "city", PropertyType.LINK, cityCls);
+    cls.createProperty("type", PropertyType.STRING);
+    cls.createProperty("street", PropertyType.STRING);
+    cls.createProperty("city", PropertyType.LINK, cityCls);
 
     return cls;
   }
@@ -352,14 +352,14 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
 
     var addressCls = createAddressClass();
     var cls = session.createClass("Account");
-    cls.createProperty(session, "id", PropertyType.INTEGER);
-    cls.createProperty(session, "name", PropertyType.STRING);
-    cls.createProperty(session, "surname", PropertyType.STRING);
-    cls.createProperty(session, "birthDate", PropertyType.DATE);
-    cls.createProperty(session, "salary", PropertyType.FLOAT);
-    cls.createProperty(session, "addresses", PropertyType.LINKLIST, addressCls);
-    cls.createProperty(session, "thumbnail", PropertyType.BINARY);
-    cls.createProperty(session, "photo", PropertyType.BINARY);
+    cls.createProperty("id", PropertyType.INTEGER);
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createProperty("surname", PropertyType.STRING);
+    cls.createProperty("birthDate", PropertyType.DATE);
+    cls.createProperty("salary", PropertyType.FLOAT);
+    cls.createProperty("addresses", PropertyType.LINKLIST, addressCls);
+    cls.createProperty("thumbnail", PropertyType.BINARY);
+    cls.createProperty("photo", PropertyType.BINARY);
 
     return cls;
   }
@@ -371,7 +371,7 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
 
     createAccountClass();
     var cls = session.createClassIfNotExist("Company", "Account");
-    cls.createProperty(session, "employees", PropertyType.INTEGER);
+    cls.createProperty("employees", PropertyType.INTEGER);
   }
 
   protected void createProfileClass() {
@@ -381,29 +381,29 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
 
     var addressCls = createAddressClass();
     var cls = session.createClass("Profile");
-    cls.createProperty(session, "nick", PropertyType.STRING)
-        .setMin(session, "3")
-        .setMax(session, "30")
-        .createIndex(session, SchemaClass.INDEX_TYPE.UNIQUE,
+    cls.createProperty("nick", PropertyType.STRING)
+        .setMin("3")
+        .setMax("30")
+        .createIndex(SchemaClass.INDEX_TYPE.UNIQUE,
             Map.of("ignoreNullValues", true));
-    cls.createProperty(session, "followings", PropertyType.LINKSET, cls);
-    cls.createProperty(session, "followers", PropertyType.LINKSET, cls);
-    cls.createProperty(session, "name", PropertyType.STRING)
-        .setMin(session, "3")
-        .setMax(session, "30")
-        .createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    cls.createProperty("followings", PropertyType.LINKSET, cls);
+    cls.createProperty("followers", PropertyType.LINKSET, cls);
+    cls.createProperty("name", PropertyType.STRING)
+        .setMin("3")
+        .setMax("30")
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
-    cls.createProperty(session, "surname", PropertyType.STRING).setMin(session, "3")
-        .setMax(session, "30");
-    cls.createProperty(session, "location", PropertyType.LINK, addressCls);
-    cls.createProperty(session, "hash", PropertyType.LONG);
-    cls.createProperty(session, "invitedBy", PropertyType.LINK, cls);
-    cls.createProperty(session, "value", PropertyType.INTEGER);
+    cls.createProperty("surname", PropertyType.STRING).setMin("3")
+        .setMax("30");
+    cls.createProperty("location", PropertyType.LINK, addressCls);
+    cls.createProperty("hash", PropertyType.LONG);
+    cls.createProperty("invitedBy", PropertyType.LINK, cls);
+    cls.createProperty("value", PropertyType.INTEGER);
 
-    cls.createProperty(session, "registeredOn", PropertyType.DATETIME)
-        .setMin(session, "2010-01-01 00:00:00");
-    cls.createProperty(session, "lastAccessOn", PropertyType.DATETIME)
-        .setMin(session, "2010-01-01 00:00:00");
+    cls.createProperty("registeredOn", PropertyType.DATETIME)
+        .setMin("2010-01-01 00:00:00");
+    cls.createProperty("lastAccessOn", PropertyType.DATETIME)
+        .setMin("2010-01-01 00:00:00");
   }
 
   protected SchemaClass createInheritanceTestAbstractClass() {
@@ -412,7 +412,7 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
     }
 
     var cls = session.createClass("InheritanceTestAbstractClass");
-    cls.createProperty(session, "cField", PropertyType.INTEGER);
+    cls.createProperty("cField", PropertyType.INTEGER);
     return cls;
   }
 
@@ -422,8 +422,8 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
     }
 
     var abstractCls = createInheritanceTestAbstractClass();
-    var cls = session.createClass("InheritanceTestBaseClass", abstractCls.getName(session));
-    cls.createProperty(session, "aField", PropertyType.STRING);
+    var cls = session.createClass("InheritanceTestBaseClass", abstractCls.getName());
+    cls.createProperty("aField", PropertyType.STRING);
 
     return cls;
   }
@@ -434,8 +434,8 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
     }
 
     var baseCls = createInheritanceTestBaseClass();
-    var cls = session.createClass("InheritanceTestClass", baseCls.getName(session));
-    cls.createProperty(session, "bField", PropertyType.STRING);
+    var cls = session.createClass("InheritanceTestClass", baseCls.getName());
+    cls.createProperty("bField", PropertyType.STRING);
   }
 
   protected void createBasicTestSchema() {
@@ -470,13 +470,13 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
 
     var whiz = session.getMetadata().getSchema()
         .createClass("Whiz", 1, (SchemaClass[]) null);
-    whiz.createProperty(session, "id", PropertyType.INTEGER);
-    whiz.createProperty(session, "account", PropertyType.LINK, account);
-    whiz.createProperty(session, "date", PropertyType.DATE).setMin(session, "2010-01-01");
-    whiz.createProperty(session, "text", PropertyType.STRING).setMandatory(session, true)
-        .setMin(session, "1")
-        .setMax(session, "140");
-    whiz.createProperty(session, "replyTo", PropertyType.LINK, account);
+    whiz.createProperty("id", PropertyType.INTEGER);
+    whiz.createProperty("account", PropertyType.LINK, account);
+    whiz.createProperty("date", PropertyType.DATE).setMin("2010-01-01");
+    whiz.createProperty("text", PropertyType.STRING).setMandatory(true)
+        .setMin("1")
+        .setMax("140");
+    whiz.createProperty("replyTo", PropertyType.LINK, account);
   }
 
   private void createAnimalRaceClass() {
@@ -486,11 +486,11 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
 
     var animalRace =
         session.getMetadata().getSchema().createClass("AnimalRace", 1, (SchemaClass[]) null);
-    animalRace.createProperty(session, "name", PropertyType.STRING);
+    animalRace.createProperty("name", PropertyType.STRING);
     var animal = session.getMetadata().getSchema()
         .createClass("Animal", 1, (SchemaClass[]) null);
-    animal.createProperty(session, "races", PropertyType.LINKSET, animalRace);
-    animal.createProperty(session, "name", PropertyType.STRING);
+    animal.createProperty("races", PropertyType.LINKSET, animalRace);
+    animal.createProperty("name", PropertyType.STRING);
   }
 
   private void createStrictTestClass() {
@@ -500,9 +500,9 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
 
     var strictTest =
         session.getMetadata().getSchema().createClass("StrictTest", 1, (SchemaClass[]) null);
-    strictTest.setStrictMode(session, true);
-    strictTest.createProperty(session, "id", PropertyType.INTEGER).isMandatory(session);
-    strictTest.createProperty(session, "name", PropertyType.STRING);
+    strictTest.setStrictMode(true);
+    strictTest.createProperty("id", PropertyType.INTEGER).isMandatory();
+    strictTest.createProperty("name", PropertyType.STRING);
   }
 
   protected void createComplexTestClass() {
@@ -514,26 +514,26 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
     }
 
     var childCls = session.createClass("Child");
-    childCls.createProperty(session, "name", PropertyType.STRING);
+    childCls.createProperty("name", PropertyType.STRING);
 
     var cls = session.createClass("JavaComplexTestClass");
 
-    cls.createProperty(session, "embeddedDocument", PropertyType.EMBEDDED);
-    cls.createProperty(session, "document", PropertyType.LINK);
-    cls.createProperty(session, "byteArray", PropertyType.LINK);
-    cls.createProperty(session, "name", PropertyType.STRING);
-    cls.createProperty(session, "child", PropertyType.LINK, childCls);
-    cls.createProperty(session, "stringMap", PropertyType.EMBEDDEDMAP);
-    cls.createProperty(session, "stringListMap", PropertyType.EMBEDDEDMAP);
-    cls.createProperty(session, "list", PropertyType.LINKLIST, childCls);
-    cls.createProperty(session, "set", PropertyType.LINKSET, childCls);
-    cls.createProperty(session, "duplicationTestSet", PropertyType.LINKSET, childCls);
-    cls.createProperty(session, "children", PropertyType.LINKMAP, childCls);
-    cls.createProperty(session, "stringSet", PropertyType.EMBEDDEDSET);
-    cls.createProperty(session, "embeddedList", PropertyType.EMBEDDEDLIST);
-    cls.createProperty(session, "embeddedSet", PropertyType.EMBEDDEDSET);
-    cls.createProperty(session, "embeddedChildren", PropertyType.EMBEDDEDMAP);
-    cls.createProperty(session, "mapObject", PropertyType.EMBEDDEDMAP);
+    cls.createProperty("embeddedDocument", PropertyType.EMBEDDED);
+    cls.createProperty("document", PropertyType.LINK);
+    cls.createProperty("byteArray", PropertyType.LINK);
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createProperty("child", PropertyType.LINK, childCls);
+    cls.createProperty("stringMap", PropertyType.EMBEDDEDMAP);
+    cls.createProperty("stringListMap", PropertyType.EMBEDDEDMAP);
+    cls.createProperty("list", PropertyType.LINKLIST, childCls);
+    cls.createProperty("set", PropertyType.LINKSET, childCls);
+    cls.createProperty("duplicationTestSet", PropertyType.LINKSET, childCls);
+    cls.createProperty("children", PropertyType.LINKMAP, childCls);
+    cls.createProperty("stringSet", PropertyType.EMBEDDEDSET);
+    cls.createProperty("embeddedList", PropertyType.EMBEDDEDLIST);
+    cls.createProperty("embeddedSet", PropertyType.EMBEDDEDSET);
+    cls.createProperty("embeddedChildren", PropertyType.EMBEDDEDMAP);
+    cls.createProperty("mapObject", PropertyType.EMBEDDEDMAP);
   }
 
   protected void createSimpleTestClass() {
@@ -542,16 +542,16 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
     }
 
     var cls = session.createClass("JavaSimpleTestClass");
-    cls.createProperty(session, "text", PropertyType.STRING).setDefaultValue(session, "initTest");
-    cls.createProperty(session, "numberSimple", PropertyType.INTEGER)
-        .setDefaultValue(session, "0");
-    cls.createProperty(session, "longSimple", PropertyType.LONG).setDefaultValue(session, "0");
-    cls.createProperty(session, "doubleSimple", PropertyType.DOUBLE)
-        .setDefaultValue(session, "0");
-    cls.createProperty(session, "floatSimple", PropertyType.FLOAT).setDefaultValue(session, "0");
-    cls.createProperty(session, "byteSimple", PropertyType.BYTE).setDefaultValue(session, "0");
-    cls.createProperty(session, "shortSimple", PropertyType.SHORT).setDefaultValue(session, "0");
-    cls.createProperty(session, "dateField", PropertyType.DATETIME);
+    cls.createProperty("text", PropertyType.STRING).setDefaultValue("initTest");
+    cls.createProperty("numberSimple", PropertyType.INTEGER)
+        .setDefaultValue("0");
+    cls.createProperty("longSimple", PropertyType.LONG).setDefaultValue("0");
+    cls.createProperty("doubleSimple", PropertyType.DOUBLE)
+        .setDefaultValue("0");
+    cls.createProperty("floatSimple", PropertyType.FLOAT).setDefaultValue("0");
+    cls.createProperty("byteSimple", PropertyType.BYTE).setDefaultValue("0");
+    cls.createProperty("shortSimple", PropertyType.SHORT).setDefaultValue("0");
+    cls.createProperty("dateField", PropertyType.DATETIME);
   }
 
   protected void generateGraphData() {
@@ -560,7 +560,7 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
     }
 
     var vehicleClass = session.createVertexClass("GraphVehicle");
-    session.createClass("GraphCar", vehicleClass.getName(session));
+    session.createClass("GraphCar", vehicleClass.getName());
     session.createClass("GraphMotocycle", "GraphVehicle");
 
     session.begin();
@@ -585,7 +585,7 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
     Assert.assertEquals(result.size(), 2);
     for (var v : result) {
       Assert.assertTrue(
-          v.castToEntity().getSchemaClass().isSubClassOf(session, vehicleClass));
+          v.castToEntity().getSchemaClass().isSubClassOf(vehicleClass));
     }
 
     session.commit();
@@ -597,7 +597,7 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
 
     for (var v : result) {
       Assert.assertTrue(
-          v.castToEntity().getSchemaClass().isSubClassOf(session, "GraphVehicle"));
+          v.castToEntity().getSchemaClass().isSubClassOf("GraphVehicle"));
 
       if (v.castToEntity().getSchemaClass() != null
           && v.castToEntity().getSchemaClassName().equals("GraphCar")) {

@@ -30,7 +30,6 @@ import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.storage.cluster.PaginatedCluster;
 import com.jetbrains.youtrack.db.internal.core.storage.memory.DirectMemoryStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
@@ -81,19 +80,13 @@ public interface Storage extends Backupable, StorageInfo {
 
   // CRUD OPERATIONS
   @Nonnull
-  RawBuffer readRecord(
-      DatabaseSessionInternal session, RecordId iRid,
-      boolean iIgnoreCache,
-      boolean prefetchRecords,
-      RecordCallback<RawBuffer> iCallback);
+  ReadRecordResult readRecord(
+      DatabaseSessionInternal session, RecordId iRid, boolean fetchPreviousRid,
+      boolean fetchNextRid);
 
   boolean recordExists(DatabaseSessionInternal session, RID rid);
 
   RecordMetadata getRecordMetadata(DatabaseSessionInternal session, final RID rid);
-
-  boolean cleanOutRecord(
-      DatabaseSessionInternal session, RecordId recordId, int recordVersion, int iMode,
-      RecordCallback<Boolean> callback);
 
   // TX OPERATIONS
   List<RecordOperation> commit(FrontendTransactionOptimistic iTx);
@@ -112,7 +105,6 @@ public interface Storage extends Backupable, StorageInfo {
   /**
    * Add a new cluster into the storage.
    *
-   * @param database
    * @param iClusterName name of the cluster
    * @param iRequestedId requested id of the cluster
    */
@@ -142,12 +134,6 @@ public interface Storage extends Backupable, StorageInfo {
   String getClusterRecordConflictStrategy(final int clusterId);
 
   boolean isSystemCluster(final int clusterId);
-
-  long getLastClusterPosition(final int clusterId);
-
-  long getClusterNextPosition(final int clusterId);
-
-  PaginatedCluster.RECORD_STATUS getRecordStatus(final RID rid);
 
   long count(DatabaseSessionInternal session, int iClusterId);
 
@@ -189,26 +175,17 @@ public interface Storage extends Backupable, StorageInfo {
    */
   Object command(DatabaseSessionInternal db, CommandRequestText iCommand);
 
-  /**
-   * Returns a pair of long values telling the begin and end positions of data in the requested
-   * cluster. Useful to know the range of the records.
-   *
-   * @param session
-   * @param currentClusterId Cluster id
-   */
-  long[] getClusterDataRange(DatabaseSessionInternal session, int currentClusterId);
-
   PhysicalPosition[] higherPhysicalPositions(DatabaseSessionInternal session, int clusterId,
-      PhysicalPosition physicalPosition);
+      PhysicalPosition physicalPosition, int limit);
 
   PhysicalPosition[] lowerPhysicalPositions(DatabaseSessionInternal session, int clusterId,
-      PhysicalPosition physicalPosition);
+      PhysicalPosition physicalPosition, int limit);
 
   PhysicalPosition[] ceilingPhysicalPositions(DatabaseSessionInternal session, int clusterId,
-      PhysicalPosition physicalPosition);
+      PhysicalPosition physicalPosition, int limit);
 
   PhysicalPosition[] floorPhysicalPositions(DatabaseSessionInternal session, int clusterId,
-      PhysicalPosition physicalPosition);
+      PhysicalPosition physicalPosition, int limit);
 
   /**
    * Returns the current storage's status
@@ -223,9 +200,6 @@ public interface Storage extends Backupable, StorageInfo {
   Storage getUnderlying();
 
   boolean isRemote();
-
-  @Deprecated
-  boolean isDistributed();
 
   boolean isAssigningClusterIds();
 
@@ -243,8 +217,6 @@ public interface Storage extends Backupable, StorageInfo {
   String incrementalBackup(DatabaseSessionInternal session, String backupDirectory,
       CallableFunction<Void, Void> started)
       throws UnsupportedOperationException;
-
-  boolean supportIncremental();
 
   void fullIncrementalBackup(OutputStream stream) throws UnsupportedOperationException;
 

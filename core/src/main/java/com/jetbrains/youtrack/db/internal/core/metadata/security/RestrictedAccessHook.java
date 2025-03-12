@@ -40,12 +40,12 @@ public class RestrictedAccessHook {
       cls = entity.getImmutableSchemaClass(database);
     }
     if (cls != null && cls.isRestricted()) {
-      var fieldNames = cls.getCustom(database, SecurityShared.ONCREATE_FIELD);
+      var fieldNames = cls.getCustom(SecurityShared.ONCREATE_FIELD);
       if (fieldNames == null) {
         fieldNames = RestrictedOperation.ALLOW_ALL.getFieldName();
       }
       final var fields = fieldNames.split(",");
-      var identityType = cls.getCustom(database, SecurityShared.ONCREATE_IDENTITY_TYPE);
+      var identityType = cls.getCustom(SecurityShared.ONCREATE_IDENTITY_TYPE);
       if (identityType == null) {
         identityType = "user";
       }
@@ -66,7 +66,7 @@ public class RestrictedAccessHook {
             database, "Wrong custom field '"
                 + SecurityShared.ONCREATE_IDENTITY_TYPE
                 + "' in class '"
-            + cls.getName(database)
+            + cls.getName()
                 + "' with value '"
                 + identityType
                 + "'. Supported ones are: 'user', 'role'");

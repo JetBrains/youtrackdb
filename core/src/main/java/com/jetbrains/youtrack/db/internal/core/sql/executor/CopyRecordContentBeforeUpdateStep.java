@@ -43,7 +43,7 @@ public class CopyRecordContentBeforeUpdateStep extends AbstractExecutionStep {
         }
         prevValue.setProperty(
             "@class",
-            result1.getName(session));
+            result1.getName());
       }
       if (!result.asEntity().getIdentity().isNew()) {
         for (var propName : result.getPropertyNames()) {

@@ -36,9 +36,9 @@ public class LuceneSpatialFunctionAsTextTest extends BaseSpatialLuceneTest {
     Schema schema = session.getMetadata().getSchema();
     var v = schema.getClass("V");
     var oClass = schema.createClass("Location");
-    oClass.setSuperClass(session, v);
-    oClass.createProperty(session, "geometry", PropertyType.EMBEDDED, schema.getClass("OShape"));
-    oClass.createProperty(session, "name", PropertyType.STRING);
+    oClass.addSuperClass(v);
+    oClass.createProperty("geometry", PropertyType.EMBEDDED, schema.getClass("OShape"));
+    oClass.createProperty("name", PropertyType.STRING);
 
     initData();
   }

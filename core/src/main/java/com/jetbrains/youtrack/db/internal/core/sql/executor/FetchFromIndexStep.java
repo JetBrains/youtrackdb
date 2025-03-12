@@ -41,6 +41,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLInCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLLeOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLLtOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLValueExpression;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -89,7 +90,16 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
           public ExecutionStream next(CommandContext ctx) {
             var s = iter.next();
             return ExecutionStream.resultIterator(
-                s.map((nextEntry) -> readResult(ctx, nextEntry)).iterator());
+                s.map((nextEntry) -> {
+                  var session = ctx.getDatabaseSession();
+                  var tx = session.getTransaction();
+
+                  if (tx instanceof FrontendTransactionOptimistic frontendTransactionOptimistic) {
+                    frontendTransactionOptimistic.preProcessRecordsAndExecuteCallCallbacks();
+                  }
+
+                  return readResult(ctx, nextEntry);
+                }).iterator());
           }
 
           @Override

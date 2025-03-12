@@ -4,9 +4,7 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -42,9 +40,9 @@ public class LuceneSpatialDropTest {
 
     try (var db = youTrackDB.open(dbName, "admin", "adminpwd")) {
       var test = db.getSchema().createClass("test");
-      test.createProperty(db, "name", PropertyType.STRING);
-      test.createProperty(db, "latitude", PropertyType.DOUBLE).setMandatory(db, false);
-      test.createProperty(db, "longitude", PropertyType.DOUBLE).setMandatory(db, false);
+      test.createProperty("name", PropertyType.STRING);
+      test.createProperty("latitude", PropertyType.DOUBLE).setMandatory(false);
+      test.createProperty("longitude", PropertyType.DOUBLE).setMandatory(false);
       db.command("create index test.name on test (name) FULLTEXT ENGINE LUCENE").close();
       db.command("create index test.ll on test (latitude,longitude) SPATIAL ENGINE LUCENE").close();
     }

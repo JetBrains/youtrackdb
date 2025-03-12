@@ -109,16 +109,16 @@ public class LuceneOperatorUtil {
 
     if (result.lastField.isLong()) {
       final var fieldCount = result.lastField.getItemCount();
-      var cls = (SchemaClassInternal) iSchemaClass.getProperty(session,
-          result.lastField.getItemName(0)).getLinkedClass(session);
+      var cls = (SchemaClassInternal) iSchemaClass.getProperty(
+          result.lastField.getItemName(0)).getLinkedClass();
 
       for (var i = 1; i < fieldCount; i++) {
         if (cls == null || !cls.areIndexed(session, result.lastField.getItemName(i))) {
           return false;
         }
 
-        cls = (SchemaClassInternal) cls.getProperty(session, result.lastField.getItemName(i))
-            .getLinkedClass(session);
+        cls = (SchemaClassInternal) cls.getProperty(result.lastField.getItemName(i))
+            .getLinkedClass();
       }
     }
     return true;

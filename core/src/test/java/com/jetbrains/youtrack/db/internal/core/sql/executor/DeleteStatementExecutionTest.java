@@ -24,7 +24,13 @@ public class DeleteStatementExecutionTest extends DbTestBase {
       doc.setProperty("name", "name" + i);
 
       session.commit();
+      if (i == 4) {
+        System.out.println("deleted");
+      }
+      System.out.println(doc.getIdentity());
     }
+
+    Assert.assertEquals(10, session.query("select from " + className).stream().count());
 
     session.begin();
     var result = session.command("delete from  " + className + " where name = 'name4'");
@@ -38,11 +44,14 @@ public class DeleteStatementExecutionTest extends DbTestBase {
     Assert.assertFalse(result.hasNext());
     session.commit();
 
+    System.out.println("-------------------");
+
     session.begin();
     result = session.query("select from " + className);
     for (var i = 0; i < 9; i++) {
       Assert.assertTrue(result.hasNext());
       var item = result.next();
+      System.out.println(item.getIdentity());
       Assert.assertNotNull(item);
       Assert.assertNotEquals("name4", item.getProperty("name"));
     }

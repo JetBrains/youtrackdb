@@ -129,7 +129,7 @@ public class CRUDTest extends BaseDBTest {
     var schema = session.getMetadata().getSchema();
     Assert.assertNull(schema.getClass("Dummy"));
     var dummyClass = schema.createClass("Dummy");
-    dummyClass.createProperty(session, "name", PropertyType.STRING);
+    dummyClass.createProperty("name", PropertyType.STRING);
 
     Assert.assertEquals(session.countClass("Dummy"), 0);
     Assert.assertNotNull(schema.getClass("Dummy"));
@@ -561,7 +561,9 @@ public class CRUDTest extends BaseDBTest {
       ids.add(i);
     }
 
-    for (Entity a : session.browseClass("Account")) {
+    var entityIterator = session.browseClass("Account");
+    while (entityIterator.hasNext()) {
+      var a = entityIterator.next();
       int id = a.<Integer>getProperty("id");
       Assert.assertTrue(ids.remove(id));
 
@@ -655,19 +657,19 @@ public class CRUDTest extends BaseDBTest {
     Assert.assertEquals(list.size(), 4);
     Assert.assertEquals(
         Objects.requireNonNull(list.get(0).<Entity>getRecord(session).getSchemaClass()).getName(
-            session),
+        ),
         "Child");
     Assert.assertEquals(
         Objects.requireNonNull(list.get(1).<Entity>getRecord(session).getSchemaClass()).getName(
-            session),
+        ),
         "Child");
     Assert.assertEquals(
         Objects.requireNonNull(list.get(2).<Entity>getRecord(session).getSchemaClass()).getName(
-            session),
+        ),
         "Child");
     Assert.assertEquals(
         Objects.requireNonNull(list.get(3).<Entity>getRecord(session).getSchemaClass()).getName(
-            session),
+        ),
         "Child");
     Assert.assertEquals(list.get(0).<Entity>getRecord(session).getProperty("name"), "Jack");
     Assert.assertEquals(list.get(1).<Entity>getRecord(session).getProperty("name"), "Bob");
@@ -827,7 +829,7 @@ public class CRUDTest extends BaseDBTest {
                     .get(0)
                     .<Entity>getRecord(session)
                     .getSchemaClass())
-            .getName(session),
+            .getName(),
         "Child");
     Assert.assertEquals(
         Objects.requireNonNull(
@@ -836,7 +838,7 @@ public class CRUDTest extends BaseDBTest {
                     .get(1)
                     .<Entity>getRecord(session)
                     .getSchemaClass())
-            .getName(session),
+            .getName(),
         "Child");
     Assert.assertEquals(
         Objects.requireNonNull(
@@ -845,7 +847,7 @@ public class CRUDTest extends BaseDBTest {
                     .get(2)
                     .getEntity(session)
                     .getSchemaClass())
-            .getName(session),
+            .getName(),
         "Child");
     Assert.assertEquals(
         Objects.requireNonNull(
@@ -854,7 +856,7 @@ public class CRUDTest extends BaseDBTest {
                     .get(3)
                     .getEntity(session)
                     .getSchemaClass())
-            .getName(session),
+            .getName(),
         "Child");
     Assert.assertEquals(
         loaded.<List<Entity>>getProperty("embeddedList").get(0).getProperty("name"), "Jack");
@@ -1245,8 +1247,9 @@ public class CRUDTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    for (Entity reloaded : session.browseClass("JavaComplexTestClass")) {
-      reloaded = session.bindToSession(reloaded);
+    var entityIterator = session.browseClass("JavaComplexTestClass");
+    while (entityIterator.hasNext()) {
+      var reloaded = entityIterator.next();
       var c4 = session.newInstance("Child");
       c4.setProperty("name", "The Observer");
 
@@ -1264,7 +1267,9 @@ public class CRUDTest extends BaseDBTest {
     session.close();
     session = createSessionInstance();
     session.begin();
-    for (Entity reloaded : session.browseClass("JavaComplexTestClass")) {
+    entityIterator = session.browseClass("JavaComplexTestClass");
+    while (entityIterator.hasNext()) {
+      var reloaded = entityIterator.next();
       Assert.assertTrue(
           reloaded.<Map<String, Identifiable>>getProperty("children")
               .containsKey("The Observer"));
@@ -1379,7 +1384,9 @@ public class CRUDTest extends BaseDBTest {
       }
     }
 
-    for (Entity reloaded : session.browseClass("JavaComplexTestClass")) {
+    var entityIterator = session.browseClass("JavaComplexTestClass");
+    while (entityIterator.hasNext()) {
+      var reloaded = entityIterator.next();
       var c4 = session.newInstance("Child");
       c4.setProperty("name", "The Observer");
 
@@ -1391,7 +1398,9 @@ public class CRUDTest extends BaseDBTest {
     session.close();
     session = createSessionInstance();
     session.begin();
-    for (Entity reloaded : session.browseClass("JavaComplexTestClass")) {
+    entityIterator = session.browseClass("JavaComplexTestClass");
+    while (entityIterator.hasNext()) {
+      var reloaded = entityIterator.next();
       Assert.assertTrue(
           reloaded.<Map<String, Identifiable>>getProperty("children")
               .containsKey("The Observer"));
@@ -2394,7 +2403,10 @@ public class CRUDTest extends BaseDBTest {
     session.begin();
     Assert.assertEquals(session.countClass("Profile"), profiles + 3);
 
-    for (Entity obj : session.browseClass("Profile")) {
+    var entityIterator = session.browseClass("Profile");
+
+    while (entityIterator.hasNext()) {
+      var obj = entityIterator.next();
       var followersList = obj.<Set<Identifiable>>getProperty("followers");
       Assert.assertTrue(followersList == null || followersList instanceof LinkSet);
       if (obj.<String>getProperty("nick").equals("Neo")) {
@@ -2722,14 +2734,14 @@ public class CRUDTest extends BaseDBTest {
     }
 
     var cls = session.createClass("JavaSimpleArrayTestClass");
-    cls.createProperty(session, "text", PropertyType.EMBEDDEDLIST);
-    cls.createProperty(session, "numberSimple", PropertyType.EMBEDDEDLIST);
-    cls.createProperty(session, "longSimple", PropertyType.EMBEDDEDLIST);
-    cls.createProperty(session, "doubleSimple", PropertyType.EMBEDDEDLIST);
-    cls.createProperty(session, "floatSimple", PropertyType.EMBEDDEDLIST);
-    cls.createProperty(session, "byteSimple", PropertyType.EMBEDDEDLIST);
-    cls.createProperty(session, "flagSimple", PropertyType.EMBEDDEDLIST);
-    cls.createProperty(session, "dateField", PropertyType.EMBEDDEDLIST);
+    cls.createProperty("text", PropertyType.EMBEDDEDLIST);
+    cls.createProperty("numberSimple", PropertyType.EMBEDDEDLIST);
+    cls.createProperty("longSimple", PropertyType.EMBEDDEDLIST);
+    cls.createProperty("doubleSimple", PropertyType.EMBEDDEDLIST);
+    cls.createProperty("floatSimple", PropertyType.EMBEDDEDLIST);
+    cls.createProperty("byteSimple", PropertyType.EMBEDDEDLIST);
+    cls.createProperty("flagSimple", PropertyType.EMBEDDEDLIST);
+    cls.createProperty("dateField", PropertyType.EMBEDDEDLIST);
   }
 
   private void createBinaryTestClass() {
@@ -2738,46 +2750,46 @@ public class CRUDTest extends BaseDBTest {
     }
 
     var cls = session.createClass("JavaBinaryTestClass");
-    cls.createProperty(session, "binaryData", PropertyType.BINARY);
+    cls.createProperty("binaryData", PropertyType.BINARY);
   }
 
   private void createPersonClass() {
     if (session.getClass("PersonTest") == null) {
       var cls = session.createClass("PersonTest");
-      cls.createProperty(session, "firstname", PropertyType.STRING);
-      cls.createProperty(session, "friends", PropertyType.LINKSET);
+      cls.createProperty("firstname", PropertyType.STRING);
+      cls.createProperty("friends", PropertyType.LINKSET);
     }
   }
 
   private void createEventClass() {
     if (session.getClass("Event") == null) {
       var cls = session.createClass("Event");
-      cls.createProperty(session, "name", PropertyType.STRING);
-      cls.createProperty(session, "date", PropertyType.DATE);
+      cls.createProperty("name", PropertyType.STRING);
+      cls.createProperty("date", PropertyType.DATE);
     }
   }
 
   private void createAgendaClass() {
     if (session.getClass("Agenda") == null) {
       var cls = session.createClass("Agenda");
-      cls.createProperty(session, "events", PropertyType.EMBEDDEDLIST);
+      cls.createProperty("events", PropertyType.EMBEDDEDLIST);
     }
   }
 
   private void createNonGenericClass() {
     if (session.getClass("JavaNoGenericCollectionsTestClass") == null) {
       var cls = session.createClass("JavaNoGenericCollectionsTestClass");
-      cls.createProperty(session, "list", PropertyType.EMBEDDEDLIST);
-      cls.createProperty(session, "set", PropertyType.EMBEDDEDSET);
-      cls.createProperty(session, "map", PropertyType.EMBEDDEDMAP);
+      cls.createProperty("list", PropertyType.EMBEDDEDLIST);
+      cls.createProperty("set", PropertyType.EMBEDDEDSET);
+      cls.createProperty("map", PropertyType.EMBEDDEDMAP);
     }
   }
 
   private void createMediaClass() {
     if (session.getClass("Media") == null) {
       var cls = session.createClass("Media");
-      cls.createProperty(session, "content", PropertyType.LINK);
-      cls.createProperty(session, "name", PropertyType.STRING);
+      cls.createProperty("content", PropertyType.LINK);
+      cls.createProperty("name", PropertyType.STRING);
     }
   }
 
@@ -2790,13 +2802,13 @@ public class CRUDTest extends BaseDBTest {
     }
 
     var parentCls = session.createClass("Parent");
-    parentCls.createProperty(session, "name", PropertyType.STRING);
-    parentCls.createProperty(session, "child", PropertyType.EMBEDDED,
+    parentCls.createProperty("name", PropertyType.STRING);
+    parentCls.createProperty("child", PropertyType.EMBEDDED,
         session.getClass("EmbeddedChild"));
-    parentCls.createProperty(session, "embeddedChild", PropertyType.EMBEDDED,
+    parentCls.createProperty("embeddedChild", PropertyType.EMBEDDED,
         session.getClass("EmbeddedChild"));
 
     var childCls = session.createClass("EmbeddedChild");
-    childCls.createProperty(session, "name", PropertyType.STRING);
+    childCls.createProperty("name", PropertyType.STRING);
   }
 }

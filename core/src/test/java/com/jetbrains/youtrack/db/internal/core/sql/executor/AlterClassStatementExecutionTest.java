@@ -44,80 +44,6 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
   }
 
   @Test
-  public void testShortName() {
-    var className = "testShortName";
-    Schema schema = session.getMetadata().getSchema();
-    schema.createClass(className);
-    var result = session.command(
-        "alter class " + className + " shortname " + className + "_new");
-    var clazz = schema.getClass(className);
-    Assert.assertEquals(className + "_new", clazz.getShortName(session));
-    result.close();
-  }
-
-  @Test
-  public void testAddCluster() {
-    var className = "testAddCluster";
-    Schema schema = session.getMetadata().getSchema();
-    schema.createClass(className);
-    var result =
-        session.command("alter class " + className + " add_cluster " + className + "_new");
-    var clazz = schema.getClass(className);
-    var found = false;
-    for (var i : clazz.getClusterIds(session)) {
-      var clusterName = session.getClusterNameById(i);
-      if (clusterName.equalsIgnoreCase(className + "_new")) {
-        found = true;
-      }
-    }
-    result.close();
-    Assert.assertTrue(found);
-  }
-
-  @Test
-  public void testRemoveCluster() {
-    var className = "testRemoveCluster";
-    Schema schema = session.getMetadata().getSchema();
-    schema.createClass(className);
-    var result =
-        session.command("alter class " + className + " add_cluster " + className + "_new");
-    var clazz = schema.getClass(className);
-    var found = false;
-    for (var i : clazz.getClusterIds(session)) {
-      var clusterName = session.getClusterNameById(i);
-      if (clusterName.equalsIgnoreCase(className + "_new")) {
-        found = true;
-      }
-    }
-    result.close();
-    Assert.assertTrue(found);
-
-    result = session.command("alter class " + className + " remove_cluster " + className + "_new");
-    clazz = schema.getClass(className);
-    found = false;
-    for (var i : clazz.getClusterIds(session)) {
-      var clusterName = session.getClusterNameById(i);
-      if (clusterName.equalsIgnoreCase(className + "_new")) {
-        found = true;
-      }
-    }
-    result.close();
-    Assert.assertFalse(found);
-  }
-
-  @Test
-  public void testSuperclass() {
-    var className = "testSuperclass_sub";
-    var superclassName = "testSuperclass_super";
-    Schema schema = session.getMetadata().getSchema();
-    schema.createClass(className);
-    var superclass = schema.createClass(superclassName);
-    var result = session.command("alter class " + className + " superclass " + superclassName);
-    Assert.assertTrue(schema.getClass(className).getSuperClasses(session).contains(superclass));
-    result.close();
-  }
-
-  @Test
   public void testSuperclasses() {
     var className = "testSuperclasses_sub";
     var superclassName = "testSuperclasses_super1";
@@ -134,8 +60,8 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
                 + superclassName
                 + ", "
                 + superclassName2);
-    Assert.assertTrue(schema.getClass(className).getSuperClasses(session).contains(superclass));
-    Assert.assertTrue(schema.getClass(className).getSuperClasses(session).contains(superclass2));
+    Assert.assertTrue(schema.getClass(className).getSuperClasses().contains(superclass));
+    Assert.assertTrue(schema.getClass(className).getSuperClasses().contains(superclass2));
     result.close();
   }
 
@@ -146,7 +72,7 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
     schema.createClass(className);
     var result = session.command("alter class " + className + " strict_mode true");
     var clazz = schema.getClass(className);
-    Assert.assertTrue(clazz.isStrictMode(session));
+    Assert.assertTrue(clazz.isStrictMode());
     result.close();
   }
 
@@ -157,7 +83,7 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
     schema.createClass(className);
     var result = session.command("alter class " + className + " custom foo = 'bar'");
     var clazz = schema.getClass(className);
-    Assert.assertEquals("bar", clazz.getCustom(session, "foo"));
+    Assert.assertEquals("bar", clazz.getCustom("foo"));
     result.close();
   }
 
@@ -168,7 +94,7 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
     schema.createClass(className);
     var result = session.command("alter class " + className + " custom foo = ?", "bar");
     var clazz = schema.getClass(className);
-    Assert.assertEquals("bar", clazz.getCustom(session, "foo"));
+    Assert.assertEquals("bar", clazz.getCustom("foo"));
     result.close();
   }
 
@@ -179,7 +105,7 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
     schema.createClass(className);
     var result = session.command("alter class " + className + " abstract true");
     var clazz = schema.getClass(className);
-    Assert.assertTrue(clazz.isAbstract(session));
+    Assert.assertTrue(clazz.isAbstract());
     result.close();
   }
 

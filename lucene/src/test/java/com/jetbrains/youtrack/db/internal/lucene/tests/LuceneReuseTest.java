@@ -19,10 +19,10 @@ public class LuceneReuseTest extends LuceneBaseTest {
     Schema schema = session.getMetadata().getSchema();
 
     var cls = schema.createClass("Reuse");
-    cls.createProperty(session, "name", PropertyType.STRING);
-    cls.createProperty(session, "date", PropertyType.DATETIME);
-    cls.createProperty(session, "surname", PropertyType.STRING);
-    cls.createProperty(session, "age", PropertyType.LONG);
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createProperty("date", PropertyType.DATETIME);
+    cls.createProperty("surname", PropertyType.STRING);
+    cls.createProperty("age", PropertyType.LONG);
 
     session.command("create index Reuse.composite on Reuse (name,surname,date,age) UNIQUE");
     session.command("create index Reuse.surname on Reuse (surname) FULLTEXT ENGINE LUCENE");
@@ -54,10 +54,10 @@ public class LuceneReuseTest extends LuceneBaseTest {
     Schema schema = session.getMetadata().getSchema();
 
     var cls = schema.createClass("Reuse");
-    cls.createProperty(session, "name", PropertyType.STRING);
-    cls.createProperty(session, "date", PropertyType.DATETIME);
-    cls.createProperty(session, "surname", PropertyType.STRING);
-    cls.createProperty(session, "age", PropertyType.LONG);
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createProperty("date", PropertyType.DATETIME);
+    cls.createProperty("surname", PropertyType.STRING);
+    cls.createProperty("age", PropertyType.LONG);
 
     session.command("create index Reuse.composite on Reuse (name,surname,date,age) UNIQUE");
 

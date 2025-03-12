@@ -15,7 +15,6 @@ package com.jetbrains.youtrack.db.internal.spatial.shape;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
@@ -74,7 +73,7 @@ public class GeometryCollectionShapeBuilder extends ComplexShapeBuilder<ShapeCol
     Schema schema = db.getMetadata().getSchema();
     var shape = superClass(db);
     var polygon = schema.createAbstractClass(getName(), shape);
-    polygon.createProperty(db, "geometries", PropertyType.EMBEDDEDLIST, shape);
+    polygon.createProperty("geometries", PropertyType.EMBEDDEDLIST, shape);
   }
 
   @Override

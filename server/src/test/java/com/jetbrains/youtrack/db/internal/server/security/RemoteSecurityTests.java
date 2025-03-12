@@ -32,7 +32,7 @@ public class RemoteSecurityTests {
         DB_NAME);
     this.db = youTrackDB.open(DB_NAME, "admin", "admin");
     var person = db.createClass("Person");
-    person.createProperty(db, "name", PropertyType.STRING);
+    person.createProperty("name", PropertyType.STRING);
   }
 
   @After

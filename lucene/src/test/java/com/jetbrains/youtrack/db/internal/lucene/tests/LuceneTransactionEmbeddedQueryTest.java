@@ -38,8 +38,8 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
   @Before
   public void setUp() throws Exception {
     final var c1 = session.createVertexClass("C1");
-    c1.createProperty(session, "p1", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
-    c1.createIndex(session, "C1.p1", "FULLTEXT", null, null, "LUCENE", new String[]{"p1"});
+    c1.createProperty("p1", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
+    c1.createIndex("C1.p1", "FULLTEXT", null, null, "LUCENE", new String[]{"p1"});
   }
 
   @Test

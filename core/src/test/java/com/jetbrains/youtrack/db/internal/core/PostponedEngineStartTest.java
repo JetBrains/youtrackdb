@@ -32,12 +32,10 @@ import com.jetbrains.youtrack.db.internal.core.engine.Engine;
 import com.jetbrains.youtrack.db.internal.core.engine.EngineAbstract;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
-import com.jetbrains.youtrack.db.internal.core.storage.RawBuffer;
-import com.jetbrains.youtrack.db.internal.core.storage.RecordCallback;
+import com.jetbrains.youtrack.db.internal.core.storage.ReadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageCluster;
-import com.jetbrains.youtrack.db.internal.core.storage.cluster.PaginatedCluster;
 import com.jetbrains.youtrack.db.internal.core.storage.config.ClusterBasedStorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
@@ -286,11 +284,9 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public @Nonnull RawBuffer readRecord(
-            DatabaseSessionInternal session, RecordId iRid,
-            boolean iIgnoreCache,
-            boolean prefetchRecords,
-            RecordCallback<RawBuffer> iCallback) {
+        public @Nonnull ReadRecordResult readRecord(
+            DatabaseSessionInternal session, RecordId iRid, boolean fetchPreviousRid,
+            boolean fetchNextRid) {
           return null;
         }
 
@@ -302,13 +298,6 @@ public class PostponedEngineStartTest {
         @Override
         public RecordMetadata getRecordMetadata(DatabaseSessionInternal session, RID rid) {
           return null;
-        }
-
-        @Override
-        public boolean cleanOutRecord(
-            DatabaseSessionInternal session, RecordId recordId, int recordVersion, int iMode,
-            RecordCallback<Boolean> callback) {
-          return false;
         }
 
         @Override
@@ -384,21 +373,6 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public long getLastClusterPosition(int clusterId) {
-          return 0;
-        }
-
-        @Override
-        public long getClusterNextPosition(int clusterId) {
-          return 0;
-        }
-
-        @Override
-        public PaginatedCluster.RECORD_STATUS getRecordStatus(RID rid) {
-          return null;
-        }
-
-        @Override
         public long count(DatabaseSessionInternal session, int iClusterId) {
           return 0;
         }
@@ -470,31 +444,30 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public long[] getClusterDataRange(DatabaseSessionInternal session, int currentClusterId) {
-          return new long[0];
-        }
-
-        @Override
         public PhysicalPosition[] higherPhysicalPositions(
-            DatabaseSessionInternal session, int clusterId, PhysicalPosition physicalPosition) {
+            DatabaseSessionInternal session, int clusterId, PhysicalPosition physicalPosition,
+            int limit) {
           return new PhysicalPosition[0];
         }
 
         @Override
         public PhysicalPosition[] lowerPhysicalPositions(
-            DatabaseSessionInternal session, int clusterId, PhysicalPosition physicalPosition) {
+            DatabaseSessionInternal session, int clusterId, PhysicalPosition physicalPosition,
+            int limit) {
           return new PhysicalPosition[0];
         }
 
         @Override
         public PhysicalPosition[] ceilingPhysicalPositions(
-            DatabaseSessionInternal session, int clusterId, PhysicalPosition physicalPosition) {
+            DatabaseSessionInternal session, int clusterId, PhysicalPosition physicalPosition,
+            int limit) {
           return new PhysicalPosition[0];
         }
 
         @Override
         public PhysicalPosition[] floorPhysicalPositions(
-            DatabaseSessionInternal session, int clusterId, PhysicalPosition physicalPosition) {
+            DatabaseSessionInternal session, int clusterId, PhysicalPosition physicalPosition,
+            int limit) {
           return new PhysicalPosition[0];
         }
 
@@ -515,11 +488,6 @@ public class PostponedEngineStartTest {
 
         @Override
         public boolean isRemote() {
-          return false;
-        }
-
-        @Override
-        public boolean isDistributed() {
           return false;
         }
 
@@ -551,11 +519,6 @@ public class PostponedEngineStartTest {
         public String incrementalBackup(DatabaseSessionInternal session, String backupDirectory,
             CallableFunction<Void, Void> started) {
           return null;
-        }
-
-        @Override
-        public boolean supportIncremental() {
-          return false;
         }
 
         @Override

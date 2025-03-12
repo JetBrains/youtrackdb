@@ -104,7 +104,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     session.command("insert into bar (name, foo) values ('o', 5)").close();
     session.commit();
 
-    session.command("CREATE class ridsorttest clusters 1").close();
+    session.command("CREATE class ridsorttest").close();
     session.command("CREATE property ridsorttest.name INTEGER").close();
     session.command("CREATE index ridsorttest_name on ridsorttest (name) NOTUNIQUE").close();
 
@@ -139,8 +139,6 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     session.commit();
 
     session.command("CREATE class TestMultipleClusters").close();
-    session.command("alter class TestMultipleClusters add_cluster testmultipleclusters1 ").close();
-    session.command("alter class TestMultipleClusters add_cluster testmultipleclusters2 ").close();
 
     session.begin();
     session.command("insert into TestMultipleClusters set name = 'aaa'").close();
@@ -185,13 +183,15 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     // /*** from issue #2743
     Schema schema = session.getMetadata().getSchema();
     if (!schema.existsClass("alphabet")) {
-      schema.createClass("alphabet", 1, null);
+      schema.createClass("alphabet", 1);
     }
 
+    session.begin();
     var iter = session.browseClass("alphabet");
     while (iter.hasNext()) {
       iter.next().delete();
     }
+    session.commit();
 
     // add 26 entries: { "letter": "A", "number": 0 }, ... { "letter": "Z", "number": 25 }
 
@@ -1256,7 +1256,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   public void testSelectFromClusterNumber() {
     initDistinctLimit(session);
     var clazz = session.getMetadata().getSchema().getClass("DistinctLimit");
-    var clusterId = clazz.getClusterIds(session)[0];
+    var clusterId = clazz.getClusterIds()[0];
     var results = session.query("select from cluster:" + clusterId + " limit 1");
     assertEquals(1, results.stream().count());
   }
@@ -1634,11 +1634,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   @Test
   public void testOrderByRidDescMultiCluster() {
     // issue #6694
-
     var clazz = session.getMetadata().getSchema().createClass("TestOrderByRidDescMultiCluster");
-    if (clazz.getClusterIds(session).length < 2) {
-      clazz.addCluster(session, "TestOrderByRidDescMultiCluster_11111");
-    }
 
     for (var i = 0; i < 100; i++) {
       session.begin();

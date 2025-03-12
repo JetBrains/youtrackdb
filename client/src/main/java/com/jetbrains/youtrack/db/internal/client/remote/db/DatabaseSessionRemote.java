@@ -554,7 +554,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   @Override
-  public boolean executeExists(RID rid) {
+  public boolean executeExists(@Nonnull RID rid) {
     checkOpenness();
     assert assertIfNotActive();
 
@@ -681,9 +681,12 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
     final var clusterId = getClusterIdByName(iClusterName);
     var schema = metadata.getSchema();
     var clazz = schema.getClassByClusterId(clusterId);
+
     if (clazz != null) {
-      clazz.removeClusterId(this, clusterId);
+      throw new DatabaseException(this, "Cannot drop cluster '" + getClusterNameById(clusterId)
+          + "' because it is mapped to class '" + clazz.getName() + "'");
     }
+
     if (schema.getBlobClusters().contains(clusterId)) {
       schema.removeBlobCluster(iClusterName);
     }
@@ -699,8 +702,10 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
     var schema = metadata.getSchema();
     final var clazz = schema.getClassByClusterId(clusterId);
     if (clazz != null) {
-      clazz.removeClusterId(this, clusterId);
+      throw new DatabaseException(this, "Cannot drop cluster '" + getClusterNameById(clusterId)
+          + "' because it is mapped to class '" + clazz.getName() + "'");
     }
+
     getLocalCache().freeCluster(clusterId);
     if (schema.getBlobClusters().contains(clusterId)) {
       schema.removeBlobCluster(getClusterNameById(clusterId));
@@ -718,7 +723,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
       return false;
     }
 
-    executeInTxBatches((Iterator<DBRecord>) iteratorCluster,
+    executeInTxBatches(iteratorCluster,
         (session, record) -> record.delete());
 
     return storage.dropCluster(this, clusterId);
@@ -835,7 +840,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   /**
    * {@inheritDoc}
    */
-  public BTreeCollectionManager getSbTreeCollectionManager() {
+  public BTreeCollectionManager getBTreeCollectionManager() {
     assert assertIfNotActive();
     return storage.getSBtreeCollectionManager();
   }
@@ -900,17 +905,6 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
       // ALWAYS RESET TL
       activeSession.remove();
     }
-  }
-
-  @Override
-  public long[] getClusterDataRange(int currentClusterId) {
-    assert assertIfNotActive();
-    return storage.getClusterDataRange(this, currentClusterId);
-  }
-
-  @Override
-  public long getLastClusterPosition(int clusterId) {
-    throw new UnsupportedOperationException();
   }
 
   @Override

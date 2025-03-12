@@ -118,41 +118,41 @@ public class CommandExecutorSQLTruncateClass extends CommandExecutorSQLAbstract
 
     final var recs = schemaClass.count(session, deep);
     if (recs > 0 && !unsafe) {
-      if (schemaClass.isSubClassOf(session, "V")) {
+      if (schemaClass.isSubClassOf("V")) {
         throw new CommandExecutionException(session.getDatabaseName(),
             "'TRUNCATE CLASS' command cannot be used on not empty vertex classes. Apply the"
                 + " 'UNSAFE' keyword to force it (at your own risk)");
-      } else if (schemaClass.isSubClassOf(session, "E")) {
+      } else if (schemaClass.isSubClassOf("E")) {
         throw new CommandExecutionException(session.getDatabaseName(),
             "'TRUNCATE CLASS' command cannot be used on not empty edge classes. Apply the 'UNSAFE'"
                 + " keyword to force it (at your own risk)");
       }
     }
 
-    var subclasses = schemaClass.getAllSubclasses(session);
+    var subclasses = schemaClass.getAllSubclasses();
     if (deep && !unsafe) { // for multiple inheritance
       for (var subclass : subclasses) {
         var subclassRecs = schemaClass.count(session);
         if (subclassRecs > 0) {
-          if (subclass.isSubClassOf(session, "V")) {
+          if (subclass.isSubClassOf("V")) {
             throw new CommandExecutionException(session.getDatabaseName(),
                 "'TRUNCATE CLASS' command cannot be used on not empty vertex classes ("
-                    + subclass.getName(session)
+                    + subclass.getName()
                     + "). Apply the 'UNSAFE' keyword to force it (at your own risk)");
-          } else if (subclass.isSubClassOf(session, "E")) {
+          } else if (subclass.isSubClassOf("E")) {
             throw new CommandExecutionException(session.getDatabaseName(),
                 "'TRUNCATE CLASS' command cannot be used on not empty edge classes ("
-                    + subclass.getName(session)
+                    + subclass.getName()
                     + "). Apply the 'UNSAFE' keyword to force it (at your own risk)");
           }
         }
       }
     }
 
-    schemaClass.truncate(session);
+    schemaClass.truncate();
     if (deep) {
       for (var subclass : subclasses) {
-        ((SchemaClassInternal) subclass).truncate(session);
+        ((SchemaClassInternal) subclass).truncate();
       }
     }
 

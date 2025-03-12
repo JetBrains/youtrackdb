@@ -52,11 +52,11 @@ public class DefaultValuesTrivialTest {
     Schema schema = session.getMetadata().getSchema();
     var classPerson = schema.createClass("Person");
 
-    classPerson.createProperty(session, "name", PropertyType.STRING);
-    classPerson.createProperty(session, "join_date", PropertyType.DATETIME)
-        .setDefaultValue(session, "sysdate()");
-    classPerson.createProperty(session, "active", PropertyType.BOOLEAN)
-        .setDefaultValue(session, "true");
+    classPerson.createProperty("name", PropertyType.STRING);
+    classPerson.createProperty("join_date", PropertyType.DATETIME)
+        .setDefaultValue("sysdate()");
+    classPerson.createProperty("active", PropertyType.BOOLEAN)
+        .setDefaultValue("true");
 
     var dtStart = getDatabaseSysdate(session);
 
@@ -102,8 +102,8 @@ public class DefaultValuesTrivialTest {
   public void testDefaultValueConversion() {
     Schema schema = session.getMetadata().getSchema();
     var classPerson = schema.createClass("Person");
-    classPerson.createProperty(session, "users", PropertyType.LINKSET)
-        .setDefaultValue(session, "[#5:1]");
+    classPerson.createProperty("users", PropertyType.LINKSET)
+        .setDefaultValue("[#5:1]");
 
     var doc = ((EntityImpl) session.newEntity("Person"));
 
@@ -123,12 +123,12 @@ public class DefaultValuesTrivialTest {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("ClassA");
 
-    classA.createProperty(session, "name", PropertyType.STRING)
-        .setDefaultValue(session, "default name");
-    classA.createProperty(session, "date", PropertyType.DATETIME)
-        .setDefaultValue(session, "sysdate()");
-    classA.createProperty(session, "active", PropertyType.BOOLEAN)
-        .setDefaultValue(session, "true");
+    classA.createProperty("name", PropertyType.STRING)
+        .setDefaultValue("default name");
+    classA.createProperty("date", PropertyType.DATETIME)
+        .setDefaultValue("sysdate()");
+    classA.createProperty("active", PropertyType.BOOLEAN)
+        .setDefaultValue("true");
 
     {
       var doc = ((EntityImpl) session.newEntity(classA));
@@ -138,7 +138,7 @@ public class DefaultValuesTrivialTest {
     }
 
     {
-      var doc = ((EntityImpl) session.newEntity(classA.getName(session)));
+      var doc = ((EntityImpl) session.newEntity(classA.getName()));
       assertNull(doc.field("name"));
       assertNull(doc.field("date"));
       assertNull(doc.field("active"));
@@ -152,7 +152,7 @@ public class DefaultValuesTrivialTest {
       assertNull(doc.field("name"));
       assertNull(doc.field("date"));
       assertNull(doc.field("active"));
-      doc.setClassNameIfExists(classA.getName(session));
+      doc.setClassNameIfExists(classA.getName());
       assertEquals("default name", doc.field("name"));
       assertNotNull(doc.field("date"));
       assertEquals((Boolean) true, doc.field("active"));
@@ -165,9 +165,9 @@ public class DefaultValuesTrivialTest {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("ClassA");
 
-    var prop = classA.createProperty(session, "name", PropertyType.STRING);
-    prop.setDefaultValue(session, "default name");
-    prop.createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    var prop = classA.createProperty("name", PropertyType.STRING);
+    prop.setDefaultValue("default name");
+    prop.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     {
       var doc = ((EntityImpl) session.newEntity(classA));
@@ -188,9 +188,9 @@ public class DefaultValuesTrivialTest {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("ClassA");
 
-    var prop = classA.createProperty(session, "name", PropertyType.STRING);
-    prop.setDefaultValue(session, "default name");
-    prop.createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    var prop = classA.createProperty("name", PropertyType.STRING);
+    prop.setDefaultValue("default name");
+    prop.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     {
       session.begin();
@@ -221,10 +221,10 @@ public class DefaultValuesTrivialTest {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("ClassA");
 
-    var prop = classA.createProperty(session, "name", PropertyType.STRING);
-    prop.setDefaultValue(session, "default name");
-    classA.createProperty(session, "value", PropertyType.STRING);
-    classA.createIndex(session, "multi", SchemaClass.INDEX_TYPE.NOTUNIQUE, "value",
+    var prop = classA.createProperty("name", PropertyType.STRING);
+    prop.setDefaultValue("default name");
+    classA.createProperty("value", PropertyType.STRING);
+    classA.createIndex("multi", SchemaClass.INDEX_TYPE.NOTUNIQUE, "value",
         "name");
     var index = session.getIndex("multi");
 

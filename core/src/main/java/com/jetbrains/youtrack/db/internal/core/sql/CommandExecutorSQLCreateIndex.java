@@ -36,6 +36,7 @@ import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionFactory;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
 import com.jetbrains.youtrack.db.internal.core.index.PropertyMapIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -70,7 +71,7 @@ public class CommandExecutorSQLCreateIndex extends CommandExecutorSQLAbstract
   private PropertyType[] keyTypes;
   private byte serializerKeyId;
   private String engine;
-  private Map<String, ?> metadata = null;
+  private Map<String, Object> metadata = null;
   private String[] collates;
 
   public CommandExecutorSQLCreateIndex parse(DatabaseSessionInternal session,
@@ -296,19 +297,19 @@ public class CommandExecutorSQLCreateIndex extends CommandExecutorSQLAbstract
               + " property");
     } else {
       if ((keyTypes == null || keyTypes.length == 0) && collates == null) {
-        oClass.createIndex(session, indexName, indexType.toString(), null, metadata, engine,
+        oClass.createIndex(indexName, indexType.toString(), null, metadata, engine,
             fields);
         idx = session.getMetadata().getIndexManagerInternal().getIndex(session, indexName);
       } else {
         final List<PropertyType> fieldTypeList;
         if (keyTypes == null) {
           for (final var fieldName : fields) {
-            if (!fieldName.equals("@rid") && !oClass.existsProperty(session, fieldName)) {
+            if (!fieldName.equals("@rid") && !oClass.existsProperty(fieldName)) {
               throw new IndexException(session,
                   "Index with name : '"
                       + indexName
                       + "' cannot be created on class : '"
-                      + oClass.getName(session)
+                      + oClass.getName()
                       + "' because field: '"
                       + fieldName
                       + "' is absent in class definition.");
@@ -320,7 +321,7 @@ public class CommandExecutorSQLCreateIndex extends CommandExecutorSQLAbstract
         }
 
         final var idxDef =
-            IndexDefinitionFactory.createIndexDefinition(session,
+            IndexDefinitionFactory.createIndexDefinition(
                 oClass,
                 Arrays.asList(fields),
                 fieldTypeList,
@@ -336,7 +337,7 @@ public class CommandExecutorSQLCreateIndex extends CommandExecutorSQLAbstract
                     indexName,
                     indexType.name(),
                     idxDef,
-                    oClass.getPolymorphicClusterIds(session),
+                    oClass.getPolymorphicClusterIds(),
                     null,
                     metadata,
                     engine);

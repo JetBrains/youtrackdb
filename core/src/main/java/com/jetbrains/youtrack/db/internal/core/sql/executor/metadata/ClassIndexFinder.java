@@ -37,11 +37,11 @@ public class ClassIndexFinder implements IndexFinder {
           }
         };
     for (var ele : rawPath) {
-      var prop = (SchemaPropertyInternal) cand.cl.getProperty(session, ele);
+      var prop = (SchemaPropertyInternal) cand.cl.getProperty(ele);
       if (prop != null) {
-        var linkedClass = prop.getLinkedClass(session);
-        var indexes = prop.getAllIndexesInternal(session);
-        if (prop.getType(session).isLink() && linkedClass != null) {
+        var linkedClass = prop.getLinkedClass();
+        var indexes = prop.getAllIndexesInternal();
+        if (prop.getType().isLink() && linkedClass != null) {
           var found = false;
           for (var index : indexes) {
             if (index.getInternal().canBeUsedInEqualityOperators()) {
@@ -85,9 +85,9 @@ public class ClassIndexFinder implements IndexFinder {
     var last = pre.last;
 
     var db = ctx.getDatabaseSession();
-    var prop = (SchemaPropertyInternal) cl.getProperty(db, last);
+    var prop = (SchemaPropertyInternal) cl.getProperty(last);
     if (prop != null) {
-      var indexes = prop.getAllIndexesInternal(ctx.getDatabaseSession());
+      var indexes = prop.getAllIndexesInternal();
       for (var index : indexes) {
         if (index.getInternal().canBeUsedInEqualityOperators()) {
           if (cand.isPresent()) {
@@ -115,10 +115,10 @@ public class ClassIndexFinder implements IndexFinder {
     var last = pre.last;
 
     var session = ctx.getDatabaseSession();
-    var prop = (SchemaPropertyInternal) cl.getProperty(session, last);
+    var prop = (SchemaPropertyInternal) cl.getProperty(last);
     if (prop != null) {
-      if (prop.getType(session) == PropertyType.EMBEDDEDMAP) {
-        var indexes = prop.getAllIndexesInternal(ctx.getDatabaseSession());
+      if (prop.getType() == PropertyType.EMBEDDEDMAP) {
+        var indexes = prop.getAllIndexesInternal();
         for (var index : indexes) {
           if (index.getInternal().canBeUsedInEqualityOperators()) {
             var def = index.getDefinition();
@@ -152,9 +152,9 @@ public class ClassIndexFinder implements IndexFinder {
     var last = pre.last;
 
     var db = ctx.getDatabaseSession();
-    var prop = (SchemaPropertyInternal) cl.getProperty(db, last);
+    var prop = (SchemaPropertyInternal) cl.getProperty(last);
     if (prop != null) {
-      var indexes = prop.getAllIndexesInternal(ctx.getDatabaseSession());
+      var indexes = prop.getAllIndexesInternal();
       for (var index : indexes) {
         if (index.getInternal().canBeUsedInEqualityOperators()
             && index.supportsOrderedIterations()) {
@@ -183,10 +183,10 @@ public class ClassIndexFinder implements IndexFinder {
     var last = pre.last;
 
     var session = ctx.getDatabaseSession();
-    var prop = (SchemaPropertyInternal) cl.getProperty(session, last);
+    var prop = (SchemaPropertyInternal) cl.getProperty(last);
     if (prop != null) {
-      if (prop.getType(session) == PropertyType.EMBEDDEDMAP) {
-        var indexes = prop.getAllIndexesInternal(ctx.getDatabaseSession());
+      if (prop.getType() == PropertyType.EMBEDDEDMAP) {
+        var indexes = prop.getAllIndexesInternal();
         for (var index : indexes) {
           var def = index.getDefinition();
           if (index.getInternal().canBeUsedInEqualityOperators()) {

@@ -47,8 +47,8 @@ public class LuceneInheritanceQueryTest extends BaseLuceneTest {
 
   protected void createSchema(DatabaseSessionInternal db) {
     final var c1 = db.createVertexClass("C1");
-    c1.createProperty(db, "name", PropertyType.STRING);
-    c1.createIndex(db, "C1.name", "FULLTEXT", null, null, "LUCENE", new String[]{"name"});
+    c1.createProperty("name", PropertyType.STRING);
+    c1.createIndex("C1.name", "FULLTEXT", null, null, "LUCENE", new String[]{"name"});
 
     db.createClass("C2", "C1");
   }

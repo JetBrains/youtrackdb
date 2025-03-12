@@ -7,9 +7,7 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -21,7 +19,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SimpleNode;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.YouTrackDBSql;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
-import java.util.Optional;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -48,8 +45,8 @@ public class StatementIndexFinderTest {
   @Test
   public void simpleMatchTest() {
     var cl = this.session.createClass("cl");
-    var prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    var prop = cl.createProperty("name", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
 
     var stat = parseQuery("select from cl where name='a'");
     IndexFinder finder = new ClassIndexFinder("cl");
@@ -62,8 +59,8 @@ public class StatementIndexFinderTest {
   @Test
   public void simpleRangeTest() {
     var cl = this.session.createClass("cl");
-    var prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    var prop = cl.createProperty("name", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
 
     var stat = parseQuery("select from cl where name > 'a'");
 
@@ -83,8 +80,8 @@ public class StatementIndexFinderTest {
   @Test
   public void multipleSimpleAndMatchTest() {
     var cl = this.session.createClass("cl");
-    var prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    var prop = cl.createProperty("name", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
 
     var stat = parseQuery("select from cl where name='a' and name='b'");
     IndexFinder finder = new ClassIndexFinder("cl");
@@ -101,8 +98,8 @@ public class StatementIndexFinderTest {
   @Test
   public void requiredRangeOrMatchTest() {
     var cl = this.session.createClass("cl");
-    var prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    var prop = cl.createProperty("name", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
 
     var stat = parseQuery("select from cl where name='a' or name='b'");
     IndexFinder finder = new ClassIndexFinder("cl");
@@ -119,8 +116,8 @@ public class StatementIndexFinderTest {
   @Test
   public void multipleRangeAndTest() {
     var cl = this.session.createClass("cl");
-    var prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    var prop = cl.createProperty("name", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -138,8 +135,8 @@ public class StatementIndexFinderTest {
   @Test
   public void requiredRangeOrTest() {
     var cl = this.session.createClass("cl");
-    var prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    var prop = cl.createProperty("name", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -157,8 +154,8 @@ public class StatementIndexFinderTest {
   @Test
   public void simpleRangeNotTest() {
     var cl = this.session.createClass("cl");
-    var prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    var prop = cl.createProperty("name", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -172,10 +169,10 @@ public class StatementIndexFinderTest {
   @Test
   public void simpleChainTest() {
     var cl = this.session.createClass("cl");
-    var prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE);
-    var prop1 = cl.createProperty(session, "friend", PropertyType.LINK, cl);
-    prop1.createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    var prop = cl.createProperty("name", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    var prop1 = cl.createProperty("friend", PropertyType.LINK, cl);
+    prop1.createIndex(INDEX_TYPE.NOTUNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -189,10 +186,10 @@ public class StatementIndexFinderTest {
   @Test
   public void simpleNestedAndOrMatchTest() {
     var cl = this.session.createClass("cl");
-    var prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE);
-    var prop1 = cl.createProperty(session, "friend", PropertyType.LINK, cl);
-    prop1.createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    var prop = cl.createProperty("name", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    var prop1 = cl.createProperty("friend", PropertyType.LINK, cl);
+    prop1.createIndex(INDEX_TYPE.NOTUNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -222,8 +219,8 @@ public class StatementIndexFinderTest {
   @Test
   public void simpleNestedAndOrPartialMatchTest() {
     var cl = this.session.createClass("cl");
-    var prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    var prop = cl.createProperty("name", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -248,10 +245,10 @@ public class StatementIndexFinderTest {
   @Test
   public void simpleNestedOrNotMatchTest() {
     var cl = this.session.createClass("cl");
-    var prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE);
-    var prop1 = cl.createProperty(session, "friend", PropertyType.LINK, cl);
-    prop1.createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    var prop = cl.createProperty("name", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    var prop1 = cl.createProperty("friend", PropertyType.LINK, cl);
+    prop1.createIndex(INDEX_TYPE.NOTUNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -268,9 +265,9 @@ public class StatementIndexFinderTest {
   @Test
   public void multivalueMatchTest() {
     var cl = this.session.createClass("cl");
-    cl.createProperty(session, "name", PropertyType.STRING);
-    cl.createProperty(session, "surname", PropertyType.STRING);
-    cl.createIndex(session, "cl.name_surname", INDEX_TYPE.NOTUNIQUE, "name", "surname");
+    cl.createProperty("name", PropertyType.STRING);
+    cl.createProperty("surname", PropertyType.STRING);
+    cl.createIndex("cl.name_surname", INDEX_TYPE.NOTUNIQUE, "name", "surname");
 
     var stat = parseQuery("select from cl where name = 'a' and surname = 'b'");
 
@@ -286,9 +283,9 @@ public class StatementIndexFinderTest {
   @Test
   public void multivalueMatchOneTest() {
     var cl = this.session.createClass("cl");
-    cl.createProperty(session, "name", PropertyType.STRING);
-    cl.createProperty(session, "surname", PropertyType.STRING);
-    cl.createIndex(session, "cl.name_surname", INDEX_TYPE.NOTUNIQUE, "name", "surname");
+    cl.createProperty("name", PropertyType.STRING);
+    cl.createProperty("surname", PropertyType.STRING);
+    cl.createIndex("cl.name_surname", INDEX_TYPE.NOTUNIQUE, "name", "surname");
 
     var stat = parseQuery("select from cl where name = 'a' and other = 'b'");
 
@@ -304,10 +301,10 @@ public class StatementIndexFinderTest {
   @Test
   public void multivalueNotMatchSecondPropertyTest() {
     var cl = this.session.createClass("cl");
-    cl.createProperty(session, "name", PropertyType.STRING);
-    cl.createProperty(session, "surname", PropertyType.STRING);
-    cl.createProperty(session, "other", PropertyType.STRING);
-    cl.createIndex(session, "cl.name_surname_other", INDEX_TYPE.NOTUNIQUE, "name", "surname",
+    cl.createProperty("name", PropertyType.STRING);
+    cl.createProperty("surname", PropertyType.STRING);
+    cl.createProperty("other", PropertyType.STRING);
+    cl.createIndex("cl.name_surname_other", INDEX_TYPE.NOTUNIQUE, "name", "surname",
         "other");
 
     var stat = parseQuery("select from cl where surname = 'a' and other = 'b'");
@@ -323,9 +320,9 @@ public class StatementIndexFinderTest {
   @Test
   public void multivalueNotMatchSecondPropertySingleConditionTest() {
     var cl = this.session.createClass("cl");
-    cl.createProperty(session, "name", PropertyType.STRING);
-    cl.createProperty(session, "surname", PropertyType.STRING);
-    cl.createIndex(session, "cl.name_surname", INDEX_TYPE.NOTUNIQUE, "name", "surname");
+    cl.createProperty("name", PropertyType.STRING);
+    cl.createProperty("surname", PropertyType.STRING);
+    cl.createIndex("cl.name_surname", INDEX_TYPE.NOTUNIQUE, "name", "surname");
 
     var stat = parseQuery("select from cl where surname = 'a'");
 
@@ -340,9 +337,9 @@ public class StatementIndexFinderTest {
   @Test
   public void multivalueMatchPropertyORTest() {
     var cl = this.session.createClass("cl");
-    cl.createProperty(session, "name", PropertyType.STRING);
-    cl.createProperty(session, "surname", PropertyType.STRING);
-    cl.createIndex(session, "cl.name_surname", INDEX_TYPE.NOTUNIQUE, "name", "surname");
+    cl.createProperty("name", PropertyType.STRING);
+    cl.createProperty("surname", PropertyType.STRING);
+    cl.createIndex("cl.name_surname", INDEX_TYPE.NOTUNIQUE, "name", "surname");
 
     var stat =
         parseQuery(
@@ -366,9 +363,9 @@ public class StatementIndexFinderTest {
   @Test
   public void multivalueNotMatchPropertyORTest() {
     var cl = this.session.createClass("cl");
-    cl.createProperty(session, "name", PropertyType.STRING);
-    cl.createProperty(session, "surname", PropertyType.STRING);
-    cl.createIndex(session, "cl.name_surname", INDEX_TYPE.NOTUNIQUE, "name", "surname");
+    cl.createProperty("name", PropertyType.STRING);
+    cl.createProperty("surname", PropertyType.STRING);
+    cl.createIndex("cl.name_surname", INDEX_TYPE.NOTUNIQUE, "name", "surname");
 
     var stat =
         parseQuery(
@@ -385,8 +382,8 @@ public class StatementIndexFinderTest {
   @Test
   public void testMutipleConditionBetween() {
     var cl = this.session.createClass("cl");
-    cl.createProperty(session, "name", PropertyType.STRING);
-    cl.createIndex(session, "cl.name", INDEX_TYPE.NOTUNIQUE, "name");
+    cl.createProperty("name", PropertyType.STRING);
+    cl.createIndex("cl.name", INDEX_TYPE.NOTUNIQUE, "name");
 
     var stat = parseQuery("select from cl where name < 'a' and name > 'b'");
     IndexFinder finder = new ClassIndexFinder("cl");

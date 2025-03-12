@@ -173,7 +173,7 @@ public class IndexRemote implements Index {
   }
 
   @Override
-  public Map<String, ?> getMetadata() {
+  public Map<String, Object> getMetadata() {
     return metadata;
   }
 

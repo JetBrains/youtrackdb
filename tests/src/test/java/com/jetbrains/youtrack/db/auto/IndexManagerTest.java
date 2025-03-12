@@ -43,13 +43,13 @@ public class IndexManagerTest extends BaseDBTest {
 
     final var oClass = schema.createClass(CLASS_NAME);
 
-    oClass.createProperty(session, "fOne", PropertyType.INTEGER);
-    oClass.createProperty(session, "fTwo", PropertyType.STRING);
-    oClass.createProperty(session, "fThree", PropertyType.BOOLEAN);
-    oClass.createProperty(session, "fFour", PropertyType.INTEGER);
+    oClass.createProperty("fOne", PropertyType.INTEGER);
+    oClass.createProperty("fTwo", PropertyType.STRING);
+    oClass.createProperty("fThree", PropertyType.BOOLEAN);
+    oClass.createProperty("fFour", PropertyType.INTEGER);
 
-    oClass.createProperty(session, "fSix", PropertyType.STRING);
-    oClass.createProperty(session, "fSeven", PropertyType.STRING);
+    oClass.createProperty("fSix", PropertyType.STRING);
+    oClass.createProperty("fSeven", PropertyType.STRING);
   }
 
   @Test
@@ -601,16 +601,16 @@ public class IndexManagerTest extends BaseDBTest {
     final Schema schema = session.getMetadata().getSchema();
     final var oClass = schema.createClass(className);
 
-    oClass.createProperty(session, "one", PropertyType.STRING);
-    oClass.createProperty(session, "two", PropertyType.STRING);
-    oClass.createProperty(session, "three", PropertyType.STRING);
+    oClass.createProperty("one", PropertyType.STRING);
+    oClass.createProperty("two", PropertyType.STRING);
+    oClass.createProperty("three", PropertyType.STRING);
 
     indexManager.createIndex(
         session,
         className + "_indexOne_notunique",
         SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
         new PropertyIndexDefinition(className, "one", PropertyType.STRING),
-        oClass.getClusterIds(session),
+        oClass.getClusterIds(),
         null,
         null);
 
@@ -623,7 +623,7 @@ public class IndexManagerTest extends BaseDBTest {
             Arrays.asList(
                 new PropertyIndexDefinition(className, "one", PropertyType.STRING),
                 new PropertyIndexDefinition(className, "two", PropertyType.STRING))),
-        oClass.getClusterIds(session),
+        oClass.getClusterIds(),
         null,
         null);
 
@@ -637,7 +637,7 @@ public class IndexManagerTest extends BaseDBTest {
                 new PropertyIndexDefinition(className, "one", PropertyType.STRING),
                 new PropertyIndexDefinition(className, "two", PropertyType.STRING),
                 new PropertyIndexDefinition(className, "three", PropertyType.STRING))),
-        oClass.getClusterIds(session),
+        oClass.getClusterIds(),
         null,
         null);
 
@@ -775,7 +775,7 @@ public class IndexManagerTest extends BaseDBTest {
   public void testDropAllClassIndexes() {
     final var oClass =
         session.getMetadata().getSchema().createClass("indexManagerTestClassTwo");
-    oClass.createProperty(session, "fOne", PropertyType.INTEGER);
+    oClass.createProperty("fOne", PropertyType.INTEGER);
 
     final var indexManager = session.getMetadata().getIndexManagerInternal();
 

@@ -704,11 +704,11 @@ public class YouTrackDbJdbcDatabaseMetaData implements DatabaseMetaData {
 
     final List tableTypes = types != null ? Arrays.asList(types) : TABLE_TYPES;
     for (var cls : classes) {
-      final var className = cls.getName(session);
+      final var className = cls.getName();
       final String type;
 
       if (MetadataInternal.SYSTEM_CLUSTER.contains(
-          cls.getName(session).toLowerCase(Locale.ENGLISH))) {
+          cls.getName().toLowerCase(Locale.ENGLISH))) {
         type = "SYSTEM TABLE";
       } else {
         type = "TABLE";
@@ -801,12 +801,12 @@ public class YouTrackDbJdbcDatabaseMetaData implements DatabaseMetaData {
     final var resultSet = new InternalResultSet(session);
     final Schema schema = session.getMetadata().getImmutableSchemaSnapshot();
     for (var clazz : schema.getClasses()) {
-      if (YouTrackDbJdbcUtils.like(clazz.getName(session), tableNamePattern)) {
-        for (var prop : clazz.properties(session)) {
+      if (YouTrackDbJdbcUtils.like(clazz.getName(), tableNamePattern)) {
+        for (var prop : clazz.properties()) {
           if (columnNamePattern == null) {
             resultSet.add(getPropertyAsDocument(clazz, prop));
           } else {
-            if (YouTrackDbJdbcUtils.like(prop.getName(session), columnNamePattern)) {
+            if (YouTrackDbJdbcUtils.like(prop.getName(), columnNamePattern)) {
               resultSet.add(getPropertyAsDocument(clazz, prop));
             }
           }
@@ -890,7 +890,7 @@ public class YouTrackDbJdbcDatabaseMetaData implements DatabaseMetaData {
       throws SQLException {
     var aClass = session.getMetadata().getSchema().getClass(table);
 
-    aClass.declaredProperties(session).stream().forEach(p -> p.getType(session));
+    aClass.declaredProperties().stream().forEach(p -> p.getType());
     return getEmptyResultSet();
   }
 
@@ -1177,8 +1177,8 @@ public class YouTrackDbJdbcDatabaseMetaData implements DatabaseMetaData {
       final var res = new ResultInternal(session);
       res.setProperty("TYPE_CAT", null);
       res.setProperty("TYPE_SCHEM", null);
-      res.setProperty("TYPE_NAME", cls.getName(session));
-      res.setProperty("CLASS_NAME", cls.getName(session));
+      res.setProperty("TYPE_NAME", cls.getName());
+      res.setProperty("CLASS_NAME", cls.getName());
       res.setProperty("DATA_TYPE", java.sql.Types.STRUCT);
       res.setProperty("REMARKS", null);
       resultSet.add(res);
@@ -1221,15 +1221,17 @@ public class YouTrackDbJdbcDatabaseMetaData implements DatabaseMetaData {
     final var cls = session.getMetadata().getSchema().getClass(typeNamePattern);
 
     final var resultSet = new InternalResultSet(session);
-    if (cls != null && cls.getSuperClass(session) != null) {
-      final var res = new ResultInternal(session);
-      res.setProperty("TABLE_CAT", catalog);
-      res.setProperty("TABLE_SCHEM", catalog);
-      res.setProperty("TABLE_NAME", cls.getName(session));
-      res.setProperty("SUPERTYPE_CAT", catalog);
-      res.setProperty("SUPERTYPE_SCHEM", catalog);
-      res.setProperty("SUPERTYPE_NAME", cls.getSuperClass(session).getName(session));
-      resultSet.add(res);
+    if (cls != null) {
+      for (var superCls : cls.getSuperClassesNames()) {
+        final var res = new ResultInternal(session);
+        res.setProperty("TABLE_CAT", catalog);
+        res.setProperty("TABLE_SCHEM", catalog);
+        res.setProperty("TABLE_NAME", cls.getName());
+        res.setProperty("SUPERTYPE_CAT", catalog);
+        res.setProperty("SUPERTYPE_SCHEM", catalog);
+        res.setProperty("SUPERTYPE_NAME", superCls);
+        resultSet.add(res);
+      }
     }
 
     return new YouTrackDbJdbcResultSet(
@@ -1246,17 +1248,17 @@ public class YouTrackDbJdbcDatabaseMetaData implements DatabaseMetaData {
     final var cls = session.getMetadata().getSchema().getClass(tableNamePattern);
     final var resultSet = new InternalResultSet(session);
 
-    if (cls != null && cls.getSuperClass(session) != null) {
-      final var res = new ResultInternal(session);
-
-      res.setProperty("TABLE_CAT", catalog);
-      res.setProperty("TABLE_SCHEM", catalog);
-      res.setProperty("TABLE_NAME", cls.getName(session));
-      res.setProperty("SUPERTABLE_CAT", catalog);
-      res.setProperty("SUPERTABLE_SCHEM", catalog);
-      res.setProperty("SUPERTABLE_NAME", cls.getSuperClass(session).getName(session));
-
-      resultSet.add(res);
+    if (cls != null) {
+      for (var superCls : cls.getSuperClassesNames()) {
+        final var res = new ResultInternal(session);
+        res.setProperty("TABLE_CAT", catalog);
+        res.setProperty("TABLE_SCHEM", catalog);
+        res.setProperty("TABLE_NAME", cls.getName());
+        res.setProperty("SUPERTYPE_CAT", catalog);
+        res.setProperty("SUPERTYPE_SCHEM", catalog);
+        res.setProperty("SUPERTYPE_NAME", superCls);
+        resultSet.add(res);
+      }
     }
 
     return new YouTrackDbJdbcResultSet(
@@ -1413,26 +1415,26 @@ public class YouTrackDbJdbcDatabaseMetaData implements DatabaseMetaData {
   }
 
   private ResultInternal getPropertyAsDocument(final SchemaClass clazz, final SchemaProperty prop) {
-    final var type = prop.getType(session);
+    final var type = prop.getType();
     var res = new ResultInternal(session);
     res.setProperty("TABLE_CAT", session.getDatabaseName());
     res.setProperty("TABLE_SCHEM", session.getDatabaseName());
-    res.setProperty("TABLE_NAME", clazz.getName(session));
-    res.setProperty("COLUMN_NAME", prop.getName(session));
+    res.setProperty("TABLE_NAME", clazz.getName());
+    res.setProperty("COLUMN_NAME", prop.getName());
     res.setProperty("DATA_TYPE", YouTrackDbJdbcResultSetMetaData.getSqlType(type));
     res.setProperty("TYPE_NAME", type.name());
     res.setProperty("COLUMN_SIZE", 1);
     res.setProperty("BUFFER_LENGTH", null);
     res.setProperty("DECIMAL_DIGITS", null);
     res.setProperty("NUM_PREC_RADIX", 10);
-    res.setProperty("NULLABLE", !prop.isNotNull(session) ? columnNoNulls : columnNullable);
-    res.setProperty("REMARKS", prop.getDescription(session));
-    res.setProperty("COLUMN_DEF", prop.getDefaultValue(session));
+    res.setProperty("NULLABLE", !prop.isNotNull() ? columnNoNulls : columnNullable);
+    res.setProperty("REMARKS", prop.getDescription());
+    res.setProperty("COLUMN_DEF", prop.getDefaultValue());
     res.setProperty("SQL_DATA_TYPE", null);
     res.setProperty("SQL_DATETIME_SUB", null);
     res.setProperty("CHAR_OCTET_LENGTH", null);
     res.setProperty("ORDINAL_POSITION", prop.getId());
-    res.setProperty("IS_NULLABLE", prop.isNotNull(session) ? "NO" : "YES");
+    res.setProperty("IS_NULLABLE", prop.isNotNull() ? "NO" : "YES");
 
     return res;
   }

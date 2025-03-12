@@ -37,14 +37,14 @@ public class SQLCreateIndexTest extends BaseDBTest {
 
     final Schema schema = session.getMetadata().getSchema();
     final var oClass = schema.createClass("sqlCreateIndexTestClass");
-    oClass.createProperty(session, "prop1", EXPECTED_PROP1_TYPE);
-    oClass.createProperty(session, "prop2", EXPECTED_PROP2_TYPE);
-    oClass.createProperty(session, "prop3", PropertyType.EMBEDDEDMAP, PropertyType.INTEGER);
-    oClass.createProperty(session, "prop5", PropertyType.EMBEDDEDLIST, PropertyType.INTEGER);
-    oClass.createProperty(session, "prop6", PropertyType.EMBEDDEDLIST);
-    oClass.createProperty(session, "prop7", PropertyType.EMBEDDEDMAP);
-    oClass.createProperty(session, "prop8", PropertyType.INTEGER);
-    oClass.createProperty(session, "prop9", PropertyType.LINKBAG);
+    oClass.createProperty("prop1", EXPECTED_PROP1_TYPE);
+    oClass.createProperty("prop2", EXPECTED_PROP2_TYPE);
+    oClass.createProperty("prop3", PropertyType.EMBEDDEDMAP, PropertyType.INTEGER);
+    oClass.createProperty("prop5", PropertyType.EMBEDDEDLIST, PropertyType.INTEGER);
+    oClass.createProperty("prop6", PropertyType.EMBEDDEDLIST);
+    oClass.createProperty("prop7", PropertyType.EMBEDDEDMAP);
+    oClass.createProperty("prop8", PropertyType.INTEGER);
+    oClass.createProperty("prop9", PropertyType.LINKBAG);
   }
 
   @AfterClass

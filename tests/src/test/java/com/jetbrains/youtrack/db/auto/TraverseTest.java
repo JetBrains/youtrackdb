@@ -284,7 +284,7 @@ public class TraverseTest extends BaseDBTest {
     var cycles = 0;
     for (var id :
         new Traverse(session)
-            .target(session.browseClass("Movie").iterator())
+            .target(session.browseClass("Movie"))
             .predicate(
                 new CommandPredicate() {
                   @Override
@@ -307,7 +307,7 @@ public class TraverseTest extends BaseDBTest {
 
     for (var id :
         new Traverse(session)
-            .target(session.browseClass("Movie").iterator())
+            .target(session.browseClass("Movie"))
             .predicate(new SQLPredicate(context, "$depth <= 2"))) {
       cycles++;
     }

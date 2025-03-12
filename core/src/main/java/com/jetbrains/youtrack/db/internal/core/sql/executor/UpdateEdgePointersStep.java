@@ -114,7 +114,7 @@ public class UpdateEdgePointersStep extends AbstractExecutionStep {
       SchemaImmutableClass result;
       result = record.getImmutableSchemaClass(session);
       return (!result
-          .isSubClassOf(session, SchemaClass.VERTEX_CLASS_NAME));
+          .isSubClassOf(SchemaClass.VERTEX_CLASS_NAME));
     } catch (RecordNotFoundException rnf) {
       return true;
     }

@@ -115,11 +115,11 @@ public class SystemDatabase {
       session.executeInTx(
           () -> {
             Entity info;
-            if (session.query("select count(*) as count from " + clz.getName(session)).
+            if (session.query("select count(*) as count from " + clz.getName()).
                 findFirst(r -> r.<Long>getProperty("count") == 0)) {
               info = session.newEntity(SERVER_INFO_CLASS);
             } else {
-              info = session.browseClass(clz.getName(session)).next();
+              info = session.browseClass(clz.getName()).next();
             }
             this.serverId = info.getProperty(SERVER_ID_PROPERTY);
             if (this.serverId == null) {

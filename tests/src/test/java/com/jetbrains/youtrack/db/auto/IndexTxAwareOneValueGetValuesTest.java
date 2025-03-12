@@ -37,8 +37,8 @@ public class IndexTxAwareOneValueGetValuesTest extends BaseDBTest {
 
     final Schema schema = session.getMetadata().getSchema();
     final var cls = schema.createClass(CLASS_NAME);
-    cls.createProperty(session, FIELD_NAME, PropertyType.INTEGER);
-    cls.createIndex(session, INDEX_NAME, SchemaClass.INDEX_TYPE.UNIQUE, FIELD_NAME);
+    cls.createProperty(FIELD_NAME, PropertyType.INTEGER);
+    cls.createIndex(INDEX_NAME, SchemaClass.INDEX_TYPE.UNIQUE, FIELD_NAME);
   }
 
   @BeforeMethod
@@ -47,7 +47,7 @@ public class IndexTxAwareOneValueGetValuesTest extends BaseDBTest {
     super.beforeMethod();
 
     var cls = session.getMetadata().getSchema().getClassInternal(CLASS_NAME);
-    cls.truncate(session);
+    cls.truncate();
   }
 
   @Test

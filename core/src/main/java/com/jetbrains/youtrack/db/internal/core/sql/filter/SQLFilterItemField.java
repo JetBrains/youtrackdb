@@ -276,12 +276,12 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
       if (schemaClass == null) {
         return null;
       }
-      var property = schemaClass.getProperty(session,
+      var property = schemaClass.getProperty(
           chain.getItemName(chain.getItemCount() - 1));
       if (property == null) {
         return null;
       }
-      return property.getCollate(session);
+      return property.getCollate();
     } catch (RecordNotFoundException rnf) {
       return null;
     }

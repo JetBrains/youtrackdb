@@ -128,10 +128,9 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
       EntityImpl target;
 
       // BROWSE ALL THE RECORDS OF THE SOURCE CLASS
-      for (var entity : session.browseClass(documentSourceClass.getName(session))) {
-        if (breakExec) {
-          break;
-        }
+      var iterator = session.browseClass(documentSourceClass.getName());
+      while (iterator.hasNext() && !breakExec) {
+        var entity = iterator.next();
         var value = entity.getProperty(sourceField.getStringValue());
 
         if (value != null) {
@@ -162,7 +161,7 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
             } else if (result.size() > 1) {
               throw new CommandExecutionException(ctx.getDatabaseSession(),
                   "Cannot create link because multiple records was found in class '"
-                      + txDestClass.getName(session)
+                      + txDestClass.getName()
                       + "' with value "
                       + value
                       + " in field '"
@@ -229,17 +228,17 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
       if (total[0] > 0) {
         if (inverse) {
           // REMOVE THE OLD PROPERTY IF ANY
-          var prop = destClass.getProperty(session, linkName);
+          var prop = destClass.getProperty(linkName);
           destClass = session.getMetadata().getSchema().getClass(this.destClass.getStringValue());
           if (prop != null) {
-            if (linkType != prop.getType(session)) {
+            if (linkType != prop.getType()) {
               throw new CommandExecutionException(session,
                   "Cannot create the link because the property '"
                       + linkName
                       + "' already exists for class "
-                      + destClass.getName(session)
+                      + destClass.getName()
                       + " and has a different type - actual: "
-                      + prop.getType(session)
+                      + prop.getType()
                       + " expected: "
                       + linkType);
             }
@@ -248,22 +247,22 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
                 "Cannot create the link because the property '"
                     + linkName
                     + "' does not exist in class '"
-                    + destClass.getName(session)
+                    + destClass.getName()
                     + "'");
           }
         } else {
           // REMOVE THE OLD PROPERTY IF ANY
-          var prop = sourceClass.getProperty(session, linkName);
+          var prop = sourceClass.getProperty(linkName);
           sourceClass = session.getMetadata().getSchema().getClass(this.destClass.getStringValue());
           if (prop != null) {
-            if (prop.getType(session) != PropertyType.LINK) {
+            if (prop.getType() != PropertyType.LINK) {
               throw new CommandExecutionException(session,
                   "Cannot create the link because the property '"
                       + linkName
                       + "' already exists for class "
-                      + sourceClass.getName(session)
+                      + sourceClass.getName()
                       + " and has a different type - actual: "
-                      + prop.getType(session)
+                      + prop.getType()
                       + " expected: "
                       + PropertyType.LINK);
             }
@@ -272,7 +271,7 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
                 "Cannot create the link because the property '"
                     + linkName
                     + "' does not exist in class '"
-                    + sourceClass.getName(session)
+                    + sourceClass.getName()
                     + "'");
           }
         }

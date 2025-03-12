@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
@@ -37,12 +38,12 @@ public class SQLDropPropertyStatement extends DDLStatement {
 
     final var session = ctx.getDatabaseSession();
     final var sourceClass =
-        (SchemaClassImpl) session.getMetadata().getSchema().getClass(className.getStringValue());
+        (SchemaClassInternal) session.getMetadata().getSchema().getClass(className.getStringValue());
     if (sourceClass == null) {
       throw new CommandExecutionException(session, "Source class '" + className + "' not found");
     }
 
-    if (sourceClass.getProperty(session, propertyName.getStringValue()) == null) {
+    if (sourceClass.getProperty(propertyName.getStringValue()) == null) {
       if (ifExists) {
         return ExecutionStream.empty();
       }
@@ -82,7 +83,7 @@ public class SQLDropPropertyStatement extends DDLStatement {
     }
 
     // REMOVE THE PROPERTY
-    sourceClass.dropProperty(session, propertyName.getStringValue());
+    sourceClass.dropProperty(propertyName.getStringValue());
 
     var result = new ResultInternal(session);
     result.setProperty("operation", "drop property");

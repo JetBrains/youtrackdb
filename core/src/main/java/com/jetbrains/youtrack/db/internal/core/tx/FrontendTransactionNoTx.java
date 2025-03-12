@@ -23,12 +23,12 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.NoTxRecordReadException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
@@ -38,6 +38,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * No operation transaction.
@@ -96,13 +97,13 @@ public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
     throw new UnsupportedOperationException("Rollback is not supported in no tx mode");
   }
 
-  public @Nonnull DBRecord loadRecord(final RID rid) {
+  public @Nonnull LoadRecordResult loadRecord(final RID rid) {
     checkNonTXReads();
     if (rid.isNew()) {
       throw new RecordNotFoundException(session, rid);
     }
 
-    return session.executeReadRecord((RecordId) rid);
+    return session.executeReadRecord((RecordId) rid, false, false, true);
   }
 
   private void checkNonTXReads() {
@@ -222,6 +223,39 @@ public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
   @Override
   public void addRecordOperation(RecordAbstract record, byte status) {
     throw new UnsupportedOperationException("Can not modify record outside transaction");
+  }
+
+  @Nullable
+  @Override
+  public RecordId getFirstRid(int clusterId) {
+    checkNonTXReads();
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public RecordId getLastRid(int clusterId) {
+    checkNonTXReads();
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public RecordId getNextRidInCluster(@Nonnull RecordId rid) {
+    checkNonTXReads();
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public RecordId getPreviousRidInCluster(@Nonnull RecordId rid) {
+    checkNonTXReads();
+    return null;
+  }
+
+  @Override
+  public boolean isDeletedInTx(@Nonnull RID rid) {
+    return false;
   }
 
   @Override

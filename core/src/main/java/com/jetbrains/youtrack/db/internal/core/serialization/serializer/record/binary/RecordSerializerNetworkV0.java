@@ -303,7 +303,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
     final SchemaClass clazz = result;
     String name = null;
     if (clazz != null) {
-      name = clazz.getName(session);
+      name = clazz.getName();
     }
     if (name == null) {
       name = entity.getSchemaClassName();
@@ -536,9 +536,9 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
     }
     SchemaClass immutableClass = result;
     if (immutableClass != null) {
-      var prop = immutableClass.getProperty(session, key);
+      var prop = immutableClass.getProperty(key);
       if (prop != null) {
-        return prop.getLinkedType(session);
+        return prop.getLinkedType();
       }
     }
     return null;
@@ -790,7 +790,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
     if (type == null) {
       final var prop = entry.property;
       if (prop != null) {
-        type = prop.getType(session);
+        type = prop.getType();
       }
     }
     if (type == null) {

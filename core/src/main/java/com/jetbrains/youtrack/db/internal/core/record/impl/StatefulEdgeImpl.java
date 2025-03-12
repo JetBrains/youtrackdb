@@ -574,7 +574,7 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
     var id = result.getIdentity();
     var schema = session.getMetadata().getSchema();
 
-    if (schema.getClassByClusterId(id.getClusterId()).isVertexType(session)) {
+    if (schema.getClassByClusterId(id.getClusterId()).isVertexType()) {
       return id;
     }
 
@@ -605,7 +605,7 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
     var id = result.getIdentity();
     var schema = entity.getSession().getMetadata().getSchema();
 
-    if (schema.getClassByClusterId(id.getClusterId()).isVertexType(session)) {
+    if (schema.getClassByClusterId(id.getClusterId()).isVertexType()) {
       return id;
     }
 
@@ -644,9 +644,9 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
 
     var typeClass = getImmutableSchemaClass(session);
 
-    types.add(typeClass.getName(session));
+    types.add(typeClass.getName());
     typeClass.getAllSuperClasses().stream()
-        .map(x -> x.getName(session))
+        .map(x -> x.getName())
         .forEach(types::add);
     for (var s : labels) {
       for (var type : types) {

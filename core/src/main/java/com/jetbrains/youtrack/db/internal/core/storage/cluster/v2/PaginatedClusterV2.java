@@ -616,14 +616,8 @@ public final class PaginatedClusterV2 extends PaginatedCluster {
     return entrySize + ByteSerializer.BYTE_SIZE + LongSerializer.LONG_SIZE;
   }
 
-  @Override
-  public @Nonnull RawBuffer readRecord(final long clusterPosition, final boolean prefetchRecords)
-      throws IOException {
-    return readRecord(clusterPosition);
-  }
-
   @Nonnull
-  private RawBuffer readRecord(final long clusterPosition) throws IOException {
+  public RawBuffer readRecord(final long clusterPosition) throws IOException {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
@@ -1065,7 +1059,7 @@ public final class PaginatedClusterV2 extends PaginatedCluster {
   }
 
   @Override
-  public long getNextPosition() throws IOException {
+  public long getNextFreePosition() throws IOException {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
@@ -1144,14 +1138,15 @@ public final class PaginatedClusterV2 extends PaginatedCluster {
   }
 
   @Override
-  public PhysicalPosition[] higherPositions(final PhysicalPosition position) throws IOException {
+  public PhysicalPosition[] higherPositions(final PhysicalPosition position, int limit)
+      throws IOException {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
         final var atomicOperation = atomicOperationsManager.getCurrentOperation();
         final var clusterPositions =
-            clusterPositionMap.higherPositions(position.clusterPosition, atomicOperation);
+            clusterPositionMap.higherPositions(position.clusterPosition, atomicOperation, limit);
         return convertToPhysicalPositions(clusterPositions);
       } finally {
         releaseSharedLock();
@@ -1162,14 +1157,15 @@ public final class PaginatedClusterV2 extends PaginatedCluster {
   }
 
   @Override
-  public PhysicalPosition[] ceilingPositions(final PhysicalPosition position) throws IOException {
+  public PhysicalPosition[] ceilingPositions(final PhysicalPosition position, int limit)
+      throws IOException {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
         final var atomicOperation = atomicOperationsManager.getCurrentOperation();
         final var clusterPositions =
-            clusterPositionMap.ceilingPositions(position.clusterPosition, atomicOperation);
+            clusterPositionMap.ceilingPositions(position.clusterPosition, atomicOperation, limit);
         return convertToPhysicalPositions(clusterPositions);
       } finally {
         releaseSharedLock();
@@ -1180,14 +1176,15 @@ public final class PaginatedClusterV2 extends PaginatedCluster {
   }
 
   @Override
-  public PhysicalPosition[] lowerPositions(final PhysicalPosition position) throws IOException {
+  public PhysicalPosition[] lowerPositions(final PhysicalPosition position, int limit)
+      throws IOException {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
         final var atomicOperation = atomicOperationsManager.getCurrentOperation();
         final var clusterPositions =
-            clusterPositionMap.lowerPositions(position.clusterPosition, atomicOperation);
+            clusterPositionMap.lowerPositions(position.clusterPosition, atomicOperation, limit);
         return convertToPhysicalPositions(clusterPositions);
       } finally {
         releaseSharedLock();
@@ -1198,14 +1195,15 @@ public final class PaginatedClusterV2 extends PaginatedCluster {
   }
 
   @Override
-  public PhysicalPosition[] floorPositions(final PhysicalPosition position) throws IOException {
+  public PhysicalPosition[] floorPositions(final PhysicalPosition position, int limit)
+      throws IOException {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
         final var atomicOperation = atomicOperationsManager.getCurrentOperation();
         final var clusterPositions =
-            clusterPositionMap.floorPositions(position.clusterPosition, atomicOperation);
+            clusterPositionMap.floorPositions(position.clusterPosition, atomicOperation, limit);
         return convertToPhysicalPositions(clusterPositions);
       } finally {
         releaseSharedLock();
@@ -1301,7 +1299,7 @@ public final class PaginatedClusterV2 extends PaginatedCluster {
       final List<byte[]> recordChunks, final int contentSize) {
     final byte[] fullContent;
     if (recordChunks.size() == 1) {
-      fullContent = recordChunks.get(0);
+      fullContent = recordChunks.getFirst();
     } else {
       fullContent = new byte[contentSize + LongSerializer.LONG_SIZE + ByteSerializer.BYTE_SIZE];
       var fullContentPosition = 0;

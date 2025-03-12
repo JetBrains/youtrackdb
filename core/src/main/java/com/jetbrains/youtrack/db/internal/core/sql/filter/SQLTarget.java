@@ -323,7 +323,7 @@ public class SQLTarget extends BaseParser {
                     + "'");
           }
 
-          targetClasses.put(cls.getName(session), alias);
+          targetClasses.put(cls.getName(), alias);
         }
       }
     }

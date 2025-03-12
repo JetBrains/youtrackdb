@@ -132,8 +132,8 @@ public class ChainedIndexProxy<T> implements IndexInternal {
     final Collection<Index> result = new ArrayList<>();
 
     for (var i = 0; i < fieldChain.getItemCount() - 1; i++) {
-      oClass = (SchemaClassInternal) oClass.getProperty(session, fieldChain.getItemName(i))
-          .getLinkedClass(session);
+      oClass = (SchemaClassInternal) oClass.getProperty(fieldChain.getItemName(i))
+          .getLinkedClass();
       if (oClass == null) {
         return result;
       }
@@ -143,8 +143,8 @@ public class ChainedIndexProxy<T> implements IndexInternal {
         new TreeSet<>(Comparator.comparingInt(o -> o.getDefinition().getParamCount()));
 
     involvedIndexes.addAll(
-        oClass.getInvolvedIndexesInternal(session,
-            fieldChain.getItemName(fieldChain.getItemCount() - 1)));
+        oClass.getInvolvedIndexesInternal(
+            session, fieldChain.getItemName(fieldChain.getItemCount() - 1)));
     final Collection<Class<? extends Index>> indexTypes = new HashSet<>(3);
 
     for (var involvedIndex : involvedIndexes) {
@@ -163,8 +163,8 @@ public class ChainedIndexProxy<T> implements IndexInternal {
 
     var oClass = iSchemaClass;
     for (var i = 0; i < fieldChain.getItemCount() - 1; i++) {
-      final var involvedIndexes = oClass.getInvolvedIndexesInternal(session,
-          fieldChain.getItemName(i));
+      final var involvedIndexes = oClass.getInvolvedIndexesInternal(
+          session, fieldChain.getItemName(i));
       final var bestIndex = findBestIndex(involvedIndexes);
 
       if (bestIndex == null) {
@@ -172,8 +172,8 @@ public class ChainedIndexProxy<T> implements IndexInternal {
       }
 
       result.add(bestIndex);
-      oClass = (SchemaClassInternal) oClass.getProperty(session, fieldChain.getItemName(i))
-          .getLinkedClass(session);
+      oClass = (SchemaClassInternal) oClass.getProperty(fieldChain.getItemName(i))
+          .getLinkedClass();
     }
     return result;
   }
@@ -611,7 +611,7 @@ public class ChainedIndexProxy<T> implements IndexInternal {
   }
 
   @Override
-  public Map<String, ?> getMetadata() {
+  public Map<String, Object> getMetadata() {
     throw new UnsupportedOperationException("Not allowed operation");
   }
 

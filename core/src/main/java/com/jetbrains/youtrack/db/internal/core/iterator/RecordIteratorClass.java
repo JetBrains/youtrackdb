@@ -25,9 +25,12 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
+import java.util.Iterator;
+import javax.annotation.Nonnull;
 
 /**
  * Iterator class to browse forward and backward the records of a cluster. Once browsed in a
@@ -36,111 +39,48 @@ import java.util.Arrays;
  * insert and remove item in any cluster the iterator is browsing. If the cluster are hot removed by
  * from the database the iterator could be invalid and throw exception of cluster not found.
  */
-public class RecordIteratorClass<REC extends DBRecord> extends RecordIteratorClusters<REC> {
+public class RecordIteratorClass implements Iterator<EntityImpl> {
 
-  protected final SchemaClass targetClass;
-  protected boolean polymorphic;
+  @Nonnull
+  private final RecordIteratorClusters<EntityImpl> iterator;
 
   public RecordIteratorClass(
-      final DatabaseSessionInternal iDatabase,
-      final String iClassName,
-      final boolean iPolymorphic,
-      boolean begin) {
-    this(iDatabase, iClassName, iPolymorphic);
-    if (begin) {
-      begin();
-    }
+      @Nonnull final DatabaseSessionInternal session,
+      @Nonnull final String className,
+      final boolean polymorphic, boolean forwardDirection) {
+    this(session, getSchemaClassInternal(session, className), polymorphic, forwardDirection);
   }
 
-  @Deprecated
-  public RecordIteratorClass(
-      final DatabaseSessionInternal iDatabase,
-      final String iClassName,
-      final boolean iPolymorphic) {
-    super(iDatabase);
+  public RecordIteratorClass(@Nonnull final DatabaseSessionInternal session,
+      @Nonnull final SchemaClassInternal targetClass,
+      final boolean polymorphic, boolean forwardDirection) {
+    var clusterIds = polymorphic ? targetClass.getPolymorphicClusterIds()
+        : targetClass.getClusterIds();
+    clusterIds = SchemaClassImpl.readableClusters(session, clusterIds,
+        targetClass.getName());
 
-    targetClass = session.getMetadata().getImmutableSchemaSnapshot().getClass(iClassName);
+    iterator = new RecordIteratorClusters<>(session, clusterIds, forwardDirection);
+  }
+
+  @Override
+  public boolean hasNext() {
+    return iterator.hasNext();
+  }
+
+  @Override
+  public EntityImpl next() {
+    return iterator.next();
+  }
+
+  private static SchemaClassInternal getSchemaClassInternal(DatabaseSessionInternal session,
+      String className) {
+    var targetClass = (SchemaClassInternal) session.getMetadata().getImmutableSchemaSnapshot()
+        .getClass(className);
     if (targetClass == null) {
       throw new IllegalArgumentException(
-          "Class '" + iClassName + "' was not found in database schema");
+          "Class '" + className + "' was not found in database schema");
     }
 
-    polymorphic = iPolymorphic;
-    clusterIds = polymorphic ? targetClass.getPolymorphicClusterIds(iDatabase)
-        : targetClass.getClusterIds(iDatabase);
-    clusterIds = SchemaClassImpl.readableClusters(iDatabase, clusterIds,
-        targetClass.getName(iDatabase));
-
-    checkForSystemClusters(iDatabase, clusterIds);
-
-    Arrays.sort(clusterIds);
-    config();
-  }
-
-  @Override
-  public REC next() {
-    final Identifiable rec = super.next();
-    if (rec == null) {
-      return null;
-    }
-    return rec.getRecord(session);
-  }
-
-  @Override
-  public REC previous() {
-    final Identifiable rec = super.previous();
-    if (rec == null) {
-      return null;
-    }
-
-    return rec.getRecord(session);
-  }
-
-  public boolean isPolymorphic() {
-    return polymorphic;
-  }
-
-  @Override
-  public String toString() {
-    return String.format(
-        "RecordIteratorClass.targetClass(%s).polymorphic(%s)", targetClass, polymorphic);
-  }
-
-  @Override
-  protected boolean include(final DBRecord record) {
-    if (!(record instanceof EntityImpl entity)) {
-      return false;
-    }
-    SchemaImmutableClass result;
-    result = entity.getImmutableSchemaClass(session);
-    return targetClass.isSuperClassOf(session,
-        result);
-  }
-
-  public SchemaClass getTargetClass() {
     return targetClass;
-  }
-
-  @Override
-  protected void config() {
-    currentClusterIdx = 0; // START FROM THE FIRST CLUSTER
-
-    updateClusterRange();
-
-    totalAvailableRecords = session.countClusterElements(clusterIds);
-
-    txEntries = session.getTransaction().getNewRecordEntriesByClass(targetClass, polymorphic);
-
-    if (txEntries != null)
-    // ADJUST TOTAL ELEMENT BASED ON CURRENT TRANSACTION'S ENTRIES
-    {
-      for (var entry : txEntries) {
-        if (!entry.record.getIdentity().isPersistent() && entry.type != RecordOperation.DELETED) {
-          totalAvailableRecords++;
-        } else if (entry.type == RecordOperation.DELETED) {
-          totalAvailableRecords--;
-        }
-      }
-    }
   }
 }

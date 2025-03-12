@@ -26,8 +26,8 @@ public class SchemaIndexTest extends BaseDBTest {
     final Schema schema = session.getMetadata().getSchema();
     final var superTest = schema.createClass("SchemaSharedIndexSuperTest");
     final var test = schema.createClass("SchemaIndexTest", superTest);
-    test.createProperty(session, "prop1", PropertyType.DOUBLE);
-    test.createProperty(session, "prop2", PropertyType.DOUBLE);
+    test.createProperty("prop1", PropertyType.DOUBLE);
+    test.createProperty("prop2", PropertyType.DOUBLE);
   }
 
   @AfterMethod
@@ -97,12 +97,12 @@ public class SchemaIndexTest extends BaseDBTest {
   public void testIndexWithNumberProperties() {
     var oclass = session.getMetadata().getSchema()
         .createClass("SchemaIndexTest_numberclass");
-    oclass.createProperty(session, "1", PropertyType.STRING).setMandatory(session, false);
-    oclass.createProperty(session, "2", PropertyType.STRING).setMandatory(session, false);
-    oclass.createIndex(session, "SchemaIndexTest_numberclass_1_2", SchemaClass.INDEX_TYPE.UNIQUE,
+    oclass.createProperty("1", PropertyType.STRING).setMandatory(false);
+    oclass.createProperty("2", PropertyType.STRING).setMandatory(false);
+    oclass.createIndex("SchemaIndexTest_numberclass_1_2", SchemaClass.INDEX_TYPE.UNIQUE,
         "1",
         "2");
 
-    session.getMetadata().getSchema().dropClass(oclass.getName(session));
+    session.getMetadata().getSchema().dropClass(oclass.getName());
   }
 }

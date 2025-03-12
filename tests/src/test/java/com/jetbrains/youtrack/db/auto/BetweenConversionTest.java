@@ -34,10 +34,10 @@ public class BetweenConversionTest extends BaseDBTest {
 
     final Schema schema = session.getMetadata().getSchema();
     final var clazz = schema.createClass("BetweenConversionTest");
-    clazz.createProperty(session, "a", PropertyType.INTEGER);
-    clazz.createProperty(session, "ai", PropertyType.INTEGER);
+    clazz.createProperty("a", PropertyType.INTEGER);
+    clazz.createProperty("ai", PropertyType.INTEGER);
 
-    clazz.createIndex(session, "BetweenConversionTestIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+    clazz.createIndex("BetweenConversionTestIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "ai");
 
     for (var i = 0; i < 10; i++) {

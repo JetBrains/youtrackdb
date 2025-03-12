@@ -289,24 +289,24 @@ public class LDAPImporter implements SecurityComponent {
 
         System.out.println("calling createProperty");
 
-        var prop = ldapUser.createProperty(odb, "Domain", PropertyType.STRING);
+        var prop = ldapUser.createProperty("Domain", PropertyType.STRING);
 
         System.out.println("calling setMandatory");
 
-        prop.setMandatory(odb, true);
-        prop.setNotNull(odb, true);
+        prop.setMandatory(true);
+        prop.setNotNull(true);
 
-        prop = ldapUser.createProperty(odb, "BaseDN", PropertyType.STRING);
-        prop.setMandatory(odb, true);
-        prop.setNotNull(odb, true);
+        prop = ldapUser.createProperty("BaseDN", PropertyType.STRING);
+        prop.setMandatory(true);
+        prop.setNotNull(true);
 
-        prop = ldapUser.createProperty(odb, "Filter", PropertyType.STRING);
-        prop.setMandatory(odb, true);
-        prop.setNotNull(odb, true);
+        prop = ldapUser.createProperty("Filter", PropertyType.STRING);
+        prop.setMandatory(true);
+        prop.setNotNull(true);
 
-        prop = ldapUser.createProperty(odb, "Roles", PropertyType.STRING);
-        prop.setMandatory(odb, true);
-        prop.setNotNull(odb, true);
+        prop = ldapUser.createProperty("Roles", PropertyType.STRING);
+        prop.setMandatory(true);
+        prop.setNotNull(true);
       }
     } catch (Exception ex) {
       LogManager.instance().error(this, "LDAPImporter.verifySchema()", ex);

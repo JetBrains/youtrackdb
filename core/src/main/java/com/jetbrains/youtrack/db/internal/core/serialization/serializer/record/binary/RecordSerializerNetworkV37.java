@@ -211,7 +211,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
     final SchemaClass clazz = result;
     String name = null;
     if (clazz != null) {
-      name = clazz.getName(session);
+      name = clazz.getName();
     }
     if (name == null) {
       name = entity.getSchemaClassName();
@@ -342,7 +342,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
   }
 
   private void writeRidBag(DatabaseSessionInternal session, BytesContainer bytes, RidBag bag) {
-    final var bTreeCollectionManager = session.getSbTreeCollectionManager();
+    final var bTreeCollectionManager = session.getBTreeCollectionManager();
     UUID uuid = null;
     if (bTreeCollectionManager != null) {
       uuid = bTreeCollectionManager.listenForChanges(bag, session);
@@ -565,9 +565,9 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
     }
     SchemaClass immutableClass = result;
     if (immutableClass != null) {
-      var prop = immutableClass.getProperty(session, key);
+      var prop = immutableClass.getProperty(key);
       if (prop != null) {
-        return prop.getLinkedType(session);
+        return prop.getLinkedType();
       }
     }
     return null;
@@ -783,7 +783,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
     if (type == null) {
       final var prop = entry.property;
       if (prop != null) {
-        type = prop.getType(session);
+        type = prop.getType();
       }
     }
     if (type == null) {

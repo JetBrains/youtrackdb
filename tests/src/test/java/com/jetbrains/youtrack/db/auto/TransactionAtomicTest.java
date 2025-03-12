@@ -161,15 +161,15 @@ public class TransactionAtomicTest extends BaseDBTest {
     if (fruitClass == null) {
       fruitClass = session.getMetadata().getSchema().createClass("Fruit");
 
-      fruitClass.createProperty(session, "name", PropertyType.STRING);
-      fruitClass.createProperty(session, "color", PropertyType.STRING);
+      fruitClass.createProperty("name", PropertyType.STRING);
+      fruitClass.createProperty("color", PropertyType.STRING);
 
       session
           .getMetadata()
           .getSchema()
           .getClass("Fruit")
-          .getProperty(session, "color")
-          .createIndex(session, SchemaClass.INDEX_TYPE.UNIQUE);
+          .getProperty("color")
+          .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
     }
 
     Assert.assertEquals(session.countClusterElements("Fruit"), 0);
@@ -188,13 +188,13 @@ public class TransactionAtomicTest extends BaseDBTest {
 
       session.commit();
 
-      Assert.assertEquals(apple.getIdentity().getClusterId(), fruitClass.getClusterIds(session)[0]);
+      Assert.assertEquals(apple.getIdentity().getClusterId(), fruitClass.getClusterIds()[0]);
       Assert.assertEquals(orange.getIdentity().getClusterId(),
-          fruitClass.getClusterIds(session)[0]);
+          fruitClass.getClusterIds()[0]);
       Assert.assertEquals(banana.getIdentity().getClusterId(),
-          fruitClass.getClusterIds(session)[0]);
+          fruitClass.getClusterIds()[0]);
       Assert.assertEquals(kumquat.getIdentity().getClusterId(),
-          fruitClass.getClusterIds(session)[0]);
+          fruitClass.getClusterIds()[0]);
 
       Assert.fail();
 

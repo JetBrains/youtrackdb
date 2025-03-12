@@ -45,7 +45,7 @@ public class IndexCandidateImpl implements IndexCandidate {
   public Optional<IndexCandidate> normalize(CommandContext ctx) {
     var session = ctx.getDatabaseSession();
     var index = session.getMetadata().getIndexManager().getIndex(name);
-    if (property.getName(session).equals(index.getDefinition().getFields().get(0))) {
+    if (property.getName().equals(index.getDefinition().getFields().get(0))) {
       return Optional.of(this);
     } else {
       return Optional.empty();

@@ -520,9 +520,9 @@ public class SQLBaseExpression extends SQLMathExpression {
     }
     var db = ctx.getDatabaseSession();
     if (identifier.isIndexChain(ctx, clazz)) {
-      var prop = clazz.getProperty(db,
+      var prop = clazz.getProperty(
           identifier.getSuffix().getIdentifier().getStringValue());
-      var linkedClass = (SchemaClassInternal) prop.getLinkedClass(ctx.getDatabaseSession());
+      var linkedClass = (SchemaClassInternal) prop.getLinkedClass();
       if (linkedClass != null) {
         return modifier.isIndexChain(ctx, linkedClass);
       }

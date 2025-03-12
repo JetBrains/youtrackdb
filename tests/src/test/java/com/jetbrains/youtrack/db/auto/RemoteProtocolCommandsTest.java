@@ -70,12 +70,12 @@ public class RemoteProtocolCommandsTest extends BaseDBTest {
 
     // assertTrue(" the cluster is not valid", bad.clusterId >= 0);
     var ids = "";
-    for (var aId : clazz.getClusterIds(session)) {
+    for (var aId : clazz.getClusterIds()) {
       ids += aId;
     }
 
     assertTrue(
         " returned id:" + bad.getClusterId() + " shoud be one of:" + ids,
-        Arrays.binarySearch(clazz.getClusterIds(session), bad.getClusterId()) >= 0);
+        Arrays.binarySearch(clazz.getClusterIds(), bad.getClusterId()) >= 0);
   }
 }

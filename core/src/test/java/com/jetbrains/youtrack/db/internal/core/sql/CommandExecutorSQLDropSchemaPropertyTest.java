@@ -32,25 +32,25 @@ public class CommandExecutorSQLDropSchemaPropertyTest extends DbTestBase {
     Schema schema = session.getMetadata().getSchema();
     var foo = schema.createClass("Foo");
 
-    foo.createProperty(session, "name", PropertyType.STRING);
-    Assert.assertTrue(schema.getClass("Foo").existsProperty(session, "name"));
+    foo.createProperty("name", PropertyType.STRING);
+    Assert.assertTrue(schema.getClass("Foo").existsProperty("name"));
     session.command("DROP PROPERTY Foo.name").close();
-    Assert.assertFalse(schema.getClass("Foo").existsProperty(session, "name"));
+    Assert.assertFalse(schema.getClass("Foo").existsProperty("name"));
 
-    foo.createProperty(session, "name", PropertyType.STRING);
-    Assert.assertTrue(schema.getClass("Foo").existsProperty(session, "name"));
+    foo.createProperty("name", PropertyType.STRING);
+    Assert.assertTrue(schema.getClass("Foo").existsProperty("name"));
     session.command("DROP PROPERTY `Foo`.name").close();
-    Assert.assertFalse(schema.getClass("Foo").existsProperty(session, "name"));
+    Assert.assertFalse(schema.getClass("Foo").existsProperty("name"));
 
-    foo.createProperty(session, "name", PropertyType.STRING);
-    Assert.assertTrue(schema.getClass("Foo").existsProperty(session, "name"));
+    foo.createProperty("name", PropertyType.STRING);
+    Assert.assertTrue(schema.getClass("Foo").existsProperty("name"));
     session.command("DROP PROPERTY Foo.`name`").close();
-    Assert.assertFalse(schema.getClass("Foo").existsProperty(session, "name"));
+    Assert.assertFalse(schema.getClass("Foo").existsProperty("name"));
 
-    foo.createProperty(session, "name", PropertyType.STRING);
-    Assert.assertTrue(schema.getClass("Foo").existsProperty(session, "name"));
+    foo.createProperty("name", PropertyType.STRING);
+    Assert.assertTrue(schema.getClass("Foo").existsProperty("name"));
     session.command("DROP PROPERTY `Foo`.`name`").close();
-    Assert.assertFalse(schema.getClass("Foo").existsProperty(session, "name"));
+    Assert.assertFalse(schema.getClass("Foo").existsProperty("name"));
   }
 
   @Test
@@ -58,12 +58,12 @@ public class CommandExecutorSQLDropSchemaPropertyTest extends DbTestBase {
     Schema schema = session.getMetadata().getSchema();
     var testIfExistsClass = schema.createClass("testIfExists");
 
-    testIfExistsClass.createProperty(session, "name", PropertyType.STRING);
-    Assert.assertTrue(schema.getClass("testIfExists").existsProperty(session, "name"));
+    testIfExistsClass.createProperty("name", PropertyType.STRING);
+    Assert.assertTrue(schema.getClass("testIfExists").existsProperty("name"));
     session.command("DROP PROPERTY testIfExists.name if exists").close();
-    Assert.assertFalse(schema.getClass("testIfExists").existsProperty(session, "name"));
+    Assert.assertFalse(schema.getClass("testIfExists").existsProperty("name"));
 
     session.command("DROP PROPERTY testIfExists.name if exists").close();
-    Assert.assertFalse(schema.getClass("testIfExists").existsProperty(session, "name"));
+    Assert.assertFalse(schema.getClass("testIfExists").existsProperty("name"));
   }
 }

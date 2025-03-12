@@ -63,7 +63,7 @@ public class ColumnSecurityTest {
     var security = session.getSharedContext().getSecurity();
 
     var person = session.createClass("Person");
-    person.createProperty(session, "name", PropertyType.STRING);
+    person.createProperty("name", PropertyType.STRING);
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -82,8 +82,8 @@ public class ColumnSecurityTest {
     var security = session.getSharedContext().getSecurity();
 
     var person = session.createClass("Person");
-    person.createProperty(session, "name", PropertyType.STRING);
-    person.createProperty(session, "surname", PropertyType.STRING);
+    person.createProperty("name", PropertyType.STRING);
+    person.createProperty("surname", PropertyType.STRING);
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -108,7 +108,7 @@ public class ColumnSecurityTest {
     var security = session.getSharedContext().getSecurity();
 
     var person = session.createClass("Person");
-    person.createProperty(session, "name", PropertyType.STRING);
+    person.createProperty("name", PropertyType.STRING);
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -131,7 +131,7 @@ public class ColumnSecurityTest {
     var security = session.getSharedContext().getSecurity();
 
     var person = session.createClass("Person");
-    person.createProperty(session, "name", PropertyType.STRING);
+    person.createProperty("name", PropertyType.STRING);
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -150,8 +150,8 @@ public class ColumnSecurityTest {
     var security = session.getSharedContext().getSecurity();
 
     var person = session.createClass("Person");
-    person.createProperty(session, "name", PropertyType.STRING);
-    person.createProperty(session, "address", PropertyType.STRING);
+    person.createProperty("name", PropertyType.STRING);
+    person.createProperty("address", PropertyType.STRING);
 
     session.command("create index Person.name_address on Person (name, address) NOTUNIQUE");
 
@@ -170,8 +170,8 @@ public class ColumnSecurityTest {
     var security = session.getSharedContext().getSecurity();
 
     var person = session.createClass("Person");
-    person.createProperty(session, "name", PropertyType.STRING);
-    person.createProperty(session, "surname", PropertyType.STRING);
+    person.createProperty("name", PropertyType.STRING);
+    person.createProperty("surname", PropertyType.STRING);
 
     session.command("create index Person.name_surname on Person (name, surname) NOTUNIQUE");
 
@@ -195,7 +195,7 @@ public class ColumnSecurityTest {
     var security = session.getSharedContext().getSecurity();
 
     var person = session.createClass("Person");
-    person.createProperty(session, "name", PropertyType.STRING);
+    person.createProperty("name", PropertyType.STRING);
 
     session.command("create index Person.name on Person (name) NOTUNIQUE");
 
@@ -260,7 +260,7 @@ public class ColumnSecurityTest {
     var security = session.getSharedContext().getSecurity();
 
     var clazz = session.createClass("Person");
-    clazz.createProperty(session, "name", PropertyType.STRING);
+    clazz.createProperty("name", PropertyType.STRING);
 
     session.command("create index Person.name on Person (name) NOTUNIQUE");
 

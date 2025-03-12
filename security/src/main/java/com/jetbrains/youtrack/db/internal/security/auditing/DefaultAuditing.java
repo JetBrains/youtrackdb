@@ -16,7 +16,6 @@ package com.jetbrains.youtrack.db.internal.security.auditing;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
@@ -24,6 +23,8 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SystemDatabase;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassProxy;
 import com.jetbrains.youtrack.db.internal.core.security.AuditingOperation;
 import com.jetbrains.youtrack.db.internal.core.security.AuditingService;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
@@ -66,6 +67,7 @@ public class DefaultAuditing
   public static final String IMPORTER_FLAG = "AUDITING_IMPORTER";
 
   private class AuditingDistribConfig extends AuditingConfig {
+
     private boolean onNodeJoinedEnabled = false;
     private String onNodeJoinedMessage = "The node ${node} has joined";
 
@@ -278,20 +280,20 @@ public class DefaultAuditing
   }
 
   @Override
-  public void onCreateClass(DatabaseSessionInternal session, SchemaClass iClass) {
+  public void onCreateClass(DatabaseSessionInternal session, SchemaClassImpl iClass) {
     final var oAuditingHook = hooks.get(session.getDatabaseName());
 
     if (oAuditingHook != null) {
-      oAuditingHook.onCreateClass(session, iClass);
+      oAuditingHook.onCreateClass(session, new SchemaClassProxy(iClass, session));
     }
   }
 
   @Override
-  public void onDropClass(DatabaseSessionInternal session, SchemaClass iClass) {
+  public void onDropClass(DatabaseSessionInternal session, SchemaClassImpl iClass) {
     final var oAuditingHook = hooks.get(session.getDatabaseName());
 
     if (oAuditingHook != null) {
-      oAuditingHook.onDropClass(session, iClass);
+      oAuditingHook.onDropClass(session, new SchemaClassProxy(iClass, session));
     }
   }
 
@@ -406,13 +408,13 @@ public class DefaultAuditing
 
       if (cls == null) {
         cls = session.getMetadata().getSchema().createClass(AUDITING_LOG_CLASSNAME);
-        cls.createProperty(session, "date", PropertyType.DATETIME);
-        cls.createProperty(session, "user", PropertyType.STRING);
-        cls.createProperty(session, "operation", PropertyType.BYTE);
-        cls.createProperty(session, "record", PropertyType.LINK);
-        cls.createProperty(session, "changes", PropertyType.EMBEDDED);
-        cls.createProperty(session, "note", PropertyType.STRING);
-        cls.createProperty(session, "database", PropertyType.STRING);
+        cls.createProperty("date", PropertyType.DATETIME);
+        cls.createProperty("user", PropertyType.STRING);
+        cls.createProperty("operation", PropertyType.BYTE);
+        cls.createProperty("record", PropertyType.LINK);
+        cls.createProperty("changes", PropertyType.EMBEDDED);
+        cls.createProperty("note", PropertyType.STRING);
+        cls.createProperty("database", PropertyType.STRING);
       }
     } catch (Exception e) {
       LogManager.instance().error(this, "Creating auditing class exception", e);

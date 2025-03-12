@@ -84,7 +84,9 @@ public class FindReferenceHelper {
       final Set<RID> iSourceRIDs,
       final Map<RID, Set<RID>> map,
       final String iClusterName) {
-    for (var record : db.browseCluster(iClusterName)) {
+    var recordIterator = db.browseCluster(iClusterName);
+    while (recordIterator.hasNext()) {
+      var record = recordIterator.next();
       if (record instanceof EntityImpl) {
         try {
           for (var fieldName : ((EntityImpl) record).fieldNames()) {
@@ -110,7 +112,7 @@ public class FindReferenceHelper {
       throw new CommandExecutionException(session, "Class '" + iClassName + "' was not found");
     }
 
-    for (var i : clazz.getClusterIds(session)) {
+    for (var i : clazz.getClusterIds()) {
       browseCluster(session, iSourceRIDs, map, session.getClusterNameById(i));
     }
   }

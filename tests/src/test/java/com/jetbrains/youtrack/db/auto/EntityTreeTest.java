@@ -17,7 +17,6 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
@@ -479,13 +478,13 @@ public class EntityTreeTest extends BaseDBTest {
 
     var child = schema.getClass("Child");
     var clazz = schema.createClass("JavaCascadeDeleteTestClass");
-    clazz.createProperty(session, "simpleClass", PropertyType.LINK,
+    clazz.createProperty("simpleClass", PropertyType.LINK,
         schema.getClass("JavaSimpleTestClass"));
-    clazz.createProperty(session, "binary", PropertyType.LINK);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "set", PropertyType.LINKSET, child);
-    clazz.createProperty(session, "children", PropertyType.LINKMAP, child);
-    clazz.createProperty(session, "list", PropertyType.LINKLIST, child);
+    clazz.createProperty("binary", PropertyType.LINK);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("set", PropertyType.LINKSET, child);
+    clazz.createProperty("children", PropertyType.LINKMAP, child);
+    clazz.createProperty("list", PropertyType.LINKLIST, child);
   }
 
   private void createPlanetClasses() {
@@ -493,14 +492,14 @@ public class EntityTreeTest extends BaseDBTest {
     var satellite = schema.createClass("Satellite");
     var planet = schema.createClass("Planet");
 
-    planet.createProperty(session, "name", PropertyType.STRING);
-    planet.createProperty(session, "distanceSun", PropertyType.INTEGER);
-    planet.createProperty(session, "satellites", PropertyType.LINKLIST, satellite);
-    planet.createProperty(session, "satellitesMap", PropertyType.LINKMAP, satellite);
+    planet.createProperty("name", PropertyType.STRING);
+    planet.createProperty("distanceSun", PropertyType.INTEGER);
+    planet.createProperty("satellites", PropertyType.LINKLIST, satellite);
+    planet.createProperty("satellitesMap", PropertyType.LINKMAP, satellite);
 
-    satellite.createProperty(session, "name", PropertyType.STRING);
-    satellite.createProperty(session, "diameter", PropertyType.LONG);
-    satellite.createProperty(session, "near", PropertyType.LINK, planet);
+    satellite.createProperty("name", PropertyType.STRING);
+    satellite.createProperty("diameter", PropertyType.LONG);
+    satellite.createProperty("near", PropertyType.LINK, planet);
   }
 
   private void createRefClasses() {
@@ -509,10 +508,10 @@ public class EntityTreeTest extends BaseDBTest {
     var refChild = schema.createClass("RefChild");
     var otherThing = schema.createClass("OtherThing");
 
-    refParent.createProperty(session, "children", PropertyType.LINKSET, refChild);
-    refChild.createProperty(session, "otherThing", PropertyType.LINK, otherThing);
+    refParent.createProperty("children", PropertyType.LINKSET, refChild);
+    refChild.createProperty("otherThing", PropertyType.LINK, otherThing);
 
-    otherThing.createProperty(session, "relationToParent1", PropertyType.LINK, refParent);
-    otherThing.createProperty(session, "relationToParent2", PropertyType.LINK, refParent);
+    otherThing.createProperty("relationToParent1", PropertyType.LINK, refParent);
+    otherThing.createProperty("relationToParent2", PropertyType.LINK, refParent);
   }
 }

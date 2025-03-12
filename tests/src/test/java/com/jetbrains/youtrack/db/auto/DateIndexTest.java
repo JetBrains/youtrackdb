@@ -33,52 +33,52 @@ public class DateIndexTest extends BaseDBTest {
 
     var dateIndexTest = schema.createClass("DateIndexTest");
 
-    dateIndexTest.createProperty(session, "dateField", PropertyType.DATE);
-    dateIndexTest.createProperty(session, "dateTimeField", PropertyType.DATETIME);
+    dateIndexTest.createProperty("dateField", PropertyType.DATE);
+    dateIndexTest.createProperty("dateTimeField", PropertyType.DATETIME);
 
-    dateIndexTest.createProperty(session, "dateList", PropertyType.EMBEDDEDLIST,
+    dateIndexTest.createProperty("dateList", PropertyType.EMBEDDEDLIST,
         PropertyType.DATE);
-    dateIndexTest.createProperty(session, "dateTimeList", PropertyType.EMBEDDEDLIST,
+    dateIndexTest.createProperty("dateTimeList", PropertyType.EMBEDDEDLIST,
         PropertyType.DATETIME);
 
-    dateIndexTest.createProperty(session, "value", PropertyType.STRING);
+    dateIndexTest.createProperty("value", PropertyType.STRING);
 
-    dateIndexTest.createIndex(session, "DateIndexTestDateIndex", SchemaClass.INDEX_TYPE.UNIQUE,
+    dateIndexTest.createIndex("DateIndexTestDateIndex", SchemaClass.INDEX_TYPE.UNIQUE,
         "dateField");
-    dateIndexTest.createIndex(session,
+    dateIndexTest.createIndex(
         "DateIndexTestValueDateIndex", SchemaClass.INDEX_TYPE.UNIQUE, "value", "dateField");
 
-    dateIndexTest.createIndex(session,
+    dateIndexTest.createIndex(
         "DateIndexTestDateTimeIndex", SchemaClass.INDEX_TYPE.UNIQUE, "dateTimeField");
-    dateIndexTest.createIndex(session,
+    dateIndexTest.createIndex(
         "DateIndexTestValueDateTimeIndex", SchemaClass.INDEX_TYPE.UNIQUE, "value", "dateTimeField");
 
-    dateIndexTest.createIndex(session,
+    dateIndexTest.createIndex(
         "DateIndexTestValueDateListIndex", SchemaClass.INDEX_TYPE.UNIQUE, "value", "dateList");
-    dateIndexTest.createIndex(session,
+    dateIndexTest.createIndex(
         "DateIndexTestValueDateTimeListIndex", SchemaClass.INDEX_TYPE.UNIQUE, "value",
         "dateTimeList");
 
-    dateIndexTest.createIndex(session,
+    dateIndexTest.createIndex(
         "DateIndexTestDateHashIndex", SchemaClass.INDEX_TYPE.UNIQUE, "dateField");
-    dateIndexTest.createIndex(session,
+    dateIndexTest.createIndex(
         "DateIndexTestValueDateHashIndex",
         SchemaClass.INDEX_TYPE.UNIQUE,
         "value", "dateField");
 
-    dateIndexTest.createIndex(session,
+    dateIndexTest.createIndex(
         "DateIndexTestDateTimeHashIndex", SchemaClass.INDEX_TYPE.UNIQUE,
         "dateTimeField");
-    dateIndexTest.createIndex(session,
+    dateIndexTest.createIndex(
         "DateIndexTestValueDateTimeHashIndex",
         SchemaClass.INDEX_TYPE.UNIQUE,
         "value", "dateTimeField");
 
-    dateIndexTest.createIndex(session,
+    dateIndexTest.createIndex(
         "DateIndexTestValueDateListHashIndex",
         SchemaClass.INDEX_TYPE.UNIQUE,
         "value", "dateList");
-    dateIndexTest.createIndex(session,
+    dateIndexTest.createIndex(
         "DateIndexTestValueDateTimeListHashIndex",
         SchemaClass.INDEX_TYPE.UNIQUE,
         "value", "dateTimeList");

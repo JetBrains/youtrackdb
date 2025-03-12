@@ -182,8 +182,8 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
     var index = session.getMetadata().getIndexManagerInternal()
         .getIndex(session, "test_class_by_data");
     if (index == null) {
-      testClass.createProperty(session, "data", PropertyType.EMBEDDEDLIST, PropertyType.INTEGER);
-      testClass.createIndex(session, "test_class_by_data", SchemaClass.INDEX_TYPE.UNIQUE,
+      testClass.createProperty("data", PropertyType.EMBEDDEDLIST, PropertyType.INTEGER);
+      testClass.createIndex("test_class_by_data", SchemaClass.INDEX_TYPE.UNIQUE,
           "data");
     }
     return session.getMetadata().getIndexManagerInternal().getIndex(session, "test_class_by_data");

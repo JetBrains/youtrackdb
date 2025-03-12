@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db;
 
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
 import javax.annotation.Nonnull;
 
 /**
@@ -47,10 +47,10 @@ public interface DatabaseLifecycleListener {
   void onDrop(@Nonnull DatabaseSessionInternal session);
 
   @Deprecated
-  default void onCreateClass(DatabaseSessionInternal session, SchemaClass iClass) {
+  default void onCreateClass(DatabaseSessionInternal session, SchemaClassImpl iClass) {
   }
 
   @Deprecated
-  default void onDropClass(DatabaseSessionInternal session, SchemaClass iClass) {
+  default void onDropClass(DatabaseSessionInternal session, SchemaClassImpl iClass) {
   }
 }

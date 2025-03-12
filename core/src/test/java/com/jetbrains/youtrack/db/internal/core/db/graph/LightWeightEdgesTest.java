@@ -63,8 +63,8 @@ public class LightWeightEdgesTest {
     var eClazz = "EtestRegularBySchema";
     var eClass = session.createEdgeClass(eClazz);
 
-    vClass.createProperty(session, "out_" + eClazz, PropertyType.LINKBAG, eClass);
-    vClass.createProperty(session, "in_" + eClazz, PropertyType.LINKBAG, eClass);
+    vClass.createProperty("out_" + eClazz, PropertyType.LINKBAG, eClass);
+    vClass.createProperty("in_" + eClazz, PropertyType.LINKBAG, eClass);
 
     session.begin();
     var v = session.newVertex(vClass);

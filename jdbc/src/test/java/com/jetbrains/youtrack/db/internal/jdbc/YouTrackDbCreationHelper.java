@@ -235,38 +235,38 @@ public class YouTrackDbCreationHelper {
     // item
     var item = schema.createClass("Item");
 
-    item.createProperty(db, "stringKey", PropertyType.STRING).createIndex(db, INDEX_TYPE.UNIQUE);
-    item.createProperty(db, "intKey", PropertyType.INTEGER).createIndex(db, INDEX_TYPE.UNIQUE);
-    item.createProperty(db, "date", PropertyType.DATE).createIndex(db, INDEX_TYPE.NOTUNIQUE);
-    item.createProperty(db, "time", PropertyType.DATETIME).createIndex(db, INDEX_TYPE.NOTUNIQUE);
-    item.createProperty(db, "text", PropertyType.STRING);
-    item.createProperty(db, "score", PropertyType.DECIMAL);
-    item.createProperty(db, "length", PropertyType.INTEGER).createIndex(db, INDEX_TYPE.NOTUNIQUE);
-    item.createProperty(db, "published", PropertyType.BOOLEAN)
-        .createIndex(db, INDEX_TYPE.NOTUNIQUE);
-    item.createProperty(db, "title", PropertyType.STRING).createIndex(db, INDEX_TYPE.NOTUNIQUE);
-    item.createProperty(db, "author", PropertyType.STRING).createIndex(db, INDEX_TYPE.NOTUNIQUE);
-    item.createProperty(db, "tags", PropertyType.EMBEDDEDLIST);
+    item.createProperty("stringKey", PropertyType.STRING).createIndex(INDEX_TYPE.UNIQUE);
+    item.createProperty("intKey", PropertyType.INTEGER).createIndex(INDEX_TYPE.UNIQUE);
+    item.createProperty("date", PropertyType.DATE).createIndex(INDEX_TYPE.NOTUNIQUE);
+    item.createProperty("time", PropertyType.DATETIME).createIndex(INDEX_TYPE.NOTUNIQUE);
+    item.createProperty("text", PropertyType.STRING);
+    item.createProperty("score", PropertyType.DECIMAL);
+    item.createProperty("length", PropertyType.INTEGER).createIndex(INDEX_TYPE.NOTUNIQUE);
+    item.createProperty("published", PropertyType.BOOLEAN)
+        .createIndex(INDEX_TYPE.NOTUNIQUE);
+    item.createProperty("title", PropertyType.STRING).createIndex(INDEX_TYPE.NOTUNIQUE);
+    item.createProperty("author", PropertyType.STRING).createIndex(INDEX_TYPE.NOTUNIQUE);
+    item.createProperty("tags", PropertyType.EMBEDDEDLIST);
 
     // class Article
     var article = schema.createClass("Article");
 
-    article.createProperty(db, "uuid", PropertyType.LONG).createIndex(db, INDEX_TYPE.UNIQUE);
-    article.createProperty(db, "date", PropertyType.DATE).createIndex(db, INDEX_TYPE.NOTUNIQUE);
-    article.createProperty(db, "title", PropertyType.STRING);
-    article.createProperty(db, "content", PropertyType.STRING);
+    article.createProperty("uuid", PropertyType.LONG).createIndex(INDEX_TYPE.UNIQUE);
+    article.createProperty("date", PropertyType.DATE).createIndex(INDEX_TYPE.NOTUNIQUE);
+    article.createProperty("title", PropertyType.STRING);
+    article.createProperty("content", PropertyType.STRING);
     // article.createProperty("attachment", PropertyType.LINK);
 
     // author
     var author = schema.createClass("Author");
 
-    author.createProperty(db, "uuid", PropertyType.LONG).createIndex(db, INDEX_TYPE.UNIQUE);
-    author.createProperty(db, "name", PropertyType.STRING).setMin(db, "3");
-    author.createProperty(db, "rating", PropertyType.DOUBLE);
-    author.createProperty(db, "articles", PropertyType.LINKLIST, article);
+    author.createProperty("uuid", PropertyType.LONG).createIndex(INDEX_TYPE.UNIQUE);
+    author.createProperty("name", PropertyType.STRING).setMin("3");
+    author.createProperty("rating", PropertyType.DOUBLE);
+    author.createProperty("articles", PropertyType.LINKLIST, article);
 
     // link article-->author
-    article.createProperty(db, "author", PropertyType.LINK, author);
+    article.createProperty("author", PropertyType.LINK, author);
 
     // Graph
 
@@ -276,16 +276,16 @@ public class YouTrackDbCreationHelper {
     }
 
     var post = schema.createClass("Post", v);
-    post.createProperty(db, "uuid", PropertyType.LONG);
-    post.createProperty(db, "title", PropertyType.STRING);
-    post.createProperty(db, "date", PropertyType.DATE).createIndex(db, INDEX_TYPE.NOTUNIQUE);
-    post.createProperty(db, "content", PropertyType.STRING);
+    post.createProperty("uuid", PropertyType.LONG);
+    post.createProperty("title", PropertyType.STRING);
+    post.createProperty("date", PropertyType.DATE).createIndex(INDEX_TYPE.NOTUNIQUE);
+    post.createProperty("content", PropertyType.STRING);
 
     var writer = schema.createClass("Writer", v);
-    writer.createProperty(db, "uuid", PropertyType.LONG).createIndex(db, INDEX_TYPE.UNIQUE);
-    writer.createProperty(db, "name", PropertyType.STRING);
-    writer.createProperty(db, "is_active", PropertyType.BOOLEAN);
-    writer.createProperty(db, "isActive", PropertyType.BOOLEAN);
+    writer.createProperty("uuid", PropertyType.LONG).createIndex(INDEX_TYPE.UNIQUE);
+    writer.createProperty("name", PropertyType.STRING);
+    writer.createProperty("is_active", PropertyType.BOOLEAN);
+    writer.createProperty("isActive", PropertyType.BOOLEAN);
 
     var e = schema.getClass("E");
     if (e == null) {

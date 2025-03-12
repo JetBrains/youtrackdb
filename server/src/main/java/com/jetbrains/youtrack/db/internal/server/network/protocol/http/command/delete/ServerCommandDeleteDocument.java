@@ -76,11 +76,11 @@ public class ServerCommandDeleteDocument extends ServerCommandDocumentAbstract {
             result = entity.getImmutableSchemaClass(session);
             final SchemaClass cls = result;
             if (cls != null) {
-              if (cls.isSubClassOf(session, "V"))
+              if (cls.isSubClassOf("V"))
               // DELETE IT AS VERTEX
               {
                 session.command("DELETE VERTEX ?", recordId).close();
-              } else if (cls.isSubClassOf(session, "E"))
+              } else if (cls.isSubClassOf("E"))
               // DELETE IT AS EDGE
               {
                 session.command("DELETE EDGE ?", recordId).close();

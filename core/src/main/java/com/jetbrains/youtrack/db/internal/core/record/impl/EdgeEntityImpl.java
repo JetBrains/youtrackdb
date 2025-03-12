@@ -53,8 +53,8 @@ public class EdgeEntityImpl extends EntityImpl implements EdgeInternal, Stateful
     var typeClass = getImmutableSchemaClass(session);
     var session = getSession();
 
-    types.add(typeClass.getName(session));
-    typeClass.getAllSuperClasses().stream().map(schemaClass -> schemaClass.getName(session))
+    types.add(typeClass.getName());
+    typeClass.getAllSuperClasses().stream().map(schemaClass -> schemaClass.getName())
         .forEach(types::add);
 
     for (var s : labels) {
@@ -81,7 +81,7 @@ public class EdgeEntityImpl extends EntityImpl implements EdgeInternal, Stateful
     }
 
     var rid = result.getIdentity();
-    if (schema.getClassByClusterId(rid.getClusterId()).isVertexType(db)) {
+    if (schema.getClassByClusterId(rid.getClusterId()).isVertexType()) {
       return rid;
     }
 
@@ -115,7 +115,7 @@ public class EdgeEntityImpl extends EntityImpl implements EdgeInternal, Stateful
     }
 
     var rid = result.getIdentity();
-    if (schema.getClassByClusterId(rid.getClusterId()).isVertexType(db)) {
+    if (schema.getClassByClusterId(rid.getClusterId()).isVertexType()) {
       return rid;
     }
 

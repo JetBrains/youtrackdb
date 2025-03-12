@@ -32,9 +32,9 @@ public class LinkListIndexTest extends BaseDBTest {
     final var linkListIndexTestClass =
         session.getMetadata().getSchema().createClass("LinkListIndexTestClass");
 
-    linkListIndexTestClass.createProperty(session, "linkCollection", PropertyType.LINKLIST);
+    linkListIndexTestClass.createProperty("linkCollection", PropertyType.LINKLIST);
 
-    linkListIndexTestClass.createIndex(session,
+    linkListIndexTestClass.createIndex(
         "linkCollectionIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "linkCollection");
   }
 

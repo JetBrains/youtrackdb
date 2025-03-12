@@ -246,7 +246,7 @@ public class CommandExecutorSQLCreateLink extends CommandExecutorSQLAbstract {
       multipleRelationship = false;
     }
 
-    var totRecords = session.countClass(sourceClass.getName(session));
+    var totRecords = session.countClass(sourceClass.getName());
     long currRecord = 0;
 
     if (progressListener != null) {
@@ -255,7 +255,9 @@ public class CommandExecutorSQLCreateLink extends CommandExecutorSQLAbstract {
 
     try {
       // BROWSE ALL THE RECORDS OF THE SOURCE CLASS
-      for (var entity : session.browseClass(sourceClass.getName(session))) {
+      var entityIterator = session.browseClass(sourceClass);
+      while (entityIterator.hasNext()) {
+        var entity = entityIterator.next();
         value = entity.field(sourceField);
 
         if (value != null) {
@@ -283,7 +285,7 @@ public class CommandExecutorSQLCreateLink extends CommandExecutorSQLAbstract {
             } else if (result.size() > 1) {
               throw new CommandExecutionException(session,
                   "Cannot create link because multiple records was found in class '"
-                      + destClass.getName(session)
+                      + destClass.getName()
                       + "' with value "
                       + value
                       + " in field '"
@@ -353,10 +355,10 @@ public class CommandExecutorSQLCreateLink extends CommandExecutorSQLAbstract {
       if (total > 0) {
         if (inverse) {
           // REMOVE THE OLD PROPERTY IF ANY
-          var prop = destClass.getProperty(session, linkName);
+          var prop = destClass.getProperty(linkName);
           destClass = session.getMetadata().getSchema().getClass(destClassName);
           if (prop != null) {
-            destClass.dropProperty(session, linkName);
+            destClass.dropProperty(linkName);
           }
 
           if (linkType == null) {
@@ -364,19 +366,19 @@ public class CommandExecutorSQLCreateLink extends CommandExecutorSQLAbstract {
           }
 
           // CREATE THE PROPERTY
-          destClass.createProperty(session, linkName, linkType, sourceClass);
+          destClass.createProperty(linkName, linkType, sourceClass);
 
         } else {
 
           // REMOVE THE OLD PROPERTY IF ANY
-          var prop = sourceClass.getProperty(session, linkName);
+          var prop = sourceClass.getProperty(linkName);
           sourceClass = session.getMetadata().getSchema().getClass(sourceClassName);
           if (prop != null) {
-            sourceClass.dropProperty(session, linkName);
+            sourceClass.dropProperty(linkName);
           }
 
           // CREATE THE PROPERTY
-          sourceClass.createProperty(session, linkName, PropertyType.LINK, destClass);
+          sourceClass.createProperty(linkName, PropertyType.LINK, destClass);
         }
       }
 

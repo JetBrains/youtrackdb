@@ -23,9 +23,9 @@ public class CheckHookCallCountTest extends DbTestBase {
   @Test
   public void testMultipleCallHook() {
     var aClass = session.getMetadata().getSchema().createClass(CLASS_NAME);
-    aClass.createProperty(session, FIELD_ID, PropertyType.STRING);
-    aClass.createProperty(session, FIELD_STATUS, PropertyType.STRING);
-    aClass.createIndex(session, "IDX", SchemaClass.INDEX_TYPE.NOTUNIQUE, FIELD_ID);
+    aClass.createProperty(FIELD_ID, PropertyType.STRING);
+    aClass.createProperty(FIELD_STATUS, PropertyType.STRING);
+    aClass.createIndex("IDX", SchemaClass.INDEX_TYPE.NOTUNIQUE, FIELD_ID);
     var hook = new TestHook(session);
     session.registerHook(hook);
 
@@ -51,9 +51,9 @@ public class CheckHookCallCountTest extends DbTestBase {
   public void testInHook() throws Exception {
     Schema schema = session.getMetadata().getSchema();
     var oClass = schema.createClass("TestInHook");
-    oClass.createProperty(session, "a", PropertyType.INTEGER);
-    oClass.createProperty(session, "b", PropertyType.INTEGER);
-    oClass.createProperty(session, "c", PropertyType.INTEGER);
+    oClass.createProperty("a", PropertyType.INTEGER);
+    oClass.createProperty("b", PropertyType.INTEGER);
+    oClass.createProperty("c", PropertyType.INTEGER);
 
     session.begin();
     var doc = (EntityImpl) session.newEntity(oClass);

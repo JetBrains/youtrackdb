@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.IndexDefinition;
@@ -58,41 +57,40 @@ public class ImmutableSchema implements SchemaInternal {
   private final List<GlobalProperty> properties;
   private final ClusterSelectionFactory clusterSelectionFactory;
   private final Map<String, IndexDefinition> indexes;
+  @Nonnull
+  private final DatabaseSessionInternal session;
 
-  public ImmutableSchema(SchemaShared schemaShared, DatabaseSessionInternal database) {
+  public ImmutableSchema(@Nonnull SchemaShared schemaShared,
+      @Nonnull DatabaseSessionInternal session) {
+    this.session = session;
     version = schemaShared.getVersion();
-    identity = schemaShared.getIdentity(database);
+    identity = schemaShared.getIdentity(session);
     clusterSelectionFactory = schemaShared.getClusterSelectionFactory();
 
-    clustersToClasses = new Int2ObjectOpenHashMap<>(schemaShared.getClasses(database).size() * 3);
-    classes = new HashMap<>(schemaShared.getClasses(database).size());
+    clustersToClasses = new Int2ObjectOpenHashMap<>(schemaShared.getClasses(session).size() * 3);
+    classes = new HashMap<>(schemaShared.getClasses(session).size());
 
-    for (var oClass : schemaShared.getClasses(database)) {
-      final var immutableClass = new SchemaImmutableClass(database,
-          (SchemaClassInternal) oClass, this);
+    for (var oClass : schemaShared.getClasses(session)) {
+      final var immutableClass = new SchemaImmutableClass(session, oClass, this);
 
-      classes.put(immutableClass.getName(database).toLowerCase(Locale.ENGLISH), immutableClass);
-      if (immutableClass.getShortName(database) != null) {
-        classes.put(immutableClass.getShortName(database).toLowerCase(Locale.ENGLISH),
-            immutableClass);
-      }
+      classes.put(immutableClass.getName().toLowerCase(Locale.ENGLISH), immutableClass);
 
-      for (var clusterId : immutableClass.getClusterIds(database)) {
+      for (var clusterId : immutableClass.getClusterIds()) {
         clustersToClasses.put(clusterId, immutableClass);
       }
     }
 
     properties = new ArrayList<>();
-    properties.addAll(schemaShared.getGlobalProperties());
+    properties.addAll(schemaShared.getGlobalProperties(session));
 
     for (SchemaClass cl : classes.values()) {
-      ((SchemaImmutableClass) cl).init(database);
+      ((SchemaImmutableClass) cl).init(session);
     }
 
-    this.blogClusters = schemaShared.getBlobClusters();
+    this.blogClusters = schemaShared.getBlobClusters(session);
 
-    var indexManager = database.getMetadata().getIndexManagerInternal();
-    var internalIndexes = indexManager.getIndexes(database);
+    var indexManager = session.getMetadata().getIndexManagerInternal();
+    var internalIndexes = indexManager.getIndexes(session);
 
     var indexes = new HashMap<String, IndexDefinition>(internalIndexes.size());
     for (var index : internalIndexes) {
@@ -155,7 +153,7 @@ public class ImmutableSchema implements SchemaInternal {
   @Nonnull
   @Override
   public SchemaClass createClass(@Nonnull String className, int clusters,
-      SchemaClass... superClasses) {
+      @Nonnull SchemaClass... superClasses) {
     throw new UnsupportedOperationException();
   }
 
@@ -263,14 +261,13 @@ public class ImmutableSchema implements SchemaInternal {
     return new RecordId(identity);
   }
 
-  public Set<SchemaClass> getClassesRelyOnCluster(DatabaseSession session, String clusterName) {
-    var sessionInternal = (DatabaseSessionInternal) session;
-    sessionInternal.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
+  public Set<SchemaClass> getClassesRelyOnCluster(String clusterName) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
 
-    final var clusterId = sessionInternal.getClusterIdByName(clusterName);
+    final var clusterId = session.getClusterIdByName(clusterName);
     final Set<SchemaClass> result = new HashSet<SchemaClass>();
     for (SchemaClass c : classes.values()) {
-      if (ArrayUtils.contains(c.getPolymorphicClusterIds(session), clusterId)) {
+      if (ArrayUtils.contains(c.getPolymorphicClusterIds(), clusterId)) {
         result.add(c);
       }
     }

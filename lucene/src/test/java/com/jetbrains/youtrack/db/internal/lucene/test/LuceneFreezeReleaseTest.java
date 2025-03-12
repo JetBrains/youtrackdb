@@ -20,7 +20,7 @@ public class LuceneFreezeReleaseTest extends BaseLuceneTest {
 
     Schema schema = session.getMetadata().getSchema();
     var person = schema.createClass("Person");
-    person.createProperty(session, "name", PropertyType.STRING);
+    person.createProperty("name", PropertyType.STRING);
 
     session.command("create index Person.name on Person (name) FULLTEXT ENGINE LUCENE").close();
 
@@ -55,7 +55,7 @@ public class LuceneFreezeReleaseTest extends BaseLuceneTest {
 
     Schema schema = session.getMetadata().getSchema();
     var person = schema.createClass("Person");
-    person.createProperty(session, "name", PropertyType.STRING);
+    person.createProperty("name", PropertyType.STRING);
 
     session.command("create index Person.name on Person (name) FULLTEXT ENGINE LUCENE").close();
 

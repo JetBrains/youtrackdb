@@ -34,11 +34,11 @@ public class LinkMapIndexTest extends BaseDBTest {
   public void setupSchema() {
     final var linkMapIndexTestClass =
         session.getMetadata().getSchema().createClass("LinkMapIndexTestClass");
-    linkMapIndexTestClass.createProperty(session, "linkMap", PropertyType.LINKMAP);
+    linkMapIndexTestClass.createProperty("linkMap", PropertyType.LINKMAP);
 
-    linkMapIndexTestClass.createIndex(session, "mapIndexTestKey", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+    linkMapIndexTestClass.createIndex("mapIndexTestKey", SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "linkMap");
-    linkMapIndexTestClass.createIndex(session,
+    linkMapIndexTestClass.createIndex(
         "mapIndexTestValue", SchemaClass.INDEX_TYPE.NOTUNIQUE, "linkMap by value");
   }
 

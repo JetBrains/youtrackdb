@@ -34,7 +34,7 @@ public class LuceneBooleanIndexTest extends LuceneBaseTest {
   public void init() {
 
     var personClass = session.createVertexClass("Person");
-    personClass.createProperty(session, "isDeleted", PropertyType.BOOLEAN);
+    personClass.createProperty("isDeleted", PropertyType.BOOLEAN);
 
     session.command("create index Person.isDeleted on Person (isDeleted) FULLTEXT ENGINE LUCENE")
         .close();

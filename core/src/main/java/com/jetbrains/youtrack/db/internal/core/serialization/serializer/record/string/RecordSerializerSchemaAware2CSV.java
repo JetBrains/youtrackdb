@@ -165,15 +165,15 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
               result = record.getImmutableSchemaClass(session);
             }
             prop = result
-                .getProperty(session, fieldName);
+                .getProperty(fieldName);
           } else {
             prop = null;
           }
           if (prop != null) {
             // RECOGNIZED PROPERTY
-            type = prop.getType(session);
-            linkedClass = prop.getLinkedClass(session);
-            linkedType = prop.getLinkedType(session);
+            type = prop.getType();
+            linkedClass = prop.getLinkedClass();
+            linkedType = prop.getLinkedType();
 
           } else {
             // SCHEMA PROPERTY NOT FOUND FOR THIS FIELD: TRY TO AUTODETERMINE THE BEST TYPE
@@ -340,7 +340,7 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
         result = record.getImmutableSchemaClass(session);
       }
       iOutput.append(
-          result.getStreamableName(session));
+          result.getStreamableName());
       iOutput.append(StringSerializerHelper.CLASS_SEPARATOR);
     }
 
@@ -370,7 +370,7 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
         if (record != null) {
           result = record.getImmutableSchemaClass(session);
         }
-        prop = result.getProperty(session, fieldName);
+        prop = result.getProperty(fieldName);
       } else {
         prop = null;
       }
@@ -382,9 +382,9 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
 
       if (prop != null) {
         // RECOGNIZED PROPERTY
-        type = prop.getType(session);
-        linkedClass = prop.getLinkedClass(session);
-        linkedType = prop.getLinkedType(session);
+        type = prop.getType();
+        linkedClass = prop.getLinkedClass();
+        linkedType = prop.getLinkedType();
 
       } else if (fieldValue != null) {
         // NOT FOUND: TRY TO DETERMINE THE TYPE FROM ITS CONTENT

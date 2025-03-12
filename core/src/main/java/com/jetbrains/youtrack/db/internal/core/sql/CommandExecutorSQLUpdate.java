@@ -421,7 +421,7 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
     EntityImpl record = ((Identifiable) iRecord).getRecord(session);
     SchemaImmutableClass result;
     result = record.getImmutableSchemaClass(session);
-    return (result.isSubClassOf(session, youTrackDbClass));
+    return (result.isSubClassOf(youTrackDbClass));
   }
 
   /**
@@ -616,11 +616,11 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
         if (record != null) {
           result = record.getImmutableSchemaClass(session);
         }
-        if (restricted.isSuperClassOf(session,
+        if (restricted.isSuperClassOf(
             result)) {
-          for (var prop : restricted.properties(session)) {
-            fieldsToPreserve.field(prop.getName(session),
-                record.field(prop.getName(session)));
+          for (var prop : restricted.properties()) {
+            fieldsToPreserve.field(prop.getName(),
+                record.field(prop.getName()));
           }
         }
       }
@@ -630,13 +630,13 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
         result = record.getImmutableSchemaClass(session);
       }
       SchemaClass recordClass = result;
-      if (recordClass != null && recordClass.isSubClassOf(session, "V")) {
+      if (recordClass != null && recordClass.isSubClassOf("V")) {
         for (var fieldName : record.fieldNames()) {
           if (fieldName.startsWith("in_") || fieldName.startsWith("out_")) {
             fieldsToPreserve.field(fieldName, record.field(fieldName));
           }
         }
-      } else if (recordClass != null && recordClass.isSubClassOf(session, "E")) {
+      } else if (recordClass != null && recordClass.isSubClassOf("E")) {
         for (var fieldName : record.fieldNames()) {
           if (fieldName.equals("in") || fieldName.equals("out")) {
             fieldsToPreserve.field(fieldName, record.field(fieldName));
@@ -714,13 +714,13 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
         // GET THE TYPE IF ANY
         var cls = record.getImmutableSchemaClass(session);
         if (cls != null) {
-          var prop = cls.getProperty(session, entry.getKey());
-          if (prop != null && prop.getType(session) == PropertyType.LINKSET)
+          var prop = cls.getProperty(entry.getKey());
+          if (prop != null && prop.getType() == PropertyType.LINKSET)
           // SET TYPE
           {
             coll = session.newLinkSet();
           }
-          if (prop != null && prop.getType(session) == PropertyType.LINKBAG) {
+          if (prop != null && prop.getType() == PropertyType.LINKBAG) {
             // there is no ridbag value already but property type is defined as LINKBAG
             bag = new RidBag(session);
             bag.setOwner(record);
@@ -796,11 +796,11 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
             }
             final var property =
                 result
-                    .getProperty(session, entry.getKey());
+                    .getProperty(entry.getKey());
             if (property != null
-                && (property.getType(session) != null
-                && (!property.getType(session).equals(PropertyType.EMBEDDEDMAP)
-                && !property.getType(session).equals(PropertyType.LINKMAP)))) {
+                && (property.getType() != null
+                && (!property.getType().equals(PropertyType.EMBEDDEDMAP)
+                && !property.getType().equals(PropertyType.LINKMAP)))) {
               throw new CommandExecutionException(session,
                   "field " + entry.getKey() + " is not defined as a map");
             }
@@ -827,9 +827,9 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
             }
             final var property =
                 result
-                    .getProperty(session, entry.getKey());
+                    .getProperty(entry.getKey());
             if (property != null
-                && property.getType(session).equals(PropertyType.LINKMAP)
+                && property.getType().equals(PropertyType.LINKMAP)
                 && !(value instanceof Identifiable)) {
               throw new CommandExecutionException(session,
                   "field " + entry.getKey() + " defined of type LINKMAP accept only link values");

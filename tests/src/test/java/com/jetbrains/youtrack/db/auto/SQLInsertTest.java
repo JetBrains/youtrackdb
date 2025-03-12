@@ -58,15 +58,13 @@ public class SQLInsertTest extends BaseDBTest {
       session.getMetadata().getSchema().createClass("Account");
     }
 
-    final var clId = session.addCluster("anotherdefault");
     final var profileClass = session.getMetadata().getSchema().getClass("Account");
-    profileClass.addClusterId(session, clId);
 
     if (!session.getMetadata().getSchema().existsClass("Address")) {
       session.getMetadata().getSchema().createClass("Address");
     }
 
-    var addressId = session.getMetadata().getSchema().getClass("Address").getClusterIds(session)[0];
+    var addressId = session.getMetadata().getSchema().getClass("Address").getClusterIds()[0];
 
     for (var i = 0; i < 30; i++) {
       session.begin();
@@ -128,7 +126,7 @@ public class SQLInsertTest extends BaseDBTest {
 
   @Test
   public void insertWithWildcards() {
-    var addressId = session.getMetadata().getSchema().getClass("Address").getClusterIds(session)[0];
+    var addressId = session.getMetadata().getSchema().getClass("Address").getClusterIds()[0];
 
     var positions = getValidPositions(addressId);
 
@@ -512,7 +510,7 @@ public class SQLInsertTest extends BaseDBTest {
   @Test
   public void testAutoConversionOfEmbeddededSetNoLinkedClass() {
     var c = session.getMetadata().getSchema().getOrCreateClass("TestConvert");
-    c.createProperty(session, "embeddedSetNoLinkedClass", PropertyType.EMBEDDEDSET);
+    c.createProperty("embeddedSetNoLinkedClass", PropertyType.EMBEDDEDSET);
 
     session.begin();
     var doc =
@@ -536,7 +534,7 @@ public class SQLInsertTest extends BaseDBTest {
   @Test
   public void testAutoConversionOfEmbeddededSetWithLinkedClass() {
     var c = session.getMetadata().getSchema().getOrCreateClass("TestConvert");
-    c.createProperty(session,
+    c.createProperty(
         "embeddedSetWithLinkedClass",
         PropertyType.EMBEDDEDSET,
         session.getMetadata().getSchema().getOrCreateClass("TestConvertLinkedClass"));
@@ -564,7 +562,7 @@ public class SQLInsertTest extends BaseDBTest {
   @Test
   public void testAutoConversionOfEmbeddededListNoLinkedClass() {
     var c = session.getMetadata().getSchema().getOrCreateClass("TestConvert");
-    c.createProperty(session, "embeddedListNoLinkedClass", PropertyType.EMBEDDEDLIST);
+    c.createProperty("embeddedListNoLinkedClass", PropertyType.EMBEDDEDLIST);
 
     session.begin();
     var doc =
@@ -588,8 +586,8 @@ public class SQLInsertTest extends BaseDBTest {
   @Test
   public void testAutoConversionOfEmbeddededListWithLinkedClass() {
     var c = session.getMetadata().getSchema().getOrCreateClass("TestConvert");
-    if (!c.existsProperty(session, "embeddedListWithLinkedClass")) {
-      c.createProperty(session,
+    if (!c.existsProperty("embeddedListWithLinkedClass")) {
+      c.createProperty(
           "embeddedListWithLinkedClass",
           PropertyType.EMBEDDEDLIST,
           session.getMetadata().getSchema().getOrCreateClass("TestConvertLinkedClass"));
@@ -620,7 +618,7 @@ public class SQLInsertTest extends BaseDBTest {
   @Test
   public void testAutoConversionOfEmbeddededMapNoLinkedClass() {
     var c = session.getMetadata().getSchema().getOrCreateClass("TestConvert");
-    c.createProperty(session, "embeddedMapNoLinkedClass", PropertyType.EMBEDDEDMAP);
+    c.createProperty("embeddedMapNoLinkedClass", PropertyType.EMBEDDEDMAP);
 
     session.begin();
     var doc =
@@ -644,7 +642,7 @@ public class SQLInsertTest extends BaseDBTest {
   @Test(enabled = false)
   public void testAutoConversionOfEmbeddededMapWithLinkedClass() {
     var c = session.getMetadata().getSchema().getOrCreateClass("TestConvert");
-    c.createProperty(session,
+    c.createProperty(
         "embeddedMapWithLinkedClass",
         PropertyType.EMBEDDEDMAP,
         session.getMetadata().getSchema().getOrCreateClass("TestConvertLinkedClass"));
@@ -672,7 +670,7 @@ public class SQLInsertTest extends BaseDBTest {
   @Test(enabled = false)
   public void testAutoConversionOfEmbeddededNoLinkedClass() {
     var c = session.getMetadata().getSchema().getOrCreateClass("TestConvert");
-    c.createProperty(session, "embeddedNoLinkedClass", PropertyType.EMBEDDED);
+    c.createProperty("embeddedNoLinkedClass", PropertyType.EMBEDDED);
 
     session.begin();
     var doc =
@@ -727,7 +725,7 @@ public class SQLInsertTest extends BaseDBTest {
   @Test
   public void testAutoConversionOfEmbeddededWithLinkedClass() {
     var c = session.getMetadata().getSchema().getOrCreateClass("TestConvert");
-    c.createProperty(session,
+    c.createProperty(
         "embeddedWithLinkedClass",
         PropertyType.EMBEDDED,
         session.getMetadata().getSchema().getOrCreateClass("TestConvertLinkedClass"));
@@ -753,7 +751,7 @@ public class SQLInsertTest extends BaseDBTest {
   public void testInsertEmbeddedWithRecordAttributes() {
     var c = session.getMetadata().getSchema()
         .getOrCreateClass("EmbeddedWithRecordAttributes");
-    c.createProperty(session,
+    c.createProperty(
         "like",
         PropertyType.EMBEDDED,
         session.getMetadata().getSchema().getOrCreateClass("EmbeddedWithRecordAttributes_Like"));
@@ -784,7 +782,7 @@ public class SQLInsertTest extends BaseDBTest {
   public void testInsertEmbeddedWithRecordAttributes2() {
     var c = session.getMetadata().getSchema()
         .getOrCreateClass("EmbeddedWithRecordAttributes2");
-    c.createProperty(session,
+    c.createProperty(
         "like",
         PropertyType.EMBEDDED,
         session.getMetadata().getSchema().getOrCreateClass("EmbeddedWithRecordAttributes2_Like"));

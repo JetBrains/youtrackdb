@@ -115,13 +115,13 @@ public class LuceneMiscTest extends BaseLuceneTest {
     var v = schema.getClass("V");
     var e = schema.getClass("E");
     var author = schema.createClass("Author", v);
-    author.createProperty(session, "name", PropertyType.STRING);
+    author.createProperty("name", PropertyType.STRING);
 
     var song = schema.createClass("Song", v);
-    song.createProperty(session, "title", PropertyType.STRING);
+    song.createProperty("title", PropertyType.STRING);
 
     var authorOf = schema.createClass("AuthorOf", e);
-    authorOf.createProperty(session, "in", PropertyType.LINK, song);
+    authorOf.createProperty("in", PropertyType.LINK, song);
 
     session.command("create index AuthorOf.in on AuthorOf (in) NOTUNIQUE").close();
     session.command("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE").close();

@@ -692,7 +692,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
           if (iLinkedClass != null) {
             var entity = new EntityImpl(session);
             objectToAdd = fromString(session, item, entity, null);
-            EntityInternalUtils.fillClassNameIfNeeded(entity, iLinkedClass.getName(session));
+            EntityInternalUtils.fillClassNameIfNeeded(entity, iLinkedClass.getName());
           } else
           // EMBEDDED OBJECT
           {

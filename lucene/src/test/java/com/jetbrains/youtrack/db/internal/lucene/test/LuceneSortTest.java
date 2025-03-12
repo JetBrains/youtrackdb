@@ -555,9 +555,9 @@ public class LuceneSortTest extends BaseLuceneTest {
     Schema schema = session.getMetadata().getSchema();
 
     var cls = schema.createClass("Person");
-    cls.createProperty(session, "name", PropertyType.STRING);
-    cls.createProperty(session, "surname", PropertyType.STRING);
-    cls.createProperty(session, "description", PropertyType.STRING);
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createProperty("surname", PropertyType.STRING);
+    cls.createProperty("description", PropertyType.STRING);
   }
 
   @Test

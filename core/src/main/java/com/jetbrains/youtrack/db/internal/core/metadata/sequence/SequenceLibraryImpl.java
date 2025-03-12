@@ -24,7 +24,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.SequenceException;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.sequence.DBSequence.SEQUENCE_TYPE;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
@@ -41,7 +41,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class SequenceLibraryImpl {
 
   public static final String DROPPED_SEQUENCES_MAP = "droppedSequencesMap";
-  private final Map<String, DBSequence> sequences = new ConcurrentHashMap<String, DBSequence>();
+  private final Map<String, DBSequence> sequences = new ConcurrentHashMap<>();
   private final AtomicBoolean reloadNeeded = new AtomicBoolean(false);
 
   public static void create(DatabaseSessionInternal database) {
@@ -190,9 +190,9 @@ public class SequenceLibraryImpl {
       return;
     }
 
-    final var sequenceClass =
-        (SchemaClassImpl) session.getMetadata().getSchema().createClass(DBSequence.CLASS_NAME);
-    DBSequence.initClass(session, sequenceClass);
+    final var sequenceClass = (SchemaClassInternal) session.getMetadata().getSchema()
+        .createClass(DBSequence.CLASS_NAME);
+    DBSequence.initClass(sequenceClass);
   }
 
   private void validateSequenceNoExists(final String iName) {

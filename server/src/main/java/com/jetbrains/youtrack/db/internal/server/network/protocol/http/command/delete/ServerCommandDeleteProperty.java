@@ -45,7 +45,7 @@ public class ServerCommandDeleteProperty extends ServerCommandAuthenticatedDbAbs
 
       final var cls = db.getMetadata().getSchema().getClass(urlParts[2]);
 
-      cls.dropProperty(db, urlParts[3]);
+      cls.dropProperty(urlParts[3]);
 
       iResponse.send(
           HttpUtils.STATUS_OK_CODE,

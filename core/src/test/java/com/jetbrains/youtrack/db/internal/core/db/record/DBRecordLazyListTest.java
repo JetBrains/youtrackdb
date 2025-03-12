@@ -36,11 +36,11 @@ public class DBRecordLazyListTest {
   public void test() {
     var schema = db.getMetadata().getSchema();
     var mainClass = schema.createClass("MainClass");
-    mainClass.createProperty(db, "name", PropertyType.STRING);
-    var itemsProp = mainClass.createProperty(db, "items", PropertyType.LINKLIST);
+    mainClass.createProperty("name", PropertyType.STRING);
+    var itemsProp = mainClass.createProperty("items", PropertyType.LINKLIST);
     var itemClass = schema.createClass("ItemClass");
-    itemClass.createProperty(db, "name", PropertyType.STRING);
-    itemsProp.setLinkedClass(db, itemClass);
+    itemClass.createProperty("name", PropertyType.STRING);
+    itemsProp.setLinkedClass(itemClass);
 
     db.begin();
     var doc1 = ((EntityImpl) db.newEntity(itemClass)).field("name", "Doc1");

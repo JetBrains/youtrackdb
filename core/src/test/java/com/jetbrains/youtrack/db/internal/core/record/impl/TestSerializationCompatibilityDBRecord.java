@@ -24,7 +24,7 @@ public class TestSerializationCompatibilityDBRecord extends DbTestBase {
     var id = entity.getIdentity();
     session.commit();
 
-    klass.createProperty(session, "map", PropertyType.EMBEDDEDMAP,
+    klass.createProperty("map", PropertyType.EMBEDDEDMAP,
         (PropertyType) null, true);
 
     session.begin();

@@ -132,11 +132,13 @@ public class SchedulerImpl {
     return events.get(name);
   }
 
-  public void load(DatabaseSessionInternal database) {
-    if (database.getMetadata().getSchema().existsClass(ScheduledEvent.CLASS_NAME)) {
-      final Iterable<EntityImpl> result = database.browseClass(ScheduledEvent.CLASS_NAME);
-      for (var d : result) {
-        scheduleEvent(database, new ScheduledEvent(d, database));
+  public void load(DatabaseSessionInternal session) {
+    if (session.getMetadata().getSchema().existsClass(ScheduledEvent.CLASS_NAME)) {
+      try (var result = session.query("select from " + ScheduledEvent.CLASS_NAME)) {
+        while (result.hasNext()) {
+          var d = result.next();
+          scheduleEvent(session, new ScheduledEvent((EntityImpl) d.castToEntity(), session));
+        }
       }
     }
   }
@@ -158,28 +160,28 @@ public class SchedulerImpl {
     var f = (SchemaClassInternal) database.getMetadata().getSchema()
         .createClass(ScheduledEvent.CLASS_NAME);
 
-    f.createProperty(database, ScheduledEvent.PROP_NAME, PropertyType.STRING, (PropertyType) null,
+    f.createProperty(ScheduledEvent.PROP_NAME, PropertyType.STRING, (PropertyType) null,
             true)
-        .setMandatory(database, true)
-        .setNotNull(database, true);
-    f.createIndex(database, ScheduledEvent.PROP_NAME + "Index", SchemaClass.INDEX_TYPE.UNIQUE,
+        .setMandatory(true)
+        .setNotNull(true);
+    f.createIndex(ScheduledEvent.PROP_NAME + "Index", SchemaClass.INDEX_TYPE.UNIQUE,
         ScheduledEvent.PROP_NAME);
-    f.createProperty(database, ScheduledEvent.PROP_RULE, PropertyType.STRING, (PropertyType) null,
+    f.createProperty(ScheduledEvent.PROP_RULE, PropertyType.STRING, (PropertyType) null,
             true)
-        .setMandatory(database, true)
-        .setNotNull(database, true);
-    f.createProperty(database, ScheduledEvent.PROP_ARGUMENTS, PropertyType.EMBEDDEDMAP,
+        .setMandatory(true)
+        .setNotNull(true);
+    f.createProperty(ScheduledEvent.PROP_ARGUMENTS, PropertyType.EMBEDDEDMAP,
         (PropertyType) null,
         true);
-    f.createProperty(database, ScheduledEvent.PROP_STATUS, PropertyType.STRING, (PropertyType) null,
+    f.createProperty(ScheduledEvent.PROP_STATUS, PropertyType.STRING, (PropertyType) null,
         true);
-    f.createProperty(database,
+    f.createProperty(
             ScheduledEvent.PROP_FUNC,
             PropertyType.LINK,
             database.getMetadata().getSchema().getClass(Function.CLASS_NAME), true)
-        .setMandatory(database, true)
-        .setNotNull(database, true);
-    f.createProperty(database, ScheduledEvent.PROP_STARTTIME, PropertyType.DATETIME,
+        .setMandatory(true)
+        .setNotNull(true);
+    f.createProperty(ScheduledEvent.PROP_STARTTIME, PropertyType.DATETIME,
         (PropertyType) null,
         true);
   }

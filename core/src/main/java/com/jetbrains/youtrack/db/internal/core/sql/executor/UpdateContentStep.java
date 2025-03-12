@@ -65,20 +65,20 @@ public class UpdateContentStep extends AbstractExecutionStep {
               .getMetadata()
               .getImmutableSchemaSnapshot()
               .getClass(Security.RESTRICTED_CLASSNAME);
-      for (var prop : restricted.properties(session)) {
-        fieldsToPreserve.setProperty(prop.getName(session),
-            record.getProperty(prop.getName(session)));
+      for (var prop : restricted.properties()) {
+        fieldsToPreserve.setProperty(prop.getName(),
+            record.getProperty(prop.getName()));
       }
     }
     Map<String, Object> preDefaultValues = null;
     if (clazz != null) {
-      for (var prop : clazz.properties(session)) {
-        if (prop.getDefaultValue(session) != null) {
+      for (var prop : clazz.properties()) {
+        if (prop.getDefaultValue() != null) {
           if (preDefaultValues == null) {
             preDefaultValues = new HashMap<>();
           }
-          preDefaultValues.put(prop.getName(session),
-              record.getPropertyInternal(prop.getName(session)));
+          preDefaultValues.put(prop.getName(),
+              record.getPropertyInternal(prop.getName()));
         }
       }
     }
@@ -86,7 +86,7 @@ public class UpdateContentStep extends AbstractExecutionStep {
     final var entity1 = (EntityImpl) record.getEntity(session);
     SchemaClass recordClass = entity1.getImmutableSchemaClass(session);
 
-    if (recordClass != null && recordClass.isSubClassOf(session, "V")) {
+    if (recordClass != null && recordClass.isSubClassOf("V")) {
       for (var fieldName : record.getPropertyNamesInternal()) {
         if (fieldName.startsWith("in_") || fieldName.startsWith("out_")) {
           if (fieldsToPreserve == null) {
@@ -95,7 +95,7 @@ public class UpdateContentStep extends AbstractExecutionStep {
           fieldsToPreserve.setProperty(fieldName, record.getPropertyInternal(fieldName));
         }
       }
-    } else if (recordClass != null && recordClass.isSubClassOf(session, "E")) {
+    } else if (recordClass != null && recordClass.isSubClassOf("E")) {
       for (var fieldName : record.getPropertyNamesInternal()) {
         if (fieldName.equals("in") || fieldName.equals("out")) {
           if (fieldsToPreserve == null) {

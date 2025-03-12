@@ -34,9 +34,9 @@ public class LuceneSpatialPolygonTest extends BaseSpatialLuceneTest {
     Schema schema = session.getMetadata().getSchema();
     var v = schema.getClass("V");
     var oClass = schema.createClass("Place");
-    oClass.setSuperClass(session, v);
-    oClass.createProperty(session, "location", PropertyType.EMBEDDED, schema.getClass("OPolygon"));
-    oClass.createProperty(session, "name", PropertyType.STRING);
+    oClass.addSuperClass(v);
+    oClass.createProperty("location", PropertyType.EMBEDDED, schema.getClass("OPolygon"));
+    oClass.createProperty("name", PropertyType.STRING);
 
     session.command("CREATE INDEX Place.location ON Place(location) SPATIAL ENGINE LUCENE").close();
   }

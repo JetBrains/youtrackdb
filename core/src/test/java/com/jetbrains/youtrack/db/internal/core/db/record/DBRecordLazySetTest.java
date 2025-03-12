@@ -68,7 +68,7 @@ public class DBRecordLazySetTest extends DbTestBase {
   public void testSetWithNotExistentRecordWithValidation() {
     var test = session.getMetadata().getSchema().createClass("test");
     var test1 = session.getMetadata().getSchema().createClass("test1");
-    test.createProperty(session, "fi", PropertyType.LINKSET).setLinkedClass(session, test1);
+    test.createProperty("fi", PropertyType.LINKSET).setLinkedClass(test1);
 
     session.begin();
     var doc = (EntityImpl) session.newEntity(test);

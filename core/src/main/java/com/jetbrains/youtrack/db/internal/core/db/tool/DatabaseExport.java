@@ -213,8 +213,6 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
               clusterExportedRecordsCurrent++;
             }
           }
-
-          brokenRids.addAll(it.getBrokenRIDs());
         } catch (YTIOException e) {
           LogManager.instance()
               .error(
@@ -468,85 +466,80 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
       jsonGenerator.writeArrayFieldStart("classes");
 
       final List<SchemaClass> classes = new ArrayList<>(schema.getClasses());
-      classes.sort(Comparator.comparing(cls -> cls.getName(session)));
+      classes.sort(Comparator.comparing(SchemaClass::getName));
 
       for (var cls : classes) {
         // CHECK TO FILTER CLASS
         jsonGenerator.writeStartObject();
 
-        jsonGenerator.writeStringField("name", cls.getName(session));
+        jsonGenerator.writeStringField("name", cls.getName());
 
         jsonGenerator.writeArrayFieldStart("cluster-ids");
-        for (var clusterId : cls.getClusterIds(session)) {
+        for (var clusterId : cls.getClusterIds()) {
           jsonGenerator.writeNumber(clusterId);
         }
         jsonGenerator.writeEndArray();
 
-        if (cls.isStrictMode(session)) {
-          jsonGenerator.writeBooleanField("strictMode", cls.isStrictMode(session));
+        if (cls.isStrictMode()) {
+          jsonGenerator.writeBooleanField("strictMode", cls.isStrictMode());
         }
-        if (!cls.getSuperClasses(session).isEmpty()) {
+        if (!cls.getSuperClasses().isEmpty()) {
           jsonGenerator.writeArrayFieldStart("super-classes");
-          for (var superClass : cls.getSuperClasses(session)) {
-            jsonGenerator.writeString(superClass.getName(session));
+          for (var superClass : cls.getSuperClasses()) {
+            jsonGenerator.writeString(superClass.getName());
           }
           jsonGenerator.writeEndArray();
         }
-        if (cls.getShortName(session) != null) {
-          jsonGenerator.writeStringField("short-name", cls.getShortName(session));
+        if (cls.isAbstract()) {
+          jsonGenerator.writeBooleanField("abstract", cls.isAbstract());
         }
-        if (cls.isAbstract(session)) {
-          jsonGenerator.writeBooleanField("abstract", cls.isAbstract(session));
-        }
-        jsonGenerator.writeStringField("cluster-selection",
-            cls.getClusterSelectionStrategyName(session));
 
-        if (!cls.properties(session).isEmpty()) {
+        if (!cls.properties().isEmpty()) {
           jsonGenerator.writeArrayFieldStart("properties");
 
-          final List<SchemaProperty> properties = new ArrayList<>(cls.declaredProperties(session));
-          properties.sort(Comparator.comparing(prop -> prop.getName(session)));
+          final List<SchemaProperty> properties = new ArrayList<>(cls.declaredProperties());
+          properties.sort(Comparator.comparing(SchemaProperty::getName));
 
           for (var p : properties) {
             jsonGenerator.writeStartObject();
-            jsonGenerator.writeStringField("name", p.getName(session));
-            jsonGenerator.writeStringField("type", p.getType(session).toString());
-            if (p.isMandatory(session)) {
-              jsonGenerator.writeBooleanField("mandatory", p.isMandatory(session));
+            jsonGenerator.writeStringField("name", p.getName());
+            jsonGenerator.writeStringField("type", p.getType().toString());
+            if (p.isMandatory()) {
+              jsonGenerator.writeBooleanField("mandatory", p.isMandatory());
 
             }
-            if (p.isReadonly(session)) {
-              jsonGenerator.writeBooleanField("readonly", p.isReadonly(session));
+            if (p.isReadonly()) {
+              jsonGenerator.writeBooleanField("readonly", p.isReadonly());
             }
-            if (p.isNotNull(session)) {
-              jsonGenerator.writeBooleanField("not-null", p.isNotNull(session));
+            if (p.isNotNull()) {
+              jsonGenerator.writeBooleanField("not-null", p.isNotNull());
             }
-            if (p.getLinkedClass(session) != null) {
+            if (p.getLinkedClass() != null) {
               jsonGenerator.writeStringField("linked-class",
-                  p.getLinkedClass(session).getName(session));
+                  p.getLinkedClass().getName());
             }
-            if (p.getLinkedType(session) != null) {
-              jsonGenerator.writeStringField("linked-type", p.getLinkedType(session).toString());
+            if (p.getLinkedType() != null) {
+              jsonGenerator.writeStringField("linked-type", p.getLinkedType().toString());
             }
-            if (p.getMin(session) != null) {
-              jsonGenerator.writeStringField("min", p.getMin(session));
+            if (p.getMin() != null) {
+              jsonGenerator.writeStringField("min", p.getMin());
             }
-            if (p.getMax(session) != null) {
-              jsonGenerator.writeStringField("max", p.getMax(session));
+            if (p.getMax() != null) {
+              jsonGenerator.writeStringField("max", p.getMax());
             }
-            if (p.getCollate(session) != null) {
-              jsonGenerator.writeStringField("collate", p.getCollate(session).getName());
+            if (p.getCollate() != null) {
+              jsonGenerator.writeStringField("collate", p.getCollate().getName());
             }
-            if (p.getDefaultValue(session) != null) {
-              jsonGenerator.writeStringField("default-value", p.getDefaultValue(session));
+            if (p.getDefaultValue() != null) {
+              jsonGenerator.writeStringField("default-value", p.getDefaultValue());
             }
-            if (p.getRegexp(session) != null) {
-              jsonGenerator.writeStringField("regexp", p.getRegexp(session));
+            if (p.getRegexp() != null) {
+              jsonGenerator.writeStringField("regexp", p.getRegexp());
             }
-            final var customKeys = p.getCustomKeys(session);
+            final var customKeys = p.getCustomKeys();
             final Map<String, String> custom = new HashMap<>();
             for (var key : customKeys) {
-              custom.put(key, p.getCustom(session, key));
+              custom.put(key, p.getCustom(key));
             }
 
             if (!custom.isEmpty()) {
@@ -560,10 +553,10 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
           }
           jsonGenerator.writeEndArray();
         }
-        final var customKeys = cls.getCustomKeys(session);
+        final var customKeys = cls.getCustomKeys();
         final Map<String, String> custom = new HashMap<>();
         for (var key : customKeys) {
-          custom.put(key, cls.getCustom(session, key));
+          custom.put(key, cls.getCustom(key));
         }
 
         if (!custom.isEmpty()) {

@@ -43,7 +43,7 @@ public class CommandExecutorSQLCreateClassTest extends DbTestBase {
 
     Assert.assertNotNull(userVertex);
 
-    var superClassesNames = userVertex.getSuperClassesNames(session);
+    var superClassesNames = userVertex.getSuperClassesNames();
 
     Assert.assertEquals(2, superClassesNames.size());
 

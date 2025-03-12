@@ -166,11 +166,11 @@ public class EntityImpl extends RecordAbstract
     setClassName(iClassName);
 
     var cls = getImmutableSchemaClass(session);
-    if (!isEmbedded() && cls != null && cls.isAbstract(session)) {
+    if (!isEmbedded() && cls != null && cls.isAbstract()) {
       throw new DatabaseException(session,
           "Standalone entities can be only of non-abstract classes. Provided class : "
               + cls.getName(
-              session) + " is abstract.");
+          ) + " is abstract.");
     }
   }
 
@@ -206,7 +206,7 @@ public class EntityImpl extends RecordAbstract
       throw new IllegalStateException("Entity is not a vertex");
     }
 
-    if (type.isVertexType(session)) {
+    if (type.isVertexType()) {
       return new VertexDelegate(this);
     }
 
@@ -226,7 +226,7 @@ public class EntityImpl extends RecordAbstract
       return null;
     }
 
-    if (type.isVertexType(session)) {
+    if (type.isVertexType()) {
       return new VertexDelegate(this);
     }
 
@@ -245,7 +245,7 @@ public class EntityImpl extends RecordAbstract
       throw new DatabaseException("Entity is not an edge");
     }
 
-    if (type.isEdgeType(session)) {
+    if (type.isEdgeType()) {
       return new StatefulEdgeImpl(this, session);
     }
 
@@ -264,7 +264,7 @@ public class EntityImpl extends RecordAbstract
       return null;
     }
 
-    if (type.isEdgeType(session)) {
+    if (type.isEdgeType()) {
       return new StatefulEdgeImpl(this, session);
     }
 
@@ -283,7 +283,7 @@ public class EntityImpl extends RecordAbstract
       return false;
     }
 
-    return type.isVertexType(session);
+    return type.isVertexType();
   }
 
   @Override
@@ -298,7 +298,7 @@ public class EntityImpl extends RecordAbstract
       return false;
     }
 
-    return type.isEdgeType(session);
+    return type.isEdgeType();
   }
 
   @Override
@@ -1339,27 +1339,27 @@ public class EntityImpl extends RecordAbstract
     iRecord = (EntityImpl) iRecord.getRecord(session);
 
     final Object fieldValue;
-    var entry = iRecord.fields.get(p.getName(session));
+    var entry = iRecord.fields.get(p.getName());
     if (entry != null && entry.exists()) {
       // AVOID CONVERSIONS: FASTER!
       fieldValue = entry.value;
 
-      if (p.isNotNull(session) && fieldValue == null)
+      if (p.isNotNull() && fieldValue == null)
       // NULLITY
       {
         throw new ValidationException(session.getDatabaseName(),
-            "The field '" + p.getFullName(session) + "' cannot be null, record: " + iRecord);
+            "The field '" + p.getFullName() + "' cannot be null, record: " + iRecord);
       }
 
-      if (fieldValue != null && p.getRegexp(session) != null && p.getType(session)
+      if (fieldValue != null && p.getRegexp() != null && p.getType()
           .equals(PropertyType.STRING)) {
         // REGEXP
-        if (!((String) fieldValue).matches(p.getRegexp(session))) {
+        if (!((String) fieldValue).matches(p.getRegexp())) {
           throw new ValidationException(session.getDatabaseName(),
               "The field '"
-                  + p.getFullName(session)
+                  + p.getFullName()
                   + "' does not match the regular expression '"
-                  + p.getRegexp(session)
+                  + p.getRegexp()
                   + "'. Field value is: "
                   + fieldValue
                   + ", record: "
@@ -1368,17 +1368,17 @@ public class EntityImpl extends RecordAbstract
       }
 
     } else {
-      if (p.isMandatory(session)) {
+      if (p.isMandatory()) {
         throw new ValidationException(session.getDatabaseName(),
             "The field '"
-                + p.getFullName(session)
+                + p.getFullName()
                 + "' is mandatory, but not found on record: "
                 + iRecord);
       }
       fieldValue = null;
     }
 
-    final var type = p.getType(session);
+    final var type = p.getType();
 
     if (fieldValue != null && type != null) {
       // CHECK TYPE
@@ -1390,7 +1390,7 @@ public class EntityImpl extends RecordAbstract
           if (!(fieldValue instanceof LinkList)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
-                    + p.getFullName(session)
+                    + p.getFullName()
                     + "' has been declared as LINKLIST but an incompatible type is used. Value: "
                     + fieldValue);
           }
@@ -1400,7 +1400,7 @@ public class EntityImpl extends RecordAbstract
           if (!(fieldValue instanceof LinkSet)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
-                    + p.getFullName(session)
+                    + p.getFullName()
                     + "' has been declared as LINKSET but an incompatible type is used. Value: "
                     + fieldValue);
           }
@@ -1410,7 +1410,7 @@ public class EntityImpl extends RecordAbstract
           if (!(fieldValue instanceof LinkMap)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
-                    + p.getFullName(session)
+                    + p.getFullName()
                     + "' has been declared as LINKMAP but an incompatible type is used. Value: "
                     + fieldValue);
           }
@@ -1421,7 +1421,7 @@ public class EntityImpl extends RecordAbstract
           if (!(fieldValue instanceof RidBag)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
-                    + p.getFullName(session)
+                    + p.getFullName()
                     + "' has been declared as LINKBAG but an incompatible type is used. Value: "
                     + fieldValue);
           }
@@ -1434,17 +1434,17 @@ public class EntityImpl extends RecordAbstract
           if (!(fieldValue instanceof TrackedList<?>)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
-                    + p.getFullName(session)
+                    + p.getFullName()
                     + "' has been declared as EMBEDDEDLIST but an incompatible type is used. Value:"
                     + " "
                     + fieldValue);
           }
-          if (p.getLinkedClass(session) != null) {
+          if (p.getLinkedClass() != null) {
             for (var item : ((List<?>) fieldValue)) {
               validateEmbedded(session, p, item);
             }
           } else {
-            if (p.getLinkedType(session) != null) {
+            if (p.getLinkedType() != null) {
               for (var item : ((List<?>) fieldValue)) {
                 validateType(session, p, item);
               }
@@ -1455,16 +1455,16 @@ public class EntityImpl extends RecordAbstract
           if (!(fieldValue instanceof TrackedSet<?>)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
-                    + p.getFullName(session)
+                    + p.getFullName()
                     + "' has been declared as EMBEDDEDSET but an incompatible type is used. Value: "
                     + fieldValue);
           }
-          if (p.getLinkedClass(session) != null) {
+          if (p.getLinkedClass() != null) {
             for (var item : ((Set<?>) fieldValue)) {
               validateEmbedded(session, p, item);
             }
           } else {
-            if (p.getLinkedType(session) != null) {
+            if (p.getLinkedType() != null) {
               for (var item : ((Set<?>) fieldValue)) {
                 validateType(session, p, item);
               }
@@ -1475,16 +1475,16 @@ public class EntityImpl extends RecordAbstract
           if (!(fieldValue instanceof TrackedMap<?>)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
-                    + p.getFullName(session)
+                    + p.getFullName()
                     + "' has been declared as EMBEDDEDMAP but an incompatible type is used. Value: "
                     + fieldValue);
           }
-          if (p.getLinkedClass(session) != null) {
+          if (p.getLinkedClass() != null) {
             for (var colleEntry : ((Map<?, ?>) fieldValue).entrySet()) {
               validateEmbedded(session, p, colleEntry.getValue());
             }
           } else {
-            if (p.getLinkedType(session) != null) {
+            if (p.getLinkedType() != null) {
               for (var collEntry : ((Map<?, ?>) fieldValue).entrySet()) {
                 validateType(session, p, collEntry.getValue());
               }
@@ -1494,15 +1494,15 @@ public class EntityImpl extends RecordAbstract
       }
     }
 
-    if (p.getMin(session) != null && fieldValue != null) {
+    if (p.getMin() != null && fieldValue != null) {
       // MIN
-      final var min = p.getMin(session);
+      final var min = p.getMin();
       if (p.getMinComparable().compareTo(fieldValue) > 0) {
-        switch (p.getType(session)) {
+        switch (p.getType()) {
           case STRING:
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
-                    + p.getFullName(session)
+                    + p.getFullName()
                     + "' contains fewer characters than "
                     + min
                     + " requested");
@@ -1510,7 +1510,7 @@ public class EntityImpl extends RecordAbstract
           case DATETIME:
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
-                    + p.getFullName(session)
+                    + p.getFullName()
                     + "' contains the date "
                     + fieldValue
                     + " which precedes the first acceptable date ("
@@ -1519,7 +1519,7 @@ public class EntityImpl extends RecordAbstract
           case BINARY:
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
-                    + p.getFullName(session)
+                    + p.getFullName()
                     + "' contains fewer bytes than "
                     + min
                     + " requested");
@@ -1531,25 +1531,25 @@ public class EntityImpl extends RecordAbstract
           case LINKMAP:
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
-                    + p.getFullName(session)
+                    + p.getFullName()
                     + "' contains fewer items than "
                     + min
                     + " requested");
           default:
             throw new ValidationException(session.getDatabaseName(),
-                "The field '" + p.getFullName(session) + "' is less than " + min);
+                "The field '" + p.getFullName() + "' is less than " + min);
         }
       }
     }
 
     if (p.getMaxComparable() != null && fieldValue != null) {
-      final var max = p.getMax(session);
+      final var max = p.getMax();
       if (p.getMaxComparable().compareTo(fieldValue) < 0) {
-        switch (p.getType(session)) {
+        switch (p.getType()) {
           case STRING:
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
-                    + p.getFullName(session)
+                    + p.getFullName()
                     + "' contains more characters than "
                     + max
                     + " requested");
@@ -1557,7 +1557,7 @@ public class EntityImpl extends RecordAbstract
           case DATETIME:
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
-                    + p.getFullName(session)
+                    + p.getFullName()
                     + "' contains the date "
                     + fieldValue
                     + " which is after the last acceptable date ("
@@ -1566,7 +1566,7 @@ public class EntityImpl extends RecordAbstract
           case BINARY:
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
-                    + p.getFullName(session)
+                    + p.getFullName()
                     + "' contains more bytes than "
                     + max
                     + " requested");
@@ -1578,18 +1578,18 @@ public class EntityImpl extends RecordAbstract
           case LINKMAP:
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
-                    + p.getFullName(session)
+                    + p.getFullName()
                     + "' contains more items than "
                     + max
                     + " requested");
           default:
             throw new ValidationException(session.getDatabaseName(),
-                "The field '" + p.getFullName(session) + "' is greater than " + max);
+                "The field '" + p.getFullName() + "' is greater than " + max);
         }
       }
     }
 
-    if (p.isReadonly(session) && !RecordVersionHelper.isTombstone(iRecord.getVersion())) {
+    if (p.isReadonly() && !RecordVersionHelper.isTombstone(iRecord.getVersion())) {
       if (entry != null
           && (entry.isTxChanged() || entry.isTxTrackedModified())
           && !entry.isTxCreated()) {
@@ -1604,7 +1604,7 @@ public class EntityImpl extends RecordAbstract
             || !Objects.deepEquals(fieldValue, orgVal)) {
           throw new ValidationException(session.getDatabaseName(),
               "The field '"
-                  + p.getFullName(session)
+                  + p.getFullName()
                   + "' is immutable and cannot be altered. Field value is: "
                   + entry.value);
         }
@@ -1617,7 +1617,7 @@ public class EntityImpl extends RecordAbstract
       final SchemaProperty property,
       Iterable<Object> values,
       EntityEntry value) {
-    if (property.getLinkedClass(db) != null) {
+    if (property.getLinkedClass() != null) {
       if (value.getTimeLine() != null) {
         var event =
             value.getTimeLine().getMultiValueChangeEvents();
@@ -1640,27 +1640,27 @@ public class EntityImpl extends RecordAbstract
       final Object value) {
     if (value != null) {
       try {
-        if (p.getLinkedType(session)
-            .convert(value, p.getLinkedType(session), p.getLinkedClass(session), session)
+        if (p.getLinkedType()
+            .convert(value, p.getLinkedType(), p.getLinkedClass(), session)
             == null) {
           throw new ValidationException(session.getDatabaseName(),
               "The field '"
-                  + p.getFullName(session)
+                  + p.getFullName()
                   + "' has been declared as "
-                  + p.getType(session)
+                  + p.getType()
                   + " of type '"
-                  + p.getLinkedType(session)
+                  + p.getLinkedType()
                   + "' but the value is "
                   + value);
         }
       } catch (DatabaseException e) {
         throw BaseException.wrapException(new ValidationException(session.getDatabaseName(),
             "The field '"
-                + p.getFullName(session)
+                + p.getFullName()
                 + "' has been declared as "
-                + p.getType(session)
+                + p.getType()
                 + " of type '"
-                + p.getLinkedType(session)
+                + p.getLinkedType()
                 + "' but the value is "
                 + value), e, session);
       }
@@ -1677,9 +1677,9 @@ public class EntityImpl extends RecordAbstract
       } else {
         throw new ValidationException(session.getDatabaseName(),
             "The field '"
-                + p.getFullName(session)
+                + p.getFullName()
                 + "' has been declared as "
-                + p.getType(session)
+                + p.getType()
                 + " but contains a null record (probably a deleted record?)");
       }
     }
@@ -1687,14 +1687,14 @@ public class EntityImpl extends RecordAbstract
     if (!(fieldValue instanceof Identifiable)) {
       throw new ValidationException(session.getDatabaseName(),
           "The field '"
-              + p.getFullName(session)
+              + p.getFullName()
               + "' has been declared as "
-              + p.getType(session)
+              + p.getType()
               + " but the value is not a record or a record-id");
     }
 
-    final var schemaClass = p.getLinkedClass(session);
-    if (schemaClass != null && !schemaClass.isSubClassOf(session, Identity.CLASS_NAME)) {
+    final var schemaClass = p.getLinkedClass();
+    if (schemaClass != null && !schemaClass.isSubClassOf(Identity.CLASS_NAME)) {
       // DON'T VALIDATE OUSER AND OROLE FOR SECURITY RESTRICTIONS
       var identifiable = (Identifiable) fieldValue;
       final var rid = identifiable.getIdentity();
@@ -1711,14 +1711,14 @@ public class EntityImpl extends RecordAbstract
           cls = null;
         }
 
-        if (cls != null && !schemaClass.isSuperClassOf(session, cls)) {
+        if (cls != null && !schemaClass.isSuperClassOf(cls)) {
           throw new ValidationException(session.getDatabaseName(),
               "The field '"
-                  + p.getFullName(session)
+                  + p.getFullName()
                   + "' has been declared as "
-                  + p.getType(session)
+                  + p.getType()
                   + " of type '"
-                  + schemaClass.getName(session)
+                  + schemaClass.getName()
                   + "' but the value is the entity "
                   + rid
                   + " of class '"
@@ -1738,9 +1738,9 @@ public class EntityImpl extends RecordAbstract
     if (fieldValue instanceof RecordId) {
       throw new ValidationException(session.getDatabaseName(),
           "The field '"
-              + p.getFullName(session)
+              + p.getFullName()
               + "' has been declared as "
-              + p.getType(session)
+              + p.getType()
               + " but the value is the RecordID "
               + fieldValue);
     } else {
@@ -1748,52 +1748,52 @@ public class EntityImpl extends RecordAbstract
         if (((RecordId) embedded.getIdentity()).isValid()) {
           throw new ValidationException(session.getDatabaseName(),
               "The field '"
-                  + p.getFullName(session)
+                  + p.getFullName()
                   + "' has been declared as "
-                  + p.getType(session)
+                  + p.getType()
                   + " but the value is a entity with the valid RecordID "
                   + fieldValue);
         }
 
         final var embeddedRecord = embedded.getRecord(session);
         if (embeddedRecord instanceof EntityImpl entity) {
-          final var embeddedClass = p.getLinkedClass(session);
+          final var embeddedClass = p.getLinkedClass();
           if (entity.isVertex()) {
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
-                    + p.getFullName(session)
+                    + p.getFullName()
                     + "' has been declared as "
-                    + p.getType(session)
+                    + p.getType()
                     + " with linked class '"
                     + embeddedClass
                     + "' but the record is of class '"
-                    + entity.getImmutableSchemaClass(session).getName(session)
+                    + entity.getImmutableSchemaClass(session).getName()
                     + "' that is vertex class");
           }
 
           if (entity.isStatefulEdge()) {
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
-                    + p.getFullName(session)
+                    + p.getFullName()
                     + "' has been declared as "
-                    + p.getType(session)
+                    + p.getType()
                     + " with linked class '"
                     + embeddedClass
                     + "' but the record is of class '"
-                    + entity.getImmutableSchemaClass(session).getName(session)
+                    + entity.getImmutableSchemaClass(session).getName()
                     + "' that is edge class");
           }
         }
 
-        final var embeddedClass = p.getLinkedClass(session);
+        final var embeddedClass = p.getLinkedClass();
         if (embeddedClass != null) {
 
           if (!(embeddedRecord instanceof EntityImpl entity)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
-                    + p.getFullName(session)
+                    + p.getFullName()
                     + "' has been declared as "
-                    + p.getType(session)
+                    + p.getType()
                     + " with linked class '"
                     + embeddedClass
                     + "' but the record was not a entity");
@@ -1802,24 +1802,24 @@ public class EntityImpl extends RecordAbstract
           if (entity.getImmutableSchemaClass(session) == null) {
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
-                    + p.getFullName(session)
+                    + p.getFullName()
                     + "' has been declared as "
-                    + p.getType(session)
+                    + p.getType()
                     + " with linked class '"
                     + embeddedClass
                     + "' but the record has no class");
           }
 
-          if (!(entity.getImmutableSchemaClass(session).isSubClassOf(session, embeddedClass))) {
+          if (!(entity.getImmutableSchemaClass(session).isSubClassOf(embeddedClass))) {
             throw new ValidationException(session.getDatabaseName(),
                 "The field '"
-                    + p.getFullName(session)
+                    + p.getFullName()
                     + "' has been declared as "
-                    + p.getType(session)
+                    + p.getType()
                     + " with linked class '"
                     + embeddedClass
                     + "' but the record is of class '"
-                    + entity.getImmutableSchemaClass(session).getName(session)
+                    + entity.getImmutableSchemaClass(session).getName()
                     + "' that is not a subclass of that");
           }
 
@@ -1829,9 +1829,9 @@ public class EntityImpl extends RecordAbstract
       } else {
         throw new ValidationException(session.getDatabaseName(),
             "The field '"
-                + p.getFullName(session)
+                + p.getFullName()
                 + "' has been declared as "
-                + p.getType(session)
+                + p.getType()
                 + " but an incompatible type is used. Value: "
                 + fieldValue + " . Value class is :" + fieldValue.getClass());
       }
@@ -2091,8 +2091,8 @@ public class EntityImpl extends RecordAbstract
         }
       }
 
-      var property = cls != null ? cls.getProperty(session, propertyName) : null;
-      var type = property != null ? property.getType(session) : null;
+      var property = cls != null ? cls.getProperty(propertyName) : null;
+      var type = property != null ? property.getType() : null;
 
       if (type == null) {
         var typeName = propertyTypes.get(propertyName);
@@ -2166,8 +2166,8 @@ public class EntityImpl extends RecordAbstract
         continue;
       }
 
-      var property = cls != null ? cls.getProperty(session, key) : null;
-      var type = property != null ? property.getType(session) : null;
+      var property = cls != null ? cls.getProperty(key) : null;
+      var type = property != null ? property.getType() : null;
 
       switch (type) {
         case LINKLIST: {
@@ -2516,7 +2516,7 @@ public class EntityImpl extends RecordAbstract
     if (className == null && iOther.isEntity()) {
       var entity = (EntityImpl) iOther.castToEntity();
       var cls = entity.getImmutableSchemaClass(session);
-      className = cls.getName(session);
+      className = cls.getName();
     }
 
     return mergeResult(
@@ -2756,11 +2756,11 @@ public class EntityImpl extends RecordAbstract
 
         SchemaProperty prop = null;
         if (cls != null) {
-          prop = cls.getProperty(session, name);
+          prop = cls.getProperty(name);
         }
         PropertyType propertyType = null;
         if (prop != null) {
-          propertyType = prop.getType(session);
+          propertyType = prop.getType();
         }
         if (propertyType == null) {
           propertyType = entry.getValue().type;
@@ -3309,7 +3309,7 @@ public class EntityImpl extends RecordAbstract
     final var _clazz = session.getMetadata().getImmutableSchemaSnapshot()
         .getClass(iClassName);
     if (_clazz != null) {
-      className = _clazz.getName(session);
+      className = _clazz.getName();
       convertFieldsToClass(_clazz);
     }
   }
@@ -3361,7 +3361,7 @@ public class EntityImpl extends RecordAbstract
       clazz = metadata.getSchema().getOrCreateClass(className);
     }
     if (clazz != null) {
-      this.className = clazz.getName(session);
+      this.className = clazz.getName();
       convertFieldsToClass(clazz);
     }
   }
@@ -3388,22 +3388,22 @@ public class EntityImpl extends RecordAbstract
 
     final var immutableSchemaClass = getImmutableSchemaClass(session);
     if (immutableSchemaClass != null) {
-      if (immutableSchemaClass.isStrictMode(session)) {
+      if (immutableSchemaClass.isStrictMode()) {
         // CHECK IF ALL FIELDS ARE DEFINED
         for (var f : fieldNames()) {
-          if (immutableSchemaClass.getProperty(session, f) == null) {
+          if (immutableSchemaClass.getProperty(f) == null) {
             throw new ValidationException(session.getDatabaseName(),
                 "Found additional field '"
                     + f
                     + "'. It cannot be added because the schema class '"
-                    + immutableSchemaClass.getName(session)
+                    + immutableSchemaClass.getName()
                     + "' is defined as STRICT");
           }
         }
       }
 
       final var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
-      for (var p : immutableSchemaClass.properties(session)) {
+      for (var p : immutableSchemaClass.properties()) {
         validateField(session, immutableSchema, this, (ImmutableSchemaProperty) p);
       }
     }
@@ -3506,12 +3506,12 @@ public class EntityImpl extends RecordAbstract
       if (otherValue instanceof Result) {
         var schemaClass = getImmutableSchemaClass(session);
         if (schemaClass != null) {
-          var property = schemaClass.getProperty(session, propertyName);
+          var property = schemaClass.getProperty(propertyName);
           if (property != null) {
-            var type = property.getType(session);
+            var type = property.getType();
             otherValue =
-                type.convert(otherValue, property.getLinkedType(session),
-                    property.getLinkedClass(session), session);
+                type.convert(otherValue, property.getLinkedType(),
+                    property.getLinkedClass(), session);
           } else {
             otherValue = PropertyType.EMBEDDED.convert(otherValue, session);
           }
@@ -3766,8 +3766,8 @@ public class EntityImpl extends RecordAbstract
       if (fieldType == null) {
         SchemaClass clazz = getImmutableSchemaClass(session);
         if (clazz != null) {
-          final var prop = clazz.getProperty(session, fieldEntry.getKey());
-          fieldType = prop != null ? prop.getType(session) : null;
+          final var prop = clazz.getProperty(fieldEntry.getKey());
+          fieldType = prop != null ? prop.getType() : null;
         }
       }
       if (fieldType == null) {
@@ -3899,7 +3899,7 @@ public class EntityImpl extends RecordAbstract
   void setClass(final SchemaClass iClass) {
     checkForBinding();
 
-    if (iClass != null && iClass.isAbstract(session)) {
+    if (iClass != null && iClass.isAbstract()) {
       throw new SchemaException(session.getDatabaseName(),
           "Cannot create a entity of the abstract class '" + iClass + "'");
     }
@@ -3911,7 +3911,7 @@ public class EntityImpl extends RecordAbstract
     if (iClass == null) {
       className = null;
     } else {
-      className = iClass.getName(session);
+      className = iClass.getName();
     }
 
     immutableClazz = null;
@@ -3962,7 +3962,7 @@ public class EntityImpl extends RecordAbstract
           if (schema != null) {
             var clazz = schema.getClassByClusterId(recordId.getClusterId());
             if (clazz != null) {
-              className = clazz.getName(session);
+              className = clazz.getName();
             }
           }
         }
@@ -3985,13 +3985,13 @@ public class EntityImpl extends RecordAbstract
    * Checks and convert the field of the entity matching the types specified by the class.
    */
   private void convertFieldsToClass(final SchemaClass clazz) {
-    for (var prop : clazz.properties(session)) {
-      var entry = fields != null ? fields.get(prop.getName(session)) : null;
+    for (var prop : clazz.properties()) {
+      var entry = fields != null ? fields.get(prop.getName()) : null;
       if (entry != null && entry.exists()) {
-        if (entry.type == null || entry.type != prop.getType(session)) {
+        if (entry.type == null || entry.type != prop.getType()) {
           var preChanged = entry.isChanged();
           var preCreated = entry.isCreated();
-          field(prop.getName(session), entry.value, prop.getType(session));
+          field(prop.getName(), entry.value, prop.getType());
           if (recordId.isNew()) {
             if (preChanged) {
               entry.markChanged();
@@ -4006,14 +4006,14 @@ public class EntityImpl extends RecordAbstract
           }
         }
       } else {
-        var defValue = prop.getDefaultValue(session);
+        var defValue = prop.getDefaultValue();
         if (defValue != null && /*defValue.length() > 0 && */ !containsField(
-            prop.getName(session))) {
+            prop.getName())) {
           var curFieldValue = SQLHelper.parseDefaultValue(session, this, defValue, prop);
           var fieldValue =
               EntityHelper.convertField(session,
-                  this, prop.getName(session), prop.getType(session), curFieldValue);
-          rawField(prop.getName(session), fieldValue, prop.getType(session));
+                  this, prop.getName(), prop.getType(), curFieldValue);
+          rawField(prop.getName(), fieldValue, prop.getType());
         }
       }
     }
@@ -4024,9 +4024,9 @@ public class EntityImpl extends RecordAbstract
     SchemaClass clazz = getImmutableSchemaClass(session);
     if (clazz != null) {
       // SCHEMA-FULL?
-      final var prop = clazz.getProperty(session, fieldName);
+      final var prop = clazz.getProperty(fieldName);
       if (prop != null) {
-        fieldType = prop.getType(session);
+        fieldType = prop.getType();
       }
     }
 
@@ -4149,10 +4149,10 @@ public class EntityImpl extends RecordAbstract
     checkForBinding();
 
     var cls = getImmutableSchemaClass(session);
-    if (cls != null && !cls.isAbstract(session)) {
+    if (cls != null && !cls.isAbstract()) {
       throw new DatabaseException(session,
           "Embedded entities can be only of abstract classes. Provided class : " + cls.getName(
-              session) + " is not abstract");
+          ) + " is not abstract");
     }
     if (isVertex() || isStatefulEdge()) {
       throw new DatabaseException(session.getDatabaseName(),

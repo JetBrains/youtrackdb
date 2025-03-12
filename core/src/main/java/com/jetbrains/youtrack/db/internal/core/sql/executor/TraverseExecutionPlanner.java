@@ -147,7 +147,7 @@ public class TraverseExecutionPlanner {
       var item = new SQLFromItem(-1);
       from.setItem(item);
       item.setIdentifier(
-          new SQLIdentifier(((SchemaClass) paramValue).getName(ctx.getDatabaseSession())));
+          new SQLIdentifier(((SchemaClass) paramValue).getName()));
       handleClassAsTarget(result, from, ctx, profilingEnabled);
     } else if (paramValue instanceof String) {
       // strings are treated as classes

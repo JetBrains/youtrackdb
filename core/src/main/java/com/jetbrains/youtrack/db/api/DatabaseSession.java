@@ -516,8 +516,8 @@ public interface DatabaseSession extends AutoCloseable {
   default SchemaClass createEdgeClass(String className) {
     var edgeClass = createClass(className, "E");
 
-    edgeClass.createProperty(this, Edge.DIRECTION_IN, PropertyType.LINK);
-    edgeClass.createProperty(this, Edge.DIRECTION_OUT, PropertyType.LINK);
+    edgeClass.createProperty(Edge.DIRECTION_IN, PropertyType.LINK);
+    edgeClass.createProperty(Edge.DIRECTION_OUT, PropertyType.LINK);
 
     return edgeClass;
   }
@@ -622,23 +622,6 @@ public interface DatabaseSession extends AutoCloseable {
    * @return the array of defined blob cluster ids.
    */
   int[] getBlobClusterIds();
-
-  /**
-   * Drops a cluster by its name. Physical clusters will be completely deleted
-   *
-   * @param iClusterName the name of the cluster
-   * @return true if has been removed, otherwise false
-   */
-  boolean dropCluster(String iClusterName);
-
-  /**
-   * Drops a cluster by its id. Physical clusters will be completely deleted.
-   *
-   * @param iClusterId id of cluster to delete
-   * @return true if has been removed, otherwise false
-   */
-  boolean dropCluster(int iClusterId);
-
 
   /**
    * Flush cached storage content to the disk.

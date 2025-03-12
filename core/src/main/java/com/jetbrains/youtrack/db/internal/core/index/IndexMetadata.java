@@ -37,7 +37,7 @@ public class IndexMetadata {
   private final String type;
   private final String algorithm;
   private int version;
-  private Map<String, ?> metadata;
+  private Map<String, Object> metadata;
 
   public IndexMetadata(
       @Nonnull String name,
@@ -46,7 +46,7 @@ public class IndexMetadata {
       String type,
       String algorithm,
       int version,
-      Map<String, ?> metadata) {
+      Map<String, Object> metadata) {
     this.name = name;
     this.indexDefinition = indexDefinition;
     this.clustersToIndex = clustersToIndex;
@@ -128,11 +128,11 @@ public class IndexMetadata {
     this.version = version;
   }
 
-  public Map<String, ?> getMetadata() {
+  public Map<String, Object> getMetadata() {
     return metadata;
   }
 
-  public void setMetadata(Map<String, ?> metadata) {
+  public void setMetadata(Map<String, Object> metadata) {
     this.metadata = metadata;
   }
 }

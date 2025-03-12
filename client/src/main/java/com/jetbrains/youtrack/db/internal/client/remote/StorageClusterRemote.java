@@ -28,6 +28,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.StorageCluster;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.ClusterBrowsePage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 import javax.annotation.Nonnull;
 
 /**
@@ -93,9 +94,10 @@ public class StorageClusterRemote implements StorageCluster {
     throw new UnsupportedOperationException("updateRecord");
   }
 
+  @Nonnull
   @Override
-  public @Nonnull RawBuffer readRecord(long clusterPosition, boolean prefetchRecords) {
-    throw new UnsupportedOperationException("readRecord");
+  public RawBuffer readRecord(long clusterPosition) throws IOException {
+    throw new UnsupportedEncodingException();
   }
 
   @Override
@@ -149,7 +151,7 @@ public class StorageClusterRemote implements StorageCluster {
   }
 
   @Override
-  public long getNextPosition() {
+  public long getNextFreePosition() {
     return 0;
   }
 
@@ -179,22 +181,22 @@ public class StorageClusterRemote implements StorageCluster {
   }
 
   @Override
-  public PhysicalPosition[] higherPositions(PhysicalPosition position) {
+  public PhysicalPosition[] higherPositions(PhysicalPosition position, int limit) {
     throw new UnsupportedOperationException("higherPositions()");
   }
 
   @Override
-  public PhysicalPosition[] lowerPositions(PhysicalPosition position) {
+  public PhysicalPosition[] lowerPositions(PhysicalPosition position, int limit) {
     throw new UnsupportedOperationException("lowerPositions()");
   }
 
   @Override
-  public PhysicalPosition[] ceilingPositions(PhysicalPosition position) {
+  public PhysicalPosition[] ceilingPositions(PhysicalPosition position, int limit) {
     throw new UnsupportedOperationException("ceilingPositions()");
   }
 
   @Override
-  public PhysicalPosition[] floorPositions(PhysicalPosition position) {
+  public PhysicalPosition[] floorPositions(PhysicalPosition position, int limit) {
     throw new UnsupportedOperationException("floorPositions()");
   }
 

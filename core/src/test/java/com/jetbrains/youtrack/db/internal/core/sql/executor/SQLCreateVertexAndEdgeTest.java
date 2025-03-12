@@ -31,10 +31,8 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
   @Test
   public void testCreateEdgeDefaultClass() {
     session.command("create class V1 extends V").close();
-    session.command("alter class V1 add_cluster vdefault").close();
 
     session.command("create class E1 extends E").close();
-    session.command("alter class E1 add_cluster edefault").close();
 
     // VERTEXES
     session.begin();

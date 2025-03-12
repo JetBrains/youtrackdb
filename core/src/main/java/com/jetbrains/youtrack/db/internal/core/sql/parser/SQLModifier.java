@@ -343,7 +343,7 @@ public class SQLModifier extends SimpleNode {
           "SET value on conditional filtering will be supported soon");
     } else if (arraySingleValues != null) {
       if (schemaProperty != null) {
-        var linkedType = schemaProperty.getLinkedType(session);
+        var linkedType = schemaProperty.getLinkedType();
         if (linkedType != null) {
           value = linkedType.convert(value, session);
         }
@@ -493,13 +493,13 @@ public class SQLModifier extends SimpleNode {
 
   public boolean isIndexChain(CommandContext ctx, SchemaClassInternal clazz) {
     if (suffix != null && suffix.isBaseIdentifier()) {
-      var prop = clazz.getPropertyInternal(ctx.getDatabaseSession(),
+      var prop = clazz.getPropertyInternal(
           suffix.getIdentifier().getStringValue());
       if (prop != null
-          && prop.getAllIndexesInternal(ctx.getDatabaseSession()).stream()
+          && prop.getAllIndexesInternal().stream()
           .anyMatch(idx -> idx.getDefinition().getFields().size() == 1)) {
         if (next != null) {
-          var linkedClazz = (SchemaClassInternal) prop.getLinkedClass(ctx.getDatabaseSession());
+          var linkedClazz = (SchemaClassInternal) prop.getLinkedClass();
           return next.isIndexChain(ctx, linkedClazz);
         }
         return true;

@@ -110,8 +110,8 @@ public class DatabaseMetadataUpdateListenerTest {
   public void testIndexUpdate() {
     session
         .createClass("Some")
-        .createProperty(session, "test", PropertyType.STRING)
-        .createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+        .createProperty("test", PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
     assertEquals(1, indexManagerUpdateCount);
   }
 

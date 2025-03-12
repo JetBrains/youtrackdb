@@ -46,7 +46,7 @@ public class LuceneInsertReadMultiThreadTest extends LuceneBaseTest {
     Schema schema = session.getMetadata().getSchema();
     var oClass = schema.createClass("City");
 
-    oClass.createProperty(session, "name", PropertyType.STRING);
+    oClass.createProperty("name", PropertyType.STRING);
     session.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
   }
 
@@ -129,7 +129,7 @@ public class LuceneInsertReadMultiThreadTest extends LuceneBaseTest {
       final var db = (DatabaseSessionInternal) pool.acquire();
       db.activateOnCurrentThread();
       var schema = db.getMetadata().getSchema();
-      schema.getClassInternal("City").getClassIndex(db, "City.name");
+      schema.getClassInternal("City").getClassIndex(session, "City.name");
 
       for (var i = 0; i < cycle; i++) {
 

@@ -33,7 +33,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.SequenceException;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Objects;
 import java.util.Random;
@@ -399,29 +399,29 @@ public abstract class DBSequence {
         "Sequence type not found in entity");
   }
 
-  public static void initClass(DatabaseSessionInternal session, SchemaClassImpl sequenceClass) {
-    sequenceClass.createProperty(session, DBSequence.FIELD_START, PropertyType.LONG,
+  public static void initClass(SchemaClassInternal sequenceClass) {
+    sequenceClass.createProperty(DBSequence.FIELD_START, PropertyType.LONG,
         (PropertyType) null, true);
-    sequenceClass.createProperty(session, DBSequence.FIELD_INCREMENT, PropertyType.INTEGER,
+    sequenceClass.createProperty(DBSequence.FIELD_INCREMENT, PropertyType.INTEGER,
         (PropertyType) null,
         true);
-    sequenceClass.createProperty(session, DBSequence.FIELD_VALUE, PropertyType.LONG,
+    sequenceClass.createProperty(DBSequence.FIELD_VALUE, PropertyType.LONG,
         (PropertyType) null, true);
 
-    sequenceClass.createProperty(session, DBSequence.FIELD_NAME, PropertyType.STRING,
+    sequenceClass.createProperty(DBSequence.FIELD_NAME, PropertyType.STRING,
         (PropertyType) null,
         true);
-    sequenceClass.createProperty(session, DBSequence.FIELD_TYPE, PropertyType.STRING,
+    sequenceClass.createProperty(DBSequence.FIELD_TYPE, PropertyType.STRING,
         (PropertyType) null,
         true);
 
-    sequenceClass.createProperty(session, DBSequence.FIELD_LIMIT_VALUE, PropertyType.LONG,
+    sequenceClass.createProperty(DBSequence.FIELD_LIMIT_VALUE, PropertyType.LONG,
         (PropertyType) null,
         true);
-    sequenceClass.createProperty(session, DBSequence.FIELD_ORDER_TYPE, PropertyType.BYTE,
+    sequenceClass.createProperty(DBSequence.FIELD_ORDER_TYPE, PropertyType.BYTE,
         (PropertyType) null,
         true);
-    sequenceClass.createProperty(session, DBSequence.FIELD_RECYCLABLE, PropertyType.BOOLEAN,
+    sequenceClass.createProperty(DBSequence.FIELD_RECYCLABLE, PropertyType.BOOLEAN,
         (PropertyType) null,
         true);
   }

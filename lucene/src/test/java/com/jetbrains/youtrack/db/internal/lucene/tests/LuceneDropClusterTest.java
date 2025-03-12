@@ -53,7 +53,7 @@ public class LuceneDropClusterTest extends LuceneBaseTest {
             session);
     session.commit();
 
-    var clusterIds = metadata.getSchema().getClass("Song").getClusterIds(session);
+    var clusterIds = metadata.getSchema().getClass("Song").getClusterIds();
 
     session.dropCluster(clusterIds[1]);
 

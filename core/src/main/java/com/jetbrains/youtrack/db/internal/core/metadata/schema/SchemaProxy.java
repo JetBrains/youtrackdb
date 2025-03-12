@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.IndexDefinition;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -30,6 +29,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ProxedResource;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.clusterselection.ClusterSelectionFactory;
 import it.unimi.dsi.fastutil.ints.IntSet;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
@@ -37,33 +37,39 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Proxy class to use the shared SchemaShared instance. Before to delegate each operations it sets
  * the current database in the thread local.
  */
-public class SchemaProxy extends ProxedResource<SchemaShared> implements SchemaInternal {
+public final class SchemaProxy extends ProxedResource<SchemaShared> implements SchemaInternal {
+
   public SchemaProxy(final SchemaShared iDelegate, final DatabaseSessionInternal iDatabase) {
     super(iDelegate, iDatabase);
   }
 
   @Override
   public ImmutableSchema makeSnapshot() {
+    assert session.assertIfNotActive();
     return delegate.makeSnapshot(session);
   }
 
   public void create() {
+    assert session.assertIfNotActive();
     delegate.create(session);
   }
 
   public int countClasses() {
+    assert session.assertIfNotActive();
     return delegate.countClasses(session);
   }
 
 
   @Nonnull
   public SchemaClass createClass(final String iClassName) {
-    return delegate.createClass(session, iClassName);
+    assert session.assertIfNotActive();
+    return new SchemaClassProxy(delegate.createClass(session, iClassName), session);
   }
 
   public SchemaClass getOrCreateClass(final String iClassName) {
@@ -71,80 +77,128 @@ public class SchemaProxy extends ProxedResource<SchemaShared> implements SchemaI
   }
 
   public SchemaClass getOrCreateClass(final String iClassName, final SchemaClass iSuperClass) {
+    assert session.assertIfNotActive();
     if (iClassName == null) {
       return null;
     }
 
-    SchemaClass cls = delegate.getClass(session, iClassName.toLowerCase(Locale.ENGLISH));
+    var cls = delegate.getClass(session, iClassName.toLowerCase(Locale.ENGLISH));
     if (cls != null) {
-      return cls;
+      return new SchemaClassProxy(cls, session);
     }
 
-    cls = delegate.getOrCreateClass(session, iClassName, iSuperClass);
+    cls = delegate.getOrCreateClass(session, iClassName,
+        iSuperClass != null ? ((SchemaClassInternal) iSuperClass).getImplementation() : null);
 
-    return cls;
+    return new SchemaClassProxy(cls, session);
   }
 
   @Override
   public SchemaClass getOrCreateClass(String iClassName, SchemaClass... superClasses) {
-    return delegate.getOrCreateClass(session, iClassName, superClasses);
+    assert session.assertIfNotActive();
+
+    var superImpls = new SchemaClassImpl[superClasses.length];
+    for (var i = 0; i < superClasses.length; i++) {
+      superImpls[i] = ((SchemaClassInternal) superClasses[i]).getImplementation();
+    }
+
+    return new SchemaClassProxy(delegate.getOrCreateClass(session, iClassName, superImpls),
+        session);
   }
 
   @Nonnull
   @Override
   public SchemaClass createClass(@Nonnull final String iClassName,
       @Nonnull final SchemaClass iSuperClass) {
-    return delegate.createClass(session, iClassName, iSuperClass, null);
+    assert session.assertIfNotActive();
+    var superImpl = ((SchemaClassInternal) iSuperClass).getImplementation();
+
+    return new SchemaClassProxy(delegate.createClass(session, iClassName, superImpl, null),
+        session);
   }
 
   @Override
   public SchemaClass createClass(String iClassName, SchemaClass... superClasses) {
-    return delegate.createClass(session, iClassName, superClasses);
+    assert session.assertIfNotActive();
+    var superImpls = new SchemaClassImpl[superClasses.length];
+    for (var i = 0; i < superClasses.length; i++) {
+      superImpls[i] = ((SchemaClassInternal) superClasses[i]).getImplementation();
+    }
+
+    return new SchemaClassProxy(delegate.createClass(session, iClassName, superImpls), session);
   }
 
-  public SchemaClass createClass(
-      final String iClassName, final SchemaClass iSuperClass, final int[] iClusterIds) {
-    return delegate.createClass(session, iClassName, iSuperClass, iClusterIds);
+  public SchemaClass createClass(final String iClassName, final SchemaClass iSuperClass,
+      final int[] iClusterIds) {
+    assert session.assertIfNotActive();
+    var superImpl =
+        iSuperClass != null ? ((SchemaClassInternal) iSuperClass).getImplementation() : null;
+    return new SchemaClassProxy(delegate.createClass(session, iClassName, superImpl, iClusterIds),
+        session);
   }
 
   @Override
   public SchemaClass createClass(String className, int[] clusterIds, SchemaClass... superClasses) {
-    return delegate.createClass(session, className, clusterIds, superClasses);
+    assert session.assertIfNotActive();
+    var superImpls = new SchemaClassImpl[superClasses.length];
+    for (var i = 0; i < superClasses.length; i++) {
+      superImpls[i] = ((SchemaClassInternal) superClasses[i]).getImplementation();
+    }
+
+    return new SchemaClassProxy(delegate.createClass(session, className, clusterIds, superImpls),
+        session);
   }
 
   @Override
   public SchemaClass createAbstractClass(final String iClassName) {
-    return delegate.createAbstractClass(session, iClassName);
+    assert session.assertIfNotActive();
+
+    return new SchemaClassProxy(delegate.createAbstractClass(session, iClassName), session);
   }
 
   @Override
   public SchemaClass createAbstractClass(final String iClassName, final SchemaClass iSuperClass) {
-    return delegate.createAbstractClass(session, iClassName, iSuperClass);
+    assert session.assertIfNotActive();
+    var superImpl =
+        iSuperClass != null ? ((SchemaClassInternal) iSuperClass).getImplementation() : null;
+    return new SchemaClassProxy(delegate.createAbstractClass(session, iClassName, superImpl),
+        session);
   }
 
   @Override
   public SchemaClass createAbstractClass(String iClassName, SchemaClass... superClasses) {
-    return delegate.createAbstractClass(session, iClassName, superClasses);
+    assert session.assertIfNotActive();
+    var superImpls = new SchemaClassImpl[superClasses.length];
+    for (var i = 0; i < superClasses.length; i++) {
+      superImpls[i] = ((SchemaClassInternal) superClasses[i]).getImplementation();
+    }
+    return new SchemaClassProxy(delegate.createAbstractClass(session, iClassName, superImpls),
+        session);
   }
 
   public void dropClass(final String iClassName) {
+    assert session.assertIfNotActive();
     delegate.dropClass(session, iClassName);
   }
 
   public boolean existsClass(final String iClassName) {
+    assert session.assertIfNotActive();
     if (iClassName == null) {
       return false;
     }
 
-    return delegate.existsClass(session, iClassName.toLowerCase(Locale.ENGLISH));
+    return delegate.existsClass(session, iClassName);
   }
 
+  @Nullable
   public SchemaClass getClass(final Class<?> iClass) {
+    assert session.assertIfNotActive();
     if (iClass == null) {
       return null;
     }
 
-    return delegate.getClass(session, iClass);
+    var cls = delegate.getClass(session, iClass.getName());
+    return cls == null ? null : new SchemaClassProxy(cls, session);
   }
 
   public SchemaClass getClass(final String iClassName) {
@@ -152,15 +206,24 @@ public class SchemaProxy extends ProxedResource<SchemaShared> implements SchemaI
       return null;
     }
 
-    return delegate.getClass(session, iClassName);
+    assert session.assertIfNotActive();
+    var cls = delegate.getClass(session, iClassName);
+    return cls == null ? null : new SchemaClassProxy(cls, session);
   }
 
   public Collection<SchemaClass> getClasses() {
-    return delegate.getClasses(session);
+    assert session.assertIfNotActive();
+    var classes = delegate.getClasses(session);
+    var result = new ArrayList<SchemaClass>(classes.size());
+    for (var cls : classes) {
+      result.add(new SchemaClassProxy(cls, session));
+    }
+    return result;
   }
 
   @Override
   public Collection<String> getIndexes() {
+    assert session.assertIfNotActive();
     var indexManager = session.getMetadata().getIndexManager();
 
     var indexesInternal = indexManager.getIndexes();
@@ -174,6 +237,7 @@ public class SchemaProxy extends ProxedResource<SchemaShared> implements SchemaI
 
   @Override
   public boolean indexExists(String indexName) {
+    assert session.assertIfNotActive();
     var indexManager = session.getMetadata().getIndexManagerInternal();
 
     return indexManager.existsIndex(session, indexName);
@@ -181,6 +245,7 @@ public class SchemaProxy extends ProxedResource<SchemaShared> implements SchemaI
 
   @Override
   public @Nonnull IndexDefinition getIndexDefinition(String indexName) {
+    assert session.assertIfNotActive();
     var indexManager = session.getMetadata().getIndexManagerInternal();
     var index = indexManager.getIndex(session, indexName);
 
@@ -198,24 +263,23 @@ public class SchemaProxy extends ProxedResource<SchemaShared> implements SchemaI
 
     return new IndexDefinition(indexName, indexDefinition.getClassName(),
         Collections.unmodifiableList(indexDefinition.getFields()),
-        SchemaClass.INDEX_TYPE.valueOf(index.getType()),
-        indexDefinition.isNullValuesIgnored(),
+        SchemaClass.INDEX_TYPE.valueOf(index.getType()), indexDefinition.isNullValuesIgnored(),
         indexDefinition.getCollate().getName(), metadata);
   }
 
   @Deprecated
   public void load() {
-
+    assert session.assertIfNotActive();
     delegate.load(session);
   }
 
   public Schema reload() {
+    assert session.assertIfNotActive();
     delegate.reload(session);
     return this;
   }
 
   public int getVersion() {
-
     return delegate.getVersion();
   }
 
@@ -234,57 +298,83 @@ public class SchemaProxy extends ProxedResource<SchemaShared> implements SchemaI
   }
 
   @Override
-  public Set<SchemaClass> getClassesRelyOnCluster(DatabaseSession session,
-      final String iClusterName) {
-    return delegate.getClassesRelyOnCluster(this.session, iClusterName);
+  public Set<SchemaClass> getClassesRelyOnCluster(final String iClusterName) {
+    assert session.assertIfNotActive();
+    var classes = delegate.getClassesRelyOnCluster(session, iClusterName);
+    var result = new HashSet<SchemaClass>(classes.size());
+
+    for (var cls : classes) {
+      result.add(new SchemaClassProxy(cls, session));
+    }
+    return result;
   }
 
   @Nonnull
   @Override
   public SchemaClass createClass(@Nonnull String className, int clusters,
-      SchemaClass... superClasses) {
-    return delegate.createClass(session, className, clusters, superClasses);
+      @Nonnull SchemaClass... superClasses) {
+    assert session.assertIfNotActive();
+    var superImpls = new SchemaClassImpl[superClasses.length];
+    for (var i = 0; i < superClasses.length; i++) {
+      superImpls[i] = ((SchemaClassInternal) superClasses[i]).getImplementation();
+    }
+
+    return new SchemaClassProxy(delegate.createClass(session, className, clusters, superImpls),
+        session);
   }
 
   @Override
   public SchemaClass getClassByClusterId(int clusterId) {
-    return delegate.getClassByClusterId(session, clusterId);
+    assert session.assertIfNotActive();
+
+    var cls = delegate.getClassByClusterId(session, clusterId);
+    return cls != null ? new SchemaClassProxy(cls, session) : null;
   }
 
 
   @Override
   public GlobalProperty getGlobalPropertyById(int id) {
-    return delegate.getGlobalPropertyById(id);
+    assert session.assertIfNotActive();
+    return delegate.getGlobalPropertyById(session, id);
   }
 
   @Override
   public List<GlobalProperty> getGlobalProperties() {
-    return delegate.getGlobalProperties();
+    assert session.assertIfNotActive();
+    return delegate.getGlobalProperties(session);
   }
 
   public GlobalProperty createGlobalProperty(String name, PropertyType type, Integer id) {
-    return delegate.createGlobalProperty(name, type, id);
+    assert session.assertIfNotActive();
+    return delegate.createGlobalProperty(session, name, type, id);
   }
 
   @Override
   public ClusterSelectionFactory getClusterSelectionFactory() {
+    assert session.assertIfNotActive();
     return delegate.getClusterSelectionFactory();
   }
 
   @Override
   public SchemaClassInternal getClassInternal(String iClassName) {
-    return delegate.getClass(session, iClassName);
+    assert session.assertIfNotActive();
+    var cls = delegate.getClass(session, iClassName);
+
+    return cls != null ? new SchemaClassProxy(cls, session) : null;
   }
 
   public IntSet getBlobClusters() {
-    return delegate.getBlobClusters();
+    assert session.assertIfNotActive();
+    return delegate.getBlobClusters(session);
   }
 
   public int addBlobCluster(final int clusterId) {
+    assert session.assertIfNotActive();
     return delegate.addBlobCluster(session, clusterId);
   }
 
   public void removeBlobCluster(String clusterName) {
+    assert session.assertIfNotActive();
     delegate.removeBlobCluster(session, clusterName);
   }
 }

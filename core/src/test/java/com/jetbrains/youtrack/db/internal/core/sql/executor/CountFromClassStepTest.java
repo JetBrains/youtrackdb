@@ -15,7 +15,7 @@ public class CountFromClassStepTest extends TestUtilsFixture {
 
   @Test
   public void shouldCountRecordsOfClass() {
-    var className = createClassInstance().getName(session);
+    var className = createClassInstance().getName();
     for (var i = 0; i < 20; i++) {
       session.begin();
       var document = (EntityImpl) session.newEntity(className);

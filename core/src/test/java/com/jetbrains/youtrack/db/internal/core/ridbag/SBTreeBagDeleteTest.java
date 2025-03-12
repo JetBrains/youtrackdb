@@ -59,7 +59,7 @@ public class SBTreeBagDeleteTest extends BaseMemoryInternalDatabase {
 
     Thread.sleep(100);
     var tree =
-        session.getSbTreeCollectionManager().loadSBTree(pointer);
+        session.getBTreeCollectionManager().loadSBTree(pointer);
     assertEquals(0, tree.getRealBagSize(Collections.emptyMap()));
   }
 }

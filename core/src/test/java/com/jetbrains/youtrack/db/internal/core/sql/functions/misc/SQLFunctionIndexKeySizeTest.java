@@ -10,7 +10,7 @@ public class SQLFunctionIndexKeySizeTest extends DbTestBase {
   @Test
   public void test() {
     var clazz = session.getMetadata().getSchema().createClass("Test");
-    clazz.createProperty(session, "name", PropertyType.STRING);
+    clazz.createProperty("name", PropertyType.STRING);
     session.command("create index testindex on  Test (name) notunique").close();
 
     session.begin();

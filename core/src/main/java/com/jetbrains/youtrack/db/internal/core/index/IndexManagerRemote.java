@@ -400,7 +400,7 @@ public class IndexManagerRemote implements IndexManagerAbstract {
       final IndexDefinition iIndexDefinition,
       final int[] iClusterIdsToIndex,
       final ProgressListener progressListener,
-      Map<String, ?> metadata,
+      Map<String, Object> metadata,
       String engine) {
 
     String createIndexDDL;
@@ -450,7 +450,7 @@ public class IndexManagerRemote implements IndexManagerAbstract {
       IndexDefinition indexDefinition,
       int[] clusterIdsToIndex,
       ProgressListener progressListener,
-      Map<String, ?> metadata) {
+      Map<String, Object> metadata) {
     return createIndex(
         session,
         iName,

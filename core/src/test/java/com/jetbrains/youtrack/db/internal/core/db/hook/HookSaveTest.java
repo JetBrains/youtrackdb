@@ -33,7 +33,7 @@ public class HookSaveTest extends DbTestBase {
             }
             if (iRecord instanceof Entity entity) {
               var cls = entity.getSchemaClass();
-              if (cls != null && cls.getName(session).equals("test")) {
+              if (cls != null && cls.getName().equals("test")) {
                 var newEntity = session.newEntity("another");
                 entity.setProperty("testNewLinkedRecord", newEntity);
                 return RESULT.RECORD_CHANGED;
@@ -76,7 +76,7 @@ public class HookSaveTest extends DbTestBase {
 
             if (iRecord instanceof Entity entity) {
               var cls = entity.getSchemaClass();
-              if (cls != null && cls.getName(session).equals("test")) {
+              if (cls != null && cls.getName().equals("test")) {
                 var newEntity = HookSaveTest.this.session.newEntity("another");
 
                 entity.setProperty("testNewLinkedRecord", newEntity);

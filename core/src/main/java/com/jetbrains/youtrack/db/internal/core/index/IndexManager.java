@@ -111,7 +111,7 @@ public interface IndexManager {
       IndexDefinition indexDefinition,
       final int[] clusterIdsToIndex,
       final ProgressListener progressListener,
-      Map<String, ?> metadata);
+      Map<String, Object> metadata);
 
   /**
    * Creates a new index.
@@ -135,7 +135,7 @@ public interface IndexManager {
       IndexDefinition indexDefinition,
       final int[] clusterIdsToIndex,
       final ProgressListener progressListener,
-      Map<String, ?> metadata,
+      Map<String, Object> metadata,
       String algorithm);
 
   /**

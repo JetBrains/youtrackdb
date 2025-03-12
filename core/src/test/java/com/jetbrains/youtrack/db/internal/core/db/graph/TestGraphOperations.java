@@ -19,9 +19,9 @@ public class TestGraphOperations extends DbTestBase {
 
     var testLabel = session.createEdgeClass("TestLabel");
 
-    var key = testLabel.createProperty(session, "key", PropertyType.STRING);
+    var key = testLabel.createProperty("key", PropertyType.STRING);
 
-    key.createIndex(session, SchemaClass.INDEX_TYPE.UNIQUE);
+    key.createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
 
     session.begin();
     var vertex = session.newVertex("TestVertex");

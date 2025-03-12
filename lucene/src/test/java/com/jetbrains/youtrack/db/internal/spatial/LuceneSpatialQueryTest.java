@@ -41,10 +41,10 @@ public class LuceneSpatialQueryTest extends BaseLuceneTest {
     var v = schema.getClass("V");
 
     var oClass = schema.createClass("Place");
-    oClass.setSuperClass(session, v);
-    oClass.createProperty(session, "latitude", PropertyType.DOUBLE);
-    oClass.createProperty(session, "longitude", PropertyType.DOUBLE);
-    oClass.createProperty(session, "name", PropertyType.STRING);
+    oClass.addSuperClass(v);
+    oClass.createProperty("latitude", PropertyType.DOUBLE);
+    oClass.createProperty("longitude", PropertyType.DOUBLE);
+    oClass.createProperty("name", PropertyType.STRING);
 
     session.command("CREATE INDEX Place.l_lon ON Place(latitude,longitude) SPATIAL ENGINE LUCENE")
         .close();

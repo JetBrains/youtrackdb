@@ -124,14 +124,14 @@ public class CommandExecutorSQLDropClass extends CommandExecutorSQLAbstract
 
     if (records > 0 && !unsafe) {
       // NOT EMPTY, CHECK IF CLASS IS OF VERTEX OR EDGES
-      if (cls.isSubClassOf(session, "V")) {
+      if (cls.isSubClassOf("V")) {
         // FOUND VERTEX CLASS
         throw new CommandExecutionException(session,
             "'DROP CLASS' command cannot drop class '"
                 + className
                 + "' because it contains Vertices. Use 'DELETE VERTEX' command first to avoid"
                 + " broken edges in a database, or apply the 'UNSAFE' keyword to force it");
-      } else if (cls.isSubClassOf(session, "E")) {
+      } else if (cls.isSubClassOf("E")) {
         // FOUND EDGE CLASS
         throw new CommandExecutionException(session,
             "'DROP CLASS' command cannot drop class '"
@@ -145,7 +145,7 @@ public class CommandExecutorSQLDropClass extends CommandExecutorSQLAbstract
 
     if (records > 0 && unsafe) {
       // NOT EMPTY, CHECK IF CLASS IS OF VERTEX OR EDGES
-      if (cls.isSubClassOf(session, "V")) {
+      if (cls.isSubClassOf("V")) {
         // FOUND VERTICES
         if (unsafe) {
           LogManager.instance()
@@ -156,7 +156,7 @@ public class CommandExecutorSQLDropClass extends CommandExecutorSQLAbstract
                   className,
                   records);
         }
-      } else if (cls.isSubClassOf(session, "E")) {
+      } else if (cls.isSubClassOf("E")) {
         // FOUND EDGES
         LogManager.instance()
             .warn(

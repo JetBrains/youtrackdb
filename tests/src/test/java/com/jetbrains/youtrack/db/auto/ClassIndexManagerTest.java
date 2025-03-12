@@ -54,8 +54,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     }
 
     final var superClass = schema.createClass("classIndexManagerTestSuperClass");
-    superClass.createProperty(session, "prop0", PropertyType.STRING);
-    superClass.createIndex(session,
+    superClass.createProperty("prop0", PropertyType.STRING);
+    superClass.createIndex(
         "classIndexManagerTestSuperClass.prop0",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
@@ -63,58 +63,58 @@ public class ClassIndexManagerTest extends BaseDBTest {
         new String[]{"prop0"});
 
     final var oClass = schema.createClass("classIndexManagerTestClass", superClass);
-    oClass.createProperty(session, "prop1", PropertyType.STRING);
-    oClass.createIndex(session,
+    oClass.createProperty("prop1", PropertyType.STRING);
+    oClass.createIndex(
         "classIndexManagerTestClass.prop1",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true),
         new String[]{"prop1"});
 
-    final var propTwo = oClass.createProperty(session, "prop2", PropertyType.INTEGER);
-    propTwo.createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    final var propTwo = oClass.createProperty("prop2", PropertyType.INTEGER);
+    propTwo.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
-    oClass.createProperty(session, "prop3", PropertyType.BOOLEAN);
+    oClass.createProperty("prop3", PropertyType.BOOLEAN);
 
-    final var propFour = oClass.createProperty(session, "prop4", PropertyType.EMBEDDEDLIST,
+    final var propFour = oClass.createProperty("prop4", PropertyType.EMBEDDEDLIST,
         PropertyType.STRING);
-    propFour.createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    propFour.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
-    oClass.createProperty(session, "prop5", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
-    oClass.createIndex(session, "classIndexManagerTestIndexByKey",
+    oClass.createProperty("prop5", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
+    oClass.createIndex("classIndexManagerTestIndexByKey",
         SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "prop5");
-    oClass.createIndex(session,
+    oClass.createIndex(
         "classIndexManagerTestIndexByValue", SchemaClass.INDEX_TYPE.NOTUNIQUE, "prop5 by value");
 
-    final var propSix = oClass.createProperty(session, "prop6", PropertyType.EMBEDDEDSET,
+    final var propSix = oClass.createProperty("prop6", PropertyType.EMBEDDEDSET,
         PropertyType.STRING);
-    propSix.createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    propSix.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
-    oClass.createIndex(session,
+    oClass.createIndex(
         "classIndexManagerComposite",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"prop1", "prop2"});
 
     final var oClassTwo = schema.createClass("classIndexManagerTestClassTwo");
-    oClassTwo.createProperty(session, "prop1", PropertyType.STRING);
-    oClassTwo.createProperty(session, "prop2", PropertyType.INTEGER);
+    oClassTwo.createProperty("prop1", PropertyType.STRING);
+    oClassTwo.createProperty("prop2", PropertyType.INTEGER);
 
     final var compositeCollectionClass =
         schema.createClass("classIndexManagerTestCompositeCollectionClass");
-    compositeCollectionClass.createProperty(session, "prop1", PropertyType.STRING);
-    compositeCollectionClass.createProperty(session, "prop2", PropertyType.EMBEDDEDLIST,
+    compositeCollectionClass.createProperty("prop1", PropertyType.STRING);
+    compositeCollectionClass.createProperty("prop2", PropertyType.EMBEDDEDLIST,
         PropertyType.INTEGER);
 
-    compositeCollectionClass.createIndex(session,
+    compositeCollectionClass.createIndex(
         "classIndexManagerTestIndexValueAndCollection",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true),
         new String[]{"prop1", "prop2"});
 
-    oClass.createIndex(session,
+    oClass.createIndex(
         "classIndexManagerTestIndexOnPropertiesFromClassAndSuperclass",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
@@ -1184,7 +1184,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var oClass = (SchemaClassInternal) schema.getClass(
         "classIndexManagerTestClass");
 
-    final Collection<Index> indexes = oClass.getIndexesInternal(session);
+    final Collection<Index> indexes = oClass.getIndexesInternal();
     for (final var index : indexes) {
       Assert.assertEquals(index.getInternal().size(session), 0);
     }

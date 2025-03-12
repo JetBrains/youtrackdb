@@ -67,10 +67,10 @@ public class StorageBackupTestWithLuceneIndex {
   public void testSingeThreadFullBackup() throws IOException {
     final Schema schema = db.getMetadata().getSchema();
     final var backupClass = schema.createClass("BackupClass");
-    backupClass.createProperty(db, "num", PropertyType.INTEGER);
-    backupClass.createProperty(db, "name", PropertyType.STRING);
+    backupClass.createProperty("num", PropertyType.INTEGER);
+    backupClass.createProperty("name", PropertyType.STRING);
 
-    backupClass.createIndex(db,
+    backupClass.createIndex(
         "backupLuceneIndex",
         SchemaClass.INDEX_TYPE.FULLTEXT.toString(),
         null,
@@ -130,10 +130,10 @@ public class StorageBackupTestWithLuceneIndex {
 
     final Schema schema = db.getMetadata().getSchema();
     final var backupClass = schema.createClass("BackupClass");
-    backupClass.createProperty(db, "num", PropertyType.INTEGER);
-    backupClass.createProperty(db, "name", PropertyType.STRING);
+    backupClass.createProperty("num", PropertyType.INTEGER);
+    backupClass.createProperty("name", PropertyType.STRING);
 
-    backupClass.createIndex(db,
+    backupClass.createIndex(
         "backupLuceneIndex",
         SchemaClass.INDEX_TYPE.FULLTEXT.toString(),
         null,

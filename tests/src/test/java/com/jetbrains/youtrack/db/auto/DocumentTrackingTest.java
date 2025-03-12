@@ -38,12 +38,12 @@ public class DocumentTrackingTest extends BaseDBTest {
     if (!session.getMetadata().getSchema().existsClass("DocumentTrackingTestClass")) {
       final var trackedClass =
           session.getMetadata().getSchema().createClass("DocumentTrackingTestClass");
-      trackedClass.createProperty(session, "embeddedlist", PropertyType.EMBEDDEDLIST);
-      trackedClass.createProperty(session, "embeddedmap", PropertyType.EMBEDDEDMAP);
-      trackedClass.createProperty(session, "embeddedset", PropertyType.EMBEDDEDSET);
-      trackedClass.createProperty(session, "linkset", PropertyType.LINKSET);
-      trackedClass.createProperty(session, "linklist", PropertyType.LINKLIST);
-      trackedClass.createProperty(session, "linkmap", PropertyType.LINKMAP);
+      trackedClass.createProperty("embeddedlist", PropertyType.EMBEDDEDLIST);
+      trackedClass.createProperty("embeddedmap", PropertyType.EMBEDDEDMAP);
+      trackedClass.createProperty("embeddedset", PropertyType.EMBEDDEDSET);
+      trackedClass.createProperty("linkset", PropertyType.LINKSET);
+      trackedClass.createProperty("linklist", PropertyType.LINKLIST);
+      trackedClass.createProperty("linkmap", PropertyType.LINKMAP);
     }
   }
 

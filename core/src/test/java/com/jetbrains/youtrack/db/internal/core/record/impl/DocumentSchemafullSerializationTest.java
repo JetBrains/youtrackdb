@@ -69,49 +69,49 @@ public abstract class DocumentSchemafullSerializationTest extends BaseMemoryInte
     // databaseDocument.getMetadata().
     Schema schema = session.getMetadata().getSchema();
     address = schema.createAbstractClass("Address");
-    address.createProperty(session, NAME, PropertyType.STRING);
-    address.createProperty(session, NUMBER, PropertyType.INTEGER);
-    address.createProperty(session, CITY, PropertyType.STRING);
+    address.createProperty(NAME, PropertyType.STRING);
+    address.createProperty(NUMBER, PropertyType.INTEGER);
+    address.createProperty(CITY, PropertyType.STRING);
 
     simple = schema.createClass("Simple");
-    simple.createProperty(session, STRING_FIELD, PropertyType.STRING);
-    simple.createProperty(session, INT_FIELD, PropertyType.INTEGER);
-    simple.createProperty(session, SHORT_FIELD, PropertyType.SHORT);
-    simple.createProperty(session, LONG_FIELD, PropertyType.LONG);
-    simple.createProperty(session, FLOAT_NUMBER, PropertyType.FLOAT);
-    simple.createProperty(session, DOUBLE_NUMBER, PropertyType.DOUBLE);
-    simple.createProperty(session, BYTE_FIELD, PropertyType.BYTE);
-    simple.createProperty(session, BOOLEAN_FIELD, PropertyType.BOOLEAN);
-    simple.createProperty(session, DATE_FIELD, PropertyType.DATETIME);
-    simple.createProperty(session, RECORDID_FIELD, PropertyType.LINK);
-    simple.createProperty(session, EMBEDDED_FIELD, PropertyType.EMBEDDED, address);
+    simple.createProperty(STRING_FIELD, PropertyType.STRING);
+    simple.createProperty(INT_FIELD, PropertyType.INTEGER);
+    simple.createProperty(SHORT_FIELD, PropertyType.SHORT);
+    simple.createProperty(LONG_FIELD, PropertyType.LONG);
+    simple.createProperty(FLOAT_NUMBER, PropertyType.FLOAT);
+    simple.createProperty(DOUBLE_NUMBER, PropertyType.DOUBLE);
+    simple.createProperty(BYTE_FIELD, PropertyType.BYTE);
+    simple.createProperty(BOOLEAN_FIELD, PropertyType.BOOLEAN);
+    simple.createProperty(DATE_FIELD, PropertyType.DATETIME);
+    simple.createProperty(RECORDID_FIELD, PropertyType.LINK);
+    simple.createProperty(EMBEDDED_FIELD, PropertyType.EMBEDDED, address);
 
     embSimp = schema.createClass("EmbeddedCollectionSimple");
-    embSimp.createProperty(session, LIST_BOOLEANS, PropertyType.EMBEDDEDLIST);
-    embSimp.createProperty(session, LIST_BYTES, PropertyType.EMBEDDEDLIST);
-    embSimp.createProperty(session, LIST_DATES, PropertyType.EMBEDDEDLIST);
-    embSimp.createProperty(session, LIST_DOUBLES, PropertyType.EMBEDDEDLIST);
-    embSimp.createProperty(session, LIST_FLOATS, PropertyType.EMBEDDEDLIST);
-    embSimp.createProperty(session, LIST_INTEGERS, PropertyType.EMBEDDEDLIST);
-    embSimp.createProperty(session, LIST_LONGS, PropertyType.EMBEDDEDLIST);
-    embSimp.createProperty(session, LIST_SHORTS, PropertyType.EMBEDDEDLIST);
-    embSimp.createProperty(session, LIST_STRINGS, PropertyType.EMBEDDEDLIST);
-    embSimp.createProperty(session, LIST_MIXED, PropertyType.EMBEDDEDLIST);
+    embSimp.createProperty(LIST_BOOLEANS, PropertyType.EMBEDDEDLIST);
+    embSimp.createProperty(LIST_BYTES, PropertyType.EMBEDDEDLIST);
+    embSimp.createProperty(LIST_DATES, PropertyType.EMBEDDEDLIST);
+    embSimp.createProperty(LIST_DOUBLES, PropertyType.EMBEDDEDLIST);
+    embSimp.createProperty(LIST_FLOATS, PropertyType.EMBEDDEDLIST);
+    embSimp.createProperty(LIST_INTEGERS, PropertyType.EMBEDDEDLIST);
+    embSimp.createProperty(LIST_LONGS, PropertyType.EMBEDDEDLIST);
+    embSimp.createProperty(LIST_SHORTS, PropertyType.EMBEDDEDLIST);
+    embSimp.createProperty(LIST_STRINGS, PropertyType.EMBEDDEDLIST);
+    embSimp.createProperty(LIST_MIXED, PropertyType.EMBEDDEDLIST);
 
     embMapSimple = schema.createClass("EmbeddedMapSimple");
-    embMapSimple.createProperty(session, MAP_BYTES, PropertyType.EMBEDDEDMAP);
-    embMapSimple.createProperty(session, MAP_DATE, PropertyType.EMBEDDEDMAP);
-    embMapSimple.createProperty(session, MAP_DOUBLE, PropertyType.EMBEDDEDMAP);
-    embMapSimple.createProperty(session, MAP_FLOAT, PropertyType.EMBEDDEDMAP);
-    embMapSimple.createProperty(session, MAP_INT, PropertyType.EMBEDDEDMAP);
-    embMapSimple.createProperty(session, MAP_LONG, PropertyType.EMBEDDEDMAP);
-    embMapSimple.createProperty(session, MAP_SHORT, PropertyType.EMBEDDEDMAP);
-    embMapSimple.createProperty(session, MAP_STRING, PropertyType.EMBEDDEDMAP);
+    embMapSimple.createProperty(MAP_BYTES, PropertyType.EMBEDDEDMAP);
+    embMapSimple.createProperty(MAP_DATE, PropertyType.EMBEDDEDMAP);
+    embMapSimple.createProperty(MAP_DOUBLE, PropertyType.EMBEDDEDMAP);
+    embMapSimple.createProperty(MAP_FLOAT, PropertyType.EMBEDDEDMAP);
+    embMapSimple.createProperty(MAP_INT, PropertyType.EMBEDDEDMAP);
+    embMapSimple.createProperty(MAP_LONG, PropertyType.EMBEDDEDMAP);
+    embMapSimple.createProperty(MAP_SHORT, PropertyType.EMBEDDEDMAP);
+    embMapSimple.createProperty(MAP_STRING, PropertyType.EMBEDDEDMAP);
 
     var clazzEmbComp = schema.createClass("EmbeddedComplex");
-    clazzEmbComp.createProperty(session, "addresses", PropertyType.EMBEDDEDLIST, address);
-    clazzEmbComp.createProperty(session, "uniqueAddresses", PropertyType.EMBEDDEDSET, address);
-    clazzEmbComp.createProperty(session, "addressByStreet", PropertyType.EMBEDDEDMAP, address);
+    clazzEmbComp.createProperty("addresses", PropertyType.EMBEDDEDLIST, address);
+    clazzEmbComp.createProperty("uniqueAddresses", PropertyType.EMBEDDEDSET, address);
+    clazzEmbComp.createProperty("addressByStreet", PropertyType.EMBEDDEDMAP, address);
   }
 
   public void afterTest() {

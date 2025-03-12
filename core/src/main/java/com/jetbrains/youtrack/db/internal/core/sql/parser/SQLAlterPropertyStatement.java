@@ -44,7 +44,7 @@ public class SQLAlterPropertyStatement extends DDLStatement {
           "Invalid class name or class not found: " + clazz);
     }
 
-    var property = clazz.getProperty(session, propertyName.getStringValue());
+    var property = clazz.getProperty(propertyName.getStringValue());
     if (property == null) {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Property " + propertyName.getStringValue() + " not found on class " + clazz);
@@ -56,9 +56,9 @@ public class SQLAlterPropertyStatement extends DDLStatement {
 
     if (customPropertyName != null) {
       var customName = customPropertyName.getStringValue();
-      Object oldValue = property.getCustom(ctx.getDatabaseSession(), customName);
+      Object oldValue = property.getCustom(customName);
       var finalValue = customPropertyValue.execute((Identifiable) null, ctx);
-      property.setCustom(session, customName, finalValue == null ? null : "" + finalValue);
+      property.setCustom(customName, finalValue == null ? null : "" + finalValue);
 
       result.setProperty("operation", "alter property custom");
       result.setProperty("customAttribute", customPropertyName.getStringValue());
@@ -94,9 +94,9 @@ public class SQLAlterPropertyStatement extends DDLStatement {
                     + Arrays.toString(SchemaProperty.ATTRIBUTES.values())),
             e, ctx.getDatabaseSession());
       }
-      var oldValue = property.get(session, attribute);
-      property.set(session, attribute, finalValue);
-      finalValue = property.get(session, attribute); // it makes some conversions...
+      var oldValue = property.get(attribute);
+      property.set(attribute, finalValue);
+      finalValue = property.get(attribute); // it makes some conversions...
 
       result.setProperty("operation", "alter property");
       result.setProperty("attribute", setting);

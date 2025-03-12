@@ -11,11 +11,14 @@ import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClassDescendentOrder;
+import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import org.junit.Assert;
+
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
 import org.junit.Test;
 
 public class DatabaseDocumentTxTest extends DbTestBase {
@@ -85,8 +88,8 @@ public class DatabaseDocumentTxTest extends DbTestBase {
   public void testCreateClass() {
     var clazz = session.createClass("TestCreateClass");
     Assert.assertNotNull(clazz);
-    Assert.assertEquals("TestCreateClass", clazz.getName(session));
-    var superclasses = clazz.getSuperClasses(session);
+    Assert.assertEquals("TestCreateClass", clazz.getName());
+    var superclasses = clazz.getSuperClasses();
     if (superclasses != null) {
       assertTrue(superclasses.isEmpty());
     }
@@ -100,10 +103,10 @@ public class DatabaseDocumentTxTest extends DbTestBase {
 
     var subclazz = session.createClass("TestCreateClass_subclass", "TestCreateClass");
     Assert.assertNotNull(subclazz);
-    Assert.assertEquals("TestCreateClass_subclass", subclazz.getName(session));
-    var sub_superclasses = subclazz.getSuperClasses(session);
+    Assert.assertEquals("TestCreateClass_subclass", subclazz.getName());
+    var sub_superclasses = subclazz.getSuperClasses();
     Assert.assertEquals(1, sub_superclasses.size());
-    Assert.assertEquals("TestCreateClass", sub_superclasses.getFirst().getName(session));
+    Assert.assertEquals("TestCreateClass", sub_superclasses.getFirst().getName());
   }
 
   @Test
@@ -112,8 +115,8 @@ public class DatabaseDocumentTxTest extends DbTestBase {
 
     var clazz = session.getClass("TestGetClass");
     Assert.assertNotNull(clazz);
-    Assert.assertEquals("TestGetClass", clazz.getName(session));
-    var superclasses = clazz.getSuperClasses(session);
+    Assert.assertEquals("TestGetClass", clazz.getName());
+    var superclasses = clazz.getSuperClasses();
     if (superclasses != null) {
       assertTrue(superclasses.isEmpty());
     }
@@ -129,8 +132,8 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     var c0 = schema.createAbstractClass("testDocFromJsonEmbedded_Class0");
 
     var c1 = schema.createClass("testDocFromJsonEmbedded_Class1");
-    c1.createProperty(session, "account", PropertyType.STRING);
-    c1.createProperty(session, "meta", PropertyType.EMBEDDED, c0);
+    c1.createProperty("account", PropertyType.STRING);
+    c1.createProperty("meta", PropertyType.EMBEDDED, c0);
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("testDocFromJsonEmbedded_Class1");
@@ -156,7 +159,6 @@ public class DatabaseDocumentTxTest extends DbTestBase {
       Assert.assertEquals(0, result.stream().count());
     }
 
-
     try (var result = session.query("select from testDocFromJsonEmbedded_Class1")) {
       Assert.assertTrue(result.hasNext());
       var item = result.next().castToEntity();
@@ -173,16 +175,16 @@ public class DatabaseDocumentTxTest extends DbTestBase {
 
     var clazz = session.createClassIfNotExist("TestCreateClassIfNotExists");
     Assert.assertNotNull(clazz);
-    Assert.assertEquals("TestCreateClassIfNotExists", clazz.getName(session));
-    var superclasses = clazz.getSuperClasses(session);
+    Assert.assertEquals("TestCreateClassIfNotExists", clazz.getName());
+    var superclasses = clazz.getSuperClasses();
     if (superclasses != null) {
       assertTrue(superclasses.isEmpty());
     }
 
     var clazz2 = session.createClassIfNotExist("TestCreateClassIfNotExists_non_existing");
     Assert.assertNotNull(clazz2);
-    Assert.assertEquals("TestCreateClassIfNotExists_non_existing", clazz2.getName(session));
-    var superclasses2 = clazz2.getSuperClasses(session);
+    Assert.assertEquals("TestCreateClassIfNotExists_non_existing", clazz2.getName());
+    var superclasses2 = clazz2.getSuperClasses();
     if (superclasses2 != null) {
       assertTrue(superclasses2.isEmpty());
     }
@@ -195,10 +197,10 @@ public class DatabaseDocumentTxTest extends DbTestBase {
 
     clazz = session.getClass("TestCreateVertexClass");
     Assert.assertNotNull(clazz);
-    Assert.assertEquals("TestCreateVertexClass", clazz.getName(session));
-    var superclasses = clazz.getSuperClasses(session);
+    Assert.assertEquals("TestCreateVertexClass", clazz.getName());
+    var superclasses = clazz.getSuperClasses();
     Assert.assertEquals(1, superclasses.size());
-    Assert.assertEquals("V", superclasses.getFirst().getName(session));
+    Assert.assertEquals("V", superclasses.getFirst().getName());
   }
 
   @Test
@@ -208,10 +210,10 @@ public class DatabaseDocumentTxTest extends DbTestBase {
 
     clazz = session.getClass("TestCreateEdgeClass");
     Assert.assertNotNull(clazz);
-    Assert.assertEquals("TestCreateEdgeClass", clazz.getName(session));
-    var superclasses = clazz.getSuperClasses(session);
+    Assert.assertEquals("TestCreateEdgeClass", clazz.getName());
+    var superclasses = clazz.getSuperClasses();
     Assert.assertEquals(1, superclasses.size());
-    Assert.assertEquals("E", superclasses.getFirst().getName(session));
+    Assert.assertEquals("E", superclasses.getFirst().getName());
   }
 
   @Test
@@ -248,8 +250,8 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     var edgeClass = "testEdge";
     var vc = session.createClass(vertexClass, "V");
     session.createClass(edgeClass, "E");
-    vc.createProperty(session, "out_testEdge", PropertyType.LINK);
-    vc.createProperty(session, "in_testEdge", PropertyType.LINK);
+    vc.createProperty("out_testEdge", PropertyType.LINK);
+    vc.createProperty("in_testEdge", PropertyType.LINK);
 
     session.begin();
     var doc1 = session.newVertex(vertexClass);
@@ -263,7 +265,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    try (var rs = session.query("SELECT out() as o FROM " + vertexClass)) {
+    try (var rs = session.query("SELECT out() as o FROM " + doc1.getIdentity())) {
       Assert.assertTrue(rs.hasNext());
       var res = rs.next();
 
@@ -276,13 +278,13 @@ public class DatabaseDocumentTxTest extends DbTestBase {
 
   @Test
   public void testLinkOneSide() {
-    var vertexClass = "testVertex";
+    var vertexClass = "testVertexOneSide";
     var edgeClass = "testEdge";
     var vc = session.createClass(vertexClass, "V");
     session.createClass(edgeClass, "E");
 
-    vc.createProperty(session, "out_testEdge", PropertyType.LINKBAG);
-    vc.createProperty(session, "in_testEdge", PropertyType.LINK);
+    vc.createProperty("out_testEdge", PropertyType.LINKBAG);
+    vc.createProperty("in_testEdge", PropertyType.LINK);
 
     session.begin();
     var doc1 = session.newVertex(vertexClass);
@@ -299,7 +301,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    try (var rs = session.query("SELECT out() as o FROM " + vertexClass)) {
+    try (var rs = session.query("SELECT out() as o FROM " + doc1.getIdentity())) {
       Assert.assertTrue(rs.hasNext());
       var res = rs.next();
 
@@ -316,8 +318,8 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     var edgeClass = "testEdge";
     var vc = session.createClass(vertexClass, "V");
     session.createClass(edgeClass, "E");
-    vc.createProperty(session, "out_testEdge", PropertyType.LINK);
-    vc.createProperty(session, "in_testEdge", PropertyType.LINK);
+    vc.createProperty("out_testEdge", PropertyType.LINK);
+    vc.createProperty("in_testEdge", PropertyType.LINK);
 
     session.executeInTx(() -> {
       var doc1 = session.newVertex(vertexClass);
@@ -344,7 +346,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     var document = (EntityImpl) session.newEntity(className);
 
     var reverseIterator =
-        new RecordIteratorClassDescendentOrder<EntityImpl>(session, session, className, true);
+        new RecordIteratorClass(session, className, true, false);
     Assert.assertTrue(reverseIterator.hasNext());
     Assert.assertEquals(document, reverseIterator.next());
   }

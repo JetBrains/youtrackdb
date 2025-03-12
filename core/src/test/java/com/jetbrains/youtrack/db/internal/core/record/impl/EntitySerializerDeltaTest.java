@@ -71,7 +71,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     session.begin();
     var doc = (EntityImpl) session.newEntity(claz);
-    var nestedDoc = (EntityImpl) session.newEmbeddedEntity(embeddedClaz.getName(session));
+    var nestedDoc = (EntityImpl) session.newEmbeddedEntity(embeddedClaz.getName());
     var fieldName = "testField";
     var constantFieldName = "constantField";
     var originalValue = "orValue";
@@ -624,7 +624,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     var claz = session.createClassIfNotExist("TestClass");
     var embeddedClazz = session.createAbstractClass("EmbeddedTestClass");
-    claz.createProperty(session, nestedFieldName, PropertyType.EMBEDDED);
+    claz.createProperty(nestedFieldName, PropertyType.EMBEDDED);
 
     session.begin();
     var entity = (EntityImpl) session.newEmbeddedEntity(embeddedClazz);

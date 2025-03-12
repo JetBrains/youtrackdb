@@ -81,7 +81,9 @@ public class SQLOptimizeDatabaseStatement extends SQLSimpleExecStatement {
     long lastLapBrowsed = 0;
     var lastLapTime = System.currentTimeMillis();
 
-    for (var entity : db.browseClass("E")) {
+    var iter = db.browseClass("E");
+    while (iter.hasNext()) {
+      var entity = iter.next();
       if (Thread.currentThread().isInterrupted()) {
         break;
       }

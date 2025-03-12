@@ -9,17 +9,18 @@ import org.junit.Test;
  *
  */
 public class CheckClusterTypeStepTest extends TestUtilsFixture {
-
-  private static final String CLASS_CLUSTER_NAME = "ClassClusterName";
-  private static final String CLUSTER_NAME = "ClusterName";
+private static final String CLUSTER_NAME = "ClusterName";
 
   @Test
   public void shouldCheckClusterType() {
-    var clazz = createClassInstance().addCluster(session, CLASS_CLUSTER_NAME);
+    var clazz = createClassInstance();
+    var clusterId = clazz.getClusterIds()[0];
+    var clusterName = session.getClusterNameById(clusterId);
+
     var context = new BasicCommandContext();
     context.setDatabaseSession(session);
     var step =
-        new CheckClusterTypeStep(CLASS_CLUSTER_NAME, clazz.getName(session), context, false);
+        new CheckClusterTypeStep(clusterName, clazz.getName(), context, false);
 
     var result = step.start(context);
     Assert.assertEquals(0, result.stream(context).count());
@@ -28,10 +29,11 @@ public class CheckClusterTypeStepTest extends TestUtilsFixture {
   @Test(expected = CommandExecutionException.class)
   public void shouldThrowExceptionWhenClusterIsWrong() {
     session.addCluster(CLUSTER_NAME);
+
     var context = new BasicCommandContext();
     context.setDatabaseSession(session);
     var step =
-        new CheckClusterTypeStep(CLUSTER_NAME, createClassInstance().getName(session), context,
+        new CheckClusterTypeStep(CLUSTER_NAME, createClassInstance().getName(), context,
             false);
 
     step.start(context);

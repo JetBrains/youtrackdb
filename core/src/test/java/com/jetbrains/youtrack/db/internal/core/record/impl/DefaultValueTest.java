@@ -20,8 +20,8 @@ public class DefaultValueTest extends DbTestBase {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("ClassC");
 
-    var prop = classA.createProperty(session, "name", PropertyType.STRING);
-    prop.setDefaultValue(session, "uuid()");
+    var prop = classA.createProperty("name", PropertyType.STRING);
+    prop.setDefaultValue("uuid()");
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("ClassC");
@@ -40,10 +40,10 @@ public class DefaultValueTest extends DbTestBase {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("ClassA");
 
-    var prop = classA.createProperty(session, "date", PropertyType.DATE);
-    prop.setDefaultValue(session, DateHelper.getDateTimeFormatInstance(session).format(new Date()));
-    var some = classA.createProperty(session, "id", PropertyType.STRING);
-    some.setDefaultValue(session, "uuid()");
+    var prop = classA.createProperty("date", PropertyType.DATE);
+    prop.setDefaultValue(DateHelper.getDateTimeFormatInstance(session).format(new Date()));
+    var some = classA.createProperty("id", PropertyType.STRING);
+    some.setDefaultValue("uuid()");
 
     session.begin();
     var doc = (EntityImpl) session.newEntity(classA);
@@ -72,10 +72,10 @@ public class DefaultValueTest extends DbTestBase {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("ClassA");
 
-    var prop = classA.createProperty(session, "date", PropertyType.DATE);
-    prop.setDefaultValue(session, DateHelper.getDateTimeFormatInstance(session).format(new Date()));
-    var some = classA.createProperty(session, "id", PropertyType.STRING);
-    some.setDefaultValue(session, "uuid()");
+    var prop = classA.createProperty("date", PropertyType.DATE);
+    prop.setDefaultValue(DateHelper.getDateTimeFormatInstance(session).format(new Date()));
+    var some = classA.createProperty("id", PropertyType.STRING);
+    some.setDefaultValue("uuid()");
 
     var value = "2000-01-01 00:00:00";
 
@@ -110,8 +110,8 @@ public class DefaultValueTest extends DbTestBase {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("ClassA");
 
-    var prop = classA.createProperty(session, "date", PropertyType.DATE);
-    prop.setDefaultValue(session, DateHelper.getDateTimeFormatInstance(session).format(new Date()));
+    var prop = classA.createProperty("date", PropertyType.DATE);
+    prop.setDefaultValue(DateHelper.getDateTimeFormatInstance(session).format(new Date()));
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("ClassA");
@@ -132,8 +132,8 @@ public class DefaultValueTest extends DbTestBase {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("ClassA");
 
-    var prop = classA.createProperty(session, "date", PropertyType.DATETIME);
-    prop.setDefaultValue(session, DateHelper.getDateTimeFormatInstance(session).format(new Date()));
+    var prop = classA.createProperty("date", PropertyType.DATETIME);
+    prop.setDefaultValue(DateHelper.getDateTimeFormatInstance(session).format(new Date()));
 
     var value1 = DateHelper.getDateTimeFormatInstance(session).format(new Date());
     session.begin();
@@ -155,10 +155,10 @@ public class DefaultValueTest extends DbTestBase {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("ClassA");
 
-    var prop = classA.createProperty(session, "date", PropertyType.DATE);
-    prop.setMandatory(session, true);
-    prop.setReadonly(session, true);
-    prop.setDefaultValue(session, DateHelper.getDateTimeFormatInstance(session).format(new Date()));
+    var prop = classA.createProperty("date", PropertyType.DATE);
+    prop.setMandatory(true);
+    prop.setReadonly(true);
+    prop.setDefaultValue(DateHelper.getDateTimeFormatInstance(session).format(new Date()));
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("ClassA");
@@ -179,10 +179,10 @@ public class DefaultValueTest extends DbTestBase {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("ClassA");
 
-    var prop = classA.createProperty(session, "date", PropertyType.DATETIME);
-    prop.setMandatory(session, true);
-    prop.setReadonly(session, true);
-    prop.setDefaultValue(session, DateHelper.getDateTimeFormatInstance(session).format(new Date()));
+    var prop = classA.createProperty("date", PropertyType.DATETIME);
+    prop.setMandatory(true);
+    prop.setReadonly(true);
+    prop.setDefaultValue(DateHelper.getDateTimeFormatInstance(session).format(new Date()));
 
     var value1 = DateHelper.getDateTimeFormatInstance(session).format(new Date());
     session.begin();
@@ -204,10 +204,10 @@ public class DefaultValueTest extends DbTestBase {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("ClassA");
 
-    var prop = classA.createProperty(session, "date", PropertyType.DATETIME);
-    prop.setMandatory(session, true);
-    prop.setReadonly(session, true);
-    prop.setDefaultValue(session, DateHelper.getDateTimeFormatInstance(session).format(new Date()));
+    var prop = classA.createProperty("date", PropertyType.DATETIME);
+    prop.setMandatory(true);
+    prop.setReadonly(true);
+    prop.setDefaultValue(DateHelper.getDateTimeFormatInstance(session).format(new Date()));
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("ClassA");

@@ -167,8 +167,8 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
     var eClass = "testUpsertE";
 
     var eclazz = schema.createClass(eClass, schema.getClass("E"));
-    eclazz.createProperty(session, "out", PropertyType.LINK, vclazz1);
-    eclazz.createProperty(session, "in", PropertyType.LINK, vclazz2);
+    eclazz.createProperty("out", PropertyType.LINK, vclazz1);
+    eclazz.createProperty("in", PropertyType.LINK, vclazz2);
 
     session.command("CREATE INDEX " + eClass + "out_in ON " + eclazz + " (out, in) UNIQUE");
 
@@ -241,8 +241,8 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
     var eClass = "testUpsertHashIndexE";
 
     var eclazz = schema.createClass(eClass, schema.getClass("E"));
-    eclazz.createProperty(session, "out", PropertyType.LINK, vclazz1);
-    eclazz.createProperty(session, "in", PropertyType.LINK, vclazz2);
+    eclazz.createProperty("out", PropertyType.LINK, vclazz1);
+    eclazz.createProperty("in", PropertyType.LINK, vclazz2);
 
     session.command("CREATE INDEX " + eClass + "out_in ON " + eclazz + " (out, in) UNIQUE");
 
@@ -314,8 +314,8 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
     var eClass = "testBreakUniqueWithoutUpsertE";
 
     var eclazz = schema.createClass(eClass, schema.getClass("E"));
-    eclazz.createProperty(session, "out", PropertyType.LINK, vclazz1);
-    eclazz.createProperty(session, "in", PropertyType.LINK, vclazz2);
+    eclazz.createProperty("out", PropertyType.LINK, vclazz1);
+    eclazz.createProperty("in", PropertyType.LINK, vclazz2);
 
     session.command("CREATE INDEX " + eClass + "out_in ON " + eclazz + " (out, in) UNIQUE");
     for (var i = 0; i < 2; i++) {

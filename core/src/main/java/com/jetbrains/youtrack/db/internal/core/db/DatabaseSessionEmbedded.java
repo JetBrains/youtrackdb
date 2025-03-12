@@ -605,7 +605,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       queryStarted(result);
       return result;
     } catch (Exception e) {
-      int i = 0;
       throw e;
     } finally {
       cleanQueryState();
@@ -885,7 +884,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       SchemaImmutableClass clazz = null;
       clazz = entity.getImmutableSchemaClass(this);
       if (clazz != null) {
-        checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, clazz.getName(this));
+        checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, clazz.getName());
         if (clazz.isScheduler()) {
           getSharedContext().getScheduler().initScheduleRecord(entity);
           changed = true;
@@ -1110,7 +1109,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
           }
         }
         try {
-          checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_READ, clazz.getName(this));
+          checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_READ, clazz.getName());
         } catch (SecurityException e) {
           return true;
         }
@@ -1242,13 +1241,13 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       }
       if (schemaClass != null) {
         // FIND THE RIGHT CLUSTER AS CONFIGURED IN CLASS
-        if (schemaClass.isAbstract(this)) {
+        if (schemaClass.isAbstract()) {
           throw new SchemaException(getDatabaseName(),
               "Entity belongs to abstract class '"
-                  + schemaClass.getName(this)
+                  + schemaClass.getName()
                   + "' and cannot be saved");
         }
-        clusterId = schemaClass.getClusterForNewInstance(this, (EntityImpl) record);
+        clusterId = schemaClass.getClusterForNewInstance((EntityImpl) record);
         return getClusterNameById(clusterId);
       } else {
         throw new SchemaException(getDatabaseName(),
@@ -1264,7 +1263,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
 
 
   @Override
-  public boolean executeExists(RID rid) {
+  public boolean executeExists(@Nonnull RID rid) {
     checkOpenness();
     assert assertIfNotActive();
     try {
@@ -1511,9 +1510,11 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     assert assertIfNotActive();
     final var clusterId = getClusterIdByName(iClusterName);
     var schema = metadata.getSchema();
+
     var clazz = schema.getClassByClusterId(clusterId);
     if (clazz != null) {
-      clazz.removeClusterId(this, clusterId);
+      throw new DatabaseException(this, "Cannot drop cluster '" + getClusterNameById(clusterId)
+          + "' because it is mapped to class '" + clazz.getName() + "'");
     }
     if (schema.getBlobClusters().contains(clusterId)) {
       schema.removeBlobCluster(iClusterName);
@@ -1538,8 +1539,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     var schema = metadata.getSchema();
     final var clazz = schema.getClassByClusterId(clusterId);
     if (clazz != null) {
-      clazz.removeClusterId(this, clusterId);
+      throw new DatabaseException(this, "Cannot drop cluster '" + getClusterNameById(clusterId)
+          + "' because it is mapped to class '" + clazz.getName() + "'");
     }
+
     getLocalCache().freeCluster(clusterId);
     if (schema.getBlobClusters().contains(clusterId)) {
       schema.removeBlobCluster(getClusterNameById(clusterId));
@@ -1557,7 +1560,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       return false;
     }
 
-    executeInTxBatches((Iterator<DBRecord>) iteratorCluster, (session, record) -> delete(record));
+    executeInTxBatches(iteratorCluster, (session, record) -> delete(record));
 
     return dropClusterInternal(clusterId);
   }
@@ -1704,7 +1707,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   /**
    * {@inheritDoc}
    */
-  public BTreeCollectionManager getSbTreeCollectionManager() {
+  public BTreeCollectionManager getBTreeCollectionManager() {
     assert assertIfNotActive();
     return storage.getSBtreeCollectionManager();
   }
@@ -1764,17 +1767,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     }
   }
 
-  @Override
-  public long[] getClusterDataRange(int currentClusterId) {
-    assert assertIfNotActive();
-    return storage.getClusterDataRange(this, currentClusterId);
-  }
-
-  @Override
-  public long getLastClusterPosition(int clusterId) {
-    assert assertIfNotActive();
-    return storage.getLastClusterPosition(clusterId);
-  }
 
   @Override
   public String getClusterRecordConflictStrategy(int clusterId) {
@@ -1803,7 +1795,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     assert assertIfNotActive();
     this.checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_UPDATE);
     var clazz = getClass(name);
-    if (clazz.isSubClassOf(this, SecurityShared.RESTRICTED_CLASSNAME)) {
+    if (clazz.isSubClassOf(SecurityShared.RESTRICTED_CLASSNAME)) {
       throw new SecurityException(getDatabaseName(),
           "Class '"
               + getDatabaseName()
@@ -1814,9 +1806,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
 
     int[] clusterIds;
     if (polimorfic) {
-      clusterIds = clazz.getPolymorphicClusterIds(this);
+      clusterIds = clazz.getPolymorphicClusterIds();
     } else {
-      clusterIds = clazz.getClusterIds(this);
+      clusterIds = clazz.getClusterIds();
     }
     long count = 0;
     for (var id : clusterIds) {
@@ -1851,14 +1843,14 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     }
     final var clazz = getMetadata().getSchema().getClassByClusterId(id);
     if (clazz != null) {
-      checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_DELETE, clazz.getName(this));
+      checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_DELETE, clazz.getName());
     }
 
     var count = new long[]{0};
     final var iteratorCluster =
-        new RecordIteratorCluster<>(this, id);
+        new RecordIteratorCluster<>(this, id, true);
 
-    executeInTxBatches((Iterator<DBRecord>) iteratorCluster, (session, record) -> {
+    executeInTxBatches(iteratorCluster, (session, record) -> {
       delete(record);
       count[0]++;
     });

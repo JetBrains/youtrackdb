@@ -36,7 +36,7 @@ public class LuceneInsertUpdateSingleDocumentTransactionTest extends LuceneBaseT
     Schema schema = session.getMetadata().getSchema();
 
     var oClass = schema.createClass("City");
-    oClass.createProperty(session, "name", PropertyType.STRING);
+    oClass.createProperty("name", PropertyType.STRING);
     //noinspection EmptyTryBlock
     try (var command =
         session.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE")) {

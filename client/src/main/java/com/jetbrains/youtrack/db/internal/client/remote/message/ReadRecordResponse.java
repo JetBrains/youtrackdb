@@ -22,11 +22,12 @@ package com.jetbrains.youtrack.db.internal.client.remote.message;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37Client;
 import com.jetbrains.youtrack.db.internal.core.storage.RawBuffer;
-import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
+import com.jetbrains.youtrack.db.internal.core.storage.ReadRecordResult;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
 import java.io.IOException;
@@ -38,7 +39,9 @@ public final class ReadRecordResponse implements BinaryResponse {
   private int version;
   private byte[] record;
   private Set<RecordAbstract> recordsToSend;
-  private RawBuffer result;
+
+  private RecordId previousRecordId;
+  private RecordId nextRecordId;
 
   public ReadRecordResponse() {
   }
@@ -56,15 +59,24 @@ public final class ReadRecordResponse implements BinaryResponse {
       throws IOException {
     if (record != null) {
       network.writeByte((byte) 1);
-      if (protocolVersion <= ChannelBinaryProtocol.PROTOCOL_VERSION_27) {
-        network.writeBytes(record);
-        network.writeVersion(version);
-        network.writeByte(recordType);
+      network.writeByte(recordType);
+      network.writeVersion(version);
+      network.writeBytes(record);
+
+      if (previousRecordId != null) {
+        network.writeByte((byte) 1);
+        network.writeRID(previousRecordId);
       } else {
-        network.writeByte(recordType);
-        network.writeVersion(version);
-        network.writeBytes(record);
+        network.writeByte((byte) 0);
       }
+
+      if (nextRecordId != null) {
+        network.writeByte((byte) 1);
+        network.writeRID(nextRecordId);
+      } else {
+        network.writeByte((byte) 0);
+      }
+
       for (var d : recordsToSend) {
         if (d.getIdentity().isValid()) {
           network.writeByte((byte) 2); // CLIENT CACHE
@@ -85,13 +97,17 @@ public final class ReadRecordResponse implements BinaryResponse {
       return;
     }
 
-    final RawBuffer buffer;
-    final var type = network.readByte();
-    final var recVersion = network.readVersion();
-    final var bytes = network.readBytes();
-    buffer = new RawBuffer(bytes, recVersion, type);
+    recordType = network.readByte();
+    version = network.readVersion();
+    record = network.readBytes();
 
-    // TODO: This should not be here, move it in a callback or similar
+    if (network.readByte() == 1) {
+      previousRecordId = network.readRID();
+    }
+    if (network.readByte() == 1) {
+      nextRecordId = network.readRID();
+    }
+
     RecordAbstract record;
     while (network.readByte() == 2) {
       record = (RecordAbstract) MessageHelper.readIdentifiable(sessionInternal, network,
@@ -110,14 +126,14 @@ public final class ReadRecordResponse implements BinaryResponse {
         }
       }
     }
-    result = buffer;
   }
 
   public byte[] getRecord() {
     return record;
   }
 
-  public RawBuffer getResult() {
-    return result;
+  public ReadRecordResult getResult() {
+    return new ReadRecordResult(new RawBuffer(record, version, recordType), previousRecordId,
+        nextRecordId);
   }
 }

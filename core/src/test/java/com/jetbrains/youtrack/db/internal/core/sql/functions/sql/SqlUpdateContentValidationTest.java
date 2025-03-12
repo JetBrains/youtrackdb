@@ -11,8 +11,8 @@ public class SqlUpdateContentValidationTest extends DbTestBase {
   @Test
   public void testReadOnlyValidation() {
     var clazz = session.getMetadata().getSchema().createClass("Test");
-    clazz.createProperty(session, "testNormal", PropertyType.STRING);
-    clazz.createProperty(session, "test", PropertyType.STRING).setReadonly(session, true);
+    clazz.createProperty("testNormal", PropertyType.STRING);
+    clazz.createProperty("test", PropertyType.STRING).setReadonly(true);
 
     session.begin();
     var res =

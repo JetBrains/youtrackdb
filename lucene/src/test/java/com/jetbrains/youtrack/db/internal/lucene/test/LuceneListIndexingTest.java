@@ -46,15 +46,15 @@ public class LuceneListIndexingTest extends BaseLuceneTest {
     Schema schema = session.getMetadata().getSchema();
 
     var person = schema.createClass("Person");
-    person.createProperty(session, "name", PropertyType.STRING);
-    person.createProperty(session, "tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
+    person.createProperty("name", PropertyType.STRING);
+    person.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
     //noinspection deprecation
     session.command("create index Person.name_tags on Person (name,tags) FULLTEXT ENGINE LUCENE")
         .close();
 
     var city = schema.createClass("City");
-    city.createProperty(session, "name", PropertyType.STRING);
-    city.createProperty(session, "tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
+    city.createProperty("name", PropertyType.STRING);
+    city.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
     //noinspection deprecation
     session.command("create index City.tags on City (tags) FULLTEXT ENGINE LUCENE").close();
   }
@@ -232,11 +232,11 @@ public class LuceneListIndexingTest extends BaseLuceneTest {
   @Test
   public void rname() {
     final var c1 = session.createVertexClass("C1");
-    c1.createProperty(session, "p1", PropertyType.STRING);
+    c1.createProperty("p1", PropertyType.STRING);
 
-    var metadata = Map.of("default", "org.apache.lucene.analysis.en.EnglishAnalyzer");
+    var metadata = Map.<String, Object>of("default", "org.apache.lucene.analysis.en.EnglishAnalyzer");
 
-    c1.createIndex(session, "p1", "FULLTEXT", null, metadata, "LUCENE", new String[]{"p1"});
+    c1.createIndex("p1", "FULLTEXT", null, metadata, "LUCENE", new String[]{"p1"});
 
     session.begin();
     final var vertex = session.newVertex("C1");

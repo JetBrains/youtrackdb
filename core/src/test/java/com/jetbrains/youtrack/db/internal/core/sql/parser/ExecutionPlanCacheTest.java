@@ -44,7 +44,7 @@ public class ExecutionPlanCacheTest extends BaseMemoryInternalDatabase {
     cache = ExecutionPlanCache.instance(session);
     Assert.assertTrue(cache.contains(stm));
 
-    var prop = clazz.createProperty(session, "name", PropertyType.STRING);
+    var prop = clazz.createProperty("name", PropertyType.STRING);
     Assert.assertFalse(cache.contains(stm));
 
     Thread.sleep(2);
@@ -56,7 +56,7 @@ public class ExecutionPlanCacheTest extends BaseMemoryInternalDatabase {
     cache = ExecutionPlanCache.instance(session);
     Assert.assertTrue(cache.contains(stm));
 
-    prop.createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    prop.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
     Assert.assertFalse(cache.contains(stm));
   }
 }

@@ -126,17 +126,17 @@ public class SQLFindReferencesTest extends BaseDBTest {
     var workplace = session.getMetadata().getSchema().createClass(WORKPLACE);
     var car = session.getMetadata().getSchema().createClass(CAR);
 
-    worker.createProperty(session, "name", PropertyType.STRING);
-    worker.createProperty(session, "surname", PropertyType.STRING);
-    worker.createProperty(session, "colleagues", PropertyType.LINKLIST, worker);
-    worker.createProperty(session, "car", PropertyType.LINK, car);
+    worker.createProperty("name", PropertyType.STRING);
+    worker.createProperty("surname", PropertyType.STRING);
+    worker.createProperty("colleagues", PropertyType.LINKLIST, worker);
+    worker.createProperty("car", PropertyType.LINK, car);
 
-    workplace.createProperty(session, "name", PropertyType.STRING);
-    workplace.createProperty(session, "boss", PropertyType.LINK, worker);
-    workplace.createProperty(session, "workers", PropertyType.LINKLIST, worker);
+    workplace.createProperty("name", PropertyType.STRING);
+    workplace.createProperty("boss", PropertyType.LINK, worker);
+    workplace.createProperty("workers", PropertyType.LINKLIST, worker);
 
-    car.createProperty(session, "plate", PropertyType.STRING);
-    car.createProperty(session, "owner", PropertyType.LINK, worker);
+    car.createProperty("plate", PropertyType.STRING);
+    car.createProperty("owner", PropertyType.LINK, worker);
   }
 
   private void populateDatabase() {

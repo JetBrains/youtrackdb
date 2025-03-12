@@ -29,8 +29,8 @@ public class TestImmutableIndexLoad {
             "admin",
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     var one = db.createClass("One");
-    var property = one.createProperty(db, "one", PropertyType.STRING);
-    property.createIndex(db, SchemaClass.INDEX_TYPE.UNIQUE);
+    var property = one.createProperty("one", PropertyType.STRING);
+    property.createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
     db.close();
     youTrackDB.close();
 

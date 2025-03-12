@@ -282,7 +282,7 @@ public abstract class DocumentHookAbstract implements RecordHook {
     if (includeClasses != null) {
       // FILTER BY CLASSES
       for (var cls : includeClasses) {
-        if (clazz.isSubClassOf(entity.getSession(), cls)) {
+        if (clazz.isSubClassOf(cls)) {
           return true;
         }
       }
@@ -292,7 +292,7 @@ public abstract class DocumentHookAbstract implements RecordHook {
     if (excludeClasses != null) {
       // FILTER BY CLASSES
       for (var cls : excludeClasses) {
-        if (clazz.isSubClassOf(entity.getSession(), cls)) {
+        if (clazz.isSubClassOf(cls)) {
           return false;
         }
       }

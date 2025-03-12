@@ -67,8 +67,8 @@ public class FreezeAndDBRecordInsertAtomicityTest extends DbTestBase {
     session.getMetadata()
         .getSchema()
         .createClass("Person")
-        .createProperty(session, "name", PropertyType.STRING)
-        .createIndex(session, SchemaClass.INDEX_TYPE.UNIQUE);
+        .createProperty("name", PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
 
     executorService = Executors.newFixedThreadPool(THREADS);
     countDownLatch = new CountDownLatch(THREADS);
@@ -108,10 +108,12 @@ public class FreezeAndDBRecordInsertAtomicityTest extends DbTestBase {
                         session.freeze();
                         try {
                           session.begin();
-                          for (var document : session.browseClass("Person")) {
+                          var entityIterator = session.browseClass("Person");
+                          while (entityIterator.hasNext()) {
+                            var entity = entityIterator.next();
                             try (var rids =
-                                index.getInternal().getRids(session, document.field("name"))) {
-                              assertEquals(document.getIdentity(), rids.findFirst().orElse(null));
+                                index.getInternal().getRids(session, entity.field("name"))) {
+                              assertEquals(entity.getIdentity(), rids.findFirst().orElse(null));
                             }
                           }
                           session.commit();

@@ -31,17 +31,19 @@ public class BonsaiTreeRepair {
     final var edgeClass = schema.getClass("E");
     if (edgeClass != null) {
       final var processedVertexes = new HashMap<String, Set<RID>>();
-      final var countEdges = db.countClass(edgeClass.getName(db));
+      final var countEdges = db.countClass(edgeClass.getName());
 
       message(outputListener, countEdges + " will be processed.");
       long counter = 0;
 
-      for (var edge : db.browseClass(edgeClass.getName(db))) {
+      var iterator = db.browseClass(edgeClass.getName());
+      while (iterator.hasNext() && !Thread.currentThread().isInterrupted()) {
+        final var edge = iterator.next();
         try {
           final String label;
           if (edge.field("label") != null) {
             label = edge.field("label");
-          } else if (!edge.getSchemaClassName().equals(edgeClass.getName(db))) {
+          } else if (!edge.getSchemaClassName().equals(edgeClass.getName())) {
             label = edge.getSchemaClassName();
           } else {
             counter++;

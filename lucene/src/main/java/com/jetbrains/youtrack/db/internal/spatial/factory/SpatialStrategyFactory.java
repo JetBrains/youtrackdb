@@ -41,11 +41,11 @@ public class SpatialStrategyFactory {
     var aClass =
         session.getMetadata().getImmutableSchemaSnapshot().getClass(indexDefinition.getClassName());
 
-    var property = aClass.getProperty(session, indexDefinition.getFields().get(0));
+    var property = aClass.getProperty(indexDefinition.getFields().get(0));
 
-    var linkedClass = property.getLinkedClass(session);
+    var linkedClass = property.getLinkedClass();
 
-    if ("OPoint".equalsIgnoreCase(linkedClass.getName(session))) {
+    if ("OPoint".equalsIgnoreCase(linkedClass.getName())) {
       var strategy =
           new RecursivePrefixTreeStrategy(new GeohashPrefixTree(ctx, 11), "location");
       strategy.setDistErrPct(0);

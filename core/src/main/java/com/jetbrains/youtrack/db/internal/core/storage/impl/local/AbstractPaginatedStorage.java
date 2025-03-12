@@ -53,7 +53,6 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.UTF8Seriali
 import com.jetbrains.youtrack.db.internal.common.thread.ThreadPoolExecutors;
 import com.jetbrains.youtrack.db.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
-import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
@@ -101,7 +100,7 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.R
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.stream.StreamSerializerRID;
 import com.jetbrains.youtrack.db.internal.core.storage.IdentifiableStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
-import com.jetbrains.youtrack.db.internal.core.storage.RawBuffer;
+import com.jetbrains.youtrack.db.internal.core.storage.ReadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.storage.RecordCallback;
 import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
@@ -413,12 +412,6 @@ public abstract class AbstractPaginatedStorage
   @Override
   public STATUS getStatus() {
     return status;
-  }
-
-  @Deprecated
-  @Override
-  public boolean isDistributed() {
-    return false;
   }
 
   @Override
@@ -1373,88 +1366,6 @@ public abstract class AbstractPaginatedStorage
     }
   }
 
-  @Override
-  public long getLastClusterPosition(int clusterId) {
-    try {
-      stateLock.readLock().lock();
-      try {
-
-        checkOpennessAndMigration();
-
-        checkClusterId(clusterId);
-        final var cluster = clusters.get(clusterId);
-        if (cluster == null) {
-          throwClusterDoesNotExist(clusterId);
-        }
-
-        return cluster.getLastPosition();
-      } finally {
-        stateLock.readLock().unlock();
-      }
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee, false);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t, false);
-    }
-  }
-
-  @Override
-  public long getClusterNextPosition(int clusterId) {
-    try {
-      stateLock.readLock().lock();
-      try {
-
-        checkOpennessAndMigration();
-
-        checkClusterId(clusterId);
-        final var cluster = clusters.get(clusterId);
-        if (cluster == null) {
-          throwClusterDoesNotExist(clusterId);
-        }
-
-        return cluster.getNextPosition();
-      } finally {
-        stateLock.readLock().unlock();
-      }
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee, false);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t, false);
-    }
-  }
-
-  @Override
-  public RECORD_STATUS getRecordStatus(RID rid) {
-    try {
-      stateLock.readLock().lock();
-      try {
-
-        checkOpennessAndMigration();
-
-        final var clusterId = rid.getClusterId();
-        checkClusterId(clusterId);
-        final var cluster = clusters.get(clusterId);
-        if (cluster == null) {
-          throwClusterDoesNotExist(clusterId);
-        }
-
-        return ((PaginatedCluster) cluster).getRecordStatus(rid.getClusterPosition());
-      } finally {
-        stateLock.readLock().unlock();
-      }
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee, false);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t, false);
-    }
-  }
-
   private void throwClusterDoesNotExist(int clusterId) {
     throw new ClusterDoesNotExistException(name,
         "Cluster with id " + clusterId + " does not exist inside of storage " + name);
@@ -1517,42 +1428,6 @@ public abstract class AbstractPaginatedStorage
         }
 
         return cluster.getEntries() - cluster.getTombstonesCount();
-      } finally {
-        stateLock.readLock().unlock();
-      }
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee, false);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t, false);
-    }
-  }
-
-  @Override
-  public final long[] getClusterDataRange(DatabaseSessionInternal session, final int iClusterId) {
-    try {
-      if (iClusterId == -1) {
-        return new long[]{RID.CLUSTER_POS_INVALID, RID.CLUSTER_POS_INVALID};
-      }
-
-      stateLock.readLock().lock();
-      try {
-
-        checkOpennessAndMigration();
-
-        if (clusters.get(iClusterId) != null) {
-          return new long[]{
-              clusters.get(iClusterId).getFirstPosition(),
-              clusters.get(iClusterId).getLastPosition()
-          };
-        } else {
-          return CommonConst.EMPTY_LONG_ARRAY;
-        }
-
-      } catch (final IOException ioe) {
-        throw BaseException.wrapException(
-            new StorageException(name, "Cannot retrieve information about data range"), ioe, name);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -1807,13 +1682,11 @@ public abstract class AbstractPaginatedStorage
   }
 
   @Override
-  public @Nonnull RawBuffer readRecord(
-      DatabaseSessionInternal session, final RecordId rid,
-      final boolean iIgnoreCache,
-      final boolean prefetchRecords,
-      final RecordCallback<RawBuffer> iCallback) {
+  public @Nonnull ReadRecordResult readRecord(
+      DatabaseSessionInternal session, final RecordId rid, boolean fetchPreviousRid,
+      boolean fetchNextRid) {
     try {
-      return readRecord(rid, prefetchRecords);
+      return readRecord(rid, fetchPreviousRid, fetchNextRid);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -1885,35 +1758,6 @@ public abstract class AbstractPaginatedStorage
 
   public AtomicOperationIdGen getIdGen() {
     return idGen;
-  }
-
-  private StorageOperationResult<Boolean> deleteRecord(
-      final RecordId rid,
-      final int version) {
-    try {
-      assert transaction.get() == null;
-
-      stateLock.readLock().lock();
-      try {
-
-        checkOpennessAndMigration();
-
-        final var cluster = doGetAndCheckCluster(rid.getClusterId());
-
-        makeStorageDirty();
-
-        return atomicOperationsManager.calculateInsideAtomicOperation(
-            null, atomicOperation -> doDeleteRecord(atomicOperation, rid, version, cluster));
-      } finally {
-        stateLock.readLock().unlock();
-      }
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t);
-    }
   }
 
   @Override
@@ -2156,7 +2000,7 @@ public abstract class AbstractPaginatedStorage
 
             var cls = ((EntityImpl) record).getImmutableSchemaClass(session);
             if (cls != null) {
-              clusterId = cls.getClusterForNewInstance(session, (EntityImpl) record);
+              clusterId = cls.getClusterForNewInstance((EntityImpl) record);
               clusterOverrides.put(recordOperation, clusterId);
             }
           }
@@ -3621,15 +3465,6 @@ public abstract class AbstractPaginatedStorage
   }
 
   @Override
-  public final boolean cleanOutRecord(
-      DatabaseSessionInternal session, final RecordId recordId,
-      final int recordVersion,
-      final int iMode,
-      final RecordCallback<Boolean> callback) {
-    return deleteRecord(recordId, recordVersion).getResult();
-  }
-
-  @Override
   public final void freeze(DatabaseSessionInternal db, final boolean throwException) {
     try {
       stateLock.readLock().lock();
@@ -3842,7 +3677,7 @@ public abstract class AbstractPaginatedStorage
   @Override
   public final PhysicalPosition[] higherPhysicalPositions(
       DatabaseSessionInternal session, final int currentClusterId,
-      final PhysicalPosition physicalPosition) {
+      final PhysicalPosition physicalPosition, int limit) {
     try {
       if (currentClusterId == -1) {
         return new PhysicalPosition[0];
@@ -3854,7 +3689,7 @@ public abstract class AbstractPaginatedStorage
         checkOpennessAndMigration();
 
         final var cluster = doGetAndCheckCluster(currentClusterId);
-        return cluster.higherPositions(physicalPosition);
+        return cluster.higherPositions(physicalPosition, limit);
       } catch (final IOException ioe) {
         throw BaseException.wrapException(
             new StorageException(name,
@@ -3875,7 +3710,7 @@ public abstract class AbstractPaginatedStorage
   @Override
   public final PhysicalPosition[] ceilingPhysicalPositions(
       DatabaseSessionInternal session, final int clusterId,
-      final PhysicalPosition physicalPosition) {
+      final PhysicalPosition physicalPosition, int limit) {
     try {
       if (clusterId == -1) {
         return new PhysicalPosition[0];
@@ -3887,7 +3722,7 @@ public abstract class AbstractPaginatedStorage
         checkOpennessAndMigration();
 
         final var cluster = doGetAndCheckCluster(clusterId);
-        return cluster.ceilingPositions(physicalPosition);
+        return cluster.ceilingPositions(physicalPosition, limit);
       } catch (final IOException ioe) {
         throw BaseException.wrapException(
             new StorageException(name,
@@ -3908,7 +3743,7 @@ public abstract class AbstractPaginatedStorage
   @Override
   public final PhysicalPosition[] lowerPhysicalPositions(
       DatabaseSessionInternal session, final int currentClusterId,
-      final PhysicalPosition physicalPosition) {
+      final PhysicalPosition physicalPosition, int limit) {
     try {
       if (currentClusterId == -1) {
         return new PhysicalPosition[0];
@@ -3921,7 +3756,7 @@ public abstract class AbstractPaginatedStorage
 
         final var cluster = doGetAndCheckCluster(currentClusterId);
 
-        return cluster.lowerPositions(physicalPosition);
+        return cluster.lowerPositions(physicalPosition, limit);
       } catch (final IOException ioe) {
         throw BaseException.wrapException(
             new StorageException(name,
@@ -3942,7 +3777,7 @@ public abstract class AbstractPaginatedStorage
   @Override
   public final PhysicalPosition[] floorPhysicalPositions(
       DatabaseSessionInternal session, final int clusterId,
-      final PhysicalPosition physicalPosition) {
+      final PhysicalPosition physicalPosition, int limit) {
     try {
       if (clusterId == -1) {
         return new PhysicalPosition[0];
@@ -3950,11 +3785,10 @@ public abstract class AbstractPaginatedStorage
 
       stateLock.readLock().lock();
       try {
-
         checkOpennessAndMigration();
         final var cluster = doGetAndCheckCluster(clusterId);
 
-        return cluster.floorPositions(physicalPosition);
+        return cluster.floorPositions(physicalPosition, limit);
       } catch (final IOException ioe) {
         throw BaseException.wrapException(
             new StorageException(name,
@@ -4270,8 +4104,8 @@ public abstract class AbstractPaginatedStorage
   }
 
   @Nonnull
-  private RawBuffer readRecord(final RecordId rid, final boolean prefetchRecords) {
-
+  private ReadRecordResult readRecord(final RecordId rid, boolean fetchPreviousRid,
+      boolean fetchNextRid) {
     if (!rid.isPersistent()) {
       throw new RecordNotFoundException(name,
           rid, "Cannot read record "
@@ -4291,7 +4125,7 @@ public abstract class AbstractPaginatedStorage
       }
       // Disabled this assert have no meaning anymore
       // assert iLockingStrategy.equals(LOCKING_STRATEGY.DEFAULT);
-      return doReadRecord(cluster, rid, prefetchRecords);
+      return doReadRecord(cluster, rid, fetchPreviousRid, fetchNextRid);
     }
 
     stateLock.readLock().lock();
@@ -4303,7 +4137,7 @@ public abstract class AbstractPaginatedStorage
       } catch (IllegalArgumentException e) {
         throw BaseException.wrapException(new RecordNotFoundException(name, rid), e, name);
       }
-      return doReadRecord(cluster, rid, prefetchRecords);
+      return doReadRecord(cluster, rid, fetchPreviousRid, fetchNextRid);
     } finally {
       stateLock.readLock().unlock();
     }
@@ -4559,7 +4393,7 @@ public abstract class AbstractPaginatedStorage
     }
   }
 
-  private StorageOperationResult<Boolean> doDeleteRecord(
+  private void doDeleteRecord(
       final AtomicOperation atomicOperation,
       final RecordId rid,
       final int version,
@@ -4572,7 +4406,7 @@ public abstract class AbstractPaginatedStorage
 
       if (ppos == null) {
         // ALREADY DELETED
-        return new StorageOperationResult<>(false);
+        return;
       }
 
       // MVCC TRANSACTION: CHECK IF VERSION IS THE SAME
@@ -4593,7 +4427,6 @@ public abstract class AbstractPaginatedStorage
         LogManager.instance().debug(this, "Deleted record %s v.%s", rid, version);
       }
 
-      return new StorageOperationResult<>(true);
     } catch (final IOException ioe) {
       throw BaseException.wrapException(
           new StorageException(name,
@@ -4603,13 +4436,29 @@ public abstract class AbstractPaginatedStorage
   }
 
   @Nonnull
-  private RawBuffer doReadRecord(
-      final StorageCluster cluster, final RecordId rid, final boolean prefetchRecords) {
-
+  private ReadRecordResult doReadRecord(
+      final StorageCluster cluster, final RecordId rid, boolean fetchPreviousRid,
+      boolean fetchNextRid) {
     cluster.meters().read().record();
     try {
 
-      final var buff = cluster.readRecord(rid.getClusterPosition(), prefetchRecords);
+      final var buff = cluster.readRecord(rid.getClusterPosition());
+      RecordId prevRid = null;
+      RecordId nextRid = null;
+
+      if (fetchNextRid) {
+        var positions = cluster.higherPositions(new PhysicalPosition(rid.getClusterPosition()), 1);
+        if (positions != null && positions.length > 0) {
+          nextRid = new RecordId(rid.getClusterId(), positions[0].clusterPosition);
+        }
+      }
+
+      if (fetchPreviousRid) {
+        var positions = cluster.lowerPositions(new PhysicalPosition(rid.getClusterPosition()), 1);
+        if (positions != null && positions.length > 0) {
+          prevRid = new RecordId(rid.getClusterId(), positions[0].clusterPosition);
+        }
+      }
 
       if (LogManager.instance().isDebugEnabled()) {
         LogManager.instance()
@@ -4621,7 +4470,7 @@ public abstract class AbstractPaginatedStorage
                 buff.buffer != null ? buff.buffer.length : 0);
       }
 
-      return buff;
+      return new ReadRecordResult(buff, prevRid, nextRid);
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(name, "Error during read of record with rid = " + rid), e, name);
@@ -5173,11 +5022,6 @@ public abstract class AbstractPaginatedStorage
       throws UnsupportedOperationException {
     throw new UnsupportedOperationException(
         "Incremental backup is supported only in enterprise version");
-  }
-
-  @Override
-  public boolean supportIncremental() {
-    return false;
   }
 
   @Override

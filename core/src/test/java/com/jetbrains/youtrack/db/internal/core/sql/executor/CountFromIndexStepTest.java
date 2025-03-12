@@ -43,10 +43,10 @@ public class CountFromIndexStepTest extends TestUtilsFixture {
   public void beforeTest() throws Exception {
     super.beforeTest();
     var clazz = createClassInstance();
-    clazz.createProperty(session, PROPERTY_NAME, PropertyType.STRING);
-    var className = clazz.getName(session);
+    clazz.createProperty(PROPERTY_NAME, PropertyType.STRING);
+    var className = clazz.getName();
     indexName = className + "." + PROPERTY_NAME;
-    clazz.createIndex(session, indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, PROPERTY_NAME);
+    clazz.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, PROPERTY_NAME);
 
     for (var i = 0; i < 20; i++) {
       session.begin();

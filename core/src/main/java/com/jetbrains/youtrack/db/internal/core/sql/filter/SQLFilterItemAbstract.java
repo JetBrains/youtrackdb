@@ -207,9 +207,9 @@ public abstract class SQLFilterItemAbstract implements SQLFilterItem {
       final SchemaClass iClass,
       final String iFieldName) {
     if (iClass != null) {
-      final var p = iClass.getProperty(session, iFieldName);
+      final var p = iClass.getProperty(iFieldName);
       if (p != null) {
-        return p.getCollate(session);
+        return p.getCollate();
       }
     }
     return null;

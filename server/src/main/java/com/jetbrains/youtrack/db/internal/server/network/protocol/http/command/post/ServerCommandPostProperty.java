@@ -100,17 +100,17 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
         }
 
         if (linkType != null) {
-          final var prop = cls.createProperty(db, propertyName, propertyType, linkType);
+          final var prop = cls.createProperty(propertyName, propertyType, linkType);
         } else if (linkClass != null) {
-          final var prop = cls.createProperty(db, propertyName, propertyType, linkClass);
+          final var prop = cls.createProperty(propertyName, propertyType, linkClass);
         } else {
-          final var prop = cls.createProperty(db, propertyName, propertyType);
+          final var prop = cls.createProperty(propertyName, propertyType);
         }
         break;
       }
 
       default:
-        final var prop = cls.createProperty(db, propertyName, propertyType);
+        final var prop = cls.createProperty(propertyName, propertyType);
         break;
     }
 
@@ -118,7 +118,7 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
         HttpUtils.STATUS_CREATED_CODE,
         HttpUtils.STATUS_CREATED_DESCRIPTION,
         HttpUtils.CONTENT_TEXT_PLAIN,
-        cls.properties(db).size(),
+        cls.properties().size(),
         null);
 
     return false;
@@ -155,10 +155,10 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
           final var linkClass = entity.get(LINKED_CLASS_JSON_FIELD);
           if (linkType != null) {
             final var prop =
-                cls.createProperty(db, propertyName, propertyType, PropertyType.valueOf(linkType));
+                cls.createProperty(propertyName, propertyType, PropertyType.valueOf(linkType));
           } else if (linkClass != null) {
             final var prop =
-                cls.createProperty(db,
+                cls.createProperty(
                     propertyName, propertyType, db.getMetadata().getSchema().getClass(linkClass));
           } else {
             throw new IllegalArgumentException(
@@ -174,7 +174,7 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
           final var linkClass = entity.get(LINKED_CLASS_JSON_FIELD);
           if (linkClass != null) {
             final var prop =
-                cls.createProperty(db,
+                cls.createProperty(
                     propertyName, propertyType, db.getMetadata().getSchema().getClass(linkClass));
           } else {
             throw new IllegalArgumentException(
@@ -188,7 +188,7 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
         }
 
         default:
-          final var prop = cls.createProperty(db, propertyName, propertyType);
+          final var prop = cls.createProperty(propertyName, propertyType);
           break;
       }
     }
@@ -197,7 +197,7 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
         HttpUtils.STATUS_CREATED_CODE,
         HttpUtils.STATUS_CREATED_DESCRIPTION,
         HttpUtils.CONTENT_TEXT_PLAIN,
-        cls.properties(db).size(),
+        cls.properties().size(),
         null);
 
     return false;

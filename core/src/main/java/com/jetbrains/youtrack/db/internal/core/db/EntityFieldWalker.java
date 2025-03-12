@@ -96,10 +96,10 @@ public class EntityFieldWalker {
 
       PropertyType linkedType = null;
       if (fieldType == null && clazz != null) {
-        var property = clazz.getProperty(session, fieldName);
+        var property = clazz.getProperty(fieldName);
         if (property != null) {
-          fieldType = property.getType(session);
-          linkedType = property.getLinkedType(session);
+          fieldType = property.getType();
+          linkedType = property.getLinkedType();
         }
       }
 

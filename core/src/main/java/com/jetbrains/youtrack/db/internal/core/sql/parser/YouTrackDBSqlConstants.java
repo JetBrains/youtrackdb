@@ -8,9 +8,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
  */
 public interface YouTrackDBSqlConstants {
 
-  /**
-   * End of File.
-   */
+  /** End of File. */
   int EOF = 0;
   /** RegularExpression Id. */
   int FORMAL_COMMENT = 8;
@@ -181,349 +179,341 @@ public interface YouTrackDBSqlConstants {
   /** RegularExpression Id. */
   int NAME = 92;
   /** RegularExpression Id. */
-  int SHORTNAME = 93;
+  int STRICT_MODE = 93;
   /** RegularExpression Id. */
-  int STRICT_MODE = 94;
+  int CUSTOM = 94;
   /** RegularExpression Id. */
-  int ADD_CLUSTER = 95;
+  int DESCRIPTION = 95;
   /** RegularExpression Id. */
-  int REMOVE_CLUSTER = 96;
+  int DROP = 96;
   /** RegularExpression Id. */
-  int CUSTOM = 97;
+  int PROPERTY = 97;
   /** RegularExpression Id. */
-  int CLUSTER_SELECTION = 98;
+  int FORCE = 98;
   /** RegularExpression Id. */
-  int DESCRIPTION = 99;
+  int METADATA = 99;
   /** RegularExpression Id. */
-  int DROP = 100;
+  int INDEX = 100;
   /** RegularExpression Id. */
-  int PROPERTY = 101;
+  int COLLATE = 101;
   /** RegularExpression Id. */
-  int FORCE = 102;
+  int ENGINE = 102;
   /** RegularExpression Id. */
-  int METADATA = 103;
+  int REBUILD = 103;
   /** RegularExpression Id. */
-  int INDEX = 104;
+  int ID = 104;
   /** RegularExpression Id. */
-  int COLLATE = 105;
+  int DATABASE = 105;
   /** RegularExpression Id. */
-  int ENGINE = 106;
+  int OPTIMIZE = 106;
   /** RegularExpression Id. */
-  int REBUILD = 107;
+  int LINK = 107;
   /** RegularExpression Id. */
-  int ID = 108;
+  int TYPE = 108;
   /** RegularExpression Id. */
-  int DATABASE = 109;
+  int INVERSE = 109;
   /** RegularExpression Id. */
-  int OPTIMIZE = 110;
+  int EXPLAIN = 110;
   /** RegularExpression Id. */
-  int LINK = 111;
+  int GRANT = 111;
   /** RegularExpression Id. */
-  int TYPE = 112;
+  int REVOKE = 112;
   /** RegularExpression Id. */
-  int INVERSE = 113;
+  int READ = 113;
   /** RegularExpression Id. */
-  int EXPLAIN = 114;
+  int EXECUTE = 114;
   /** RegularExpression Id. */
-  int GRANT = 115;
+  int ALL = 115;
   /** RegularExpression Id. */
-  int REVOKE = 116;
+  int NONE = 116;
   /** RegularExpression Id. */
-  int READ = 117;
+  int FUNCTION = 117;
   /** RegularExpression Id. */
-  int EXECUTE = 118;
+  int PARAMETERS = 118;
   /** RegularExpression Id. */
-  int ALL = 119;
+  int IDEMPOTENT = 119;
   /** RegularExpression Id. */
-  int NONE = 120;
+  int LANGUAGE = 120;
   /** RegularExpression Id. */
-  int FUNCTION = 121;
+  int BEGIN = 121;
   /** RegularExpression Id. */
-  int PARAMETERS = 122;
+  int COMMIT = 122;
   /** RegularExpression Id. */
-  int IDEMPOTENT = 123;
+  int ROLLBACK = 123;
   /** RegularExpression Id. */
-  int LANGUAGE = 124;
+  int IF = 124;
   /** RegularExpression Id. */
-  int BEGIN = 125;
+  int ELSE = 125;
   /** RegularExpression Id. */
-  int COMMIT = 126;
+  int CONTINUE = 126;
   /** RegularExpression Id. */
-  int ROLLBACK = 127;
+  int FAIL = 127;
   /** RegularExpression Id. */
-  int IF = 128;
+  int SLEEP = 128;
   /** RegularExpression Id. */
-  int ELSE = 129;
+  int CONSOLE = 129;
   /** RegularExpression Id. */
-  int CONTINUE = 130;
+  int BLOB = 130;
   /** RegularExpression Id. */
-  int FAIL = 131;
+  int SHARED = 131;
   /** RegularExpression Id. */
-  int SLEEP = 132;
+  int DEFAULT_ = 132;
   /** RegularExpression Id. */
-  int CONSOLE = 133;
+  int SEQUENCE = 133;
   /** RegularExpression Id. */
-  int BLOB = 134;
+  int START = 134;
   /** RegularExpression Id. */
-  int SHARED = 135;
+  int OPTIONAL = 135;
   /** RegularExpression Id. */
-  int DEFAULT_ = 136;
+  int COUNT = 136;
   /** RegularExpression Id. */
-  int SEQUENCE = 137;
+  int DISTINCT = 137;
   /** RegularExpression Id. */
-  int START = 138;
+  int HA = 138;
   /** RegularExpression Id. */
-  int OPTIONAL = 139;
+  int STATUS = 139;
   /** RegularExpression Id. */
-  int COUNT = 140;
+  int SERVER = 140;
   /** RegularExpression Id. */
-  int DISTINCT = 141;
+  int SYNC = 141;
   /** RegularExpression Id. */
-  int HA = 142;
+  int EXISTS = 142;
   /** RegularExpression Id. */
-  int STATUS = 143;
+  int FOREACH = 143;
   /** RegularExpression Id. */
-  int SERVER = 144;
+  int MOVE = 144;
   /** RegularExpression Id. */
-  int SYNC = 145;
+  int DEPTH_ALIAS = 145;
   /** RegularExpression Id. */
-  int EXISTS = 146;
+  int PATH_ALIAS = 146;
   /** RegularExpression Id. */
-  int FOREACH = 147;
+  int IDENTIFIED = 147;
   /** RegularExpression Id. */
-  int MOVE = 148;
+  int ROLE = 148;
   /** RegularExpression Id. */
-  int DEPTH_ALIAS = 149;
+  int USER = 149;
   /** RegularExpression Id. */
-  int PATH_ALIAS = 150;
+  int USERS = 150;
   /** RegularExpression Id. */
-  int IDENTIFIED = 151;
+  int RID = 151;
   /** RegularExpression Id. */
-  int ROLE = 152;
+  int SECURITY = 152;
   /** RegularExpression Id. */
-  int USER = 153;
+  int POLICY = 153;
   /** RegularExpression Id. */
-  int USERS = 154;
+  int SYSTEM = 154;
   /** RegularExpression Id. */
-  int RID = 155;
+  int THIS = 155;
   /** RegularExpression Id. */
-  int SECURITY = 156;
+  int RECORD_ATTRIBUTE = 156;
   /** RegularExpression Id. */
-  int POLICY = 157;
+  int RID_ATTR = 157;
   /** RegularExpression Id. */
-  int SYSTEM = 158;
+  int RID_STRING = 158;
   /** RegularExpression Id. */
-  int THIS = 159;
+  int CLASS_ATTR = 159;
   /** RegularExpression Id. */
-  int RECORD_ATTRIBUTE = 160;
+  int VERSION_ATTR = 160;
   /** RegularExpression Id. */
-  int RID_ATTR = 161;
+  int SIZE_ATTR = 161;
   /** RegularExpression Id. */
-  int RID_STRING = 162;
+  int TYPE_ATTR = 162;
   /** RegularExpression Id. */
-  int CLASS_ATTR = 163;
+  int RAW_ATTR = 163;
   /** RegularExpression Id. */
-  int VERSION_ATTR = 164;
+  int RID_ID_ATTR = 164;
   /** RegularExpression Id. */
-  int SIZE_ATTR = 165;
+  int RID_POS_ATTR = 165;
   /** RegularExpression Id. */
-  int TYPE_ATTR = 166;
+  int FIELDS_ATTR = 166;
   /** RegularExpression Id. */
-  int RAW_ATTR = 167;
+  int INTEGER_LITERAL = 167;
   /** RegularExpression Id. */
-  int RID_ID_ATTR = 168;
+  int DECIMAL_LITERAL = 168;
   /** RegularExpression Id. */
-  int RID_POS_ATTR = 169;
+  int HEX_LITERAL = 169;
   /** RegularExpression Id. */
-  int FIELDS_ATTR = 170;
+  int OCTAL_LITERAL = 170;
   /** RegularExpression Id. */
-  int INTEGER_LITERAL = 171;
+  int FLOATING_POINT_LITERAL = 171;
   /** RegularExpression Id. */
-  int DECIMAL_LITERAL = 172;
+  int DECIMAL_FLOATING_POINT_LITERAL = 172;
   /** RegularExpression Id. */
-  int HEX_LITERAL = 173;
+  int DECIMAL_EXPONENT = 173;
   /** RegularExpression Id. */
-  int OCTAL_LITERAL = 174;
+  int HEXADECIMAL_FLOATING_POINT_LITERAL = 174;
   /** RegularExpression Id. */
-  int FLOATING_POINT_LITERAL = 175;
+  int HEXADECIMAL_EXPONENT = 175;
   /** RegularExpression Id. */
-  int DECIMAL_FLOATING_POINT_LITERAL = 176;
+  int CHARACTER_LITERAL = 176;
   /** RegularExpression Id. */
-  int DECIMAL_EXPONENT = 177;
+  int STRING_LITERAL = 177;
   /** RegularExpression Id. */
-  int HEXADECIMAL_FLOATING_POINT_LITERAL = 178;
+  int INTEGER_RANGE = 178;
   /** RegularExpression Id. */
-  int HEXADECIMAL_EXPONENT = 179;
+  int ELLIPSIS_INTEGER_RANGE = 179;
   /** RegularExpression Id. */
-  int CHARACTER_LITERAL = 180;
+  int TRUE = 180;
   /** RegularExpression Id. */
-  int STRING_LITERAL = 181;
+  int FALSE = 181;
   /** RegularExpression Id. */
-  int INTEGER_RANGE = 182;
+  int LPAREN = 182;
   /** RegularExpression Id. */
-  int ELLIPSIS_INTEGER_RANGE = 183;
+  int RPAREN = 183;
   /** RegularExpression Id. */
-  int TRUE = 184;
+  int LBRACE = 184;
   /** RegularExpression Id. */
-  int FALSE = 185;
+  int RBRACE = 185;
   /** RegularExpression Id. */
-  int LPAREN = 186;
+  int LBRACKET = 186;
   /** RegularExpression Id. */
-  int RPAREN = 187;
+  int RBRACKET = 187;
   /** RegularExpression Id. */
-  int LBRACE = 188;
+  int SEMICOLON = 188;
   /** RegularExpression Id. */
-  int RBRACE = 189;
+  int COMMA = 189;
   /** RegularExpression Id. */
-  int LBRACKET = 190;
+  int DOT = 190;
   /** RegularExpression Id. */
-  int RBRACKET = 191;
+  int AT = 191;
   /** RegularExpression Id. */
-  int SEMICOLON = 192;
+  int DOLLAR = 192;
   /** RegularExpression Id. */
-  int COMMA = 193;
+  int BACKTICK = 193;
   /** RegularExpression Id. */
-  int DOT = 194;
+  int EQ = 194;
   /** RegularExpression Id. */
-  int AT = 195;
+  int EQEQ = 195;
   /** RegularExpression Id. */
-  int DOLLAR = 196;
+  int LT = 196;
   /** RegularExpression Id. */
-  int BACKTICK = 197;
+  int GT = 197;
   /** RegularExpression Id. */
-  int EQ = 198;
+  int BANG = 198;
   /** RegularExpression Id. */
-  int EQEQ = 199;
+  int TILDE = 199;
   /** RegularExpression Id. */
-  int LT = 200;
+  int HOOK = 200;
   /** RegularExpression Id. */
-  int GT = 201;
+  int COLON = 201;
   /** RegularExpression Id. */
-  int BANG = 202;
+  int LE = 202;
   /** RegularExpression Id. */
-  int TILDE = 203;
+  int GE = 203;
   /** RegularExpression Id. */
-  int HOOK = 204;
+  int NE = 204;
   /** RegularExpression Id. */
-  int COLON = 205;
+  int NEQ = 205;
   /** RegularExpression Id. */
-  int LE = 206;
+  int SC_OR = 206;
   /** RegularExpression Id. */
-  int GE = 207;
+  int SC_AND = 207;
   /** RegularExpression Id. */
-  int NE = 208;
+  int INCR = 208;
   /** RegularExpression Id. */
-  int NEQ = 209;
+  int DECR = 209;
   /** RegularExpression Id. */
-  int SC_OR = 210;
+  int PLUS = 210;
   /** RegularExpression Id. */
-  int SC_AND = 211;
+  int MINUS = 211;
   /** RegularExpression Id. */
-  int INCR = 212;
+  int STAR = 212;
   /** RegularExpression Id. */
-  int DECR = 213;
+  int SLASH = 213;
   /** RegularExpression Id. */
-  int PLUS = 214;
+  int BIT_AND = 214;
   /** RegularExpression Id. */
-  int MINUS = 215;
+  int NULL_COALESCING = 215;
   /** RegularExpression Id. */
-  int STAR = 216;
+  int BIT_OR = 216;
   /** RegularExpression Id. */
-  int SLASH = 217;
+  int XOR = 217;
   /** RegularExpression Id. */
-  int BIT_AND = 218;
+  int REM = 218;
   /** RegularExpression Id. */
-  int NULL_COALESCING = 219;
+  int LSHIFT = 219;
   /** RegularExpression Id. */
-  int BIT_OR = 220;
+  int PLUSASSIGN = 220;
   /** RegularExpression Id. */
-  int XOR = 221;
+  int MINUSASSIGN = 221;
   /** RegularExpression Id. */
-  int REM = 222;
+  int STARASSIGN = 222;
   /** RegularExpression Id. */
-  int LSHIFT = 223;
+  int SLASHASSIGN = 223;
   /** RegularExpression Id. */
-  int PLUSASSIGN = 224;
+  int ANDASSIGN = 224;
   /** RegularExpression Id. */
-  int MINUSASSIGN = 225;
+  int ORASSIGN = 225;
   /** RegularExpression Id. */
-  int STARASSIGN = 226;
+  int XORASSIGN = 226;
   /** RegularExpression Id. */
-  int SLASHASSIGN = 227;
+  int REMASSIGN = 227;
   /** RegularExpression Id. */
-  int ANDASSIGN = 228;
+  int LSHIFTASSIGN = 228;
   /** RegularExpression Id. */
-  int ORASSIGN = 229;
+  int RSIGNEDSHIFTASSIGN = 229;
   /** RegularExpression Id. */
-  int XORASSIGN = 230;
+  int RUNSIGNEDSHIFTASSIGN = 230;
   /** RegularExpression Id. */
-  int REMASSIGN = 231;
+  int RSHIFT = 231;
   /** RegularExpression Id. */
-  int LSHIFTASSIGN = 232;
+  int RUNSIGNEDSHIFT = 232;
   /** RegularExpression Id. */
-  int RSIGNEDSHIFTASSIGN = 233;
+  int ELLIPSIS = 233;
   /** RegularExpression Id. */
-  int RUNSIGNEDSHIFTASSIGN = 234;
+  int RANGE = 234;
   /** RegularExpression Id. */
-  int RSHIFT = 235;
+  int NOT = 235;
   /** RegularExpression Id. */
-  int RUNSIGNEDSHIFT = 236;
+  int IN = 236;
   /** RegularExpression Id. */
-  int ELLIPSIS = 237;
+  int LIKE = 237;
   /** RegularExpression Id. */
-  int RANGE = 238;
+  int IS = 238;
   /** RegularExpression Id. */
-  int NOT = 239;
+  int BETWEEN = 239;
   /** RegularExpression Id. */
-  int IN = 240;
+  int CONTAINS = 240;
   /** RegularExpression Id. */
-  int LIKE = 241;
+  int CONTAINSALL = 241;
   /** RegularExpression Id. */
-  int IS = 242;
+  int CONTAINSANY = 242;
   /** RegularExpression Id. */
-  int BETWEEN = 243;
+  int CONTAINSKEY = 243;
   /** RegularExpression Id. */
-  int CONTAINS = 244;
+  int CONTAINSVALUE = 244;
   /** RegularExpression Id. */
-  int CONTAINSALL = 245;
+  int CONTAINSTEXT = 245;
   /** RegularExpression Id. */
-  int CONTAINSANY = 246;
+  int MATCHES = 246;
   /** RegularExpression Id. */
-  int CONTAINSKEY = 247;
+  int KEY = 247;
   /** RegularExpression Id. */
-  int CONTAINSVALUE = 248;
+  int INSTANCEOF = 248;
   /** RegularExpression Id. */
-  int CONTAINSTEXT = 249;
+  int CLUSTER = 249;
   /** RegularExpression Id. */
-  int MATCHES = 250;
+  int IDENTIFIER = 250;
   /** RegularExpression Id. */
-  int KEY = 251;
+  int QUOTED_IDENTIFIER = 251;
   /** RegularExpression Id. */
-  int INSTANCEOF = 252;
+  int INDEX_COLON = 252;
   /** RegularExpression Id. */
-  int CLUSTER = 253;
+  int INDEXVALUES_IDENTIFIER = 253;
   /** RegularExpression Id. */
-  int IDENTIFIER = 254;
+  int INDEXVALUESASC_IDENTIFIER = 254;
   /** RegularExpression Id. */
-  int QUOTED_IDENTIFIER = 255;
+  int INDEXVALUESDESC_IDENTIFIER = 255;
   /** RegularExpression Id. */
-  int INDEX_COLON = 256;
+  int CLUSTER_IDENTIFIER = 256;
   /** RegularExpression Id. */
-  int INDEXVALUES_IDENTIFIER = 257;
+  int CLUSTER_NUMBER_IDENTIFIER = 257;
   /** RegularExpression Id. */
-  int INDEXVALUESASC_IDENTIFIER = 258;
+  int METADATA_IDENTIFIER = 258;
   /** RegularExpression Id. */
-  int INDEXVALUESDESC_IDENTIFIER = 259;
+  int LETTER = 259;
   /** RegularExpression Id. */
-  int CLUSTER_IDENTIFIER = 260;
-  /** RegularExpression Id. */
-  int CLUSTER_NUMBER_IDENTIFIER = 261;
-  /** RegularExpression Id. */
-  int METADATA_IDENTIFIER = 262;
-  /** RegularExpression Id. */
-  int LETTER = 263;
-  /** RegularExpression Id. */
-  int PART_LETTER = 264;
+  int PART_LETTER = 260;
 
   /** Lexical state. */
   int DEFAULT = 0;
@@ -534,285 +524,269 @@ public interface YouTrackDBSqlConstants {
 
   /** Literal token values. */
   String[] tokenImage = {
-      "<EOF>",
-      "\" \"",
-      "\"\\t\"",
-      "\"\\n\"",
-      "\"\\r\"",
-      "\"\\f\"",
-      "<token of kind 6>",
-      "\"/*\"",
-      "\"*/\"",
-      "\"*/\"",
-      "<token of kind 10>",
-      "<SELECT>",
-      "<TRAVERSE>",
-      "<MATCH>",
-      "<INSERT>",
-      "<CREATE>",
-      "<DELETE>",
-      "<VERTEX>",
-      "<EDGE>",
-      "<UPDATE>",
-      "<UPSERT>",
-      "<FROM>",
-      "<TO>",
-      "<WHERE>",
-      "<WHILE>",
-      "<INTO>",
-      "<VALUE>",
-      "<VALUES>",
-      "<SET>",
-      "<ADD>",
-      "<PUT>",
-      "<MERGE>",
-      "<CONTENT>",
-      "<REMOVE>",
-      "<INCREMENT>",
-      "<AND>",
-      "<OR>",
-      "<NULL>",
-      "<DEFINED>",
-      "<ORDER>",
-      "<GROUP>",
-      "<BY>",
-      "<LIMIT>",
-      "<SKIP2>",
-      "<BATCH>",
-      "<OFFSET>",
-      "<TIMEOUT>",
-      "<ASC>",
-      "<AS>",
-      "<DESC>",
-      "<FETCHPLAN>",
-      "<RETURN>",
-      "<BEFORE>",
-      "<AFTER>",
-      "<RECORD>",
-      "<WAIT>",
-      "<RETRY>",
-      "<LET>",
-      "<CACHE>",
-      "<CYCLE>",
-      "<NOCACHE>",
-      "<NOLIMIT>",
-      "<NOCYCLE>",
-      "<UNSAFE>",
-      "<PARALLEL>",
-      "<STRATEGY>",
-      "<DEPTH_FIRST>",
-      "<BREADTH_FIRST>",
-      "<LUCENE>",
-      "<NEAR>",
-      "<WITHIN>",
-      "<UNWIND>",
-      "<MAXDEPTH>",
-      "<MINDEPTH>",
-      "<CLASS>",
-      "<SUPERCLASS>",
-      "<CLASSES>",
-      "<SUPERCLASSES>",
-      "<UPDATABLE>",
-      "<EXCEPTION>",
-      "<PROFILE>",
-      "<STORAGE>",
-      "<ON>",
-      "<OFF>",
-      "<TRUNCATE>",
-      "<POLYMORPHIC>",
-      "<FIND>",
-      "<REFERENCES>",
-      "<EXTENDS>",
-      "<CLUSTERS>",
-      "<ABSTRACT>",
-      "<ALTER>",
-      "<NAME>",
-      "<SHORTNAME>",
-      "<STRICT_MODE>",
-      "<ADD_CLUSTER>",
-      "<REMOVE_CLUSTER>",
-      "<CUSTOM>",
-      "<CLUSTER_SELECTION>",
-      "<DESCRIPTION>",
-      "<DROP>",
-      "<PROPERTY>",
-      "<FORCE>",
-      "<METADATA>",
-      "<INDEX>",
-      "<COLLATE>",
-      "<ENGINE>",
-      "<REBUILD>",
-      "<ID>",
-      "<DATABASE>",
-      "<OPTIMIZE>",
-      "<LINK>",
-      "<TYPE>",
-      "<INVERSE>",
-      "<EXPLAIN>",
-      "<GRANT>",
-      "<REVOKE>",
-      "<READ>",
-      "<EXECUTE>",
-      "<ALL>",
-      "<NONE>",
-      "<FUNCTION>",
-      "<PARAMETERS>",
-      "<IDEMPOTENT>",
-      "<LANGUAGE>",
-      "<BEGIN>",
-      "<COMMIT>",
-      "<ROLLBACK>",
-      "<IF>",
-      "<ELSE>",
-      "<CONTINUE>",
-      "<FAIL>",
-      "<SLEEP>",
-      "<CONSOLE>",
-      "<BLOB>",
-      "<SHARED>",
-      "<DEFAULT_>",
-      "<SEQUENCE>",
-      "<START>",
-      "<OPTIONAL>",
-      "<COUNT>",
-      "<DISTINCT>",
-      "<HA>",
-      "<STATUS>",
-      "<SERVER>",
-      "<SYNC>",
-      "<EXISTS>",
-      "<FOREACH>",
-      "<MOVE>",
-      "<DEPTH_ALIAS>",
-      "<PATH_ALIAS>",
-      "<IDENTIFIED>",
-      "<ROLE>",
-      "<USER>",
-      "<USERS>",
-      "<RID>",
-      "<SECURITY>",
-      "<POLICY>",
-      "<SYSTEM>",
-      "<THIS>",
-      "<RECORD_ATTRIBUTE>",
-      "<RID_ATTR>",
-      "<RID_STRING>",
-      "<CLASS_ATTR>",
-      "<VERSION_ATTR>",
-      "<SIZE_ATTR>",
-      "<TYPE_ATTR>",
-      "<RAW_ATTR>",
-      "<RID_ID_ATTR>",
-      "<RID_POS_ATTR>",
-      "<FIELDS_ATTR>",
-      "<INTEGER_LITERAL>",
-      "<DECIMAL_LITERAL>",
-      "<HEX_LITERAL>",
-      "<OCTAL_LITERAL>",
-      "<FLOATING_POINT_LITERAL>",
-      "<DECIMAL_FLOATING_POINT_LITERAL>",
-      "<DECIMAL_EXPONENT>",
-      "<HEXADECIMAL_FLOATING_POINT_LITERAL>",
-      "<HEXADECIMAL_EXPONENT>",
-      "<CHARACTER_LITERAL>",
-      "<STRING_LITERAL>",
-      "<INTEGER_RANGE>",
-      "<ELLIPSIS_INTEGER_RANGE>",
-      "<TRUE>",
-      "<FALSE>",
-      "\"(\"",
-      "\")\"",
-      "\"{\"",
-      "\"}\"",
-      "\"[\"",
-      "\"]\"",
-      "\";\"",
-      "\",\"",
-      "\".\"",
-      "\"@\"",
-      "\"$\"",
-      "\"`\"",
-      "\"=\"",
-      "\"==\"",
-      "\"<\"",
-      "\">\"",
-      "\"!\"",
-      "\"~\"",
-      "\"?\"",
-      "\":\"",
-      "\"<=\"",
-      "\">=\"",
-      "\"!=\"",
-      "\"<>\"",
-      "\"||\"",
-      "\"&&\"",
-      "\"++\"",
-      "\"--\"",
-      "\"+\"",
-      "\"-\"",
-      "\"*\"",
-      "\"/\"",
-      "\"&\"",
-      "\"??\"",
-      "\"|\"",
-      "\"^\"",
-      "\"%\"",
-      "\"<<\"",
-      "\"+=\"",
-      "\"-=\"",
-      "\"*=\"",
-      "\"/=\"",
-      "\"&=\"",
-      "\"|=\"",
-      "\"^=\"",
-      "\"%=\"",
-      "\"<<=\"",
-      "\">>=\"",
-      "\">>>=\"",
-      "\">>\"",
-      "\">>>\"",
-      "\"...\"",
-      "\"..\"",
-      "<NOT>",
-      "<IN>",
-      "<LIKE>",
-      "<IS>",
-      "<BETWEEN>",
-      "<CONTAINS>",
-      "<CONTAINSALL>",
-      "<CONTAINSANY>",
-      "<CONTAINSKEY>",
-      "<CONTAINSVALUE>",
-      "<CONTAINSTEXT>",
-      "<MATCHES>",
-      "<KEY>",
-      "<INSTANCEOF>",
-      "<CLUSTER>",
-      "<IDENTIFIER>",
-      "<QUOTED_IDENTIFIER>",
-      "<INDEX_COLON>",
-      "<INDEXVALUES_IDENTIFIER>",
-      "<INDEXVALUESASC_IDENTIFIER>",
-      "<INDEXVALUESDESC_IDENTIFIER>",
-      "<CLUSTER_IDENTIFIER>",
-      "<CLUSTER_NUMBER_IDENTIFIER>",
-      "<METADATA_IDENTIFIER>",
-      "<LETTER>",
-      "<PART_LETTER>",
-      "\"#\"",
-      "\"__@recordmap@___\"",
-      "\"round-robin\"",
-      "\"-servers\"",
-      "\"-db\"",
-      "\"-latency\"",
-      "\"-messages\"",
-      "\"-locks\"",
-      "\"-all\"",
-      "\"-output=text\"",
-      "\"-force\"",
-      "\"-full\"",
-      "\"-full_replace\"",
-      "\"-merge\"",
+    "<EOF>",
+    "\" \"",
+    "\"\\t\"",
+    "\"\\n\"",
+    "\"\\r\"",
+    "\"\\f\"",
+    "<token of kind 6>",
+    "\"/*\"",
+    "\"*/\"",
+    "\"*/\"",
+    "<token of kind 10>",
+    "<SELECT>",
+    "<TRAVERSE>",
+    "<MATCH>",
+    "<INSERT>",
+    "<CREATE>",
+    "<DELETE>",
+    "<VERTEX>",
+    "<EDGE>",
+    "<UPDATE>",
+    "<UPSERT>",
+    "<FROM>",
+    "<TO>",
+    "<WHERE>",
+    "<WHILE>",
+    "<INTO>",
+    "<VALUE>",
+    "<VALUES>",
+    "<SET>",
+    "<ADD>",
+    "<PUT>",
+    "<MERGE>",
+    "<CONTENT>",
+    "<REMOVE>",
+    "<INCREMENT>",
+    "<AND>",
+    "<OR>",
+    "<NULL>",
+    "<DEFINED>",
+    "<ORDER>",
+    "<GROUP>",
+    "<BY>",
+    "<LIMIT>",
+    "<SKIP2>",
+    "<BATCH>",
+    "<OFFSET>",
+    "<TIMEOUT>",
+    "<ASC>",
+    "<AS>",
+    "<DESC>",
+    "<FETCHPLAN>",
+    "<RETURN>",
+    "<BEFORE>",
+    "<AFTER>",
+    "<RECORD>",
+    "<WAIT>",
+    "<RETRY>",
+    "<LET>",
+    "<CACHE>",
+    "<CYCLE>",
+    "<NOCACHE>",
+    "<NOLIMIT>",
+    "<NOCYCLE>",
+    "<UNSAFE>",
+    "<PARALLEL>",
+    "<STRATEGY>",
+    "<DEPTH_FIRST>",
+    "<BREADTH_FIRST>",
+    "<LUCENE>",
+    "<NEAR>",
+    "<WITHIN>",
+    "<UNWIND>",
+    "<MAXDEPTH>",
+    "<MINDEPTH>",
+    "<CLASS>",
+    "<SUPERCLASS>",
+    "<CLASSES>",
+    "<SUPERCLASSES>",
+    "<UPDATABLE>",
+    "<EXCEPTION>",
+    "<PROFILE>",
+    "<STORAGE>",
+    "<ON>",
+    "<OFF>",
+    "<TRUNCATE>",
+    "<POLYMORPHIC>",
+    "<FIND>",
+    "<REFERENCES>",
+    "<EXTENDS>",
+    "<CLUSTERS>",
+    "<ABSTRACT>",
+    "<ALTER>",
+    "<NAME>",
+    "<STRICT_MODE>",
+    "<CUSTOM>",
+    "<DESCRIPTION>",
+    "<DROP>",
+    "<PROPERTY>",
+    "<FORCE>",
+    "<METADATA>",
+    "<INDEX>",
+    "<COLLATE>",
+    "<ENGINE>",
+    "<REBUILD>",
+    "<ID>",
+    "<DATABASE>",
+    "<OPTIMIZE>",
+    "<LINK>",
+    "<TYPE>",
+    "<INVERSE>",
+    "<EXPLAIN>",
+    "<GRANT>",
+    "<REVOKE>",
+    "<READ>",
+    "<EXECUTE>",
+    "<ALL>",
+    "<NONE>",
+    "<FUNCTION>",
+    "<PARAMETERS>",
+    "<IDEMPOTENT>",
+    "<LANGUAGE>",
+    "<BEGIN>",
+    "<COMMIT>",
+    "<ROLLBACK>",
+    "<IF>",
+    "<ELSE>",
+    "<CONTINUE>",
+    "<FAIL>",
+    "<SLEEP>",
+    "<CONSOLE>",
+    "<BLOB>",
+    "<SHARED>",
+    "<DEFAULT_>",
+    "<SEQUENCE>",
+    "<START>",
+    "<OPTIONAL>",
+    "<COUNT>",
+    "<DISTINCT>",
+    "<HA>",
+    "<STATUS>",
+    "<SERVER>",
+    "<SYNC>",
+    "<EXISTS>",
+    "<FOREACH>",
+    "<MOVE>",
+    "<DEPTH_ALIAS>",
+    "<PATH_ALIAS>",
+    "<IDENTIFIED>",
+    "<ROLE>",
+    "<USER>",
+    "<USERS>",
+    "<RID>",
+    "<SECURITY>",
+    "<POLICY>",
+    "<SYSTEM>",
+    "<THIS>",
+    "<RECORD_ATTRIBUTE>",
+    "<RID_ATTR>",
+    "<RID_STRING>",
+    "<CLASS_ATTR>",
+    "<VERSION_ATTR>",
+    "<SIZE_ATTR>",
+    "<TYPE_ATTR>",
+    "<RAW_ATTR>",
+    "<RID_ID_ATTR>",
+    "<RID_POS_ATTR>",
+    "<FIELDS_ATTR>",
+    "<INTEGER_LITERAL>",
+    "<DECIMAL_LITERAL>",
+    "<HEX_LITERAL>",
+    "<OCTAL_LITERAL>",
+    "<FLOATING_POINT_LITERAL>",
+    "<DECIMAL_FLOATING_POINT_LITERAL>",
+    "<DECIMAL_EXPONENT>",
+    "<HEXADECIMAL_FLOATING_POINT_LITERAL>",
+    "<HEXADECIMAL_EXPONENT>",
+    "<CHARACTER_LITERAL>",
+    "<STRING_LITERAL>",
+    "<INTEGER_RANGE>",
+    "<ELLIPSIS_INTEGER_RANGE>",
+    "<TRUE>",
+    "<FALSE>",
+    "\"(\"",
+    "\")\"",
+    "\"{\"",
+    "\"}\"",
+    "\"[\"",
+    "\"]\"",
+    "\";\"",
+    "\",\"",
+    "\".\"",
+    "\"@\"",
+    "\"$\"",
+    "\"`\"",
+    "\"=\"",
+    "\"==\"",
+    "\"<\"",
+    "\">\"",
+    "\"!\"",
+    "\"~\"",
+    "\"?\"",
+    "\":\"",
+    "\"<=\"",
+    "\">=\"",
+    "\"!=\"",
+    "\"<>\"",
+    "\"||\"",
+    "\"&&\"",
+    "\"++\"",
+    "\"--\"",
+    "\"+\"",
+    "\"-\"",
+    "\"*\"",
+    "\"/\"",
+    "\"&\"",
+    "\"??\"",
+    "\"|\"",
+    "\"^\"",
+    "\"%\"",
+    "\"<<\"",
+    "\"+=\"",
+    "\"-=\"",
+    "\"*=\"",
+    "\"/=\"",
+    "\"&=\"",
+    "\"|=\"",
+    "\"^=\"",
+    "\"%=\"",
+    "\"<<=\"",
+    "\">>=\"",
+    "\">>>=\"",
+    "\">>\"",
+    "\">>>\"",
+    "\"...\"",
+    "\"..\"",
+    "<NOT>",
+    "<IN>",
+    "<LIKE>",
+    "<IS>",
+    "<BETWEEN>",
+    "<CONTAINS>",
+    "<CONTAINSALL>",
+    "<CONTAINSANY>",
+    "<CONTAINSKEY>",
+    "<CONTAINSVALUE>",
+    "<CONTAINSTEXT>",
+    "<MATCHES>",
+    "<KEY>",
+    "<INSTANCEOF>",
+    "<CLUSTER>",
+    "<IDENTIFIER>",
+    "<QUOTED_IDENTIFIER>",
+    "<INDEX_COLON>",
+    "<INDEXVALUES_IDENTIFIER>",
+    "<INDEXVALUESASC_IDENTIFIER>",
+    "<INDEXVALUESDESC_IDENTIFIER>",
+    "<CLUSTER_IDENTIFIER>",
+    "<CLUSTER_NUMBER_IDENTIFIER>",
+    "<METADATA_IDENTIFIER>",
+    "<LETTER>",
+    "<PART_LETTER>",
+    "\"#\"",
+    "\"__@recordmap@___\"",
   };
 
 }

@@ -17,7 +17,7 @@ public class CreateClassStatementExecutionTest extends DbTestBase {
     Schema schema = session.getMetadata().getSchema();
     var clazz = schema.getClass(className);
     Assert.assertNotNull(clazz);
-    Assert.assertFalse(clazz.isAbstract(session));
+    Assert.assertFalse(clazz.isAbstract());
     result.close();
   }
 
@@ -28,33 +28,10 @@ public class CreateClassStatementExecutionTest extends DbTestBase {
     Schema schema = session.getMetadata().getSchema();
     var clazz = schema.getClass(className);
     Assert.assertNotNull(clazz);
-    Assert.assertTrue(clazz.isAbstract(session));
+    Assert.assertTrue(clazz.isAbstract());
     result.close();
   }
 
-  @Test
-  public void testCluster() {
-    var className = "testCluster";
-    var result = session.command("create class " + className + " cluster 1235, 1236, 1255");
-    Schema schema = session.getMetadata().getSchema();
-    var clazz = schema.getClass(className);
-    Assert.assertNotNull(clazz);
-    Assert.assertFalse(clazz.isAbstract(session));
-    Assert.assertEquals(3, clazz.getClusterIds(session).length);
-    result.close();
-  }
-
-  @Test
-  public void testClusters() {
-    var className = "testClusters";
-    var result = session.command("create class " + className + " clusters 32");
-    Schema schema = session.getMetadata().getSchema();
-    var clazz = schema.getClass(className);
-    Assert.assertNotNull(clazz);
-    Assert.assertFalse(clazz.isAbstract(session));
-    Assert.assertEquals(32, clazz.getClusterIds(session).length);
-    result.close();
-  }
 
   @Test
   public void testIfNotExists() {

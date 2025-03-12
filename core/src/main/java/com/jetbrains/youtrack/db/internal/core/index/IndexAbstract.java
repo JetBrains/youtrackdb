@@ -132,7 +132,7 @@ public abstract class IndexAbstract implements IndexInternal {
             : (Integer) config.get(INDEX_VERSION);
 
     @SuppressWarnings("unchecked")
-    var metadataEntity = (Map<String, ?>) config.get(METADATA);
+    var metadataEntity = (Map<String, Object>) config.get(METADATA);
     return new IndexMetadata(
         indexName,
         loadedIndexDefinition,
@@ -745,7 +745,7 @@ public abstract class IndexAbstract implements IndexInternal {
   }
 
   @Override
-  public Map<String, ?> getMetadata() {
+  public Map<String, Object> getMetadata() {
     return im.getMetadata();
   }
 
@@ -885,7 +885,7 @@ public abstract class IndexAbstract implements IndexInternal {
     var stat = new long[]{documentNum, documentIndexed};
 
     var clusterIterator = session.browseCluster(clusterName);
-    session.executeInTxBatches((Iterator<DBRecord>) clusterIterator, (db, record) -> {
+    session.executeInTxBatches(clusterIterator, (db, record) -> {
       if (Thread.interrupted()) {
         throw new CommandExecutionException(session.getDatabaseName(),
             "The index rebuild has been interrupted");

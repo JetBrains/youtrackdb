@@ -5,9 +5,12 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassEmbedded;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaPropertyImpl;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaPropertyInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
@@ -54,14 +57,14 @@ public class SQLCreatePropertyStatement extends DDLStatement {
   }
 
   private void executeInternal(CommandContext ctx, ResultInternal result) {
-    var db = ctx.getDatabaseSession();
-    var clazz =
-        (SchemaClassEmbedded) db.getMetadata().getSchema().getClass(className.getStringValue());
+    var session = ctx.getDatabaseSession();
+    var clazz = (SchemaClassInternal) session.getMetadata().getSchema()
+        .getClass(className.getStringValue());
     if (clazz == null) {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Class not found: " + className.getStringValue());
     }
-    if (clazz.getProperty(db, propertyName.getStringValue()) != null) {
+    if (clazz.getProperty(propertyName.getStringValue()) != null) {
       if (ifNotExists) {
         return;
       }
@@ -83,7 +86,7 @@ public class SQLCreatePropertyStatement extends DDLStatement {
     if (this.linkedType != null) {
       var linked = this.linkedType.getStringValue();
       // FIRST SEARCH BETWEEN CLASSES
-      linkedClass = db.getMetadata().getSchema().getClass(linked);
+      linkedClass = session.getMetadata().getSchema().getClass(linked);
       if (linkedClass == null)
       // NOT FOUND: SEARCH BETWEEN TYPES
       {
@@ -91,14 +94,18 @@ public class SQLCreatePropertyStatement extends DDLStatement {
       }
     }
     // CREATE IT LOCALLY
-    var internalProp =
-        (SchemaPropertyImpl)
-            clazz.addProperty(ctx.getDatabaseSession(), propertyName.getStringValue(), type,
-                linkedType,
-                linkedClass,
-                unsafe);
+
+    SchemaProperty internalProp;
+    if (linkedType != null) {
+      internalProp = clazz.createProperty(propertyName.getStringValue(), type, linkedType, unsafe);
+    } else if (linkedClass != null) {
+      internalProp = clazz.createProperty(propertyName.getStringValue(), type, linkedClass, unsafe);
+    } else {
+      internalProp = clazz.createProperty(propertyName.getStringValue(), type);
+    }
+
     for (var attr : attributes) {
-      var val = attr.setOnProperty(internalProp, ctx);
+      var val = attr.setOnProperty((SchemaPropertyInternal) internalProp, ctx);
       result.setProperty(attr.settingName.getStringValue(), val);
     }
   }

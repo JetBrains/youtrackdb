@@ -315,7 +315,7 @@ public interface Index extends Comparable<Index> {
   IndexCursor iterateEntriesMinor(DatabaseSessionInternal session, Object toKey,
       boolean toInclusive, boolean ascOrder);
 
-  Map<String, ?> getMetadata();
+  Map<String, Object> getMetadata();
 
   boolean supportsOrderedIterations();
 

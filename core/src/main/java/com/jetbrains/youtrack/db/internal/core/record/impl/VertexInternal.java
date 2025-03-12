@@ -120,7 +120,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
     List<String> types = new ArrayList<>();
     if (type != null) {
       for (var t : type) {
-        types.add(t.getName(session));
+        types.add(t.getName());
       }
     }
 
@@ -143,7 +143,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
     if (schemaClass == null) {
       throw new IllegalArgumentException("Schema class for label" + type + " not found");
     }
-    if (schemaClass.isAbstract(db)) {
+    if (schemaClass.isAbstract()) {
       return db.newLightweightEdge(this, to, type);
     }
 
@@ -169,7 +169,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
     final String className;
     var session = getBaseEntity().getSession();
     if (type != null) {
-      className = type.getName(session);
+      className = type.getName();
     } else {
       className = EdgeInternal.CLASS_NAME;
     }
@@ -183,7 +183,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
 
     var session = getBaseEntity().getSession();
     if (label != null) {
-      className = label.getName(session);
+      className = label.getName();
     } else {
       className = EdgeInternal.CLASS_NAME;
     }
@@ -197,7 +197,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
     var session = getBaseEntity().getSession();
 
     if (label != null) {
-      className = label.getName(session);
+      className = label.getName();
     } else {
       className = EdgeInternal.CLASS_NAME;
     }
@@ -213,7 +213,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
 
     if (type != null) {
       for (var t : type) {
-        types.add(t.getName(session));
+        types.add(t.getName());
       }
     }
     return getEdges(direction, types.toArray(new String[]{}));
@@ -341,10 +341,10 @@ public interface VertexInternal extends Vertex, EntityInternal {
       allClassNames.add(className);
       var clazz = schema.getClass(className);
       if (clazz != null) {
-        allClassNames.add(clazz.getName(db)); // needed for aliases
-        var subClasses = clazz.getAllSubclasses(db);
+        allClassNames.add(clazz.getName()); // needed for aliases
+        var subClasses = clazz.getAllSubclasses();
         for (var subClass : subClasses) {
-          allClassNames.add(subClass.getName(db));
+          allClassNames.add(subClass.getName());
         }
       }
     }
@@ -397,8 +397,8 @@ public interface VertexInternal extends Vertex, EntityInternal {
           // GO DOWN THROUGH THE INHERITANCE TREE
           var type = schema.getClass(clsName);
           if (type != null) {
-            for (var subType : type.getAllSubclasses(db)) {
-              clsName = subType.getName(db);
+            for (var subType : type.getAllSubclasses()) {
+              clsName = subType.getName();
 
               if (fieldName.equals(DIRECTION_OUT_PREFIX + clsName)) {
                 return new Pair<>(Direction.OUT, clsName);
@@ -426,8 +426,8 @@ public interface VertexInternal extends Vertex, EntityInternal {
           // GO DOWN THROUGH THE INHERITANCE TREE
           var type = schema.getClass(clsName);
           if (type != null) {
-            for (var subType : type.getAllSubclasses(db)) {
-              clsName = subType.getName(db);
+            for (var subType : type.getAllSubclasses()) {
+              clsName = subType.getName();
               if (fieldName.equals(DIRECTION_IN_PREFIX + clsName)) {
                 return new Pair<>(Direction.IN, clsName);
               }
@@ -686,7 +686,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
   private static String resolveAlias(DatabaseSessionInternal db, String label, Schema schema) {
     var clazz = schema.getClass(label);
     if (clazz != null) {
-      return clazz.getName(db);
+      return clazz.getName();
     }
 
     return label;
@@ -724,15 +724,15 @@ public interface VertexInternal extends Vertex, EntityInternal {
       throw new IllegalArgumentException("Class not found in source vertex: " + fromVertex);
     }
 
-    final var prop = result.getProperty(session, fieldName);
+    final var prop = result.getProperty(fieldName);
     final var propType =
-        prop != null ? prop.getType(session) : null;
+        prop != null ? prop.getType() : null;
 
     switch (found) {
       case null -> {
         if (propType == PropertyType.LINKLIST
             || (prop != null
-            && "true".equalsIgnoreCase(prop.getCustom(session, "ordered")))) { // TODO constant
+            && "true".equalsIgnoreCase(prop.getCustom("ordered")))) { // TODO constant
           var coll = new LinkList(fromVertex);
           coll.add(to);
           out = coll;
@@ -748,7 +748,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
         } else {
           throw new DatabaseException(session.getDatabaseName(),
               "Type of field provided in schema '"
-                  + prop.getType(session)
+                  + prop.getType()
                   + "' cannot be used for link creation.");
         }
       }
@@ -756,12 +756,12 @@ public interface VertexInternal extends Vertex, EntityInternal {
         if (prop != null && propType == PropertyType.LINK) {
           throw new DatabaseException(session.getDatabaseName(),
               "Type of field provided in schema '"
-                  + prop.getType(session)
+                  + prop.getType()
                   + "' cannot be used for creation to hold several links.");
         }
 
         if (prop != null && "true".equalsIgnoreCase(
-            prop.getCustom(session, "ordered"))) { // TODO constant
+            prop.getCustom("ordered"))) { // TODO constant
           var coll = new LinkList(fromVertex);
           coll.add(foundId);
           coll.add(to);

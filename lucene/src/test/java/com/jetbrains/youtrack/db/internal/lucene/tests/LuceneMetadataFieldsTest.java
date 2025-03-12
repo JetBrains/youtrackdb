@@ -31,7 +31,7 @@ public class LuceneMetadataFieldsTest extends LuceneBaseTest {
             .size(session))
         .isEqualTo(585);
 
-    var cluster = session.getMetadata().getSchema().getClass("Song").getClusterIds(session)[1];
+    var cluster = session.getMetadata().getSchema().getClass("Song").getClusterIds()[1];
 
     var results =
         session.query("SELECT FROM Song WHERE search_class('+_CLUSTER:" + cluster + "')=true ");

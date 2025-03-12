@@ -241,9 +241,9 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
             return null;
           }
           bytes.offset = currentValuePos;
-          final var classProp = iClass.getProperty(session, iFieldName);
+          final var classProp = iClass.getProperty(iFieldName);
           return new BinaryField(
-              iFieldName, type, bytes, classProp != null ? classProp.getCollate(session) : null);
+              iFieldName, type, bytes, classProp != null ? classProp.getCollate() : null);
         }
         currentValuePos += fieldLength;
       }
@@ -382,7 +382,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       }
       if (docEntry.property == null && props != null) {
         var prop = props.get(field.getKey());
-        if (prop != null && docEntry.type == prop.getType(session)) {
+        if (prop != null && docEntry.type == prop.getType()) {
           docEntry.property = prop;
         }
       }
@@ -461,7 +461,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       PropertyEncryption encryption) {
     // allocate space for header length
 
-    final var props = clazz != null ? clazz.propertiesMap(session) : null;
+    final var props = clazz != null ? clazz.propertiesMap() : null;
     final var fields = EntityInternalUtils.rawEntries(entity);
 
     var valuesBuffer = new BytesContainer();
@@ -485,7 +485,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     }
     final SchemaClass clazz = result;
     if (clazz != null && entity.isEmbedded()) {
-      writeString(bytes, clazz.getName(session));
+      writeString(bytes, clazz.getName());
     } else {
       writeEmptyString(bytes);
     }

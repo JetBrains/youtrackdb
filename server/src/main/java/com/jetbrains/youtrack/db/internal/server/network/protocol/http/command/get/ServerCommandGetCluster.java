@@ -20,7 +20,6 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
@@ -44,16 +43,14 @@ public class ServerCommandGetCluster extends ServerCommandAuthenticatedDbAbstrac
     iRequest.getData().commandInfo = "Browse cluster";
     iRequest.getData().commandDetail = urlParts[2];
 
-    DatabaseSessionInternal db = null;
-
-    try {
-      db = getProfiledDatabaseSessionInstance(iRequest);
-
+    try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
       if (db.getClusterIdByName(urlParts[2]) > -1) {
         final var limit = urlParts.length > 3 ? Integer.parseInt(urlParts[3]) : 20;
 
         final List<Identifiable> response = new ArrayList<Identifiable>();
-        for (var rec : db.browseCluster(urlParts[2])) {
+        var recordIterator = db.browseCluster(urlParts[2]);
+        while (recordIterator.hasNext()) {
+          final var rec = recordIterator.next();
           if (limit > 0 && response.size() >= limit) {
             break;
           }
@@ -66,10 +63,6 @@ public class ServerCommandGetCluster extends ServerCommandAuthenticatedDbAbstrac
         iResponse.send(HttpUtils.STATUS_NOTFOUND_CODE, null, null, null, null);
       }
 
-    } finally {
-      if (db != null) {
-        db.close();
-      }
     }
     return false;
   }

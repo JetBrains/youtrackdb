@@ -30,7 +30,6 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.AuditingOperation;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -431,27 +430,37 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
     if (iRecord instanceof EntityImpl entity) {
       var session = entity.getSession();
       SchemaClass cls = entity.getImmutableSchemaClass(session);
-      if (cls != null) {
 
-        if (cls.getName(session).equals(DefaultAuditing.AUDITING_LOG_CLASSNAME))
+      if (cls != null) {
+        if (cls.getName().equals(DefaultAuditing.AUDITING_LOG_CLASSNAME))
         // SKIP LOG CLASS
         {
           return null;
         }
 
-        cfg = classes.get(cls.getName(session));
+        cfg = classes.get(cls.getName());
 
         // BROWSE SUPER CLASSES UP TO ROOT
-        while (cfg == null && cls != null) {
-          cls = cls.getSuperClass(session);
-          if (cls != null) {
-            cfg = classes.get(cls.getName(session));
+        var classesToCheck = new HashSet<SchemaClass>();
+        classesToCheck.add(cls);
+
+        configLoop:
+        while (cfg == null) {
+          var newClassesToCheck = new HashSet<SchemaClass>();
+
+          for (var clz : classesToCheck) {
+            cfg = classes.get(clz.getName());
             if (cfg != null && !cfg.polymorphic) {
               // NOT POLYMORPHIC: IGNORE IT AND EXIT FROM THE LOOP
               cfg = null;
-              break;
+              break configLoop;
             }
+
+            var superClasses = cls.getSuperClasses();
+            newClassesToCheck.addAll(superClasses);
           }
+
+          classesToCheck = newClassesToCheck;
         }
       }
     }
@@ -483,7 +492,7 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
   protected void logClass(DatabaseSessionInternal db,
       final AuditingOperation operation, final SchemaClass cls) {
     if (schemaConfig != null && schemaConfig.isEnabled(operation)) {
-      logClass(db, operation, schemaConfig.formatMessage(operation, cls.getName(db)));
+      logClass(db, operation, schemaConfig.formatMessage(operation, cls.getName()));
     }
   }
 

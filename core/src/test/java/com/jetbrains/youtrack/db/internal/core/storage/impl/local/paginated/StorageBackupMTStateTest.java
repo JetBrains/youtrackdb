@@ -198,18 +198,18 @@ public class StorageBackupMTStateTest {
   private SchemaClass createClass(Schema schema, DatabaseSession session) {
     var cls = schema.createClass(CLASS_PREFIX + classCounter.getAndIncrement());
 
-    cls.createProperty(session, "id", PropertyType.LONG);
-    cls.createProperty(session, "intValue", PropertyType.INTEGER);
-    cls.createProperty(session, "stringValue", PropertyType.STRING);
-    cls.createProperty(session, "linkedDocuments", PropertyType.LINKBAG);
+    cls.createProperty("id", PropertyType.LONG);
+    cls.createProperty("intValue", PropertyType.INTEGER);
+    cls.createProperty("stringValue", PropertyType.STRING);
+    cls.createProperty("linkedDocuments", PropertyType.LINKBAG);
 
-    cls.createIndex(session, cls.getName(session) + "IdIndex", SchemaClass.INDEX_TYPE.UNIQUE, "id");
-    cls.createIndex(session,
-        cls.getName(session) + "IntValueIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "intValue");
+    cls.createIndex(cls.getName() + "IdIndex", SchemaClass.INDEX_TYPE.UNIQUE, "id");
+    cls.createIndex(
+        cls.getName() + "IntValueIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "intValue");
 
-    classInstancesCounters.put(cls.getName(session), new AtomicInteger());
+    classInstancesCounters.put(cls.getName(), new AtomicInteger());
 
-    System.out.println("Class " + cls.getName(session) + " is added");
+    System.out.println("Class " + cls.getName() + " is added");
 
     return cls;
   }

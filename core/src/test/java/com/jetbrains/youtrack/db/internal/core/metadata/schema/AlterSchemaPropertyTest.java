@@ -18,25 +18,25 @@ public class AlterSchemaPropertyTest extends DbTestBase {
   public void testPropertyRenaming() {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("TestPropertyRenaming");
-    var property = classA.createProperty(session, "propertyOld", PropertyType.STRING);
-    assertEquals(property, classA.getProperty(session, "propertyOld"));
-    assertNull(classA.getProperty(session, "propertyNew"));
-    property.setName(session, "propertyNew");
-    assertNull(classA.getProperty(session, "propertyOld"));
-    assertEquals(property, classA.getProperty(session, "propertyNew"));
+    var property = classA.createProperty("propertyOld", PropertyType.STRING);
+    assertEquals(property, classA.getProperty("propertyOld"));
+    assertNull(classA.getProperty("propertyNew"));
+    property.setName("propertyNew");
+    assertNull(classA.getProperty("propertyOld"));
+    assertEquals(property, classA.getProperty("propertyNew"));
   }
 
   @Test
   public void testPropertyRenamingReload() {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("TestPropertyRenaming");
-    var property = classA.createProperty(session, "propertyOld", PropertyType.STRING);
-    assertEquals(property, classA.getProperty(session, "propertyOld"));
-    assertNull(classA.getProperty(session, "propertyNew"));
-    property.setName(session, "propertyNew");
+    var property = classA.createProperty("propertyOld", PropertyType.STRING);
+    assertEquals(property, classA.getProperty("propertyOld"));
+    assertNull(classA.getProperty("propertyNew"));
+    property.setName("propertyNew");
     classA = schema.getClass("TestPropertyRenaming");
-    assertNull(classA.getProperty(session, "propertyOld"));
-    assertEquals(property, classA.getProperty(session, "propertyNew"));
+    assertNull(classA.getProperty("propertyOld"));
+    assertEquals(property, classA.getProperty("propertyNew"));
   }
 
   @Test
@@ -44,13 +44,13 @@ public class AlterSchemaPropertyTest extends DbTestBase {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("TestMapProperty");
     try {
-      classA.createProperty(session, "propertyMap", PropertyType.LINKMAP, PropertyType.STRING);
+      classA.createProperty("propertyMap", PropertyType.LINKMAP, PropertyType.STRING);
       fail("create linkmap property should not allow linked type");
     } catch (SchemaException e) {
 
     }
 
-    var prop = classA.getProperty(session, "propertyMap");
+    var prop = classA.getProperty("propertyMap");
     assertNull(prop);
   }
 
@@ -60,13 +60,13 @@ public class AlterSchemaPropertyTest extends DbTestBase {
     var classA = schema.createClass("TestMapProperty");
     var classLinked = schema.createClass("LinkedClass");
     try {
-      classA.createProperty(session, "propertyString", PropertyType.STRING, classLinked);
+      classA.createProperty("propertyString", PropertyType.STRING, classLinked);
       fail("create linkmap property should not allow linked type");
     } catch (SchemaException e) {
 
     }
 
-    var prop = classA.getProperty(session, "propertyString");
+    var prop = classA.getProperty("propertyString");
     assertNull(prop);
   }
 
@@ -75,10 +75,10 @@ public class AlterSchemaPropertyTest extends DbTestBase {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("TestRemoveLinkedClass");
     var classLinked = schema.createClass("LinkedClass");
-    var prop = classA.createProperty(session, "propertyLink", PropertyType.LINK, classLinked);
-    assertNotNull(prop.getLinkedClass(session));
-    prop.setLinkedClass(session, null);
-    assertNull(prop.getLinkedClass(session));
+    var prop = classA.createProperty("propertyLink", PropertyType.LINK, classLinked);
+    assertNotNull(prop.getLinkedClass());
+    prop.setLinkedClass(null);
+    assertNull(prop.getLinkedClass());
   }
 
   @Test
@@ -86,17 +86,17 @@ public class AlterSchemaPropertyTest extends DbTestBase {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("TestRemoveLinkedClass");
     var classLinked = schema.createClass("LinkedClass");
-    var prop = classA.createProperty(session, "propertyLink", PropertyType.LINK, classLinked);
-    assertNotNull(prop.getLinkedClass(session));
+    var prop = classA.createProperty("propertyLink", PropertyType.LINK, classLinked);
+    assertNotNull(prop.getLinkedClass());
     session.command("alter property TestRemoveLinkedClass.propertyLink linkedclass null").close();
-    assertNull(prop.getLinkedClass(session));
+    assertNull(prop.getLinkedClass());
   }
 
   @Test
   public void testMax() {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("TestWrongMax");
-    var prop = classA.createProperty(session, "dates", PropertyType.EMBEDDEDLIST,
+    var prop = classA.createProperty("dates", PropertyType.EMBEDDEDLIST,
         PropertyType.DATE);
 
     session.command("alter property TestWrongMax.dates max 2016-05-25").close();
@@ -114,22 +114,22 @@ public class AlterSchemaPropertyTest extends DbTestBase {
     Schema schema = session.getMetadata().getSchema();
     session.command("create class testAlterPropertyWithDot").close();
     session.command("create property testAlterPropertyWithDot.`a.b` STRING").close();
-    Assert.assertNotNull(schema.getClass("testAlterPropertyWithDot").getProperty(session, "a.b"));
+    Assert.assertNotNull(schema.getClass("testAlterPropertyWithDot").getProperty("a.b"));
     session.command("alter property testAlterPropertyWithDot.`a.b` name c").close();
-    Assert.assertNull(schema.getClass("testAlterPropertyWithDot").getProperty(session, "a.b"));
-    Assert.assertNotNull(schema.getClass("testAlterPropertyWithDot").getProperty(session, "c"));
+    Assert.assertNull(schema.getClass("testAlterPropertyWithDot").getProperty("a.b"));
+    Assert.assertNotNull(schema.getClass("testAlterPropertyWithDot").getProperty("c"));
   }
 
   @Test
   public void testAlterCustomAttributeInProperty() {
     Schema schema = session.getMetadata().getSchema();
     var oClass = schema.createClass("TestCreateCustomAttributeClass");
-    var property = oClass.createProperty(session, "property", PropertyType.STRING);
+    var property = oClass.createProperty("property", PropertyType.STRING);
 
-    property.setCustom(session, "customAttribute", "value1");
-    assertEquals("value1", property.getCustom(session, "customAttribute"));
+    property.setCustom("customAttribute", "value1");
+    assertEquals("value1", property.getCustom("customAttribute"));
 
-    property.setCustom(session, "custom.attribute", "value2");
-    assertEquals("value2", property.getCustom(session, "custom.attribute"));
+    property.setCustom("custom.attribute", "value2");
+    assertEquals("value2", property.getCustom("custom.attribute"));
   }
 }

@@ -5,7 +5,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.AddClusterReques
 import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransaction38Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransactionRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CeilingPhysicalPositionsRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CleanOutRecordRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseQueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CommandRequest;
@@ -24,7 +23,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransaction
 import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransactionRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FloorPhysicalPositionsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FreezeDatabaseRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.GetClusterDataRangeRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.GetGlobalConfigurationRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.GetRecordMetadataRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.GetSizeRequest;
@@ -88,8 +86,6 @@ public interface BinaryRequestExecutor {
 
   BinaryResponse executeCountCluster(CountRequest request);
 
-  BinaryResponse executeClusterDataRange(GetClusterDataRangeRequest request);
-
   BinaryResponse executeAddCluster(AddClusterRequest request);
 
   BinaryResponse executeDropCluster(DropClusterRequest request);
@@ -120,8 +116,6 @@ public interface BinaryRequestExecutor {
   BinaryResponse executeFreezeDatabase(FreezeDatabaseRequest request);
 
   BinaryResponse executeReleaseDatabase(ReleaseDatabaseRequest request);
-
-  BinaryResponse executeCleanOutRecord(CleanOutRecordRequest request);
 
   BinaryResponse executeSBTreeCreate(SBTCreateTreeRequest request);
 

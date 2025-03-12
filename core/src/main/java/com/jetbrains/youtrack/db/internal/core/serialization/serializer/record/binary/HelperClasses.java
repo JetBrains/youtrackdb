@@ -346,7 +346,7 @@ public class HelperClasses {
 
     var ownerUuid = ridbag.getTemporaryId();
     var positionOffset = bytes.offset;
-    final var bTreeCollectionManager = session.getSbTreeCollectionManager();
+    final var bTreeCollectionManager = session.getBTreeCollectionManager();
     UUID uuid = null;
     if (bTreeCollectionManager != null) {
       uuid = bTreeCollectionManager.listenForChanges(ridbag, session);
@@ -437,7 +437,7 @@ public class HelperClasses {
 
         assert atomicOperation != null;
         pointer = session
-            .getSbTreeCollectionManager()
+            .getBTreeCollectionManager()
             .createSBTree(clusterId, atomicOperation, ownerUuid, session);
       } catch (IOException e) {
         throw BaseException.wrapException(
@@ -568,9 +568,9 @@ public class HelperClasses {
       return null;
     }
     if (clazz != null) {
-      var prop = clazz.getProperty(session, key);
+      var prop = clazz.getProperty(key);
       if (prop != null) {
-        return prop.getLinkedType(session);
+        return prop.getLinkedType();
       }
     }
     return null;

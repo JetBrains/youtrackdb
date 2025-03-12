@@ -53,7 +53,7 @@ public class ConcurrentSchemaTest extends BaseDBTest {
           var cls = ConcurrentSchemaTest.this.session.getMetadata().getSchema()
               .createClass(clsName);
 
-          Assert.assertEquals(cls.getName(session), clsName);
+          Assert.assertEquals(cls.getName(), clsName);
           Assert.assertTrue(
               ConcurrentSchemaTest.this.session.getMetadata().getSchema().existsClass(clsName));
 

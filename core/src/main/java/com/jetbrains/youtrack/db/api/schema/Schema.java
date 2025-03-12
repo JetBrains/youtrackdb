@@ -36,7 +36,7 @@ public interface Schema {
 
   @Nonnull
   SchemaClass createClass(@Nonnull String className, int clusters,
-      @Nullable SchemaClass... superClasses);
+      @Nonnull SchemaClass... superClasses);
 
   SchemaClass createClass(String iClassName, SchemaClass... superClasses);
 
@@ -54,6 +54,7 @@ public interface Schema {
 
   boolean existsClass(String iClassName);
 
+  @Nullable
   SchemaClass getClass(Class<?> iClass);
 
   /**
@@ -87,6 +88,7 @@ public interface Schema {
 
   int getVersion();
 
+  @Nullable
   SchemaClass getClassByClusterId(int clusterId);
 
   GlobalProperty getGlobalPropertyById(int id);

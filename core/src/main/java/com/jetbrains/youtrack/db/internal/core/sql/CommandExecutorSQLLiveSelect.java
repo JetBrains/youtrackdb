@@ -161,7 +161,7 @@ public class CommandExecutorSQLLiveSelect extends CommandExecutorSQLSelect
 
     if (this.parsedTarget.getTargetClasses() != null) {
       for (var clazz : parsedTarget.getTargetClasses().keySet()) {
-        if (docClass.isSubClassOf(execDb, clazz)) {
+        if (docClass.isSubClassOf(clazz)) {
           return true;
         }
       }

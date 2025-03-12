@@ -23,9 +23,9 @@ public class DateBinaryComparatorTest extends DbTestBase {
 
   private void initSchema() {
     var testClass = session.getMetadata().getSchema().createClass("Test");
-    testClass.createProperty(session, "date", PropertyType.DATE);
+    testClass.createProperty("date", PropertyType.DATE);
     session.begin();
-    var document = (EntityImpl) session.newEntity(testClass.getName(session));
+    var document = (EntityImpl) session.newEntity(testClass.getName());
 
     try {
       document.field("date", new SimpleDateFormat(dateFormat).parse(dateValue));

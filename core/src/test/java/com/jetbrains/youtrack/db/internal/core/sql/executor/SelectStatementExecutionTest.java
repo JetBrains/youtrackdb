@@ -1184,8 +1184,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromClassWithIndex() {
     var className = "testFetchFromClassWithIndex";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createIndex(session, className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createIndex(className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -1219,12 +1219,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromIndexHierarchy() {
     var className = "testFetchFromIndexHierarchy";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createIndex(session, className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createIndex(className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
 
     var classNameExt = "testFetchFromIndexHierarchyExt";
     var clazzExt = session.getMetadata().getSchema().createClass(classNameExt, clazz);
-    clazzExt.createIndex(session, classNameExt + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    clazzExt.createIndex(classNameExt + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
 
     for (var i = 0; i < 5; i++) {
       session.begin();
@@ -1268,10 +1268,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromClassWithIndexes() {
     var className = "testFetchFromClassWithIndexes";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
-    clazz.createIndex(session, className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
-    clazz.createIndex(session, className + ".surname", SchemaClass.INDEX_TYPE.NOTUNIQUE, "surname");
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
+    clazz.createIndex(className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    clazz.createIndex(className + ".surname", SchemaClass.INDEX_TYPE.NOTUNIQUE, "surname");
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -1313,10 +1313,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromClassWithIndexes2() {
     var className = "testFetchFromClassWithIndexes2";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
-    clazz.createIndex(session, className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
-    clazz.createIndex(session, className + ".surname", SchemaClass.INDEX_TYPE.NOTUNIQUE, "surname");
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
+    clazz.createIndex(className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    clazz.createIndex(className + ".surname", SchemaClass.INDEX_TYPE.NOTUNIQUE, "surname");
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -1344,10 +1344,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromClassWithIndexes3() {
     var className = "testFetchFromClassWithIndexes3";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
-    clazz.createIndex(session, className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
-    clazz.createIndex(session, className + ".surname", SchemaClass.INDEX_TYPE.NOTUNIQUE, "surname");
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
+    clazz.createIndex(className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    clazz.createIndex(className + ".surname", SchemaClass.INDEX_TYPE.NOTUNIQUE, "surname");
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -1385,10 +1385,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromClassWithIndexes4() {
     var className = "testFetchFromClassWithIndexes4";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
-    clazz.createIndex(session, className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
-    clazz.createIndex(session, className + ".surname", SchemaClass.INDEX_TYPE.NOTUNIQUE, "surname");
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
+    clazz.createIndex(className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    clazz.createIndex(className + ".surname", SchemaClass.INDEX_TYPE.NOTUNIQUE, "surname");
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -1427,9 +1427,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromClassWithIndexes5() {
     var className = "testFetchFromClassWithIndexes5";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
-    clazz.createIndex(session, className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
+    clazz.createIndex(className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "name",
         "surname");
 
@@ -1465,9 +1465,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromClassWithIndexes6() {
     var className = "testFetchFromClassWithIndexes6";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
-    clazz.createIndex(session, className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
+    clazz.createIndex(className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "name",
         "surname");
 
@@ -1496,9 +1496,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromClassWithIndexes7() {
     var className = "testFetchFromClassWithIndexes7";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
-    clazz.createIndex(session, className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
+    clazz.createIndex(className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "name",
         "surname");
 
@@ -1531,9 +1531,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromClassWithIndexes8() {
     var className = "testFetchFromClassWithIndexes8";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
-    clazz.createIndex(session, className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
+    clazz.createIndex(className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "name",
         "surname");
 
@@ -1562,9 +1562,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromClassWithIndexes9() {
     var className = "testFetchFromClassWithIndexes9";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
-    clazz.createIndex(session, className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
+    clazz.createIndex(className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "name",
         "surname");
 
@@ -1597,9 +1597,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromClassWithIndexes10() {
     var className = "testFetchFromClassWithIndexes10";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
-    clazz.createIndex(session, className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
+    clazz.createIndex(className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "name",
         "surname");
 
@@ -1630,9 +1630,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromClassWithIndexes11() {
     var className = "testFetchFromClassWithIndexes11";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
-    clazz.createIndex(session, className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
+    clazz.createIndex(className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "name",
         "surname");
 
@@ -1662,9 +1662,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromClassWithIndexes12() {
     var className = "testFetchFromClassWithIndexes12";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
-    clazz.createIndex(session, className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
+    clazz.createIndex(className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "name",
         "surname");
 
@@ -1694,9 +1694,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromClassWithIndexes13() {
     var className = "testFetchFromClassWithIndexes13";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
-    clazz.createIndex(session, className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
+    clazz.createIndex(className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "name",
         "surname");
 
@@ -1726,9 +1726,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromClassWithIndexes14() {
     var className = "testFetchFromClassWithIndexes14";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
-    clazz.createIndex(session, className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
+    clazz.createIndex(className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "name",
         "surname");
 
@@ -1762,9 +1762,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromClassWithIndexes15() {
     var className = "testFetchFromClassWithIndexes15";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
-    clazz.createIndex(session, className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
+    clazz.createIndex(className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "name",
         "surname");
 
@@ -1798,9 +1798,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromClassWithHashIndexes1() {
     var className = "testFetchFromClassWithHashIndexes1";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
-    clazz.createIndex(session,
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
+    clazz.createIndex(
         className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name",
         "surname");
 
@@ -1837,9 +1837,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromClassWithHashIndexes2() {
     var className = "testFetchFromClassWithHashIndexes2";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
-    clazz.createIndex(session,
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
+    clazz.createIndex(
         className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name",
         "surname");
 
@@ -1995,8 +1995,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testDistinct1() {
     var className = "testDistinct1";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
 
     for (var i = 0; i < 30; i++) {
       session.begin();
@@ -2025,8 +2025,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testDistinct2() {
     var className = "testDistinct2";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
 
     for (var i = 0; i < 30; i++) {
       session.begin();
@@ -2413,9 +2413,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var childClass1 = session.getMetadata().getSchema().createClass(child1, parentClass);
     var childClass2 = session.getMetadata().getSchema().createClass(child2, parentClass);
 
-    parentClass.createProperty(session, "name", PropertyType.STRING);
-    childClass1.createIndex(session, child1 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
-    childClass2.createIndex(session, child2 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    parentClass.createProperty("name", PropertyType.STRING);
+    childClass1.createIndex(child1 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    childClass2.createIndex(child2 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -2457,9 +2457,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var childClass1 = session.getMetadata().getSchema().createClass(child1, parentClass);
     var childClass2 = session.getMetadata().getSchema().createClass(child2, parentClass);
 
-    parentClass.createProperty(session, "name", PropertyType.STRING);
-    childClass1.createIndex(session, child1 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
-    childClass2.createIndex(session, child2 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    parentClass.createProperty("name", PropertyType.STRING);
+    childClass1.createIndex(child1 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    childClass2.createIndex(child2 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -2504,8 +2504,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var childClass1 = session.getMetadata().getSchema().createClass(child1, parentClass);
     var childClass2 = session.getMetadata().getSchema().createClass(child2, parentClass);
 
-    parentClass.createProperty(session, "name", PropertyType.STRING);
-    childClass1.createIndex(session, child1 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    parentClass.createProperty("name", PropertyType.STRING);
+    childClass1.createIndex(child1 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -2551,9 +2551,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var childClass1 = session.getMetadata().getSchema().createClass(child1, parentClass);
     var childClass2 = session.getMetadata().getSchema().createClass(child2, parentClass);
 
-    parentClass.createProperty(session, "name", PropertyType.STRING);
-    childClass1.createIndex(session, child1 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
-    childClass2.createIndex(session, child2 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    parentClass.createProperty("name", PropertyType.STRING);
+    childClass1.createIndex(child1 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    childClass2.createIndex(child2 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
 
     session.begin();
     var parentdoc = session.newInstance(parent);
@@ -2611,11 +2611,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var childClass2_1 = session.getMetadata().getSchema().createClass(child2_1, childClass2);
     var childClass2_2 = session.getMetadata().getSchema().createClass(child2_2, childClass2);
 
-    parentClass.createProperty(session, "name", PropertyType.STRING);
-    childClass1.createIndex(session, child1 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
-    childClass2_1.createIndex(session, child2_1 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+    parentClass.createProperty("name", PropertyType.STRING);
+    childClass1.createIndex(child1 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    childClass2_1.createIndex(child2_1 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "name");
-    childClass2_2.createIndex(session, child2_2 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+    childClass2_2.createIndex(child2_2 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "name");
 
     for (var i = 0; i < 10; i++) {
@@ -2674,9 +2674,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var childClass12 =
         session.getMetadata().getSchema().createClass(child12, childClass1, childClass2);
 
-    parentClass.createProperty(session, "name", PropertyType.STRING);
-    childClass1.createIndex(session, child1 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
-    childClass2.createIndex(session, child2 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    parentClass.createProperty("name", PropertyType.STRING);
+    childClass1.createIndex(child1 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    childClass2.createIndex(child2 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -2725,8 +2725,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testIndexPlusSort1() {
     var className = "testIndexPlusSort1";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
     session.command(
             "create index "
                 + className
@@ -2775,8 +2775,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testIndexPlusSort2() {
     var className = "testIndexPlusSort2";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
     session.command(
             "create index "
                 + className
@@ -2825,8 +2825,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testIndexPlusSort3() {
     var className = "testIndexPlusSort3";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
     session.command(
             "create index "
                 + className
@@ -2876,8 +2876,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testIndexPlusSort4() {
     var className = "testIndexPlusSort4";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
     session.command(
             "create index "
                 + className
@@ -2927,9 +2927,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testIndexPlusSort5() {
     var className = "testIndexPlusSort5";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
-    clazz.createProperty(session, "address", PropertyType.STRING);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
+    clazz.createProperty("address", PropertyType.STRING);
     session.command(
             "create index "
                 + className
@@ -2977,9 +2977,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testIndexPlusSort6() {
     var className = "testIndexPlusSort6";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
-    clazz.createProperty(session, "address", PropertyType.STRING);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
+    clazz.createProperty("address", PropertyType.STRING);
     session.command(
             "create index "
                 + className
@@ -3027,9 +3027,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testIndexPlusSort7() {
     var className = "testIndexPlusSort7";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
-    clazz.createProperty(session, "address", PropertyType.STRING);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
+    clazz.createProperty("address", PropertyType.STRING);
     session.command(
             "create index "
                 + className
@@ -3076,8 +3076,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testIndexPlusSort8() {
     var className = "testIndexPlusSort8";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
     session.command(
             "create index "
                 + className
@@ -3125,8 +3125,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testIndexPlusSort9() {
     var className = "testIndexPlusSort9";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
     session.command(
             "create index "
                 + className
@@ -3172,8 +3172,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testIndexPlusSort10() {
     var className = "testIndexPlusSort10";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
     session.command(
             "create index "
                 + className
@@ -3219,8 +3219,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testIndexPlusSort11() {
     var className = "testIndexPlusSort11";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
     session.command(
             "create index "
                 + className
@@ -3266,8 +3266,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testIndexPlusSort12() {
     var className = "testIndexPlusSort12";
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "name", PropertyType.STRING);
-    clazz.createProperty(session, "surname", PropertyType.STRING);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("surname", PropertyType.STRING);
     session.command(
             "create index "
                 + className
@@ -3797,7 +3797,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testContainsWithSubquery";
     session.createClassIfNotExist(className + 1);
     var clazz2 = session.createClassIfNotExist(className + 2);
-    clazz2.createProperty(session, "tags", PropertyType.EMBEDDEDLIST);
+    clazz2.createProperty("tags", PropertyType.EMBEDDEDLIST);
 
     session.begin();
     session.command("insert into " + className + 1 + "  set name = 'foo'");
@@ -3832,7 +3832,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testInWithSubquery";
     session.createClassIfNotExist(className + 1);
     var clazz2 = session.createClassIfNotExist(className + 2);
-    clazz2.createProperty(session, "tags", PropertyType.EMBEDDEDLIST);
+    clazz2.createProperty("tags", PropertyType.EMBEDDEDLIST);
 
     session.begin();
     session.command("insert into " + className + 1 + "  set name = 'foo'");
@@ -3866,7 +3866,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testContainsAny() {
     var className = "testContainsAny";
     var clazz = session.createClassIfNotExist(className);
-    clazz.createProperty(session, "tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
+    clazz.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
 
     session.begin();
     session.command("insert into " + className + "  set tags = ['foo', 'bar']");
@@ -3912,9 +3912,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testContainsAnyWithIndex() {
     var className = "testContainsAnyWithIndex";
     var clazz = session.createClassIfNotExist(className);
-    var prop = clazz.createProperty(session, "tags", PropertyType.EMBEDDEDLIST,
+    var prop = clazz.createProperty("tags", PropertyType.EMBEDDEDLIST,
         PropertyType.STRING);
-    prop.createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    prop.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     session.begin();
     session.command("insert into " + className + "  set tags = ['foo', 'bar']");
@@ -3975,7 +3975,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testContainsAll() {
     var className = "testContainsAll";
     var clazz = session.createClassIfNotExist(className);
-    clazz.createProperty(session, "tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
+    clazz.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
 
     session.begin();
     session.command("insert into " + className + "  set tags = ['foo', 'bar']");
@@ -4028,8 +4028,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testInWithIndex() {
     var className = "testInWithIndex";
     var clazz = session.createClassIfNotExist(className);
-    var prop = clazz.createProperty(session, "tag", PropertyType.STRING);
-    prop.createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    var prop = clazz.createProperty("tag", PropertyType.STRING);
+    prop.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     session.begin();
     session.command("insert into " + className + "  set tag = 'foo'");
@@ -4089,16 +4089,16 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className3 = "testIndexChain3";
 
     var clazz3 = session.createClassIfNotExist(className3);
-    var prop = clazz3.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    var prop = clazz3.createProperty("name", PropertyType.STRING);
+    prop.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     var clazz2 = session.createClassIfNotExist(className2);
-    prop = clazz2.createProperty(session, "next", PropertyType.LINK, clazz3);
-    prop.createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    prop = clazz2.createProperty("next", PropertyType.LINK, clazz3);
+    prop.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     var clazz1 = session.createClassIfNotExist(className1);
-    prop = clazz1.createProperty(session, "next", PropertyType.LINK, clazz2);
-    prop.createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    prop = clazz1.createProperty("next", PropertyType.LINK, clazz2);
+    prop.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     session.begin();
     var elem3 = session.newEntity(className3);
@@ -4136,16 +4136,16 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className3 = "testIndexChainWithContainsAny3";
 
     var clazz3 = session.createClassIfNotExist(className3);
-    var prop = clazz3.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    var prop = clazz3.createProperty("name", PropertyType.STRING);
+    prop.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     var clazz2 = session.createClassIfNotExist(className2);
-    prop = clazz2.createProperty(session, "next", PropertyType.LINKSET, clazz3);
-    prop.createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    prop = clazz2.createProperty("next", PropertyType.LINKSET, clazz3);
+    prop.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     var clazz1 = session.createClassIfNotExist(className1);
-    prop = clazz1.createProperty(session, "next", PropertyType.LINKSET, clazz2);
-    prop.createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    prop = clazz1.createProperty("next", PropertyType.LINKSET, clazz2);
+    prop.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     session.begin();
     var elem3 = session.newEntity(className3);
@@ -4192,7 +4192,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testMapByKeyIndex";
 
     var clazz1 = session.createClassIfNotExist(className);
-    clazz1.createProperty(session, "themap", PropertyType.EMBEDDEDMAP);
+    clazz1.createProperty("themap", PropertyType.EMBEDDEDMAP);
 
     session.command(
         "CREATE INDEX " + className + ".themap ON " + className + "(themap by key) NOTUNIQUE");
@@ -4228,8 +4228,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testMapBjyKeyIndexMultiple";
 
     var clazz1 = session.createClassIfNotExist(className);
-    clazz1.createProperty(session, "themap", PropertyType.EMBEDDEDMAP);
-    clazz1.createProperty(session, "thestring", PropertyType.STRING);
+    clazz1.createProperty("themap", PropertyType.EMBEDDEDMAP);
+    clazz1.createProperty("thestring", PropertyType.STRING);
 
     session.command(
         "CREATE INDEX "
@@ -4274,7 +4274,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testMapByValueIndex";
 
     var clazz1 = session.createClassIfNotExist(className);
-    var prop = clazz1.createProperty(session, "themap", PropertyType.EMBEDDEDMAP,
+    var prop = clazz1.createProperty("themap", PropertyType.EMBEDDEDMAP,
         PropertyType.STRING);
 
     session.command(
@@ -4309,7 +4309,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testListOfMapsContains";
 
     var clazz1 = session.createClassIfNotExist(className);
-    clazz1.createProperty(session, "thelist", PropertyType.EMBEDDEDLIST, PropertyType.EMBEDDEDMAP);
+    clazz1.createProperty("thelist", PropertyType.EMBEDDEDLIST, PropertyType.EMBEDDEDMAP);
 
     session.begin();
     session.command("INSERT INTO " + className + " SET thelist = [{name:\"Jack\"}]").close();
@@ -4654,8 +4654,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testSimpleRangeQueryWithIndexGTE() {
     final var className = "testSimpleRangeQueryWithIndexGTE";
     final var clazz = session.getMetadata().getSchema().getOrCreateClass(className);
-    final var prop = clazz.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    final var prop = clazz.createProperty("name", PropertyType.STRING);
+    prop.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -4681,8 +4681,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testSimpleRangeQueryWithIndexLTE() {
     final var className = "testSimpleRangeQueryWithIndexLTE";
     final var clazz = session.getMetadata().getSchema().getOrCreateClass(className);
-    final var prop = clazz.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    final var prop = clazz.createProperty("name", PropertyType.STRING);
+    prop.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -4709,9 +4709,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testSimpleRangeQueryWithOutIndex() {
     final var className = "testSimpleRangeQueryWithOutIndex";
     final var clazz = session.getMetadata().getSchema().getOrCreateClass(className);
-    final var prop = clazz.createProperty(session, "name", PropertyType.STRING);
+    final var prop = clazz.createProperty("name", PropertyType.STRING);
     // Hash Index skipped for range query
-    prop.createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    prop.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -4746,29 +4746,29 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var c = session.getMetadata().getSchema().createClass(classNamePrefix + "B");
     var d = session.getMetadata().getSchema().createClass(classNamePrefix + "D");
 
-    a.createProperty(session, "b", PropertyType.LINK, b)
-        .createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
-    b.createProperty(session, "c", PropertyType.LINK, c)
-        .createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
-    c.createProperty(session, "d", PropertyType.LINK, d)
-        .createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
-    c.createProperty(session, "name", PropertyType.STRING)
-        .createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
-    d.createProperty(session, "name", PropertyType.STRING)
-        .createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    a.createProperty("b", PropertyType.LINK, b)
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    b.createProperty("c", PropertyType.LINK, c)
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    c.createProperty("d", PropertyType.LINK, d)
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    c.createProperty("name", PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    d.createProperty("name", PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     session.begin();
-    var dDoc = session.newEntity(d.getName(session));
+    var dDoc = session.newEntity(d.getName());
     dDoc.setProperty("name", "foo");
 
-    var cDoc = session.newEntity(c.getName(session));
+    var cDoc = session.newEntity(c.getName());
     cDoc.setProperty("name", "foo");
     cDoc.setProperty("d", dDoc);
 
-    var bDoc = session.newEntity(b.getName(session));
+    var bDoc = session.newEntity(b.getName());
     bDoc.setProperty("c", cDoc);
 
-    var aDoc = session.newEntity(a.getName(session));
+    var aDoc = session.newEntity(a.getName());
     aDoc.setProperty("b", bDoc);
 
     session.commit();

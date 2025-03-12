@@ -50,7 +50,7 @@ public interface IndexManagerAbstract extends CloseableInStorage {
       IndexDefinition indexDefinition,
       final int[] clusterIdsToIndex,
       final ProgressListener progressListener,
-      Map<String, ?> metadata);
+      Map<String, Object> metadata);
 
   Index createIndex(
       DatabaseSessionInternal session,
@@ -59,7 +59,7 @@ public interface IndexManagerAbstract extends CloseableInStorage {
       IndexDefinition indexDefinition,
       final int[] clusterIdsToIndex,
       final ProgressListener progressListener,
-      Map<String, ?> metadata,
+      Map<String, Object> metadata,
       String algorithm);
 
   void waitTillIndexRestore();

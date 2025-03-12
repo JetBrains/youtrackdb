@@ -65,7 +65,7 @@ public class AuditingLoggingThread extends Thread {
               if (!schema.existsClass(className)) {
                 var clazz = schema.getClass(DefaultAuditing.AUDITING_LOG_CLASSNAME);
                 var cls = schema.createClass(className, clazz);
-                cls.createIndex(session, className + ".date", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+                cls.createIndex(className + ".date", SchemaClass.INDEX_TYPE.NOTUNIQUE,
                     "date");
               }
               return null;

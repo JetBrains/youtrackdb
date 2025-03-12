@@ -308,7 +308,7 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
   private void generateGraphRandomData() {
 
     var vehicleClass = session.createVertexClass("GraphVehicle");
-    session.createClass("GraphCar", vehicleClass.getName(session));
+    session.createClass("GraphCar", vehicleClass.getName());
     session.createClass("GraphMotocycle", "GraphVehicle");
     final var r = new Random();
 
@@ -380,14 +380,14 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
 
   private void generateGeoData() {
     var countryClass = session.createClass("CountryExt");
-    countryClass.createProperty(session, "name", PropertyType.STRING);
-    countryClass.createProperty(session, "continent", PropertyType.STRING);
-    countryClass.createProperty(session, "languages", PropertyType.EMBEDDEDLIST,
+    countryClass.createProperty("name", PropertyType.STRING);
+    countryClass.createProperty("continent", PropertyType.STRING);
+    countryClass.createProperty("languages", PropertyType.EMBEDDEDLIST,
         PropertyType.STRING);
 
     var cls = session.createClass("CityExt");
-    cls.createProperty(session, "name", PropertyType.STRING);
-    cls.createProperty(session, "country", PropertyType.LINK, countryClass);
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createProperty("country", PropertyType.LINK, countryClass);
 
     session.begin();
 

@@ -30,21 +30,15 @@ import java.util.Set;
  * Schema class
  */
 public interface SchemaClass {
-
   String EDGE_CLASS_NAME = "E";
   String VERTEX_CLASS_NAME = "V";
 
   enum ATTRIBUTES {
     NAME,
-    SHORTNAME,
-    SUPERCLASS,
     SUPERCLASSES,
     STRICT_MODE,
-    ADD_CLUSTER,
-    REMOVE_CLUSTER,
     CUSTOM,
     ABSTRACT,
-    CLUSTER_SELECTION,
     DESCRIPTION
   }
 
@@ -55,53 +49,43 @@ public interface SchemaClass {
     SPATIAL
   }
 
-  boolean isAbstract(DatabaseSession session);
+  boolean isAbstract();
 
-  SchemaClass setAbstract(DatabaseSession session, boolean iAbstract);
+  SchemaClass setAbstract(boolean iAbstract);
 
-  boolean isStrictMode(DatabaseSession session);
+  boolean isStrictMode();
 
-  void setStrictMode(DatabaseSession session, boolean iMode);
+  void setStrictMode(boolean iMode);
 
-  @Deprecated
-  SchemaClass getSuperClass(DatabaseSession session);
+  boolean hasSuperClasses();
 
-  @Deprecated
-  SchemaClass setSuperClass(DatabaseSession session, SchemaClass iSuperClass);
+  List<String> getSuperClassesNames();
 
-  boolean hasSuperClasses(DatabaseSession session);
+  List<SchemaClass> getSuperClasses();
 
-  List<String> getSuperClassesNames(DatabaseSession session);
+  SchemaClass setSuperClasses(List<? extends SchemaClass> classes);
 
-  List<SchemaClass> getSuperClasses(DatabaseSession session);
+  SchemaClass addSuperClass(SchemaClass superClass);
 
-  SchemaClass setSuperClasses(DatabaseSession session, List<? extends SchemaClass> classes);
+  void removeSuperClass(SchemaClass superClass);
 
-  SchemaClass addSuperClass(DatabaseSession session, SchemaClass superClass);
+  String getName();
 
-  void removeSuperClass(DatabaseSession session, SchemaClass superClass);
+  SchemaClass setName(String iName);
 
-  String getName(DatabaseSession session);
+  String getDescription();
 
-  SchemaClass setName(DatabaseSession session, String iName);
+  SchemaClass setDescription(String iDescription);
 
-  String getDescription(DatabaseSession session);
+  Collection<SchemaProperty> declaredProperties();
 
-  SchemaClass setDescription(DatabaseSession session, String iDescription);
+  Collection<SchemaProperty> properties();
 
-  String getStreamableName(DatabaseSession session);
+  Map<String, SchemaProperty> propertiesMap();
 
-  Collection<SchemaProperty> declaredProperties(DatabaseSession session);
+  SchemaProperty getProperty(String iPropertyName);
 
-  Collection<SchemaProperty> properties(DatabaseSession session);
-
-  Map<String, SchemaProperty> propertiesMap(DatabaseSession session);
-
-  Collection<SchemaProperty> getIndexedProperties(DatabaseSession session);
-
-  SchemaProperty getProperty(DatabaseSession session, String iPropertyName);
-
-  SchemaProperty createProperty(DatabaseSession session, String iPropertyName, PropertyType iType);
+  SchemaProperty createProperty(String iPropertyName, PropertyType iType);
 
   /**
    * Create a property in the class with the specified options.
@@ -113,7 +97,7 @@ public interface SchemaClass {
    *                      can be specified a linked class in all the other cases should be null
    * @return the created property.
    */
-  SchemaProperty createProperty(DatabaseSession session, String iPropertyName, PropertyType iType,
+  SchemaProperty createProperty(String iPropertyName, PropertyType iType,
       SchemaClass iLinkedClass);
 
   /**
@@ -125,36 +109,26 @@ public interface SchemaClass {
    *                      specified a linked type in all the other cases should be null
    * @return the created property.
    */
-  SchemaProperty createProperty(DatabaseSession session, String iPropertyName, PropertyType iType,
+  SchemaProperty createProperty(String iPropertyName, PropertyType iType,
       PropertyType iLinkedType);
 
-  void dropProperty(DatabaseSession session, String iPropertyName);
+  void dropProperty(String iPropertyName);
 
-  boolean existsProperty(DatabaseSession session, String iPropertyName);
+  boolean existsProperty(String iPropertyName);
 
-  int[] getClusterIds(DatabaseSession session);
+  int[] getClusterIds();
 
-  SchemaClass addClusterId(DatabaseSession session, int iId);
-
-  SchemaClass setClusterSelection(DatabaseSession session, String iStrategyName);
-
-  String getClusterSelectionStrategyName(DatabaseSession session);
-
-  SchemaClass addCluster(DatabaseSession session, String iClusterName);
-
-  SchemaClass removeClusterId(DatabaseSession session, int iId);
-
-  int[] getPolymorphicClusterIds(DatabaseSession session);
+  int[] getPolymorphicClusterIds();
 
   /**
    * @return all the subclasses (one level hierarchy only)
    */
-  Collection<SchemaClass> getSubclasses(DatabaseSession session);
+  Collection<SchemaClass> getSubclasses();
 
   /**
    * @return all the subclass hierarchy
    */
-  Collection<SchemaClass> getAllSubclasses(DatabaseSession session);
+  Collection<SchemaClass> getAllSubclasses();
 
   /**
    * @return all recursively collected super classes
@@ -165,49 +139,45 @@ public interface SchemaClass {
    * Tells if the current instance extends the passed schema class (iClass).
    *
    * @return true if the current instance extends the passed schema class (iClass).
-   * @see #isSuperClassOf(DatabaseSession, SchemaClass)
+   * @see #isSuperClassOf(SchemaClass)
    */
-  boolean isSubClassOf(DatabaseSession session, String iClassName);
+  boolean isSubClassOf(String iClassName);
 
   /**
    * Returns true if the current instance extends the passed schema class (iClass).
    *
    * @return true if the current instance extends the passed schema class (iClass).
-   * @see #isSuperClassOf(DatabaseSession, SchemaClass)
+   * @see #isSuperClassOf(SchemaClass)
    */
-  boolean isSubClassOf(DatabaseSession session, SchemaClass iClass);
+  boolean isSubClassOf(SchemaClass iClass);
 
   /**
    * Returns true if the passed schema class (iClass) extends the current instance.
    *
    * @return Returns true if the passed schema class extends the current instance.
-   * @see #isSubClassOf(DatabaseSession, SchemaClass)
+   * @see #isSubClassOf(SchemaClass)
    */
-  boolean isSuperClassOf(DatabaseSession session, SchemaClass iClass);
-
-  String getShortName(DatabaseSession session);
-
-  SchemaClass setShortName(DatabaseSession session, String shortName);
+  boolean isSuperClassOf(SchemaClass iClass);
 
   /**
    * Creates database index that is based on passed in field names. Given index will be added into
    * class instance and associated with database index.
    *
-   * @param iName   Database index name
-   * @param iType   Index type.
-   * @param fields  Field names from which index will be created.
+   * @param iName  Database index name
+   * @param iType  Index type.
+   * @param fields Field names from which index will be created.
    */
-  void createIndex(DatabaseSession session, String iName, INDEX_TYPE iType, String... fields);
+  void createIndex(String iName, INDEX_TYPE iType, String... fields);
 
   /**
    * Creates database index that is based on passed in field names. Given index will be added into
    * class instance and associated with database index.
    *
-   * @param iName   Database index name
-   * @param iType   Index type.
-   * @param fields  Field names from which index will be created.
+   * @param iName  Database index name
+   * @param iType  Index type.
+   * @param fields Field names from which index will be created.
    */
-  void createIndex(DatabaseSession session, String iName, String iType, String... fields);
+  void createIndex(String iName, String iType, String... fields);
 
   /**
    * Creates database index that is based on passed in field names. Given index will be added into
@@ -219,7 +189,7 @@ public interface SchemaClass {
    * @param fields            Field names from which index will be created.
    */
   void createIndex(
-      DatabaseSession session, String iName, INDEX_TYPE iType,
+      String iName, INDEX_TYPE iType,
       ProgressListener iProgressListener,
       String... fields);
 
@@ -237,10 +207,10 @@ public interface SchemaClass {
    *                          registered inside of given class ans associated with database index.
    */
   void createIndex(
-      DatabaseSession session, String iName,
+      String iName,
       String iType,
       ProgressListener iProgressListener,
-      Map<String, ?> metadata,
+      Map<String, Object> metadata,
       String algorithm,
       String... fields);
 
@@ -257,31 +227,31 @@ public interface SchemaClass {
    *                          registered inside of given class ans associated with database index.
    */
   void createIndex(
-      DatabaseSession session, String iName,
+      String iName,
       String iType,
       ProgressListener iProgressListener,
-      Map<String, ?> metadata,
+      Map<String, Object> metadata,
       String... fields);
 
   /**
    * @return true if this class represents a subclass of an edge class (E)
    */
-  boolean isEdgeType(DatabaseSession session);
+  boolean isEdgeType();
 
   /**
    * @return true if this class represents a subclass of a vertex class (V)
    */
-  boolean isVertexType(DatabaseSession session);
+  boolean isVertexType();
 
-  String getCustom(DatabaseSession session, String iName);
+  String getCustom(String iName);
 
-  SchemaClass setCustom(DatabaseSession session, String iName, String iValue);
+  SchemaClass setCustom(String iName, String iValue);
 
-  void removeCustom(DatabaseSession session, String iName);
+  void removeCustom(String iName);
 
-  void clearCustom(DatabaseSession session);
+  void clearCustom();
 
-  Set<String> getCustomKeys(DatabaseSession session);
+  Set<String> getCustomKeys();
 
   boolean hasClusterId(int clusterId);
 

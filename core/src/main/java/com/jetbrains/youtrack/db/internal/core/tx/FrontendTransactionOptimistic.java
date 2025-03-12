@@ -33,8 +33,10 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableIdentity;
+import com.jetbrains.youtrack.db.internal.core.id.IdentityChangeListener;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.ClassIndexManager;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
@@ -56,18 +58,22 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class FrontendTransactionOptimistic extends FrontendTransactionAbstract implements
-    TransactionInternal {
+    TransactionInternal, IdentityChangeListener {
 
   private static final AtomicLong txSerial = new AtomicLong();
 
   protected final HashMap<RecordId, RecordId> generatedOriginalRecordIdMap = new HashMap<>();
   protected final HashMap<RecordId, RecordOperation> recordOperations = new HashMap<>();
-  protected final HashMap<RecordId, RecordOperation> updatedOperations = new HashMap<>();
+
+  private final TreeSet<RecordId> affectedRecordsSortedByRID = new TreeSet<>();
+
+  protected final HashMap<RecordId, RecordOperation> operationsBetweenCallbacks = new HashMap<>();
 
   protected HashMap<String, FrontendTransactionIndexChanges> indexEntries = new HashMap<>();
   protected HashMap<RID, List<FrontendTransactionRecordIndexOperation>> recordIndexOperations =
@@ -79,7 +85,6 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
 
   @Nullable
   private FrontendTransacationMetadataHolder metadata = null;
-
   @Nullable
   private List<byte[]> serializedOperations;
 
@@ -203,11 +208,11 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
             if (entry.record instanceof EntityImpl entity) {
               if (iPolymorphic) {
                 var cls = entity.getImmutableSchemaClass(session);
-                if (iClass.isSuperClassOf(session, cls)) {
+                if (iClass.isSuperClassOf(cls)) {
                   result.add(entry);
                 }
               } else {
-                if (iClass.getName(session)
+                if (iClass.getName()
                     .equals(((EntityImpl) entry.record).getSchemaClassName())) {
                   result.add(entry);
                 }
@@ -415,8 +420,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
   }
 
   @Override
-  public @Nonnull DBRecord loadRecord(RID rid) {
-
+  public @Nonnull LoadRecordResult loadRecord(RID rid) {
     checkTransactionValid();
 
     final var txRecord = getRecord(rid);
@@ -426,15 +430,11 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     }
 
     if (txRecord != null) {
-      return txRecord;
-    }
-
-    if (rid.isTemporary()) {
-      throw new RecordNotFoundException(session, rid);
+      return new LoadRecordResult(txRecord, null, null);
     }
 
     // DELEGATE TO THE STORAGE, NO TOMBSTONES SUPPORT IN TX MODE
-    return session.executeReadRecord((RecordId) rid);
+    return session.executeReadRecord((RecordId) rid, false, false, true);
   }
 
   public void deleteRecord(final RecordAbstract record) {
@@ -511,7 +511,15 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
 
           record.txEntry = txEntry;
           txEntry = new RecordOperation(record, status);
+
           recordOperations.put(txEntry.initialRecordId, txEntry);
+          affectedRecordsSortedByRID.add(record.getIdentity());
+
+          if (rid instanceof ChangeableIdentity changeableIdentity
+              && changeableIdentity.canChangeIdentity()) {
+            changeableIdentity.addIdentityChangeListener(this);
+          }
+
           changed = true;
         } else {
           if (txEntry.record != record) {
@@ -559,7 +567,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
       assert txEntry.recordCallBackDirtyCounter <= record.getDirtyCounter();
       if (txEntry.recordCallBackDirtyCounter < record.getDirtyCounter()) {
         changed = true;
-        updatedOperations.put(txEntry.initialRecordId, txEntry);
+        operationsBetweenCallbacks.put(txEntry.initialRecordId, txEntry);
       }
     } catch (Exception e) {
       rollback(true, 0);
@@ -604,12 +612,11 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
 
   public void preProcessRecordsAndExecuteCallCallbacks() {
     var serializer = session.getSerializer();
+    List<RecordOperation> newDeletedRecords = null;
 
-    List<RecordId> newDeletedRecords = null;
-    while (changed) {
-      changed = false;
-      var operations = new ArrayList<>(updatedOperations.values());
-      updatedOperations.clear();
+    while (!operationsBetweenCallbacks.isEmpty()) {
+      var operations = new ArrayList<>(operationsBetweenCallbacks.values());
+      operationsBetweenCallbacks.clear();
 
       for (var recordOperation : operations) {
         preProcessRecordOperationAndExecuteCallbacks(recordOperation, serializer);
@@ -618,18 +625,26 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
           if (newDeletedRecords == null) {
             newDeletedRecords = new ArrayList<>();
           }
-          newDeletedRecords.add(recordOperation.record.getIdentity());
+          newDeletedRecords.add(recordOperation);
         }
       }
     }
 
     if (newDeletedRecords != null) {
-      for (var newDeletedRecord : newDeletedRecords) {
-        recordOperations.remove(newDeletedRecord);
+      for (var recordOperation : newDeletedRecords) {
+        recordOperations.remove(recordOperation.initialRecordId);
+
+        var rid = recordOperation.record.getIdentity();
+        var removed = affectedRecordsSortedByRID.remove(rid);
+        assert removed;
+
+        if (rid instanceof ChangeableIdentity changeableIdentity) {
+          changeableIdentity.removeIdentityChangeListener(this);
+        }
       }
     }
 
-    assert updatedOperations.isEmpty();
+    assert operationsBetweenCallbacks.isEmpty();
   }
 
   private void preProcessRecordOperationAndExecuteCallbacks(RecordOperation recordOperation,
@@ -1006,6 +1021,111 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
       default -> // all other primitive types which doesn't depend on rids
           Dependency.No;
     };
+  }
+
+  @Override
+  public void onBeforeIdentityChange(Object source) {
+    var rid = (RecordId) source;
+    affectedRecordsSortedByRID.remove(rid);
+  }
+
+  @Override
+  public void onAfterIdentityChange(Object source) {
+    var rid = (RecordId) source;
+    affectedRecordsSortedByRID.add(rid);
+  }
+
+  @Nullable
+  public RecordId getFirstRid(int clusterId) {
+    var result = affectedRecordsSortedByRID.ceiling(new RecordId(clusterId, Long.MIN_VALUE));
+
+    if (result == null) {
+      return null;
+    }
+
+    if (result.getClusterId() != clusterId) {
+      return null;
+    }
+
+    var record = getRecordEntry(result);
+    if (record != null && record.type == RecordOperation.DELETED) {
+      return getNextRidInCluster(result);
+    }
+
+    return result;
+  }
+
+  @Nullable
+  public RecordId getLastRid(int clusterId) {
+    var result = affectedRecordsSortedByRID.floor(new RecordId(clusterId, Long.MAX_VALUE));
+
+    if (result == null) {
+      return null;
+    }
+
+    if (result.getClusterId() != clusterId) {
+      return null;
+    }
+
+    var record = getRecordEntry(result);
+    if (record != null && record.type == RecordOperation.DELETED) {
+      return getPreviousRidInCluster(result);
+    }
+
+    return result;
+  }
+
+  @Nullable
+  public RecordId getNextRidInCluster(@Nonnull RecordId rid) {
+    var clusterId = rid.getClusterId();
+
+    while (true) {
+      var result = affectedRecordsSortedByRID.higher(rid);
+
+      if (result == null) {
+        return null;
+      }
+      if (result.getClusterId() != clusterId) {
+        return null;
+      }
+
+      var record = getRecordEntry(result);
+
+      if (record != null && record.type == RecordOperation.DELETED) {
+        rid = result;
+        continue;
+      }
+      return result;
+    }
+  }
+
+  @Nullable
+  public RecordId getPreviousRidInCluster(@Nonnull RecordId rid) {
+    var clusterId = rid.getClusterId();
+    while (true) {
+      var result = affectedRecordsSortedByRID.lower(rid);
+
+      if (result == null) {
+        return null;
+      }
+      if (result.getClusterId() != clusterId) {
+        return null;
+      }
+
+      var record = getRecordEntry(result);
+      if (record != null && record.type == RecordOperation.DELETED) {
+        rid = result;
+        continue;
+      }
+
+      return result;
+    }
+  }
+
+  @Override
+  public boolean isDeletedInTx(@Nonnull RID rid) {
+    var txEntry = getRecordEntry(rid);
+    return txEntry != null && txEntry.type == RecordOperation.DELETED;
   }
 
   private enum Dependency {

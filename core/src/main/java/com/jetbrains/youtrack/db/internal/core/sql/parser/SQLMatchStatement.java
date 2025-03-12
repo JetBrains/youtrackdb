@@ -888,7 +888,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
         if (schemaClass == null) {
           return false;
         }
-        return schemaClass.isSubClassOf(session, oClass);
+        return schemaClass.isSubClassOf(oClass);
       }
       return false;
     } catch (RecordNotFoundException rnf) {
@@ -1169,7 +1169,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
     database.checkSecurity(
         Rule.ResourceGeneric.CLASS,
         Role.PERMISSION_READ,
-        schemaClass.getName(database).toLowerCase(Locale.ENGLISH));
+        schemaClass.getName().toLowerCase(Locale.ENGLISH));
 
     String text;
     if (oWhereClause == null) {
@@ -1290,7 +1290,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
         }
         upperBound = filter.estimate(oClass, this.threshold, ctx);
       } else {
-        upperBound = oClass.count(db);
+        upperBound = oClass.count(ctx.getDatabaseSession());
       }
       result.put(alias, upperBound);
     }
@@ -1368,11 +1368,11 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
       throw new CommandExecutionException(session,
           "Class " + className2 + " not found in the schema");
     }
-    if (class1.isSubClassOf(session, class2)) {
-      return class1.getName(session);
+    if (class1.isSubClassOf(class2)) {
+      return class1.getName();
     }
-    if (class2.isSubClassOf(session, class1)) {
-      return class2.getName(session);
+    if (class2.isSubClassOf(class1)) {
+      return class2.getName();
     }
     return null;
   }

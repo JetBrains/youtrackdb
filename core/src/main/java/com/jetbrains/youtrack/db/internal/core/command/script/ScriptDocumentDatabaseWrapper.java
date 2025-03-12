@@ -52,10 +52,10 @@ import java.util.Map.Entry;
 @Deprecated
 public class ScriptDocumentDatabaseWrapper {
 
-  protected DatabaseSessionInternal database;
+  protected DatabaseSessionInternal session;
 
-  public ScriptDocumentDatabaseWrapper(final DatabaseSessionInternal database) {
-    this.database = database;
+  public ScriptDocumentDatabaseWrapper(final DatabaseSessionInternal session) {
+    this.session = session;
   }
 
   public Map<?, ?>[] query(final String iText) {
@@ -63,13 +63,13 @@ public class ScriptDocumentDatabaseWrapper {
   }
 
   public Map<?, ?>[] query(final String iText, final Object... iParameters) {
-    try (var rs = database.query(iText, iParameters)) {
+    try (var rs = session.query(iText, iParameters)) {
       return (Map<?, ?>[]) rs.stream().map(Result::toMap).toArray();
     }
   }
 
   public Identifiable[] query(final SQLQuery iQuery, final Object... iParameters) {
-    final List<Identifiable> res = database.query(iQuery, Arrays.asList(iParameters));
+    final List<Identifiable> res = session.query(iQuery, Arrays.asList(iParameters));
     if (res == null) {
       return CommonConst.EMPTY_IDENTIFIABLE_ARRAY;
     }
@@ -95,212 +95,200 @@ public class ScriptDocumentDatabaseWrapper {
   }
 
   public Object command(final String iText, final Object... iParameters) {
-    try (var rs = database.command(iText, iParameters)) {
+    try (var rs = session.command(iText, iParameters)) {
       return rs.stream().map(Result::toMap).toArray();
     }
   }
 
   public Index getIndex(final String name) {
-    return database.getMetadata().getIndexManagerInternal().getIndex(database, name);
+    return session.getMetadata().getIndexManagerInternal().getIndex(session, name);
   }
 
   public boolean exists() {
-    return database.exists();
+    return session.exists();
   }
 
   public EntityImpl newInstance() {
-    return database.newInstance();
+    return session.newInstance();
   }
 
   public void reload() {
-    database.reload();
+    session.reload();
   }
 
   public Entity newInstance(String iClassName) {
-    return database.newInstance(iClassName);
+    return session.newInstance(iClassName);
   }
 
-  public RecordIteratorClass<EntityImpl> browseClass(String iClassName) {
-    return database.browseClass(iClassName);
+  public RecordIteratorClass browseClass(String iClassName) {
+    return session.browseClass(iClassName);
   }
 
   public STATUS getStatus() {
-    return database.getStatus();
+    return session.getStatus();
   }
 
-  public RecordIteratorClass<EntityImpl> browseClass(String iClassName, boolean iPolymorphic) {
-    return database.browseClass(iClassName, iPolymorphic);
+  public RecordIteratorClass browseClass(String iClassName, boolean iPolymorphic) {
+    return session.browseClass(iClassName, iPolymorphic);
   }
 
   public DatabaseSession setStatus(STATUS iStatus) {
-    return database.setStatus(iStatus);
+    return session.setStatus(iStatus);
   }
 
   public void drop() {
-    database.drop();
+    session.drop();
   }
 
   public String getName() {
-    return database.getDatabaseName();
+    return session.getDatabaseName();
   }
 
   public String getURL() {
-    return database.getURL();
+    return session.getURL();
   }
 
   public RecordIteratorCluster<EntityImpl> browseCluster(String iClusterName) {
-    return database.browseCluster(iClusterName);
+    return session.browseCluster(iClusterName);
   }
 
   public boolean isClosed() {
-    return database.isClosed();
+    return session.isClosed();
   }
 
   public DatabaseSession open(String iUserName, String iUserPassword) {
-    return database.open(iUserName, iUserPassword);
+    return session.open(iUserName, iUserPassword);
   }
 
   public EntityImpl save(final Map<String, Object> iObject) {
-    return new EntityImpl(database).fields(iObject);
+    return new EntityImpl(session).fields(iObject);
   }
 
-  public EntityImpl save(final String iString) {
-    return new EntityImpl(database).updateFromJSON(iString, true);
-  }
-
-  public EntityImpl save(DBRecord iRecord) {
-    return (EntityImpl) iRecord;
-  }
-
-  public boolean dropCluster(String iClusterName) {
-    return database.dropCluster(iClusterName);
+  public Entity save(final String iString) {
+    return session.createOrLoadEntityFromJson(iString);
   }
 
   public DatabaseSession create() {
-    return database.create();
-  }
-
-  public boolean dropCluster(int iClusterId, final boolean iTruncate) {
-    return database.dropCluster(iClusterId);
+    return session.create();
   }
 
   public void close() {
-    database.close();
+    session.close();
   }
 
   public int getClusters() {
-    return database.getClusters();
+    return session.getClusters();
   }
 
   public Collection<String> getClusterNames() {
-    return database.getClusterNames();
+    return session.getClusterNames();
   }
 
   public FrontendTransaction getTransaction() {
-    return database.getTransaction();
+    return session.getTransaction();
   }
 
   public void begin() {
-    database.begin();
+    session.begin();
   }
 
   public int getClusterIdByName(String iClusterName) {
-    return database.getClusterIdByName(iClusterName);
+    return session.getClusterIdByName(iClusterName);
   }
 
   public boolean isMVCC() {
-    return database.isMVCC();
+    return session.isMVCC();
   }
 
   public String getClusterNameById(int iClusterId) {
-    return database.getClusterNameById(iClusterId);
+    return session.getClusterNameById(iClusterId);
   }
 
   public DatabaseSession setMVCC(boolean iValue) {
-    return database.setMVCC(iValue);
+    return session.setMVCC(iValue);
   }
 
   public boolean isValidationEnabled() {
-    return database.isValidationEnabled();
+    return session.isValidationEnabled();
   }
 
   public SecurityUser getUser() {
-    return database.geCurrentUser();
+    return session.geCurrentUser();
   }
 
   public void setUser(SecurityUserImpl user) {
-    database.setUser(user);
+    session.setUser(user);
   }
 
   public Metadata getMetadata() {
-    return database.getMetadata();
+    return session.getMetadata();
   }
 
   public byte getRecordType() {
-    return database.getRecordType();
+    return session.getRecordType();
   }
 
   public <RET extends DBRecord> RET load(RID iRecordId) {
-    return database.load(iRecordId);
+    return session.load(iRecordId);
   }
 
   public <RET extends DBRecord> RET load(final String iRidAsString) {
-    return database.load(new RecordId(iRidAsString));
+    return session.load(new RecordId(iRidAsString));
   }
 
   public DatabaseSession setDatabaseOwner(DatabaseSessionInternal iOwner) {
-    return database.setDatabaseOwner(iOwner);
+    return session.setDatabaseOwner(iOwner);
   }
 
   public Object setProperty(String iName, Object iValue) {
-    return database.setProperty(iName, iValue);
+    return session.setProperty(iName, iValue);
   }
 
   public Object getProperty(String iName) {
-    return database.getProperty(iName);
+    return session.getProperty(iName);
   }
 
   public Iterator<Entry<String, Object>> getProperties() {
-    return database.getProperties();
+    return session.getProperties();
   }
 
   public Object get(ATTRIBUTES iAttribute) {
-    return database.get(iAttribute);
+    return session.get(iAttribute);
   }
 
   public void set(ATTRIBUTES attribute, Object iValue) {
-    database.set(attribute, iValue);
+    session.set(attribute, iValue);
   }
 
   public void setInternal(ATTRIBUTES attribute, Object iValue) {
-    database.setInternal(attribute, iValue);
+    session.setInternal(attribute, iValue);
   }
 
   public boolean isRetainRecords() {
-    return database.isRetainRecords();
+    return session.isRetainRecords();
   }
 
   public DatabaseSession setRetainRecords(boolean iValue) {
-    return database.setRetainRecords(iValue);
+    return session.setRetainRecords(iValue);
   }
 
   public long getSize() {
-    return database.getSize();
+    return session.getSize();
   }
 
   public void delete(EntityImpl iRecord) {
-    database.delete(iRecord);
+    session.delete(iRecord);
   }
 
   public long countClass(String iClassName) {
-    return database.countClass(iClassName);
+    return session.countClass(iClassName);
   }
 
   public void commit() {
-    database.commit();
+    session.commit();
   }
 
   public void rollback() {
-    database.rollback();
+    session.rollback();
   }
 }

@@ -40,11 +40,11 @@ public class StorageEncryptionTestIT {
           "admin")) {
         final Schema schema = session.getMetadata().getSchema();
         final var cls = schema.createClass("EncryptedData");
-        cls.createProperty(session, "id", PropertyType.INTEGER);
-        cls.createProperty(session, "value", PropertyType.STRING);
+        cls.createProperty("id", PropertyType.INTEGER);
+        cls.createProperty("value", PropertyType.STRING);
 
-        cls.createIndex(session, "EncryptedTree", SchemaClass.INDEX_TYPE.UNIQUE, "id");
-        cls.createIndex(session, "EncryptedHash", SchemaClass.INDEX_TYPE.UNIQUE, "id");
+        cls.createIndex("EncryptedTree", SchemaClass.INDEX_TYPE.UNIQUE, "id");
+        cls.createIndex("EncryptedHash", SchemaClass.INDEX_TYPE.UNIQUE, "id");
 
         for (var i = 0; i < 10_000; i++) {
           final var document = ((EntityImpl) session.newEntity(cls));
@@ -125,8 +125,10 @@ public class StorageEncryptionTestIT {
         final var treeIndex = indexManager.getIndex(session, "EncryptedTree");
         final var hashIndex = indexManager.getIndex(session, "EncryptedHash");
 
-        for (final var document : session.browseClass("EncryptedData")) {
-          final int id = document.getProperty("id");
+        var entityIterator = session.browseClass("EncryptedData");
+        while (entityIterator.hasNext()) {
+          final var entity = entityIterator.next();
+          final int id = entity.getProperty("id");
           final RID treeRid;
           try (var rids = treeIndex.getInternal().getRids(session, id)) {
             treeRid = rids.findFirst().orElse(null);
@@ -136,8 +138,8 @@ public class StorageEncryptionTestIT {
             hashRid = rids.findFirst().orElse(null);
           }
 
-          Assert.assertEquals(document.getIdentity(), treeRid);
-          Assert.assertEquals(document.getIdentity(), hashRid);
+          Assert.assertEquals(entity.getIdentity(), treeRid);
+          Assert.assertEquals(entity.getIdentity(), hashRid);
         }
 
         Assert.assertEquals(session.countClass("EncryptedData"),

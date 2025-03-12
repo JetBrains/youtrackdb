@@ -262,15 +262,15 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
     Schema schema = session.getMetadata().getSchema();
     var testOneClass = schema.createClass("TestOne");
 
-    testOneClass.createProperty(session, "intProp", PropertyType.INTEGER);
-    testOneClass.createProperty(session, "stringProp", PropertyType.STRING);
-    testOneClass.createProperty(session, "stringSet", PropertyType.EMBEDDEDSET,
+    testOneClass.createProperty("intProp", PropertyType.INTEGER);
+    testOneClass.createProperty("stringProp", PropertyType.STRING);
+    testOneClass.createProperty("stringSet", PropertyType.EMBEDDEDSET,
         PropertyType.STRING);
-    testOneClass.createProperty(session, "linkMap", PropertyType.LINKMAP);
+    testOneClass.createProperty("linkMap", PropertyType.LINKMAP);
 
     var testTwoClass = schema.createClass("TestTwo");
 
-    testTwoClass.createProperty(session, "stringList", PropertyType.EMBEDDEDLIST,
+    testTwoClass.createProperty("stringList", PropertyType.EMBEDDEDLIST,
         PropertyType.STRING);
   }
 

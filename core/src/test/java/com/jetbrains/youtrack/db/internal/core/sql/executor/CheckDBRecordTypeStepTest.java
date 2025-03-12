@@ -20,7 +20,7 @@ public class CheckDBRecordTypeStepTest extends TestUtilsFixture {
   public void shouldCheckRecordsOfOneType() {
     CommandContext context = new BasicCommandContext();
     context.setDatabaseSession(session);
-    var className = createClassInstance().getName(session);
+    var className = createClassInstance().getName();
 
     session.begin();
     var step = new CheckRecordTypeStep(context, className, false);
@@ -57,7 +57,7 @@ public class CheckDBRecordTypeStepTest extends TestUtilsFixture {
     var childClass = createChildClassInstance(parentClass);
 
     session.begin();
-    var step = new CheckRecordTypeStep(context, parentClass.getName(session), false);
+    var step = new CheckRecordTypeStep(context, parentClass.getName(), false);
     var previous =
         new AbstractExecutionStep(context, false) {
           boolean done = false;
@@ -89,8 +89,8 @@ public class CheckDBRecordTypeStepTest extends TestUtilsFixture {
 
     CommandContext context = new BasicCommandContext();
     context.setDatabaseSession(session);
-    var firstClassName = createClassInstance().getName(session);
-    var secondClassName = createClassInstance().getName(session);
+    var firstClassName = createClassInstance().getName();
+    var secondClassName = createClassInstance().getName();
 
     session.executeInTx(() -> {
       var step = new CheckRecordTypeStep(context, firstClassName, false);

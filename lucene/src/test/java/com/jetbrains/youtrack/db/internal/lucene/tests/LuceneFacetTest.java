@@ -37,8 +37,8 @@ public class LuceneFacetTest extends LuceneBaseTest {
     Schema schema = session.getMetadata().getSchema();
     var oClass = schema.createClass("Item");
 
-    oClass.createProperty(session, "name", PropertyType.STRING);
-    oClass.createProperty(session, "category", PropertyType.STRING);
+    oClass.createProperty("name", PropertyType.STRING);
+    oClass.createProperty("category", PropertyType.STRING);
 
     session.command(
             "create index Item.name_category on Item (name,category) FULLTEXT ENGINE LUCENE"

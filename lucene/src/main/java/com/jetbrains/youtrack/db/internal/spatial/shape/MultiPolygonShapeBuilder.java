@@ -15,12 +15,10 @@ package com.jetbrains.youtrack.db.internal.spatial.shape;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.List;
-import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.MultiPolygon;
 import org.locationtech.jts.geom.Polygon;
 import org.locationtech.spatial4j.shape.jts.JtsGeometry;
@@ -45,7 +43,7 @@ public class MultiPolygonShapeBuilder extends PolygonShapeBuilder {
 
     Schema schema = db.getMetadata().getSchema();
     var polygon = schema.createAbstractClass(getName(), superClass(db));
-    polygon.createProperty(db, "coordinates", PropertyType.EMBEDDEDLIST, PropertyType.EMBEDDEDLIST);
+    polygon.createProperty("coordinates", PropertyType.EMBEDDEDLIST, PropertyType.EMBEDDEDLIST);
   }
 
   @Override

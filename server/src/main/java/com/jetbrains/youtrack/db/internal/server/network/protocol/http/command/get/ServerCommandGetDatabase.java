@@ -46,24 +46,18 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
       final DatabaseSessionInternal session, final JSONWriter json, final SchemaClassInternal cls)
       throws IOException {
     json.beginObject();
-    json.writeAttribute(session, "name", cls.getName(session));
-    json.writeAttribute(session,
-        "superClass",
-        cls.getSuperClass(session) != null ? cls.getSuperClass(session).getName(session) : "");
-
+    json.writeAttribute(session, "name", cls.getName());
     json.beginCollection(session, "superClasses");
     var i = 0;
-    for (var oClass : cls.getSuperClasses(session)) {
-      json.write((i > 0 ? "," : "") + "\"" + oClass.getName(session) + "\"");
+    for (var oClass : cls.getSuperClasses()) {
+      json.write((i > 0 ? "," : "") + "\"" + oClass.getName() + "\"");
       i++;
     }
     json.endCollection();
 
-    json.writeAttribute(session, "alias", cls.getShortName(session));
-    json.writeAttribute(session, "abstract", cls.isAbstract(session));
-    json.writeAttribute(session, "strictmode", cls.isStrictMode(session));
-    json.writeAttribute(session, "clusters", cls.getClusterIds(session));
-    json.writeAttribute(session, "clusterSelection", cls.getClusterSelectionStrategyName(session));
+    json.writeAttribute(session, "abstract", cls.isAbstract());
+    json.writeAttribute(session, "strictmode", cls.isStrictMode());
+    json.writeAttribute(session, "clusters", cls.getClusterIds());
     if (cls instanceof SchemaClassImpl) {
       final var custom = ((SchemaClassImpl) cls).getCustomInternal(session);
       if (custom != null && !custom.isEmpty()) {
@@ -72,36 +66,36 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
     }
 
     try {
-      json.writeAttribute(session, "records", session.countClass(cls.getName(session)));
+      json.writeAttribute(session, "records", session.countClass(cls.getName()));
     } catch (SecurityAccessException e) {
       json.writeAttribute(session, "records", "? (Unauthorized)");
     } catch (Exception e) {
       json.writeAttribute(session, "records", "? (Error)");
     }
 
-    if (cls.properties(session) != null && cls.properties(session).size() > 0) {
+    if (cls.properties() != null && !cls.properties().isEmpty()) {
       json.beginCollection(session, "properties");
-      for (final var prop : cls.properties(session)) {
+      for (final var prop : cls.properties()) {
         json.beginObject();
-        json.writeAttribute(session, "name", prop.getName(session));
-        if (prop.getLinkedClass(session) != null) {
+        json.writeAttribute(session, "name", prop.getName());
+        if (prop.getLinkedClass() != null) {
           json.writeAttribute(session, "linkedClass",
-              prop.getLinkedClass(session).getName(session));
+              prop.getLinkedClass().getName());
         }
-        if (prop.getLinkedType(session) != null) {
-          json.writeAttribute(session, "linkedType", prop.getLinkedType(session).toString());
+        if (prop.getLinkedType() != null) {
+          json.writeAttribute(session, "linkedType", prop.getLinkedType().toString());
         }
-        json.writeAttribute(session, "type", prop.getType(session).toString());
-        json.writeAttribute(session, "mandatory", prop.isMandatory(session));
-        json.writeAttribute(session, "readonly", prop.isReadonly(session));
-        json.writeAttribute(session, "notNull", prop.isNotNull(session));
-        json.writeAttribute(session, "min", prop.getMin(session));
-        json.writeAttribute(session, "max", prop.getMax(session));
-        json.writeAttribute(session, "regexp", prop.getRegexp(session));
+        json.writeAttribute(session, "type", prop.getType().toString());
+        json.writeAttribute(session, "mandatory", prop.isMandatory());
+        json.writeAttribute(session, "readonly", prop.isReadonly());
+        json.writeAttribute(session, "notNull", prop.isNotNull());
+        json.writeAttribute(session, "min", prop.getMin());
+        json.writeAttribute(session, "max", prop.getMax());
+        json.writeAttribute(session, "regexp", prop.getRegexp());
         json.writeAttribute(session,
             "collate",
-            prop.getCollate(session) != null ? prop.getCollate(session).getName() : "default");
-        json.writeAttribute(session, "defaultValue", prop.getDefaultValue(session));
+            prop.getCollate() != null ? prop.getCollate().getName() : "default");
+        json.writeAttribute(session, "defaultValue", prop.getDefaultValue());
 
         if (prop instanceof SchemaPropertyImpl) {
           final var custom = ((SchemaPropertyImpl) prop).getCustomInternal(session);
@@ -115,7 +109,7 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
       json.endCollection();
     }
 
-    final var indexes = cls.getIndexesInternal(session);
+    final var indexes = cls.getIndexesInternal();
     if (!indexes.isEmpty()) {
       json.beginCollection(session, "indexes");
       for (final var index : indexes) {
@@ -215,7 +209,7 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
         List<String> classNames = new ArrayList<String>();
 
         for (var cls : session.getMetadata().getImmutableSchemaSnapshot().getClasses()) {
-          classNames.add(cls.getName(session));
+          classNames.add(cls.getName());
         }
         Collections.sort(classNames);
 

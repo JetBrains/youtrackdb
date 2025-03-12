@@ -34,7 +34,6 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClassDescendentOrder;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClusters;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
@@ -176,7 +175,7 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
    * Assign the right TARGET if found.
    *
    * @param session
-   * @param iArgs Parameters to bind
+   * @param iArgs   Parameters to bind
    * @return true if the target has been recognized, otherwise false
    */
   protected boolean assignTarget(DatabaseSessionInternal session, final Map<Object, Object> iArgs) {
@@ -446,7 +445,7 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
               .getMetadata()
               .getImmutableSchemaSnapshot()
               .getClass(targetClass)
-              .isSuperClassOf(session,
+              .isSuperClassOf(
                   result)) {
             return false;
           }
@@ -543,22 +542,18 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
             true, iAscendentOrder);
   }
 
-  protected Iterator<? extends Identifiable> searchInClasses(
+  protected static Iterator<? extends Identifiable> searchInClasses(
       DatabaseSessionInternal db, final SchemaClass iCls, final boolean iPolymorphic,
       final boolean iAscendentOrder) {
     db.checkSecurity(
         Rule.ResourceGeneric.CLASS,
         Role.PERMISSION_READ,
-        iCls.getName(db).toLowerCase(Locale.ENGLISH));
+        iCls.getName().toLowerCase(Locale.ENGLISH));
 
-    final var range = getRange(db);
     if (iAscendentOrder) {
-      return new RecordIteratorClass<>(db, iCls.getName(db), iPolymorphic, false)
-          .setRange(range[0], range[1]);
+      return new RecordIteratorClass(db, iCls.getName(), iPolymorphic, true);
     } else {
-      return new RecordIteratorClassDescendentOrder<>(
-          db, db, iCls.getName(db), iPolymorphic)
-          .setRange(range[0], range[1]);
+      return new RecordIteratorClass(db, iCls.getName(), iPolymorphic, false);
     }
   }
 
@@ -599,10 +594,8 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
       }
     }
 
-    final var range = getRange(session);
     target =
-        new RecordIteratorClusters<>(session, clusterIds.toIntArray())
-            .setRange(range[0], range[1]);
+        new RecordIteratorClusters<>(session, clusterIds.toIntArray(), true);
   }
 
   protected void applyLimitAndSkip() {
@@ -734,46 +727,6 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
     }
   }
 
-  protected RID[] getRange(DatabaseSession session) {
-    final RID beginRange;
-    final RID endRange;
-
-    final var rootCondition =
-        compiledFilter == null ? null : compiledFilter.getRootCondition();
-    if (compiledFilter == null || rootCondition == null) {
-      if (request instanceof SQLSynchQuery) {
-        beginRange = ((SQLSynchQuery<EntityImpl>) request).getNextPageRID();
-      } else {
-        beginRange = null;
-      }
-      endRange = null;
-    } else {
-      final var conditionBeginRange = rootCondition.getBeginRidRange(session);
-      final var conditionEndRange = rootCondition.getEndRidRange(session);
-      final RID nextPageRid;
-
-      if (request instanceof SQLSynchQuery) {
-        nextPageRid = ((SQLSynchQuery<EntityImpl>) request).getNextPageRID();
-      } else {
-        nextPageRid = null;
-      }
-
-      if (conditionBeginRange != null && nextPageRid != null) {
-        beginRange =
-            conditionBeginRange.compareTo(nextPageRid) > 0 ? conditionBeginRange : nextPageRid;
-      } else {
-        if (conditionBeginRange != null) {
-          beginRange = conditionBeginRange;
-        } else {
-          beginRange = nextPageRid;
-        }
-      }
-
-      endRange = conditionEndRange;
-    }
-
-    return new RID[]{beginRange, endRange};
-  }
 
   public Iterator<? extends Identifiable> getTarget() {
     return target;

@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
@@ -10,55 +11,49 @@ import java.util.Collection;
 import java.util.Set;
 
 public interface SchemaClassInternal extends SchemaClass {
+  ClusterSelectionStrategy getClusterSelection();
 
-  SchemaClass truncateCluster(DatabaseSessionInternal session, String clusterName);
-
-  ClusterSelectionStrategy getClusterSelection(DatabaseSessionInternal session);
-
-  SchemaClass setClusterSelection(DatabaseSessionInternal session,
-      final ClusterSelectionStrategy clusterSelection);
-
-  int getClusterForNewInstance(DatabaseSessionInternal session, final EntityImpl entity);
+  int getClusterForNewInstance(final EntityImpl entity);
 
   Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session, String... fields);
 
-  Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session,
-      final Collection<String> fields);
+  Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session, final Collection<String> fields);
 
   SchemaProperty createProperty(
-      DatabaseSessionInternal session, final String iPropertyName,
+      final String iPropertyName,
       final PropertyType iType,
       final PropertyType iLinkedType,
       final boolean unsafe);
 
   SchemaProperty createProperty(
-      DatabaseSessionInternal session, final String iPropertyName,
+      final String iPropertyName,
       final PropertyType iType,
       final SchemaClass iLinkedClass,
       final boolean unsafe);
 
-  Set<Index> getIndexesInternal(DatabaseSessionInternal session);
+  Set<Index> getIndexesInternal();
+
+  String getStreamableName();
 
   void getIndexesInternal(DatabaseSessionInternal session, Collection<Index> indices);
 
   long count(DatabaseSessionInternal session);
 
-  void truncate(DatabaseSessionInternal session);
+  void truncate();
 
   long count(DatabaseSessionInternal session, final boolean isPolymorphic);
 
-  SchemaPropertyInternal getPropertyInternal(DatabaseSessionInternal session, String propertyName);
+  SchemaPropertyInternal getPropertyInternal(String propertyName);
 
   Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session, String... fields);
 
-  Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
-      final Collection<String> fields);
+  Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session, final Collection<String> fields);
 
-  Set<Index> getClassIndexesInternal(DatabaseSessionInternal session);
+  Set<Index> getClassIndexesInternal();
 
   Index getClassIndex(DatabaseSessionInternal session, final String name);
 
-  SchemaClass set(DatabaseSessionInternal session, final ATTRIBUTES attribute, final Object value);
+  SchemaClass set(final ATTRIBUTES attribute, final Object value);
 
 
   /**
@@ -130,10 +125,15 @@ public interface SchemaClassInternal extends SchemaClass {
   /**
    * @return All indexes for given class, not the inherited ones.
    */
-  Set<String> getClassIndexes(DatabaseSessionInternal session);
+  Set<String> getClassIndexes();
 
   /**
    * @return All indexes for given class and its super classes.
    */
-  Set<String> getIndexes(DatabaseSessionInternal session);
+  Set<String> getIndexes();
+
+  SchemaClassImpl getImplementation();
+
+
+  DatabaseSession getBoundToSession();
 }

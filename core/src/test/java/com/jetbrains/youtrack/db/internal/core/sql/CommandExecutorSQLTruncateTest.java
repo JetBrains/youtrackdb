@@ -36,11 +36,11 @@ public class CommandExecutorSQLTruncateTest extends DbTestBase {
     session.commit();
 
     session.getMetadata().getSchema().getClasses().stream()
-        .filter(oClass -> !oClass.getName(session).startsWith("OSecurity")) //
+        .filter(oClass -> !oClass.getName().startsWith("OSecurity")) //
         .forEach(
             oClass -> {
               if (((SchemaClassInternal) oClass).count(session) > 0) {
-                session.command("truncate class " + oClass.getName(session) + " POLYMORPHIC UNSAFE")
+                session.command("truncate class " + oClass.getName() + " POLYMORPHIC UNSAFE")
                     .close();
               }
             });

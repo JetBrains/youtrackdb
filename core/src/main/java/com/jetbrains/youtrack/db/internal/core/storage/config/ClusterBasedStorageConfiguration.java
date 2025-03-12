@@ -202,13 +202,13 @@ public final class ClusterBasedStorageConfiguration implements StorageConfigurat
 
       final var firstPosition = cluster.getFirstPosition();
       var positions =
-          cluster.ceilingPositions(new PhysicalPosition(firstPosition));
+          cluster.ceilingPositions(new PhysicalPosition(firstPosition), Integer.MAX_VALUE);
       while (positions.length > 0) {
         for (var position : positions) {
           cluster.deleteRecord(atomicOperation, position.clusterPosition);
         }
 
-        positions = cluster.higherPositions(positions[positions.length - 1]);
+        positions = cluster.higherPositions(positions[positions.length - 1], Integer.MAX_VALUE);
       }
 
       cluster.delete(atomicOperation);
@@ -397,7 +397,6 @@ public final class ClusterBasedStorageConfiguration implements StorageConfigurat
           if (iNetworkVersion > 24) {
             write(buffer, paginatedClusterConfiguration.conflictStrategy);
           }
-
 
           if (iNetworkVersion >= Integer.MAX_VALUE) {
             write(buffer, paginatedClusterConfiguration.getBinaryVersion());
@@ -1108,7 +1107,7 @@ public final class ClusterBasedStorageConfiguration implements StorageConfigurat
                   (entry) -> {
                     final RawBuffer buffer;
                     try {
-                      buffer = cluster.readRecord(entry.second.getClusterPosition(), false);
+                      buffer = cluster.readRecord(entry.second.getClusterPosition());
                       return new RawPair<>(
                           entry.first.substring(PROPERTY_PREFIX_PROPERTY.length()),
                           deserializeStringValue(buffer.buffer, 0));
@@ -1265,7 +1264,7 @@ public final class ClusterBasedStorageConfiguration implements StorageConfigurat
                 try {
                   name = entry.first.substring(ENGINE_PREFIX_PROPERTY.length());
                   final var buffer =
-                      cluster.readRecord(entry.second.getClusterPosition(), false);
+                      cluster.readRecord(entry.second.getClusterPosition());
                   return deserializeIndexEngineProperty(
                       name, buffer.buffer, Integer.MIN_VALUE, entry.second.getClusterId());
                 } catch (IOException e) {
@@ -1351,7 +1350,7 @@ public final class ClusterBasedStorageConfiguration implements StorageConfigurat
 
                 try {
                   final var buffer =
-                      cluster.readRecord(entry.second.getClusterPosition(), false);
+                      cluster.readRecord(entry.second.getClusterPosition());
 
                   if (clusters.size() <= id) {
                     final var diff = id - clusters.size();
@@ -1777,7 +1776,7 @@ public final class ClusterBasedStorageConfiguration implements StorageConfigurat
         return null;
       }
 
-      final var buffer = cluster.readRecord(rid.getClusterPosition(), false);
+      final var buffer = cluster.readRecord(rid.getClusterPosition());
       return new RawPairObjectInteger<>(buffer.buffer, rid.getClusterId());
     } catch (final IOException e) {
       throw BaseException.wrapException(

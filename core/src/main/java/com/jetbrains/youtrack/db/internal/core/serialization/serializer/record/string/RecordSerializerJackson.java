@@ -356,7 +356,7 @@ public class RecordSerializerJackson {
       var schemaClass = schema.getClassByClusterId(recordId.getClusterId());
 
       if (schemaClass != null) {
-        className = schemaClass.getName(session);
+        className = schemaClass.getName();
       }
     }
 
@@ -366,7 +366,7 @@ public class RecordSerializerJackson {
         embeddedValue = asValue && recordId == null;
       } else {
         var cls = session.getMetadata().getImmutableSchemaSnapshot().getClass(className);
-        embeddedValue = cls.isAbstract(session);
+        embeddedValue = cls.isAbstract();
       }
     } else {
       embeddedValue = embeddedFlag;
@@ -434,7 +434,7 @@ public class RecordSerializerJackson {
       }
     } else {
       var schemaClass = entity.getImmutableSchemaClass(session);
-      var schemaProperty = schemaClass != null ? schemaClass.getProperty(session, fieldName) : null;
+      var schemaProperty = schemaClass != null ? schemaClass.getProperty(fieldName) : null;
 
       var type = determineType(session, entity, fieldName,
           fieldTypes.get(fieldName), schemaProperty);
@@ -536,7 +536,7 @@ public class RecordSerializerJackson {
       if (schemaClass != null) {
         if (formatSettings.includeClazz) {
           jsonGenerator.writeFieldName(EntityHelper.ATTRIBUTE_CLASS);
-          jsonGenerator.writeString(schemaClass.getName(session));
+          jsonGenerator.writeString(schemaClass.getName());
         }
       } else if (formatSettings.internalRecords && !entity.isEmbedded()) {
         var clusterName = session.getClusterName(record);
@@ -597,10 +597,10 @@ public class RecordSerializerJackson {
       SchemaClass schemaClass) {
     PropertyType type = null;
     if (schemaClass != null) {
-      var property = schemaClass.getProperty(session, propertyName);
+      var property = schemaClass.getProperty(propertyName);
 
       if (property != null) {
-        type = property.getType(session);
+        type = property.getType();
       }
     }
 
@@ -649,7 +649,7 @@ public class RecordSerializerJackson {
     PropertyType type = null;
 
     if (schemaProperty != null) {
-      type = schemaProperty.getType(session);
+      type = schemaProperty.getType();
     }
 
     if (type != null) {
@@ -826,8 +826,8 @@ public class RecordSerializerJackson {
             }
           }
           default -> type.convert(jsonParser.getText(),
-              schemaProperty != null ? schemaProperty.getLinkedType(session) : null,
-              schemaProperty != null ? schemaProperty.getLinkedClass(session) : null, session);
+              schemaProperty != null ? schemaProperty.getLinkedType() : null,
+              schemaProperty != null ? schemaProperty.getLinkedClass() : null, session);
         };
       }
 
@@ -908,9 +908,9 @@ public class RecordSerializerJackson {
       metadata = parseRecordMetadata(db, jsonParser, null, EntityImpl.RECORD_TYPE, true);
 
       if (metadata == null) {
-        var linkedClass = schemaProperty != null ? schemaProperty.getLinkedClass(db) : null;
+        var linkedClass = schemaProperty != null ? schemaProperty.getLinkedClass() : null;
         metadata = new RecordMetadata(EntityImpl.RECORD_TYPE, null,
-            linkedClass != null ? linkedClass.getName(db) : null,
+            linkedClass != null ? linkedClass.getName() : null,
             Collections.emptyMap(), true, null);
       }
     }
@@ -943,7 +943,7 @@ public class RecordSerializerJackson {
       var fieldName = jsonParser.currentName();
       jsonParser.nextToken();
       var value = parseValue(session, null, jsonParser,
-          schemaProperty != null ? schemaProperty.getType(session) : null, null);
+          schemaProperty != null ? schemaProperty.getType() : null, null);
       map.put(fieldName, value);
     }
 
@@ -993,7 +993,7 @@ public class RecordSerializerJackson {
 
     while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
       list.add(parseValue(session, null, jsonParser,
-          schemaProperty != null ? schemaProperty.getType(session) : null, null));
+          schemaProperty != null ? schemaProperty.getType() : null, null));
     }
 
     return list;
@@ -1006,7 +1006,7 @@ public class RecordSerializerJackson {
 
     while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
       list.add(parseValue(session, null, jsonParser,
-          schemaProperty != null ? schemaProperty.getType(session) : null, null));
+          schemaProperty != null ? schemaProperty.getType() : null, null));
     }
 
     return list;

@@ -436,13 +436,13 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
     final Schema schema = session.getMetadata().getSchema();
     if (!schema.existsClass("lpirtStudent")) {
       final var curatorClass = schema.createClass("lpirtCurator");
-      curatorClass.createProperty(session, "name", PropertyType.STRING)
-          .createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+      curatorClass.createProperty("name", PropertyType.STRING)
+          .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
       curatorClass
-          .createProperty(session, "salary", PropertyType.INTEGER)
-          .createIndex(session, SchemaClass.INDEX_TYPE.UNIQUE,
+          .createProperty("salary", PropertyType.INTEGER)
+          .createIndex(SchemaClass.INDEX_TYPE.UNIQUE,
               Map.of("ignoreNullValues", true));
-      curatorClass.createIndex(session,
+      curatorClass.createIndex(
           "curotorCompositeIndex",
           SchemaClass.INDEX_TYPE.UNIQUE.name(),
           null,
@@ -450,23 +450,23 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
 
       final var groupClass = schema.createClass("lpirtGroup");
       groupClass
-          .createProperty(session, "name", PropertyType.STRING)
-          .createIndex(session, SchemaClass.INDEX_TYPE.UNIQUE,
+          .createProperty("name", PropertyType.STRING)
+          .createIndex(SchemaClass.INDEX_TYPE.UNIQUE,
               Map.of("ignoreNullValues", true));
       groupClass
-          .createProperty(session, "curator", PropertyType.LINK, curatorClass)
-          .createIndex(session, SchemaClass.INDEX_TYPE.UNIQUE,
+          .createProperty("curator", PropertyType.LINK, curatorClass)
+          .createIndex(SchemaClass.INDEX_TYPE.UNIQUE,
               Map.of("ignoreNullValues", true));
 
       final var diplomaClass = schema.createClass("lpirtDiploma");
-      diplomaClass.createProperty(session, "GPA", PropertyType.DOUBLE)
-          .createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
-      diplomaClass.createProperty(session, "thesis", PropertyType.STRING);
+      diplomaClass.createProperty("GPA", PropertyType.DOUBLE)
+          .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+      diplomaClass.createProperty("thesis", PropertyType.STRING);
       diplomaClass
-          .createProperty(session, "name", PropertyType.STRING)
-          .createIndex(session, SchemaClass.INDEX_TYPE.UNIQUE,
+          .createProperty("name", PropertyType.STRING)
+          .createIndex(SchemaClass.INDEX_TYPE.UNIQUE,
               Map.of("ignoreNullValues", true));
-      diplomaClass.createIndex(session,
+      diplomaClass.createIndex(
           "diplomaThesisUnique",
           SchemaClass.INDEX_TYPE.UNIQUE.name(),
           null,
@@ -474,40 +474,40 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
 
       final var transcriptClass = schema.createClass("lpirtTranscript");
       transcriptClass
-          .createProperty(session, "id", PropertyType.STRING)
-          .createIndex(session,
+          .createProperty("id", PropertyType.STRING)
+          .createIndex(
               SchemaClass.INDEX_TYPE.UNIQUE,
               Map.of("ignoreNullValues", true));
 
       final var skillClass = schema.createClass("lpirtSkill");
       skillClass
-          .createProperty(session, "name", PropertyType.STRING)
-          .createIndex(session, SchemaClass.INDEX_TYPE.UNIQUE,
+          .createProperty("name", PropertyType.STRING)
+          .createIndex(SchemaClass.INDEX_TYPE.UNIQUE,
               Map.of("ignoreNullValues", true));
 
       final var studentClass = schema.createClass("lpirtStudent");
       studentClass
-          .createProperty(session, "name", PropertyType.STRING)
-          .createIndex(session, SchemaClass.INDEX_TYPE.UNIQUE,
+          .createProperty("name", PropertyType.STRING)
+          .createIndex(SchemaClass.INDEX_TYPE.UNIQUE,
               Map.of("ignoreNullValues", true));
       studentClass
-          .createProperty(session, "group", PropertyType.LINK, groupClass)
-          .createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
-      studentClass.createProperty(session, "diploma", PropertyType.LINK, diplomaClass);
+          .createProperty("group", PropertyType.LINK, groupClass)
+          .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+      studentClass.createProperty("diploma", PropertyType.LINK, diplomaClass);
       studentClass
-          .createProperty(session, "transcript", PropertyType.LINK, transcriptClass)
-          .createIndex(session,
+          .createProperty("transcript", PropertyType.LINK, transcriptClass)
+          .createIndex(
               SchemaClass.INDEX_TYPE.UNIQUE,
               Map.of("ignoreNullValues", true));
-      studentClass.createProperty(session, "skill", PropertyType.LINK, skillClass);
+      studentClass.createProperty("skill", PropertyType.LINK, skillClass);
 
       var metadata = Map.of("ignoreNullValues", false);
-      studentClass.createIndex(session,
+      studentClass.createIndex(
           "studentDiplomaAndNameIndex",
           SchemaClass.INDEX_TYPE.UNIQUE.toString(),
           null,
           new HashMap<>(metadata), new String[]{"diploma", "name"});
-      studentClass.createIndex(session,
+      studentClass.createIndex(
           "studentSkillAndGroupIndex",
           SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
           null,

@@ -198,8 +198,8 @@ public class SQLFunctionsTest extends BaseDBTest {
   @Test
   public void queryCountWithConditions() {
     var indexed = session.getMetadata().getSchema().getOrCreateClass("Indexed");
-    indexed.createProperty(session, "key", PropertyType.STRING);
-    indexed.createIndex(session, "keyed", SchemaClass.INDEX_TYPE.NOTUNIQUE, "key");
+    indexed.createProperty("key", PropertyType.STRING);
+    indexed.createIndex("keyed", SchemaClass.INDEX_TYPE.NOTUNIQUE, "key");
 
     session.begin();
     session.newInstance("Indexed").setProperty("key", "one");

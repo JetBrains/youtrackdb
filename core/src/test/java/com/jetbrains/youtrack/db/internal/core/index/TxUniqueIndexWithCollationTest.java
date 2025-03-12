@@ -38,9 +38,9 @@ public class TxUniqueIndexWithCollationTest extends DbTestBase {
     session.getMetadata()
         .getSchema()
         .createClass("user")
-        .createProperty(session, "name", PropertyType.STRING)
-        .setCollate(session, "ci")
-        .createIndex(session, SchemaClass.INDEX_TYPE.UNIQUE);
+        .createProperty("name", PropertyType.STRING)
+        .setCollate("ci")
+        .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
 
     session.begin();
     var one = session.newEntity("user");

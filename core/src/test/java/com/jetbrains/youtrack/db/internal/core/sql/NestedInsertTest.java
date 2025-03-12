@@ -37,7 +37,7 @@ public class NestedInsertTest extends DbTestBase {
     Schema schm = session.getMetadata().getSchema();
     var cl = schm.createClass("myClass");
     var linked = schm.createClass("Linked");
-    cl.createProperty(session, "some", PropertyType.LINK, linked);
+    cl.createProperty("some", PropertyType.LINK, linked);
 
     session.begin();
     var result =

@@ -49,8 +49,8 @@ public class TestOrderBy extends DbTestBase {
     session.set(DatabaseSession.ATTRIBUTES.LOCALE_COUNTRY, Locale.GERMANY.getCountry());
     session.set(DatabaseSession.ATTRIBUTES.LOCALE_LANGUAGE, Locale.GERMANY.getLanguage());
     var clazz = session.getMetadata().getSchema().createClass("test");
-    clazz.createProperty(session, "name", PropertyType.STRING)
-        .createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    clazz.createProperty("name", PropertyType.STRING)
+        .createIndex(INDEX_TYPE.NOTUNIQUE);
     var res1 = (DBRecord) ((EntityImpl) session.newEntity("test")).field("name", "Ähhhh");
     var res2 = (DBRecord) ((EntityImpl) session.newEntity("test")).field("name", "Ahhhh");
     var res3 = (DBRecord) ((EntityImpl) session.newEntity("test")).field("name", "Zebra");

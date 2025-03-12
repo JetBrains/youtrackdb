@@ -26,13 +26,13 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
     final Schema schema = session.getMetadata().getSchema();
     var clazz = (SchemaClassInternal) schema.createClass(
         "compositeIndexNullPointQueryClass");
-    clazz.createProperty(session, "prop1", PropertyType.INTEGER);
-    clazz.createProperty(session, "prop2", PropertyType.INTEGER);
-    clazz.createProperty(session, "prop3", PropertyType.INTEGER);
+    clazz.createProperty("prop1", PropertyType.INTEGER);
+    clazz.createProperty("prop2", PropertyType.INTEGER);
+    clazz.createProperty("prop3", PropertyType.INTEGER);
 
-    var metadata = Map.of("ignoreNullValues", false);
+    var metadata = Map.<String, Object>of("ignoreNullValues", false);
 
-    clazz.createIndex(session,
+    clazz.createIndex(
         "compositeIndexNullPointQueryIndex",
         SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
         null,
@@ -87,12 +87,12 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
   public void testPointQueryInTx() {
     final Schema schema = session.getMetadata().getSchema();
     var clazz = schema.createClass("compositeIndexNullPointQueryInTxClass");
-    clazz.createProperty(session, "prop1", PropertyType.INTEGER);
-    clazz.createProperty(session, "prop2", PropertyType.INTEGER);
-    clazz.createProperty(session, "prop3", PropertyType.INTEGER);
+    clazz.createProperty("prop1", PropertyType.INTEGER);
+    clazz.createProperty("prop2", PropertyType.INTEGER);
+    clazz.createProperty("prop3", PropertyType.INTEGER);
 
-    var metadata = Map.of("ignoreNullValues", false);
-    clazz.createIndex(session,
+    var metadata = Map.<String, Object>of("ignoreNullValues", false);
+    clazz.createIndex(
         "compositeIndexNullPointQueryInTxIndex",
         SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
         null,
@@ -153,13 +153,13 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     final Schema schema = session.getMetadata().getSchema();
     var clazz = schema.createClass("compositeIndexNullPointQueryInMiddleTxClass");
-    clazz.createProperty(session, "prop1", PropertyType.INTEGER);
-    clazz.createProperty(session, "prop2", PropertyType.INTEGER);
-    clazz.createProperty(session, "prop3", PropertyType.INTEGER);
+    clazz.createProperty("prop1", PropertyType.INTEGER);
+    clazz.createProperty("prop2", PropertyType.INTEGER);
+    clazz.createProperty("prop3", PropertyType.INTEGER);
 
-    var metadata = Map.of("ignoreNullValues", false);
+    var metadata = Map.<String, Object>of("ignoreNullValues", false);
 
-    clazz.createIndex(session,
+    clazz.createIndex(
         "compositeIndexNullPointQueryInMiddleTxIndex",
         SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
         null,
@@ -218,13 +218,13 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
   public void testRangeQuery() {
     final Schema schema = session.getMetadata().getSchema();
     var clazz = schema.createClass("compositeIndexNullRangeQueryClass");
-    clazz.createProperty(session, "prop1", PropertyType.INTEGER);
-    clazz.createProperty(session, "prop2", PropertyType.INTEGER);
-    clazz.createProperty(session, "prop3", PropertyType.INTEGER);
+    clazz.createProperty("prop1", PropertyType.INTEGER);
+    clazz.createProperty("prop2", PropertyType.INTEGER);
+    clazz.createProperty("prop3", PropertyType.INTEGER);
 
-    var metadata = Map.of("ignoreNullValues", false);
+    var metadata = Map.<String, Object>of("ignoreNullValues", false);
 
-    clazz.createIndex(session,
+    clazz.createIndex(
         "compositeIndexNullRangeQueryIndex",
         SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
         null,
@@ -278,13 +278,13 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     final Schema schema = session.getMetadata().getSchema();
     var clazz = schema.createClass("compositeIndexNullRangeQueryInMiddleTxClass");
-    clazz.createProperty(session, "prop1", PropertyType.INTEGER);
-    clazz.createProperty(session, "prop2", PropertyType.INTEGER);
-    clazz.createProperty(session, "prop3", PropertyType.INTEGER);
+    clazz.createProperty("prop1", PropertyType.INTEGER);
+    clazz.createProperty("prop2", PropertyType.INTEGER);
+    clazz.createProperty("prop3", PropertyType.INTEGER);
 
-    var metadata = Map.of("ignoreNullValues", false);
+    var metadata = Map.<String, Object>of("ignoreNullValues", false);
 
-    clazz.createIndex(session,
+    clazz.createIndex(
         "compositeIndexNullRangeQueryInMiddleTxIndex",
         SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
         null,
@@ -336,13 +336,13 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
   public void testPointQueryNullInTheMiddle() {
     final Schema schema = session.getMetadata().getSchema();
     var clazz = schema.createClass("compositeIndexNullPointQueryNullInTheMiddleClass");
-    clazz.createProperty(session, "prop1", PropertyType.INTEGER);
-    clazz.createProperty(session, "prop2", PropertyType.INTEGER);
-    clazz.createProperty(session, "prop3", PropertyType.INTEGER);
+    clazz.createProperty("prop1", PropertyType.INTEGER);
+    clazz.createProperty("prop2", PropertyType.INTEGER);
+    clazz.createProperty("prop3", PropertyType.INTEGER);
 
-    var metadata = Map.of("ignoreNullValues", false);
+    var metadata = Map.<String, Object>of("ignoreNullValues", false);
 
-    clazz.createIndex(session,
+    clazz.createIndex(
         "compositeIndexNullPointQueryNullInTheMiddleIndex",
         SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
         null,
@@ -417,12 +417,12 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
     final Schema schema = session.getMetadata().getSchema();
     var clazz = schema.createClass(
         "compositeIndexNullPointQueryNullInTheMiddleInMiddleTxClass");
-    clazz.createProperty(session, "prop1", PropertyType.INTEGER);
-    clazz.createProperty(session, "prop2", PropertyType.INTEGER);
-    clazz.createProperty(session, "prop3", PropertyType.INTEGER);
+    clazz.createProperty("prop1", PropertyType.INTEGER);
+    clazz.createProperty("prop2", PropertyType.INTEGER);
+    clazz.createProperty("prop3", PropertyType.INTEGER);
 
-    var metadata = Map.of("ignoreNullValues", false);
-    clazz.createIndex(session,
+    var metadata = Map.<String, Object>of("ignoreNullValues", false);
+    clazz.createIndex(
         "compositeIndexNullPointQueryNullInTheMiddleInMiddleTxIndex",
         SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
         null,
@@ -496,13 +496,13 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
   public void testRangeQueryNullInTheMiddle() {
     final Schema schema = session.getMetadata().getSchema();
     var clazz = schema.createClass("compositeIndexNullRangeQueryNullInTheMiddleClass");
-    clazz.createProperty(session, "prop1", PropertyType.INTEGER);
-    clazz.createProperty(session, "prop2", PropertyType.INTEGER);
-    clazz.createProperty(session, "prop3", PropertyType.INTEGER);
+    clazz.createProperty("prop1", PropertyType.INTEGER);
+    clazz.createProperty("prop2", PropertyType.INTEGER);
+    clazz.createProperty("prop3", PropertyType.INTEGER);
 
-    var metadata = Map.of("ignoreNullValues", false);
+    var metadata = Map.<String, Object>of("ignoreNullValues", false);
 
-    clazz.createIndex(session,
+    clazz.createIndex(
         "compositeIndexNullRangeQueryNullInTheMiddleIndex",
         SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
         null,
@@ -548,12 +548,12 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
     final Schema schema = session.getMetadata().getSchema();
     var clazz = schema.createClass(
         "compositeIndexNullRangeQueryNullInTheMiddleInMiddleTxClass");
-    clazz.createProperty(session, "prop1", PropertyType.INTEGER);
-    clazz.createProperty(session, "prop2", PropertyType.INTEGER);
-    clazz.createProperty(session, "prop3", PropertyType.INTEGER);
+    clazz.createProperty("prop1", PropertyType.INTEGER);
+    clazz.createProperty("prop2", PropertyType.INTEGER);
+    clazz.createProperty("prop3", PropertyType.INTEGER);
 
-    var metadata = Map.of("ignoreNullValues", false);
-    clazz.createIndex(session,
+    var metadata = Map.<String, Object>of("ignoreNullValues", false);
+    clazz.createIndex(
         "compositeIndexNullRangeQueryNullInTheMiddleInMiddleTxIndex",
         SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
         null,

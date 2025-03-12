@@ -126,7 +126,7 @@ public class ServerCommandPostImportRecords extends ServerCommandDocumentAbstrac
 
               var immutableClass = entity.getImmutableSchemaClass(session);
               var property = immutableClass != null ?
-                  immutableClass.getProperty(session, columns.get(col)) : null;
+                  immutableClass.getProperty(columns.get(col)) : null;
               entity.setProperty(columns.get(col), SQLUpdateItem.cleanPropertyValue(value,
                   session, property));
             }
@@ -151,7 +151,7 @@ public class ServerCommandPostImportRecords extends ServerCommandDocumentAbstrac
                      imported: %d, error: %d
                     Detailed messages:
                     %s""",
-                cls.getName(session), elapsed, line, imported, errors, output);
+                cls.getName(), elapsed, line, imported, errors, output);
 
         iResponse.send(
             HttpUtils.STATUS_CREATED_CODE,

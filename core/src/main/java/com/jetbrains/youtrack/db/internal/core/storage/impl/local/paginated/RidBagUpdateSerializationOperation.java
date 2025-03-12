@@ -48,7 +48,7 @@ public class RidBagUpdateSerializationOperation implements RecordSerializationOp
       BonsaiCollectionPointer collectionPointer, DatabaseSessionInternal session) {
     this.changedValues = changedValues;
     this.collectionPointer = collectionPointer;
-    collectionManager = session.getSbTreeCollectionManager();
+    collectionManager = session.getBTreeCollectionManager();
   }
 
   @Override

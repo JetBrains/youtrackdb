@@ -905,7 +905,7 @@ public class ResultInternal implements Result {
     var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
     var cls = schemaSnapshot.getClassByClusterId(identifiable.getIdentity().getClusterId());
 
-    return cls != null && !cls.isAbstract(session) && cls.isEdgeType(session);
+    return cls != null && !cls.isAbstract() && cls.isEdgeType();
   }
 
   @Nonnull

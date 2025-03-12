@@ -102,10 +102,10 @@ public class YouTrackDbJdbcStatementDMLtest extends YouTrackDbJdbcDbPerMethodTem
     assertThat(session.getClusterIdByName("account")).isNotNull();
     var account = session.getMetadata().getSchema().getClass("Account");
     assertThat(account).isNotNull();
-    assertThat(account.getProperty(session, "id").getType(session)).isEqualTo(PropertyType.INTEGER);
-    assertThat(account.getProperty(session, "birthDate").getType(session)).isEqualTo(
+    assertThat(account.getProperty("id").getType()).isEqualTo(PropertyType.INTEGER);
+    assertThat(account.getProperty("birthDate").getType()).isEqualTo(
         PropertyType.DATE);
-    assertThat(account.getProperty(session, "binary").getType(session)).isEqualTo(
+    assertThat(account.getProperty("binary").getType()).isEqualTo(
         PropertyType.BINARY);
   }
 
@@ -126,10 +126,10 @@ public class YouTrackDbJdbcStatementDMLtest extends YouTrackDbJdbcDbPerMethodTem
 
     var account = session.getMetadata().getSchema().getClass("Account");
     assertThat(account).isNotNull();
-    assertThat(account.getProperty(session, "id").getType(session)).isEqualTo(PropertyType.INTEGER);
-    assertThat(account.getProperty(session, "birthDate").getType(session)).isEqualTo(
+    assertThat(account.getProperty("id").getType()).isEqualTo(PropertyType.INTEGER);
+    assertThat(account.getProperty("birthDate").getType()).isEqualTo(
         PropertyType.DATE);
-    assertThat(account.getProperty(session, "binary").getType(session)).isEqualTo(
+    assertThat(account.getProperty("binary").getType()).isEqualTo(
         PropertyType.BINARY);
   }
 }

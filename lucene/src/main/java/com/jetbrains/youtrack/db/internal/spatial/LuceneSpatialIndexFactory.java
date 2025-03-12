@@ -26,6 +26,7 @@ import com.jetbrains.youtrack.db.internal.core.index.IndexFactory;
 import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
 import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrack.db.internal.core.index.engine.BaseIndexEngine;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.spatial.engine.LuceneSpatialIndexEngineDelegator;
 import com.jetbrains.youtrack.db.internal.spatial.index.LuceneSpatialIndex;
@@ -155,7 +156,7 @@ public class LuceneSpatialIndexFactory implements IndexFactory, DatabaseLifecycl
   }
 
   @Override
-  public void onDropClass(DatabaseSessionInternal session, SchemaClass iClass) {
+  public void onDropClass(DatabaseSessionInternal session, SchemaClassImpl iClass) {
   }
 
 }

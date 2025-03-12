@@ -17,8 +17,8 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
     var indexName = session.getMetadata()
         .getSchema()
         .createClass("testPlain")
-        .createProperty(session, "bar", PropertyType.STRING)
-        .createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+        .createProperty("bar", PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     session.getMetadata().getIndexManagerInternal().reload(session);
     Assert.assertNotNull(
@@ -40,8 +40,8 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
     var indexName = session.getMetadata()
         .getSchema()
         .createClass("testAll")
-        .createProperty(session, "baz", PropertyType.STRING)
-        .createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+        .createProperty("baz", PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     session.getMetadata().getIndexManagerInternal().reload(session);
     Assert.assertNotNull(

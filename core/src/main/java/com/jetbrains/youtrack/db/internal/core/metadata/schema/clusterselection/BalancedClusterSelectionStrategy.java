@@ -32,7 +32,7 @@ public class BalancedClusterSelectionStrategy implements ClusterSelectionStrateg
 
   public int getCluster(DatabaseSession session, final SchemaClass iClass,
       final EntityImpl entity) {
-    return getCluster(session, iClass, iClass.getClusterIds(entity.getSession()), entity);
+    return getCluster(session, iClass, iClass.getClusterIds(), entity);
   }
 
   public int getCluster(DatabaseSession session, final SchemaClass iClass, final int[] clusters,

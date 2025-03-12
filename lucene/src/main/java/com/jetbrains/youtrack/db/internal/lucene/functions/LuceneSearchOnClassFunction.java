@@ -166,7 +166,7 @@ public class LuceneSearchOnClassFunction extends LuceneSearchFunctionTemplate {
     var dbMetadata = db.getMetadata();
 
     var indices =
-        dbMetadata.getImmutableSchemaSnapshot().getClassInternal(className).getIndexesInternal(db)
+        dbMetadata.getImmutableSchemaSnapshot().getClassInternal(className).getIndexesInternal()
             .stream()
             .filter(idx -> idx instanceof LuceneFullTextIndex)
             .map(idx -> (LuceneFullTextIndex) idx)

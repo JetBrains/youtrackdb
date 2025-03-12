@@ -46,7 +46,7 @@ public class LuceneExportImportTest extends BaseLuceneTest {
     Schema schema = session.getMetadata().getSchema();
     var oClass = schema.createClass("City");
 
-    oClass.createProperty(session, "name", PropertyType.STRING);
+    oClass.createProperty("name", PropertyType.STRING);
     session.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE").close();
 
     var doc = ((EntityImpl) session.newEntity("City"));

@@ -35,9 +35,9 @@ public class TestImportRewriteLinks {
         final Schema schema = session.getMetadata().getSchema();
 
         final var cls = schema.createClass(EXPORT_IMPORT_CLASS_NAME);
-        cls.createProperty(session, "key", PropertyType.STRING);
-        cls.createProperty(session, "value", PropertyType.STRING);
-        cls.createIndex(session, EXPORT_IMPORT_INDEX_NAME, INDEX_TYPE.UNIQUE, "key");
+        cls.createProperty("key", PropertyType.STRING);
+        cls.createProperty("value", PropertyType.STRING);
+        cls.createIndex(EXPORT_IMPORT_INDEX_NAME, INDEX_TYPE.UNIQUE, "key");
 
         session.begin();
         ((EntityImpl) session.newEntity(EXPORT_IMPORT_CLASS_NAME))

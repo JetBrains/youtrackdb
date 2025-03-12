@@ -74,7 +74,7 @@ public class QueryOperatorInstanceof extends QueryOperatorEqualityNotNulls {
       cls = schema.getClass((String) iLeft);
     }
 
-    return cls != null && cls.isSubClassOf(session, baseClass);
+    return cls != null && cls.isSubClassOf(baseClass);
   }
 
   @Override

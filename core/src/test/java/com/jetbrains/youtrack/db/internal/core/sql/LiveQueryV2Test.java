@@ -120,7 +120,7 @@ public class LiveQueryV2Test extends DbTestBase {
   public void testLiveInsertOnCluster() {
     var clazz = session.getMetadata().getSchema().createClass("test");
 
-    var defaultCluster = clazz.getClusterIds(session)[0];
+    var defaultCluster = clazz.getClusterIds()[0];
     var clusterName = session.getStorage().getClusterNameById(defaultCluster);
 
     var listener =

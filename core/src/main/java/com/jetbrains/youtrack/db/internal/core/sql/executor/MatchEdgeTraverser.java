@@ -279,7 +279,7 @@ public class MatchEdgeTraverser {
       if (clazz == null) {
         return false;
       }
-      return clazz.isSubClassOf(session, className);
+      return clazz.isSubClassOf(className);
     }
     return false;
   }

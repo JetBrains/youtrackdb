@@ -23,11 +23,13 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.command.CommandDistributedReplicateRequest;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassEmbedded;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaPropertyImpl;
 import java.util.ArrayList;
 import java.util.List;
@@ -290,16 +292,16 @@ public class CommandExecutorSQLCreateProperty extends CommandExecutorSQLAbstract
     }
 
     final var sourceClass =
-        (SchemaClassEmbedded) session.getMetadata().getSchema().getClass(className);
+        (SchemaClassInternal) session.getMetadata().getSchema().getClass(className);
     if (sourceClass == null) {
       throw new CommandExecutionException(session, "Source class '" + className + "' not found");
     }
 
-    var prop = (SchemaPropertyImpl) sourceClass.getProperty(session, fieldName);
+    var prop = sourceClass.getProperty(fieldName);
 
     if (prop != null) {
       if (ifNotExists) {
-        return sourceClass.properties(session).size();
+        return sourceClass.properties().size();
       }
       throw new CommandExecutionException(session,
           "Property '"
@@ -324,33 +326,40 @@ public class CommandExecutorSQLCreateProperty extends CommandExecutorSQLAbstract
     }
 
     // CREATE IT LOCALLY
-    var internalProp =
-        sourceClass.addProperty(session, fieldName, type, linkedType, linkedClass, unsafe);
+    SchemaProperty internalProp;
+    if (linkedClass != null) {
+      internalProp = sourceClass.createProperty(fieldName, type, linkedClass, unsafe);
+    } else if (linkedType != null) {
+      internalProp = sourceClass.createProperty(fieldName, type, linkedType, unsafe);
+    } else {
+      internalProp = sourceClass.createProperty(fieldName, type);
+    }
+
     if (readonly) {
-      internalProp.setReadonly(session, true);
+      internalProp.setReadonly(true);
     }
 
     if (mandatory) {
-      internalProp.setMandatory(session, true);
+      internalProp.setMandatory(true);
     }
 
     if (notnull) {
-      internalProp.setNotNull(session, true);
+      internalProp.setNotNull(true);
     }
 
     if (max != null) {
-      internalProp.setMax(session, max);
+      internalProp.setMax(max);
     }
 
     if (min != null) {
-      internalProp.setMin(session, min);
+      internalProp.setMin(min);
     }
 
     if (defaultValue != null) {
-      internalProp.setDefaultValue(session, defaultValue);
+      internalProp.setDefaultValue(defaultValue);
     }
 
-    return sourceClass.properties(session).size();
+    return sourceClass.properties().size();
   }
 
   @Override

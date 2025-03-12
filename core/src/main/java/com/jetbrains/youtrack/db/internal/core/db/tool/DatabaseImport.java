@@ -26,12 +26,12 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
@@ -53,7 +53,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaPropertyImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Identity;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
@@ -82,7 +81,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -98,7 +96,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
 
   public static final int IMPORT_RECORD_DUMP_LAP_EVERY_MS = 5000;
 
-  private final Map<SchemaPropertyImpl, String> linkedClasses = new HashMap<>();
+  private final Map<SchemaProperty, String> linkedClasses = new HashMap<>();
   private final Map<SchemaClass, List<String>> superClasses = new HashMap<>();
   private JSONReader jsonReader;
   private boolean schemaImported = false;
@@ -117,7 +115,6 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
   private final Int2IntOpenHashMap clusterToClusterMapping = new Int2IntOpenHashMap();
 
   private int maxRidbagStringSizeBeforeLazyImport = 100_000_000;
-  private final ObjectMapper objectMapper;
 
   public DatabaseImport(
       final DatabaseSessionInternal database,
@@ -125,12 +122,6 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       final CommandOutputListener outputListener)
       throws IOException {
     super(database, fileName, outputListener);
-    if (database.isRemote()) {
-      throw new DatabaseImportException(
-          "Database import is not supported for remote databases");
-    }
-    objectMapper = new ObjectMapper();
-
     clusterToClusterMapping.defaultReturnValue(-2);
     // TODO: check unclosed stream?
     final var bufferedInputStream =
@@ -152,7 +143,6 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       final CommandOutputListener outputListener)
       throws IOException {
     super(database, "streaming", outputListener);
-    objectMapper = new ObjectMapper();
     clusterToClusterMapping.defaultReturnValue(-2);
     createJsonReaderDefaultListenerAndDeclareIntent(outputListener, inputStream);
   }
@@ -474,13 +464,13 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
     final Map<String, SchemaClass> classesToDrop = new HashMap<>();
     final Set<String> indexNames = new HashSet<>();
     for (final var dbClass : classes) {
-      final var className = dbClass.getName(session);
-      if (!dbClass.isSuperClassOf(session, role)
-          && !dbClass.isSuperClassOf(session, user)
-          && !dbClass.isSuperClassOf(session,
+      final var className = dbClass.getName();
+      if (!dbClass.isSuperClassOf(role)
+          && !dbClass.isSuperClassOf(user)
+          && !dbClass.isSuperClassOf(
           identity) /*&& !dbClass.isSuperClassOf(oSecurityPolicy)*/) {
         classesToDrop.put(className, dbClass);
-        indexNames.addAll(((SchemaClassInternal) dbClass).getIndexes(session));
+        indexNames.addAll(((SchemaClassInternal) dbClass).getIndexes());
       }
     }
 
@@ -495,10 +485,10 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       for (final var className : classesToDrop.keySet()) {
         var isSuperClass = false;
         for (var dbClass : classesToDrop.values()) {
-          final var parentClasses = dbClass.getSuperClasses(session);
+          final var parentClasses = dbClass.getSuperClasses();
           if (parentClasses != null) {
             for (var parentClass : parentClasses) {
-              if (className.equalsIgnoreCase(parentClass.getName(session))) {
+              if (className.equalsIgnoreCase(parentClass.getName())) {
                 isSuperClass = true;
                 break;
               }
@@ -523,8 +513,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
     for (final var linkedClass : linkedClasses.entrySet()) {
       linkedClass
           .getKey()
-          .setLinkedClass(session,
-              session.getMetadata().getSchema().getClass(linkedClass.getValue()));
+          .setLinkedClass(session.getMetadata().getSchema().getClass(
+              linkedClass.getValue()));
     }
   }
 
@@ -615,23 +605,21 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
           className = newClassName;
         }
 
-        var cls = (SchemaClassImpl) session.getMetadata().getSchema()
-            .getClass(className);
+        var cls = session.getMetadata().getSchema().getClass(className);
 
         if (cls == null) {
           if (clustersImported) {
             cls =
-                (SchemaClassImpl)
-                    session
-                        .getMetadata()
-                        .getSchema()
-                        .createClass(className, classClusterIds);
+                session
+                    .getMetadata()
+                    .getSchema()
+                    .createClass(className, classClusterIds);
           } else {
             if (className.equalsIgnoreCase("ORestricted")) {
-              cls = (SchemaClassImpl) session.getMetadata().getSchema()
+              cls = session.getMetadata().getSchema()
                   .createAbstractClass(className);
             } else {
-              cls = (SchemaClassImpl) session.getMetadata().getSchema().createClass(className);
+              cls = session.getMetadata().getSchema().createClass(className);
             }
           }
         }
@@ -643,15 +631,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
 
           switch (value) {
             case "\"strictMode\"" ->
-                cls.setStrictMode(session, jsonReader.readBoolean(JSONReader.NEXT_IN_OBJECT));
+                cls.setStrictMode(jsonReader.readBoolean(JSONReader.NEXT_IN_OBJECT));
             case "\"abstract\"" ->
-                cls.setAbstract(session, jsonReader.readBoolean(JSONReader.NEXT_IN_OBJECT));
-            case "\"short-name\"" -> {
-              final var shortName = jsonReader.readString(JSONReader.NEXT_IN_OBJECT);
-              if (!cls.getName(session).equalsIgnoreCase(shortName)) {
-                cls.setShortName(session, shortName);
-              }
-            }
+                cls.setAbstract(jsonReader.readBoolean(JSONReader.NEXT_IN_OBJECT));
             case "\"super-class\"" -> {
               // @compatibility <2.1 SINGLE CLASS ONLY
               final var classSuper = jsonReader.readString(JSONReader.NEXT_IN_OBJECT);
@@ -680,7 +662,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
               jsonReader.readNext(JSONReader.BEGIN_COLLECTION);
 
               while (jsonReader.lastChar() != ']') {
-                importProperty(cls);
+                importProperty((SchemaClassInternal) cls);
 
                 if (jsonReader.lastChar() == '}') {
                   jsonReader.readNext(JSONReader.NEXT_IN_ARRAY);
@@ -691,13 +673,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
             case "\"customFields\"" -> {
               var customFields = importCustomFields();
               for (var entry : customFields.entrySet()) {
-                cls.setCustom(session, entry.getKey(), entry.getValue());
+                cls.setCustom(entry.getKey(), entry.getValue());
               }
             }
-            case "\"cluster-selection\"" ->
-              // @SINCE 1.7
-                cls.setClusterSelection(session,
-                    jsonReader.readString(JSONReader.NEXT_IN_OBJECT));
           }
         }
 
@@ -711,7 +689,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
 
       if (exporterVersion < 11) {
         var role = session.getMetadata().getSchema().getClass(Role.CLASS_NAME);
-        role.dropProperty(session, "rules");
+        role.dropProperty("rules");
       }
 
       listener.onMessage("OK (" + classImported + " classes)");
@@ -729,8 +707,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       for (final var superClassName : entry.getValue()) {
         final var superClass = session.getMetadata().getSchema().getClass(superClassName);
 
-        if (!entry.getKey().getSuperClasses(session).contains(superClass)) {
-          entry.getKey().addSuperClass(session, superClass);
+        if (!entry.getKey().getSuperClasses().contains(superClass)) {
+          entry.getKey().addSuperClass(superClass);
         }
       }
     }
@@ -831,41 +809,41 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       }
     }
 
-    var prop = (SchemaPropertyImpl) iClass.getProperty(session, propName);
+    var prop = iClass.getProperty(propName);
     if (prop == null) {
       // CREATE IT
-      prop = (SchemaPropertyImpl) iClass.createProperty(session, propName, type,
+      prop = iClass.createProperty(propName, type,
           (PropertyType) null,
           true);
     }
-    prop.setMandatory(session, mandatory);
-    prop.setReadonly(session, readonly);
-    prop.setNotNull(session, notNull);
+    prop.setMandatory(mandatory);
+    prop.setReadonly(readonly);
+    prop.setNotNull(notNull);
 
     if (min != null) {
-      prop.setMin(session, min);
+      prop.setMin(min);
     }
     if (max != null) {
-      prop.setMax(session, max);
+      prop.setMax(max);
     }
     if (linkedClass != null) {
       linkedClasses.put(prop, linkedClass);
     }
     if (linkedType != null) {
-      prop.setLinkedType(session, linkedType);
+      prop.setLinkedType(linkedType);
     }
     if (collate != null) {
-      prop.setCollate(session, collate);
+      prop.setCollate(collate);
     }
     if (regexp != null) {
-      prop.setRegexp(session, regexp);
+      prop.setRegexp(regexp);
     }
     if (defaultValue != null) {
-      prop.setDefaultValue(session, value);
+      prop.setDefaultValue(value);
     }
     if (customFields != null) {
       for (var entry : customFields.entrySet()) {
-        prop.setCustom(session, entry.getKey(), entry.getValue());
+        prop.setCustom(entry.getKey(), entry.getValue());
       }
     }
   }
@@ -992,7 +970,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
           final var clazz =
               session.getMetadata().getSchema().getClassByClusterId(createdClusterId);
           if (clazz instanceof SchemaClassEmbedded) {
-            ((SchemaClassEmbedded) clazz).removeClusterId(session, createdClusterId, true);
+            throw new DatabaseImportException("Can not drop cluster with id " + createdClusterId
+                + " because it is used by class " + clazz.getName());
           }
 
           session.dropCluster(createdClusterId);
@@ -1180,7 +1159,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
     var cls = beforeImportSchemaSnapshot.getClassByClusterId(clusterId);
     if (cls != null) {
 
-      if (cls.getName(session).equals(SecurityUserImpl.CLASS_NAME)) {
+      if (cls.getName().equals(SecurityUserImpl.CLASS_NAME)) {
         try (var resultSet =
             session.query(
                 "select from " + SecurityUserImpl.CLASS_NAME + " where name = ?",
@@ -1189,7 +1168,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
             systemRecord = (EntityImpl) resultSet.next().castToEntity();
           }
         }
-      } else if (cls.getName(session).equals(Role.CLASS_NAME)) {
+      } else if (cls.getName().equals(Role.CLASS_NAME)) {
         try (var resultSet =
             session.query(
                 "select from " + Role.CLASS_NAME + " where name = ?",
@@ -1198,7 +1177,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
             systemRecord = (EntityImpl) resultSet.next().castToEntity();
           }
         }
-      } else if (cls.getName(session).equals(SecurityPolicy.class.getSimpleName())) {
+      } else if (cls.getName().equals(SecurityPolicy.class.getSimpleName())) {
         try (var resultSet =
             session.query(
                 "select from " + SecurityPolicy.class.getSimpleName() + " where name = ?",
@@ -1208,26 +1187,26 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
           }
         }
       } else //noinspection StatementWithEmptyBody
-        if (cls.getName(session).equals("V") || cls.getName(session).equals("E")) {
+        if (cls.getName().equals("V") || cls.getName().equals("E")) {
           // skip it
         } else {
           throw new IllegalStateException(
-              "Class " + cls.getName(session) + " is not supported.");
+              "Class " + cls.getName() + " is not supported.");
         }
     }
     return systemRecord;
   }
 
-  private boolean isSystemRecord(Schema beforeImportSchemaSnapshot, int clusterId) {
+  private static boolean isSystemRecord(Schema beforeImportSchemaSnapshot, int clusterId) {
     var cls = beforeImportSchemaSnapshot.getClassByClusterId(clusterId);
     if (cls != null) {
-      if (cls.getName(session).equals(SecurityUserImpl.CLASS_NAME)) {
+      if (cls.getName().equals(SecurityUserImpl.CLASS_NAME)) {
         return true;
       }
-      if (cls.getName(session).equals(Role.CLASS_NAME)) {
+      if (cls.getName().equals(Role.CLASS_NAME)) {
         return true;
       }
-      return cls.getName(session).equals(SecurityPolicy.class.getSimpleName());
+      return cls.getName().equals(SecurityPolicy.class.getSimpleName());
     }
 
     return false;
@@ -1239,8 +1218,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       schema.dropClass(EXPORT_IMPORT_CLASS_NAME);
     }
     final var cls = schema.createClass(EXPORT_IMPORT_CLASS_NAME);
-    cls.createProperty(session, "key", PropertyType.STRING);
-    cls.createProperty(session, "value", PropertyType.STRING);
+    cls.createProperty("key", PropertyType.STRING);
+    cls.createProperty("value", PropertyType.STRING);
     final var begin = System.currentTimeMillis();
 
     long totalRecords = 0;
@@ -1256,7 +1235,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
 
       session.executeInTx(() -> {
         for (final var clusterName : session.getClusterNames()) {
-          final Iterator<DBRecord> recordIterator = session.browseCluster(clusterName);
+          var recordIterator = session.browseCluster(clusterName);
           while (recordIterator.hasNext()) {
             var identity = recordIterator.next().getIdentity();
             if (identity.equals(schemaRecordId)) {
@@ -1430,7 +1409,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       final String indexAlgorithm,
       final Set<String> clustersToIndex,
       IndexDefinition indexDefinition,
-      final Map<String, ?> metadata) {
+      final Map<String, Object> metadata) {
     if (indexName == null) {
       throw new IllegalArgumentException("Index name is missing");
     }
@@ -1557,7 +1536,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       var storage = session.getStorage();
 
       var positions =
-          storage.ceilingPhysicalPositions(session, clusterId, new PhysicalPosition(0));
+          storage.ceilingPhysicalPositions(session, clusterId, new PhysicalPosition(0),
+              Integer.MAX_VALUE);
       while (positions.length > 0) {
         for (var position : positions) {
           session.executeInTx(() -> {
@@ -1589,7 +1569,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
         }
 
         positions = storage.higherPhysicalPositions(session, clusterId,
-            positions[positions.length - 1]);
+            positions[positions.length - 1], Integer.MAX_VALUE);
       }
 
       listener.onMessage(

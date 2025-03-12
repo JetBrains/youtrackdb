@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.index;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
+import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.Assert;
@@ -14,16 +15,16 @@ public class CompositeIndexSQLInsertTest extends DbTestBase {
     super.beforeTest();
     Schema schema = session.getMetadata().getSchema();
     var book = schema.createClass("Book");
-    book.createProperty(session, "author", PropertyType.STRING);
-    book.createProperty(session, "title", PropertyType.STRING);
-    book.createProperty(session, "publicationYears", PropertyType.EMBEDDEDLIST,
+    book.createProperty("author", PropertyType.STRING);
+    book.createProperty("title", PropertyType.STRING);
+    book.createProperty("publicationYears", PropertyType.EMBEDDEDLIST,
         PropertyType.INTEGER);
-    book.createIndex(session, "books", "unique", "author", "title", "publicationYears");
+    book.createIndex("books", "unique", "author", "title", "publicationYears");
 
-    book.createProperty(session, "nullKey1", PropertyType.STRING);
-    Map<String, Boolean> indexOptions = new HashMap<>();
+    book.createProperty("nullKey1", PropertyType.STRING);
+    Map<String, Object> indexOptions = new HashMap<>();
     indexOptions.put("ignoreNullValues", true);
-    book.createIndex(session,
+    book.createIndex(
         "indexignoresnulls", "NOTUNIQUE", null, indexOptions, new String[]{"nullKey1"});
   }
 
@@ -31,10 +32,10 @@ public class CompositeIndexSQLInsertTest extends DbTestBase {
   public void testCompositeIndexWithRangeAndContains() {
     final Schema schema = session.getMetadata().getSchema();
     var clazz = schema.createClass("CompositeIndexWithRangeAndConditions");
-    clazz.createProperty(session, "id", PropertyType.INTEGER);
-    clazz.createProperty(session, "bar", PropertyType.INTEGER);
-    clazz.createProperty(session, "tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
-    clazz.createProperty(session, "name", PropertyType.STRING);
+    clazz.createProperty("id", PropertyType.INTEGER);
+    clazz.createProperty("bar", PropertyType.INTEGER);
+    clazz.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
+    clazz.createProperty("name", PropertyType.STRING);
 
     session.command(
             "create index CompositeIndexWithRangeAndConditions_id_tags_name on"

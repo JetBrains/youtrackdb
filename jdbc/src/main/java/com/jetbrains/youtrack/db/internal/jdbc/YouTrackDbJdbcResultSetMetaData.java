@@ -128,7 +128,7 @@ public class YouTrackDbJdbcResultSetMetaData implements ResultSetMetaData {
       var entity = currentRecord.castToEntity();
       var schemaClass = entity.getSchemaClass();
       if (schemaClass != null) {
-        otype = schemaClass.getProperty(session, fieldName).getType(session);
+        otype = schemaClass.getProperty(fieldName).getType();
       } else {
         otype = null;
       }
@@ -240,9 +240,9 @@ public class YouTrackDbJdbcResultSetMetaData implements ResultSetMetaData {
       var entity = currentRecord.castToEntity();
       var schemaClass = entity.getSchemaClass();
       if (schemaClass != null) {
-        var property = schemaClass.getProperty(session, columnLabel);
+        var property = schemaClass.getProperty(columnLabel);
         if (property != null) {
-          return property.getType(session).toString();
+          return property.getType().toString();
         }
       }
     }
@@ -269,7 +269,7 @@ public class YouTrackDbJdbcResultSetMetaData implements ResultSetMetaData {
 
   public String getTableName(final int column) throws SQLException {
     final var p = getProperty(column);
-    return p != null ? p.getOwnerClass().getName(session) : null;
+    return p != null ? p.getOwnerClass().getName() : null;
   }
 
   public boolean isAutoIncrement(final int column) {
@@ -278,7 +278,7 @@ public class YouTrackDbJdbcResultSetMetaData implements ResultSetMetaData {
 
   public boolean isCaseSensitive(final int column) throws SQLException {
     final var p = getProperty(column);
-    return p != null && p.getCollate(session).getName().equalsIgnoreCase("ci");
+    return p != null && p.getCollate().getName().equalsIgnoreCase("ci");
   }
 
   public boolean isCurrency(final int column) {
@@ -297,7 +297,7 @@ public class YouTrackDbJdbcResultSetMetaData implements ResultSetMetaData {
 
   public boolean isReadOnly(final int column) throws SQLException {
     final var p = getProperty(column);
-    return p != null && p.isReadonly(session);
+    return p != null && p.isReadonly();
   }
 
   public boolean isSearchable(int column) {
@@ -311,7 +311,7 @@ public class YouTrackDbJdbcResultSetMetaData implements ResultSetMetaData {
       var entity = currentRecord.castToEntity();
       var schemaClass = entity.getSchemaClass();
       if (schemaClass != null) {
-        otype = schemaClass.getProperty(session, fieldNames[column - 1]).getType(session);
+        otype = schemaClass.getProperty(fieldNames[column - 1]).getType();
       } else {
         otype = null;
       }
@@ -349,7 +349,7 @@ public class YouTrackDbJdbcResultSetMetaData implements ResultSetMetaData {
       var entity = currentRecord.castToEntity();
       var schemaClass = entity.getSchemaClass();
       if (schemaClass != null) {
-        return schemaClass.getProperty(session, fieldName);
+        return schemaClass.getProperty(fieldName);
       }
     }
 

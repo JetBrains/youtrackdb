@@ -21,7 +21,7 @@ public class CreateClusterStatementExecutionTest extends DbTestBase {
   @Test
   public void testExisting() {
     var clazz = session.getMetadata().getSchema().createClass("testExisting");
-    var clusterName = session.getClusterNameById(clazz.getClusterIds(session)[0]);
+    var clusterName = session.getClusterNameById(clazz.getClusterIds()[0]);
     try {
       session.command("create cluster " + clusterName);
       Assert.fail();

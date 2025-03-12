@@ -282,7 +282,7 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
 
     var indices =
         dbMetadata.getImmutableSchemaSnapshot().getClassInternal(
-                className).getIndexesInternal(db).stream()
+                className).getIndexesInternal().stream()
             .filter(idx -> idx instanceof LuceneFullTextIndex)
             .map(idx -> (LuceneFullTextIndex) idx)
             .toList();

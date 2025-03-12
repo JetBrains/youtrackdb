@@ -42,18 +42,18 @@ public class PointShapeBuilder extends ShapeBuilder<Point> {
 
     Schema schema = db.getMetadata().getSchema();
     var point = schema.createAbstractClass(NAME, superClass(db));
-    var coordinates = point.createProperty(db, COORDINATES, PropertyType.EMBEDDEDLIST,
+    var coordinates = point.createProperty(COORDINATES, PropertyType.EMBEDDEDLIST,
         PropertyType.DOUBLE);
-    coordinates.setMin(db, "2");
-    coordinates.setMax(db, "2");
+    coordinates.setMin("2");
+    coordinates.setMax("2");
 
     if (GlobalConfiguration.SPATIAL_ENABLE_DIRECT_WKT_READER.getValueAsBoolean()) {
       var pointz = schema.createAbstractClass(NAME + "Z", superClass(db));
-      var coordinatesz = pointz.createProperty(db, COORDINATES,
+      var coordinatesz = pointz.createProperty(COORDINATES,
           PropertyType.EMBEDDEDLIST,
           PropertyType.DOUBLE);
-      coordinatesz.setMin(db, "3");
-      coordinatesz.setMax(db, "3");
+      coordinatesz.setMin("3");
+      coordinatesz.setMax("3");
     }
   }
 

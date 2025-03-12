@@ -90,7 +90,7 @@ public class CreateEdgeExecutionPlanner {
             "Class " + targetClass + " not found in the db schema");
       }
       uniqueIndexName =
-          clazz.getIndexesInternal(session).stream()
+          clazz.getIndexesInternal().stream()
               .filter(Index::isUnique)
               .filter(
                   x ->

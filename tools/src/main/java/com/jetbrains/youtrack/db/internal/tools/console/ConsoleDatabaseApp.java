@@ -66,9 +66,9 @@ import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseRepair;
 import com.jetbrains.youtrack.db.internal.core.db.tool.GraphRepair;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.iterator.IdentifiableIterator;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityManager;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
@@ -89,6 +89,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -1475,7 +1476,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
 
     resetResultSet();
 
-    final IdentifiableIterator<?> it = currentDatabaseSession.browseClass(iClassName);
+    final var it = currentDatabaseSession.browseClass(iClassName);
 
     browseRecords(it);
   }
@@ -1603,29 +1604,26 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       return;
     }
 
-    message("\nCLASS '" + cls.getName(currentDatabaseSession) + "'\n");
+    message("\nCLASS '" + cls.getName() + "'\n");
 
-    final var count = currentDatabaseSession.countClass(cls.getName(currentDatabaseSession), false);
+    final var count = currentDatabaseSession.countClass(cls.getName(), false);
     message("\nRecords..............: " + count);
 
-    if (cls.getShortName(currentDatabaseSession) != null) {
-      message("\nAlias................: " + cls.getShortName(currentDatabaseSession));
-    }
-    if (cls.hasSuperClasses(currentDatabaseSession)) {
+    if (cls.hasSuperClasses()) {
       message("\nSuper classes........: " + Arrays.toString(
-          cls.getSuperClassesNames(currentDatabaseSession).toArray()));
+          cls.getSuperClassesNames().toArray()));
     }
 
     message(
         "\nDefault cluster......: "
             + currentDatabaseSession.getClusterNameById(
-            cls.getClusterIds(currentDatabaseSession)[0])
+            cls.getClusterIds()[0])
             + " (id="
-            + cls.getClusterIds(currentDatabaseSession)[0]
+            + cls.getClusterIds()[0]
             + ")");
 
     final var clusters = new StringBuilder();
-    for (var clId : cls.getClusterIds(currentDatabaseSession)) {
+    for (var clId : cls.getClusterIds()) {
       if (!clusters.isEmpty()) {
         clusters.append(", ");
       }
@@ -1637,51 +1635,48 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     }
 
     message("\nSupported clusters...: " + clusters);
-    message("\nCluster selection....: " + cls.getClusterSelectionStrategyName(
-        currentDatabaseSession));
-
-    if (!cls.getSubclasses(currentDatabaseSession).isEmpty()) {
+    if (!cls.getSubclasses().isEmpty()) {
       message("\nSubclasses.........: ");
       var i = 0;
-      for (var c : cls.getSubclasses(currentDatabaseSession)) {
+      for (var c : cls.getSubclasses()) {
         if (i > 0) {
           message(", ");
         }
-        message(c.getName(currentDatabaseSession));
+        message(c.getName());
         ++i;
       }
       out.println();
     }
 
-    if (!cls.properties(currentDatabaseSession).isEmpty()) {
+    if (!cls.properties().isEmpty()) {
       message("\n\nPROPERTIES");
       final List<RawPair<RID, Object>> resultSet = new ArrayList<>();
 
-      for (final var p : cls.properties(currentDatabaseSession)) {
+      for (final var p : cls.properties()) {
         try {
           var row = new HashMap<>();
           resultSet.add(new RawPair<>(null, row));
 
-          row.put("NAME", p.getName(currentDatabaseSession));
-          row.put("TYPE", p.getType(currentDatabaseSession));
+          row.put("NAME", p.getName());
+          row.put("TYPE", p.getType());
           row.put(
               "LINKED-TYPE/CLASS",
-              p.getLinkedClass(currentDatabaseSession) != null ? p.getLinkedClass(
-                  currentDatabaseSession)
-                  : p.getLinkedType(currentDatabaseSession));
-          row.put("MANDATORY", p.isMandatory(currentDatabaseSession));
-          row.put("READONLY", p.isReadonly(currentDatabaseSession));
-          row.put("NOT-NULL", p.isNotNull(currentDatabaseSession));
+              p.getLinkedClass() != null ? p.getLinkedClass(
+              )
+                  : p.getLinkedType());
+          row.put("MANDATORY", p.isMandatory());
+          row.put("READONLY", p.isReadonly());
+          row.put("NOT-NULL", p.isNotNull());
           row.put("MIN",
-              p.getMin(currentDatabaseSession) != null ? p.getMin(currentDatabaseSession) : "");
+              p.getMin() != null ? p.getMin() : "");
           row.put("MAX",
-              p.getMax(currentDatabaseSession) != null ? p.getMax(currentDatabaseSession) : "");
+              p.getMax() != null ? p.getMax() : "");
           row.put("COLLATE",
-              p.getCollate(currentDatabaseSession) != null ? p.getCollate(currentDatabaseSession)
+              p.getCollate() != null ? p.getCollate()
                   .getName() : "");
           row.put("DEFAULT",
-              p.getDefaultValue(currentDatabaseSession) != null ? p.getDefaultValue(
-                  currentDatabaseSession) : "");
+              p.getDefaultValue() != null ? p.getDefaultValue(
+              ) : "");
 
         } catch (Exception ignored) {
         }
@@ -1694,7 +1689,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       formatter.writeRecords(resultSet, -1, currentDatabaseSession);
     }
 
-    final var indexes = cls.getClassIndexes(currentDatabaseSession);
+    final var indexes = cls.getClassIndexes();
     if (!indexes.isEmpty()) {
       message("\n\nINDEXES (" + indexes.size() + " altogether)");
 
@@ -1714,18 +1709,18 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       formatter.writeRecords(resultSet, -1, currentDatabaseSession);
     }
 
-    if (!cls.getCustomKeys(currentDatabaseSession).isEmpty()) {
+    if (!cls.getCustomKeys().isEmpty()) {
       message("\n\nCUSTOM ATTRIBUTES");
 
       final List<RawPair<RID, Object>> resultSet = new ArrayList<>();
 
-      for (final var k : cls.getCustomKeys(currentDatabaseSession)) {
+      for (final var k : cls.getCustomKeys()) {
         try {
           var row = new HashMap<>();
           resultSet.add(new RawPair<>(null, row));
 
           row.put("NAME", k);
-          row.put("VALUE", cls.getCustom(currentDatabaseSession, k));
+          row.put("VALUE", cls.getCustom(k));
 
         } catch (Exception ignored) {
           // IGNORED
@@ -1769,38 +1764,38 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       return;
     }
 
-    var prop = cls.getPropertyInternal(currentDatabaseSession, parts[1]);
+    var prop = cls.getPropertyInternal(parts[1]);
 
     if (prop == null) {
       message("\n! Property '" + parts[1] + "' does not exist in class '" + parts[0] + "'");
       return;
     }
 
-    message("\nPROPERTY '" + prop.getFullName(currentDatabaseSession) + "'\n");
-    message("\nType.................: " + prop.getType(currentDatabaseSession));
-    message("\nMandatory............: " + prop.isMandatory(currentDatabaseSession));
-    message("\nNot null.............: " + prop.isNotNull(currentDatabaseSession));
-    message("\nRead only............: " + prop.isReadonly(currentDatabaseSession));
-    message("\nDefault value........: " + prop.getDefaultValue(currentDatabaseSession));
-    message("\nMinimum value........: " + prop.getMin(currentDatabaseSession));
-    message("\nMaximum value........: " + prop.getMax(currentDatabaseSession));
-    message("\nREGEXP...............: " + prop.getRegexp(currentDatabaseSession));
-    message("\nCollate..............: " + prop.getCollate(currentDatabaseSession));
-    message("\nLinked class.........: " + prop.getLinkedClass(currentDatabaseSession));
-    message("\nLinked type..........: " + prop.getLinkedType(currentDatabaseSession));
+    message("\nPROPERTY '" + prop.getFullName() + "'\n");
+    message("\nType.................: " + prop.getType());
+    message("\nMandatory............: " + prop.isMandatory());
+    message("\nNot null.............: " + prop.isNotNull());
+    message("\nRead only............: " + prop.isReadonly());
+    message("\nDefault value........: " + prop.getDefaultValue());
+    message("\nMinimum value........: " + prop.getMin());
+    message("\nMaximum value........: " + prop.getMax());
+    message("\nREGEXP...............: " + prop.getRegexp());
+    message("\nCollate..............: " + prop.getCollate());
+    message("\nLinked class.........: " + prop.getLinkedClass());
+    message("\nLinked type..........: " + prop.getLinkedType());
 
-    if (!prop.getCustomKeys(currentDatabaseSession).isEmpty()) {
+    if (!prop.getCustomKeys().isEmpty()) {
       message("\n\nCUSTOM ATTRIBUTES");
 
       final List<RawPair<RID, Object>> resultSet = new ArrayList<>();
 
-      for (final var k : prop.getCustomKeys(currentDatabaseSession)) {
+      for (final var k : prop.getCustomKeys()) {
         try {
           var row = new HashMap<>();
           resultSet.add(new RawPair<>(null, row));
 
           row.put("NAME", k);
-          row.put("VALUE", prop.getCustom(currentDatabaseSession, k));
+          row.put("VALUE", prop.getCustom(k));
 
         } catch (Exception ignored) {
         }
@@ -1814,7 +1809,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     }
 
     if (currentDatabaseSession.isRemote()) {
-      final var indexes = prop.getAllIndexes(currentDatabaseSession);
+      final var indexes = prop.getAllIndexes();
       if (!indexes.isEmpty()) {
         message("\n\nINDEXES (" + indexes.size() + " altogether)");
 
@@ -1960,7 +1955,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
                   .getImmutableSchemaSnapshot()
                   .getClassByClusterId(clusterId);
           final var className = Optional.ofNullable(cls)
-              .map(schemaClass -> schemaClass.getName(currentDatabaseSession))
+              .map(schemaClass -> schemaClass.getName())
               .orElse(null);
 
           row.put("NAME", clusterName);
@@ -2015,8 +2010,8 @@ public class ConsoleDatabaseApp extends ConsoleApplication
               currentDatabaseSession.getMetadata().getImmutableSchemaSnapshot()
                   .getClasses());
       classes.sort(
-          (o1, o2) -> o1.getName(currentDatabaseSession).compareToIgnoreCase(o2.getName(
-              currentDatabaseSession)));
+          (o1, o2) -> o1.getName().compareToIgnoreCase(o2.getName(
+          )));
 
       for (var cls : classes) {
         try {
@@ -2024,10 +2019,10 @@ public class ConsoleDatabaseApp extends ConsoleApplication
           resultSet.add(new RawPair<>(null, row));
 
           final var clusters = new StringBuilder(1024);
-          if (cls.isAbstract(currentDatabaseSession)) {
+          if (cls.isAbstract()) {
             clusters.append("-");
           } else {
-            var clusterIds = cls.getClusterIds(currentDatabaseSession);
+            var clusterIds = cls.getClusterIds();
             for (var i = 0; i < clusterIds.length; ++i) {
               if (i > 0) {
                 clusters.append(",");
@@ -2040,14 +2035,14 @@ public class ConsoleDatabaseApp extends ConsoleApplication
             }
           }
 
-          count = currentDatabaseSession.countClass(cls.getName(currentDatabaseSession), false);
+          count = currentDatabaseSession.countClass(cls.getName(), false);
           totalElements += count;
 
           final var superClasses =
-              cls.hasSuperClasses(currentDatabaseSession) ? Arrays.toString(
-                  cls.getSuperClassesNames(currentDatabaseSession).toArray()) : "";
+              cls.hasSuperClasses() ? Arrays.toString(
+                  cls.getSuperClassesNames().toArray()) : "";
 
-          row.put("NAME", cls.getName(currentDatabaseSession));
+          row.put("NAME", cls.getName());
           row.put("SUPER-CLASSES", superClasses);
           row.put("CLUSTERS", clusters);
           row.put("COUNT", count);
@@ -2959,7 +2954,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     }
   }
 
-  private void browseRecords(final IdentifiableIterator<?> it) {
+  private void browseRecords(final Iterator<? extends RecordAbstract> it) {
     final var limit = Integer.parseInt(properties.get(ConsoleProperties.LIMIT));
     final var tableFormatter =
         new TableFormatter(this)

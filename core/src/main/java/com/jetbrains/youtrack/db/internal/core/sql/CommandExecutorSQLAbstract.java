@@ -144,7 +144,7 @@ public abstract class CommandExecutorSQLAbstract extends CommandExecutorAbstract
     for (var clazz : iClassNames) {
       final var cls = db.getMetadata().getImmutableSchemaSnapshot().getClass(clazz);
       if (cls != null) {
-        for (var clId : cls.getPolymorphicClusterIds(db)) {
+        for (var clId : cls.getPolymorphicClusterIds()) {
           // FILTER THE CLUSTER WHERE THE USER HAS THE RIGHT ACCESS
           if (clId > -1 && checkClusterAccess(db, db.getClusterNameById(clId))) {
             clusters.add(db.getClusterNameById(clId).toLowerCase(Locale.ENGLISH));
@@ -183,7 +183,7 @@ public abstract class CommandExecutorSQLAbstract extends CommandExecutorAbstract
       if (clazz != null) {
         final var cls = metadata.getImmutableSchemaSnapshot().getClass(clazz);
         if (cls != null) {
-          for (var clId : cls.getClusterIds(db)) {
+          for (var clId : cls.getClusterIds()) {
             final var clName = db.getClusterNameById(clId);
             if (clName != null) {
               clusters.add(clName.toLowerCase(Locale.ENGLISH));

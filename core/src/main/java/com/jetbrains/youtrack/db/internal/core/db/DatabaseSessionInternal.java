@@ -25,7 +25,6 @@ import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
-import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Edge;
@@ -33,9 +32,11 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.api.session.SessionListener;
 import com.jetbrains.youtrack.db.internal.common.profiler.metrics.TimeRate;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
@@ -72,6 +73,7 @@ import java.util.Set;
 import java.util.TimerTask;
 import java.util.UUID;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public interface DatabaseSessionInternal extends DatabaseSession {
 
@@ -97,7 +99,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   /**
    * Internal. Gets an instance of sb-tree collection manager for current database.
    */
-  BTreeCollectionManager getSbTreeCollectionManager();
+  BTreeCollectionManager getBTreeCollectionManager();
 
   /**
    * @return the factory of binary serializers.
@@ -140,10 +142,26 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   RecordHook.RESULT callbackHooks(final RecordHook.TYPE type, final Identifiable id);
 
-  @Nonnull
-  <RET extends RecordAbstract> RET executeReadRecord(final RecordId rid);
+  @Nullable
+  <RET extends RecordAbstract> RawPair<RET, RecordId> loadFirstRecordAndNextRidInCluster(int clusterId);
 
-  boolean executeExists(RID rid);
+  @Nullable
+  <RET extends RecordAbstract> RawPair<RET, RecordId> loadLastRecordAndPreviousRidInCluster(
+      int clusterId);
+
+  @Nullable
+  <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndNextRidInCluster(
+      @Nonnull final RecordId recordId);
+
+  @Nullable
+  <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndPreviousRidInCluster(
+      @Nonnull final RecordId recordId);
+
+  @Nullable
+  LoadRecordResult executeReadRecord(@Nonnull final RecordId rid, boolean fetchPreviousRid,
+      boolean fetchNextRid, boolean throwIfNotFound);
+
+  boolean executeExists(@Nonnull RID rid);
 
   void setDefaultTransactionMode();
 
@@ -186,8 +204,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   Edge newRegularEdge(String iClassName, Vertex from, Vertex to);
 
-  DatabaseSessionInternal cleanOutRecord(RID rid, int version);
-
   default void realClose() {
     // Only implemented by pooled instances
     throw new UnsupportedOperationException();
@@ -195,37 +211,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   default void reuse() {
     // Only implemented by pooled instances
-    throw new UnsupportedOperationException();
-  }
-
-  /**
-   * synchronizes current database instance with the rest of the cluster (if in distributed mode).
-   *
-   * @return true if the database was synchronized, false otherwise
-   */
-  default boolean sync(boolean forceDeployment, boolean tryWithDelta) {
-    return false;
-  }
-
-  default Map<String, Object> getHaStatus(
-      boolean servers, boolean db, boolean latency, boolean messages) {
-    return null;
-  }
-
-  default boolean removeHaServer(String serverName) {
-    return false;
-  }
-
-  /**
-   * sends an execution plan to a remote node for a remote query execution
-   *
-   * @param nodeName        the node name
-   * @param executionPlan   the execution plan
-   * @param inputParameters the input parameters for execution
-   * @return an ResultSet to fetch the results of the query execution
-   */
-  default ResultSet queryOnNode(
-      String nodeName, ExecutionPlan executionPlan, Map<Object, Object> inputParameters) {
     throw new UnsupportedOperationException();
   }
 
@@ -252,10 +237,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   boolean dropClusterInternal(int clusterId);
 
-  long[] getClusterDataRange(int currentClusterId);
-
-  long getLastClusterPosition(int clusterId);
-
   String getClusterRecordConflictStrategy(int clusterId);
 
   int[] getClustersIds(@Nonnull Set<String> filterClusters);
@@ -280,39 +261,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * @param iClusterName Cluster name to iterate
    * @return Iterator of EntityImpl instances
    */
-  <REC extends DBRecord> RecordIteratorCluster<REC> browseCluster(String iClusterName);
-
-  <REC extends DBRecord> RecordIteratorCluster<REC> browseCluster(
-      String iClusterName,
-      long startClusterPosition,
-      long endClusterPosition,
-      boolean loadTombstones);
-
-  /**
-   * Browses all the records of the specified cluster of the passed record type.
-   *
-   * @param iClusterName Cluster name to iterate
-   * @param iRecordClass The record class expected
-   * @return Iterator of EntityImpl instances
-   */
-  @Deprecated
-  <REC extends DBRecord> RecordIteratorCluster<REC> browseCluster(
-      String iClusterName, Class<REC> iRecordClass);
-
-  @Deprecated
-  <REC extends DBRecord> RecordIteratorCluster<REC> browseCluster(
-      String iClusterName,
-      Class<REC> iRecordClass,
-      long startClusterPosition,
-      long endClusterPosition);
-
-  @Deprecated
-  <REC extends DBRecord> RecordIteratorCluster<REC> browseCluster(
-      String iClusterName,
-      Class<REC> iRecordClass,
-      long startClusterPosition,
-      long endClusterPosition,
-      boolean loadTombstones);
+  <REC extends RecordAbstract> RecordIteratorCluster<REC> browseCluster(String iClusterName);
 
   /**
    * Browses all the records of the specified class and also all the subclasses. If you've a class
@@ -323,7 +272,9 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * @param className Class name to iterate
    * @return Iterator of EntityImpl instances
    */
-  RecordIteratorClass<EntityImpl> browseClass(@Nonnull String className);
+  RecordIteratorClass browseClass(@Nonnull String className);
+
+  RecordIteratorClass browseClass(@Nonnull SchemaClass clz);
 
   /**
    * Browses all the records of the specified class and if iPolymorphic is true also all the
@@ -332,11 +283,14 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * the returned instance starts from record id with position 0 until the end. Base classes are
    * worked at first.
    *
-   * @param className   Class name to iterate
+   * @param className    Class name to iterate
    * @param iPolymorphic Consider also the instances of the subclasses or not
    * @return Iterator of EntityImpl instances
    */
-  RecordIteratorClass<EntityImpl> browseClass(@Nonnull String className, boolean iPolymorphic);
+  RecordIteratorClass browseClass(@Nonnull String className, boolean iPolymorphic);
+
+  RecordIteratorClass browseClass(@Nonnull String className, boolean iPolymorphic,
+      boolean forwardDirection);
 
   /**
    * Counts the entities contained in the specified class and sub classes (polymorphic).
@@ -756,7 +710,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * Enables or disables the Multi-Version Concurrency Control. If enabled the version of the record
    * is checked before each update and delete against the records.
    *
-   * @param iValue
    * @return The Database instance itself giving a "fluent interface". Useful to call multiple
    * methods in chain. deprecated since 2.2
    */
@@ -848,6 +801,10 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * @return Cluster id
    */
   int addCluster(String iClusterName, Object... iParameters);
+
+  boolean dropCluster(final String iClusterName);
+
+  boolean dropCluster(final int clusterId);
 
   /**
    * Adds a new cluster.

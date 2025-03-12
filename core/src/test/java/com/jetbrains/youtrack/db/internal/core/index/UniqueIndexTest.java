@@ -23,10 +23,10 @@ public class UniqueIndexTest extends DbTestBase {
 
     var entityClass = session.createVertexClass("Entity");
     var edgeOutPropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, "Link");
-    entityClass.createProperty(session, edgeOutPropertyName, PropertyType.LINKBAG);
+    entityClass.createProperty(edgeOutPropertyName, PropertyType.LINKBAG);
 
-    entityClass.createProperty(session, "type", PropertyType.STRING);
-    entityClass.createIndex(session, "typeLink", SchemaClass.INDEX_TYPE.UNIQUE, "type",
+    entityClass.createProperty("type", PropertyType.STRING);
+    entityClass.createIndex("typeLink", SchemaClass.INDEX_TYPE.UNIQUE, "type",
         edgeOutPropertyName);
 
     session.begin();
@@ -61,10 +61,10 @@ public class UniqueIndexTest extends DbTestBase {
 
     var entityClass = session.createVertexClass("Entity");
     var edgeOutPropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, "Link");
-    entityClass.createProperty(session, edgeOutPropertyName, PropertyType.LINKBAG);
+    entityClass.createProperty(edgeOutPropertyName, PropertyType.LINKBAG);
 
-    entityClass.createProperty(session, "type", PropertyType.STRING);
-    entityClass.createIndex(session, "typeLink", SchemaClass.INDEX_TYPE.UNIQUE, "type",
+    entityClass.createProperty("type", PropertyType.STRING);
+    entityClass.createIndex("typeLink", SchemaClass.INDEX_TYPE.UNIQUE, "type",
         edgeOutPropertyName);
 
     session.begin();
@@ -89,10 +89,10 @@ public class UniqueIndexTest extends DbTestBase {
 
     var entityClass = session.createVertexClass("Entity");
     var edgeOutPropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, "Link");
-    entityClass.createProperty(session, edgeOutPropertyName, PropertyType.LINKBAG);
+    entityClass.createProperty(edgeOutPropertyName, PropertyType.LINKBAG);
 
-    entityClass.createProperty(session, "type", PropertyType.STRING);
-    entityClass.createIndex(session, "typeLink", SchemaClass.INDEX_TYPE.UNIQUE, "type",
+    entityClass.createProperty("type", PropertyType.STRING);
+    entityClass.createIndex("typeLink", SchemaClass.INDEX_TYPE.UNIQUE, "type",
         edgeOutPropertyName);
 
     session.begin();
@@ -114,8 +114,8 @@ public class UniqueIndexTest extends DbTestBase {
   public void testUniqueOnUpdate() {
     final Schema schema = session.getMetadata().getSchema();
     var userClass = schema.createClass("User");
-    userClass.createProperty(session, "MailAddress", PropertyType.STRING)
-        .createIndex(session, SchemaClass.INDEX_TYPE.UNIQUE);
+    userClass.createProperty("MailAddress", PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
 
     session.begin();
     var john = (EntityImpl) session.newEntity("User");
@@ -148,8 +148,8 @@ public class UniqueIndexTest extends DbTestBase {
   public void testUniqueOnUpdateNegativeVersion() {
     final Schema schema = session.getMetadata().getSchema();
     var userClass = schema.createClass("User");
-    userClass.createProperty(session, "MailAddress", PropertyType.STRING)
-        .createIndex(session, SchemaClass.INDEX_TYPE.UNIQUE);
+    userClass.createProperty("MailAddress", PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
 
     session.begin();
     var jane = (EntityImpl) session.newEntity("User");

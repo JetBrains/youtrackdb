@@ -42,8 +42,8 @@ public class LuceneBooleanIndexTest extends BaseLuceneTest {
     Schema schema = session.getMetadata().getSchema();
     var v = schema.getClass("V");
     var song = schema.createClass("Person");
-    song.setSuperClass(session, v);
-    song.createProperty(session, "isDeleted", PropertyType.BOOLEAN);
+    song.addSuperClass(v);
+    song.createProperty("isDeleted", PropertyType.BOOLEAN);
 
     session.command("create index Person.isDeleted on Person (isDeleted) FULLTEXT ENGINE LUCENE")
         .close();

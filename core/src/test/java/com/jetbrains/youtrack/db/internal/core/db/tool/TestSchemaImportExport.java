@@ -26,8 +26,8 @@ public class TestSchemaImportExport extends DbTestBase {
         (DatabaseSessionInternal)
             context.open(TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
       var clazz = db.getMetadata().getSchema().createClass("Test");
-      clazz.createProperty(db, "some", PropertyType.STRING);
-      clazz.setCustom(db, "testcustom", "test");
+      clazz.createProperty("some", PropertyType.STRING);
+      clazz.setCustom("testcustom", "test");
       var exp = new DatabaseExport(db, output, new MockOutputListener());
       exp.exportDatabase();
     } finally {
@@ -49,7 +49,7 @@ public class TestSchemaImportExport extends DbTestBase {
       imp.importDatabase();
       var clas1 = sessionOne.getMetadata().getSchema().getClass("Test");
       Assert.assertNotNull(clas1);
-      Assert.assertEquals("test", clas1.getCustom(sessionOne, "testcustom"));
+      Assert.assertEquals("test", clas1.getCustom("testcustom"));
     } finally {
       context.drop("imp_" + TestSchemaImportExport.class.getSimpleName());
     }
@@ -69,7 +69,7 @@ public class TestSchemaImportExport extends DbTestBase {
         (DatabaseSessionInternal)
             context.open(TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
       var clazz = db.getMetadata().getSchema().createClass("Test");
-      clazz.createProperty(db, "bla", PropertyType.STRING).setDefaultValue(db, "something");
+      clazz.createProperty("bla", PropertyType.STRING).setDefaultValue("something");
       var exp = new DatabaseExport(db, output, new MockOutputListener());
       exp.exportDatabase();
     } finally {
@@ -92,9 +92,9 @@ public class TestSchemaImportExport extends DbTestBase {
 
       var clas1 = sessionOne.getMetadata().getSchema().getClass("Test");
       Assert.assertNotNull(clas1);
-      var prop1 = clas1.getProperty(sessionOne, "bla");
+      var prop1 = clas1.getProperty("bla");
       Assert.assertNotNull(prop1);
-      Assert.assertEquals("something", prop1.getDefaultValue(sessionOne));
+      Assert.assertEquals("something", prop1.getDefaultValue());
     } finally {
       context.drop("imp_" + TestSchemaImportExport.class.getSimpleName());
     }
@@ -113,8 +113,8 @@ public class TestSchemaImportExport extends DbTestBase {
         (DatabaseSessionInternal)
             context.open(TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
       var clazz = db.getMetadata().getSchema().createClass("Test");
-      clazz.addSuperClass(db, db.getMetadata().getSchema().getClass("ORestricted"));
-      clazz.addSuperClass(db, db.getMetadata().getSchema().getClass("OIdentity"));
+      clazz.addSuperClass(db.getMetadata().getSchema().getClass("ORestricted"));
+      clazz.addSuperClass(db.getMetadata().getSchema().getClass("OIdentity"));
 
       var exp = new DatabaseExport(db, output, new MockOutputListener());
       exp.exportDatabase();
@@ -136,9 +136,10 @@ public class TestSchemaImportExport extends DbTestBase {
           new DatabaseImport(
               sessionOne, new ByteArrayInputStream(output.toByteArray()), new MockOutputListener());
       imp.importDatabase();
+
       var clas1 = sessionOne.getMetadata().getSchema().getClass("Test");
-      Assert.assertTrue(clas1.isSubClassOf(sessionOne, "OIdentity"));
-      Assert.assertTrue(clas1.isSubClassOf(sessionOne, "ORestricted"));
+      Assert.assertTrue(clas1.isSubClassOf("OIdentity"));
+      Assert.assertTrue(clas1.isSubClassOf("ORestricted"));
     } finally {
       context.drop("imp_" + TestSchemaImportExport.class.getSimpleName());
     }

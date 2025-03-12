@@ -226,28 +226,28 @@ public class Role extends IdentityWrapper implements SecurityRole {
     var schema = session.getMetadata().getSchema();
     final var roleClass = schema.getClassInternal(CLASS_NAME);
 
-    final var rules = roleClass.getProperty(session, RULES);
+    final var rules = roleClass.getProperty(RULES);
     if (rules == null) {
-      roleClass.createProperty(session, RULES, PropertyType.EMBEDDEDSET);
+      roleClass.createProperty(RULES, PropertyType.EMBEDDEDSET);
     }
 
-    if (!roleClass.existsProperty(session, INHERITED_ROLE)) {
-      roleClass.createProperty(session, INHERITED_ROLE, PropertyType.LINK, roleClass);
+    if (!roleClass.existsProperty(INHERITED_ROLE)) {
+      roleClass.createProperty(INHERITED_ROLE, PropertyType.LINK, roleClass);
     }
 
-    p = roleClass.getProperty(session, NAME);
+    p = roleClass.getProperty(NAME);
     if (p == null) {
-      p = roleClass.createProperty(session, NAME, PropertyType.STRING).
-          setMandatory(session, true)
-          .setNotNull(session, true);
+      p = roleClass.createProperty(NAME, PropertyType.STRING).
+          setMandatory(true)
+          .setNotNull(true);
     }
 
     if (roleClass.getInvolvedIndexes(session, NAME) == null) {
-      p.createIndex(session, INDEX_TYPE.UNIQUE);
+      p.createIndex(INDEX_TYPE.UNIQUE);
     }
 
-    if (!roleClass.existsProperty(session, POLICIES)) {
-      roleClass.createProperty(session, POLICIES, PropertyType.LINKMAP,
+    if (!roleClass.existsProperty(POLICIES)) {
+      roleClass.createProperty(POLICIES, PropertyType.LINKMAP,
           schema.getClass(SecurityPolicy.CLASS_NAME));
     }
   }

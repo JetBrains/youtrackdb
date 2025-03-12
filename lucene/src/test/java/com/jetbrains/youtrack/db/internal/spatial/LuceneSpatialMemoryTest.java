@@ -36,8 +36,8 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
   @Test
   public void boundingBoxTest() {
     var point = session.getMetadata().getSchema().createClass("Point");
-    point.createProperty(session, "latitude", PropertyType.DOUBLE);
-    point.createProperty(session, "longitude", PropertyType.DOUBLE);
+    point.createProperty("latitude", PropertyType.DOUBLE);
+    point.createProperty("longitude", PropertyType.DOUBLE);
 
     session.command("CREATE INDEX Point.ll ON Point(latitude,longitude) SPATIAL ENGINE LUCENE")
         .close();
@@ -62,8 +62,8 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
   @Test
   public void boundingBoxTestTxRollBack() {
     var point = session.getMetadata().getSchema().createClass("Point");
-    point.createProperty(session, "latitude", PropertyType.DOUBLE);
-    point.createProperty(session, "longitude", PropertyType.DOUBLE);
+    point.createProperty("latitude", PropertyType.DOUBLE);
+    point.createProperty("longitude", PropertyType.DOUBLE);
 
     session.command("CREATE INDEX Point.ll ON Point(latitude,longitude) SPATIAL ENGINE LUCENE")
         .close();
@@ -132,8 +132,8 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
   @Test
   public void boundingBoxTestTxCommit() {
     var point = session.getMetadata().getSchema().createClass("Point");
-    point.createProperty(session, "latitude", PropertyType.DOUBLE);
-    point.createProperty(session, "longitude", PropertyType.DOUBLE);
+    point.createProperty("latitude", PropertyType.DOUBLE);
+    point.createProperty("longitude", PropertyType.DOUBLE);
 
     session.command("CREATE INDEX Point.ll ON Point(latitude,longitude) SPATIAL ENGINE LUCENE")
         .close();

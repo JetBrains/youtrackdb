@@ -54,44 +54,44 @@ public class ClassIndexTest extends BaseDBTest {
     oClass = (SchemaClassInternal) schema.createClass("ClassIndexTestClass");
     oSuperClass = (SchemaClassInternal) schema.createClass("ClassIndexTestSuperClass");
 
-    oClass.createProperty(session, "fOne", PropertyType.INTEGER);
-    oClass.createProperty(session, "fTwo", PropertyType.STRING);
-    oClass.createProperty(session, "fThree", PropertyType.BOOLEAN);
-    oClass.createProperty(session, "fFour", PropertyType.INTEGER);
+    oClass.createProperty("fOne", PropertyType.INTEGER);
+    oClass.createProperty("fTwo", PropertyType.STRING);
+    oClass.createProperty("fThree", PropertyType.BOOLEAN);
+    oClass.createProperty("fFour", PropertyType.INTEGER);
 
-    oClass.createProperty(session, "fSix", PropertyType.STRING);
-    oClass.createProperty(session, "fSeven", PropertyType.STRING);
+    oClass.createProperty("fSix", PropertyType.STRING);
+    oClass.createProperty("fSeven", PropertyType.STRING);
 
-    oClass.createProperty(session, "fEight", PropertyType.INTEGER);
-    oClass.createProperty(session, "fTen", PropertyType.INTEGER);
-    oClass.createProperty(session, "fEleven", PropertyType.INTEGER);
-    oClass.createProperty(session, "fTwelve", PropertyType.INTEGER);
-    oClass.createProperty(session, "fThirteen", PropertyType.INTEGER);
-    oClass.createProperty(session, "fFourteen", PropertyType.INTEGER);
-    oClass.createProperty(session, "fFifteen", PropertyType.INTEGER);
+    oClass.createProperty("fEight", PropertyType.INTEGER);
+    oClass.createProperty("fTen", PropertyType.INTEGER);
+    oClass.createProperty("fEleven", PropertyType.INTEGER);
+    oClass.createProperty("fTwelve", PropertyType.INTEGER);
+    oClass.createProperty("fThirteen", PropertyType.INTEGER);
+    oClass.createProperty("fFourteen", PropertyType.INTEGER);
+    oClass.createProperty("fFifteen", PropertyType.INTEGER);
 
-    oClass.createProperty(session, "fEmbeddedMap", PropertyType.EMBEDDEDMAP, PropertyType.INTEGER);
-    oClass.createProperty(session, "fEmbeddedMapWithoutLinkedType", PropertyType.EMBEDDEDMAP);
-    oClass.createProperty(session, "fLinkMap", PropertyType.LINKMAP);
+    oClass.createProperty("fEmbeddedMap", PropertyType.EMBEDDEDMAP, PropertyType.INTEGER);
+    oClass.createProperty("fEmbeddedMapWithoutLinkedType", PropertyType.EMBEDDEDMAP);
+    oClass.createProperty("fLinkMap", PropertyType.LINKMAP);
 
-    oClass.createProperty(session, "fLinkList", PropertyType.LINKLIST);
-    oClass.createProperty(session, "fEmbeddedList", PropertyType.EMBEDDEDLIST,
+    oClass.createProperty("fLinkList", PropertyType.LINKLIST);
+    oClass.createProperty("fEmbeddedList", PropertyType.EMBEDDEDLIST,
         PropertyType.INTEGER);
 
-    oClass.createProperty(session, "fEmbeddedSet", PropertyType.EMBEDDEDSET, PropertyType.INTEGER);
-    oClass.createProperty(session, "fLinkSet", PropertyType.LINKSET);
+    oClass.createProperty("fEmbeddedSet", PropertyType.EMBEDDEDSET, PropertyType.INTEGER);
+    oClass.createProperty("fLinkSet", PropertyType.LINKSET);
 
-    oClass.createProperty(session, "fRidBag", PropertyType.LINKBAG);
+    oClass.createProperty("fRidBag", PropertyType.LINKBAG);
 
-    oSuperClass.createProperty(session, "fNine", PropertyType.INTEGER);
-    oClass.setSuperClass(session, oSuperClass);
+    oSuperClass.createProperty("fNine", PropertyType.INTEGER);
+    oClass.addSuperClass(oSuperClass);
 
     session.close();
   }
 
   @Test
   public void testCreateOnePropertyIndexTest() {
-    oClass.createIndex(session,
+    oClass.createIndex(
         "ClassIndexTestPropertyOne",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
@@ -108,7 +108,7 @@ public class ClassIndexTest extends BaseDBTest {
   @Test
   public void testCreateOnePropertyIndexInvalidName() {
     try {
-      oClass.createIndex(session,
+      oClass.createIndex(
           "ClassIndex:TestPropertyOne",
           SchemaClass.INDEX_TYPE.UNIQUE.toString(),
           null,
@@ -129,7 +129,7 @@ public class ClassIndexTest extends BaseDBTest {
 
   @Test
   public void createCompositeIndexTestWithoutListener() {
-    oClass.createIndex(session,
+    oClass.createIndex(
         "ClassIndexTestCompositeOne",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
@@ -166,7 +166,7 @@ public class ClassIndexTest extends BaseDBTest {
           }
         };
 
-    oClass.createIndex(session,
+    oClass.createIndex(
         "ClassIndexTestCompositeTwo",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         progressListener,
@@ -184,7 +184,7 @@ public class ClassIndexTest extends BaseDBTest {
 
   @Test
   public void testCreateOnePropertyEmbeddedMapIndex() {
-    oClass.createIndex(session,
+    oClass.createIndex(
         "ClassIndexTestPropertyEmbeddedMap",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
@@ -214,7 +214,7 @@ public class ClassIndexTest extends BaseDBTest {
 
   @Test
   public void testCreateCompositeEmbeddedMapIndex() {
-    oClass.createIndex(session,
+    oClass.createIndex(
         "ClassIndexTestCompositeEmbeddedMap",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
@@ -242,7 +242,7 @@ public class ClassIndexTest extends BaseDBTest {
 
   @Test
   public void testCreateCompositeEmbeddedMapByKeyIndex() {
-    oClass.createIndex(session,
+    oClass.createIndex(
         "ClassIndexTestCompositeEmbeddedMapByKey",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
@@ -274,7 +274,7 @@ public class ClassIndexTest extends BaseDBTest {
 
   @Test
   public void testCreateCompositeEmbeddedMapByValueIndex() {
-    oClass.createIndex(session,
+    oClass.createIndex(
         "ClassIndexTestCompositeEmbeddedMapByValue",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
@@ -306,7 +306,7 @@ public class ClassIndexTest extends BaseDBTest {
 
   @Test
   public void testCreateCompositeLinkMapByValueIndex() {
-    oClass.createIndex(session,
+    oClass.createIndex(
         "ClassIndexTestCompositeLinkMapByValue",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
@@ -337,7 +337,7 @@ public class ClassIndexTest extends BaseDBTest {
 
   @Test
   public void testCreateCompositeEmbeddedSetIndex() {
-    oClass.createIndex(session,
+    oClass.createIndex(
         "ClassIndexTestCompositeEmbeddedSet",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
@@ -369,7 +369,7 @@ public class ClassIndexTest extends BaseDBTest {
   @Test(dependsOnMethods = "testGetIndexes")
   public void testCreateCompositeLinkSetIndex() {
     var indexName = "ClassIndexTestCompositeLinkSet";
-    oClass.createIndex(session,
+    oClass.createIndex(
         "ClassIndexTestCompositeLinkSet",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
@@ -401,7 +401,7 @@ public class ClassIndexTest extends BaseDBTest {
   @Test
   public void testCreateCompositeEmbeddedListIndex() {
     var indexName = "ClassIndexTestCompositeEmbeddedList";
-    oClass.createIndex(session,
+    oClass.createIndex(
         indexName,
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
@@ -433,7 +433,7 @@ public class ClassIndexTest extends BaseDBTest {
 
   public void testCreateCompositeLinkListIndex() {
     var indexName = "ClassIndexTestCompositeLinkList";
-    oClass.createIndex(session,
+    oClass.createIndex(
         indexName,
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
@@ -463,7 +463,7 @@ public class ClassIndexTest extends BaseDBTest {
 
   public void testCreateCompositeRidBagIndex() {
     var indexName = "ClassIndexTestCompositeRidBag";
-    oClass.createIndex(session,
+    oClass.createIndex(
         indexName,
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
@@ -493,7 +493,7 @@ public class ClassIndexTest extends BaseDBTest {
   @Test
   public void testCreateOnePropertyLinkedMapIndex() {
     var indexName = "ClassIndexTestPropertyLinkedMap";
-    oClass.createIndex(session,
+    oClass.createIndex(
         indexName,
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
@@ -523,7 +523,7 @@ public class ClassIndexTest extends BaseDBTest {
   @Test
   public void testCreateOnePropertyLinkMapByKeyIndex() {
     var indexName = "ClassIndexTestPropertyLinkedMapByKey";
-    oClass.createIndex(session,
+    oClass.createIndex(
         indexName,
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
@@ -553,7 +553,7 @@ public class ClassIndexTest extends BaseDBTest {
   @Test
   public void testCreateOnePropertyLinkMapByValueIndex() {
     var indexName = "ClassIndexTestPropertyLinkedMapByValue";
-    oClass.createIndex(session,
+    oClass.createIndex(
         indexName,
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
@@ -584,7 +584,7 @@ public class ClassIndexTest extends BaseDBTest {
   @Test
   public void testCreateOnePropertyByKeyEmbeddedMapIndex() {
     var indexName = "ClassIndexTestPropertyByKeyEmbeddedMap";
-    oClass.createIndex(session,
+    oClass.createIndex(
         indexName,
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
@@ -616,7 +616,7 @@ public class ClassIndexTest extends BaseDBTest {
   @Test
   public void testCreateOnePropertyByValueEmbeddedMapIndex() {
     var indexName = "ClassIndexTestPropertyByValueEmbeddedMap";
-    oClass.createIndex(session,
+    oClass.createIndex(
         indexName,
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
@@ -649,7 +649,7 @@ public class ClassIndexTest extends BaseDBTest {
   public void testCreateOnePropertyWrongSpecifierEmbeddedMapIndexOne() {
     var exceptionIsThrown = false;
     try {
-      oClass.createIndex(session,
+      oClass.createIndex(
           "ClassIndexTestPropertyWrongSpecifierEmbeddedMap",
           SchemaClass.INDEX_TYPE.UNIQUE.toString(),
           null,
@@ -671,7 +671,7 @@ public class ClassIndexTest extends BaseDBTest {
   public void testCreateOnePropertyWrongSpecifierEmbeddedMapIndexTwo() {
     var exceptionIsThrown = false;
     try {
-      oClass.createIndex(session,
+      oClass.createIndex(
           "ClassIndexTestPropertyWrongSpecifierEmbeddedMap",
           SchemaClass.INDEX_TYPE.UNIQUE.toString(),
           null,
@@ -689,7 +689,7 @@ public class ClassIndexTest extends BaseDBTest {
   public void testCreateOnePropertyWrongSpecifierEmbeddedMapIndexThree() {
     var exceptionIsThrown = false;
     try {
-      oClass.createIndex(session,
+      oClass.createIndex(
           "ClassIndexTestPropertyWrongSpecifierEmbeddedMap",
           SchemaClass.INDEX_TYPE.UNIQUE.toString(),
           null,
@@ -890,8 +890,8 @@ public class ClassIndexTest extends BaseDBTest {
           "testCreateCompositeEmbeddedListIndex"
       })
   public void testAreIndexedPropertiesMoreThanNeeded() {
-    final var result = oClass.areIndexed(session,
-        Arrays.asList("fTwo", "fOne", "fThee", "fFour"));
+    final var result = oClass.areIndexed(
+        session, Arrays.asList("fTwo", "fOne", "fThee", "fFour"));
 
     assertFalse(result);
   }
@@ -1285,8 +1285,8 @@ public class ClassIndexTest extends BaseDBTest {
       })
   public void testGetInvolvedIndexesPropertiesMorThanNeeded() {
     final var result =
-        oClass.getClassInvolvedIndexesInternal(session,
-            Arrays.asList("fTwo", "fOne", "fThee", "fFour"));
+        oClass.getClassInvolvedIndexesInternal(
+            session, Arrays.asList("fTwo", "fOne", "fThee", "fFour"));
 
     assertEquals(result.size(), 0);
   }
@@ -1336,8 +1336,8 @@ public class ClassIndexTest extends BaseDBTest {
           "testCreateCompositeEmbeddedListIndex"
       })
   public void testGetClassInvolvedIndexesTwoProperties() {
-    final var result = oClass.getClassInvolvedIndexesInternal(session,
-        Arrays.asList("fTwo", "fOne"));
+    final var result = oClass.getClassInvolvedIndexesInternal(
+        session, Arrays.asList("fTwo", "fOne"));
     assertEquals(result.size(), 1);
 
     assertTrue(containsIndex(result, "ClassIndexTestCompositeOne"));
@@ -1388,8 +1388,8 @@ public class ClassIndexTest extends BaseDBTest {
           "testCreateCompositeEmbeddedListIndex"
       })
   public void testGetClassInvolvedIndexesNotInvolvedProperties() {
-    final var result = oClass.getClassInvolvedIndexesInternal(session,
-        Arrays.asList("fTwo", "fFour"));
+    final var result = oClass.getClassInvolvedIndexesInternal(
+        session, Arrays.asList("fTwo", "fFour"));
 
     assertEquals(result.size(), 0);
   }
@@ -1414,8 +1414,8 @@ public class ClassIndexTest extends BaseDBTest {
       })
   public void testGetClassInvolvedIndexesPropertiesMorThanNeeded() {
     final var result =
-        oClass.getClassInvolvedIndexesInternal(session,
-            Arrays.asList("fTwo", "fOne", "fThee", "fFour"));
+        oClass.getClassInvolvedIndexesInternal(
+            session, Arrays.asList("fTwo", "fOne", "fThee", "fFour"));
 
     assertEquals(result.size(), 0);
   }
@@ -1614,8 +1614,8 @@ public class ClassIndexTest extends BaseDBTest {
           "testCreateCompositeEmbeddedListIndex"
       })
   public void testGetInvolvedIndexesTwoProperties() {
-    final var result = oClass.getInvolvedIndexesInternal(session,
-        Arrays.asList("fTwo", "fOne"));
+    final var result = oClass.getInvolvedIndexesInternal(
+        session, Arrays.asList("fTwo", "fOne"));
     assertEquals(result.size(), 1);
 
     assertTrue(containsIndex(result, "ClassIndexTestCompositeOne"));
@@ -1640,8 +1640,8 @@ public class ClassIndexTest extends BaseDBTest {
           "testCreateCompositeEmbeddedListIndex"
       })
   public void testGetInvolvedIndexesThreeProperties() {
-    final var result = oClass.getInvolvedIndexesInternal(session,
-        Arrays.asList("fTwo", "fOne", "fThree"));
+    final var result = oClass.getInvolvedIndexesInternal(
+        session, Arrays.asList("fTwo", "fOne", "fThree"));
 
     assertEquals(result.size(), 1);
     assertEquals(result.iterator().next().getName(), "ClassIndexTestCompositeTwo");
@@ -1666,8 +1666,8 @@ public class ClassIndexTest extends BaseDBTest {
           "testCreateCompositeEmbeddedListIndex"
       })
   public void testGetInvolvedIndexesNotInvolvedProperties() {
-    final var result = oClass.getInvolvedIndexesInternal(session,
-        Arrays.asList("fTwo", "fFour"));
+    final var result = oClass.getInvolvedIndexesInternal(
+        session, Arrays.asList("fTwo", "fFour"));
 
     assertEquals(result.size(), 0);
   }
@@ -1716,8 +1716,8 @@ public class ClassIndexTest extends BaseDBTest {
           "testCreateCompositeEmbeddedListIndex"
       })
   public void testGetParentChildInvolvedIndexes() {
-    final var result = oClass.getInvolvedIndexesInternal(session,
-        Arrays.asList("fOne", "fNine"));
+    final var result = oClass.getInvolvedIndexesInternal(
+        session, Arrays.asList("fOne", "fNine"));
 
     assertEquals(result.size(), 0);
   }
@@ -1743,7 +1743,7 @@ public class ClassIndexTest extends BaseDBTest {
           "testCreateCompositeRidBagIndex"
       })
   public void testGetClassIndexes() {
-    final var indexes = oClass.getClassIndexesInternal(session);
+    final var indexes = oClass.getClassIndexesInternal();
     final Set<IndexDefinition> expectedIndexDefinitions = new HashSet<>();
 
     final var compositeIndexOne =
@@ -1921,7 +1921,7 @@ public class ClassIndexTest extends BaseDBTest {
           "testCreateCompositeRidBagIndex"
       })
   public void testGetIndexes() {
-    final var indexes = oClass.getIndexesInternal(session);
+    final var indexes = oClass.getIndexesInternal();
     final Set<IndexDefinition> expectedIndexDefinitions = new HashSet<>();
 
     final var compositeIndexOne =
@@ -2085,10 +2085,10 @@ public class ClassIndexTest extends BaseDBTest {
   public void testGetIndexesWithoutParent() {
     final var inClass = (SchemaClassInternal) session.getMetadata().getSchema()
         .createClass("ClassIndexInTest");
-    inClass.createProperty(session, "fOne", PropertyType.INTEGER);
+    inClass.createProperty("fOne", PropertyType.INTEGER);
 
     var indexName = "ClassIndexInTestPropertyOne";
-    inClass.createIndex(session,
+    inClass.createIndex(
         indexName,
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
@@ -2097,7 +2097,7 @@ public class ClassIndexTest extends BaseDBTest {
     assertEquals(inClass.getClassIndex(session, indexName).getName(),
         indexName);
 
-    final var indexes = inClass.getIndexesInternal(session);
+    final var indexes = inClass.getIndexesInternal();
     final var propertyIndexDefinition =
         new PropertyIndexDefinition("ClassIndexInTest", "fOne", PropertyType.INTEGER);
 
@@ -2108,12 +2108,12 @@ public class ClassIndexTest extends BaseDBTest {
 
   @Test(expectedExceptions = IndexException.class)
   public void testCreateIndexEmptyFields() {
-    oClass.createIndex(session, "ClassIndexTestCompositeEmpty", SchemaClass.INDEX_TYPE.UNIQUE);
+    oClass.createIndex("ClassIndexTestCompositeEmpty", SchemaClass.INDEX_TYPE.UNIQUE);
   }
 
   @Test(expectedExceptions = IndexException.class)
   public void testCreateIndexAbsentFields() {
-    oClass.createIndex(session,
+    oClass.createIndex(
         "ClassIndexTestCompositeFieldAbsent",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
@@ -2122,7 +2122,7 @@ public class ClassIndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testGetInvolvedIndexesOnePropertyArrayParams")
   public void testCreateNotUniqueIndex() {
-    oClass.createIndex(session, "ClassIndexTestNotUniqueIndex",
+    oClass.createIndex("ClassIndexTestNotUniqueIndex",
         SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "fOne");
 
@@ -2135,7 +2135,7 @@ public class ClassIndexTest extends BaseDBTest {
   @Test
   public void testCreateMapWithoutLinkedType() {
     try {
-      oClass.createIndex(session,
+      oClass.createIndex(
           "ClassIndexMapWithoutLinkedTypeIndex",
           SchemaClass.INDEX_TYPE.NOTUNIQUE, "fEmbeddedMapWithoutLinkedType by value");
       fail();
@@ -2149,7 +2149,7 @@ public class ClassIndexTest extends BaseDBTest {
   }
 
   public void createParentPropertyIndex() {
-    oSuperClass.createIndex(session,
+    oSuperClass.createIndex(
         "ClassIndexTestParentPropertyNine",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
@@ -2172,10 +2172,10 @@ public class ClassIndexTest extends BaseDBTest {
 
   @Test
   public void testDropProperty() throws Exception {
-    oClass.createProperty(session, "fFive", PropertyType.INTEGER);
+    oClass.createProperty("fFive", PropertyType.INTEGER);
 
-    oClass.dropProperty(session, "fFive");
+    oClass.dropProperty("fFive");
 
-    assertNull(oClass.getProperty(session, "fFive"));
+    assertNull(oClass.getProperty("fFive"));
   }
 }

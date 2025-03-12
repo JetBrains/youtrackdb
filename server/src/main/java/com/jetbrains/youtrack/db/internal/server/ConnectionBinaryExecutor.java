@@ -24,8 +24,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransaction
 import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryProtocolHelper;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CeilingPhysicalPositionsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CeilingPhysicalPositionsResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CleanOutRecordRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CleanOutRecordResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseQueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseQueryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseRequest;
@@ -59,8 +57,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.FloorPhysicalPos
 import com.jetbrains.youtrack.db.internal.client.remote.message.FloorPhysicalPositionsResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FreezeDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FreezeDatabaseResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.GetClusterDataRangeRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.GetClusterDataRangeResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.GetGlobalConfigurationRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.GetGlobalConfigurationResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.GetRecordMetadataRequest;
@@ -266,7 +262,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
       throw new DatabaseException(
           "Database named '" + request.getDatabaseName() + "' already exists");
     }
-    if (request.getBackupPath() != null && !"".equals(request.getBackupPath().trim())) {
+    if (request.getBackupPath() != null && !request.getBackupPath().trim().isEmpty()) {
       server.restore(request.getDatabaseName(), request.getBackupPath());
     } else {
       server.createDatabase(
@@ -331,12 +327,6 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
             .getDatabaseSession()
             .countClusterElements(request.getClusterIds(), request.isCountTombstones());
     return new CountResponse(count);
-  }
-
-  @Override
-  public BinaryResponse executeClusterDataRange(GetClusterDataRangeRequest request) {
-    final var pos = connection.getDatabaseSession().getClusterDataRange(request.getClusterId());
-    return new GetClusterDataRangeResponse(pos);
   }
 
   @Override
@@ -450,7 +440,8 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     var nextPositions =
         db
             .getStorage()
-            .higherPhysicalPositions(db, request.getClusterId(), request.getClusterPosition());
+            .higherPhysicalPositions(db, request.getClusterId(), request.getClusterPosition(),
+                request.getLimit());
     return new HigherPhysicalPositionsResponse(nextPositions);
   }
 
@@ -459,7 +450,8 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     var db = connection.getDatabaseSession();
     final var previousPositions =
         db.getStorage()
-            .ceilingPhysicalPositions(db, request.getClusterId(), request.getPhysicalPosition());
+            .ceilingPhysicalPositions(db, request.getClusterId(), request.getPhysicalPosition(),
+                request.getLimit());
     return new CeilingPhysicalPositionsResponse(previousPositions);
   }
 
@@ -469,7 +461,8 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     final var previousPositions =
         db
             .getStorage()
-            .lowerPhysicalPositions(db, request.getiClusterId(), request.getPhysicalPosition());
+            .lowerPhysicalPositions(db, request.getiClusterId(), request.getPhysicalPosition(),
+                request.getLimit());
     return new LowerPhysicalPositionsResponse(previousPositions);
   }
 
@@ -479,7 +472,8 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     final var previousPositions =
         db
             .getStorage()
-            .floorPhysicalPositions(db, request.getClusterId(), request.getPhysicalPosition());
+            .floorPhysicalPositions(db, request.getClusterId(), request.getPhysicalPosition(),
+                request.getLimit());
     return new FloorPhysicalPositionsResponse(previousPositions);
   }
 
@@ -612,7 +606,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
               : e;
         }
         final var collectionManager =
-            connection.getDatabaseSession().getSbTreeCollectionManager();
+            connection.getDatabaseSession().getBTreeCollectionManager();
         Map<UUID, BonsaiCollectionPointer> changedIds = null;
         if (collectionManager != null) {
           changedIds = collectionManager.changedIds(session);
@@ -625,7 +619,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
         }
 
         final var collectionManager =
-            connection.getDatabaseSession().getSbTreeCollectionManager();
+            connection.getDatabaseSession().getBTreeCollectionManager();
         if (collectionManager != null) {
           collectionManager.clearChangedIds(session);
         }
@@ -708,17 +702,6 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
   }
 
   @Override
-  public BinaryResponse executeCleanOutRecord(CleanOutRecordRequest request) {
-    connection.getDatabaseSession()
-        .cleanOutRecord(request.getRecordId(), request.getRecordVersion());
-
-    if (request.getMode() < 2) {
-      return new CleanOutRecordResponse(true);
-    }
-    return null;
-  }
-
-  @Override
   public BinaryResponse executeSBTreeCreate(SBTCreateTreeRequest request) {
     BonsaiCollectionPointer collectionPointer = null;
     final var session = connection.getDatabaseSession();
@@ -731,7 +714,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
               atomicOperation ->
                   connection
                       .getDatabaseSession()
-                      .getSbTreeCollectionManager()
+                      .getBTreeCollectionManager()
                       .createSBTree(request.getClusterId(), atomicOperation, null, session));
     } catch (IOException e) {
       throw BaseException.wrapException(
@@ -744,7 +727,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
   @Override
   public BinaryResponse executeSBTGet(SBTGetRequest request) {
     var session = connection.getDatabaseSession();
-    final var bTreeCollectionManager = session.getSbTreeCollectionManager();
+    final var bTreeCollectionManager = session.getBTreeCollectionManager();
     final var tree =
         bTreeCollectionManager.loadSBTree(request.getCollectionPointer());
     var serializerFactory = session.getSerializerFactory();
@@ -773,7 +756,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
   public BinaryResponse executeSBTFirstKey(SBTFirstKeyRequest request) {
 
     final var bTreeCollectionManager =
-        connection.getDatabaseSession().getSbTreeCollectionManager();
+        connection.getDatabaseSession().getBTreeCollectionManager();
     final var tree =
         bTreeCollectionManager.loadSBTree(request.getCollectionPointer());
     byte[] stream;
@@ -803,7 +786,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
       @SuppressWarnings("rawtypes") SBTFetchEntriesMajorRequest request) {
 
     var session = connection.getDatabaseSession();
-    final var bTreeCollectionManager = session.getSbTreeCollectionManager();
+    final var bTreeCollectionManager = session.getBTreeCollectionManager();
     final var tree =
         bTreeCollectionManager.loadSBTree(request.getPointer());
     try {
@@ -1445,7 +1428,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
               : e;
         }
         final var collectionManager =
-            connection.getDatabaseSession().getSbTreeCollectionManager();
+            connection.getDatabaseSession().getBTreeCollectionManager();
         Map<UUID, BonsaiCollectionPointer> changedIds = null;
 
         if (collectionManager != null) {
@@ -1460,7 +1443,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
         }
 
         final var collectionManager =
-            connection.getDatabaseSession().getSbTreeCollectionManager();
+            connection.getDatabaseSession().getBTreeCollectionManager();
         if (collectionManager != null) {
           collectionManager.clearChangedIds(session);
         }
@@ -1519,7 +1502,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
               : e;
         }
         final var collectionManager =
-            connection.getDatabaseSession().getSbTreeCollectionManager();
+            connection.getDatabaseSession().getBTreeCollectionManager();
         Map<UUID, BonsaiCollectionPointer> changedIds = null;
 
         if (collectionManager != null) {
@@ -1534,7 +1517,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
         }
 
         final var collectionManager =
-            connection.getDatabaseSession().getSbTreeCollectionManager();
+            connection.getDatabaseSession().getBTreeCollectionManager();
         if (collectionManager != null) {
           collectionManager.clearChangedIds(session);
         }

@@ -143,10 +143,10 @@ public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerA
       json.beginCollection(session, 1, false, "classes");
       Set<String> exportedNames = new HashSet<String>();
       for (var cls : session.getMetadata().getSchema().getClasses()) {
-        if (!exportedNames.contains(cls.getName(session))) {
+        if (!exportedNames.contains(cls.getName())) {
           try {
             exportClass(session, json, (SchemaClassInternal) cls);
-            exportedNames.add(cls.getName(session));
+            exportedNames.add(cls.getName());
           } catch (Exception e) {
             LogManager.instance().error(this, "Error on exporting class '" + cls + "'", e);
           }
@@ -283,45 +283,46 @@ public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerA
       final DatabaseSessionInternal session, final JSONWriter json, final SchemaClassInternal cls)
       throws IOException {
     json.beginObject(2, true, null);
-    json.writeAttribute(session, 3, true, "name", cls.getName(session));
-    json.writeAttribute(session,
-        3, true, "superClass",
-        cls.getSuperClass(session) != null ? cls.getSuperClass(session).getName(session) : "");
-    json.writeAttribute(session, 3, true, "alias", cls.getShortName(session));
-    json.writeAttribute(session, 3, true, "clusters", cls.getClusterIds(session));
-    json.writeAttribute(session, 3, true, "clusterSelection",
-        cls.getClusterSelectionStrategyName(session));
+    json.writeAttribute(session, 3, true, "name", cls.getName());
+    json.beginCollection(session, "superClasses");
+    var i = 0;
+    for (var oClass : cls.getSuperClasses()) {
+      json.write((i > 0 ? "," : "") + "\"" + oClass.getName() + "\"");
+      i++;
+    }
+    json.endCollection();
+    json.writeAttribute(session, 3, true, "clusters", cls.getClusterIds());
     try {
-      json.writeAttribute(session, 3, false, "records", session.countClass(cls.getName(session)));
+      json.writeAttribute(session, 3, false, "records", session.countClass(cls.getName()));
     } catch (SecurityAccessException e) {
       json.writeAttribute(session, 3, false, "records", "? (Unauthorized)");
     }
 
-    if (cls.properties(session) != null && cls.properties(session).size() > 0) {
+    if (cls.properties() != null && !cls.properties().isEmpty()) {
       json.beginCollection(session, 3, true, "properties");
-      for (final var prop : cls.properties(session)) {
+      for (final var prop : cls.properties()) {
         json.beginObject(4, true, null);
-        json.writeAttribute(session, 4, true, "name", prop.getName(session));
-        if (prop.getLinkedClass(session) != null) {
+        json.writeAttribute(session, 4, true, "name", prop.getName());
+        if (prop.getLinkedClass() != null) {
           json.writeAttribute(session, 4, true, "linkedClass",
-              prop.getLinkedClass(session).getName(session));
+              prop.getLinkedClass().getName());
         }
-        if (prop.getLinkedType(session) != null) {
+        if (prop.getLinkedType() != null) {
           json.writeAttribute(session, 4, true, "linkedType",
-              prop.getLinkedType(session).toString());
+              prop.getLinkedType().toString());
         }
-        json.writeAttribute(session, 4, true, "type", prop.getType(session).toString());
-        json.writeAttribute(session, 4, true, "mandatory", prop.isMandatory(session));
-        json.writeAttribute(session, 4, true, "readonly", prop.isReadonly(session));
-        json.writeAttribute(session, 4, true, "notNull", prop.isNotNull(session));
-        json.writeAttribute(session, 4, true, "min", prop.getMin(session));
-        json.writeAttribute(session, 4, true, "max", prop.getMax(session));
+        json.writeAttribute(session, 4, true, "type", prop.getType().toString());
+        json.writeAttribute(session, 4, true, "mandatory", prop.isMandatory());
+        json.writeAttribute(session, 4, true, "readonly", prop.isReadonly());
+        json.writeAttribute(session, 4, true, "notNull", prop.isNotNull());
+        json.writeAttribute(session, 4, true, "min", prop.getMin());
+        json.writeAttribute(session, 4, true, "max", prop.getMax());
         json.endObject(3, true);
       }
       json.endCollection(1, true);
     }
 
-    final var indexes = cls.getIndexesInternal(session);
+    final var indexes = cls.getIndexesInternal();
     if (!indexes.isEmpty()) {
       json.beginCollection(session, 3, true, "indexes");
       for (final var index : indexes) {

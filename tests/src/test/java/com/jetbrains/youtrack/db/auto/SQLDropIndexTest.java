@@ -41,8 +41,8 @@ public class SQLDropIndexTest extends BaseDBTest {
 
     final Schema schema = session.getMetadata().getSchema();
     final var oClass = schema.createClass("SQLDropIndexTestClass");
-    oClass.createProperty(session, "prop1", EXPECTED_PROP1_TYPE);
-    oClass.createProperty(session, "prop2", EXPECTED_PROP2_TYPE);
+    oClass.createProperty("prop1", EXPECTED_PROP1_TYPE);
+    oClass.createProperty("prop2", EXPECTED_PROP2_TYPE);
   }
 
   @AfterClass

@@ -38,10 +38,10 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
   public void init() {
 
     final var c1 = session.createVertexClass("Foo");
-    c1.createProperty(session, "name", PropertyType.STRING);
-    c1.createProperty(session, "bar", PropertyType.STRING);
-    c1.createIndex(session, "Foo.bar", "FULLTEXT", null, null, "LUCENE", new String[]{"bar"});
-    c1.createIndex(session, "Foo.name", "NOTUNIQUE", null, null, "SBTREE", new String[]{"name"});
+    c1.createProperty("name", PropertyType.STRING);
+    c1.createProperty("bar", PropertyType.STRING);
+    c1.createIndex("Foo.bar", "FULLTEXT", null, null, "LUCENE", new String[]{"bar"});
+    c1.createIndex("Foo.name", "NOTUNIQUE", null, null, "SBTREE", new String[]{"name"});
   }
 
   @Test
@@ -110,7 +110,7 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
 
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Foo.bar");
     var c1 = session.getMetadata().getSchema().getClassInternal("Foo");
-    c1.truncate(session);
+    c1.truncate();
 
     session.begin();
     Assert.assertEquals(0, index.getInternal().size(session));
@@ -170,7 +170,7 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
 
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Foo.bar");
     var c1 = session.getMetadata().getSchema().getClassInternal("Foo");
-    c1.truncate(session);
+    c1.truncate();
 
     session.begin();
     Assert.assertEquals(0, index.getInternal().size(session));

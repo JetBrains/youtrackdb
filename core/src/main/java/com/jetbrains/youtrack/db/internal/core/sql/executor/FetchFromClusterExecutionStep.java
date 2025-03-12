@@ -11,6 +11,7 @@ import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLGeOperator;
@@ -51,88 +52,21 @@ public class FetchFromClusterExecutionStep extends AbstractExecutionStep {
     if (prev != null) {
       prev.start(ctx).close(ctx);
     }
-    var minClusterPosition = calculateMinClusterPosition();
-    var maxClusterPosition = calculateMaxClusterPosition();
-    var iterator =
-        new RecordIteratorCluster<DBRecord>(
-            ctx.getDatabaseSession(), clusterId, minClusterPosition, maxClusterPosition);
-    Iterator<DBRecord> iter;
+
+    Iterator<RecordAbstract> iter;
     if (ORDER_DESC.equals(order)) {
-      iter = iterator.reversed();
+      iter = new RecordIteratorCluster<>(
+          ctx.getDatabaseSession(), clusterId, false);
     } else {
-      iter = iterator;
+      iter = new RecordIteratorCluster<>(
+          ctx.getDatabaseSession(), clusterId, true);
+      ;
     }
 
     var set = ExecutionStream.loadIterator(iter);
 
     set = set.interruptable();
     return set;
-  }
-
-  private long calculateMinClusterPosition() {
-    if (queryPlanning == null
-        || queryPlanning.ridRangeConditions == null
-        || queryPlanning.ridRangeConditions.isEmpty()) {
-      return -1;
-    }
-
-    long maxValue = -1;
-
-    for (var ridRangeCondition : queryPlanning.ridRangeConditions.getSubBlocks()) {
-      if (ridRangeCondition instanceof SQLBinaryCondition cond) {
-        var condRid = cond.getRight().getRid();
-        var operator = cond.getOperator();
-        if (condRid != null) {
-          if (condRid.getCluster().getValue().intValue() != this.clusterId) {
-            continue;
-          }
-          if (operator instanceof SQLGtOperator || operator instanceof SQLGeOperator) {
-            maxValue = Math.max(maxValue, condRid.getPosition().getValue().longValue());
-          }
-        }
-      }
-    }
-
-    return maxValue;
-  }
-
-  private long calculateMaxClusterPosition() {
-    if (queryPlanning == null
-        || queryPlanning.ridRangeConditions == null
-        || queryPlanning.ridRangeConditions.isEmpty()) {
-      return -1;
-    }
-    var minValue = Long.MAX_VALUE;
-
-    for (var ridRangeCondition : queryPlanning.ridRangeConditions.getSubBlocks()) {
-      if (ridRangeCondition instanceof SQLBinaryCondition cond) {
-        RID conditionRid;
-
-        Object obj;
-        if (cond.getRight().getRid() != null) {
-          obj =
-              ((SQLBinaryCondition) ridRangeCondition)
-                  .getRight()
-                  .getRid()
-                  .toRecordId((Result) null, ctx);
-        } else {
-          obj = ((SQLBinaryCondition) ridRangeCondition).getRight().execute((Result) null, ctx);
-        }
-
-        conditionRid = ((Identifiable) obj).getIdentity();
-        var operator = cond.getOperator();
-        if (conditionRid != null) {
-          if (conditionRid.getClusterId() != this.clusterId) {
-            continue;
-          }
-          if (operator instanceof SQLLtOperator || operator instanceof SQLLeOperator) {
-            minValue = Math.min(minValue, conditionRid.getClusterPosition());
-          }
-        }
-      }
-    }
-
-    return minValue == Long.MAX_VALUE ? -1 : minValue;
   }
 
   @Override

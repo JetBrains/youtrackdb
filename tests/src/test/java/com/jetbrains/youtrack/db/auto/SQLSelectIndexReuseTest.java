@@ -35,71 +35,71 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     final Schema schema = session.getMetadata().getSchema();
     final var oClass = schema.createClass("sqlSelectIndexReuseTestClass");
 
-    oClass.createProperty(session, "prop1", PropertyType.INTEGER);
-    oClass.createProperty(session, "prop2", PropertyType.INTEGER);
-    oClass.createProperty(session, "prop3", PropertyType.INTEGER);
-    oClass.createProperty(session, "prop4", PropertyType.INTEGER);
-    oClass.createProperty(session, "prop5", PropertyType.INTEGER);
-    oClass.createProperty(session, "prop6", PropertyType.INTEGER);
-    oClass.createProperty(session, "prop7", PropertyType.STRING);
-    oClass.createProperty(session, "prop8", PropertyType.INTEGER);
-    oClass.createProperty(session, "prop9", PropertyType.INTEGER);
+    oClass.createProperty("prop1", PropertyType.INTEGER);
+    oClass.createProperty("prop2", PropertyType.INTEGER);
+    oClass.createProperty("prop3", PropertyType.INTEGER);
+    oClass.createProperty("prop4", PropertyType.INTEGER);
+    oClass.createProperty("prop5", PropertyType.INTEGER);
+    oClass.createProperty("prop6", PropertyType.INTEGER);
+    oClass.createProperty("prop7", PropertyType.STRING);
+    oClass.createProperty("prop8", PropertyType.INTEGER);
+    oClass.createProperty("prop9", PropertyType.INTEGER);
 
-    oClass.createProperty(session, "fEmbeddedMap", PropertyType.EMBEDDEDMAP, PropertyType.INTEGER);
-    oClass.createProperty(session, "fEmbeddedMapTwo", PropertyType.EMBEDDEDMAP,
+    oClass.createProperty("fEmbeddedMap", PropertyType.EMBEDDEDMAP, PropertyType.INTEGER);
+    oClass.createProperty("fEmbeddedMapTwo", PropertyType.EMBEDDEDMAP,
         PropertyType.INTEGER);
 
-    oClass.createProperty(session, "fLinkMap", PropertyType.LINKMAP);
+    oClass.createProperty("fLinkMap", PropertyType.LINKMAP);
 
-    oClass.createProperty(session, "fEmbeddedList", PropertyType.EMBEDDEDLIST,
+    oClass.createProperty("fEmbeddedList", PropertyType.EMBEDDEDLIST,
         PropertyType.INTEGER);
-    oClass.createProperty(session, "fEmbeddedListTwo", PropertyType.EMBEDDEDLIST,
-        PropertyType.INTEGER);
-
-    oClass.createProperty(session, "fLinkList", PropertyType.LINKLIST);
-
-    oClass.createProperty(session, "fEmbeddedSet", PropertyType.EMBEDDEDSET, PropertyType.INTEGER);
-    oClass.createProperty(session, "fEmbeddedSetTwo", PropertyType.EMBEDDEDSET,
+    oClass.createProperty("fEmbeddedListTwo", PropertyType.EMBEDDEDLIST,
         PropertyType.INTEGER);
 
-    oClass.createIndex(session, "indexone", SchemaClass.INDEX_TYPE.UNIQUE, "prop1", "prop2");
-    oClass.createIndex(session, "indextwo", SchemaClass.INDEX_TYPE.UNIQUE, "prop3");
-    oClass.createIndex(session, "indexthree", SchemaClass.INDEX_TYPE.NOTUNIQUE, "prop1", "prop2",
+    oClass.createProperty("fLinkList", PropertyType.LINKLIST);
+
+    oClass.createProperty("fEmbeddedSet", PropertyType.EMBEDDEDSET, PropertyType.INTEGER);
+    oClass.createProperty("fEmbeddedSetTwo", PropertyType.EMBEDDEDSET,
+        PropertyType.INTEGER);
+
+    oClass.createIndex("indexone", SchemaClass.INDEX_TYPE.UNIQUE, "prop1", "prop2");
+    oClass.createIndex("indextwo", SchemaClass.INDEX_TYPE.UNIQUE, "prop3");
+    oClass.createIndex("indexthree", SchemaClass.INDEX_TYPE.NOTUNIQUE, "prop1", "prop2",
         "prop4");
-    oClass.createIndex(session, "indexfour", SchemaClass.INDEX_TYPE.NOTUNIQUE, "prop4", "prop1",
+    oClass.createIndex("indexfour", SchemaClass.INDEX_TYPE.NOTUNIQUE, "prop4", "prop1",
         "prop3");
-    oClass.createIndex(session, "indexfive", SchemaClass.INDEX_TYPE.NOTUNIQUE, "prop6", "prop1",
+    oClass.createIndex("indexfive", SchemaClass.INDEX_TYPE.NOTUNIQUE, "prop6", "prop1",
         "prop3");
 
-    oClass.createIndex(session,
+    oClass.createIndex(
         "sqlSelectIndexReuseTestEmbeddedMapByKey", SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "fEmbeddedMap");
-    oClass.createIndex(session,
+    oClass.createIndex(
         "sqlSelectIndexReuseTestEmbeddedMapByValue",
         SchemaClass.INDEX_TYPE.NOTUNIQUE, "fEmbeddedMap by value");
-    oClass.createIndex(session,
+    oClass.createIndex(
         "sqlSelectIndexReuseTestEmbeddedList", SchemaClass.INDEX_TYPE.NOTUNIQUE, "fEmbeddedList");
 
-    oClass.createIndex(session,
+    oClass.createIndex(
         "sqlSelectIndexReuseTestEmbeddedMapByKeyProp8",
         SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "fEmbeddedMapTwo", "prop8");
-    oClass.createIndex(session,
+    oClass.createIndex(
         "sqlSelectIndexReuseTestEmbeddedMapByValueProp8",
         SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "fEmbeddedMapTwo by value", "prop8");
 
-    oClass.createIndex(session,
+    oClass.createIndex(
         "sqlSelectIndexReuseTestEmbeddedSetProp8",
         SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "fEmbeddedSetTwo", "prop8");
-    oClass.createIndex(session,
+    oClass.createIndex(
         "sqlSelectIndexReuseTestProp9EmbeddedSetProp8",
         SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "prop9",
         "fEmbeddedSetTwo", "prop8");
 
-    oClass.createIndex(session,
+    oClass.createIndex(
         "sqlSelectIndexReuseTestEmbeddedListTwoProp8",
         SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "fEmbeddedListTwo", "prop8");
@@ -2883,11 +2883,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
   public void testReuseOfIndexOnSeveralClassesFields() {
     final Schema schema = session.getMetadata().getSchema();
     final var superClass = schema.createClass("sqlSelectIndexReuseTestSuperClass");
-    superClass.createProperty(session, "prop0", PropertyType.INTEGER);
+    superClass.createProperty("prop0", PropertyType.INTEGER);
     final var oClass = schema.createClass("sqlSelectIndexReuseTestChildClass", superClass);
-    oClass.createProperty(session, "prop1", PropertyType.INTEGER);
+    oClass.createProperty("prop1", PropertyType.INTEGER);
 
-    oClass.createIndex(session,
+    oClass.createIndex(
         "sqlSelectIndexReuseTestOnPropertiesFromClassAndSuperclass",
         SchemaClass.INDEX_TYPE.UNIQUE,
         "prop0", "prop1");
@@ -2931,9 +2931,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
   public void testCountFunctionWithNotUniqueIndex() {
     var klazz =
         session.getMetadata().getSchema().getOrCreateClass("CountFunctionWithNotUniqueIndexTest");
-    if (!klazz.existsProperty(session, "a")) {
-      klazz.createProperty(session, "a", PropertyType.STRING);
-      klazz.createIndex(session, "a", "NOTUNIQUE", "a");
+    if (!klazz.existsProperty("a")) {
+      klazz.createProperty("a", PropertyType.STRING);
+      klazz.createIndex("a", "NOTUNIQUE", "a");
     }
 
     session.begin();
@@ -2973,9 +2973,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
   public void testCountFunctionWithUniqueIndex() {
     var klazz =
         session.getMetadata().getSchema().getOrCreateClass("CountFunctionWithUniqueIndexTest");
-    if (!klazz.existsProperty(session, "a")) {
-      klazz.createProperty(session, "a", PropertyType.STRING);
-      klazz.createIndex(session, "testCountFunctionWithUniqueIndex", "NOTUNIQUE", "a");
+    if (!klazz.existsProperty("a")) {
+      klazz.createProperty("a", PropertyType.STRING);
+      klazz.createIndex("testCountFunctionWithUniqueIndex", "NOTUNIQUE", "a");
     }
 
     session.begin();

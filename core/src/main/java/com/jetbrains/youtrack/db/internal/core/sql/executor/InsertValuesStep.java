@@ -71,7 +71,7 @@ public class InsertValuesStep extends AbstractExecutionStep {
                 var entity = (EntityImpl) result.castToEntity();
                 var schema = entity.getImmutableSchemaClass(session);
                 schemaProperty =
-                    schema != null ? schema.getProperty(session, propertyName) : null;
+                    schema != null ? schema.getProperty(propertyName) : null;
               }
 
               var value = currentValues.get(i).execute(result, ctx);

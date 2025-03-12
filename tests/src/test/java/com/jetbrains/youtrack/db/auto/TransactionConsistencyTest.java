@@ -339,16 +339,16 @@ public class TransactionConsistencyTest extends BaseDBTest {
     var profile = session.getMetadata().getSchema().createClass("MyProfile", 1);
     var edge = session.getMetadata().getSchema().createClass("MyEdge", 1);
     profile
-        .createProperty(session, "name", PropertyType.STRING)
-        .setMin(session, "3")
-        .setMax(session, "30")
-        .createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
-    profile.createProperty(session, "surname", PropertyType.STRING).setMin(session, "3")
-        .setMax(session, "30");
-    profile.createProperty(session, "in", PropertyType.LINKSET, edge);
-    profile.createProperty(session, "out", PropertyType.LINKSET, edge);
-    edge.createProperty(session, "in", PropertyType.LINK, profile);
-    edge.createProperty(session, "out", PropertyType.LINK, profile);
+        .createProperty("name", PropertyType.STRING)
+        .setMin("3")
+        .setMax("30")
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    profile.createProperty("surname", PropertyType.STRING).setMin("3")
+        .setMax("30");
+    profile.createProperty("in", PropertyType.LINKSET, edge);
+    profile.createProperty("out", PropertyType.LINKSET, edge);
+    edge.createProperty("in", PropertyType.LINK, profile);
+    edge.createProperty("out", PropertyType.LINK, profile);
 
     session.begin();
 
@@ -402,7 +402,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
     var schema = session.getSchema();
     var profileClusterIds =
-        Arrays.asList(ArrayUtils.toObject(schema.getClass("Profile").getClusterIds(session)));
+        Arrays.asList(ArrayUtils.toObject(schema.getClass("Profile").getClusterIds()));
 
     session.commit();
 
@@ -422,28 +422,28 @@ public class TransactionConsistencyTest extends BaseDBTest {
   public void testTransactionPopulateDelete() {
     if (!session.getMetadata().getSchema().existsClass("MyFruit")) {
       var fruitClass = session.getMetadata().getSchema().createClass("MyFruit");
-      fruitClass.createProperty(session, "name", PropertyType.STRING);
-      fruitClass.createProperty(session, "color", PropertyType.STRING);
-      fruitClass.createProperty(session, "flavor", PropertyType.STRING);
+      fruitClass.createProperty("name", PropertyType.STRING);
+      fruitClass.createProperty("color", PropertyType.STRING);
+      fruitClass.createProperty("flavor", PropertyType.STRING);
 
       session
           .getMetadata()
           .getSchema()
           .getClass("MyFruit")
-          .getProperty(session, "name")
-          .createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+          .getProperty("name")
+          .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
       session
           .getMetadata()
           .getSchema()
           .getClass("MyFruit")
-          .getProperty(session, "color")
-          .createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+          .getProperty("color")
+          .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
       session
           .getMetadata()
           .getSchema()
           .getClass("MyFruit")
-          .getProperty(session, "flavor")
-          .createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+          .getProperty("flavor")
+          .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
     }
 
     var chunkSize = 10;
@@ -586,18 +586,18 @@ public class TransactionConsistencyTest extends BaseDBTest {
   public void transactionRollbackConstistencyTest() {
     var vertexClass = session.getMetadata().getSchema().createClass("TRVertex");
     var edgeClass = session.getMetadata().getSchema().createClass("TREdge");
-    vertexClass.createProperty(session, "in", PropertyType.LINKSET, edgeClass);
-    vertexClass.createProperty(session, "out", PropertyType.LINKSET, edgeClass);
-    edgeClass.createProperty(session, "in", PropertyType.LINK, vertexClass);
-    edgeClass.createProperty(session, "out", PropertyType.LINK, vertexClass);
+    vertexClass.createProperty("in", PropertyType.LINKSET, edgeClass);
+    vertexClass.createProperty("out", PropertyType.LINKSET, edgeClass);
+    edgeClass.createProperty("in", PropertyType.LINK, vertexClass);
+    edgeClass.createProperty("out", PropertyType.LINK, vertexClass);
 
     var personClass = session.getMetadata().getSchema()
         .createClass("TRPerson", vertexClass);
-    personClass.createProperty(session, "name", PropertyType.STRING)
-        .createIndex(session, SchemaClass.INDEX_TYPE.UNIQUE);
-    personClass.createProperty(session, "surname", PropertyType.STRING)
-        .createIndex(session, SchemaClass.INDEX_TYPE.NOTUNIQUE);
-    personClass.createProperty(session, "version", PropertyType.INTEGER);
+    personClass.createProperty("name", PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
+    personClass.createProperty("surname", PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    personClass.createProperty("version", PropertyType.INTEGER);
 
     session.close();
 
@@ -762,7 +762,9 @@ public class TransactionConsistencyTest extends BaseDBTest {
     Assert.assertEquals(account.getProperty("name"), originalName); // name is restored
 
     var bookCount = 0;
-    for (var b : session.browseClass("Address")) {
+    var entityIterator = session.browseClass("Address");
+    while (entityIterator.hasNext()) {
+      var b = entityIterator.next();
       var street = b.getProperty("street");
       if ("Mulholland drive".equals(street) || "Via Veneto".equals(street)) {
         bookCount++;
@@ -776,7 +778,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
     Assert.assertFalse(session.getTransaction().isActive());
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("TransA");
-    classA.createProperty(session, "name", PropertyType.STRING);
+    classA.createProperty("name", PropertyType.STRING);
     var doc = ((EntityImpl) session.newEntity(classA));
     doc.field("name", "test1");
 

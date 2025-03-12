@@ -47,10 +47,10 @@ public class AbstractClassTest extends BaseDBTest {
   public void createSchema() throws IOException {
     var abstractPerson =
         session.getMetadata().getSchema().createAbstractClass("AbstractPerson");
-    abstractPerson.createProperty(session, "name", PropertyType.STRING);
+    abstractPerson.createProperty("name", PropertyType.STRING);
 
-    Assert.assertTrue(abstractPerson.isAbstract(session));
-    Assert.assertEquals(abstractPerson.getClusterIds(session).length, 1);
+    Assert.assertTrue(abstractPerson.isAbstract());
+    Assert.assertEquals(abstractPerson.getClusterIds().length, 1);
   }
 
   @Test

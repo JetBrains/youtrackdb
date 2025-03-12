@@ -128,9 +128,9 @@ public abstract class CommandExecutorSQLSetAware extends CommandExecutorSQLAbstr
           }
           if (candidateClass == null
               || candidateClass.equals(aClass)
-              || candidateClass.isSubClassOf(db, aClass)) {
+              || candidateClass.isSubClassOf(aClass)) {
             candidateClass = aClass;
-          } else if (!candidateClass.isSuperClassOf(db, aClass)) {
+          } else if (!candidateClass.isSuperClassOf(aClass)) {
             return null;
           }
         }
@@ -149,11 +149,11 @@ public abstract class CommandExecutorSQLSetAware extends CommandExecutorSQLAbstr
       String fieldName, Object v) {
     if (iClass != null) {
       // CHECK TYPE AND CONVERT IF NEEDED
-      final var p = iClass.getProperty(session, fieldName);
+      final var p = iClass.getProperty(fieldName);
       if (p != null) {
-        final var embeddedType = p.getLinkedClass(session);
+        final var embeddedType = p.getLinkedClass();
 
-        switch (p.getType(session)) {
+        switch (p.getType()) {
           case EMBEDDED:
             // CONVERT MAP IN DOCUMENTS ASSIGNING THE CLASS TAKEN FROM SCHEMA
             if (v instanceof Map) {
@@ -238,7 +238,7 @@ public abstract class CommandExecutorSQLSetAware extends CommandExecutorSQLAbstr
       SchemaClass embeddedType, Map<String, Object> o) {
     final EntityImpl entity;
     if (embeddedType != null) {
-      entity = db.newInstance(embeddedType.getName(db));
+      entity = db.newInstance(embeddedType.getName());
     } else {
       entity = db.newInstance();
     }

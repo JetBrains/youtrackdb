@@ -28,7 +28,7 @@ public class SQLCreateVertexTest extends BaseDBTest {
     Schema schema = session.getMetadata().getSchema();
     if (!schema.existsClass("CreateVertexByContent")) {
       var vClass = schema.createClass("CreateVertexByContent", schema.getClass("V"));
-      vClass.createProperty(session, "message", PropertyType.STRING);
+      vClass.createProperty("message", PropertyType.STRING);
     }
 
     session.begin();
@@ -97,7 +97,7 @@ public class SQLCreateVertexTest extends BaseDBTest {
     session.close();
 
     session = createSessionInstance();
-    session.createVertexClass("Like").createProperty(session, "anything", PropertyType.STRING);
-    session.createVertexClass("Is").createProperty(session, "anything", PropertyType.STRING);
+    session.createVertexClass("Like").createProperty("anything", PropertyType.STRING);
+    session.createVertexClass("Is").createProperty("anything", PropertyType.STRING);
   }
 }

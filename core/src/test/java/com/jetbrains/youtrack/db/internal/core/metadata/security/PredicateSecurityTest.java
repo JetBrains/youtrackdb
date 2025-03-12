@@ -178,7 +178,7 @@ public class PredicateSecurityTest {
     var security = session.getSharedContext().getSecurity();
 
     var person = session.createClass("Person");
-    person.createProperty(session, "name", PropertyType.STRING);
+    person.createProperty("name", PropertyType.STRING);
     session.command("create index Person.name on Person (name) NOTUNIQUE");
 
     session.begin();
@@ -218,7 +218,7 @@ public class PredicateSecurityTest {
     var security = session.getSharedContext().getSecurity();
 
     var person = session.createClass("Person");
-    person.createProperty(session, "name", PropertyType.STRING);
+    person.createProperty("name", PropertyType.STRING);
     session.command("create index Person.name on Person (name) NOTUNIQUE");
 
     session.begin();
@@ -544,7 +544,7 @@ public class PredicateSecurityTest {
     var security = session.getSharedContext().getSecurity();
 
     var person = session.createClass("Person");
-    person.createProperty(session, "name", PropertyType.STRING);
+    person.createProperty("name", PropertyType.STRING);
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -583,7 +583,7 @@ public class PredicateSecurityTest {
     var security = session.getSharedContext().getSecurity();
 
     var person = session.createClass("Person");
-    person.createProperty(session, "name", PropertyType.STRING);
+    person.createProperty("name", PropertyType.STRING);
     session.command("create index Person.name on Person (name) NOTUNIQUE");
 
     session.begin();
@@ -627,7 +627,7 @@ public class PredicateSecurityTest {
     var security = session.getSharedContext().getSecurity();
 
     var person = session.createClass("Person");
-    person.createProperty(session, "name", PropertyType.STRING);
+    person.createProperty("name", PropertyType.STRING);
     session.command("create index Person.name on Person (name) NOTUNIQUE");
 
     session.begin();

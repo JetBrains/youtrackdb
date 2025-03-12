@@ -98,7 +98,7 @@ public class EdgeImpl implements EdgeInternal {
   @Nonnull
   @Override
   public String getSchemaClassName() {
-    return lightweightEdgeType.getName(session);
+    return lightweightEdgeType.getName();
   }
 
   public boolean isLabeled(String[] labels) {
@@ -111,9 +111,9 @@ public class EdgeImpl implements EdgeInternal {
     Set<String> types = new HashSet<>();
 
     var typeClass = getSchemaClass();
-    types.add(typeClass.getName(session));
+    types.add(typeClass.getName());
     typeClass.getAllSuperClasses().stream()
-        .map(x -> x.getName(session))
+        .map(x -> x.getName())
         .forEach(types::add);
     for (var s : labels) {
       for (var type : types) {
@@ -141,7 +141,7 @@ public class EdgeImpl implements EdgeInternal {
         + "\", \"in\":\""
         + vIn.getIdentity()
         + "\", \"@class\":\""
-        + StringSerializerHelper.encode(lightweightEdgeType.getName(session))
+        + StringSerializerHelper.encode(lightweightEdgeType.getName())
         + "\"}";
   }
 

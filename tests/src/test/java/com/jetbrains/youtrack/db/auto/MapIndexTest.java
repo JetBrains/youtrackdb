@@ -33,18 +33,18 @@ public class MapIndexTest extends BaseDBTest {
     }
 
     final var mapper = session.getMetadata().getSchema().createClass("Mapper");
-    mapper.createProperty(session, "id", PropertyType.STRING);
-    mapper.createProperty(session, "intMap", PropertyType.EMBEDDEDMAP, PropertyType.INTEGER);
+    mapper.createProperty("id", PropertyType.STRING);
+    mapper.createProperty("intMap", PropertyType.EMBEDDEDMAP, PropertyType.INTEGER);
 
-    mapper.createIndex(session, "mapIndexTestKey", SchemaClass.INDEX_TYPE.NOTUNIQUE, "intMap");
-    mapper.createIndex(session, "mapIndexTestValue", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+    mapper.createIndex("mapIndexTestKey", SchemaClass.INDEX_TYPE.NOTUNIQUE, "intMap");
+    mapper.createIndex("mapIndexTestValue", SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "intMap by value");
 
     final var movie = session.getMetadata().getSchema().createClass("MapIndexTestMovie");
-    movie.createProperty(session, "title", PropertyType.STRING);
-    movie.createProperty(session, "thumbs", PropertyType.EMBEDDEDMAP, PropertyType.INTEGER);
+    movie.createProperty("title", PropertyType.STRING);
+    movie.createProperty("thumbs", PropertyType.EMBEDDEDMAP, PropertyType.INTEGER);
 
-    movie.createIndex(session, "indexForMap", SchemaClass.INDEX_TYPE.NOTUNIQUE, "thumbs by key");
+    movie.createIndex("indexForMap", SchemaClass.INDEX_TYPE.NOTUNIQUE, "thumbs by key");
   }
 
   @AfterClass

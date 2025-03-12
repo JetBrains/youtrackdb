@@ -46,7 +46,6 @@
     <classes>
       <class name="com.jetbrains.youtrack.db.auto.DateIndexTest"/>
       <class name="com.jetbrains.youtrack.db.auto.IndexTest"/>
-      <class name="com.jetbrains.youtrack.db.auto.IndexClusterTest"/>
       <class name="com.jetbrains.youtrack.db.auto.ByteArrayKeyTest"/>
       <class name="com.jetbrains.youtrack.db.auto.ClassIndexManagerTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLSelectIndexReuseTest"/>

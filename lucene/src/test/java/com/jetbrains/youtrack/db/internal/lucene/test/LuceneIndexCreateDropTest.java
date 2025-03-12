@@ -31,17 +31,17 @@ public class LuceneIndexCreateDropTest extends BaseLuceneTest {
   @Before
   public void init() {
     final var type = session.createVertexClass("City");
-    type.createProperty(session, "name", PropertyType.STRING);
+    type.createProperty("name", PropertyType.STRING);
     session.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE").close();
   }
 
   @Test
   public void dropIndex() {
-    var indexes = session.getClassInternal("City").getIndexesInternal(session);
+    var indexes = session.getClassInternal("City").getIndexesInternal();
     Assert.assertEquals("Exactly one index should exist.", 1, indexes.size());
 
     session.command("drop index City.name").close();
-    indexes = session.getClassInternal("City").getIndexesInternal(session);
+    indexes = session.getClassInternal("City").getIndexesInternal();
     Assert.assertEquals("The index should have been deleted.", 0, indexes.size());
   }
 }

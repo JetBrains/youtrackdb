@@ -15,8 +15,8 @@ public class DefaultValueSerializationTest extends DbTestBase {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("ClassC");
 
-    var prop = classA.createProperty(session, "name", PropertyType.STRING);
-    prop.setDefaultValue(session, "uuid()");
+    var prop = classA.createProperty("name", PropertyType.STRING);
+    prop.setDefaultValue("uuid()");
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("ClassC");

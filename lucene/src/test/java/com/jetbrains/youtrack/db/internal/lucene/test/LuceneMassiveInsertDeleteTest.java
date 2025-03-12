@@ -38,8 +38,8 @@ public class LuceneMassiveInsertDeleteTest extends BaseLuceneTest {
     Schema schema = session.getMetadata().getSchema();
     var v = schema.getClass("V");
     var song = schema.createClass("City");
-    song.addSuperClass(session, v);
-    song.createProperty(session, "name", PropertyType.STRING);
+    song.addSuperClass(v);
+    song.createProperty("name", PropertyType.STRING);
 
     session.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE").close();
   }

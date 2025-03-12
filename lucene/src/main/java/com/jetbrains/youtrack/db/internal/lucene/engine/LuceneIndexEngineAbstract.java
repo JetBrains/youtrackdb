@@ -202,9 +202,9 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
     var aClass =
         session.getMetadata().getSchema().getClass(indexDefinition.getClassName());
     for (var field : fields) {
-      var property = aClass.getProperty(session, field);
+      var property = aClass.getProperty(field);
 
-      if (property.getType(session).isEmbedded() && property.getLinkedType(session) != null) {
+      if (property.getType().isEmbedded() && property.getLinkedType() != null) {
         collectionFields.put(field, true);
       } else {
         collectionFields.put(field, false);

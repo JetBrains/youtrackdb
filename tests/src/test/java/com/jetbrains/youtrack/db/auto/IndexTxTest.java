@@ -30,8 +30,8 @@ public class IndexTxTest extends BaseDBTest {
 
     final Schema schema = session.getMetadata().getSchema();
     final var cls = schema.createClass("IndexTxTestClass");
-    cls.createProperty(session, "name", PropertyType.STRING);
-    cls.createIndex(session, "IndexTxTestIndex", SchemaClass.INDEX_TYPE.UNIQUE, "name");
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createIndex("IndexTxTestIndex", SchemaClass.INDEX_TYPE.UNIQUE, "name");
   }
 
   @BeforeMethod
@@ -41,7 +41,7 @@ public class IndexTxTest extends BaseDBTest {
     var schema = session.getMetadata().getSchema();
     var cls = schema.getClassInternal("IndexTxTestClass");
     if (cls != null) {
-      cls.truncate(session);
+      cls.truncate();
     }
   }
 

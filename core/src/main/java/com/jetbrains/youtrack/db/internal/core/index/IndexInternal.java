@@ -242,8 +242,8 @@ public interface IndexInternal extends Index {
     if (clazz == null) {
       return false;
     }
-    clazz.getAllSubclasses(session).forEach(x -> classesToCheck.add(x.getName(session)));
-    clazz.getAllSuperClasses().forEach(x -> classesToCheck.add(x.getName(session)));
+    clazz.getAllSubclasses().forEach(x -> classesToCheck.add(x.getName()));
+    clazz.getAllSuperClasses().forEach(x -> classesToCheck.add(x.getName()));
     var allFilteredProperties =
         security.getAllFilteredProperties(session);
 
@@ -269,9 +269,9 @@ public interface IndexInternal extends Index {
 
     var clazz = session.getClass(indexClass);
     if (clazz != null) {
-      var sub = clazz.getSubclasses(session);
+      var sub = clazz.getSubclasses();
       for (var subClass : sub) {
-        if (isReadRestrictedBySecurityPolicy(subClass.getName(session), session, security)) {
+        if (isReadRestrictedBySecurityPolicy(subClass.getName(), session, security)) {
           return true;
         }
       }

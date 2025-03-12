@@ -2045,18 +2045,18 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     var query =
         "MATCH { class: "
             + clazz
-            + ", as:a} RETURN a.name as a, max(a.num) as maxNum group by a.name order by a.name";
+            + ", as:a} RETURN a.name as name, max(a.num) as maxNum group by a.name order by name";
 
     session.begin();
     var result = session.query(query);
     Assert.assertTrue(result.hasNext());
     var item = result.next();
-    Assert.assertEquals("aaa", item.getProperty("a"));
+    Assert.assertEquals("aaa", item.getProperty("name"));
     Assert.assertEquals(3, (int) item.getProperty("maxNum"));
 
     Assert.assertTrue(result.hasNext());
     item = result.next();
-    Assert.assertEquals("bbb", item.getProperty("a"));
+    Assert.assertEquals("bbb", item.getProperty("name"));
     Assert.assertEquals(6, (int) item.getProperty("maxNum"));
 
     Assert.assertFalse(result.hasNext());

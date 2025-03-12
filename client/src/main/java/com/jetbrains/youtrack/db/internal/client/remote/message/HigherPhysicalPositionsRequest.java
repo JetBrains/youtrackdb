@@ -36,10 +36,13 @@ public class HigherPhysicalPositionsRequest
 
   private int clusterId;
   private PhysicalPosition clusterPosition;
+  private int limit;
 
-  public HigherPhysicalPositionsRequest(int iClusterId, PhysicalPosition iClusterPosition) {
+  public HigherPhysicalPositionsRequest(int iClusterId, PhysicalPosition iClusterPosition,
+      int limit) {
     this.clusterId = iClusterId;
     this.clusterPosition = iClusterPosition;
+    this.limit = limit;
   }
 
   public HigherPhysicalPositionsRequest() {
@@ -50,6 +53,7 @@ public class HigherPhysicalPositionsRequest
       StorageRemoteSession session) throws IOException {
     network.writeInt(clusterId);
     network.writeLong(clusterPosition.clusterPosition);
+    network.writeInt(limit);
   }
 
   public void read(DatabaseSessionInternal databaseSession, ChannelDataInput channel,
@@ -58,6 +62,7 @@ public class HigherPhysicalPositionsRequest
       throws IOException {
     clusterId = channel.readInt();
     clusterPosition = new PhysicalPosition(channel.readLong());
+    limit = channel.readInt();
   }
 
   @Override
@@ -76,6 +81,10 @@ public class HigherPhysicalPositionsRequest
 
   public PhysicalPosition getClusterPosition() {
     return clusterPosition;
+  }
+
+  public int getLimit() {
+    return limit;
   }
 
   @Override

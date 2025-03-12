@@ -605,7 +605,7 @@ public class UpdateStatementExecutionTest {
     var className = "overridden" + this.className;
 
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "theProperty", PropertyType.EMBEDDEDLIST);
+    clazz.createProperty("theProperty", PropertyType.EMBEDDEDLIST);
 
     session.begin();
     var doc = session.newEntity(className);
@@ -646,7 +646,7 @@ public class UpdateStatementExecutionTest {
   public void testRemove2() {
     var className = "overridden" + this.className;
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "theProperty", PropertyType.EMBEDDEDLIST);
+    clazz.createProperty("theProperty", PropertyType.EMBEDDEDLIST);
 
     session.begin();
     var entity = session.newInstance(className);
@@ -693,7 +693,7 @@ public class UpdateStatementExecutionTest {
   public void testRemove3() {
     var className = "overriden" + this.className;
     var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(session, "theProperty", PropertyType.EMBEDDED);
+    clazz.createProperty("theProperty", PropertyType.EMBEDDED);
 
     session.begin();
     var doc = session.newInstance(className);

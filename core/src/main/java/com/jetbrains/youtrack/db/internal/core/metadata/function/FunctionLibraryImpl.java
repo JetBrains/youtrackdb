@@ -162,22 +162,22 @@ public class FunctionLibraryImpl {
   protected static void init(final DatabaseSessionInternal session) {
     if (session.getMetadata().getSchema().existsClass("OFunction")) {
       var f = session.getMetadata().getSchema().getClassInternal("OFunction");
-      var prop = f.getPropertyInternal(session, "name");
+      var prop = f.getPropertyInternal("name");
 
-      if (prop.getAllIndexes(session).isEmpty()) {
-        prop.createIndex(session, SchemaClass.INDEX_TYPE.UNIQUE);
+      if (prop.getAllIndexes().isEmpty()) {
+        prop.createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
       }
       return;
     }
 
     var f = (SchemaClassInternal) session.getMetadata().getSchema().createClass("OFunction");
-    var prop = f.createProperty(session, "name", PropertyType.STRING, (PropertyType) null, true);
-    prop.createIndex(session, SchemaClass.INDEX_TYPE.UNIQUE);
+    var prop = f.createProperty("name", PropertyType.STRING, (PropertyType) null, true);
+    prop.createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
 
-    f.createProperty(session, "code", PropertyType.STRING, (PropertyType) null, true);
-    f.createProperty(session, "language", PropertyType.STRING, (PropertyType) null, true);
-    f.createProperty(session, "idempotent", PropertyType.BOOLEAN, (PropertyType) null, true);
-    f.createProperty(session, "parameters", PropertyType.EMBEDDEDLIST, PropertyType.STRING, true);
+    f.createProperty("code", PropertyType.STRING, (PropertyType) null, true);
+    f.createProperty("language", PropertyType.STRING, (PropertyType) null, true);
+    f.createProperty("idempotent", PropertyType.BOOLEAN, (PropertyType) null, true);
+    f.createProperty("parameters", PropertyType.EMBEDDEDLIST, PropertyType.STRING, true);
   }
 
   public synchronized void dropFunction(DatabaseSessionInternal session, Function function) {

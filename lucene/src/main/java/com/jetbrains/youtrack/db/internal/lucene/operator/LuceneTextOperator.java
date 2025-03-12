@@ -234,15 +234,15 @@ public class LuceneTextOperator extends QueryTargetOperator {
           var fieldChain = chained.getFieldChain();
           var oClass = cls;
           for (var i = 0; i < fieldChain.getItemCount() - 1; i++) {
-            oClass = (SchemaClassInternal) oClass.getProperty(session, fieldChain.getItemName(i))
-                .getLinkedClass(session);
+            oClass = (SchemaClassInternal) oClass.getProperty(fieldChain.getItemName(i))
+                .getLinkedClass();
           }
           if (oClass != null) {
             cls = oClass;
           }
         }
-        var classInvolvedIndexes = cls.getInvolvedIndexesInternal(session,
-            fields(iCondition));
+        var classInvolvedIndexes = cls.getInvolvedIndexesInternal(
+            session, fields(iCondition));
         LuceneFullTextIndex idx = null;
         for (var classInvolvedIndex : classInvolvedIndexes) {
 

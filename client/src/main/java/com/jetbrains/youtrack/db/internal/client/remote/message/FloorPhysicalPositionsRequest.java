@@ -36,10 +36,12 @@ public class FloorPhysicalPositionsRequest
 
   private PhysicalPosition physicalPosition;
   private int clusterId;
+  private int limit;
 
-  public FloorPhysicalPositionsRequest(PhysicalPosition physicalPosition, int clusterId) {
+  public FloorPhysicalPositionsRequest(PhysicalPosition physicalPosition, int clusterId, int limit) {
     this.physicalPosition = physicalPosition;
     this.clusterId = clusterId;
+    this.limit = limit;
   }
 
   public FloorPhysicalPositionsRequest() {
@@ -50,6 +52,7 @@ public class FloorPhysicalPositionsRequest
       StorageRemoteSession session) throws IOException {
     network.writeInt(clusterId);
     network.writeLong(physicalPosition.clusterPosition);
+    network.writeInt(limit);
   }
 
   public void read(DatabaseSessionInternal databaseSession, ChannelDataInput channel,
@@ -58,6 +61,7 @@ public class FloorPhysicalPositionsRequest
       throws IOException {
     this.clusterId = channel.readInt();
     this.physicalPosition = new PhysicalPosition(channel.readLong());
+    this.limit = channel.readInt();
   }
 
   @Override
@@ -76,6 +80,10 @@ public class FloorPhysicalPositionsRequest
 
   public PhysicalPosition getPhysicalPosition() {
     return physicalPosition;
+  }
+
+  public int getLimit() {
+    return limit;
   }
 
   public FloorPhysicalPositionsResponse createResponse() {

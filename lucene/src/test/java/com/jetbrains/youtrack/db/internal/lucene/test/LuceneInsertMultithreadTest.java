@@ -80,15 +80,15 @@ public class LuceneInsertMultithreadTest {
         "create database ? " + databaseType + " users(admin identified by 'admin' role admin)",
         dbName);
     Schema schema;
-    try (var databaseDocumentTx = (DatabaseSessionInternal) YOUTRACKDB.open(
+    try (var session = (DatabaseSessionInternal) YOUTRACKDB.open(
         dbName, "admin", "admin")) {
-      schema = databaseDocumentTx.getMetadata().getSchema();
+      schema = session.getMetadata().getSchema();
 
       if (schema.getClass("City") == null) {
         var oClass = schema.createClass("City");
 
-        oClass.createProperty(databaseDocumentTx, "name", PropertyType.STRING);
-        oClass.createIndex(databaseDocumentTx, "City.name", "FULLTEXT", null, null, "LUCENE",
+        oClass.createProperty("name", PropertyType.STRING);
+        oClass.createIndex("City.name", "FULLTEXT", null, null, "LUCENE",
             new String[]{"name"});
       }
 
@@ -109,13 +109,13 @@ public class LuceneInsertMultithreadTest {
         threads[i].join();
       }
 
-      var idx = databaseDocumentTx.getClassInternal("City")
-          .getClassIndex(databaseDocumentTx, "City.name");
+      var idx = session.getClassInternal("City")
+          .getClassIndex(session, "City.name");
 
-      databaseDocumentTx.begin();
-      Assertions.assertThat(idx.getInternal().size(databaseDocumentTx))
+      session.begin();
+      Assertions.assertThat(idx.getInternal().size(session))
           .isEqualTo(THREADS * CYCLE);
-      databaseDocumentTx.commit();
+      session.commit();
     }
     YOUTRACKDB.drop(dbName);
   }
@@ -161,19 +161,16 @@ public class LuceneInsertMultithreadTest {
 
     @Override
     public void run() {
-      Schema schema;
-      try (var databaseDocumentTx = (DatabaseSessionInternal) YOUTRACKDB.open(
+      try (var session = (DatabaseSessionInternal) YOUTRACKDB.open(
           dbName, "admin", "admin")) {
-        schema = databaseDocumentTx.getMetadata().getSchema();
-
-        var idx = databaseDocumentTx.getClassInternal("City")
-            .getClassIndex(databaseDocumentTx, "City.name");
+        var idx = session.getClassInternal("City")
+            .getClassIndex(session, "City.name");
 
         for (var i = 0; i < cycle; i++) {
           try (var stream = idx.getInternal()
-              .getRids(databaseDocumentTx, "Rome")) {
+              .getRids(session, "Rome")) {
             //noinspection ResultOfMethodCallIgnored
-            stream.collect(Collectors.toList());
+            stream.toList();
           }
         }
       }

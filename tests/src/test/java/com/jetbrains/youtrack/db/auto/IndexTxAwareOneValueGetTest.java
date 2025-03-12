@@ -28,13 +28,13 @@ public class IndexTxAwareOneValueGetTest extends BaseDBTest {
     super.beforeClass();
 
     var cls = session.getMetadata().getSchema().createClass(CLASS_NAME);
-    cls.createProperty(session, PROPERTY_NAME, PropertyType.INTEGER);
-    cls.createIndex(session, INDEX, SchemaClass.INDEX_TYPE.UNIQUE, PROPERTY_NAME);
+    cls.createProperty(PROPERTY_NAME, PropertyType.INTEGER);
+    cls.createIndex(INDEX, SchemaClass.INDEX_TYPE.UNIQUE, PROPERTY_NAME);
   }
 
   @AfterMethod
   public void afterMethod() throws Exception {
-    session.getMetadata().getSchema().getClassInternal(CLASS_NAME).truncate(session);
+    session.getMetadata().getSchema().getClassInternal(CLASS_NAME).truncate();
 
     super.afterMethod();
   }

@@ -40,8 +40,8 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
   public void init() {
 
     final var c1 = session.createVertexClass("C1");
-    c1.createProperty(session, "p1", PropertyType.STRING);
-    c1.createIndex(session, "C1.p1", "FULLTEXT", null, null, "LUCENE", new String[]{"p1"});
+    c1.createProperty("p1", PropertyType.STRING);
+    c1.createIndex("C1.p1", "FULLTEXT", null, null, "LUCENE", new String[]{"p1"});
   }
 
   @Test
@@ -129,7 +129,7 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
 
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "C1.p1");
     var c1 = session.getMetadata().getSchema().getClassInternal("C1");
-    c1.truncate(session);
+    c1.truncate();
 
     session.begin();
     Assert.assertEquals(index.getInternal().size(session), 0);
@@ -202,7 +202,7 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
 
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "C1.p1");
     var c1 = session.getMetadata().getSchema().getClassInternal("C1");
-    c1.truncate(session);
+    c1.truncate();
 
     session.begin();
     Assert.assertEquals(index.getInternal().size(session), 0);

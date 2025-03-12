@@ -69,7 +69,7 @@ public class IndexManagerProxy extends ProxedResource<IndexManagerAbstract>
       final IndexDefinition indexDefinition,
       final int[] clusterIdsToIndex,
       final ProgressListener progressListener,
-      final Map<String, ?> metadata) {
+      final Map<String, Object> metadata) {
     return delegate.createIndex(
         session, iName, iType, indexDefinition, clusterIdsToIndex, progressListener, metadata);
   }
@@ -81,7 +81,7 @@ public class IndexManagerProxy extends ProxedResource<IndexManagerAbstract>
       final IndexDefinition iIndexDefinition,
       final int[] iClusterIdsToIndex,
       final ProgressListener progressListener,
-      final Map<String, ?> metadata,
+      final Map<String, Object> metadata,
       final String algorithm) {
     return delegate.createIndex(
         session,

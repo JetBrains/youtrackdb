@@ -15,7 +15,7 @@ public class LucenePhraseQueriesTest extends LuceneBaseTest {
   public void setUp() throws Exception {
 
     var type = session.createVertexClass("Role");
-    type.createProperty(session, "name", PropertyType.STRING);
+    type.createProperty("name", PropertyType.STRING);
 
     session.command(
         "create index Role.name on Role (name) FULLTEXT ENGINE LUCENE "

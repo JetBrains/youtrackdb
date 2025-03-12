@@ -18,19 +18,17 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ClusterSelectionStrategy;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Returns the cluster selecting by round robin algorithm.
  */
 public class RoundRobinClusterSelectionStrategy implements ClusterSelectionStrategy {
-
   public static final String NAME = "round-robin";
-  private final AtomicLong pointer = new AtomicLong(0);
 
   public int getCluster(DatabaseSession session, final SchemaClass iClass,
       final EntityImpl entity) {
-    return getCluster(session, iClass, iClass.getClusterIds(session), entity);
+    return getCluster(session, iClass, iClass.getClusterIds(), entity);
   }
 
   public int getCluster(DatabaseSession session, final SchemaClass clazz, final int[] clusters,
@@ -41,7 +39,7 @@ public class RoundRobinClusterSelectionStrategy implements ClusterSelectionStrat
       return clusters[0];
     }
 
-    return clusters[(int) (pointer.getAndIncrement() % clusters.length)];
+    return clusters[ThreadLocalRandom.current().nextInt(0, clusters.length)];
   }
 
   @Override

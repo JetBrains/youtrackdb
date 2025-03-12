@@ -35,15 +35,15 @@ public class LuceneSpatialPointTest extends BaseSpatialLuceneTest {
     Schema schema = session.getMetadata().getSchema();
     var v = schema.getClass("V");
     var oClass = schema.createClass("City");
-    oClass.setSuperClass(session, v);
-    oClass.createProperty(session, "location", PropertyType.EMBEDDED, schema.getClass("OPoint"));
-    oClass.createProperty(session, "name", PropertyType.STRING);
+    oClass.addSuperClass(v);
+    oClass.createProperty("location", PropertyType.EMBEDDED, schema.getClass("OPoint"));
+    oClass.createProperty("name", PropertyType.STRING);
 
     var place = schema.createClass("Place");
-    place.setSuperClass(session, v);
-    place.createProperty(session, "latitude", PropertyType.DOUBLE);
-    place.createProperty(session, "longitude", PropertyType.DOUBLE);
-    place.createProperty(session, "name", PropertyType.STRING);
+    place.addSuperClass(v);
+    place.createProperty("latitude", PropertyType.DOUBLE);
+    place.createProperty("longitude", PropertyType.DOUBLE);
+    place.createProperty("name", PropertyType.STRING);
 
     session.command("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
 

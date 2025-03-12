@@ -21,10 +21,10 @@ public class LuceneRangeTest extends BaseLuceneTest {
     Schema schema = session.getMetadata().getSchema();
 
     var cls = schema.createClass("Person");
-    cls.createProperty(session, "name", PropertyType.STRING);
-    cls.createProperty(session, "surname", PropertyType.STRING);
-    cls.createProperty(session, "date", PropertyType.DATETIME);
-    cls.createProperty(session, "age", PropertyType.INTEGER);
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createProperty("surname", PropertyType.STRING);
+    cls.createProperty("date", PropertyType.DATETIME);
+    cls.createProperty("age", PropertyType.INTEGER);
 
     var names =
         Arrays.asList(
@@ -213,7 +213,7 @@ public class LuceneRangeTest extends BaseLuceneTest {
         .isEqualTo(10);
     session.commit();
 
-    var cluster = session.getMetadata().getSchema().getClass("Person").getClusterIds(session)[1];
+    var cluster = session.getMetadata().getSchema().getClass("Person").getClusterIds()[1];
 
     var results =
         session.command("SELECT FROM Person WHERE name LUCENE '+_CLUSTER:" + cluster + "'");

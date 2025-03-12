@@ -199,8 +199,8 @@ public class LiveQueryListenerImpl implements LiveQueryListenerV2 {
         if (recordClass == null) {
           return false;
         }
-        if (!recordClass.getName(db).equalsIgnoreCase(className)
-            && !recordClass.isSubClassOf(db, className)) {
+        if (!recordClass.getName().equalsIgnoreCase(className)
+            && !recordClass.isSubClassOf(className)) {
           return false;
         }
       }

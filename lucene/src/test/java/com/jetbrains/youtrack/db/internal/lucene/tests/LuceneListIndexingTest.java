@@ -43,8 +43,8 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
     Schema schema = session.getMetadata().getSchema();
 
     var person = schema.createClass("Person");
-    person.createProperty(session, "name", PropertyType.STRING);
-    person.createProperty(session, "tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
+    person.createProperty("name", PropertyType.STRING);
+    person.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
     //noinspection EmptyTryBlock
     try (var command =
         session.command(
@@ -52,8 +52,8 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
     }
 
     var city = schema.createClass("City");
-    city.createProperty(session, "name", PropertyType.STRING);
-    city.createProperty(session, "tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
+    city.createProperty("name", PropertyType.STRING);
+    city.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
     //noinspection EmptyTryBlock
     try (var command =
         session.command("create index City.tags on City (tags) FULLTEXT ENGINE LUCENE")) {

@@ -218,7 +218,7 @@ public class SecurityEngine {
       SecurityPolicy.Scope scope) {
     SQLBooleanExpression result;
     if (role != null) {
-      result = security.getPredicateFromCache(role.getName(session), clazz.getName(session));
+      result = security.getPredicateFromCache(role.getName(session), clazz.getName());
       if (result != null) {
         return result;
       }
@@ -235,7 +235,7 @@ public class SecurityEngine {
     if (result == null) {
       result = SQLBooleanExpression.FALSE;
     }
-    security.putPredicateInCache(session, role.getName(session), clazz.getName(session), result);
+    security.putPredicateInCache(session, role.getName(session), clazz.getName(), result);
     return result;
   }
 
@@ -246,7 +246,7 @@ public class SecurityEngine {
       SchemaClass clazz,
       String propertyName,
       SecurityPolicy.Scope scope) {
-    var cacheKey = "$CLASS$" + clazz.getName(session) + "$PROP$" + propertyName + "$" + scope;
+    var cacheKey = "$CLASS$" + clazz.getName() + "$PROP$" + propertyName + "$" + scope;
     SQLBooleanExpression result;
     if (role != null) {
       result = security.getPredicateFromCache(role.getName(session), cacheKey);
@@ -276,18 +276,18 @@ public class SecurityEngine {
       SecurityRole role,
       SchemaClass clazz,
       SecurityPolicy.Scope scope) {
-    var resource = "database.class." + clazz.getName(session);
+    var resource = "database.class." + clazz.getName();
     var definedPolicies = security.getSecurityPolicies(session, role);
     var classPolicy = definedPolicies.get(resource);
 
     var predicateString = classPolicy != null ? classPolicy.get(scope, session) : null;
-    if (predicateString == null && !clazz.getSuperClasses(session).isEmpty()) {
-      if (clazz.getSuperClasses(session).size() == 1) {
+    if (predicateString == null && !clazz.getSuperClasses().isEmpty()) {
+      if (clazz.getSuperClasses().size() == 1) {
         return getPredicateForClassHierarchy(
-            session, security, role, clazz.getSuperClasses(session).iterator().next(), scope);
+            session, security, role, clazz.getSuperClasses().iterator().next(), scope);
       }
       var result = new SQLAndBlock(-1);
-      for (var superClass : clazz.getSuperClasses(session)) {
+      for (var superClass : clazz.getSuperClasses()) {
         var superClassPredicate =
             getPredicateForClassHierarchy(session, security, role, superClass, scope);
         if (superClassPredicate == null) {
@@ -320,23 +320,23 @@ public class SecurityEngine {
       SchemaClass clazz,
       String propertyName,
       SecurityPolicy.Scope scope) {
-    var resource = "database.class." + clazz.getName(session) + "." + propertyName;
+    var resource = "database.class." + clazz.getName() + "." + propertyName;
     var definedPolicies = security.getSecurityPolicies(session, role);
     var classPolicy = definedPolicies.get(resource);
 
     var predicateString = classPolicy != null ? classPolicy.get(scope, session) : null;
-    if (predicateString == null && !clazz.getSuperClasses(session).isEmpty()) {
-      if (clazz.getSuperClasses(session).size() == 1) {
+    if (predicateString == null && !clazz.getSuperClasses().isEmpty()) {
+      if (clazz.getSuperClasses().size() == 1) {
         return getPredicateForClassHierarchy(
             session,
             security,
             role,
-            clazz.getSuperClasses(session).iterator().next(),
+            clazz.getSuperClasses().iterator().next(),
             propertyName,
             scope);
       }
       var result = new SQLAndBlock(-1);
-      for (var superClass : clazz.getSuperClasses(session)) {
+      for (var superClass : clazz.getSuperClasses()) {
         var superClassPredicate =
             getPredicateForClassHierarchy(session, security, role, superClass, propertyName, scope);
         if (superClassPredicate == null) {
@@ -349,7 +349,7 @@ public class SecurityEngine {
 
     if (predicateString == null) {
       var wildcardPolicy =
-          definedPolicies.get("database.class." + clazz.getName(session) + ".*");
+          definedPolicies.get("database.class." + clazz.getName() + ".*");
       predicateString = wildcardPolicy == null ? null : wildcardPolicy.get(scope, session);
     }
 

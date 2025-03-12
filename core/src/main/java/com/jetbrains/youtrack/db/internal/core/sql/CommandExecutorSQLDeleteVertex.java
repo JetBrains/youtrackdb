@@ -115,7 +115,7 @@ public class CommandExecutorSQLDeleteVertex extends CommandExecutorSQLAbstract
           query =
               database.command(
                   new SQLAsynchQuery<EntityImpl>(
-                      "select from `" + clazz.getName(session) + "`" + where, this));
+                      "select from `" + clazz.getName() + "`" + where, this));
           break;
 
         } else if (word.equals(KEYWORD_LIMIT)) {
@@ -164,7 +164,7 @@ public class CommandExecutorSQLDeleteVertex extends CommandExecutorSQLAbstract
         if (clazz == null) {
           queryString.append("V");
         } else {
-          queryString.append(clazz.getName(session));
+          queryString.append(clazz.getName());
         }
         queryString.append("`");
 

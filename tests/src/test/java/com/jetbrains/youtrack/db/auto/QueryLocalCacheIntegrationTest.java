@@ -46,8 +46,8 @@ public class QueryLocalCacheIntegrationTest extends BaseDBTest {
         .getMetadata()
         .getSchema()
         .createClass("SecondFetchClass")
-        .createProperty(session, "surname", PropertyType.STRING)
-        .setMandatory(session, true);
+        .createProperty("surname", PropertyType.STRING)
+        .setMandatory(true);
     session.getMetadata().getSchema().createClass("OutInFetchClass");
 
     session.begin();

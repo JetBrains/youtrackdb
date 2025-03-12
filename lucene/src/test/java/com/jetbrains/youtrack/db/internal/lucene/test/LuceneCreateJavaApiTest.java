@@ -45,10 +45,10 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
     final Schema schema = session.getMetadata().getSchema();
     final var v = schema.getClass("V");
     final var song = schema.createClass(SONG_CLASS);
-    song.setSuperClass(session, v);
-    song.createProperty(session, "title", PropertyType.STRING);
-    song.createProperty(session, "author", PropertyType.STRING);
-    song.createProperty(session, "description", PropertyType.STRING);
+    song.addSuperClass(v);
+    song.createProperty("title", PropertyType.STRING);
+    song.createProperty("author", PropertyType.STRING);
+    song.createProperty("description", PropertyType.STRING);
   }
 
   @Test
@@ -56,10 +56,10 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
     final Schema schema = session.getMetadata().getSchema();
     final var song = schema.getClass(SONG_CLASS);
 
-    var meta = Map.of("analyzer",
+    var meta = Map.<String, Object>of("analyzer",
         StandardAnalyzer.class.getName());
 
-    song.createIndex(session,
+    song.createIndex(
         "Song.title",
         SchemaClass.INDEX_TYPE.FULLTEXT.toString(),
         null,
@@ -77,7 +77,7 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
     final Schema schema = session.getMetadata().getSchema();
     final var song = schema.getClass(SONG_CLASS);
 
-    song.createIndex(session,
+    song.createIndex(
         "Song.author_description",
         SchemaClass.INDEX_TYPE.FULLTEXT.toString(),
         null,
@@ -95,14 +95,14 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
   public void testCreateIndexWithUnsupportedEmbedded() {
     var schema = session.getMetadata().getSchema();
     var song = schema.getClassInternal(SONG_CLASS);
-    song.createProperty(session, PropertyType.EMBEDDED.getName(), PropertyType.EMBEDDED);
-    song.createIndex(session,
+    song.createProperty(PropertyType.EMBEDDED.getName(), PropertyType.EMBEDDED);
+    song.createIndex(
         SONG_CLASS + "." + PropertyType.EMBEDDED.getName(),
         SchemaClass.INDEX_TYPE.FULLTEXT.toString(),
         null,
         null,
         "LUCENE", new String[]{"description", PropertyType.EMBEDDED.getName()});
-    Assert.assertEquals(1, song.getIndexes(session).size());
+    Assert.assertEquals(1, song.getIndexes().size());
   }
 
   @Test
@@ -165,7 +165,7 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
 
   private void checkCreatedEmbeddedMapIndex(final SchemaClassInternal clazz,
       final String expectedAlgorithm) {
-    final var index = clazz.getIndexesInternal(session).iterator().next();
+    final var index = clazz.getIndexesInternal().iterator().next();
     System.out.println(
         "key-name: " + ((IndexInternal) index).getIndexId() + "-" + index.getName());
 
@@ -185,30 +185,30 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
   private SchemaClassInternal createEmbeddedMapIndex() {
     var schema = session.getMetadata().getSchema();
     var song = schema.getClassInternal(SONG_CLASS);
-    song.createProperty(session, "String" + PropertyType.EMBEDDEDMAP.getName(),
+    song.createProperty("String" + PropertyType.EMBEDDEDMAP.getName(),
         PropertyType.EMBEDDEDMAP,
         PropertyType.STRING);
-    song.createIndex(session,
+    song.createIndex(
         SONG_CLASS + "." + PropertyType.EMBEDDEDMAP.getName(),
         SchemaClass.INDEX_TYPE.FULLTEXT.toString(),
         null,
         null,
         "LUCENE", new String[]{"String" + PropertyType.EMBEDDEDMAP.getName() + " by value"});
-    Assert.assertEquals(1, song.getIndexes(session).size());
+    Assert.assertEquals(1, song.getIndexes().size());
     return song;
   }
 
   private SchemaClassInternal createEmbeddedMapIndexSimple() {
     var schema = session.getMetadata().getSchema();
     var song = schema.getClassInternal(SONG_CLASS);
-    song.createProperty(session, "String" + PropertyType.EMBEDDEDMAP.getName(),
+    song.createProperty("String" + PropertyType.EMBEDDEDMAP.getName(),
         PropertyType.EMBEDDEDMAP,
         PropertyType.STRING);
-    song.createIndex(session,
+    song.createIndex(
         SONG_CLASS + "." + PropertyType.EMBEDDEDMAP.getName(),
         SchemaClass.INDEX_TYPE.FULLTEXT.toString(),
         "String" + PropertyType.EMBEDDEDMAP.getName() + " by value");
-    Assert.assertEquals(1, song.getIndexes(session).size());
+    Assert.assertEquals(1, song.getIndexes().size());
     return song;
   }
 }

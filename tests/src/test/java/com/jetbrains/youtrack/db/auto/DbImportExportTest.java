@@ -155,7 +155,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
         final Schema schema = session.getMetadata().getSchema();
 
         final var rootCls = schema.createClass("RootClass");
-        rootCls.createProperty(session, "embeddedList", PropertyType.EMBEDDEDLIST);
+        rootCls.createProperty("embeddedList", PropertyType.EMBEDDEDLIST);
 
         final var childCls = schema.createClass("ChildClass");
 

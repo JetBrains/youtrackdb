@@ -290,9 +290,9 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
 
       var nextClazz =
           clazz
-              .getProperty(ctx.getDatabaseSession(),
+              .getProperty(
                   base.getIdentifier().suffix.getIdentifier().getStringValue())
-              .getLinkedClass(ctx.getDatabaseSession());
+              .getLinkedClass();
       var newRight = new SQLParenthesisExpression(-1);
       newRight.statement =
           SQLBinaryCondition.indexChainToStatement(

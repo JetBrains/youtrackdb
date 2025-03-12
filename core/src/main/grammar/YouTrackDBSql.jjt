@@ -259,17 +259,9 @@ TOKEN:
 	|
 	< NAME: ("n" | "N") ( "a" | "A" ) ( "m" | "M" ) ( "e" | "E" ) >
 	|
-	< SHORTNAME: ( "s" | "S" ) ( "h" | "H" ) ( "o" | "O" ) ( "r" | "R" ) ( "t" | "T" ) ("n" | "N") ( "a" | "A" ) ( "m" | "M" ) ( "e" | "E" ) >
-	|
 	< STRICT_MODE: ( "s" | "S" ) ( "t" | "T" ) ( "r" | "R" ) ( "i" | "I" ) ( "C" | "c" ) ( "T" | "t" ) ("_") ( "m" | "M" ) ( "o" | "O" ) ( "d" | "D" ) ( "e" | "E" ) >
 	|
-	< ADD_CLUSTER: ( "a" | "A" ) ( "d" | "D" ) ( "d" | "D" ) ("_") ( "C" | "c" ) ( "L" | "l" ) ( "U" | "u" ) ( "S" | "s" ) ( "T" | "t" ) ( "E" | "e" ) ( "R" | "r" ) >
-	|
-	< REMOVE_CLUSTER: ( "r" | "R" ) ( "e" | "E" ) ( "m" | "M" ) ( "o" | "O" ) ( "v" | "V" ) ( "e" | "E" ) ("_") ( "C" | "c" ) ( "L" | "l" ) ( "U" | "u" ) ( "S" | "s" ) ( "T" | "t" ) ( "E" | "e" ) ( "R" | "r" ) >
-	|
 	< CUSTOM: ( "c" | "C" ) ( "u" | "U" ) ( "s" | "S" ) ( "t" | "T" ) ( "o" | "O" ) ( "m" | "M" ) >
-	|
-	< CLUSTER_SELECTION: ( "C" | "c" ) ( "L" | "l" ) ( "U" | "u" ) ( "S" | "s" ) ( "T" | "t" ) ( "E" | "e" ) ( "R" | "r" ) ("_") ( "s" | "S" ) ( "e" | "E" ) ( "l" | "L" ) ( "e" | "E" ) ( "c" | "C" ) ( "t" | "T" ) ( "i" | "I" ) ( "o" | "O" ) ( "n" | "N" ) >
 	|
 	< DESCRIPTION: ( "d" | "D" ) ( "E" | "e" )  ( "s" | "S" ) ( "c" | "C" ) ( "r" | "R" ) ( "i" | "I" ) ( "p" | "P" ) ( "t" | "T" ) ( "i" | "I" ) ( "o" | "O" ) ( "n" | "N" ) >
 	|
@@ -796,21 +788,13 @@ SQLIdentifier Identifier():
 	|
 	token = <NAME>
 	|
-	token = <SHORTNAME>
-	|
 	token = <SUPERCLASS>
 	|
 	token = <SUPERCLASSES>
 	|
 	token = <STRICT_MODE>
 	|
-	token = <ADD_CLUSTER>
-	|
-	token = <REMOVE_CLUSTER>
-	|
 	token = <CUSTOM>
-	|
-	token = <CLUSTER_SELECTION>
 	|
 	token = <DESCRIPTION>
 	|
@@ -1156,9 +1140,6 @@ SQLStatement StatementInternal():
                 result = AlterClusterStatement()
                 |
                 LOOKAHEAD(2)
-                result = DropClusterStatement()
-                |
-                LOOKAHEAD(2)
                 result = AlterDatabaseStatement()
                 |
                 result = OptimizeDatabaseStatement()
@@ -1180,21 +1161,6 @@ SQLStatement StatementInternal():
                 result = ConsoleStatement()
                 |
                 result = IfStatement()
-                |
-                LOOKAHEAD(HaRemoveServerStatement())
-                result = HaRemoveServerStatement()
-                |
-                LOOKAHEAD(HaStatusStatement())
-                result = HaStatusStatement()
-                |
-                LOOKAHEAD(HaSyncDatabaseStatement())
-                result = HaSyncDatabaseStatement()
-                |
-                LOOKAHEAD(HaSyncClusterStatement())
-                result = HaSyncClusterStatement()
-                |
-                LOOKAHEAD(HaSetStatement())
-                result = HaSetStatement()
             )
         )
         |
@@ -3922,14 +3888,6 @@ SQLCreateClassStatement CreateClassStatement():
 			 	lastIdentifier = Identifier() { jjtThis.addSuperclass(lastIdentifier); }
 			 )*
 		]
-		[
-			<CLUSTER> lastInteger = Integer() { jjtThis.clusters = new ArrayList<SQLInteger>(); jjtThis.addCluster(lastInteger); }
-		 	(
-				<COMMA>
-				lastInteger = Integer() { jjtThis.addCluster(lastInteger); }
-		 	)*
-		]
-		[ <CLUSTERS> jjtThis.totalClusterNo = Integer() ]
 		[ <ABSTRACT> { jjtThis.abstractClass = true; } ]
 	)
 	{ return jjtThis; }
@@ -3949,33 +3907,6 @@ SQLAlterClassStatement AlterClassStatement():
 		(
 			<NAME> { jjtThis.property = com.jetbrains.youtrack.db.api.schema.SchemaClass.ATTRIBUTES.NAME; }
 			jjtThis.identifierValue = Identifier()
-		)
-		|
-		(
-			<SHORTNAME> { jjtThis.property = com.jetbrains.youtrack.db.api.schema.SchemaClass.ATTRIBUTES.SHORTNAME; }
-			(
-				jjtThis.identifierValue = Identifier()
-				|
-            	<NULL>
-            )
-		)
-		|
-		(
-			<SUPERCLASS> { jjtThis.property = com.jetbrains.youtrack.db.api.schema.SchemaClass.ATTRIBUTES.SUPERCLASS; }
-			[
-				(
-					<PLUS> {jjtThis.add = true;}
-				)
-				|
-				(
-					<MINUS> {jjtThis.remove = true;}
-				)
-			]
-			(
-				jjtThis.identifierValue = Identifier()
-				|
-				<NULL> { jjtThis.identifierValue = null; }
-			)
 		)
 		|
 		(
@@ -4010,24 +3941,6 @@ SQLAlterClassStatement AlterClassStatement():
 		)
 		|
 		(
-			<ADD_CLUSTER> { jjtThis.property = com.jetbrains.youtrack.db.api.schema.SchemaClass.ATTRIBUTES.ADD_CLUSTER; }
-			(
-				jjtThis.identifierValue = Identifier()
-				|
-				jjtThis.numberValue = Integer()
-			)
-		)
-		|
-		(
-			<REMOVE_CLUSTER> { jjtThis.property = com.jetbrains.youtrack.db.api.schema.SchemaClass.ATTRIBUTES.REMOVE_CLUSTER; }
-			(
-				jjtThis.identifierValue = Identifier()
-				|
-				jjtThis.numberValue = Integer()
-			)
-		)
-		|
-		(
 			<CUSTOM> { jjtThis.property = com.jetbrains.youtrack.db.api.schema.SchemaClass.ATTRIBUTES.CUSTOM; }
 			jjtThis.customKey = Identifier()
 			<EQ>
@@ -4044,17 +3957,6 @@ SQLAlterClassStatement AlterClassStatement():
 				(
 					<FALSE> { jjtThis.booleanValue = false; }
 				)
-			)
-		)
-		|
-		(
-			<CLUSTER_SELECTION> { jjtThis.property = com.jetbrains.youtrack.db.api.schema.SchemaClass.ATTRIBUTES.CLUSTER_SELECTION; }
-			(
-				jjtThis.identifierValue = Identifier()
-				|
-				"round-robin" { jjtThis.customString = "round-robin"; }
-				|
-				( jjtThis.customString = String() { jjtThis.customString = jjtThis.customString.substring(1, jjtThis.customString.length() - 1); } )
 			)
 		)
 		|
@@ -4354,19 +4256,6 @@ SQLAlterClusterStatement AlterClusterStatement():
 	[ <STAR> { jjtThis.starred = true; }]
 	jjtThis.attributeName = Identifier()
 	jjtThis.attributeValue = Expression()
-	{ return jjtThis; }
-}
-
-SQLDropClusterStatement DropClusterStatement():
-{}
-{
-	<DROP> <CLUSTER>
-	(
-		jjtThis.name = Identifier()
-		|
-		jjtThis.id = Integer()
-	)
-	[ <IF> <EXISTS> { jjtThis.ifExists = true; } ]
 	{ return jjtThis; }
 }
 
@@ -4954,97 +4843,6 @@ SQLDropSequenceStatement DropSequenceStatement():
         <DROP> <SEQUENCE>
         jjtThis.name = Identifier()
         [ <IF> <EXISTS> { jjtThis.ifExists = true; } ]
-    )
-    { return jjtThis; }
-}
-
-
-SQLHaStatusStatement HaStatusStatement():
-{
- Token token;
-}
-{
-    (
-        <HA> <STATUS>
-        (
-            token = "-servers" { jjtThis.servers = true; }
-            |
-            token = "-db" { jjtThis.db = true; }
-            |
-            token = "-latency" { jjtThis.latency = true; }
-            |
-            token = "-messages" { jjtThis.messages = true; }
-            |
-            token = "-locks" { jjtThis.locks = true; }
-            |
-            token = "-all" {
-                jjtThis.servers = true;
-                jjtThis.db = true;
-                jjtThis.latency = true;
-                jjtThis.messages = true;
-                jjtThis.locks = true;
-            }
-            |
-            token = "-output=text" { jjtThis.outputText = true; }
-        )*
-    )
-    { return jjtThis; }
-}
-
-SQLHaRemoveServerStatement HaRemoveServerStatement():
-{}
-{
-    (
-        <HA> <REMOVE> <SERVER>
-        jjtThis.serverName = Identifier()
-    )
-    { return jjtThis; }
-}
-
-SQLHaSyncDatabaseStatement HaSyncDatabaseStatement():
-{}
-{
-    (
-        <HA> <SYNC> <DATABASE>
-        (
-          ("-force" { jjtThis.force = true; } )
-          |
-          ( "-full" { jjtThis.full = true; } )
-        )*
-    )
-    { return jjtThis; }
-}
-
-SQLHaSyncClusterStatement HaSyncClusterStatement():
-{}
-{
-    (
-        <HA> <SYNC> <CLUSTER>
-        jjtThis.clusterName = Identifier()
-        [
-            (
-                "-full_replace" {jjtThis.modeFull = true;}
-            )
-            |
-            (
-                "-merge" {jjtThis.modeMerge = true;}
-            )
-        ]
-    )
-    { return jjtThis; }
-}
-
-SQLHaSetStatement HaSetStatement():
-{
- Token token;
-}
-{
-    (
-        <HA> <SET>
-        jjtThis.operation = Identifier()
-        jjtThis.key = Expression()
-        <EQ>
-        jjtThis.value = Expression()
     )
     { return jjtThis; }
 }

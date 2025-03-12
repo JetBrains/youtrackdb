@@ -93,9 +93,9 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
       ids.add(i);
     }
 
-    var it = session.browseClass("Account", false);
-    for (it.last(); it.hasPrevious(); ) {
-      var rec = it.previous();
+    var it = session.browseClass("Account", false, false);
+    while (it.hasNext()) {
+      var rec = it.next();
 
       if (rec != null) {
         var id = ((Number) rec.field("id")).intValue();
@@ -136,7 +136,9 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "update")
   public void testUpdate() {
-    for (var rec : session.<EntityImpl>browseCluster("Account")) {
+    var entityIterator = (Iterator<EntityImpl>) session.<EntityImpl>browseCluster("Account");
+    while (entityIterator.hasNext()) {
+      var rec = entityIterator.next();
       var price = ((Number) rec.field("price")).intValue();
       Assert.assertTrue(price - 100 >= 0);
 
@@ -153,7 +155,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     checkEmbeddedDB();
 
     final Set<Integer> profileClusterIds =
-        Arrays.stream(session.getMetadata().getSchema().getClass("Profile").getClusterIds(session))
+        Arrays.stream(session.getMetadata().getSchema().getClass("Profile").getClusterIds())
             .asLongStream()
             .mapToObj(i -> (int) i)
             .collect(HashSet::new, HashSet::add, HashSet::addAll);
@@ -172,8 +174,8 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
     var indexes =
         session.getMetadata().getSchemaInternal().getClassInternal("Profile")
-            .getPropertyInternal(session, "nick")
-            .getAllIndexesInternal(session);
+            .getPropertyInternal("nick")
+            .getAllIndexesInternal();
 
     Assert.assertEquals(indexes.size(), 1);
 
@@ -205,8 +207,8 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
     var indexes =
         session.getMetadata().getSchemaInternal().getClassInternal("Profile")
-            .getPropertyInternal(session, "name")
-            .getAllIndexesInternal(session);
+            .getPropertyInternal("name")
+            .getAllIndexesInternal();
     Assert.assertEquals(indexes.size(), 1);
 
     var indexName = indexes.iterator().next();
@@ -469,7 +471,9 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
     session.commit();
 
-    for (var o : session.browseClass("PersonTest")) {
+    var entityIterator = session.browseClass("PersonTest");
+    while (entityIterator.hasNext()) {
+      var o = entityIterator.next();
       for (Identifiable id : session.query("traverse * from " + o.getIdentity())
           .stream().map(
               Result::getIdentity).toList()) {
@@ -540,7 +544,9 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     }
 
     var browsed = new HashSet<EntityImpl>();
-    for (var d : session.browseClass("Account")) {
+    var entityIterator = session.browseClass("Account");
+    while (entityIterator.hasNext()) {
+      var d = entityIterator.next();
       Assert.assertFalse(browsed.contains(d));
       browsed.add(d);
     }
@@ -595,7 +601,9 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     }
 
     var browsed = new HashSet<EntityImpl>();
-    for (var d : session.browseClass("Account")) {
+    var entityIterator = session.browseClass("Account");
+    while (entityIterator.hasNext()) {
+      var d = entityIterator.next();
       Assert.assertFalse(browsed.contains(d));
       browsed.add(d);
     }
@@ -721,14 +729,10 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
   public void testCreateEmbddedClassDocument() {
     final Schema schema = session.getMetadata().getSchema();
-    final var SUFFIX = "TESTCLUSTER1";
 
     var testClass1 = schema.createClass("testCreateEmbddedClass1");
     var testClass2 = schema.createClass("testCreateEmbddedClass2");
-    testClass2.createProperty(session, "testClass1Property", PropertyType.EMBEDDED, testClass1);
-
-    var clusterId = session.addCluster("testCreateEmbddedClass2" + SUFFIX);
-    schema.getClass("testCreateEmbddedClass2").addClusterId(session, clusterId);
+    testClass2.createProperty("testClass1Property", PropertyType.EMBEDDED, testClass1);
 
     testClass1 = schema.getClass("testCreateEmbddedClass1");
     testClass2 = schema.getClass("testCreateEmbddedClass2");

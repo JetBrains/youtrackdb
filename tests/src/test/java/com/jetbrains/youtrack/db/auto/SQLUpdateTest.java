@@ -717,8 +717,8 @@ public class SQLUpdateTest extends BaseDBTest {
 
   public void testAutoConversionOfEmbeddededListWithLinkedClass() {
     var c = session.getMetadata().getSchema().getOrCreateClass("TestConvert");
-    if (!c.existsProperty(session, "embeddedListWithLinkedClass")) {
-      c.createProperty(session,
+    if (!c.existsProperty("embeddedListWithLinkedClass")) {
+      c.createProperty(
           "embeddedListWithLinkedClass",
           PropertyType.EMBEDDEDLIST,
           session.getMetadata().getSchema().getOrCreateClass("TestConvertLinkedClass"));

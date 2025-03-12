@@ -14,10 +14,10 @@ public class CreateLinkStatementExecutionTest extends DbTestBase {
   @Test
   public void testBasic() {
     var basic1 = session.getMetadata().getSchema().createClass("Basic1");
-    basic1.createProperty(session, "theLink", PropertyType.LINK);
+    basic1.createProperty("theLink", PropertyType.LINK);
 
     var basic2 = session.getMetadata().getSchema().createClass("Basic2");
-    basic2.createProperty(session, "theLink", PropertyType.LINK);
+    basic2.createProperty("theLink", PropertyType.LINK);
 
     session.begin();
     session.command("insert into Basic1 set pk = 'pkb1_1', fk = 'pkb2_1'").close();
@@ -50,10 +50,10 @@ public class CreateLinkStatementExecutionTest extends DbTestBase {
   @Test
   public void testInverse() throws Exception {
     var inverse1 = session.getMetadata().getSchema().createClass("Inverse1");
-    inverse1.createProperty(session, "theLink", PropertyType.LINKSET);
+    inverse1.createProperty("theLink", PropertyType.LINKSET);
 
     var inverse2 = session.getMetadata().getSchema().createClass("Inverse2");
-    inverse2.createProperty(session, "theLink", PropertyType.LINKSET);
+    inverse2.createProperty("theLink", PropertyType.LINKSET);
 
     session.begin();
     session.command("insert into Inverse1 set pk = 'pkb1_1', fk = 'pkb2_1'").close();

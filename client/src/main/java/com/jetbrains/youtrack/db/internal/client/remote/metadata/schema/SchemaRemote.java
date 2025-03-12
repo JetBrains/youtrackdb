@@ -1,7 +1,6 @@
 package com.jetbrains.youtrack.db.internal.client.remote.metadata.schema;
 
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.types.ModifiableLong;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
@@ -27,15 +26,15 @@ public class SchemaRemote extends SchemaShared {
   }
 
   @Override
-  public SchemaClass getOrCreateClass(
-      DatabaseSessionInternal session, String iClassName, SchemaClass... superClasses) {
+  public SchemaClassImpl getOrCreateClass(
+      DatabaseSessionInternal session, String iClassName, SchemaClassImpl... superClasses) {
     if (iClassName == null) {
       return null;
     }
 
     acquireSchemaReadLock(session);
     try {
-      SchemaClass cls = classes.get(iClassName.toLowerCase(Locale.ENGLISH));
+      var cls = classes.get(iClassName.toLowerCase(Locale.ENGLISH));
       if (cls != null) {
         return cls;
       }
@@ -43,7 +42,7 @@ public class SchemaRemote extends SchemaShared {
       releaseSchemaReadLock(session);
     }
 
-    SchemaClass cls;
+    SchemaClassImpl cls;
 
     int[] clusterIds = null;
 
@@ -68,11 +67,11 @@ public class SchemaRemote extends SchemaShared {
     return new SchemaClassRemote(this, name);
   }
 
-  public SchemaClass createClass(
+  public SchemaClassImpl createClass(
       DatabaseSessionInternal session,
       final String className,
       int[] clusterIds,
-      SchemaClass... superClasses) {
+      SchemaClassImpl... superClasses) {
     final var wrongCharacter = SchemaShared.checkClassNameIfValid(className);
     //noinspection ConstantValue
     if (wrongCharacter != null) {
@@ -83,7 +82,7 @@ public class SchemaRemote extends SchemaShared {
               + className
               + "'");
     }
-    SchemaClass result;
+    SchemaClassImpl result;
 
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_CREATE);
     if (superClasses != null) {
@@ -150,11 +149,11 @@ public class SchemaRemote extends SchemaShared {
     return result;
   }
 
-  public SchemaClass createClass(
+  public SchemaClassImpl createClass(
       DatabaseSessionInternal session,
       final String className,
       int clusters,
-      SchemaClass... superClasses) {
+      SchemaClassImpl... superClasses) {
     final var wrongCharacter = SchemaShared.checkClassNameIfValid(className);
     //noinspection ConstantValue
     if (wrongCharacter != null) {
@@ -166,7 +165,7 @@ public class SchemaRemote extends SchemaShared {
               + "'");
     }
 
-    SchemaClass result;
+    SchemaClassImpl result;
 
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_CREATE);
     if (superClasses != null) {
@@ -255,7 +254,7 @@ public class SchemaRemote extends SchemaShared {
 
       final var key = className.toLowerCase(Locale.ENGLISH);
 
-      SchemaClass cls = classes.get(key);
+      var cls = classes.get(key);
 
       if (cls == null) {
         throw new SchemaException(session,

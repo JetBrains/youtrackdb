@@ -28,7 +28,7 @@ public class TestNullFieldQuery extends DbTestBase {
   @Test
   public void testQueryNullValueSchemaFull() {
     var clazz = session.getMetadata().getSchema().createClass("Test");
-    clazz.createProperty(session, "name", PropertyType.STRING);
+    clazz.createProperty("name", PropertyType.STRING);
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("Test");
