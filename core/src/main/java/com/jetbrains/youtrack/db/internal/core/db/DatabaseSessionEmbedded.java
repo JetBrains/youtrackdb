@@ -35,7 +35,6 @@ import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
 import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.api.security.SecurityUser;
@@ -70,8 +69,11 @@ import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryHook;
 import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryHookV2;
 import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryListenerV2;
 import com.jetbrains.youtrack.db.internal.core.query.live.YTLiveQueryMonitorEmbedded;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
+import com.jetbrains.youtrack.db.internal.core.record.impl.VertexInternal;
 import com.jetbrains.youtrack.db.internal.core.schedule.ScheduledEvent;
 import com.jetbrains.youtrack.db.internal.core.schedule.SchedulerImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
@@ -96,7 +98,6 @@ import java.nio.file.Path;
 import java.text.SimpleDateFormat;
 import java.util.Collections;
 import java.util.Date;
-import java.util.Iterator;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -866,7 +867,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   @Override
-  public void beforeCreateOperations(Identifiable id, String iClusterName) {
+  public void beforeCreateOperations(RecordAbstract id, String iClusterName) {
     assert assertIfNotActive();
     checkSecurity(Role.PERMISSION_CREATE, id, iClusterName);
 
@@ -917,7 +918,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   @Override
-  public void beforeUpdateOperations(Identifiable id, String iClusterName) {
+  public void beforeUpdateOperations(RecordAbstract id, String iClusterName) {
     assert assertIfNotActive();
     checkSecurity(Role.PERMISSION_UPDATE, id, iClusterName);
 
@@ -979,15 +980,20 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   @Override
-  public void beforeDeleteOperations(Identifiable id, String iClusterName) {
+  public void beforeDeleteOperations(RecordAbstract id, String iClusterName) {
     assert assertIfNotActive();
     checkSecurity(Role.PERMISSION_DELETE, id, iClusterName);
 
     if (id instanceof EntityImpl entity) {
       SchemaImmutableClass clazz = null;
       clazz = entity.getImmutableSchemaClass(this);
-
       if (clazz != null) {
+        if (clazz.isVertexType()) {
+          VertexInternal.deleteLinks(entity.castToVertex());
+        } else if (clazz.isEdgeType()) {
+          EdgeEntityImpl.deleteLinks(this, entity.castToStatefulEdge());
+        }
+
         if (clazz.isTriggered()) {
           ClassTrigger.onRecordBeforeDelete(entity, this);
         }
@@ -1011,7 +1017,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     callbackHooks(RecordHook.TYPE.BEFORE_DELETE, id);
   }
 
-  public void afterCreateOperations(final Identifiable id) {
+  public void afterCreateOperations(final RecordAbstract id) {
     assert assertIfNotActive();
 
     if (id instanceof EntityImpl entity) {
@@ -1031,7 +1037,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     callbackHooks(RecordHook.TYPE.AFTER_CREATE, id);
   }
 
-  public void afterUpdateOperations(final Identifiable id) {
+  public void afterUpdateOperations(final RecordAbstract id) {
     assert assertIfNotActive();
 
     if (id instanceof EntityImpl entity) {
@@ -1051,7 +1057,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     callbackHooks(RecordHook.TYPE.AFTER_UPDATE, id);
   }
 
-  public void afterDeleteOperations(final Identifiable id) {
+  public void afterDeleteOperations(final RecordAbstract id) {
     assert assertIfNotActive();
     if (id instanceof EntityImpl entity) {
       SchemaImmutableClass clazz = null;
@@ -1075,7 +1081,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   @Override
-  public void afterReadOperations(Identifiable identifiable) {
+  public void afterReadOperations(RecordAbstract identifiable) {
     assert assertIfNotActive();
     if (identifiable instanceof EntityImpl entity) {
       SchemaImmutableClass clazz = null;
@@ -1090,7 +1096,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   @Override
-  public boolean beforeReadOperations(Identifiable identifiable) {
+  public boolean beforeReadOperations(RecordAbstract identifiable) {
     assert assertIfNotActive();
     if (identifiable instanceof EntityImpl entity) {
       SchemaImmutableClass clazz = null;

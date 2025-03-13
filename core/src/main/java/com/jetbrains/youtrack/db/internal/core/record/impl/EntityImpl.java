@@ -75,6 +75,7 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordVersionHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLPredicate;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -2915,14 +2916,17 @@ public class EntityImpl extends RecordAbstract
       }
     }
 
+    var session = this.session;
     try {
       super.delete();
     } catch (Exception e) {
       ridBagsToDelete = null;
       throw e;
     }
-
     internalReset();
+
+    var currentTx = (FrontendTransactionOptimistic) session.getTransaction();
+    currentTx.preProcessRecordsAndExecuteCallCallbacks();
   }
 
   @Nullable

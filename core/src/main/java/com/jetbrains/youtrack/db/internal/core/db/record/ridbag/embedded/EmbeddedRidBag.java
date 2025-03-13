@@ -147,8 +147,6 @@ public class EmbeddedRidBag implements RidBagDelegate {
 
   @Override
   public void remove(RID rid) {
-    rid = refreshNonPersistentRid(rid);
-
     if (removeEntry(rid)) {
       size--;
       contentWasChanged = true;
@@ -410,7 +408,6 @@ public class EmbeddedRidBag implements RidBagDelegate {
   }
 
   private RID refreshNonPersistentRid(RID identifiable) {
-
     if (!identifiable.isPersistent()) {
       identifiable = session.refreshRid(identifiable);
     }

@@ -30,7 +30,6 @@ import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
 import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.internal.client.remote.LiveQueryClientListener;
@@ -52,6 +51,10 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeEntityImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.VertexInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37Client;
@@ -65,7 +68,6 @@ import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionNoTx.NonTxR
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
 import java.nio.file.Path;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
@@ -506,49 +508,61 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   @Override
-  public void beforeCreateOperations(Identifiable id, String iClusterName) {
+  public void beforeCreateOperations(RecordAbstract id, String iClusterName) {
     assert assertIfNotActive();
     checkSecurity(Role.PERMISSION_CREATE, id, iClusterName);
     callbackHooks(RecordHook.TYPE.BEFORE_CREATE, id);
   }
 
   @Override
-  public void beforeUpdateOperations(Identifiable id, String iClusterName) {
+  public void beforeUpdateOperations(RecordAbstract id, String iClusterName) {
     assert assertIfNotActive();
     checkSecurity(Role.PERMISSION_UPDATE, id, iClusterName);
     callbackHooks(RecordHook.TYPE.BEFORE_UPDATE, id);
   }
 
   @Override
-  public void beforeDeleteOperations(Identifiable id, String iClusterName) {
+  public void beforeDeleteOperations(RecordAbstract id, String iClusterName) {
     assert assertIfNotActive();
     checkSecurity(Role.PERMISSION_DELETE, id, iClusterName);
+
+    if (id instanceof EntityImpl entity) {
+      var clazz = entity.getImmutableSchemaClass(this);
+      if (clazz != null) {
+        if (clazz.isVertexType()) {
+          VertexInternal.deleteLinks(entity.castToVertex());
+        } else if (clazz.isEdgeType()) {
+          EdgeEntityImpl.deleteLinks(this, entity.castToStatefulEdge());
+        }
+      }
+    }
+
     callbackHooks(RecordHook.TYPE.BEFORE_DELETE, id);
   }
 
-  public void afterUpdateOperations(final Identifiable id) {
+  public void afterUpdateOperations(final RecordAbstract id) {
     assert assertIfNotActive();
     callbackHooks(RecordHook.TYPE.AFTER_UPDATE, id);
   }
 
-  public void afterCreateOperations(final Identifiable id) {
+  public void afterCreateOperations(final RecordAbstract id) {
     assert assertIfNotActive();
     callbackHooks(RecordHook.TYPE.AFTER_CREATE, id);
   }
 
-  public void afterDeleteOperations(final Identifiable id) {
+  public void afterDeleteOperations(final RecordAbstract id) {
     assert assertIfNotActive();
     callbackHooks(RecordHook.TYPE.AFTER_DELETE, id);
   }
 
   @Override
-  public boolean beforeReadOperations(Identifiable identifiable) {
+  public boolean beforeReadOperations(RecordAbstract identifiable) {
     assert assertIfNotActive();
     return callbackHooks(RecordHook.TYPE.BEFORE_READ, identifiable) == RecordHook.RESULT.SKIP;
   }
 
   @Override
-  public void afterReadOperations(Identifiable identifiable) {
+  public void afterReadOperations(RecordAbstract identifiable) {
     assert assertIfNotActive();
     callbackHooks(RecordHook.TYPE.AFTER_READ, identifiable);
   }

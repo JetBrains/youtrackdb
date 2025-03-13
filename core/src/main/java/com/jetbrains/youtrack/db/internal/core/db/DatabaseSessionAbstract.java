@@ -40,6 +40,7 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
+import com.jetbrains.youtrack.db.api.record.RecordHook.TYPE;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.Schema;
@@ -81,7 +82,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImp
 import com.jetbrains.youtrack.db.internal.core.query.Query;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EmbeddedEntityImpl;
@@ -485,7 +485,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     }
 
     var record = currentTx.getRecordEntry(rid);
-    if (record == null || record.type == RecordOperation.DELETED) {
+    if (record == null) {
       throw new RecordNotFoundException(this, rid);
     }
 
@@ -505,16 +505,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   public void deleteInternal(@Nonnull DBRecord record) {
     checkOpenness();
     assert assertIfNotActive();
-
-    if (record instanceof Entity) {
-      if (((Entity) record).isVertex()) {
-        VertexInternal.deleteLinks(((Entity) record).castToVertex());
-      } else {
-        if (((Entity) record).isStatefulEdge()) {
-          EdgeEntityImpl.deleteLinks(this, ((Entity) record).castToStatefulEdge());
-        }
-      }
-    }
 
     try {
       currentTx.deleteRecord((RecordAbstract) record);
@@ -546,7 +536,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
    * @param id   Record received in the callback
    * @return True if the input record is changed, otherwise false
    */
-  public RecordHook.RESULT callbackHooks(final RecordHook.TYPE type, final Identifiable id) {
+  public RecordHook.RESULT callbackHooks(final TYPE type, final RecordAbstract id) {
     assert assertIfNotActive();
     if (id == null || hooks.isEmpty() || id.getIdentity().getClusterId() == 0) {
       return RecordHook.RESULT.RECORD_NOT_CHANGED;

@@ -31,6 +31,7 @@ import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
+import com.jetbrains.youtrack.db.api.record.RecordHook.TYPE;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.security.SecurityUser;
@@ -124,23 +125,23 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   void reloadUser();
 
-  void afterReadOperations(final Identifiable identifiable);
+  void afterReadOperations(final RecordAbstract identifiable);
 
-  boolean beforeReadOperations(final Identifiable identifiable);
+  boolean beforeReadOperations(final RecordAbstract identifiable);
 
-  void beforeCreateOperations(final Identifiable id, String iClusterName);
+  void beforeCreateOperations(final RecordAbstract id, String iClusterName);
 
-  void beforeUpdateOperations(final Identifiable id, String iClusterName);
+  void beforeUpdateOperations(final RecordAbstract id, String iClusterName);
 
-  void beforeDeleteOperations(final Identifiable id, String iClusterName);
+  void beforeDeleteOperations(final RecordAbstract id, String iClusterName);
 
-  void afterUpdateOperations(final Identifiable id);
+  void afterUpdateOperations(final RecordAbstract id);
 
-  void afterCreateOperations(final Identifiable id);
+  void afterCreateOperations(final RecordAbstract id);
 
-  void afterDeleteOperations(final Identifiable id);
+  void afterDeleteOperations(final RecordAbstract id);
 
-  RecordHook.RESULT callbackHooks(final RecordHook.TYPE type, final Identifiable id);
+  RecordHook.RESULT callbackHooks(final TYPE type, final RecordAbstract id);
 
   @Nullable
   <RET extends RecordAbstract> RawPair<RET, RecordId> loadFirstRecordAndNextRidInCluster(int clusterId);

@@ -268,11 +268,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
         }
         lastDoc = ((Identifiable) nextDoc).getRecord(session);
       }
-      SchemaImmutableClass result = null;
-      if (lastDoc != null) {
-        result = lastDoc.getImmutableSchemaClass(session);
-      }
-      SchemaClass schemaClass = result;
+      var schemaClass = lastDoc.getImmutableSchemaClass(session);
       if (schemaClass == null) {
         return null;
       }

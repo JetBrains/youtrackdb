@@ -599,7 +599,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
     }
 
     var db = iContext.getDatabaseSession();
-    DBRecord record;
+    RecordAbstract record;
     if (!(id instanceof DBRecord)) {
       try {
         record = db.load(id.getIdentity());
@@ -614,7 +614,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
         }
       }
     } else {
-      record = (DBRecord) id;
+      record = (RecordAbstract) id;
     }
 
     iContext.updateMetric("recordReads", +1);

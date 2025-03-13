@@ -302,7 +302,7 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
     }
   }
 
-  private void postAddRecord(DBRecord record, final byte iStatus, boolean callHooks) {
+  private void postAddRecord(RecordAbstract record, final byte iStatus, boolean callHooks) {
     checkTransactionValid();
     try {
       if (callHooks) {
@@ -362,7 +362,7 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
     }
   }
 
-  private void finalizeAddRecord(DBRecord record, final byte iStatus, boolean callHooks) {
+  private void finalizeAddRecord(RecordAbstract record, final byte iStatus, boolean callHooks) {
     checkTransactionValid();
     if (callHooks) {
       switch (iStatus) {

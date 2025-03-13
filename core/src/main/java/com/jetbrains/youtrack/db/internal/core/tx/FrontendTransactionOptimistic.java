@@ -611,9 +611,12 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
   }
 
   public void preProcessRecordsAndExecuteCallCallbacks() {
+    if (operationsBetweenCallbacks.isEmpty()) {
+      return;
+    }
+
     var serializer = session.getSerializer();
     List<RecordOperation> newDeletedRecords = null;
-
     while (!operationsBetweenCallbacks.isEmpty()) {
       var operations = new ArrayList<>(operationsBetweenCallbacks.values());
       operationsBetweenCallbacks.clear();

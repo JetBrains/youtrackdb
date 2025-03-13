@@ -22,6 +22,7 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
+import com.jetbrains.youtrack.db.api.record.RecordHook.TYPE;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.Schema;
@@ -284,7 +285,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public RecordHook.RESULT callbackHooks(RecordHook.TYPE type, Identifiable id) {
+  public RecordHook.RESULT callbackHooks(TYPE type, RecordAbstract id) {
     checkOpenness();
     return internal.callbackHooks(type, id);
   }
@@ -1426,42 +1427,42 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void beforeCreateOperations(Identifiable id, String iClusterName) {
+  public void beforeCreateOperations(RecordAbstract id, String iClusterName) {
     internal.beforeCreateOperations(id, iClusterName);
   }
 
   @Override
-  public void beforeUpdateOperations(Identifiable id, String iClusterName) {
+  public void beforeUpdateOperations(RecordAbstract id, String iClusterName) {
     internal.beforeUpdateOperations(id, iClusterName);
   }
 
   @Override
-  public void beforeDeleteOperations(Identifiable id, String iClusterName) {
+  public void beforeDeleteOperations(RecordAbstract id, String iClusterName) {
     internal.beforeDeleteOperations(id, iClusterName);
   }
 
   @Override
-  public void afterCreateOperations(Identifiable id) {
+  public void afterCreateOperations(RecordAbstract id) {
     internal.afterCreateOperations(id);
   }
 
   @Override
-  public void afterDeleteOperations(Identifiable id) {
+  public void afterDeleteOperations(RecordAbstract id) {
     internal.afterDeleteOperations(id);
   }
 
   @Override
-  public void afterUpdateOperations(Identifiable id) {
+  public void afterUpdateOperations(RecordAbstract id) {
     internal.afterUpdateOperations(id);
   }
 
   @Override
-  public void afterReadOperations(Identifiable identifiable) {
+  public void afterReadOperations(RecordAbstract identifiable) {
     internal.afterReadOperations(identifiable);
   }
 
   @Override
-  public boolean beforeReadOperations(Identifiable identifiable) {
+  public boolean beforeReadOperations(RecordAbstract identifiable) {
     return internal.beforeReadOperations(identifiable);
   }
 
