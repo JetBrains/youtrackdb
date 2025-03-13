@@ -15,12 +15,10 @@ public class EntityTest extends DbTestBase {
     var elem = session.newEntity();
     elem.setProperty("foo", "foo1");
     elem.setProperty("foo.bar", "foobar");
-    elem.setProperty("  ", "spaces");
 
     var names = elem.getPropertyNames();
     Assert.assertTrue(names.contains("foo"));
     Assert.assertTrue(names.contains("foo.bar"));
-    Assert.assertTrue(names.contains("  "));
     session.rollback();
   }
 

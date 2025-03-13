@@ -415,7 +415,7 @@ public class GraphRepair {
                   } else if (fieldValue instanceof RidBag ridbag) {
                     // In case of ridbags force save for trigger eventual conversions
                     if (ridbag.size() == 0) {
-                      vertex.removeField(fieldName);
+                      vertex.removePropertyInternal(fieldName);
                     } else if (!ridbag.isEmbedded()
                         && ridbag.size()
                         < GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD

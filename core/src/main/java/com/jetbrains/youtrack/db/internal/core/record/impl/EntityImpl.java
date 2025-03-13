@@ -711,7 +711,9 @@ public class EntityImpl extends RecordAbstract
    * @param propertyValue The property value
    */
   public void setProperty(final @Nonnull String propertyName, @Nullable Object propertyValue) {
-    assertPropertyValue(propertyName, propertyValue);
+    validatePropertyName(propertyName);
+    validatePropertyValue(propertyName, propertyValue);
+
     setPropertyInternal(propertyName, propertyValue);
   }
 
@@ -971,12 +973,24 @@ public class EntityImpl extends RecordAbstract
 
   @Override
   public void setPropertyInternal(String name, Object value) {
-    if (value instanceof EntityImpl entity
-        && entity.getImmutableSchemaClass(session) == null
-        && !entity.getIdentity().isValid()) {
-      setProperty(name, value, PropertyType.EMBEDDED);
-    } else {
-      setPropertyInternal(name, value, null);
+    checkForBinding();
+
+    if (value instanceof EntityImpl entity) {
+      if (entity.isEmbedded()) {
+        setPropertyInternal(name, value, PropertyType.EMBEDDED);
+        return;
+      }
+    }
+
+    setPropertyInternal(name, value, null);
+  }
+
+  private static void validatePropertyName(String propertyName) {
+    if (propertyName == null || propertyName.isEmpty()) {
+      throw new DatabaseException("Empty property name was provided");
+    }
+    if (!Character.isLetter(propertyName.charAt(0))) {
+      throw new DatabaseException("Property name has to start with a letter");
     }
   }
 
@@ -1088,7 +1102,9 @@ public class EntityImpl extends RecordAbstract
    */
   public void setProperty(@Nonnull String propertyName, Object propertyValue,
       @Nonnull PropertyType type) {
-    assertPropertyValue(propertyName, propertyValue);
+    validatePropertyName(propertyName);
+    validatePropertyValue(propertyName, propertyValue);
+
     setPropertyInternal(propertyName, propertyValue, type);
   }
 
@@ -1102,7 +1118,7 @@ public class EntityImpl extends RecordAbstract
   }
 
   @Override
-  public void setPropertyInternal(String name, Object value, PropertyType type) {
+  public void setPropertyInternal(String name, Object value, @Nullable PropertyType type) {
     checkForBinding();
 
     if (name == null) {
@@ -1929,17 +1945,19 @@ public class EntityImpl extends RecordAbstract
    * Returns the array of field values.
    */
   public Object[] fieldValues() {
-    checkForBinding();
-    checkForFields();
+    var propertyNames = calculatePropertyNames();
+    if (propertyNames != null) {
+      var values = new Object[propertyNames.size()];
 
-    final List<Object> res = new ArrayList<>(fields.size());
-    for (var entry : fields.entrySet()) {
-      if (entry.getValue().exists()
-          && (propertyAccess == null || propertyAccess.isReadable(entry.getKey()))) {
-        res.add(entry.getValue().value);
+      var index = 0;
+      for (var name : propertyNames) {
+        values[index] = getProperty(name);
+        index++;
       }
+      return values;
     }
-    return res.toArray();
+
+    return new Object[0];
   }
 
   public <RET> RET rawField(final String iFieldName) {
@@ -2454,45 +2472,7 @@ public class EntityImpl extends RecordAbstract
    */
   @Override
   public Object removeField(final String iFieldName) {
-    checkForBinding();
-    checkForFields();
-
-    if (EntityHelper.ATTRIBUTE_CLASS.equalsIgnoreCase(iFieldName)) {
-      throw new UnsupportedOperationException("Cannot remove the class attribute");
-    } else {
-      if (EntityHelper.ATTRIBUTE_RID.equalsIgnoreCase(iFieldName)) {
-        throw new UnsupportedOperationException("Cannot remove the rid of the record");
-      }
-    }
-
-    final var entry = fields.get(iFieldName);
-    if (entry == null) {
-      return null;
-    }
-    var oldValue = entry.value;
-
-    if (entry.exists() && trackingChanges) {
-      // SAVE THE OLD VALUE IN A SEPARATE MAP
-      if (entry.original == null) {
-        entry.original = entry.value;
-      }
-      entry.value = null;
-      entry.setExists(false);
-      entry.markChanged();
-    } else {
-      fields.remove(iFieldName);
-    }
-    fieldSize--;
-
-    entry.disableTracking(this, oldValue);
-    if (oldValue instanceof RidBag) {
-      ((RidBag) oldValue).setOwner(null);
-    } else if (oldValue instanceof TrackedMultiValue<?, ?> trackedMultiValue) {
-      trackedMultiValue.setOwner(null);
-    }
-
-    setDirty();
-    return oldValue;
+    return removeProperty(iFieldName);
   }
 
   /**
@@ -4041,7 +4021,7 @@ public class EntityImpl extends RecordAbstract
     return fieldType;
   }
 
-  private void assertPropertyValue(String propertyName, @Nullable Object propertyValue) {
+  private void validatePropertyValue(String propertyName, @Nullable Object propertyValue) {
     var error = checkPropertyValue(propertyName, propertyValue);
     if (error != null) {
       throw new DatabaseException(session.getDatabaseName(), error);

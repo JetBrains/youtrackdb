@@ -339,16 +339,6 @@ public class EntityImplTest extends DbTestBase {
     assertEquals(entity.getProperty("map"), map);
 
     assertEquals("bar", entity.getProperty("theMap.foo"));
-
-    entity.setProperty(",", "comma");
-    assertEquals("comma", entity.getProperty(","));
-
-    entity.setProperty(",.,/;:'\"", "strange");
-    assertEquals("strange", entity.getProperty(",.,/;:'\""));
-
-    entity.setProperty("   ", "spaces");
-    assertEquals("spaces", entity.getProperty("   "));
-
     session.rollback();
   }
 
