@@ -87,7 +87,7 @@
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>javacc-maven-plugin</artifactId>
-        <version>3.0.1</version>
+        <version>3.1.0</version>
         <executions>
           <execution>
             <id>jjtree-javacc</id>
@@ -101,13 +101,6 @@
           <interimDirectory>${basedir}/src/main/java</interimDirectory>
           <outputDirectory>${basedir}/src/main/java</outputDirectory>
         </configuration>
-        <dependencies>
-          <dependency>
-            <groupId>net.java.dev.javacc</groupId>
-            <artifactId>javacc</artifactId>
-            <version>7.0.13</version>
-          </dependency>
-        </dependencies>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
