@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Iterator;
+import java.util.Map;
 
 /**
  * Expands a result-set. The pre-requisite is that the input element contains only one field (no
@@ -62,12 +63,13 @@ public class ExpandStep extends AbstractExecutionStep {
       case Iterator iterator -> {
         //noinspection unchecked
         return ExecutionStream.iterator((Iterator<Object>) projValue);
-        //noinspection unchecked
       }
       case Iterable iterable -> {
         //noinspection unchecked
         return ExecutionStream.iterator(((Iterable<Object>) projValue).iterator());
-        //noinspection unchecked
+      }
+      case Map map -> {
+        return ExecutionStream.iterator(((Map) projValue).entrySet().iterator());
       }
       default -> {
         return ExecutionStream.empty();

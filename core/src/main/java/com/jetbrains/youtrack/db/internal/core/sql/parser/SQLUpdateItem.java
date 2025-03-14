@@ -188,18 +188,19 @@ public class SQLUpdateItem extends SimpleNode {
         entity.setProperty(propName, result);
       }
     } else {
-      if (prop.getType() == PropertyType.EMBEDDEDMAP
-          || prop.getType() == PropertyType.LINKMAP) {
-        result = session.newLinkMap();
-        entity.setProperty(propName, result);
-      } else if (prop.getType() == PropertyType.EMBEDDEDLIST
-          || prop.getType() == PropertyType.LINKLIST) {
-        result = session.newEmbeddedList();
-        entity.setProperty(propName, result);
-      } else if (prop.getType() == PropertyType.EMBEDDEDSET
-          || prop.getType() == PropertyType.LINKSET) {
-        result = session.newEmbeddedSet();
-        entity.setProperty(propName, result);
+      final var container = switch (prop.getType()) {
+        case PropertyType.EMBEDDEDMAP -> session.newEmbeddedMap();
+        case PropertyType.LINKMAP -> session.newLinkMap();
+        case PropertyType.EMBEDDEDLIST -> session.newEmbeddedList();
+        case PropertyType.LINKLIST -> session.newLinkList();
+        case PropertyType.EMBEDDEDSET -> session.newEmbeddedSet();
+        case PropertyType.LINKSET -> session.newLinkSet();
+        default -> null;
+      };
+
+      if (container != null) {
+        entity.setProperty(propName, container);
+        result = container;
       }
     }
     return result;

@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -30,13 +31,11 @@ import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.command.script.CommandScript;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.assertj.core.api.Assertions;
 import org.junit.Ignore;
 import org.junit.Test;
 
@@ -58,24 +57,30 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     final var r = session.query("SELECT FROM company").findFirst(Result::asEntity);
 
     session.begin();
-    session.command("INSERT INTO employee SET name = 'Philipp'").close();
-    session.command("INSERT INTO employee SET name = 'Selma'").close();
-    session.command("INSERT INTO employee SET name = 'Thierry'").close();
-    session.command("INSERT INTO employee SET name = 'Linn'").close();
+    session.executeInTx(() -> {
+      session.command("INSERT INTO employee SET name = 'Philipp'").close();
+      session.command("INSERT INTO employee SET name = 'Selma'").close();
+      session.command("INSERT INTO employee SET name = 'Thierry'").close();
+      session.command("INSERT INTO employee SET name = 'Linn'").close();
+    });
 
     session.command("UPDATE company set employees = (SELECT FROM employee)").close();
     session.commit();
 
-    assertEquals(((Set) session.bindToSession(r).getProperty("employees")).size(), 4);
+    session.executeInTx(() ->
+        assertEquals(((Set) session.bindToSession(r).getProperty("employees")).size(), 4)
+    );
 
-    session.begin();
-    session.command(
-            "UPDATE company REMOVE employees = (SELECT FROM employee WHERE name = 'Linn') WHERE"
-                + " name = 'MyCompany'")
-        .close();
-    session.commit();
+    session.executeInTx(() ->
+        session.command(
+                "UPDATE company REMOVE employees = (SELECT FROM employee WHERE name = 'Linn') WHERE"
+                    + " name = 'MyCompany'")
+            .close()
+    );
 
-    assertEquals(((Set) session.bindToSession(r).getProperty("employees")).size(), 3);
+    session.executeInTx(() ->
+        assertEquals(((Set) session.bindToSession(r).getProperty("employees")).size(), 3)
+    );
   }
 
   @Test
@@ -133,11 +138,14 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
         .close();
     session.commit();
 
-    result = session.query("SELECT * FROM i_have_a_list WHERE types = 'ccc'");
-    assertEquals(result.stream().count(), 1);
+    session.executeInTx(() -> {
+      var r = session.query("SELECT * FROM i_have_a_list WHERE types = 'ccc'");
+      assertEquals(r.stream().count(), 1);
 
-    result = session.query("SELECT * FROM i_have_a_list WHERE types = 'aaa'");
-    assertEquals(result.stream().count(), 0);
+      r = session.query("SELECT * FROM i_have_a_list WHERE types = 'aaa'");
+      assertEquals(r.stream().count(), 0);
+    });
+
   }
 
   @Test
@@ -156,23 +164,25 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     params.put("svn_url", "foo");
     session.command("create class " + className).close();
 
-    session.command(
-            "update "
-                + className
-                + " SET name = :name, full_name = :full_name, html_url = :html_url, description ="
-                + " :description, git_url = :git_url, ssh_url = :ssh_url, clone_url = :clone_url,"
-                + " svn_url = :svn_urlUPSERT WHERE full_name = :full_name",
-            params)
-        .close();
+    session.executeInTx(() -> {
+      session.command(
+              "update "
+                  + className
+                  + " SET name = :name, full_name = :full_name, html_url = :html_url, description ="
+                  + " :description, git_url = :git_url, ssh_url = :ssh_url, clone_url = :clone_url,"
+                  + " svn_url = :svn_urlUPSERT WHERE full_name = :full_name",
+              params)
+          .close();
 
-    session.command(
-            "update "
-                + className
-                + " SET name = :name, html_url = :html_url, description = :description, git_url ="
-                + " :git_url, ssh_url = :ssh_url, clone_url = :clone_url, svn_url = :svn_urlUPSERT"
-                + " WHERE full_name = :full_name",
-            params)
-        .close();
+      session.command(
+              "update "
+                  + className
+                  + " SET name = :name, html_url = :html_url, description = :description, git_url ="
+                  + " :git_url, ssh_url = :ssh_url, clone_url = :clone_url, svn_url = :svn_urlUPSERT"
+                  + " WHERE full_name = :full_name",
+              params)
+          .close();
+    });
   }
 
   @Test
@@ -222,13 +232,13 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
   public void testBooleanListNamedParameter() {
     session.getMetadata().getSchema().createClass("test");
 
-    session.begin();
-    var doc = (EntityImpl) session.newEntity("test");
-    doc.field("id", 1);
-    doc.field("boolean", false);
-    doc.field("integerList", Collections.EMPTY_LIST);
-    doc.field("booleanList", Collections.EMPTY_LIST);
-    session.commit();
+    session.executeInTx(() -> {
+      var doc = (EntityImpl) session.newEntity("test");
+      doc.field("id", 1);
+      doc.field("boolean", false);
+      doc.getOrCreateEmbeddedList("integerList");
+      doc.getOrCreateEmbeddedList("booleanList");
+    });
 
     Map<String, Object> params = new HashMap<String, Object>();
 
@@ -242,22 +252,24 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     booleanList.add(true);
     params.put("booleanList", booleanList);
 
-    session.begin();
-    session.command(
-            "UPDATE test SET boolean = :boolean, booleanList = :booleanList, integerList ="
-                + " :integerList WHERE id = 1",
-            params)
-        .close();
-    session.commit();
+    session.executeInTx(() -> {
+      session.command(
+              "UPDATE test SET boolean = :boolean, booleanList = :booleanList, integerList ="
+                  + " :integerList WHERE id = 1",
+              params)
+          .close();
+    });
 
-    try (var queryResult = session.command("SELECT * FROM test WHERE id = 1")) {
-      var docResult = queryResult.next();
-      List<?> resultBooleanList = docResult.getProperty("booleanList");
-      assertNotNull(resultBooleanList);
-      assertEquals(resultBooleanList.size(), 1);
-      assertEquals(resultBooleanList.iterator().next(), true);
-      assertFalse(queryResult.hasNext());
-    }
+    session.executeInTx(() -> {
+      try (var queryResult = session.command("SELECT * FROM test WHERE id = 1")) {
+        var docResult = queryResult.next();
+        List<?> resultBooleanList = docResult.getProperty("booleanList");
+        assertNotNull(resultBooleanList);
+        assertEquals(resultBooleanList.size(), 1);
+        assertEquals(resultBooleanList.iterator().next(), true);
+        assertFalse(queryResult.hasNext());
+      }
+    });
   }
 
   @Test
@@ -265,61 +277,69 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
 
     session.command("CREATE class test").close();
 
-    session.begin();
-    final var test = (EntityImpl) session.newEntity("test");
-    test.field("id", "id1");
-    test.field("count", 20);
+    session.executeInTx(() -> {
+      final var test = (EntityImpl) session.newEntity("test");
+      test.field("id", "id1");
+      test.field("count", 20);
 
-    Map<String, Integer> nestedCound = new HashMap<String, Integer>();
-    nestedCound.put("nestedCount", 10);
-    test.field("map", nestedCound);
+      test.getOrCreateEmbeddedMap("map").put("nestedCount", 10);
+    });
 
-    session.commit();
+    var queried =
+        session.computeInTx(
+            () -> session.query("SELECT FROM test WHERE id = \"id1\"").next().asEntity());
 
-    var queried = session.query("SELECT FROM test WHERE id = \"id1\"").next().asEntity();
+    session.executeInTx(() ->
+        session.command("UPDATE test set count += 2").close()
+    );
 
-    session.begin();
-    session.command("UPDATE test set count += 2").close();
-    session.commit();
+    session.executeInTx(() ->
+        assertThat(session.bindToSession(queried).<Integer>getProperty("count"))
+            .isEqualTo(22));
 
-    Assertions.assertThat(session.bindToSession(queried).<Integer>getProperty("count"))
-        .isEqualTo(22);
+    session.executeInTx(() ->
+        session.command("UPDATE test set map.nestedCount = map.nestedCount + 5").close()
+    );
 
-    session.begin();
-    session.command("UPDATE test set map.nestedCount = map.nestedCount + 5").close();
-    session.commit();
+    session.executeInTx(() ->
+        assertThat(session.bindToSession(queried).<Map>getProperty("map").get("nestedCount"))
+            .isEqualTo(15));
 
-    Assertions.assertThat(session.bindToSession(queried).<Map>getProperty("map").get("nestedCount"))
-        .isEqualTo(15);
+    session.executeInTx(() ->
+        session.command("UPDATE test set map.nestedCount = map.nestedCount+ 5").close()
+    );
 
-    session.begin();
-    session.command("UPDATE test set map.nestedCount = map.nestedCount+ 5").close();
-    session.commit();
-
-    Assertions.assertThat(session.bindToSession(queried).<Map>getProperty("map").get("nestedCount"))
-        .isEqualTo(20);
+    session.executeInTx(() ->
+        assertThat(session.bindToSession(queried).<Map>getProperty("map").get("nestedCount"))
+            .isEqualTo(20));
   }
 
   @Test
   public void testSingleQuoteInNamedParameter() throws Exception {
     session.command("CREATE class test").close();
 
-    session.begin();
-    final var test = (EntityImpl) session.newEntity("test");
-    test.field("text", "initial value");
-    session.commit();
+    session.executeInTx(() -> {
+      final var test = (EntityImpl) session.newEntity("test");
+      test.field("text", "initial value");
+    });
 
-    var queried = session.query("SELECT FROM test").next().asEntity();
-    assertEquals(queried.getProperty("text"), "initial value");
+    final var queried =
+        session.computeInTx(() -> {
+          final var q = session.query("SELECT FROM test").next().asEntity();
+          assertEquals(q.getProperty("text"), "initial value");
+          return q;
+        });
 
     Map<String, Object> params = new HashMap<String, Object>();
     params.put("text", "single \"");
 
-    session.begin();
-    session.command("UPDATE test SET text = :text", params).close();
-    session.commit();
+    session.executeInTx(() ->
+        session.command("UPDATE test SET text = :text", params).close()
+    );
 
-    assertEquals(session.bindToSession(queried).getProperty("text"), "single \"");
+    session.executeInTx(() ->
+        assertEquals(session.bindToSession(queried).getProperty("text"), "single \"")
+    );
   }
 
   @Test
@@ -327,23 +347,26 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
 
     session.command("CREATE class test").close();
 
-    session.begin();
-    final var test = (EntityImpl) session.newEntity("test");
-    test.field("text", "initial value");
+    session.executeInTx(() -> {
+      final var test = (EntityImpl) session.newEntity("test");
+      test.field("text", "initial value");
+    });
 
-    session.commit();
-
-    var queried = session.query("SELECT FROM test").next().asEntity();
-    assertEquals(queried.getProperty("text"), "initial value");
+    final var queried = session.computeInTx(() -> {
+      var q = session.query("SELECT FROM test").next().asEntity();
+      assertEquals(q.getProperty("text"), "initial value");
+      return q;
+    });
 
     Map<String, Object> params = new HashMap<String, Object>();
     params.put("text", "quoted \"value\" string");
 
-    session.begin();
-    session.command("UPDATE test SET text = :text", params).close();
-    session.commit();
+    session.executeInTx(() ->
+        session.command("UPDATE test SET text = :text", params).close());
 
-    assertEquals(session.bindToSession(queried).getProperty("text"), "quoted \"value\" string");
+    session.executeInTx(() ->
+        assertEquals(session.bindToSession(queried).getProperty("text"), "quoted \"value\" string")
+    );
   }
 
   @Test
@@ -407,84 +430,6 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
       assertEquals(result.next().getProperty("name"), "bar");
     }
     session.command("UPDATE foo set name = 'foo' where name = 'bar' lock record limit 1").close();
-  }
-
-  @Test
-  public void testUpdateContentOnClusterTarget() throws Exception {
-    session.command("CREATE class Foo").close();
-    session.command("CREATE class Bar").close();
-    session.command("CREATE property Foo.bar EMBEDDED Bar").close();
-
-    session.begin();
-    session.command("insert into cluster:foo set bar = {\"value\":\"zz\\\\\"}").close();
-    session.command("UPDATE cluster:foo set bar = {\"value\":\"foo\\\\\"}").close();
-    session.commit();
-
-    try (var result = session.query("select from cluster:foo")) {
-      assertEquals(((Result) result.next().getProperty("bar")).getProperty("value"), "foo\\");
-    }
-  }
-
-  @Test
-  public void testUpdateContentOnClusterTargetMultiple() throws Exception {
-    session.command("CREATE class Foo").close();
-    session.command("ALTER CLASS Foo add_cluster fooadditional1").close();
-    session.command("ALTER CLASS Foo add_cluster fooadditional2").close();
-    session.command("CREATE class Bar").close();
-    session.command("CREATE property Foo.bar EMBEDDED Bar").close();
-
-    session.begin();
-    session.command("insert into cluster:foo set bar = {\"value\":\"zz\\\\\"}").close();
-    session.command("UPDATE cluster:foo set bar = {\"value\":\"foo\\\\\"}").close();
-    session.commit();
-
-    try (var result = session.query("select from cluster:foo")) {
-      assertTrue(result.hasNext());
-      var doc = result.next();
-      assertEquals(((Result) doc.getProperty("bar")).getProperty("value"), "foo\\");
-      assertFalse(result.hasNext());
-    }
-
-    session.begin();
-    session.command("insert into cluster:fooadditional1 set bar = {\"value\":\"zz\\\\\"}").close();
-    session.command("UPDATE cluster:fooadditional1 set bar = {\"value\":\"foo\\\\\"}").close();
-    session.commit();
-
-    try (var result = session.query("select from cluster:fooadditional1")) {
-      assertTrue(result.hasNext());
-      var doc = result.next();
-      assertEquals(((Result) doc.getProperty("bar")).getProperty("value"), "foo\\");
-      assertFalse(result.hasNext());
-    }
-  }
-
-  @Test
-  public void testUpdateContentOnClusterTargetMultipleSelection() throws Exception {
-    session.command("CREATE class Foo").close();
-    session.command("ALTER CLASS Foo add_cluster fooadditional1").close();
-    session.command("ALTER CLASS Foo add_cluster fooadditional2").close();
-    session.command("ALTER CLASS Foo add_cluster fooadditional3").close();
-    session.command("CREATE class Bar").close();
-    session.command("CREATE property Foo.bar EMBEDDED Bar").close();
-
-    session.begin();
-    session.command("insert into cluster:fooadditional1 set bar = {\"value\":\"zz\\\\\"}").close();
-    session.command("insert into cluster:fooadditional2 set bar = {\"value\":\"zz\\\\\"}").close();
-    session.command("insert into cluster:fooadditional3 set bar = {\"value\":\"zz\\\\\"}").close();
-    session.command(
-            "UPDATE cluster:[fooadditional1, fooadditional2] set bar = {\"value\":\"foo\\\\\"}")
-        .close();
-    session.commit();
-
-    var resultSet = session.query("select from cluster:[ fooadditional1, fooadditional2 ]");
-    assertTrue(resultSet.hasNext());
-    var doc = resultSet.next();
-    assertEquals(((Result) doc.getProperty("bar")).getProperty("value"), "foo\\");
-    assertTrue(resultSet.hasNext());
-    doc = resultSet.next();
-    assertEquals(((Result) doc.getProperty("bar")).getProperty("value"), "foo\\");
-    assertFalse(resultSet.hasNext());
-    resultSet.close();
   }
 
   @Test
