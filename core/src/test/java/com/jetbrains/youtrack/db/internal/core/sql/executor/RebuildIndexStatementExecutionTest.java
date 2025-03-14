@@ -23,18 +23,23 @@ public class RebuildIndexStatementExecutionTest extends DbTestBase {
     oclass.createIndex(className + "index1", SchemaClass.INDEX_TYPE.NOTUNIQUE, "key");
 
     session.begin();
-    var ele = session.newEntity(className);
-    ele.setProperty("key", "a");
-    ele.setProperty("value", 1);
-    session.commit();
+    while (true) {
+      var ele = session.newEntity(className);
+      ele.setProperty("key", "a");
+      ele.setProperty("value", 1);
 
-    session.begin();
-    var ele1 = session.newEntity(className);
-    ele1.setProperty("key", "a");
-    ele1.setProperty("value", 2);
-    session.commit();
+      var ele1 = session.newEntity(className);
+      ele1.setProperty("key", "a");
+      ele1.setProperty("value", 2);
 
-    Assert.assertNotEquals(ele1.getIdentity().getClusterId(), ele.getIdentity().getClusterId());
+      if (ele1.getIdentity().getClusterId() != ele.getIdentity().getClusterId()) {
+        ele.delete();
+        ele1.delete();
+        continue;
+      }
+      break;
+    }
+    session.commit();
 
     session.begin();
     // when
