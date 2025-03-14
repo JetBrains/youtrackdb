@@ -27,6 +27,7 @@ import java.util.concurrent.locks.ReentrantLock;
 public class SharedContextEmbedded extends SharedContext {
 
   private final ReentrantLock lock = new ReentrantLock();
+
   public SharedContextEmbedded(Storage storage, YouTrackDBEmbedded youtrackDB) {
     this.youtrackDB = youtrackDB;
     this.storage = storage;
@@ -80,17 +81,19 @@ public class SharedContextEmbedded extends SharedContext {
 
     lock.lock();
     try {
-      schema.load(database);
-      schema.forceSnapshot(database);
-      indexManager.load(database);
-      // The Immutable snapshot should be after index and schema that require and before
-      // everything else that use it
-      schema.forceSnapshot(database);
-      security.load(database);
-      functionLibrary.load(database);
-      scheduler.load(database);
-      sequenceLibrary.load(database);
-      loaded = true;
+      database.executeInTx(() -> {
+        schema.load(database);
+        schema.forceSnapshot(database);
+        indexManager.load(database);
+        // The Immutable snapshot should be after index and schema that require and before
+        // everything else that use it
+        schema.forceSnapshot(database);
+        security.load(database);
+        functionLibrary.load(database);
+        scheduler.load(database);
+        sequenceLibrary.load(database);
+        loaded = true;
+      });
     } finally {
       lock.unlock();
     }

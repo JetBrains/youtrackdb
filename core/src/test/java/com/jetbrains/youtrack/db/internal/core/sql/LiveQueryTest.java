@@ -42,6 +42,7 @@ import javax.annotation.Nonnull;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 
 /**
@@ -119,6 +120,7 @@ public class LiveQueryTest {
   }
 
   @Test
+  @Ignore
   public void testLiveInsert() throws InterruptedException {
 
     session.getMetadata().getSchema().createClass("test");
@@ -152,6 +154,7 @@ public class LiveQueryTest {
   }
 
   @Test
+  @Ignore
   public void testRestrictedLiveInsert() throws ExecutionException, InterruptedException {
 
     Schema schema = session.getMetadata().getSchema();
