@@ -62,22 +62,22 @@ public class IndexChangesQueryTest {
     var doc1 = ((EntityImpl) db.newEntity(CLASS_NAME));
     doc1.setProperty(FIELD_NAME, 2);
 
-    Assert.assertNotNull(db.getTransaction().getIndexChanges(INDEX_NAME));
+    Assert.assertNotNull(db.getTransactionInternal().getIndexChanges(INDEX_NAME));
 
-    db.getTransaction().preProcessRecordsAndExecuteCallCallbacks();
+    db.getTransactionInternal().preProcessRecordsAndExecuteCallCallbacks();
 
     Assert.assertFalse(fetchCollectionFromIndex(index, 1).isEmpty());
     Assert.assertFalse((fetchCollectionFromIndex(index, 2)).isEmpty());
 
     db.commit();
 
-    Assert.assertEquals(index.getInternal().size(db), 2);
+    Assert.assertEquals(2, index.size(db));
     Assert.assertFalse((fetchCollectionFromIndex(index, 1)).isEmpty());
     Assert.assertFalse((fetchCollectionFromIndex(index, 2)).isEmpty());
   }
 
   private Collection<RID> fetchCollectionFromIndex(Index index, int key) {
-    try (var stream = index.getInternal().getRids(db, key)) {
+    try (var stream = index.getRids(db, key)) {
       return stream.collect(Collectors.toList());
     }
   }
@@ -100,7 +100,7 @@ public class IndexChangesQueryTest {
 
     db.commit();
 
-    Assert.assertEquals(3, index.getInternal().size(db));
+    Assert.assertEquals(3, index.size(db));
     Assert.assertEquals(2, (fetchCollectionFromIndex(index, 1)).size());
     Assert.assertEquals(1, (fetchCollectionFromIndex(index, 2)).size());
 
@@ -120,16 +120,16 @@ public class IndexChangesQueryTest {
     var doc = ((EntityImpl) db.newEntity(CLASS_NAME));
     doc.field(FIELD_NAME, 2);
 
-    db.getTransaction().preProcessRecordsAndExecuteCallCallbacks();
+    db.getTransactionInternal().preProcessRecordsAndExecuteCallCallbacks();
 
     Assert.assertEquals(1, (fetchCollectionFromIndex(index, 1)).size());
     Assert.assertEquals(1, (fetchCollectionFromIndex(index, 2)).size());
 
     db.rollback();
 
-    Assert.assertNull(db.getTransaction().getIndexChanges(INDEX_NAME));
+    Assert.assertNull(db.getTransactionInternal().getIndexChanges(INDEX_NAME));
 
-    Assert.assertEquals(3, index.getInternal().size(db));
+    Assert.assertEquals(3, index.size(db));
     Assert.assertEquals(2, (fetchCollectionFromIndex(index, 1)).size());
     Assert.assertEquals(1, (fetchCollectionFromIndex(index, 2)).size());
   }

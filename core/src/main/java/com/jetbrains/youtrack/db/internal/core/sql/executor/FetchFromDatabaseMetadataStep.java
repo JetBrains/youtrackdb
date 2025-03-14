@@ -41,10 +41,6 @@ public class FetchFromDatabaseMetadataStep extends AbstractExecutionStep {
     result.setProperty(
         "localeLanguage", String.valueOf(db.get(DatabaseSession.ATTRIBUTES.LOCALE_LANGUAGE)));
     result.setProperty("charset", String.valueOf(db.get(DatabaseSession.ATTRIBUTES.CHARSET)));
-    result.setProperty(
-        "clusterSelection", String.valueOf(db.get(DatabaseSession.ATTRIBUTES.CLUSTER_SELECTION)));
-    result.setProperty(
-        "minimumClusters", String.valueOf(db.get(DatabaseSession.ATTRIBUTES.MINIMUM_CLUSTERS)));
     return result;
   }
 

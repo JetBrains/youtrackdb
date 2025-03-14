@@ -124,7 +124,7 @@ public class IndexTest extends BaseDBTest {
 
     Entity record;
     for (var entries : resultSet) {
-      record = entries.asEntity();
+      record = entries.asEntityOrNull();
       Assert.assertTrue(record.<String>getProperty("name").equalsIgnoreCase("Jay"));
     }
   }
@@ -138,7 +138,7 @@ public class IndexTest extends BaseDBTest {
     var idx =
         session.getMetadata().getIndexManagerInternal().getIndex(session, "Profile.nick");
 
-    Assert.assertEquals(idx.getInternal().size(session), resultSet.size());
+    Assert.assertEquals(idx.size(session), resultSet.size());
   }
 
   @Test(dependsOnMethods = "testDuplicatedIndexOnUnique")
@@ -154,7 +154,7 @@ public class IndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "Profile.nick")
-            .getInternal()
+
             .size(session),
         profileSize);
     for (var i = 0; i < 10; i++) {
@@ -171,7 +171,7 @@ public class IndexTest extends BaseDBTest {
               .getMetadata()
               .getIndexManagerInternal()
               .getIndex(session, "Profile.nick")
-              .getInternal()
+
               .getRids(session, "Yay-" + i)) {
         Assert.assertTrue(stream.findAny().isPresent());
       }
@@ -512,12 +512,12 @@ public class IndexTest extends BaseDBTest {
 
       whiz.field("id", i);
       whiz.field("text", "This is a test");
-      whiz.field("account", resultSet.getFirst().asEntity().getIdentity());
+      whiz.field("account", resultSet.getFirst().asEntityOrNull().getIdentity());
 
       session.commit();
     }
 
-    Assert.assertEquals(idx.getInternal().size(session), 5);
+    Assert.assertEquals(idx.size(session), 5);
 
     var indexedResult =
         executeQuery("select * from Whiz where account = ?",
@@ -526,7 +526,7 @@ public class IndexTest extends BaseDBTest {
 
     session.begin();
     for (var res : indexedResult) {
-      res.asEntity().delete();
+      res.asEntityOrNull().delete();
     }
 
     var whiz = session.newEntity("Whiz");
@@ -666,7 +666,7 @@ public class IndexTest extends BaseDBTest {
             db.getMetadata()
                 .getIndexManagerInternal()
                 .getClassIndex(db, "MyFruit", "MyFruit.color")
-                .getInternal()
+
                 .size(db),
             expectedIndexSize,
             "After add");
@@ -683,7 +683,7 @@ public class IndexTest extends BaseDBTest {
             db.getMetadata()
                 .getIndexManagerInternal()
                 .getClassIndex(db, "MyFruit", "MyFruit.color")
-                .getInternal()
+
                 .size(db),
             expectedIndexSize,
             "After delete");
@@ -718,7 +718,7 @@ public class IndexTest extends BaseDBTest {
           db.getMetadata()
               .getIndexManagerInternal()
               .getIndex(db, "idxTerm")
-              .getInternal()
+
               .getRids(db, "42")) {
         result = (RecordId) stream.findAny().orElse(null);
       }
@@ -752,7 +752,7 @@ public class IndexTest extends BaseDBTest {
 
     final var index =
         db.getMetadata().getIndexManagerInternal().getIndex(db, "idxTransactionUniqueIndexTest");
-    Assert.assertEquals(index.getInternal().size(this.session), 1);
+    Assert.assertEquals(index.size(this.session), 1);
 
     db.begin();
     try {
@@ -764,7 +764,7 @@ public class IndexTest extends BaseDBTest {
     } catch (RecordDuplicatedException ignored) {
     }
 
-    Assert.assertEquals(index.getInternal().size(this.session), 1);
+    Assert.assertEquals(index.size(this.session), 1);
   }
 
   @Test(dependsOnMethods = "testTransactionUniqueIndexTestOne")
@@ -787,7 +787,7 @@ public class IndexTest extends BaseDBTest {
     }
     final var index =
         db.getMetadata().getIndexManagerInternal().getIndex(db, "idxTransactionUniqueIndexTest");
-    Assert.assertEquals(index.getInternal().size(this.session), 1);
+    Assert.assertEquals(index.size(this.session), 1);
 
     db.begin();
     try {
@@ -803,7 +803,7 @@ public class IndexTest extends BaseDBTest {
       db.rollback();
     }
 
-    Assert.assertEquals(index.getInternal().size(this.session), 1);
+    Assert.assertEquals(index.size(this.session), 1);
   }
 
   public void testTransactionUniqueIndexTestWithDotNameOne() {
@@ -828,7 +828,7 @@ public class IndexTest extends BaseDBTest {
         db.getMetadata()
             .getIndexManagerInternal()
             .getIndex(db, "TransactionUniqueIndexWithDotTest.label");
-    Assert.assertEquals(index.getInternal().size(this.session), 1);
+    Assert.assertEquals(index.size(this.session), 1);
 
     var countClassBefore = db.countClass("TransactionUniqueIndexWithDotTest");
     db.begin();
@@ -848,7 +848,7 @@ public class IndexTest extends BaseDBTest {
             .size(),
         countClassBefore);
 
-    Assert.assertEquals(index.getInternal().size(db), 1);
+    Assert.assertEquals(index.size(db), 1);
   }
 
   @Test(dependsOnMethods = "testTransactionUniqueIndexTestWithDotNameOne")
@@ -869,7 +869,7 @@ public class IndexTest extends BaseDBTest {
         db.getMetadata()
             .getIndexManagerInternal()
             .getIndex(db, "TransactionUniqueIndexWithDotTest.label");
-    Assert.assertEquals(index.getInternal().size(this.session), 1);
+    Assert.assertEquals(index.size(this.session), 1);
 
     db.begin();
     try {
@@ -885,7 +885,7 @@ public class IndexTest extends BaseDBTest {
       db.rollback();
     }
 
-    Assert.assertEquals(index.getInternal().size(this.session), 1);
+    Assert.assertEquals(index.size(this.session), 1);
   }
 
   @Test(dependsOnMethods = "linkedIndexedProperty")
@@ -896,7 +896,7 @@ public class IndexTest extends BaseDBTest {
 
     Iterator<RawPair<Object, RID>> streamIterator;
     Object key;
-    try (var stream = index.getInternal().stream(session)) {
+    try (var stream = index.stream(session)) {
       streamIterator = stream.iterator();
       Assert.assertTrue(streamIterator.hasNext());
 
@@ -908,7 +908,7 @@ public class IndexTest extends BaseDBTest {
       session.commit();
     }
 
-    try (var stream = index.getInternal().getRids(session, key)) {
+    try (var stream = index.getRids(session, key)) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
   }
@@ -994,7 +994,7 @@ public class IndexTest extends BaseDBTest {
       keys.add(key);
     }
 
-    try (var stream = idx.getInternal().stream(session)) {
+    try (var stream = idx.stream(session)) {
       Assert.assertEquals(stream.map((pair) -> pair.first).distinct().count(), keys.size());
     }
   }
@@ -1020,7 +1020,7 @@ public class IndexTest extends BaseDBTest {
       session.commit();
     }
 
-    Assert.assertEquals(idx.getInternal().size(session), 99);
+    Assert.assertEquals(idx.size(session), 99);
   }
 
   @Test
@@ -1038,7 +1038,7 @@ public class IndexTest extends BaseDBTest {
     var idxManager = session.getMetadata().getIndexManagerInternal();
     var nickIndex = idxManager.getIndex(session, "Profile.nick");
 
-    try (var stream = nickIndex.getInternal()
+    try (var stream = nickIndex
         .getRids(session, "NonProxiedObjectToDelete")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
@@ -1048,7 +1048,7 @@ public class IndexTest extends BaseDBTest {
     session.delete(loadedProfile);
     session.commit();
 
-    try (var stream = nickIndex.getInternal()
+    try (var stream = nickIndex
         .getRids(session, "NonProxiedObjectToDelete")) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
@@ -1069,7 +1069,7 @@ public class IndexTest extends BaseDBTest {
     var idxManager = session.getMetadata().getIndexManagerInternal();
     var nickIndex = idxManager.getIndex(session, "Profile.nick");
 
-    try (var stream = nickIndex.getInternal()
+    try (var stream = nickIndex
         .getRids(session, "NonProxiedObjectToDelete")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
@@ -1079,7 +1079,7 @@ public class IndexTest extends BaseDBTest {
     session.delete(session.bindToSession(loadedProfile));
     session.commit();
 
-    try (var stream = nickIndex.getInternal()
+    try (var stream = nickIndex
         .getRids(session, "NonProxiedObjectToDelete")) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
@@ -1493,7 +1493,7 @@ public class IndexTest extends BaseDBTest {
       var key = new CompositeKey(parent.getIdentity(), "pokus");
 
       Collection<RID> h;
-      try (var stream = index.getInternal().getRids(session, key)) {
+      try (var stream = index.getRids(session, key)) {
         h = stream.toList();
       }
       for (var o : h) {
@@ -1507,7 +1507,7 @@ public class IndexTest extends BaseDBTest {
       var key = new CompositeKey(parent2.getIdentity(), "pokus2");
 
       Collection<RID> h;
-      try (var stream = index.getInternal().getRids(session, key)) {
+      try (var stream = index.getRids(session, key)) {
         h = stream.toList();
       }
       for (var o : h) {
@@ -1547,17 +1547,17 @@ public class IndexTest extends BaseDBTest {
 
     session.commit();
 
-    try (var stream = notUniqueIndex.getInternal().getRids(session, "RandomKeyOne")) {
+    try (var stream = notUniqueIndex.getRids(session, "RandomKeyOne")) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
-    try (var stream = notUniqueIndex.getInternal().getRids(session, "keyOne")) {
+    try (var stream = notUniqueIndex.getRids(session, "keyOne")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
 
-    try (var stream = notUniqueIndex.getInternal().getRids(session, "RandomKeyTwo")) {
+    try (var stream = notUniqueIndex.getRids(session, "RandomKeyTwo")) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
-    try (var stream = notUniqueIndex.getInternal().getRids(session, "keyTwo")) {
+    try (var stream = notUniqueIndex.getRids(session, "keyTwo")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
   }
@@ -1652,12 +1652,12 @@ public class IndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "MultikeyWithoutFieldIndex");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     // we support first and last keys check only for embedded storage
     // we support first and last keys check only for embedded storage
     if (!(session.isRemote())) {
-      try (var keyStream = index.getInternal().keyStream()) {
+      try (var keyStream = index.keyStream()) {
         if (rid1.compareTo(rid2) < 0) {
           Assert.assertEquals(
               keyStream.iterator().next(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
@@ -1666,7 +1666,7 @@ public class IndexTest extends BaseDBTest {
               keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
         }
       }
-      try (var descStream = index.getInternal().descStream(session)) {
+      try (var descStream = index.descStream(session)) {
         if (rid1.compareTo(rid2) < 0) {
           Assert.assertEquals(
               descStream.iterator().next().first, new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
@@ -1695,9 +1695,9 @@ public class IndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "MultikeyWithoutFieldIndex");
-    Assert.assertEquals(index.getInternal().size(session), 1);
+    Assert.assertEquals(index.size(session), 1);
     if (!(session.isRemote())) {
-      try (var keyStream = index.getInternal().keyStream()) {
+      try (var keyStream = index.keyStream()) {
         Assert.assertEquals(
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
       }
@@ -1722,9 +1722,9 @@ public class IndexTest extends BaseDBTest {
             .getIndexManagerInternal()
             .getIndex(session, "MultikeyWithoutFieldIndex");
 
-    Assert.assertEquals(index.getInternal().size(session), 1);
+    Assert.assertEquals(index.size(session), 1);
     if (!(session.isRemote())) {
-      try (var keyStreamAsc = index.getInternal().keyStream()) {
+      try (var keyStreamAsc = index.keyStream()) {
         Assert.assertEquals(
             keyStreamAsc.iterator().next(), new CompositeKey((byte) 1, null, 12L, 14L, 12));
       }
@@ -1746,9 +1746,9 @@ public class IndexTest extends BaseDBTest {
             .getIndexManagerInternal()
             .getIndex(session, "MultikeyWithoutFieldIndex");
 
-    Assert.assertEquals(index.getInternal().size(session), 1);
+    Assert.assertEquals(index.size(session), 1);
     if (!(session.isRemote())) {
-      try (var keyStream = index.getInternal().keyStream()) {
+      try (var keyStream = index.keyStream()) {
         Assert.assertEquals(
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
       }
@@ -1769,10 +1769,10 @@ public class IndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "MultikeyWithoutFieldIndex");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     if (!(session.isRemote())) {
-      try (var keyStream = index.getInternal().keyStream()) {
+      try (var keyStream = index.keyStream()) {
         if (rid3.compareTo(rid4) < 0) {
           Assert.assertEquals(
               keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
@@ -1781,7 +1781,7 @@ public class IndexTest extends BaseDBTest {
               keyStream.iterator().next(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
         }
       }
-      try (var descStream = index.getInternal().descStream(session)) {
+      try (var descStream = index.descStream(session)) {
         if (rid3.compareTo(rid4) < 0) {
           Assert.assertEquals(
               descStream.iterator().next().first, new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
@@ -1806,10 +1806,10 @@ public class IndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "MultikeyWithoutFieldIndex");
-    Assert.assertEquals(index.getInternal().size(session), 1);
+    Assert.assertEquals(index.size(session), 1);
 
     if (!(session.isRemote())) {
-      try (var keyStream = index.getInternal().keyStream()) {
+      try (var keyStream = index.keyStream()) {
         Assert.assertEquals(
             keyStream.iterator().next(), new CompositeKey((byte) 1, null, 12L, 14L, 12));
       }
@@ -1873,11 +1873,11 @@ public class IndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "MultikeyWithoutFieldIndexNoNullSupport");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     // we support first and last keys check only for embedded storage
     if (!(session.isRemote())) {
-      try (var keyStream = index.getInternal().keyStream()) {
+      try (var keyStream = index.keyStream()) {
         if (rid1.compareTo(rid2) < 0) {
           Assert.assertEquals(
               keyStream.iterator().next(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
@@ -1886,7 +1886,7 @@ public class IndexTest extends BaseDBTest {
               keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
         }
       }
-      try (var descStream = index.getInternal().descStream(session)) {
+      try (var descStream = index.descStream(session)) {
         if (rid1.compareTo(rid2) < 0) {
           Assert.assertEquals(
               descStream.iterator().next().first, new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
@@ -1914,9 +1914,9 @@ public class IndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "MultikeyWithoutFieldIndexNoNullSupport");
-    Assert.assertEquals(index.getInternal().size(session), 1);
+    Assert.assertEquals(index.size(session), 1);
     if (!(session.isRemote())) {
-      try (var keyStream = index.getInternal().keyStream()) {
+      try (var keyStream = index.keyStream()) {
         Assert.assertEquals(
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
       }
@@ -1939,7 +1939,7 @@ public class IndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "MultikeyWithoutFieldIndexNoNullSupport");
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
 
     session.close();
     session = acquireSession();
@@ -1956,10 +1956,10 @@ public class IndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "MultikeyWithoutFieldIndexNoNullSupport");
-    Assert.assertEquals(index.getInternal().size(session), 1);
+    Assert.assertEquals(index.size(session), 1);
 
     if (!(session.isRemote())) {
-      try (var keyStream = index.getInternal().keyStream()) {
+      try (var keyStream = index.keyStream()) {
         Assert.assertEquals(
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
       }
@@ -1981,10 +1981,10 @@ public class IndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "MultikeyWithoutFieldIndexNoNullSupport");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     if (!(session.isRemote())) {
-      try (var keyStream = index.getInternal().keyStream()) {
+      try (var keyStream = index.keyStream()) {
         if (rid3.compareTo(rid4) < 0) {
           Assert.assertEquals(
               keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
@@ -1993,7 +1993,7 @@ public class IndexTest extends BaseDBTest {
               keyStream.iterator().next(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
         }
       }
-      try (var descStream = index.getInternal().descStream(session)) {
+      try (var descStream = index.descStream(session)) {
         if (rid3.compareTo(rid4) < 0) {
           Assert.assertEquals(
               descStream.iterator().next().first, new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
@@ -2018,7 +2018,7 @@ public class IndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "MultikeyWithoutFieldIndexNoNullSupport");
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testNullValuesCountSBTreeUnique() {
@@ -2043,9 +2043,9 @@ public class IndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "NullValuesCountSBTreeUniqueIndex");
-    Assert.assertEquals(index.getInternal().size(session), 2);
-    try (var stream = index.getInternal().stream(session)) {
-      try (var nullStream = index.getInternal().getRids(session, null)) {
+    Assert.assertEquals(index.size(session), 2);
+    try (var stream = index.stream(session)) {
+      try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
             stream.map((pair) -> pair.first).distinct().count() + nullStream.count(), 2);
       }
@@ -2075,9 +2075,9 @@ public class IndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "NullValuesCountSBTreeNotUniqueOneIndex");
-    Assert.assertEquals(index.getInternal().size(session), 2);
-    try (var stream = index.getInternal().stream(session)) {
-      try (var nullStream = index.getInternal().getRids(session, null)) {
+    Assert.assertEquals(index.size(session), 2);
+    try (var stream = index.stream(session)) {
+      try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
             stream.map((pair) -> pair.first).distinct().count() + nullStream.count(), 2);
       }
@@ -2107,15 +2107,15 @@ public class IndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "NullValuesCountSBTreeNotUniqueTwoIndex");
-    try (var stream = index.getInternal().stream(session)) {
-      try (var nullStream = index.getInternal().getRids(session, null)) {
+    try (var stream = index.stream(session)) {
+      try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
             stream.map((pair) -> pair.first).distinct().count()
                 + nullStream.findAny().map(v -> 1).orElse(0),
             1);
       }
     }
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
   }
 
   public void testNullValuesCountHashUnique() {
@@ -2139,9 +2139,9 @@ public class IndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "NullValuesCountHashUniqueIndex");
-    Assert.assertEquals(index.getInternal().size(session), 2);
-    try (var stream = index.getInternal().stream(session)) {
-      try (var nullStream = index.getInternal().getRids(session, null)) {
+    Assert.assertEquals(index.size(session), 2);
+    try (var stream = index.stream(session)) {
+      try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
             stream.map((pair) -> pair.first).distinct().count() + nullStream.count(), 2);
       }
@@ -2171,9 +2171,9 @@ public class IndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "NullValuesCountHashNotUniqueOneIndex");
-    Assert.assertEquals(index.getInternal().size(session), 2);
-    try (var stream = index.getInternal().stream(session)) {
-      try (var nullStream = index.getInternal().getRids(session, null)) {
+    Assert.assertEquals(index.size(session), 2);
+    try (var stream = index.stream(session)) {
+      try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
             stream.map((pair) -> pair.first).distinct().count() + nullStream.count(), 2);
       }
@@ -2203,15 +2203,15 @@ public class IndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "NullValuesCountHashNotUniqueTwoIndex");
-    try (var stream = index.getInternal().stream(session)) {
-      try (var nullStream = index.getInternal().getRids(session, null)) {
+    try (var stream = index.stream(session)) {
+      try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
             stream.map(pair -> pair.first).distinct().count()
                 + nullStream.findAny().map(v -> 1).orElse(0),
             1);
       }
     }
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
   }
 
   @Test

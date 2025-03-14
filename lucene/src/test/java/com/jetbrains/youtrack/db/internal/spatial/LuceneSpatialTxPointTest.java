@@ -122,7 +122,7 @@ public class LuceneSpatialTxPointTest extends BaseSpatialLuceneTest {
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "City.location");
 
     session.begin();
-    Assert.assertEquals(1, index.getInternal().size(session));
+    Assert.assertEquals(1, index.size(session));
     session.commit();
   }
 
@@ -152,7 +152,7 @@ public class LuceneSpatialTxPointTest extends BaseSpatialLuceneTest {
     session.begin();
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "City.location");
 
-    Assert.assertEquals(2, index.getInternal().size(session));
+    Assert.assertEquals(2, index.size(session));
     session.commit();
   }
 }

@@ -38,7 +38,7 @@ public class FilterByClassStep extends AbstractExecutionStep {
   private Result filterMap(Result result, CommandContext ctx) {
     if (result.isEntity()) {
       var session = ctx.getDatabaseSession();
-      var clazz = ((EntityInternal) result.castToEntity()).getImmutableSchemaClass(session);
+      var clazz = ((EntityInternal) result.asEntity()).getImmutableSchemaClass(session);
       if (clazz != null && clazz.isSubClassOf(className)) {
         return result;
       }

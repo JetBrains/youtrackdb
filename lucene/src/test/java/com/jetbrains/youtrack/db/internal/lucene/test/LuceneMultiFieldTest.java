@@ -147,7 +147,7 @@ public class LuceneMultiFieldTest extends BaseLuceneTest {
     // nidex api
     final var index = session.getMetadata().getIndexManagerInternal()
         .getIndex(session, "Item.i_lucene");
-    try (var stream = index.getInternal().getRids(session, "(Title:test )")) {
+    try (var stream = index.getRids(session, "(Title:test )")) {
       assertThat(stream.findAny().isPresent()).isTrue();
     }
   }

@@ -78,7 +78,7 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
     try (var vertices = session.command(query)) {
       assertThat(vertices).hasSize(1);
     }
-    assertThat(index.getInternal().size(session)).isEqualTo(1);
+    assertThat(index.size(session)).isEqualTo(1);
 
     session.commit();
 
@@ -89,16 +89,16 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
       results = vertices.stream().collect(Collectors.toList());
       assertThat(results).hasSize(1);
     }
-    assertThat(index.getInternal().size(session)).isEqualTo(1);
+    assertThat(index.size(session)).isEqualTo(1);
 
     doc = ((EntityImpl) session.newEntity("c1"));
     doc.field("p1", "abc");
 
-    session.delete(results.getFirst().castToEntity());
+    session.delete(results.getFirst().asEntity());
 
     Collection<Object> coll;
     try (var vertices = session.query(query)) {
-      try (var stream = index.getInternal().getRids(session, "abc")) {
+      try (var stream = index.getRids(session, "abc")) {
         coll = stream.collect(Collectors.toList());
       }
 
@@ -113,7 +113,7 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
       i++;
     }
     Assert.assertEquals(i, 0);
-    assertThat(index.getInternal().size(session)).isEqualTo(0);
+    assertThat(index.size(session)).isEqualTo(0);
     session.rollback();
 
     query = "select from C1 where search_fields(['p1'], 'abc' )=true ";
@@ -121,7 +121,7 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
     try (var vertices = session.command(query)) {
       assertThat(vertices).hasSize(1);
     }
-    assertThat(index.getInternal().size(session)).isEqualTo(1);
+    assertThat(index.size(session)).isEqualTo(1);
   }
 
   @Test
@@ -132,7 +132,7 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
     c1.truncate();
 
     session.begin();
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
 
     var doc = ((EntityImpl) session.newEntity("c1"));
     doc.field("p1", "update");
@@ -141,7 +141,7 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
     try (var vertices = session.command(query)) {
       assertThat(vertices).hasSize(1);
     }
-    Assert.assertEquals(1, index.getInternal().size(session));
+    Assert.assertEquals(1, index.size(session));
 
     session.commit();
 
@@ -153,29 +153,29 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
     }
 
     Collection coll;
-    try (var stream = index.getInternal().getRids(session, "update")) {
+    try (var stream = index.getRids(session, "update")) {
       coll = stream.collect(Collectors.toList());
     }
 
     assertThat(results).hasSize(1);
     assertThat(coll).hasSize(1);
-    assertThat(index.getInternal().size(session)).isEqualTo(1);
+    assertThat(index.size(session)).isEqualTo(1);
 
     session.begin();
 
     var record = results.getFirst();
     @SuppressWarnings("OptionalGetWithoutIsPresent")
-    var element = session.bindToSession(record.castToEntity());
+    var element = session.bindToSession(record.asEntity());
     element.setProperty("p1", "removed");
 
     try (var vertices = session.command(query)) {
       assertThat(vertices).hasSize(0);
     }
-    Assert.assertEquals(1, index.getInternal().size(session));
+    Assert.assertEquals(1, index.size(session));
 
     query = "select from C1 where search_fields(['p1'], \"removed\")=true ";
     try (var vertices = session.command(query)) {
-      try (var stream = index.getInternal().getRids(session, "removed")) {
+      try (var stream = index.getRids(session, "removed")) {
         coll = stream.collect(Collectors.toList());
       }
 
@@ -188,13 +188,13 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
 
     query = "select from C1 where search_fields(['p1'], \"update\")=true ";
     try (var vertices = session.command(query)) {
-      try (var stream = index.getInternal().getRids(session, "update")) {
+      try (var stream = index.getRids(session, "update")) {
         coll = stream.collect(Collectors.toList());
       }
       assertThat(vertices).hasSize(1);
     }
     assertThat(coll).hasSize(1);
-    assertThat(index.getInternal().size(session)).isEqualTo(1);
+    assertThat(index.size(session)).isEqualTo(1);
   }
 
   @Test
@@ -205,7 +205,7 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
     c1.truncate();
 
     session.begin();
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
 
     var doc = ((EntityImpl) session.newEntity("c1"));
     doc.field("p1", "abc");
@@ -223,7 +223,7 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
     var query = "select from C1 where search_fields(['p1'], \"abc\")=true ";
     Collection coll;
     try (var vertices = session.command(query)) {
-      try (var stream = index.getInternal().getRids(session, "abc")) {
+      try (var stream = index.getRids(session, "abc")) {
         coll = stream.collect(Collectors.toList());
       }
 
@@ -242,11 +242,11 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
     Assert.assertEquals(i, 1);
     Assert.assertNotNull(rid);
     Assert.assertEquals(doc1.getIdentity().toString(), rid.getIdentity().toString());
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     query = "select from C1 where search_fields(['p1'], \"removed\")=true ";
     try (var vertices = session.command(query)) {
-      try (var stream = index.getInternal().getRids(session, "removed")) {
+      try (var stream = index.getRids(session, "removed")) {
         coll = stream.collect(Collectors.toList());
       }
 
@@ -261,6 +261,6 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
       assertThat(vertices).hasSize(2);
     }
 
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
   }
 }

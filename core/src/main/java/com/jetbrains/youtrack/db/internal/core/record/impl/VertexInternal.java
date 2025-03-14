@@ -80,7 +80,8 @@ public interface VertexInternal extends Vertex, EntityInternal {
 
   @Override
   default Set<String> getEdgeNames(Direction direction) {
-    var propertyNames = getBaseEntity().getPropertyNamesInternal();
+    var propertyNames = getBaseEntity().getPropertyNamesInternal(false,
+        true);
     var edgeNames = new HashSet<String>();
 
     for (var propertyName : propertyNames) {
@@ -233,7 +234,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
 
     var entity = getBaseEntity();
     for (var prefix : prefixes) {
-      for (var fieldName : entity.calculatePropertyNames()) {
+      for (var fieldName : entity.calculatePropertyNames(false)) {
         if (fieldName.startsWith(prefix)) {
           if (fieldName.equals(prefix)) {
             candidateClasses.add(EdgeInternal.CLASS_NAME);
@@ -271,7 +272,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
     }
 
     if (fieldNames == null) {
-      fieldNames = entity.calculatePropertyNames();
+      fieldNames = entity.calculatePropertyNames(false);
     }
 
     var iterables = new ArrayList<Iterable<Edge>>(fieldNames.size());
@@ -569,7 +570,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
         replaceLinks(outRecord, outFieldName, oldIdentity, newIdentity);
       } else {
         // REPLACE WITH NEW VERTEX
-        ((EntityImpl) ine.castToStatefulEdge().castToEntity()).setPropertyInternal(
+        ((EntityImpl) ine.asStatefulEdge().asEntity()).setPropertyInternal(
             Edge.DIRECTION_IN, newIdentity);
       }
     }
@@ -581,7 +582,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
   EntityImpl getBaseEntity();
 
   static boolean checkDeletedInTx(DatabaseSessionInternal session, RID id) {
-    final var oper = session.getTransaction().getRecordEntry(id);
+    final var oper = session.getTransactionInternal().getRecordEntry(id);
     if (oper == null) {
       return id.isTemporary();
     } else {

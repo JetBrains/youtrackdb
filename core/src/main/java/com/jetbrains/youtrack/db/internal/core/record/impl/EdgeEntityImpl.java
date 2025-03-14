@@ -19,7 +19,6 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class EdgeEntityImpl extends EntityImpl implements EdgeInternal, StatefulEdge {
-
   public EdgeEntityImpl(DatabaseSessionInternal database, RecordId rid) {
     super(database, rid);
   }
@@ -36,7 +35,7 @@ public class EdgeEntityImpl extends EntityImpl implements EdgeInternal, Stateful
       return null;
     }
 
-    return v.castToVertex();
+    return v.asVertex();
   }
 
   @Override
@@ -51,10 +50,9 @@ public class EdgeEntityImpl extends EntityImpl implements EdgeInternal, Stateful
     Set<String> types = new HashSet<>();
 
     var typeClass = getImmutableSchemaClass(session);
-    var session = getSession();
 
     types.add(typeClass.getName());
-    typeClass.getAllSuperClasses().stream().map(schemaClass -> schemaClass.getName())
+    typeClass.getAllSuperClasses().stream().map(SchemaClass::getName)
         .forEach(types::add);
 
     for (var s : labels) {
@@ -100,15 +98,14 @@ public class EdgeEntityImpl extends EntityImpl implements EdgeInternal, Stateful
       return null;
     }
 
-    return v.castToVertex();
+    return v.asVertex();
   }
 
   @Nullable
   @Override
   public Identifiable getToLink() {
-    var db = getSession();
-    var schema = db.getMetadata().getImmutableSchemaSnapshot();
-
+    checkForBinding();
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
     var result = getLinkPropertyInternal(DIRECTION_IN);
     if (result == null) {
       return null;
@@ -124,7 +121,6 @@ public class EdgeEntityImpl extends EntityImpl implements EdgeInternal, Stateful
 
   @Override
   public boolean isLightweight() {
-    // LIGHTWEIGHT EDGES MANAGED BY EdgeDelegate, IN FUTURE MAY BE WE NEED TO HANDLE THEM WITH THIS
     return false;
   }
 
@@ -142,7 +138,7 @@ public class EdgeEntityImpl extends EntityImpl implements EdgeInternal, Stateful
 
     EdgeInternal.checkPropertyName(fieldName);
 
-    return getPropertyInternal(fieldName);
+    return super.getProperty(fieldName);
   }
 
   @Nullable

@@ -43,8 +43,7 @@ public class CountFromIndexStep extends AbstractExecutionStep {
         database
             .getMetadata()
             .getIndexManagerInternal()
-            .getIndex(database, target.getIndexName())
-            .getInternal();
+            .getIndex(database, target.getIndexName());
     var size = idx.size(database);
     var result = new ResultInternal(database);
     result.setProperty(alias, size);

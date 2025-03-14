@@ -112,7 +112,7 @@ public class QueryOperatorEquals extends QueryOperatorEqualityNotNulls {
   protected static boolean comparesValues(Object iValue, final DBRecord iRecord) {
     if (iValue instanceof Result result) {
       if (result.isRecord()) {
-        iValue = result.castToIdentifiable();
+        iValue = result.asIdentifiable();
       } else {
         return false;
       }
@@ -164,9 +164,8 @@ public class QueryOperatorEquals extends QueryOperatorEqualityNotNulls {
       CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
     final var indexDefinition = index.getDefinition();
 
-    final var internalIndex = index.getInternal();
     Stream<RawPair<Object, RID>> stream;
-    if (!internalIndex.canBeUsedInEqualityOperators()) {
+    if (!index.canBeUsedInEqualityOperators()) {
       return null;
     }
 
@@ -184,7 +183,7 @@ public class QueryOperatorEquals extends QueryOperatorEqualityNotNulls {
         return null;
       }
 
-      stream = index.getInternal().getRids(iContext.getDatabaseSession(), key)
+      stream = index.getRids(iContext.getDatabaseSession(), key)
           .map((rid) -> new RawPair<>(key, rid));
     } else {
       // in case of composite keys several items can be returned in case of we perform search
@@ -203,13 +202,13 @@ public class QueryOperatorEquals extends QueryOperatorEqualityNotNulls {
       final Object keyTwo =
           compositeIndexDefinition.createSingleValue(iContext.getDatabaseSession(), keyParams);
 
-      if (internalIndex.hasRangeQuerySupport()) {
-        stream = index.getInternal()
+      if (index.hasRangeQuerySupport()) {
+        stream = index
             .streamEntriesBetween(iContext.getDatabaseSession(), keyOne, true, keyTwo, true,
                 ascSortOrder);
       } else {
         if (indexDefinition.getParamCount() == keyParams.size()) {
-          stream = index.getInternal().getRids(iContext.getDatabaseSession(), keyOne)
+          stream = index.getRids(iContext.getDatabaseSession(), keyOne)
               .map((rid) -> new RawPair<>(keyOne, rid));
         } else {
           return null;

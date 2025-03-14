@@ -60,7 +60,7 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
             + " 21.787556698550834)' ";
     List<EntityImpl> docs = session.query(new SQLSynchQuery<EntityImpl>(query));
     Assert.assertEquals(1, docs.size());
-    Assert.assertEquals(3, idx.getInternal().size(session));
+    Assert.assertEquals(3, idx.size(session));
     session.rollback();
 
     query =
@@ -72,7 +72,7 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
 
     session.begin();
     Assert.assertEquals(0, docs.size());
-    Assert.assertEquals(0, idx.getInternal().size(session));
+    Assert.assertEquals(0, idx.size(session));
     session.commit();
   }
 
@@ -103,7 +103,7 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
 
     session.begin();
     Assert.assertEquals(0, docs.size());
-    Assert.assertEquals(1, idx.getInternal().size(session));
+    Assert.assertEquals(1, idx.size(session));
 
     session.command("update City set location = ST_GeomFromText('" + PWKT + "')").close();
 
@@ -114,7 +114,7 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
             + " 21.787556698550834)' ";
     docs = session.query(new SQLSynchQuery<EntityImpl>(query));
     Assert.assertEquals(1, docs.size());
-    Assert.assertEquals(1, idx.getInternal().size(session));
+    Assert.assertEquals(1, idx.size(session));
 
     session.commit();
 
@@ -127,7 +127,7 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
 
     session.begin();
     Assert.assertEquals(1, docs.size());
-    Assert.assertEquals(1, idx.getInternal().size(session));
+    Assert.assertEquals(1, idx.size(session));
     session.commit();
   }
 

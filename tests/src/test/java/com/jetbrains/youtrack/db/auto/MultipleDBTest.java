@@ -11,7 +11,6 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemote;
 import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -60,7 +59,6 @@ public class MultipleDBTest extends BaseDBTest {
             try {
               var db = createSessionInstance(dbName);
 
-              db.set(DatabaseSession.ATTRIBUTES.MINIMUM_CLUSTERS, 1);
               db.getMetadata().getSchema().getOrCreateClass("DummyObject");
 
               var start = System.currentTimeMillis();

@@ -38,7 +38,7 @@ public class OptionalMatchEdgeTraverser extends MatchEdgeTraverser {
       return sourceRecord;
     }
     if (!isEmptyOptional(next)) {
-      if (prevValue != null && !equals(prevValue, next.castToEntity())) {
+      if (prevValue != null && !equals(prevValue, next.asEntity())) {
         return null;
       }
     }
@@ -49,7 +49,7 @@ public class OptionalMatchEdgeTraverser extends MatchEdgeTraverser {
       result.setProperty(prop, sourceRecord.getProperty(prop));
     }
     if (next.isEntity()) {
-      result.setProperty(endPointAlias, toResult(session, next.castToEntity()));
+      result.setProperty(endPointAlias, toResult(session, next.asEntity()));
     } else {
       result.setProperty(endPointAlias, null);
     }

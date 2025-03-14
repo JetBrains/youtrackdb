@@ -323,7 +323,7 @@ public abstract class HttpResponseAbstract implements HttpResponse {
 
                 if (r instanceof Result result) {
                   if (result.isEntity()) {
-                    var entity = (EntityInternal) result.asEntity();
+                    var entity = (EntityInternal) result.asEntityOrNull();
                     var schema = entity.getImmutableSchemaClass(session);
 
                     if (schema != null) {

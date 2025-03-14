@@ -33,12 +33,13 @@ import javax.annotation.Nullable;
 
 
 /**
- * Implementation of a generic entity. It's bound to the record and allows to read and write values.
- * It's schema aware.
+ * Implementation of a generic entity. It's bound to the record and allows to read and write
+ * values.
  */
 public interface Entity extends DBRecord, Result {
 
   String DEFAULT_CLASS_NAME = "O";
+
 
   /**
    * Gets a property value on time of transaction start. This will work for scalar values, and
@@ -52,8 +53,6 @@ public interface Entity extends DBRecord, Result {
    *                                  {@code #Vertex.DIRECTION_IN_PREFIX}.
    */
   <RET> RET getPropertyOnLoadValue(@Nonnull String name);
-
-  Collection<String> getDirtyProperties();
 
   /**
    * Sets a property value
@@ -261,7 +260,7 @@ public interface Entity extends DBRecord, Result {
   boolean isEmbedded();
 
   /**
-   * Fills a entity passing the property names/values as a Map String,Object where the keys are the
+   * Fills an entity passing the property names/values as a Map String,Object where the keys are the
    * property names and the values are the property values.
    */
   void updateFromMap(@Nonnull final Map<String, ?> map);
@@ -281,4 +280,102 @@ public interface Entity extends DBRecord, Result {
    */
   @Nonnull
   Map<String, Object> toMap(boolean includeMetadata);
+
+  Collection<String> getDirtyProperties();
+
+  Collection<String> getDirtyPropertiesBetweenCallbacks();
+
+  @Nonnull
+  @Override
+  StatefulEdge asStatefulEdge();
+
+  @Nullable
+  @Override
+  StatefulEdge asStatefulEdgeOrNull();
+
+  @Nonnull
+  @Override
+  Edge asEdge();
+
+  @Nullable
+  @Override
+  Edge asEdgeOrNull();
+
+  @Nonnull
+  @Override
+  Vertex asVertex();
+
+
+  @Nullable
+  @Override
+  default Entity asEntityOrNull() {
+    return this;
+  }
+
+  @Nonnull
+  @Override
+  default Entity asEntity() {
+    return this;
+  }
+
+  @Nonnull
+  @Override
+  default Identifiable asIdentifiable() {
+    return this;
+  }
+
+  @Nullable
+  @Override
+  default Identifiable asIdentifiableOrNull() {
+    return this;
+  }
+
+  @Nonnull
+  @Override
+  default Blob asBlob() {
+    throw new IllegalStateException("Entity is not a Blob");
+  }
+
+  @Nullable
+  @Override
+  default Blob asBlobOrNull() {
+    return null;
+  }
+
+  @Nullable
+  @Override
+  Vertex asVertexOrNull();
+
+  @Nonnull
+  @Override
+  default DBRecord asRecord() {
+    return this;
+  }
+
+  @Nullable
+  @Override
+  default DBRecord asRecordOrNull() {
+    return this;
+  }
+
+  @Override
+  default boolean isBlob() {
+    return false;
+  }
+
+  @Override
+  default boolean isEntity() {
+    return true;
+  }
+
+  @Override
+  boolean isStatefulEdge();
+
+  @Override
+  boolean isVertex();
+
+  @Override
+  default boolean isRecord() {
+    return true;
+  }
 }

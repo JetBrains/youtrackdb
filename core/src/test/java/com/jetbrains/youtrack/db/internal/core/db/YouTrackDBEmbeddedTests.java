@@ -10,13 +10,13 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.SessionPool;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.StorageDoesNotExistException;
-import com.jetbrains.youtrack.db.api.session.SessionPool;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
@@ -106,7 +106,7 @@ public class YouTrackDBEmbeddedTests {
           () -> {
             try (var db = pool.acquire()) {
               db.executeInTx(() -> {
-                assertThat(db.isActiveOnCurrentThread()).isTrue();
+                assertThat(((DatabaseSessionInternal) db).isActiveOnCurrentThread()).isTrue();
                 final var res = db.query("SELECT * FROM OUser");
                 assertThat(res).hasSize(1); // Only 'admin' created in this test
               });
@@ -197,7 +197,6 @@ public class YouTrackDBEmbeddedTests {
                   "testCopyOpenedDatabase", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
         db1 = db.copy();
       }
-      db1.activateOnCurrentThread();
       assertFalse(db1.isClosed());
       db1.close();
     }

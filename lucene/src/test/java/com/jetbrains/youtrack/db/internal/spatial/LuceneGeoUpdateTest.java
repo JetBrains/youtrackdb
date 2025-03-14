@@ -45,7 +45,7 @@ public class LuceneGeoUpdateTest extends BaseSpatialLuceneTest {
     session.commit();
 
     session.begin();
-    Assert.assertEquals(1, index.getInternal().size(session));
+    Assert.assertEquals(1, index.size(session));
     session.commit();
   }
 }

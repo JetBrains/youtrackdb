@@ -8,7 +8,6 @@ import javax.annotation.Nullable;
 
 
 public interface ExecutionPlan extends Serializable {
-
   @Nonnull
   List<ExecutionStep> getSteps();
 

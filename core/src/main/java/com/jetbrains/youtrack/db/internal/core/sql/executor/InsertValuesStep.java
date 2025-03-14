@@ -48,7 +48,7 @@ public class InsertValuesStep extends AbstractExecutionStep {
                 throw new CommandExecutionException(ctx.getDatabaseSession(),
                     "Error executing INSERT, cannot modify entity: " + result);
               }
-              result = new UpdatableResult(ctx.getDatabaseSession(), result.asEntity());
+              result = new UpdatableResult(ctx.getDatabaseSession(), result.asEntityOrNull());
             }
             var currentValues = values.get(nextValueSet++);
             if (currentValues.size() != identifiers.size()) {
@@ -68,7 +68,7 @@ public class InsertValuesStep extends AbstractExecutionStep {
               SchemaProperty schemaProperty = null;
 
               if (result.isEntity()) {
-                var entity = (EntityImpl) result.castToEntity();
+                var entity = (EntityImpl) result.asEntity();
                 var schema = entity.getImmutableSchemaClass(session);
                 schemaProperty =
                     schema != null ? schema.getProperty(propertyName) : null;

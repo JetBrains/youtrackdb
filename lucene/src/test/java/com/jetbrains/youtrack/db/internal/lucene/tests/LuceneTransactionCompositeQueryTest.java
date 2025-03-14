@@ -86,7 +86,7 @@ public class LuceneTransactionCompositeQueryTest extends LuceneBaseTest {
     try (var vertices = session.command(query)) {
 
       Collection coll;
-      try (var stream = index.getInternal().getRids(session, "abc")) {
+      try (var stream = index.getRids(session, "abc")) {
         coll = stream.collect(Collectors.toList());
       }
 
@@ -94,7 +94,7 @@ public class LuceneTransactionCompositeQueryTest extends LuceneBaseTest {
 
       Assert.assertEquals(0, coll.size());
 
-      Assert.assertEquals(0, index.getInternal().size(session));
+      Assert.assertEquals(0, index.size(session));
     }
     session.rollback();
 
@@ -104,7 +104,7 @@ public class LuceneTransactionCompositeQueryTest extends LuceneBaseTest {
       assertThat(vertices).hasSize(1);
 
       session.begin();
-      Assert.assertEquals(1, index.getInternal().size(session));
+      Assert.assertEquals(1, index.size(session));
       session.commit();
     }
   }
@@ -116,7 +116,7 @@ public class LuceneTransactionCompositeQueryTest extends LuceneBaseTest {
     c1.truncate();
 
     session.begin();
-    Assert.assertEquals(0, index.getInternal().size(session));
+    Assert.assertEquals(0, index.size(session));
 
     var doc = ((EntityImpl) session.newEntity("Foo"));
     doc.field("name", "Test");
@@ -132,7 +132,7 @@ public class LuceneTransactionCompositeQueryTest extends LuceneBaseTest {
     var query = "select from Foo where name = 'Test' and SEARCH_CLASS(\"abc\") =true";
     Collection<?> coll;
     try (var vertices = session.query(query)) {
-      try (var stream = index.getInternal().getRids(session, "abc")) {
+      try (var stream = index.getRids(session, "abc")) {
         coll = stream.collect(Collectors.toList());
       }
 
@@ -147,11 +147,11 @@ public class LuceneTransactionCompositeQueryTest extends LuceneBaseTest {
       }
       Assert.assertEquals(0, i);
 
-      Assert.assertEquals(1, index.getInternal().size(session));
+      Assert.assertEquals(1, index.size(session));
     }
     query = "select from Foo where name = 'Test' and SEARCH_CLASS(\"removed\")=true ";
     try (var vertices = session.query(query)) {
-      try (var stream = index.getInternal().getRids(session, "removed")) {
+      try (var stream = index.getRids(session, "removed")) {
         coll = stream.collect(Collectors.toList());
       }
 
@@ -166,7 +166,7 @@ public class LuceneTransactionCompositeQueryTest extends LuceneBaseTest {
 
       assertThat(vertices).hasSize(1);
 
-      Assert.assertEquals(1, index.getInternal().size(session));
+      Assert.assertEquals(1, index.size(session));
     }
   }
 
@@ -177,7 +177,7 @@ public class LuceneTransactionCompositeQueryTest extends LuceneBaseTest {
     c1.truncate();
 
     session.begin();
-    Assert.assertEquals(0, index.getInternal().size(session));
+    Assert.assertEquals(0, index.size(session));
 
     var doc = ((EntityImpl) session.newEntity("Foo"));
     doc.field("name", "Test");
@@ -196,7 +196,7 @@ public class LuceneTransactionCompositeQueryTest extends LuceneBaseTest {
     var query = "select from Foo where name = 'Test' and SEARCH_CLASS(\"abc\")=true ";
     Collection coll;
     try (var vertices = session.query(query)) {
-      try (var stream = index.getInternal().getRids(session, "abc")) {
+      try (var stream = index.getRids(session, "abc")) {
         coll = stream.collect(Collectors.toList());
       }
 
@@ -214,12 +214,12 @@ public class LuceneTransactionCompositeQueryTest extends LuceneBaseTest {
       Assert.assertEquals(1, i);
       Assert.assertNotNull(rid);
       Assert.assertEquals(rid.getIdentity().toString(), doc1.getIdentity().toString());
-      Assert.assertEquals(2, index.getInternal().size(session));
+      Assert.assertEquals(2, index.size(session));
     }
 
     query = "select from Foo where name = 'Test' and SEARCH_CLASS(\"removed\" )=true";
     try (var vertices = session.query(query)) {
-      try (var stream = index.getInternal().getRids(session, "removed")) {
+      try (var stream = index.getRids(session, "removed")) {
         coll = stream.collect(Collectors.toList());
       }
 
@@ -232,7 +232,7 @@ public class LuceneTransactionCompositeQueryTest extends LuceneBaseTest {
     query = "select from Foo where name = 'Test' and SEARCH_CLASS(\"abc\")=true ";
     try (var vertices = session.query(query)) {
       assertThat(vertices).hasSize(2);
-      Assert.assertEquals(2, index.getInternal().size(session));
+      Assert.assertEquals(2, index.size(session));
     }
   }
 }

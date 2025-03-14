@@ -35,7 +35,7 @@ public class CheckSafeDeleteStep extends AbstractExecutionStep {
   private static Result mapResult(Result result, CommandContext ctx) {
     if (result.isEntity()) {
       var session = ctx.getDatabaseSession();
-      var elem = result.asEntity();
+      var elem = result.asEntityOrNull();
 
       SchemaImmutableClass res = null;
       if (elem != null) {

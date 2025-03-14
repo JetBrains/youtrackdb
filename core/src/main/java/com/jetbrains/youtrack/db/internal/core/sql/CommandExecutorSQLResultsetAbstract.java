@@ -108,7 +108,6 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
                 .getMetadata()
                 .getIndexManagerInternal()
                 .getIndex(db, indexName)
-                .getInternal()
                 .stream(db)
                 .map((pair) -> pair.second)
                 .iterator();
@@ -118,7 +117,6 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
                 .getMetadata()
                 .getIndexManagerInternal()
                 .getIndex(db, indexName)
-                .getInternal()
                 .descStream(db)
                 .map((pair) -> pair.second)
                 .iterator();

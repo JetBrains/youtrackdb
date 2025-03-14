@@ -50,7 +50,7 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
           }
           if (next instanceof Result
               && ((Result) next).isEntity()
-              && ((Collection) left).contains(((Result) next).asEntity())) {
+              && ((Collection) left).contains(((Result) next).asEntityOrNull())) {
             return true;
           }
         }
@@ -76,11 +76,11 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
           }
           var leftElem =
               leftItem instanceof Result && ((Result) leftItem).isEntity()
-                  ? ((Result) leftItem).castToEntity()
+                  ? ((Result) leftItem).asEntity()
                   : rightItem;
           var rightElem =
               rightItem instanceof Result && ((Result) rightItem).isEntity()
-                  ? ((Result) rightItem).castToEntity()
+                  ? ((Result) rightItem).asEntity()
                   : rightItem;
           if (leftElem != null && leftElem.equals(rightElem)) {
             return true;

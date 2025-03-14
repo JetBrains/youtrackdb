@@ -175,7 +175,7 @@ public class GraphRepair {
 
               var removalReason = "";
 
-              final Identifiable out = edge.castToStatefulEdge().getFrom();
+              final Identifiable out = edge.asStatefulEdgeOrNull().getFrom();
               if (out == null) {
                 outVertexMissing = true;
               } else {
@@ -218,7 +218,7 @@ public class GraphRepair {
 
               var inVertexMissing = false;
 
-              final Identifiable in = edge.castToStatefulEdge().getTo();
+              final Identifiable in = edge.asStatefulEdgeOrNull().getTo();
               if (in == null) {
                 inVertexMissing = true;
               } else {
@@ -365,10 +365,9 @@ public class GraphRepair {
                   continue;
                 }
 
-                final var fieldValue = vertex.rawField(fieldName);
+                final var fieldValue = vertex.getPropertyInternal(fieldName);
                 if (fieldValue != null) {
                   if (fieldValue instanceof Identifiable) {
-
                     if (isEdgeBroken(db,
                         vertex,
                         fieldName,
@@ -570,7 +569,7 @@ public class GraphRepair {
           } else {
             // EDGE -> REGULAR EDGE, OK
             if (record.isStatefulEdge()) {
-              var edge = record.castToStatefulEdge();
+              var edge = record.asStatefulEdgeOrNull();
               final Identifiable backRID = edge.getVertex(direction);
               if (backRID == null || !backRID.equals(vertex))
               // BACK RID POINTS TO ANOTHER VERTEX

@@ -22,7 +22,7 @@ public class IndexStreamSecurityDecorator {
     }
 
     return stream.filter(
-        (pair) -> IndexInternal.securityFilterOnRead(session, originalIndex, pair.second) != null);
+        (pair) -> Index.securityFilterOnRead(session, originalIndex, pair.second) != null);
   }
 
   public static Stream<RID> decorateRidStream(Index originalIndex, Stream<RID> stream,
@@ -39,6 +39,6 @@ public class IndexStreamSecurityDecorator {
     }
 
     return stream.filter(
-        (rid) -> IndexInternal.securityFilterOnRead(session, originalIndex, rid) != null);
+        (rid) -> Index.securityFilterOnRead(session, originalIndex, rid) != null);
   }
 }

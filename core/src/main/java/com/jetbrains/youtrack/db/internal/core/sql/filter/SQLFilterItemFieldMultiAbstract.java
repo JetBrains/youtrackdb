@@ -56,7 +56,7 @@ public abstract class SQLFilterItemFieldMultiAbstract extends SQLFilterItemAbstr
       final Result iRecord, Object iCurrentResult, CommandContext iContext) {
 
     if (names.size() == 1 && iRecord.isEntity()) {
-      var entity = iRecord.castToEntity();
+      var entity = iRecord.asEntity();
       return transformValue(
           iRecord, iContext,
           EntityHelper.getIdentifiableValue(iContext.getDatabaseSession(), entity,

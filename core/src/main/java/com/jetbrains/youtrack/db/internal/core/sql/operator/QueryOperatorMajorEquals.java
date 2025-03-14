@@ -76,8 +76,7 @@ public class QueryOperatorMajorEquals extends QueryOperatorEqualityNotNulls {
     final var indexDefinition = index.getDefinition();
 
     Stream<RawPair<Object, RID>> stream;
-    final var internalIndex = index.getInternal();
-    if (!internalIndex.canBeUsedInEqualityOperators() || !internalIndex.hasRangeQuerySupport()) {
+    if (!index.canBeUsedInEqualityOperators() || !index.hasRangeQuerySupport()) {
       return null;
     }
 
@@ -95,8 +94,7 @@ public class QueryOperatorMajorEquals extends QueryOperatorEqualityNotNulls {
         return null;
       }
 
-      stream = index.getInternal()
-          .streamEntriesMajor(iContext.getDatabaseSession(), key, true, ascSortOrder);
+      stream = index.streamEntriesMajor(iContext.getDatabaseSession(), key, true, ascSortOrder);
     } else {
       // if we have situation like "field1 = 1 AND field2 >= 2"
       // then we fetch collection which left included boundary is the smallest composite key in the
@@ -122,7 +120,7 @@ public class QueryOperatorMajorEquals extends QueryOperatorEqualityNotNulls {
         return null;
       }
 
-      stream = index.getInternal()
+      stream = index
           .streamEntriesBetween(iContext.getDatabaseSession(), keyOne, true, keyTwo, true,
               ascSortOrder);
     }

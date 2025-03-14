@@ -27,6 +27,7 @@ import javax.annotation.Nullable;
  * Generic record representation.
  */
 public interface DBRecord extends Identifiable {
+
   /**
    * Returns true if the record is unloaded.
    *
@@ -129,4 +130,36 @@ public interface DBRecord extends Identifiable {
    */
   @Nullable
   DatabaseSession getBoundedToSession();
+
+  boolean isBlob();
+
+  boolean isEntity();
+
+  boolean isStatefulEdge();
+
+  boolean isVertex();
+
+  @Nonnull
+  Entity asEntity();
+
+  @Nonnull
+  Blob asBlob();
+
+  @Nonnull
+  StatefulEdge asStatefulEdge();
+
+  @Nonnull
+  Vertex asVertex();
+
+  @Nullable
+  Entity asEntityOrNull();
+
+  @Nullable
+  Blob asBlobOrNull();
+
+  @Nullable
+  StatefulEdge asStatefulEdgeOrNull();
+
+  @Nullable
+  Vertex asVertexOrNull();
 }

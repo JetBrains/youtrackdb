@@ -115,7 +115,7 @@ public abstract class SpatialFunctionAbstractIndexable extends SpatialFunctionAb
           if (propertyNames.size() == 1) {
             var property = inner.getProperty(propertyNames.iterator().next());
             if (property instanceof Result) {
-              shape = ((Result) property).asEntity();
+              shape = ((Result) property).asEntityOrNull();
             }
           } else {
             return new LuceneResultSetEmpty();
@@ -128,7 +128,7 @@ public abstract class SpatialFunctionAbstractIndexable extends SpatialFunctionAb
     }
 
     if (shape instanceof ResultInternal) {
-      shape = ((ResultInternal) shape).asEntity();
+      shape = ((ResultInternal) shape).asEntityOrNull();
     }
     queryParams.put(SpatialQueryBuilderAbstract.SHAPE, shape);
 
@@ -140,7 +140,7 @@ public abstract class SpatialFunctionAbstractIndexable extends SpatialFunctionAb
       ctx.setVariable("involvedIndexes", indexes);
     }
     indexes.add(index.getName());
-    return index.getInternal().getRids(ctx.getDatabaseSession(), queryParams)
+    return index.getRids(ctx.getDatabaseSession(), queryParams)
         .collect(Collectors.toSet());
   }
 

@@ -158,7 +158,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
             """;
     var qResult = session.execute("sql", script);
 
-    assertThat(qResult.next().castToEntity().<Long>getProperty("weight")).isEqualTo(4L);
+    assertThat(qResult.next().asEntity().<Long>getProperty("weight")).isEqualTo(4L);
   }
 
   @Test

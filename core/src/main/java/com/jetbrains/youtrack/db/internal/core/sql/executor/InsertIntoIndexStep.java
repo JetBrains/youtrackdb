@@ -134,7 +134,7 @@ public class InsertIntoIndexStep extends AbstractExecutionStep {
       insertIntoIndex(ctx.getDatabaseSession(), index, key, (Identifiable) value);
       count++;
     } else if (value instanceof Result result && result.isEntity()) {
-      insertIntoIndex(ctx.getDatabaseSession(), index, key, result.castToEntity());
+      insertIntoIndex(ctx.getDatabaseSession(), index, key, result.asEntity());
       count++;
     } else if (value instanceof ResultSet) {
       ((ResultSet) value).entityStream().forEach(x -> index.put(ctx.getDatabaseSession(), key, x));
@@ -146,7 +146,7 @@ public class InsertIntoIndexStep extends AbstractExecutionStep {
           insertIntoIndex(ctx.getDatabaseSession(), index, key, (Identifiable) item);
           count++;
         } else if (item instanceof Result result && result.isEntity()) {
-          insertIntoIndex(ctx.getDatabaseSession(), index, key, result.castToEntity());
+          insertIntoIndex(ctx.getDatabaseSession(), index, key, result.asEntity());
           count++;
         } else {
           throw new CommandExecutionException(ctx.getDatabaseSession(),

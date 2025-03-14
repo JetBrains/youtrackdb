@@ -122,10 +122,6 @@ public class MetadataDefault implements MetadataInternal {
     return indexManager.delegate();
   }
 
-  public int getSchemaClusterId() {
-    return schemaClusterId;
-  }
-
   public SharedContext init(SharedContext shared) {
     schemaClusterId = database.getClusterIdByName(CLUSTER_INTERNAL_NAME);
 

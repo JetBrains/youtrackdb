@@ -1216,7 +1216,15 @@ public abstract class SchemaClassImpl {
 
     database.executeInTxBatches(recordsToUpdate, (s, rid) -> {
       var entity = (EntityImpl) s.loadEntity(rid);
-      entity.setPropertyInternal(propertyName, entity.getPropertyInternal(propertyName), type);
+      var value = entity.getPropertyInternal(propertyName);
+      if (value == null) {
+        return;
+      }
+
+      var valueType = PropertyType.getTypeByValue(value);
+      if (valueType != type) {
+        entity.setPropertyInternal(propertyName, value, type);
+      }
     });
   }
 
@@ -1363,7 +1371,7 @@ public abstract class SchemaClassImpl {
   protected static boolean matchesType(DatabaseSessionInternal db, Object x,
       SchemaClassImpl linkedClass) {
     if (x instanceof Result) {
-      x = ((Result) x).castToEntity();
+      x = ((Result) x).asEntity();
     }
     if (x instanceof RID) {
       try {

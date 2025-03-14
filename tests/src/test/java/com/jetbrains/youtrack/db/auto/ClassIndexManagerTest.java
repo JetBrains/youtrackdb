@@ -144,7 +144,6 @@ public class ClassIndexManagerTest extends BaseDBTest {
               .getMetadata()
               .getIndexManagerInternal()
               .getIndex(session, "classIndexManagerTestClass.prop1")
-              .getInternal()
               .size(session),
           0);
       Assert.assertEquals(
@@ -152,7 +151,6 @@ public class ClassIndexManagerTest extends BaseDBTest {
               .getMetadata()
               .getIndexManagerInternal()
               .getIndex(session, "classIndexManagerTestClass.prop2")
-              .getInternal()
               .size(session),
           0);
     }
@@ -326,7 +324,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final Map<String, Long> indexSizeMap = new HashMap<>();
 
     for (final var index : beforeIndexes) {
-      indexSizeMap.put(index.getName(), index.getInternal().size(session));
+      indexSizeMap.put(index.getName(), index.size(session));
     }
 
     session.begin();
@@ -342,7 +340,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
         session.getMetadata().getIndexManagerInternal().getIndexes(session);
     for (final var index : afterIndexes) {
       Assert.assertEquals(
-          index.getInternal().size(session), indexSizeMap.get(index.getName()).longValue());
+          index.size(session), indexSizeMap.get(index.getName()).longValue());
     }
   }
 
@@ -354,7 +352,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final Map<String, Long> indexSizeMap = new HashMap<>();
 
     for (final var index : beforeIndexes) {
-      indexSizeMap.put(index.getName(), index.getInternal().size(session));
+      indexSizeMap.put(index.getName(), index.size(session));
     }
 
     session.begin();
@@ -372,7 +370,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
         session.getMetadata().getIndexManagerInternal().getIndexes(session);
     for (final var index : afterIndexes) {
       Assert.assertEquals(
-          index.getInternal().size(session), indexSizeMap.get(index.getName()).longValue());
+          index.size(session), indexSizeMap.get(index.getName()).longValue());
     }
   }
 
@@ -436,10 +434,10 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     final var propOneIndex = session.getMetadata().getIndexManagerInternal()
         .getIndex(session, "classIndexManagerTestClass.prop1");
-    try (var stream = propOneIndex.getInternal().getRids(session, "a")) {
+    try (var stream = propOneIndex.getRids(session, "a")) {
       Assert.assertTrue(stream.findFirst().isPresent());
     }
-    Assert.assertEquals(propOneIndex.getInternal().size(session), 1);
+    Assert.assertEquals(propOneIndex.size(session), 1);
 
     final var compositeIndex = session.getMetadata().getIndexManagerInternal()
         .getIndex(session, "classIndexManagerComposite");
@@ -447,18 +445,18 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var compositeIndexDefinition = compositeIndex.getDefinition();
     try (var rids =
         compositeIndex
-            .getInternal()
+
             .getRids(session, compositeIndexDefinition.createValue(session, "a", 1))) {
       Assert.assertTrue(rids.findFirst().isPresent());
     }
-    Assert.assertEquals(compositeIndex.getInternal().size(session), 1);
+    Assert.assertEquals(compositeIndex.size(session), 1);
 
     final var propZeroIndex = session.getMetadata().getIndexManagerInternal().getIndex(session,
         "classIndexManagerTestSuperClass.prop0");
-    try (var stream = propZeroIndex.getInternal().getRids(session, "x")) {
+    try (var stream = propZeroIndex.getRids(session, "x")) {
       Assert.assertTrue(stream.findFirst().isPresent());
     }
-    Assert.assertEquals(propZeroIndex.getInternal().size(session), 1);
+    Assert.assertEquals(propZeroIndex.size(session), 1);
   }
 
   public void testUpdateDocumentIndexRecordRemoved() {
@@ -483,9 +481,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var propZeroIndex = session.getMetadata().getIndexManagerInternal().getIndex(session,
         "classIndexManagerTestSuperClass.prop0");
 
-    Assert.assertEquals(propOneIndex.getInternal().size(session), 1);
-    Assert.assertEquals(compositeIndex.getInternal().size(session), 1);
-    Assert.assertEquals(propZeroIndex.getInternal().size(session), 1);
+    Assert.assertEquals(propOneIndex.size(session), 1);
+    Assert.assertEquals(compositeIndex.size(session), 1);
+    Assert.assertEquals(propZeroIndex.size(session), 1);
 
     session.begin();
     doc = session.bindToSession(doc);
@@ -494,9 +492,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertEquals(propOneIndex.getInternal().size(session), 1);
-    Assert.assertEquals(compositeIndex.getInternal().size(session), 0);
-    Assert.assertEquals(propZeroIndex.getInternal().size(session), 0);
+    Assert.assertEquals(propOneIndex.size(session), 1);
+    Assert.assertEquals(compositeIndex.size(session), 0);
+    Assert.assertEquals(propZeroIndex.size(session), 0);
   }
 
   public void testUpdateDocumentNullKeyIndexRecordRemoved() {
@@ -522,9 +520,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var propZeroIndex = session.getMetadata().getIndexManagerInternal().getIndex(session,
         "classIndexManagerTestSuperClass.prop0");
 
-    Assert.assertEquals(propOneIndex.getInternal().size(session), 1);
-    Assert.assertEquals(compositeIndex.getInternal().size(session), 1);
-    Assert.assertEquals(propZeroIndex.getInternal().size(session), 1);
+    Assert.assertEquals(propOneIndex.size(session), 1);
+    Assert.assertEquals(compositeIndex.size(session), 1);
+    Assert.assertEquals(propZeroIndex.size(session), 1);
 
     session.begin();
     doc = session.bindToSession(doc);
@@ -533,9 +531,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertEquals(propOneIndex.getInternal().size(session), 1);
-    Assert.assertEquals(compositeIndex.getInternal().size(session), 0);
-    Assert.assertEquals(propZeroIndex.getInternal().size(session), 0);
+    Assert.assertEquals(propOneIndex.size(session), 1);
+    Assert.assertEquals(compositeIndex.size(session), 0);
+    Assert.assertEquals(propZeroIndex.size(session), 0);
   }
 
   public void testUpdateDocumentIndexRecordUpdated() {
@@ -561,9 +559,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
         .getIndex(session, "classIndexManagerComposite");
     final var compositeIndexDefinition = compositeIndex.getDefinition();
 
-    Assert.assertEquals(propOneIndex.getInternal().size(session), 1);
-    Assert.assertEquals(compositeIndex.getInternal().size(session), 1);
-    Assert.assertEquals(propZeroIndex.getInternal().size(session), 1);
+    Assert.assertEquals(propOneIndex.size(session), 1);
+    Assert.assertEquals(compositeIndex.size(session), 1);
+    Assert.assertEquals(propZeroIndex.size(session), 1);
 
     session.begin();
     doc = session.bindToSession(doc);
@@ -572,19 +570,19 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertEquals(propOneIndex.getInternal().size(session), 1);
-    Assert.assertEquals(compositeIndex.getInternal().size(session), 1);
-    Assert.assertEquals(propZeroIndex.getInternal().size(session), 1);
+    Assert.assertEquals(propOneIndex.size(session), 1);
+    Assert.assertEquals(compositeIndex.size(session), 1);
+    Assert.assertEquals(propZeroIndex.size(session), 1);
 
-    try (var stream = propZeroIndex.getInternal().getRids(session, "y")) {
+    try (var stream = propZeroIndex.getRids(session, "y")) {
       Assert.assertTrue(stream.findFirst().isPresent());
     }
-    try (var stream = propOneIndex.getInternal().getRids(session, "a")) {
+    try (var stream = propOneIndex.getRids(session, "a")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
     try (var stream =
         compositeIndex
-            .getInternal()
+
             .getRids(session, compositeIndexDefinition.createValue(session, "a", 2))) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
@@ -609,8 +607,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
         .getIndex(session, "classIndexManagerComposite");
     final var compositeIndexDefinition = compositeIndex.getDefinition();
 
-    Assert.assertEquals(propOneIndex.getInternal().size(session), 1);
-    Assert.assertEquals(compositeIndex.getInternal().size(session), 0);
+    Assert.assertEquals(propOneIndex.size(session), 1);
+    Assert.assertEquals(compositeIndex.size(session), 0);
 
     session.begin();
     doc = session.bindToSession(doc);
@@ -618,15 +616,15 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertEquals(propOneIndex.getInternal().size(session), 1);
-    Assert.assertEquals(compositeIndex.getInternal().size(session), 1);
+    Assert.assertEquals(propOneIndex.size(session), 1);
+    Assert.assertEquals(compositeIndex.size(session), 1);
 
-    try (var stream = propOneIndex.getInternal().getRids(session, "a")) {
+    try (var stream = propOneIndex.getRids(session, "a")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
     try (var stream =
         compositeIndex
-            .getInternal()
+
             .getRids(session, compositeIndexDefinition.createValue(session, "a", 2))) {
       Assert.assertTrue(stream.findFirst().isPresent());
     }
@@ -641,7 +639,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var propFourIndex = session.getMetadata().getIndexManagerInternal()
         .getIndex(session, "classIndexManagerTestClass.prop4");
 
-    Assert.assertEquals(propFourIndex.getInternal().size(session), 0);
+    Assert.assertEquals(propFourIndex.size(session), 0);
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
@@ -654,11 +652,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertEquals(propFourIndex.getInternal().size(session), 2);
-    try (var stream = propFourIndex.getInternal().getRids(session, "value1")) {
+    Assert.assertEquals(propFourIndex.size(session), 2);
+    try (var stream = propFourIndex.getRids(session, "value1")) {
       Assert.assertTrue(stream.findFirst().isPresent());
     }
-    try (var stream = propFourIndex.getInternal().getRids(session, "value2")) {
+    try (var stream = propFourIndex.getRids(session, "value2")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
 
@@ -676,15 +674,15 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertEquals(propFourIndex.getInternal().size(session), 3);
-    try (var stream = propFourIndex.getInternal().getRids(session, "value3")) {
+    Assert.assertEquals(propFourIndex.size(session), 3);
+    try (var stream = propFourIndex.getRids(session, "value3")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propFourIndex.getInternal().getRids(session, "value4")) {
+    try (var stream = propFourIndex.getRids(session, "value4")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
 
-    try (var stream = propFourIndex.getInternal().getRids(session, "value5")) {
+    try (var stream = propFourIndex.getRids(session, "value5")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
   }
@@ -699,7 +697,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
         .getIndex(session,
             "classIndexManagerTestIndexByValue");
 
-    Assert.assertEquals(propFiveIndexKey.getInternal().size(session), 0);
+    Assert.assertEquals(propFiveIndexKey.size(session), 0);
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
@@ -712,11 +710,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertEquals(propFiveIndexKey.getInternal().size(session), 2);
-    try (var stream = propFiveIndexKey.getInternal().getRids(session, "key1")) {
+    Assert.assertEquals(propFiveIndexKey.size(session), 2);
+    try (var stream = propFiveIndexKey.getRids(session, "key1")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propFiveIndexKey.getInternal().getRids(session, "key2")) {
+    try (var stream = propFiveIndexKey.getRids(session, "key2")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
 
@@ -737,34 +735,34 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertEquals(propFiveIndexKey.getInternal().size(session), 5);
-    try (var stream = propFiveIndexKey.getInternal().getRids(session, "key1")) {
+    Assert.assertEquals(propFiveIndexKey.size(session), 5);
+    try (var stream = propFiveIndexKey.getRids(session, "key1")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propFiveIndexKey.getInternal().getRids(session, "key3")) {
+    try (var stream = propFiveIndexKey.getRids(session, "key3")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propFiveIndexKey.getInternal().getRids(session, "key4")) {
+    try (var stream = propFiveIndexKey.getRids(session, "key4")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propFiveIndexKey.getInternal().getRids(session, "key6")) {
+    try (var stream = propFiveIndexKey.getRids(session, "key6")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propFiveIndexKey.getInternal().getRids(session, "key7")) {
+    try (var stream = propFiveIndexKey.getRids(session, "key7")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
 
-    Assert.assertEquals(propFiveIndexValue.getInternal().size(session), 4);
-    try (var stream = propFiveIndexValue.getInternal().getRids(session, "value5")) {
+    Assert.assertEquals(propFiveIndexValue.size(session), 4);
+    try (var stream = propFiveIndexValue.getRids(session, "value5")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propFiveIndexValue.getInternal().getRids(session, "value3")) {
+    try (var stream = propFiveIndexValue.getRids(session, "value3")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propFiveIndexValue.getInternal().getRids(session, "value7")) {
+    try (var stream = propFiveIndexValue.getRids(session, "value7")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propFiveIndexValue.getInternal().getRids(session, "value6")) {
+    try (var stream = propFiveIndexValue.getRids(session, "value6")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
   }
@@ -775,7 +773,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var propSixIndex = session.getMetadata().getIndexManagerInternal()
         .getIndex(session, "classIndexManagerTestClass.prop6");
 
-    Assert.assertEquals(propSixIndex.getInternal().size(session), 0);
+    Assert.assertEquals(propSixIndex.size(session), 0);
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
@@ -788,11 +786,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertEquals(propSixIndex.getInternal().size(session), 2);
-    try (var stream = propSixIndex.getInternal().getRids(session, "value1")) {
+    Assert.assertEquals(propSixIndex.size(session), 2);
+    try (var stream = propSixIndex.getRids(session, "value1")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propSixIndex.getInternal().getRids(session, "value2")) {
+    try (var stream = propSixIndex.getRids(session, "value2")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
 
@@ -812,11 +810,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertEquals(propSixIndex.getInternal().size(session), 2);
-    try (var stream = propSixIndex.getInternal().getRids(session, "value1")) {
+    Assert.assertEquals(propSixIndex.size(session), 2);
+    try (var stream = propSixIndex.getRids(session, "value1")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propSixIndex.getInternal().getRids(session, "value5")) {
+    try (var stream = propSixIndex.getRids(session, "value5")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
   }
@@ -827,7 +825,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var propFourIndex = session.getMetadata().getIndexManagerInternal()
         .getIndex(session, "classIndexManagerTestClass.prop4");
 
-    Assert.assertEquals(propFourIndex.getInternal().size(session), 0);
+    Assert.assertEquals(propFourIndex.size(session), 0);
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
@@ -840,11 +838,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertEquals(propFourIndex.getInternal().size(session), 2);
-    try (var stream = propFourIndex.getInternal().getRids(session, "value1")) {
+    Assert.assertEquals(propFourIndex.size(session), 2);
+    try (var stream = propFourIndex.getRids(session, "value1")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propFourIndex.getInternal().getRids(session, "value2")) {
+    try (var stream = propFourIndex.getRids(session, "value2")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
 
@@ -862,14 +860,14 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertEquals(propFourIndex.getInternal().size(session), 3);
-    try (var stream = propFourIndex.getInternal().getRids(session, "value3")) {
+    Assert.assertEquals(propFourIndex.size(session), 3);
+    try (var stream = propFourIndex.getRids(session, "value3")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propFourIndex.getInternal().getRids(session, "value4")) {
+    try (var stream = propFourIndex.getRids(session, "value4")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propFourIndex.getInternal().getRids(session, "value5")) {
+    try (var stream = propFourIndex.getRids(session, "value5")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
 
@@ -883,7 +881,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
-    Assert.assertEquals(propFourIndex.getInternal().size(session), 0);
+    Assert.assertEquals(propFourIndex.size(session), 0);
   }
 
   public void testMapDelete() {
@@ -896,7 +894,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
         .getIndex(session,
             "classIndexManagerTestIndexByValue");
 
-    Assert.assertEquals(propFiveIndexKey.getInternal().size(session), 0);
+    Assert.assertEquals(propFiveIndexKey.size(session), 0);
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
@@ -909,11 +907,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertEquals(propFiveIndexKey.getInternal().size(session), 2);
-    try (var stream = propFiveIndexKey.getInternal().getRids(session, "key1")) {
+    Assert.assertEquals(propFiveIndexKey.size(session), 2);
+    try (var stream = propFiveIndexKey.getRids(session, "key1")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propFiveIndexKey.getInternal().getRids(session, "key2")) {
+    try (var stream = propFiveIndexKey.getRids(session, "key2")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
 
@@ -934,34 +932,34 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertEquals(propFiveIndexKey.getInternal().size(session), 5);
-    try (var stream = propFiveIndexKey.getInternal().getRids(session, "key1")) {
+    Assert.assertEquals(propFiveIndexKey.size(session), 5);
+    try (var stream = propFiveIndexKey.getRids(session, "key1")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propFiveIndexKey.getInternal().getRids(session, "key3")) {
+    try (var stream = propFiveIndexKey.getRids(session, "key3")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propFiveIndexKey.getInternal().getRids(session, "key4")) {
+    try (var stream = propFiveIndexKey.getRids(session, "key4")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propFiveIndexKey.getInternal().getRids(session, "key6")) {
+    try (var stream = propFiveIndexKey.getRids(session, "key6")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propFiveIndexKey.getInternal().getRids(session, "key7")) {
+    try (var stream = propFiveIndexKey.getRids(session, "key7")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
 
-    Assert.assertEquals(propFiveIndexValue.getInternal().size(session), 4);
-    try (var stream = propFiveIndexValue.getInternal().getRids(session, "value5")) {
+    Assert.assertEquals(propFiveIndexValue.size(session), 4);
+    try (var stream = propFiveIndexValue.getRids(session, "value5")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propFiveIndexValue.getInternal().getRids(session, "value3")) {
+    try (var stream = propFiveIndexValue.getRids(session, "value3")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propFiveIndexValue.getInternal().getRids(session, "value7")) {
+    try (var stream = propFiveIndexValue.getRids(session, "value7")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propFiveIndexValue.getInternal().getRids(session, "value6")) {
+    try (var stream = propFiveIndexValue.getRids(session, "value6")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
 
@@ -978,8 +976,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
-    Assert.assertEquals(propFiveIndexKey.getInternal().size(session), 0);
-    Assert.assertEquals(propFiveIndexValue.getInternal().size(session), 0);
+    Assert.assertEquals(propFiveIndexKey.size(session), 0);
+    Assert.assertEquals(propFiveIndexValue.size(session), 0);
   }
 
   public void testSetDelete() {
@@ -987,7 +985,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var propSixIndex = session.getMetadata().getIndexManagerInternal()
         .getIndex(session, "classIndexManagerTestClass.prop6");
 
-    Assert.assertEquals(propSixIndex.getInternal().size(session), 0);
+    Assert.assertEquals(propSixIndex.size(session), 0);
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
@@ -1000,11 +998,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertEquals(propSixIndex.getInternal().size(session), 2);
-    try (var stream = propSixIndex.getInternal().getRids(session, "value1")) {
+    Assert.assertEquals(propSixIndex.size(session), 2);
+    try (var stream = propSixIndex.getRids(session, "value1")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propSixIndex.getInternal().getRids(session, "value2")) {
+    try (var stream = propSixIndex.getRids(session, "value2")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
 
@@ -1024,11 +1022,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertEquals(propSixIndex.getInternal().size(session), 2);
-    try (var stream = propSixIndex.getInternal().getRids(session, "value1")) {
+    Assert.assertEquals(propSixIndex.size(session), 2);
+    try (var stream = propSixIndex.getRids(session, "value1")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = propSixIndex.getInternal().getRids(session, "value5")) {
+    try (var stream = propSixIndex.getRids(session, "value5")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
 
@@ -1041,7 +1039,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
-    Assert.assertEquals(propSixIndex.getInternal().size(session), 0);
+    Assert.assertEquals(propSixIndex.size(session), 0);
   }
 
   public void testDeleteDocumentIndexRecordDeleted() {
@@ -1063,17 +1061,17 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var compositeIndex = session.getMetadata().getIndexManagerInternal()
         .getIndex(session, "classIndexManagerComposite");
 
-    Assert.assertEquals(propZeroIndex.getInternal().size(session), 1);
-    Assert.assertEquals(propOneIndex.getInternal().size(session), 1);
-    Assert.assertEquals(compositeIndex.getInternal().size(session), 1);
+    Assert.assertEquals(propZeroIndex.size(session), 1);
+    Assert.assertEquals(propOneIndex.size(session), 1);
+    Assert.assertEquals(compositeIndex.size(session), 1);
 
     session.begin();
     session.bindToSession(doc).delete();
     session.commit();
 
-    Assert.assertEquals(propZeroIndex.getInternal().size(session), 0);
-    Assert.assertEquals(propOneIndex.getInternal().size(session), 0);
-    Assert.assertEquals(compositeIndex.getInternal().size(session), 0);
+    Assert.assertEquals(propZeroIndex.size(session), 0);
+    Assert.assertEquals(propOneIndex.size(session), 0);
+    Assert.assertEquals(compositeIndex.size(session), 0);
   }
 
   public void testDeleteUpdatedDocumentIndexRecordDeleted() {
@@ -1094,9 +1092,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     final var propZeroIndex = session.getMetadata().getIndexManagerInternal().getIndex(session,
         "classIndexManagerTestSuperClass.prop0");
-    Assert.assertEquals(propZeroIndex.getInternal().size(session), 1);
-    Assert.assertEquals(propOneIndex.getInternal().size(session), 1);
-    Assert.assertEquals(compositeIndex.getInternal().size(session), 1);
+    Assert.assertEquals(propZeroIndex.size(session), 1);
+    Assert.assertEquals(propOneIndex.size(session), 1);
+    Assert.assertEquals(compositeIndex.size(session), 1);
 
     session.begin();
     doc = session.bindToSession(doc);
@@ -1106,9 +1104,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
-    Assert.assertEquals(propZeroIndex.getInternal().size(session), 0);
-    Assert.assertEquals(propOneIndex.getInternal().size(session), 0);
-    Assert.assertEquals(compositeIndex.getInternal().size(session), 0);
+    Assert.assertEquals(propZeroIndex.size(session), 0);
+    Assert.assertEquals(propOneIndex.size(session), 0);
+    Assert.assertEquals(compositeIndex.size(session), 0);
   }
 
   public void testDeleteUpdatedDocumentNullFieldIndexRecordDeleted() {
@@ -1126,15 +1124,15 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var compositeIndex = session.getMetadata().getIndexManagerInternal()
         .getIndex(session, "classIndexManagerComposite");
 
-    Assert.assertEquals(propOneIndex.getInternal().size(session), 1);
-    Assert.assertEquals(compositeIndex.getInternal().size(session), 0);
+    Assert.assertEquals(propOneIndex.size(session), 1);
+    Assert.assertEquals(compositeIndex.size(session), 0);
 
     session.begin();
     session.bindToSession(doc).delete();
     session.commit();
 
-    Assert.assertEquals(propOneIndex.getInternal().size(session), 0);
-    Assert.assertEquals(compositeIndex.getInternal().size(session), 0);
+    Assert.assertEquals(propOneIndex.size(session), 0);
+    Assert.assertEquals(compositeIndex.size(session), 0);
   }
 
   public void testDeleteUpdatedDocumentOrigNullFieldIndexRecordDeleted() {
@@ -1152,8 +1150,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var compositeIndex = session.getMetadata().getIndexManagerInternal()
         .getIndex(session, "classIndexManagerComposite");
 
-    Assert.assertEquals(propOneIndex.getInternal().size(session), 1);
-    Assert.assertEquals(compositeIndex.getInternal().size(session), 0);
+    Assert.assertEquals(propOneIndex.size(session), 1);
+    Assert.assertEquals(compositeIndex.size(session), 0);
 
     session.begin();
     doc = session.bindToSession(doc);
@@ -1162,8 +1160,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
-    Assert.assertEquals(propOneIndex.getInternal().size(session), 0);
-    Assert.assertEquals(compositeIndex.getInternal().size(session), 0);
+    Assert.assertEquals(propOneIndex.size(session), 0);
+    Assert.assertEquals(compositeIndex.size(session), 0);
   }
 
   public void testNoClassIndexesUpdate() {
@@ -1186,7 +1184,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     final Collection<Index> indexes = oClass.getIndexesInternal();
     for (final var index : indexes) {
-      Assert.assertEquals(index.getInternal().size(session), 0);
+      Assert.assertEquals(index.size(session), 0);
     }
   }
 
@@ -1220,13 +1218,13 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
-    try (var stream = index.getInternal()
+    try (var stream = index
         .getRids(session, new CompositeKey("test1", 1))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
     }
-    try (var stream = index.getInternal()
+    try (var stream = index
         .getRids(session, new CompositeKey("test1", 2))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
     }
@@ -1235,7 +1233,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.bindToSession(doc).delete();
     session.commit();
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testCollectionCompositeNullSimpleFieldCreation() {
@@ -1255,7 +1253,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
 
     session.begin();
     session.bindToSession(doc).delete();
@@ -1280,7 +1278,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
 
     session.begin();
     session.bindToSession(doc).delete();
@@ -1304,29 +1302,29 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
     doc.field("prop1", "test2");
 
     session.commit();
 
-    try (var stream = index.getInternal()
+    try (var stream = index
         .getRids(session, new CompositeKey("test2", 1))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
     }
-    try (var stream = index.getInternal()
+    try (var stream = index
         .getRids(session, new CompositeKey("test2", 2))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
     }
 
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     session.begin();
     session.bindToSession(doc).delete();
     session.commit();
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testCollectionCompositeUpdateCollectionWasAssigned() {
@@ -1346,29 +1344,29 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
     doc.field("prop2", Arrays.asList(1, 3));
 
     session.commit();
 
-    try (var stream = index.getInternal()
+    try (var stream = index
         .getRids(session, new CompositeKey("test1", 1))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
     }
-    try (var stream = index.getInternal()
+    try (var stream = index
         .getRids(session, new CompositeKey("test1", 3))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
     }
 
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     session.begin();
     session.bindToSession(doc).delete();
     session.commit();
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testCollectionCompositeUpdateCollectionWasChanged() {
@@ -1388,7 +1386,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
     List<Integer> docList = doc.field("prop2");
@@ -1400,30 +1398,30 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    try (var stream = index.getInternal()
+    try (var stream = index
         .getRids(session, new CompositeKey("test1", 2))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
     }
-    try (var stream = index.getInternal()
+    try (var stream = index
         .getRids(session, new CompositeKey("test1", 3))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
     }
-    try (var stream = index.getInternal()
+    try (var stream = index
         .getRids(session, new CompositeKey("test1", 4))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
     }
-    try (var stream = index.getInternal()
+    try (var stream = index
         .getRids(session, new CompositeKey("test1", 5))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
     }
 
-    Assert.assertEquals(index.getInternal().size(session), 4);
+    Assert.assertEquals(index.size(session), 4);
 
     session.begin();
     session.bindToSession(doc).delete();
     session.commit();
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testCollectionCompositeUpdateCollectionWasChangedSimpleFieldWasAssigned() {
@@ -1443,7 +1441,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
     List<Integer> docList = doc.field("prop2");
@@ -1457,21 +1455,21 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertEquals(index.getInternal().size(session), 4);
+    Assert.assertEquals(index.size(session), 4);
 
-    try (var stream = index.getInternal()
+    try (var stream = index
         .getRids(session, new CompositeKey("test2", 2))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
     }
-    try (var stream = index.getInternal()
+    try (var stream = index
         .getRids(session, new CompositeKey("test2", 3))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
     }
-    try (var stream = index.getInternal()
+    try (var stream = index
         .getRids(session, new CompositeKey("test2", 4))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
     }
-    try (var stream = index.getInternal()
+    try (var stream = index
         .getRids(session, new CompositeKey("test2", 5))) {
       Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
     }
@@ -1480,7 +1478,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.bindToSession(doc).delete();
     session.commit();
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testCollectionCompositeUpdateSimpleFieldNull() {
@@ -1500,20 +1498,20 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
     doc.field("prop1", null);
 
     session.commit();
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
 
     session.begin();
     session.bindToSession(doc).delete();
     session.commit();
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testCollectionCompositeUpdateCollectionWasAssignedNull() {
@@ -1533,20 +1531,20 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
     doc.field("prop2", null);
 
     session.commit();
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
 
     session.begin();
     session.bindToSession(doc).delete();
     session.commit();
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testCollectionCompositeUpdateBothAssignedNull() {
@@ -1567,20 +1565,20 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     doc.field("prop2", null);
     doc.field("prop1", null);
 
     session.commit();
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
 
     session.begin();
     session.bindToSession(doc).delete();
     session.commit();
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testCollectionCompositeUpdateCollectionWasChangedSimpleFieldWasAssignedNull() {
@@ -1600,7 +1598,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
     List<Integer> docList = doc.field("prop2");
@@ -1614,13 +1612,13 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
 
     session.begin();
     session.bindToSession(doc).delete();
     session.commit();
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testCollectionCompositeDeleteSimpleFieldAssigend() {
@@ -1640,7 +1638,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
     doc.field("prop1", "test2");
@@ -1648,7 +1646,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testCollectionCompositeDeleteCollectionFieldAssigend() {
@@ -1668,7 +1666,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
     doc.field("prop2", Arrays.asList(1, 3));
@@ -1676,7 +1674,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testCollectionCompositeDeleteCollectionFieldChanged() {
@@ -1696,7 +1694,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
     List<Integer> docList = doc.field("prop2");
@@ -1708,7 +1706,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testCollectionCompositeDeleteBothCollectionSimpleFieldChanged() {
@@ -1729,7 +1727,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     List<Integer> docList = doc.field("prop2");
     docList.add(3);
@@ -1742,7 +1740,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testCollectionCompositeDeleteBothCollectionSimpleFieldAssigend() {
@@ -1762,7 +1760,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
     doc.field("prop2", Arrays.asList(1, 3));
@@ -1771,7 +1769,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testCollectionCompositeDeleteSimpleFieldNull() {
@@ -1792,14 +1790,14 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     doc.field("prop1", null);
 
     doc.delete();
     session.commit();
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testCollectionCompositeDeleteCollectionFieldNull() {
@@ -1819,7 +1817,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
     doc.field("prop2", null);
@@ -1827,7 +1825,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testCollectionCompositeDeleteBothSimpleCollectionFieldNull() {
@@ -1848,7 +1846,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     doc.field("prop2", null);
     doc.field("prop1", null);
@@ -1856,7 +1854,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testCollectionCompositeDeleteCollectionFieldChangedSimpleFieldNull() {
@@ -1877,7 +1875,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     List<Integer> docList = doc.field("prop2");
     docList.add(3);
@@ -1890,7 +1888,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.delete();
     session.commit();
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testIndexOnPropertiesFromClassAndSuperclass() {
@@ -1917,6 +1915,6 @@ public class ClassIndexManagerTest extends BaseDBTest {
         session.getMetadata().getIndexManagerInternal()
             .getIndex(session, "classIndexManagerTestIndexOnPropertiesFromClassAndSuperclass");
 
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
   }
 }

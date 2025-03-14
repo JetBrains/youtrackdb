@@ -303,7 +303,9 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
       SchemaImmutableClass clazz = null;
       clazz = entity.getImmutableSchemaClass((DatabaseSessionInternal) session);
 
-      if (clazz.isUser() && Objects.equals(entity.getCallbackDirtyProperties(), "password")) {
+      if (clazz.isUser() && Objects.equals(
+          entity.getDirtyPropertiesBetweenCallbacksInternal(false, false),
+          "password")) {
         String name = entity.getProperty("name");
         var message = String.format("The password for user '%s' has been changed", name);
         log(session, AuditingOperation.CHANGED_PWD, session.getDatabaseName(),
@@ -364,7 +366,7 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
         if (iRecord instanceof EntityImpl entity && cfg.onUpdateChanges) {
           changes = db.newEmbeddedEntity();
 
-          for (var f : entity.getCallbackDirtyProperties()) {
+          for (var f : entity.getDirtyPropertiesBetweenCallbacksInternal(false, false)) {
             var fieldChanges = db.newEntity();
             fieldChanges.setProperty("from", entity.getOriginalValue(f));
             fieldChanges.setProperty("to", entity.rawField(f));
@@ -390,7 +392,7 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
       entity.put("changes", changes);
     }
 
-    if (((DatabaseSessionInternal) db).getTransaction().isActive()) {
+    if (((DatabaseSessionInternal) db).getTransactionInternal().isActive()) {
       synchronized (operations) {
         var entries = operations.computeIfAbsent(db, k -> new ArrayList<>());
         entries.add(entity);

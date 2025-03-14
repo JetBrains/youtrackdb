@@ -58,7 +58,7 @@ public final class VertexDelegate implements VertexInternal {
   }
 
   @Override
-  public Vertex asVertex() {
+  public Vertex asVertexOrNull() {
     return this;
   }
 
@@ -69,54 +69,44 @@ public final class VertexDelegate implements VertexInternal {
 
   @Nonnull
   @Override
-  public Edge castToEdge() {
+  public Edge asEdge() {
     throw new DatabaseException("Not an edge");
   }
 
   @Nullable
   @Override
-  public Edge asEdge() {
+  public Edge asEdgeOrNull() {
     return null;
-  }
-
-  @Override
-  @Nullable
-  public StatefulEdge asStatefulEdge() {
-    return null;
-  }
-
-  @Override
-  public boolean isBlob() {
-    return false;
   }
 
   @Nonnull
   @Override
-  public Blob castToBlob() {
+  public Vertex asVertex() {
+    return this;
+  }
+
+  @Override
+  @Nullable
+  public StatefulEdge asStatefulEdgeOrNull() {
+    return null;
+  }
+
+  @Nonnull
+  @Override
+  public Blob asBlob() {
     throw new DatabaseException("Not a blob");
   }
 
-  @Nullable
-  @Override
-  public Blob asBlob() {
-    return null;
-  }
-
   @Nonnull
-  @Override
-  public DBRecord castToRecord() {
-    return entity;
-  }
-
-  @Nullable
   @Override
   public DBRecord asRecord() {
     return entity;
   }
 
+  @Nullable
   @Override
-  public boolean isRecord() {
-    return true;
+  public DBRecord asRecordOrNull() {
+    return entity;
   }
 
   @Override
@@ -181,9 +171,13 @@ public final class VertexDelegate implements VertexInternal {
 
   @Override
   public @Nonnull Collection<String> getPropertyNames() {
-    return VertexInternal.filterPropertyNames(getPropertyNamesInternal());
+    return VertexInternal.filterPropertyNames(entity.getPropertyNames());
   }
 
+  @Override
+  public int getPropertiesCount() {
+    return getPropertyNames().size();
+  }
 
   @Override
   public int hashCode() {
@@ -206,20 +200,15 @@ public final class VertexDelegate implements VertexInternal {
     return entity.getIdentity();
   }
 
-  @Override
-  public boolean isEntity() {
-    return true;
-  }
-
   @Nonnull
   @Override
-  public Entity castToEntity() {
+  public Entity asEntity() {
     return entity;
   }
 
   @Nullable
   @Override
-  public Entity asEntity() {
+  public Entity asEntityOrNull() {
     return entity;
   }
 
@@ -280,6 +269,22 @@ public final class VertexDelegate implements VertexInternal {
   }
 
   @Override
+  public Collection<String> getDirtyProperties() {
+    return VertexInternal.filterPropertyNames(entity.getPropertyNames());
+  }
+
+  @Override
+  public Collection<String> getDirtyPropertiesBetweenCallbacks() {
+    return VertexInternal.filterPropertyNames(entity.getPropertyNames());
+  }
+
+  @Nonnull
+  @Override
+  public StatefulEdge asStatefulEdge() {
+    return null;
+  }
+
+  @Override
   public DatabaseSession getBoundedToSession() {
     return entity.getBoundedToSession();
   }
@@ -292,13 +297,13 @@ public final class VertexDelegate implements VertexInternal {
 
   @Nonnull
   @Override
-  public Identifiable castToIdentifiable() {
+  public Identifiable asIdentifiable() {
     return entity;
   }
 
   @Nullable
   @Override
-  public Identifiable asIdentifiable() {
+  public Identifiable asIdentifiableOrNull() {
     return entity;
   }
 
@@ -309,8 +314,15 @@ public final class VertexDelegate implements VertexInternal {
   }
 
   @Override
-  public Collection<String> getDirtyProperties() {
-    return VertexInternal.filterPropertyNames(entity.getDirtyProperties());
+  public Collection<String> getDirtyPropertiesInternal(boolean includeSystemProperties,
+      boolean checkAccess) {
+    return entity.getDirtyPropertiesInternal(includeSystemProperties, checkAccess);
+  }
+
+  @Override
+  public Collection<String> getDirtyPropertiesBetweenCallbacksInternal(boolean includeSystemFields,
+      boolean checkAccess) {
+    return entity.getDirtyPropertiesBetweenCallbacksInternal(includeSystemFields, checkAccess);
   }
 
   @Nonnull
@@ -538,8 +550,9 @@ public final class VertexDelegate implements VertexInternal {
   }
 
   @Override
-  public <RET> RET getPropertyOnLoadValue(@Nonnull String name) {
-    return entity.getPropertyOnLoadValue(name);
+  public <RET> RET getPropertyOnLoadValueInternal(@Nonnull String name) {
+    VertexInternal.checkPropertyName(name);
+    return entity.getPropertyOnLoadValueInternal(name);
   }
 
   @Nullable
@@ -556,6 +569,12 @@ public final class VertexDelegate implements VertexInternal {
     return entity.getLink(name);
   }
 
+
+  @Override
+  public <RET> RET getPropertyOnLoadValue(@Nonnull String name) {
+    VertexInternal.checkPropertyName(name);
+    return entity.getPropertyOnLoadValue(name);
+  }
 
   @Override
   public void setProperty(@Nonnull String name, @Nullable Object value) {
@@ -593,7 +612,7 @@ public final class VertexDelegate implements VertexInternal {
   public <RET> RET removeProperty(@Nonnull String name) {
     VertexInternal.checkPropertyName(name);
 
-    return entity.removePropertyInternal(name);
+    return entity.removeProperty(name);
   }
 
   @Override
@@ -611,8 +630,9 @@ public final class VertexDelegate implements VertexInternal {
   }
 
   @Override
-  public Collection<String> getPropertyNamesInternal() {
-    return entity.getPropertyNamesInternal();
+  public Collection<String> getPropertyNamesInternal(boolean includeSystemProperties,
+      boolean checkAccess) {
+    return entity.getPropertyNamesInternal(includeSystemProperties, checkAccess);
   }
 
   @Override

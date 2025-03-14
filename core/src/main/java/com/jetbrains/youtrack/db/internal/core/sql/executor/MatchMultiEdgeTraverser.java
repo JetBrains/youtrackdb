@@ -62,7 +62,7 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
         if (whileCond != null) {
           var current = o;
           if (current instanceof Result) {
-            current = ((Result) current).asEntity();
+            current = ((Result) current).asEntityOrNull();
           }
           var subtraverser = new MatchEdgeTraverser(null, sub);
           var rightStream =

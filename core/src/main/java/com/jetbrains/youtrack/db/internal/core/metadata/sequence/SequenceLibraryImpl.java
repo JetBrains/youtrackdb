@@ -57,7 +57,7 @@ public class SequenceLibraryImpl {
           var res = result.next();
 
           final var sequence =
-              SequenceHelper.createSequence((EntityImpl) res.castToEntity());
+              SequenceHelper.createSequence((EntityImpl) res.asEntity());
           sequences.put(sequence.getName(session).toUpperCase(Locale.ENGLISH), sequence);
         }
       }
@@ -166,7 +166,7 @@ public class SequenceLibraryImpl {
 
   public void onSequenceDropped(
       final DatabaseSessionInternal session, final RID rid) {
-    var currentTx = (FrontendTransactionOptimistic) session.getTransaction();
+    var currentTx = (FrontendTransactionOptimistic) session.getTransactionInternal();
     @SuppressWarnings("unchecked")
     var droppedSequencesMap = (HashMap<RID, String>) currentTx.getCustomData(DROPPED_SEQUENCES_MAP);
     String sequenceName = null;

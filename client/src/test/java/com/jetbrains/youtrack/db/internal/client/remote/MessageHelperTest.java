@@ -14,7 +14,6 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkFactory;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
 import java.io.ByteArrayInputStream;
@@ -50,7 +49,7 @@ public class MessageHelperTest {
       bags.add(new RecordId(id, 0));
       doc.field("bag", bags);
 
-      EntityInternalUtils.fillClassNameIfNeeded(doc, "Test");
+      doc.fillClassIfNeed("Test");
       RecordInternal.setIdentity(doc, new RecordId(id, 1));
       RecordInternal.setVersion(doc, 1);
 
@@ -67,7 +66,8 @@ public class MessageHelperTest {
       assertThat((RidBag) newDoc.field("bag")).hasSize(1);
 
       Assert.assertTrue(
-          ((FrontendTransactionOptimistic) db.getTransaction()).getRecordOperations().isEmpty());
+          db.getTransactionInternal().getRecordOperationsInternal()
+              .isEmpty());
     } finally {
       db.close();
       youTrackDB.close();

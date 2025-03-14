@@ -49,7 +49,6 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityEntry;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.serialization.EntitySerializable;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.math.BigDecimal;
@@ -79,7 +78,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
       final String[] iFields) {
     final var className = readString(bytes);
     if (className.length() != 0) {
-      EntityInternalUtils.fillClassNameIfNeeded(entity, className);
+      entity.fillClassIfNeed(className);
     }
 
     // TRANSFORMS FIELDS FOM STRINGS TO BYTE[]
@@ -155,7 +154,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
       final BytesContainer bytes) {
     final var className = readString(bytes);
     if (className.length() != 0) {
-      EntityInternalUtils.fillClassNameIfNeeded(entity, className);
+      entity.fillClassIfNeed(className);
     }
 
     var last = 0;
@@ -177,7 +176,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
         throw new DatabaseException(session, "property id not supported in network serialization");
       }
 
-      if (EntityInternalUtils.rawContainsField(entity, fieldName)) {
+      if (entity.rawContainsField(fieldName)) {
         continue;
       }
 
@@ -207,12 +206,15 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
   public void serialize(DatabaseSessionInternal session, final EntityImpl entity,
       final BytesContainer bytes) {
     RecordInternal.checkForBinding(entity);
-    var schema = EntityInternalUtils.getImmutableSchema(entity);
-    var encryption = EntityInternalUtils.getPropertyEncryption(entity);
+    ImmutableSchema schema = null;
+    if (entity != null) {
+      schema = entity.getImmutableSchema();
+    }
+    var encryption = entity.propertyEncryption;
 
     serializeClass(session, entity, bytes);
 
-    final var fields = EntityInternalUtils.filteredEntries(entity);
+    final var fields = entity.getFilteredEntries();
 
     final var pos = new int[fields.size()];
 
@@ -283,7 +285,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
       } else {
         // LOAD GLOBAL PROPERTY BY ID
         final var id = (len * -1) - 1;
-        prop = EntityInternalUtils.getGlobalPropertyById(reference, id);
+        prop = reference.getGlobalPropertyById(id);
         result.add(prop.getName());
 
         // SKIP THE REST

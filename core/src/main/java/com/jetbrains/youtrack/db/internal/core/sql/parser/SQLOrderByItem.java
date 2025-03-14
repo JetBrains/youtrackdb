@@ -101,18 +101,22 @@ public class SQLOrderByItem {
       bVal = b.getProperty(recordAttr);
     } else if (alias != null) {
       if (isEdge) {
-        var aElement = (Vertex) a.asEntity();
+        var aElement = (Vertex) a.asEntityOrNull();
         var aIter =
             aElement != null ? aElement.getVertices(Direction.OUT, alias).iterator() : null;
         aVal = (aIter != null && aIter.hasNext()) ? aIter.next() : null;
 
-        var bElement = (Vertex) b.asEntity();
+        var bElement = (Vertex) b.asEntityOrNull();
         var bIter =
             bElement != null ? bElement.getVertices(Direction.OUT, alias).iterator() : null;
         bVal = (bIter != null && bIter.hasNext()) ? bIter.next() : null;
       } else {
-        aVal = a.getProperty(alias);
-        bVal = b.getProperty(alias);
+        if (a.hasProperty(alias)) {
+          aVal = a.getProperty(alias);
+        }
+        if (b.hasProperty(alias)) {
+          bVal = b.getProperty(alias);
+        }
       }
     }
     if (aVal == null && bVal == null) {

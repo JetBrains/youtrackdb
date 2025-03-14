@@ -579,7 +579,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
     Assert.assertEquals(foos.size(), 1);
 
     session.begin();
-    session.delete(session.bindToSession(foos.getFirst().asEntity()));
+    session.delete(session.bindToSession(foos.getFirst().asEntityOrNull()));
     session.commit();
   }
 
@@ -775,7 +775,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
   }
 
   public void testTransactionsCache() {
-    Assert.assertFalse(session.getTransaction().isActive());
+    Assert.assertFalse(session.getTransactionInternal().isActive());
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("TransA");
     classA.createProperty("name", PropertyType.STRING);
@@ -787,7 +787,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
     session.commit();
     RID orid = doc.getIdentity();
     session.begin();
-    Assert.assertTrue(session.getTransaction().isActive());
+    Assert.assertTrue(session.getTransactionInternal().isActive());
     doc = orid.getRecord(session);
     Assert.assertEquals(doc.field("name"), "test1");
     doc.field("name", "test2");

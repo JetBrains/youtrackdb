@@ -29,7 +29,6 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexCursor;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
-import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
 import com.jetbrains.youtrack.db.internal.core.index.IndexKeyCursor;
 import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
@@ -63,7 +62,7 @@ import java.util.stream.Stream;
  * <p>IMPORTANT: this class is only for internal usage!
  */
 @SuppressWarnings({"unchecked", "rawtypes"})
-public class ChainedIndexProxy<T> implements IndexInternal {
+public class ChainedIndexProxy<T> implements Index {
 
   private final Index firstIndex;
 
@@ -148,9 +147,9 @@ public class ChainedIndexProxy<T> implements IndexInternal {
     final Collection<Class<? extends Index>> indexTypes = new HashSet<>(3);
 
     for (var involvedIndex : involvedIndexes) {
-      if (!indexTypes.contains(involvedIndex.getInternal().getClass())) {
+      if (!indexTypes.contains(involvedIndex.getClass())) {
         result.add(involvedIndex);
-        indexTypes.add(involvedIndex.getInternal().getClass());
+        indexTypes.add(involvedIndex.getClass());
       }
     }
 
@@ -293,7 +292,6 @@ public class ChainedIndexProxy<T> implements IndexInternal {
 
     return res.toString();
   }
-
   /**
    * {@inheritDoc}
    */
@@ -301,7 +299,7 @@ public class ChainedIndexProxy<T> implements IndexInternal {
   @Deprecated
   public T get(DatabaseSessionInternal session, Object key) {
     final List<RID> lastIndexResult;
-    try (var stream = lastIndex.getInternal().getRids(session, key)) {
+    try (var stream = lastIndex.getRids(session, key)) {
       lastIndexResult = stream.collect(Collectors.toList());
     }
 
@@ -313,7 +311,7 @@ public class ChainedIndexProxy<T> implements IndexInternal {
   @Override
   public Stream<RID> getRidsIgnoreTx(DatabaseSessionInternal session, Object key) {
     final List<RID> lastIndexResult;
-    try (var stream = lastIndex.getInternal().getRids(session, key)) {
+    try (var stream = lastIndex.getRids(session, key)) {
       lastIndexResult = stream.collect(Collectors.toList());
     }
 
@@ -325,7 +323,7 @@ public class ChainedIndexProxy<T> implements IndexInternal {
   @Override
   public Stream<RID> getRids(DatabaseSessionInternal session, Object key) {
     final List<RID> lastIndexResult;
-    try (var stream = lastIndex.getInternal().getRids(session, key)) {
+    try (var stream = lastIndex.getRids(session, key)) {
       lastIndexResult = stream.collect(Collectors.toList());
     }
 
@@ -334,13 +332,6 @@ public class ChainedIndexProxy<T> implements IndexInternal {
     return result.stream().map(Identifiable::getIdentity);
   }
 
-  /**
-   * Returns internal index of last chain index, because proxy applicable to all operations that
-   * last index applicable.
-   */
-  public IndexInternal getInternal() {
-    return this;
-  }
 
   /**
    * {@inheritDoc}
@@ -370,7 +361,7 @@ public class ChainedIndexProxy<T> implements IndexInternal {
       } else {
         final List<Identifiable> keys;
         try (var stream =
-            currentIndex.getInternal().streamEntries(session, currentKeys, true)) {
+            currentIndex.streamEntries(session, currentKeys, true)) {
           keys = stream.map((pair) -> pair.second).collect(Collectors.toList());
         }
         newKeys = prepareKeys(session, nextIndex, keys);
@@ -392,7 +383,7 @@ public class ChainedIndexProxy<T> implements IndexInternal {
       }
     } else {
       try (var stream =
-          firstIndex.getInternal().streamEntries(session, currentKeys, true)) {
+          firstIndex.streamEntries(session, currentKeys, true)) {
         result = stream.map((pair) -> pair.second).collect(Collectors.toList());
       }
     }
@@ -403,7 +394,7 @@ public class ChainedIndexProxy<T> implements IndexInternal {
   private static List<RID> getFromCompositeIndex(DatabaseSessionInternal session,
       Comparable currentKey, Index currentIndex) {
     try (var stream =
-        currentIndex.getInternal()
+        currentIndex
             .streamEntriesBetween(session, currentKey, true, currentKey, true, true)) {
       return stream.map((pair) -> pair.second).collect(Collectors.toList());
     }
@@ -529,7 +520,7 @@ public class ChainedIndexProxy<T> implements IndexInternal {
 
   @Override
   public Object getCollatingValue(Object key) {
-    return this.lastIndex.getInternal().getCollatingValue(key);
+    return this.lastIndex.getCollatingValue(key);
   }
 
   @Override
@@ -554,12 +545,12 @@ public class ChainedIndexProxy<T> implements IndexInternal {
 
   @Override
   public boolean canBeUsedInEqualityOperators() {
-    return this.lastIndex.getInternal().canBeUsedInEqualityOperators();
+    return this.lastIndex.canBeUsedInEqualityOperators();
   }
 
   @Override
   public boolean hasRangeQuerySupport() {
-    return this.lastIndex.getInternal().hasRangeQuerySupport();
+    return this.lastIndex.hasRangeQuerySupport();
   }
 
   @Override
@@ -681,7 +672,7 @@ public class ChainedIndexProxy<T> implements IndexInternal {
   @Override
   public Stream<RawPair<Object, RID>> streamEntries(DatabaseSessionInternal session,
       Collection<?> keys, boolean ascSortOrder) {
-    return applyTailIndexes(lastIndex.getInternal().streamEntries(session, keys, ascSortOrder));
+    return applyTailIndexes(lastIndex.streamEntries(session, keys, ascSortOrder));
   }
 
   @Override
@@ -690,7 +681,6 @@ public class ChainedIndexProxy<T> implements IndexInternal {
       boolean toInclusive, boolean ascOrder) {
     return applyTailIndexes(
         lastIndex
-            .getInternal()
             .streamEntriesBetween(session, fromKey, fromInclusive, toKey, toInclusive, ascOrder));
   }
 
@@ -698,14 +688,14 @@ public class ChainedIndexProxy<T> implements IndexInternal {
   public Stream<RawPair<Object, RID>> streamEntriesMajor(
       DatabaseSessionInternal session, Object fromKey, boolean fromInclusive, boolean ascOrder) {
     return applyTailIndexes(
-        lastIndex.getInternal().streamEntriesMajor(session, fromKey, fromInclusive, ascOrder));
+        lastIndex.streamEntriesMajor(session, fromKey, fromInclusive, ascOrder));
   }
 
   @Override
   public Stream<RawPair<Object, RID>> streamEntriesMinor(
       DatabaseSessionInternal session, Object toKey, boolean toInclusive, boolean ascOrder) {
     return applyTailIndexes(
-        lastIndex.getInternal().streamEntriesMinor(session, toKey, toInclusive, ascOrder));
+        lastIndex.streamEntriesMinor(session, toKey, toInclusive, ascOrder));
   }
 
   @Override

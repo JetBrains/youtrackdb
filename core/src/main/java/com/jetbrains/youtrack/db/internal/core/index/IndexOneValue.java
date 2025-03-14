@@ -104,7 +104,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     var stream = getRidsIgnoreTx(session, key);
 
     final var indexChanges =
-        session.getTransaction().getIndexChangesInternal(getName());
+        session.getTransactionInternal().getIndexChangesInternal(getName());
     if (indexChanges == null) {
       return stream;
     }
@@ -179,7 +179,7 @@ public abstract class IndexOneValue extends IndexAbstract {
                     })
                 .filter(Objects::nonNull), session);
     final var indexChanges =
-        session.getTransaction().getIndexChangesInternal(getName());
+        session.getTransactionInternal().getIndexChangesInternal(getName());
     if (indexChanges == null) {
       return stream;
     }
@@ -231,7 +231,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     }
 
     final var indexChanges =
-        session.getTransaction().getIndexChangesInternal(getName());
+        session.getTransactionInternal().getIndexChangesInternal(getName());
     if (indexChanges == null) {
       return stream;
     }
@@ -285,7 +285,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     }
 
     final var indexChanges =
-        session.getTransaction().getIndexChangesInternal(getName());
+        session.getTransactionInternal().getIndexChangesInternal(getName());
     if (indexChanges == null) {
       return stream;
     }
@@ -341,7 +341,7 @@ public abstract class IndexOneValue extends IndexAbstract {
       releaseSharedLock();
     }
     final var indexChanges =
-        session.getTransaction().getIndexChangesInternal(getName());
+        session.getTransactionInternal().getIndexChangesInternal(getName());
     if (indexChanges == null) {
       return stream;
     }
@@ -408,7 +408,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     }
 
     final var indexChanges =
-        session.getTransaction().getIndexChangesInternal(getName());
+        session.getTransactionInternal().getIndexChangesInternal(getName());
     if (indexChanges == null) {
       return stream;
     }
@@ -445,7 +445,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     }
 
     final var indexChanges =
-        session.getTransaction().getIndexChangesInternal(getName());
+        session.getTransactionInternal().getIndexChangesInternal(getName());
     if (indexChanges == null) {
       return stream;
     }
@@ -533,7 +533,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     }
     key = getCollatingValue(key);
 
-    var singleTx = db.getTransaction();
+    var singleTx = db.getTransactionInternal();
     singleTx.addIndexEntry(
         this, super.getName(), FrontendTransactionIndexChanges.OPERATION.PUT, key,
         value.getIdentity());

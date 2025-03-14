@@ -13,9 +13,11 @@ public class RollbackStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testBegin() {
-    Assert.assertTrue(session.getTransaction() == null || !session.getTransaction().isActive());
+    Assert.assertTrue(
+        session.getTransactionInternal() == null || !session.getTransactionInternal().isActive());
     session.begin();
-    Assert.assertFalse(session.getTransaction() == null || !session.getTransaction().isActive());
+    Assert.assertFalse(
+        session.getTransactionInternal() == null || !session.getTransactionInternal().isActive());
     var result = session.command("rollback");
     printExecutionPlan(null, result);
     Assert.assertNotNull(result);
@@ -23,6 +25,7 @@ public class RollbackStatementExecutionTest extends DbTestBase {
     var item = result.next();
     Assert.assertEquals("rollback", item.getProperty("operation"));
     Assert.assertFalse(result.hasNext());
-    Assert.assertTrue(session.getTransaction() == null || !session.getTransaction().isActive());
+    Assert.assertTrue(
+        session.getTransactionInternal() == null || !session.getTransactionInternal().isActive());
   }
 }

@@ -21,7 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.tx;
 
 import com.jetbrains.youtrack.db.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrack.db.internal.core.id.IdentityChangeListener;
-import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
+import com.jetbrains.youtrack.db.internal.core.index.Index;
 import java.util.IdentityHashMap;
 import java.util.NavigableMap;
 import java.util.TreeMap;
@@ -33,9 +33,9 @@ import javax.annotation.Nonnull;
 public class FrontendTransactionIndexChanges implements IdentityChangeListener {
 
   @Nonnull
-  private final IndexInternal index;
+  private final Index index;
 
-  public FrontendTransactionIndexChanges(@Nonnull IndexInternal index) {
+  public FrontendTransactionIndexChanges(@Nonnull Index index) {
     this.index = index;
   }
 
@@ -72,7 +72,7 @@ public class FrontendTransactionIndexChanges implements IdentityChangeListener {
   }
 
   @Nonnull
-  public IndexInternal getIndex() {
+  public Index getIndex() {
     return index;
   }
 

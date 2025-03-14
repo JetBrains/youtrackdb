@@ -147,13 +147,13 @@ public class EdgeImpl implements EdgeInternal {
 
   @Nonnull
   @Override
-  public StatefulEdge castToStatefulEdge() {
+  public StatefulEdge asStatefulEdge() {
     throw new DatabaseException("Current edge instance is not a stateful edge");
   }
 
   @Nullable
   @Override
-  public StatefulEdge asStatefulEdge() {
+  public StatefulEdge asStatefulEdgeOrNull() {
     return null;
   }
 }

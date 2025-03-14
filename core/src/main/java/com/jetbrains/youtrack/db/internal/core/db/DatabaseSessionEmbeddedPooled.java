@@ -49,6 +49,7 @@ public class DatabaseSessionEmbeddedPooled extends DatabaseSessionEmbedded {
 
   @Override
   public DatabaseSessionInternal copy() {
+    assertIfNotActive();
     return (DatabaseSessionInternal) pool.acquire();
   }
 

@@ -36,7 +36,6 @@ import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionFactory;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
 import com.jetbrains.youtrack.db.internal.core.index.PropertyMapIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -345,7 +344,7 @@ public class CommandExecutorSQLCreateIndex extends CommandExecutorSQLAbstract
     }
 
     if (idx != null) {
-      return idx.getInternal().size(session);
+      return idx.size(session);
     }
 
     return null;

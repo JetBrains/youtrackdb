@@ -659,11 +659,11 @@ public class PredicateSecurityTest {
     var index = session.getMetadata().getIndexManager().getIndex("Person.name");
 
     session.begin();
-    try (var rids = index.getInternal().getRids(session, "bar")) {
+    try (var rids = index.getRids(session, "bar")) {
       Assert.assertEquals(0, rids.count());
     }
 
-    try (var rids = index.getInternal().getRids(session, "foo")) {
+    try (var rids = index.getRids(session, "foo")) {
       Assert.assertEquals(1, rids.count());
     }
     session.commit();

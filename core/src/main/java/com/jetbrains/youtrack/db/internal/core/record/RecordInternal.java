@@ -107,8 +107,4 @@ public class RecordInternal {
       final RecordSerializer serializer) {
     ((RecordAbstract) record).recordFormat = serializer;
   }
-
-  public static RecordSerializer getRecordSerializer(DBRecord iRecord) {
-    return ((RecordAbstract) iRecord).recordFormat;
-  }
 }

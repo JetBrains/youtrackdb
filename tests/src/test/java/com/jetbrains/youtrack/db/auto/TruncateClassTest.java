@@ -76,10 +76,10 @@ public class TruncateClassTest extends BaseDBTest {
     }
     Assert.assertTrue(set.containsAll(Arrays.asList(5, 6, 7, 8, 9, -1)));
 
-    Assert.assertEquals(index.getInternal().size(session), 6);
+    Assert.assertEquals(index.size(session), 6);
 
     Iterator<RawPair<Object, RID>> indexIterator;
-    try (var stream = index.getInternal().stream(session)) {
+    try (var stream = index.stream(session)) {
       indexIterator = stream.iterator();
 
       while (indexIterator.hasNext()) {
@@ -168,15 +168,15 @@ public class TruncateClassTest extends BaseDBTest {
     session.commit();
 
     final var index = getIndex("TestTruncateVertexClassSuperclassWithIndex_index");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     session.command("truncate class TestTruncateVertexClassSubclassWithIndex").close();
-    Assert.assertEquals(index.getInternal().size(session), 1);
+    Assert.assertEquals(index.size(session), 1);
 
     session
         .command("truncate class TestTruncateVertexClassSuperclassWithIndex polymorphic")
         .close();
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   private Index getOrCreateIndex(SchemaClass testClass) {

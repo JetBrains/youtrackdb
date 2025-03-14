@@ -1,13 +1,11 @@
 package com.jetbrains.youtrack.db.internal.lucene.benchmark;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
-import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.YouTrackDB;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import java.io.IOException;
 import java.io.InputStream;
@@ -26,7 +24,6 @@ import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Warmup;
 import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.RunnerException;
-import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 
 @State(Scope.Thread)
@@ -88,7 +85,6 @@ public class FulltextIndexFunctionBenchmark {
         "create database " + name + " plocal users ( admin identified by 'admin' role admin)");
 
     db = (DatabaseSessionInternal) context.open(name, "admin", "admin");
-    db.set(DatabaseSession.ATTRIBUTES.MINIMUM_CLUSTERS, 8);
   }
 
   private String getScriptFromStream(final InputStream scriptStream) {

@@ -60,7 +60,7 @@ public class LuceneInsertIntegrityRemoteTest extends LuceneBaseTest {
     var idx = schema.getClassInternal("City").getClassIndex(session, "City.name");
 
     Collection<?> coll;
-    try (var stream = idx.getInternal().getRids(session, "Rome")) {
+    try (var stream = idx.getRids(session, "Rome")) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(1, coll.size());
@@ -72,11 +72,11 @@ public class LuceneInsertIntegrityRemoteTest extends LuceneBaseTest {
     doc.field("name", "London");
     session.commit();
 
-    try (var stream = idx.getInternal().getRids(session, "Rome")) {
+    try (var stream = idx.getRids(session, "Rome")) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(0, coll.size());
-    try (var stream = idx.getInternal().getRids(session, "London")) {
+    try (var stream = idx.getRids(session, "London")) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(1, coll.size());
@@ -91,18 +91,18 @@ public class LuceneInsertIntegrityRemoteTest extends LuceneBaseTest {
     doc = session.load(doc.getIdentity());
     Assert.assertEquals("Berlin", doc.field("name"));
 
-    try (var stream = idx.getInternal().getRids(session, "Rome")) {
+    try (var stream = idx.getRids(session, "Rome")) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(0, coll.size());
-    try (var stream = idx.getInternal().getRids(session, "London")) {
+    try (var stream = idx.getRids(session, "London")) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(0, coll.size());
-    try (var stream = idx.getInternal().getRids(session, "Berlin")) {
+    try (var stream = idx.getRids(session, "Berlin")) {
       coll = stream.collect(Collectors.toList());
     }
-    Assert.assertEquals(1, idx.getInternal().size(session));
+    Assert.assertEquals(1, idx.size(session));
     Assert.assertEquals(1, coll.size());
 
     Thread.sleep(1000);
@@ -114,16 +114,16 @@ public class LuceneInsertIntegrityRemoteTest extends LuceneBaseTest {
     schema = session.getMetadata().getSchema();
     idx = schema.getClassInternal("City").getClassIndex(session, "City.name");
 
-    Assert.assertEquals(1, idx.getInternal().size(session));
-    try (var stream = idx.getInternal().getRids(session, "Rome")) {
+    Assert.assertEquals(1, idx.size(session));
+    try (var stream = idx.getRids(session, "Rome")) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(0, coll.size());
-    try (var stream = idx.getInternal().getRids(session, "London")) {
+    try (var stream = idx.getRids(session, "London")) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(0, coll.size());
-    try (var stream = idx.getInternal().getRids(session, "Berlin")) {
+    try (var stream = idx.getRids(session, "Berlin")) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(1, coll.size());

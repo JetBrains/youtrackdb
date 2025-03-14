@@ -69,7 +69,7 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered {
       return null;
     }
     var edgeClass =
-        ((DatabaseSessionInternal) session)
+        session
             .getMetadata()
             .getImmutableSchemaSnapshot()
             .getClassInternal(edgeClassName);
@@ -85,8 +85,8 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered {
     var result = new MultiCollectionIterator<Vertex>();
     for (var identifiable : to) {
       var key = new CompositeKey(iFrom, identifiable);
-      try (var stream = index.getInternal()
-          .getRids((DatabaseSessionInternal) session, key)) {
+      try (var stream = index
+          .getRids(session, key)) {
         result.add(
             stream
                 .map((edge) -> ((EntityImpl) edge.getRecord(session)).rawField("out"))

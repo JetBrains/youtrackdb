@@ -28,9 +28,9 @@ public class CastToEdgeStep extends AbstractExecutionStep {
     var db = ctx.getDatabaseSession();
     if (result.isStatefulEdge()) {
       if (result.isStatefulEdge()) {
-        ((ResultInternal) result).setIdentifiable(result.castToStatefulEdge());
+        ((ResultInternal) result).setIdentifiable(result.asStatefulEdge());
       } else {
-        result = new ResultInternal(db, result.castToEdge());
+        result = new ResultInternal(db, result.asEdge());
       }
     } else {
       throw new CommandExecutionException(ctx.getDatabaseSession(),

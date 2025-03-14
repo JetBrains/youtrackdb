@@ -1165,7 +1165,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
                 "select from " + SecurityUserImpl.CLASS_NAME + " where name = ?",
                 name)) {
           if (resultSet.hasNext()) {
-            systemRecord = (EntityImpl) resultSet.next().castToEntity();
+            systemRecord = (EntityImpl) resultSet.next().asEntity();
           }
         }
       } else if (cls.getName().equals(Role.CLASS_NAME)) {
@@ -1174,7 +1174,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
                 "select from " + Role.CLASS_NAME + " where name = ?",
                 name)) {
           if (resultSet.hasNext()) {
-            systemRecord = (EntityImpl) resultSet.next().castToEntity();
+            systemRecord = (EntityImpl) resultSet.next().asEntity();
           }
         }
       } else if (cls.getName().equals(SecurityPolicy.class.getSimpleName())) {
@@ -1183,7 +1183,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
                 "select from " + SecurityPolicy.class.getSimpleName() + " where name = ?",
                 name)) {
           if (resultSet.hasNext()) {
-            systemRecord = (EntityImpl) resultSet.next().castToEntity();
+            systemRecord = (EntityImpl) resultSet.next().asEntity();
           }
         }
       } else //noinspection StatementWithEmptyBody

@@ -67,11 +67,7 @@ public interface MetadataInternal extends Metadata {
   /**
    * @deprecated Manual indexes are deprecated and will be removed
    */
-  @Deprecated
   IndexManager getIndexManager();
-
-  @Deprecated
-  int getSchemaClusterId();
 
   /**
    * Reloads the internal objects.

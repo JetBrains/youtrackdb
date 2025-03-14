@@ -763,7 +763,7 @@ public abstract class SchemaShared implements CloseableInStorage {
 
   private void saveInternal(DatabaseSessionInternal session) {
 
-    var tx = session.getTransaction();
+    var tx = session.getTransactionInternal();
     if (tx.isActive()) {
       throw new SchemaException(session.getDatabaseName(),
           "Cannot change the schema while a transaction is active. Schema changes are not"

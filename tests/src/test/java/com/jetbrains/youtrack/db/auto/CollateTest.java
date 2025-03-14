@@ -283,7 +283,7 @@ public class CollateTest extends BaseDBTest {
       final var index = indexManager.getIndex(session, "collateCompositeIndexCS");
 
       final Collection<RID> value;
-      try (var stream = index.getInternal()
+      try (var stream = index
           .getRids(session, new CompositeKey("VAL", "VaL"))) {
         value = stream.toList();
       }

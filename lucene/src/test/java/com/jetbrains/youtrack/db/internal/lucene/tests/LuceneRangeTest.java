@@ -66,7 +66,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
         session.getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "Person.weight")
-            .getInternal()
+
             .size(session))
         .isEqualTo(10);
     session.commit();
@@ -97,7 +97,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
         session.getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "Person.age")
-            .getInternal()
+
             .size(session))
         .isEqualTo(10);
     session.commit();
@@ -128,7 +128,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
         session.getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "Person.date")
-            .getInternal()
+
             .size(session))
         .isEqualTo(10);
     session.commit();
@@ -165,7 +165,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
         session.getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "Person.composite")
-            .getInternal()
+
             .size(session))
         .isEqualTo(10);
 
@@ -222,7 +222,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
         session.getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "Person.composite")
-            .getInternal()
+
             .size(session))
         .isEqualTo(10);
     session.commit();
@@ -236,20 +236,20 @@ public class LuceneRangeTest extends LuceneBaseTest {
         .getIndex(session, "Person.composite");
 
     // name and age range
-    try (var stream = index.getInternal().getRids(session, "name:luke  age:[5 TO 6]")) {
+    try (var stream = index.getRids(session, "name:luke  age:[5 TO 6]")) {
       assertThat(stream.count()).isEqualTo(2);
     }
     try (var stream =
-        index.getInternal().getRids(session, "date:[" + fiveDaysAgo + " TO " + today + "]")) {
+        index.getRids(session, "date:[" + fiveDaysAgo + " TO " + today + "]")) {
       assertThat(stream.count()).isEqualTo(5);
     }
     try (var stream =
         index
-            .getInternal()
+
             .getRids(session, "+age:[4 TO 7]  +date:[" + fiveDaysAgo + " TO " + today + "]")) {
       assertThat(stream.count()).isEqualTo(2);
     }
-    try (var stream = index.getInternal().getRids(session, "*:*")) {
+    try (var stream = index.getRids(session, "*:*")) {
       assertThat(stream.count()).isEqualTo(11);
     }
   }

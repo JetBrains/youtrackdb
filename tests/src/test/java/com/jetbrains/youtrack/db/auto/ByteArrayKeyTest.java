@@ -67,10 +67,10 @@ public class ByteArrayKeyTest extends BaseDBTest {
 
     var index =
         session.getMetadata().getIndexManagerInternal().getIndex(session, "byteArrayKeyIndex");
-    try (var stream = index.getInternal().getRids(session, key1)) {
+    try (var stream = index.getRids(session, key1)) {
       Assert.assertEquals(stream.findAny().map(rid -> rid.getRecord(session)).orElse(null), doc1);
     }
-    try (var stream = index.getInternal().getRids(session, key2)) {
+    try (var stream = index.getRids(session, key2)) {
       Assert.assertEquals(stream.findAny().map(rid -> rid.getRecord(session)).orElse(null), doc2);
     }
   }
@@ -97,10 +97,10 @@ public class ByteArrayKeyTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "compositeByteArrayKey");
-    try (var stream = index.getInternal().getRids(session, new CompositeKey(key1, 1))) {
+    try (var stream = index.getRids(session, new CompositeKey(key1, 1))) {
       Assert.assertEquals(stream.findAny().map(rid -> rid.getRecord(session)).orElse(null), doc1);
     }
-    try (var stream = index.getInternal().getRids(session, new CompositeKey(key2, 2))) {
+    try (var stream = index.getRids(session, new CompositeKey(key2, 2))) {
       Assert.assertEquals(stream.findAny().map(rid -> rid.getRecord(session)).orElse(null), doc2);
     }
   }
@@ -127,10 +127,10 @@ public class ByteArrayKeyTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "compositeByteArrayKey");
-    try (var stream = index.getInternal().getRids(session, new CompositeKey(key1, 1))) {
+    try (var stream = index.getRids(session, new CompositeKey(key1, 1))) {
       Assert.assertEquals(stream.findAny().map(rid -> rid.getRecord(session)).orElse(null), doc1);
     }
-    try (var stream = index.getInternal().getRids(session, new CompositeKey(key2, 2))) {
+    try (var stream = index.getRids(session, new CompositeKey(key2, 2))) {
       Assert.assertEquals(stream.findAny().map(rid -> rid.getRecord(session)).orElse(null), doc2);
     }
   }
@@ -152,10 +152,10 @@ public class ByteArrayKeyTest extends BaseDBTest {
 
     var autoIndex =
         session.getMetadata().getIndexManagerInternal().getIndex(session, "byteArrayKeyIndex");
-    try (var stream = autoIndex.getInternal().getRids(session, key1)) {
+    try (var stream = autoIndex.getRids(session, key1)) {
       Assert.assertTrue(stream.findFirst().isPresent());
     }
-    try (var stream = autoIndex.getInternal().getRids(session, key2)) {
+    try (var stream = autoIndex.getRids(session, key2)) {
       Assert.assertTrue(stream.findFirst().isPresent());
     }
   }

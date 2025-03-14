@@ -116,7 +116,7 @@ public class GEOTest extends BaseDBTest {
     var resultSet =
         session.command("select from MapPoint limit 1").toList();
     try {
-      resultSet.getFirst().asEntity().setProperty("x", "--wrong--");
+      resultSet.getFirst().asEntityOrNull().setProperty("x", "--wrong--");
       Assert.fail();
     } catch (DatabaseException e) {
       Assert.assertTrue(true);

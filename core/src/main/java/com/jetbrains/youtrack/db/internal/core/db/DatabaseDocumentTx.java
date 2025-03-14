@@ -29,6 +29,7 @@ import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.api.session.SessionListener;
+import com.jetbrains.youtrack.db.api.session.Transaction;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
@@ -78,6 +79,7 @@ import java.util.function.BiFunction;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -689,9 +691,9 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public FrontendTransaction getTransaction() {
+  public FrontendTransaction getTransactionInternal() {
     checkOpenness();
-    return internal.getTransaction();
+    return internal.getTransactionInternal();
   }
 
   @Override
@@ -1103,6 +1105,13 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
     } else {
       preopenAttributes.put(iAttribute, iValue);
     }
+  }
+
+  @Nullable
+  @Override
+  public Transaction getActiveTransaction() {
+    checkOpenness();
+    return internal.getActiveTransaction();
   }
 
   @Override

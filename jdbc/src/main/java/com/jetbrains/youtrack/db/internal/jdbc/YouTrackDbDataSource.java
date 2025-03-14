@@ -13,13 +13,12 @@
  */
 package com.jetbrains.youtrack.db.internal.jdbc;
 
-import com.jetbrains.youtrack.db.api.session.SessionPool;
-import com.jetbrains.youtrack.db.internal.core.db.SessionPoolImpl;
-import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.SessionPool;
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.internal.core.db.SessionPoolImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrack.db.internal.core.util.DatabaseURLConnection;
 import com.jetbrains.youtrack.db.internal.core.util.URLHelper;
 import java.io.PrintWriter;
 import java.sql.Connection;

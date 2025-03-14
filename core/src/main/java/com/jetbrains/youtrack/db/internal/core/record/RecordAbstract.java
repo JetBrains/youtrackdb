@@ -194,7 +194,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   private void registerInTx() {
     if (recordId.isPersistent()) {
-      var tx = session.getTransaction();
+      var tx = session.getTransactionInternal();
       if (!isEmbedded()) {
         assert recordId.isPersistent();
 
@@ -419,7 +419,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   protected boolean assertIfAlreadyLoaded(RID rid) {
     var session = getSession();
 
-    var tx = session.getTransaction();
+    var tx = session.getTransactionInternal();
     if (tx.isActive()) {
       var txEntry = tx.getRecordEntry(rid);
       if (txEntry != null) {

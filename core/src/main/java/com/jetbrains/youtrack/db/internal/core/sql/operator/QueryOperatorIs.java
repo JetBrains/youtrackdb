@@ -92,9 +92,8 @@ public class QueryOperatorIs extends QueryOperatorEquality {
 
     final var indexDefinition = index.getDefinition();
 
-    final var internalIndex = index.getInternal();
     Stream<RawPair<Object, RID>> stream;
-    if (!internalIndex.canBeUsedInEqualityOperators()) {
+    if (!index.canBeUsedInEqualityOperators()) {
       return null;
     }
 
@@ -108,7 +107,7 @@ public class QueryOperatorIs extends QueryOperatorEquality {
         key = indexDefinition.createValue(iContext.getDatabaseSession(), keyParams);
       }
 
-      stream = index.getInternal().getRids(iContext.getDatabaseSession(), key)
+      stream = index.getRids(iContext.getDatabaseSession(), key)
           .map((rid) -> new RawPair<>(key, rid));
     } else {
       // in case of composite keys several items can be returned in case we perform search
@@ -122,13 +121,13 @@ public class QueryOperatorIs extends QueryOperatorEquality {
       final Object keyTwo =
           compositeIndexDefinition.createSingleValue(iContext.getDatabaseSession(), keyParams);
 
-      if (internalIndex.hasRangeQuerySupport()) {
-        stream = index.getInternal()
-            .streamEntriesBetween(iContext.getDatabaseSession(), keyOne, true, keyTwo, true,
+      if (index.hasRangeQuerySupport()) {
+        stream = index.streamEntriesBetween(iContext.getDatabaseSession(), keyOne, true, keyTwo,
+            true,
                 ascSortOrder);
       } else {
         if (indexDefinition.getParamCount() == keyParams.size()) {
-          stream = index.getInternal().getRids(iContext.getDatabaseSession(), keyOne)
+          stream = index.getRids(iContext.getDatabaseSession(), keyOne)
               .map((rid) -> new RawPair<>(keyOne, rid));
         } else {
           return null;

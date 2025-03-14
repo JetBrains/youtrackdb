@@ -78,9 +78,7 @@ public class LuceneWithinOperator extends QueryTargetOperator {
   public Stream<RawPair<Object, RID>> executeIndexQuery(
       CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
     iContext.setVariable("$luceneIndex", true);
-    return index
-        .getInternal()
-        .getRids(iContext.getDatabaseSession(),
+    return index.getRids(iContext.getDatabaseSession(),
             new SpatialCompositeKey(keyParams).setOperation(SpatialOperation.IsWithin)
                 .setContext(iContext))
         .map(

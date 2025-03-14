@@ -194,7 +194,7 @@ public class CommandExecutorSQLDeleteVertex extends CommandExecutorSQLAbstract
       allDeletedRecords = new ArrayList<DBRecord>();
     }
 
-    txAlreadyBegun = session.getTransaction().isActive();
+    txAlreadyBegun = session.getTransactionInternal().isActive();
 
     if (rid != null) {
       // REMOVE PUNCTUAL RID
@@ -332,7 +332,7 @@ public class CommandExecutorSQLDeleteVertex extends CommandExecutorSQLAbstract
 
   private static Vertex toVertex(DatabaseSessionInternal db, Identifiable item) {
     if (item instanceof Entity) {
-      return ((Entity) item).asVertex();
+      return ((Entity) item).asVertexOrNull();
     } else {
       try {
         item = db.load(item.getIdentity());
@@ -341,7 +341,7 @@ public class CommandExecutorSQLDeleteVertex extends CommandExecutorSQLAbstract
       }
 
       if (item instanceof Entity) {
-        return ((Entity) item).asVertex();
+        return ((Entity) item).asVertexOrNull();
       }
     }
     return null;

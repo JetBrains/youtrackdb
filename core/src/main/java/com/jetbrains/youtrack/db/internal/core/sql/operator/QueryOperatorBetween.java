@@ -139,8 +139,7 @@ public class QueryOperatorBetween extends QueryOperatorEqualityNotNulls {
 
     var database = iContext.getDatabaseSession();
     Stream<RawPair<Object, RID>> stream;
-    final var internalIndex = index.getInternal();
-    if (!internalIndex.canBeUsedInEqualityOperators() || !internalIndex.hasRangeQuerySupport()) {
+    if (!index.canBeUsedInEqualityOperators() || !index.hasRangeQuerySupport()) {
       return null;
     }
 
@@ -160,7 +159,6 @@ public class QueryOperatorBetween extends QueryOperatorEqualityNotNulls {
 
       stream =
           index
-              .getInternal()
               .streamEntriesBetween(database, keyOne, leftInclusive, keyTwo, rightInclusive,
                   ascSortOrder);
     } else {
@@ -203,11 +201,8 @@ public class QueryOperatorBetween extends QueryOperatorEqualityNotNulls {
         return null;
       }
 
-      stream =
-          index
-              .getInternal()
-              .streamEntriesBetween(database, keyOne, leftInclusive, keyTwo, rightInclusive,
-                  ascSortOrder);
+      stream = index.streamEntriesBetween(database, keyOne, leftInclusive, keyTwo, rightInclusive,
+          ascSortOrder);
     }
 
     updateProfiler(iContext, index, keyParams);

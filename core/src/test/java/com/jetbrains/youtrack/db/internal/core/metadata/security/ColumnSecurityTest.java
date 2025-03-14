@@ -572,7 +572,7 @@ public class ColumnSecurityTest {
     try (final var resultSet = session.query("SELECT from Person")) {
       var item = resultSet.next();
       Assert.assertNull(item.getProperty("name"));
-      var doc = item.castToEntity();
+      var doc = item.asEntity();
       doc.setProperty("name", "bar");
       try {
         session.commit();

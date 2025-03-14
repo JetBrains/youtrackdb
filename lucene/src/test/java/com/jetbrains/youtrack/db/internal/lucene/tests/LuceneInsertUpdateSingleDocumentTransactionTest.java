@@ -65,13 +65,13 @@ public class LuceneInsertUpdateSingleDocumentTransactionTest extends LuceneBaseT
     var indexManager = session.getMetadata().getIndexManager();
     var idx = indexManager.getIndex("City.name");
     Collection<?> coll;
-    try (var stream = idx.getInternal().getRids(session, "Rome")) {
+    try (var stream = idx.getRids(session, "Rome")) {
       coll = stream.toList();
     }
 
     session.begin();
     Assert.assertEquals(2, coll.size());
-    Assert.assertEquals(2, idx.getInternal().size(session));
+    Assert.assertEquals(2, idx.size(session));
     session.commit();
   }
 }

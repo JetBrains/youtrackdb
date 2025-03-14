@@ -346,7 +346,7 @@ public class CommandExecutorScript extends CommandExecutorAbstract
                       "Transaction already begun");
                 }
 
-                if (db.getTransaction().isActive())
+                if (db.getTransactionInternal().isActive())
                 // COMMIT ANY ACTIVE TX
                 {
                   db.commit();
@@ -422,7 +422,7 @@ public class CommandExecutorScript extends CommandExecutorAbstract
             }
           }
         } catch (RuntimeException ex) {
-          if (db.getTransaction().isActive()) {
+          if (db.getTransactionInternal().isActive()) {
             db.rollback();
           }
           throw ex;

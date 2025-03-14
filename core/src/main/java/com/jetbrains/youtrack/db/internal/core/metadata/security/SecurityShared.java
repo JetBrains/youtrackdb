@@ -457,7 +457,7 @@ public class SecurityShared implements SecurityInternal {
         session.query("select from " + Role.CLASS_NAME + " where name = ? limit 1", iRoleName)) {
       if (result.hasNext()) {
         return new Role((DatabaseSessionInternal) session,
-            (EntityImpl) result.next().castToEntity());
+            (EntityImpl) result.next().asEntity());
       }
     }
 
@@ -507,14 +507,14 @@ public class SecurityShared implements SecurityInternal {
 
   public List<EntityImpl> getAllUsers(final DatabaseSession session) {
     try (var rs = session.query("select from OUser")) {
-      return rs.stream().map((e) -> (EntityImpl) e.castToEntity())
+      return rs.stream().map((e) -> (EntityImpl) e.asEntity())
           .collect(Collectors.toList());
     }
   }
 
   public List<EntityImpl> getAllRoles(final DatabaseSession session) {
     try (var rs = session.query("select from " + Role.CLASS_NAME)) {
-      return rs.stream().map((e) -> (EntityImpl) e.castToEntity())
+      return rs.stream().map((e) -> (EntityImpl) e.asEntity())
           .collect(Collectors.toList());
     }
   }
@@ -627,7 +627,7 @@ public class SecurityShared implements SecurityInternal {
             "SELECT FROM " + SecurityPolicy.CLASS_NAME + " WHERE name = ?", name)) {
       if (rs.hasNext()) {
         var result = rs.next();
-        return new SecurityPolicyImpl(result.castToEntity());
+        return new SecurityPolicyImpl(result.asEntity());
       }
     }
     return null;
@@ -1212,7 +1212,7 @@ public class SecurityShared implements SecurityInternal {
         session.query("select from OUser where name = ? limit 1", iUserName)) {
       if (result.hasNext()) {
         return new SecurityUserImpl((DatabaseSessionInternal) session,
-            (EntityImpl) result.next().castToEntity());
+            (EntityImpl) result.next().asEntity());
       }
     }
 
@@ -1431,7 +1431,7 @@ public class SecurityShared implements SecurityInternal {
         }
       }
     }
-    var props = entity.getPropertyNamesInternal();
+    var props = entity.getPropertyNamesInternal(false, false);
     Set<String> result = new HashSet<>();
 
     for (var prop : props) {
@@ -1683,15 +1683,15 @@ public class SecurityShared implements SecurityInternal {
   public static ResultInternal calculateBefore(EntityImpl entity,
       DatabaseSessionInternal db) {
     var result = new ResultInternal(db);
-    for (var prop : entity.getPropertyNamesInternal()) {
+    for (var prop : entity.getPropertyNamesInternal(false, false)) {
       result.setProperty(prop, unboxRidbags(entity.getProperty(prop)));
     }
     result.setProperty("@rid", entity.getIdentity());
     result.setProperty("@class", entity.getSchemaClassName());
     result.setProperty("@version", entity.getVersion());
 
-    for (var prop : entity.getDirtyProperties()) {
-      result.setProperty(prop, convert(entity.getPropertyOnLoadValue(prop)));
+    for (var prop : entity.getDirtyPropertiesInternal(false, false)) {
+      result.setProperty(prop, convert(entity.getPropertyOnLoadValueInternal(prop)));
     }
     return result;
   }

@@ -59,7 +59,7 @@ public class LocalResultSetLifecycleDecorator implements ResultSet {
     this.lifecycleListeners.forEach(x -> x.queryClosed(this.queryId));
     this.lifecycleListeners.clear();
     if (session != null) {
-      var tx = session.getTransaction();
+      var tx = session.getTransactionInternal();
       //read only transactions are initiated only for queries and only if there is no active transaction
       if (tx.isActive() && tx.isReadOnly()) {
         tx.rollback();

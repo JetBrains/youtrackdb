@@ -133,7 +133,7 @@ public class LuceneMultiFieldTest extends LuceneBaseTest {
 
     // index
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Item.fulltext");
-    try (var stream = index.getInternal().getRids(session, "title:test")) {
+    try (var stream = index.getRids(session, "title:test")) {
       assertThat(stream.count()).isEqualTo(1);
     }
   }

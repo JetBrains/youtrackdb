@@ -111,7 +111,7 @@ public class CommandExecutorSQLCreateEdge extends CommandExecutorSQLSetAware
               .getClass(temp);
           if (clazz == null) {
             final int committed;
-            if (session.getTransaction().isActive()) {
+            if (session.getTransactionInternal().isActive()) {
               LogManager.instance()
                   .warn(
                       this,
@@ -120,7 +120,7 @@ public class CommandExecutorSQLCreateEdge extends CommandExecutorSQLSetAware
                           + "' must be executed outside active transaction: the transaction will be"
                           + " committed and reopen right after it. To avoid this behavior execute"
                           + " it outside a transaction");
-              committed = session.getTransaction().amountOfNestedTxs();
+              committed = session.getTransactionInternal().amountOfNestedTxs();
               session.commit();
             } else {
               committed = 0;
@@ -265,7 +265,7 @@ public class CommandExecutorSQLCreateEdge extends CommandExecutorSQLSetAware
       return null;
     }
     if (item instanceof Entity) {
-      return ((Entity) item).asVertex();
+      return ((Entity) item).asVertexOrNull();
     } else {
       try {
         item = db.load(item.getIdentity());
@@ -273,7 +273,7 @@ public class CommandExecutorSQLCreateEdge extends CommandExecutorSQLSetAware
         return null;
       }
       if (item instanceof Entity) {
-        return ((Entity) item).asVertex();
+        return ((Entity) item).asVertexOrNull();
       }
     }
     return null;

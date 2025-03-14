@@ -52,9 +52,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.VertexInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37Client;
@@ -200,6 +198,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   public DatabaseSessionInternal copy() {
+    assertIfNotActive();
     var database = new DatabaseSessionRemote(storage, this.sharedContext);
     database.storage = storage.copy(this, database);
 
@@ -208,6 +207,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
     database.applyAttributes(config);
     database.initAtFirstOpen();
     database.user = this.user;
+
     this.activateOnCurrentThread();
     return database;
   }
@@ -317,7 +317,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
       optimistic.preProcessRecordsAndExecuteCallCallbacks();
 
       if (optimistic.isChanged()) {
-        if (((FrontendTransactionOptimistic) this.getTransaction()).isStartedOnServer()) {
+        if (((FrontendTransactionOptimistic) this.getTransactionInternal()).isStartedOnServer()) {
           storage.sendTransactionState(optimistic);
         } else {
           storage.beginTransaction(optimistic);
@@ -511,6 +511,12 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   public void beforeCreateOperations(RecordAbstract id, String iClusterName) {
     assert assertIfNotActive();
     checkSecurity(Role.PERMISSION_CREATE, id, iClusterName);
+
+    if (id instanceof EntityImpl entity) {
+      var clazz = entity.getImmutableSchemaClass(this);
+      ensureLinksConsistencyOnModification(entity, clazz);
+    }
+
     callbackHooks(RecordHook.TYPE.BEFORE_CREATE, id);
   }
 
@@ -518,6 +524,12 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   public void beforeUpdateOperations(RecordAbstract id, String iClusterName) {
     assert assertIfNotActive();
     checkSecurity(Role.PERMISSION_UPDATE, id, iClusterName);
+
+    if (id instanceof EntityImpl entity) {
+      var clazz = entity.getImmutableSchemaClass(this);
+      ensureLinksConsistencyOnModification(entity, clazz);
+    }
+
     callbackHooks(RecordHook.TYPE.BEFORE_UPDATE, id);
   }
 
@@ -528,13 +540,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
 
     if (id instanceof EntityImpl entity) {
       var clazz = entity.getImmutableSchemaClass(this);
-      if (clazz != null) {
-        if (clazz.isVertexType()) {
-          VertexInternal.deleteLinks(entity.castToVertex());
-        } else if (clazz.isEdgeType()) {
-          EdgeEntityImpl.deleteLinks(this, entity.castToStatefulEdge());
-        }
-      }
+      ensureLinksConsistencyOnDeletion(entity, clazz);
     }
 
     callbackHooks(RecordHook.TYPE.BEFORE_DELETE, id);
@@ -573,7 +579,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
     assert assertIfNotActive();
 
     try {
-      DBRecord record = getTransaction().getRecord(rid);
+      DBRecord record = getTransactionInternal().getRecord(rid);
       if (record == FrontendTransactionAbstract.DELETED_RECORD) {
         return false;
       }

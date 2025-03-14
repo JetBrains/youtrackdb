@@ -114,7 +114,6 @@ public class LuceneNearOperator extends QueryTargetOperator {
     iContext.setVariable("$luceneIndex", true);
 
     return index
-        .getInternal()
         .getRids(iContext.getDatabaseSession(),
             new SpatialCompositeKey(keyParams).setMaxDistance(distance).setContext(iContext))
         .map((rid) -> new RawPair<>(new SpatialCompositeKey(keyParams), rid));

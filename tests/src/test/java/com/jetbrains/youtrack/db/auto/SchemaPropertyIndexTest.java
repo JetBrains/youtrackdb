@@ -178,14 +178,14 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "propOne0")
-            .getInternal()
+
             .size(session);
     var prev1 =
         session
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "propOne1")
-            .getInternal()
+
             .size(session);
 
     session.begin();
@@ -205,7 +205,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "propOne0")
-            .getInternal()
+
             .size(session),
         prev0 + 1);
     Assert.assertEquals(
@@ -213,7 +213,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "propOne1")
-            .getInternal()
+
             .size(session),
         prev1);
   }
@@ -227,14 +227,14 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "propOne0")
-            .getInternal()
+
             .size(session);
     var prev1 =
         session
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "propOne1")
-            .getInternal()
+
             .size(session);
 
     var doc =
@@ -253,7 +253,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "propOne0")
-            .getInternal()
+
             .size(session),
         prev0 + 1);
     Assert.assertEquals(
@@ -261,7 +261,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "propOne1")
-            .getInternal()
+
             .size(session),
         prev1);
   }

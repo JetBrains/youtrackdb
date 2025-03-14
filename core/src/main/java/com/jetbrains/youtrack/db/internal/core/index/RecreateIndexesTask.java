@@ -140,7 +140,7 @@ public class RecreateIndexesTask implements Runnable {
 
   private void rebuildNonDurableAutomaticIndex(
       DatabaseSessionInternal session, Map<String, ?> indexMap,
-      IndexInternal index,
+      Index index,
       IndexMetadata indexMetadata,
       IndexDefinition indexDefinition) {
     index.loadFromConfiguration(session, indexMap);
@@ -184,7 +184,7 @@ public class RecreateIndexesTask implements Runnable {
   }
 
   private void addIndexAsIs(
-      Map<String, ?> indexMap, IndexInternal index, DatabaseSessionEmbedded database) {
+      Map<String, ?> indexMap, Index index, DatabaseSessionEmbedded database) {
     if (index.loadFromConfiguration(database, indexMap)) {
       indexManager.addIndexInternal(database, index);
 
@@ -202,8 +202,8 @@ public class RecreateIndexesTask implements Runnable {
     }
   }
 
-  private IndexInternal createIndex(DatabaseSessionInternal db, Map<String, Object> idx) {
-    final var indexType = (String) idx.get(IndexInternal.CONFIG_TYPE);
+  private Index createIndex(DatabaseSessionInternal db, Map<String, Object> idx) {
+    final var indexType = (String) idx.get(Index.CONFIG_TYPE);
 
     if (indexType == null) {
       LogManager.instance().error(this, "Index type is null, will process other record", null);

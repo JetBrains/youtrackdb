@@ -121,9 +121,9 @@ public class ServerCommandGetGephi extends ServerCommandAuthenticatedDbAbstract 
       }
       var next = resultSet.next();
       if (next.isVertex()) {
-        vertexes.add(next.castToVertex());
+        vertexes.add(next.asVertex());
       } else if (next.isStatefulEdge()) {
-        edges.add(next.castToStatefulEdge());
+        edges.add(next.asStatefulEdge());
       }
       i++;
     }
@@ -156,7 +156,7 @@ public class ServerCommandGetGephi extends ServerCommandAuthenticatedDbAbstract 
       json.beginObject();
       json.beginObject(1, false, "ae");
       if (edge.isStateful()) {
-        json.beginObject(2, false, edge.castToStatefulEdge().getIdentity());
+        json.beginObject(2, false, edge.asStatefulEdge().getIdentity());
       }
 
       json.writeAttribute(db, 3, false, "directed", false);
@@ -165,7 +165,7 @@ public class ServerCommandGetGephi extends ServerCommandAuthenticatedDbAbstract 
       json.writeAttribute(db, 3, false, "target", edge.getFromLink());
 
       if (edge.isStateful()) {
-        var statefulEdge = edge.castToStatefulEdge();
+        var statefulEdge = edge.asStatefulEdge();
         for (var field : statefulEdge.getPropertyNames()) {
           final var v = statefulEdge.getProperty(field);
 

@@ -85,7 +85,7 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered {
     var result = new MultiCollectionIterator<Vertex>();
     for (var to : iTo) {
       final var key = new CompositeKey(iFrom, to);
-      try (var stream = index.getInternal()
+      try (var stream = index
           .getRids(session, key)) {
         result.add(
             stream

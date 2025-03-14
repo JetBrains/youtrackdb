@@ -46,6 +46,7 @@ import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.api.session.SessionListener;
+import com.jetbrains.youtrack.db.api.session.Transaction;
 import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.List;
@@ -62,7 +63,6 @@ import javax.annotation.Nullable;
  * Session for database operations with a specific user.
  */
 public interface DatabaseSession extends AutoCloseable {
-
   enum STATUS {
     OPEN,
     CLOSED,
@@ -355,6 +355,7 @@ public interface DatabaseSession extends AutoCloseable {
   @Nonnull
   default Edge loadEdge(RID id) throws DatabaseException, RecordNotFoundException {
     var record = load(id);
+
     if (record instanceof Edge edge) {
       return edge;
     }
@@ -374,6 +375,7 @@ public interface DatabaseSession extends AutoCloseable {
   @Nonnull
   default Blob loadBlob(RID id) throws DatabaseException, RecordNotFoundException {
     var record = load(id);
+
     if (record instanceof Blob blob) {
       return blob;
     }
@@ -403,21 +405,21 @@ public interface DatabaseSession extends AutoCloseable {
    */
   boolean isPooled();
 
-  Entity newEntity();
-
   Entity newEntity(final String className);
 
   Entity newEntity(final SchemaClass cls);
 
-  <T extends DBRecord> T createOrLoadRecordFromJson(String json);
-
-  Entity createOrLoadEntityFromJson(String json);
+  Entity newEntity();
 
   Entity newEmbeddedEntity(SchemaClass schemaClass);
 
   Entity newEmbeddedEntity(String schemaClass);
 
   Entity newEmbeddedEntity();
+
+  <T extends DBRecord> T createOrLoadRecordFromJson(String json);
+
+  Entity createOrLoadEntityFromJson(String json);
 
   /**
    * Creates a new Edge of type E
@@ -441,6 +443,16 @@ public interface DatabaseSession extends AutoCloseable {
   StatefulEdge newStatefulEdge(Vertex from, Vertex to, SchemaClass type);
 
   /**
+   * Creates a new Edge
+   *
+   * @param from the starting point vertex
+   * @param to   the endpoint vertex
+   * @param type the edge type
+   * @return the edge
+   */
+  StatefulEdge newStatefulEdge(Vertex from, Vertex to, String type);
+
+  /**
    * Creates a new lightweight edge of provided type (class). Provided class should be an abstract
    * class.
    *
@@ -450,16 +462,6 @@ public interface DatabaseSession extends AutoCloseable {
    * @return the edge
    */
   Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull SchemaClass type);
-
-  /**
-   * Creates a new Edge
-   *
-   * @param from the starting point vertex
-   * @param to   the endpoint vertex
-   * @param type the edge type
-   * @return the edge
-   */
-  StatefulEdge newStatefulEdge(Vertex from, Vertex to, String type);
 
   /**
    * Creates a new lightweight edge of provided type (class). Provided class should be an abstract
@@ -556,18 +558,6 @@ public interface DatabaseSession extends AutoCloseable {
   }
 
   /**
-   * Activate current database instance on current thread. Call this method before using the
-   * database if you switch between multiple databases instances on the same thread or if you pass
-   * them across threads.
-   */
-  void activateOnCurrentThread();
-
-  /**
-   * Returns true if the current database instance is active on current thread, otherwise false.
-   */
-  boolean isActiveOnCurrentThread();
-
-  /**
    * Returns the database configuration settings. If defined, any database configuration overwrites
    * the global one.
    *
@@ -606,15 +596,6 @@ public interface DatabaseSession extends AutoCloseable {
    * @return true if is closed, otherwise false.
    */
   boolean isClosed();
-
-  /**
-   * Adds a new cluster for store blobs.
-   *
-   * @param iClusterName Cluster name
-   * @param iParameters  Additional parameters to pass to the factories
-   * @return Cluster id
-   */
-  int addBlobCluster(String iClusterName, Object... iParameters);
 
   /**
    * Retrieve the set of defined blob cluster.
@@ -922,11 +903,6 @@ public interface DatabaseSession extends AutoCloseable {
    * :surname3;";
    * <p>
    * ResultSet rs = db.execute("sql", script, params); ... rs.close(); </code>
-   *
-   * @param language
-   * @param script
-   * @param args
-   * @return
    */
   default ResultSet execute(String language, String script, Map<String, ?> args)
       throws CommandExecutionException, CommandScriptException {
@@ -939,16 +915,6 @@ public interface DatabaseSession extends AutoCloseable {
    * @param iHookImpl RecordHook implementation
    */
   void registerHook(RecordHook iHookImpl);
-
-  void registerHook(final RecordHook iHookImpl, RecordHook.HOOK_POSITION iPosition);
-
-  /**
-   * Retrieves all the registered hooks.
-   *
-   * @return A not-null unmodifiable map of RecordHook and position instances. If there are no hooks
-   * registered, the Map is empty.
-   */
-  Map<RecordHook, RecordHook.HOOK_POSITION> getHooks();
 
   /**
    * Unregisters a previously registered hook.
@@ -1011,6 +977,9 @@ public interface DatabaseSession extends AutoCloseable {
    */
   void set(ATTRIBUTES iAttribute, Object iValue);
 
+  @Nullable
+  Transaction getActiveTransaction();
+
   <T> List<T> newEmbeddedList();
 
   <T> List<T> newEmbeddedList(int size);
@@ -1068,7 +1037,5 @@ public interface DatabaseSession extends AutoCloseable {
     LOCALE_COUNTRY,
     LOCALE_LANGUAGE,
     CHARSET,
-    MINIMUM_CLUSTERS,
-    CLUSTER_SELECTION,
   }
 }

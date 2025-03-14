@@ -8,9 +8,9 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.SessionPool;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.session.SessionPool;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -177,7 +177,7 @@ public class YouTrackDBRemoteTest {
           var db = pool.acquire();
 
           try {
-            assertThat(db.isActiveOnCurrentThread()).isTrue();
+            assertThat(((DatabaseSessionInternal) db).isActiveOnCurrentThread()).isTrue();
 
             var res = db.query("SELECT * FROM OUser");
 
@@ -244,7 +244,6 @@ public class YouTrackDBRemoteTest {
         (DatabaseSessionInternal) factory.open("test", "admin", "admin")) {
       db1 = db.copy();
     }
-    db1.activateOnCurrentThread();
     assertFalse(db1.isClosed());
     db1.close();
   }

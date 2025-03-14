@@ -117,6 +117,35 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    */
   RecordSerializer getSerializer();
 
+  void registerHook(final RecordHook iHookImpl, RecordHook.HOOK_POSITION iPosition);
+
+  /**
+   * Retrieves all the registered hooks.
+   *
+   * @return A not-null unmodifiable map of RecordHook and position instances. If there are no hooks
+   * registered, the Map is empty.
+   */
+  Map<RecordHook, RecordHook.HOOK_POSITION> getHooks();
+
+  /**
+   * Activate current database instance on current thread.
+   */
+  void activateOnCurrentThread();
+
+  /**
+   * Returns true if the current database instance is active on current thread, otherwise false.
+   */
+  boolean isActiveOnCurrentThread();
+
+  /**
+   * Adds a new cluster for store blobs.
+   *
+   * @param iClusterName Cluster name
+   * @param iParameters  Additional parameters to pass to the factories
+   * @return Cluster id
+   */
+  int addBlobCluster(String iClusterName, Object... iParameters);
+
   int begin(FrontendTransactionOptimistic tx);
 
   void setSerializer(RecordSerializer serializer);
@@ -144,7 +173,8 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   RecordHook.RESULT callbackHooks(final TYPE type, final RecordAbstract id);
 
   @Nullable
-  <RET extends RecordAbstract> RawPair<RET, RecordId> loadFirstRecordAndNextRidInCluster(int clusterId);
+  <RET extends RecordAbstract> RawPair<RET, RecordId> loadFirstRecordAndNextRidInCluster(
+      int clusterId);
 
   @Nullable
   <RET extends RecordAbstract> RawPair<RET, RecordId> loadLastRecordAndPreviousRidInCluster(
@@ -425,7 +455,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    *
    * @return FrontendTransaction implementation
    */
-  FrontendTransaction getTransaction();
+  FrontendTransaction getTransactionInternal();
 
   /**
    * Reloads the database information like the cluster list.
@@ -834,6 +864,17 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   @Nonnull
   RID refreshRid(@Nonnull RID rid);
+
+  /**
+   * Returns the number of active nested transactions.
+   *
+   * @return the number of active transactions, 0 means no active transactions are present.
+   * @see #begin()
+   * @see #commit()
+   * @see #rollback()
+   */
+  int activeTxCount();
+
 
   /**
    * retrieves a class from the schema

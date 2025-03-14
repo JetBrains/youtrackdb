@@ -57,11 +57,11 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertNull(session.getTransaction().getIndexChanges(INDEX_NAME));
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 2);
     }
-    try (var stream = index.getInternal().getRids(session, 2)) {
+    try (var stream = index.getRids(session, 2)) {
       Assert.assertEquals(stream.count(), 1);
     }
 
@@ -69,18 +69,18 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
 
     ((EntityImpl) session.newEntity(CLASS_NAME)).field(FIELD_NAME, 2);
 
-    Assert.assertNotNull(session.getTransaction().getIndexChanges(INDEX_NAME));
-    try (var stream = index.getInternal().getRids(session, 2)) {
+    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
+    try (var stream = index.getRids(session, 2)) {
       Assert.assertEquals(stream.count(), 2);
     }
 
     session.rollback();
 
-    Assert.assertNull(session.getTransaction().getIndexChanges(INDEX_NAME));
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 2);
     }
-    try (var stream = index.getInternal().getRids(session, 2)) {
+    try (var stream = index.getRids(session, 2)) {
       Assert.assertEquals(stream.count(), 1);
     }
   }
@@ -103,11 +103,11 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertNull(session.getTransaction().getIndexChanges(INDEX_NAME));
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 2);
     }
-    try (var stream = index.getInternal().getRids(session, 2)) {
+    try (var stream = index.getRids(session, 2)) {
       Assert.assertEquals(stream.count(), 1);
     }
 
@@ -119,21 +119,21 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
     docOne.delete();
     docTwo.delete();
 
-    Assert.assertNotNull(session.getTransaction().getIndexChanges(INDEX_NAME));
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
-    try (var stream = index.getInternal().getRids(session, 2)) {
+    try (var stream = index.getRids(session, 2)) {
       Assert.assertEquals(stream.count(), 1);
     }
 
     session.rollback();
 
-    Assert.assertNull(session.getTransaction().getIndexChanges(INDEX_NAME));
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 2);
     }
-    try (var stream = index.getInternal().getRids(session, 2)) {
+    try (var stream = index.getRids(session, 2)) {
       Assert.assertEquals(stream.count(), 1);
     }
   }
@@ -156,11 +156,11 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertNull(session.getTransaction().getIndexChanges(INDEX_NAME));
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 2);
     }
-    try (var stream = index.getInternal().getRids(session, 2)) {
+    try (var stream = index.getRids(session, 2)) {
       Assert.assertEquals(stream.count(), 1);
     }
 
@@ -169,21 +169,21 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
     document = session.bindToSession(document);
     document.delete();
 
-    Assert.assertNotNull(session.getTransaction().getIndexChanges(INDEX_NAME));
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 1);
     }
-    try (var stream = index.getInternal().getRids(session, 2)) {
+    try (var stream = index.getRids(session, 2)) {
       Assert.assertEquals(stream.count(), 1);
     }
 
     session.rollback();
 
-    Assert.assertNull(session.getTransaction().getIndexChanges(INDEX_NAME));
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 2);
     }
-    try (var stream = index.getInternal().getRids(session, 2)) {
+    try (var stream = index.getRids(session, 2)) {
       Assert.assertEquals(stream.count(), 1);
     }
   }
@@ -201,20 +201,20 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
 
     final var document = ((EntityImpl) session.newEntity(CLASS_NAME)).field(FIELD_NAME, 1);
 
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 1);
     }
 
     document.field(FIELD_NAME, 0);
     document.field(FIELD_NAME, 1);
 
-    Assert.assertNotNull(session.getTransaction().getIndexChanges(INDEX_NAME));
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 1);
     }
     session.commit();
 
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 1);
     }
   }
@@ -232,8 +232,8 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
 
     ((EntityImpl) session.newEntity(CLASS_NAME)).field(FIELD_NAME, 1);
 
-    Assert.assertNotNull(session.getTransaction().getIndexChanges(INDEX_NAME));
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 1);
     }
     session.commit();
@@ -243,7 +243,7 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
 
     session.commit();
 
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 2);
     }
   }
@@ -263,14 +263,14 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
 
     document.delete();
 
-    Assert.assertNotNull(session.getTransaction().getIndexChanges(INDEX_NAME));
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
 
     session.commit();
 
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 0);
     }
   }
@@ -292,13 +292,13 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
 
     document.field(FIELD_NAME, 1);
 
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 1);
     }
 
     session.commit();
 
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 1);
     }
   }

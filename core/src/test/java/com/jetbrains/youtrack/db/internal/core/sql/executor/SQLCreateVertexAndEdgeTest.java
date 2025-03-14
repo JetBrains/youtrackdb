@@ -36,21 +36,21 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
 
     // VERTEXES
     session.begin();
-    var v1 = session.command("create vertex").next().castToVertex();
+    var v1 = session.command("create vertex").next().asVertex();
     session.commit();
 
     session.begin();
     v1 = session.bindToSession(v1);
     Assert.assertEquals("V", v1.getSchemaClassName());
 
-    var v2 = session.command("create vertex V1").next().castToVertex();
+    var v2 = session.command("create vertex V1").next().asVertex();
     session.commit();
 
     session.begin();
     v2 = session.bindToSession(v2);
     Assert.assertEquals("V1", v2.getSchemaClassName());
 
-    var v3 = session.command("create vertex set brand = 'fiat'").next().castToVertex();
+    var v3 = session.command("create vertex set brand = 'fiat'").next().asVertex();
     session.commit();
     session.begin();
     v3 = session.bindToSession(v3);
@@ -58,7 +58,7 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
     Assert.assertEquals("fiat", v3.getProperty("brand"));
 
     var v4 =
-        session.command("create vertex V1 set brand = 'fiat',name = 'wow'").next().castToVertex();
+        session.command("create vertex V1 set brand = 'fiat',name = 'wow'").next().asVertex();
     session.commit();
 
     session.begin();
@@ -67,7 +67,7 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
     Assert.assertEquals("fiat", v4.getProperty("brand"));
     Assert.assertEquals("wow", v4.getProperty("name"));
 
-    var v5 = session.command("create vertex V1").next().castToVertex();
+    var v5 = session.command("create vertex V1").next().asVertex();
     session.commit();
 
     session.begin();
@@ -153,7 +153,7 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
   @Test
   public void testNewParser() {
     session.begin();
-    var v1 = session.command("create vertex").next().castToVertex();
+    var v1 = session.command("create vertex").next().asVertex();
     session.commit();
 
     session.begin();

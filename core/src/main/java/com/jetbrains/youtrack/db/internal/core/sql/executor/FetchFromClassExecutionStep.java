@@ -66,7 +66,7 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
     } else if (Boolean.FALSE.equals(ridOrder)) {
       orderByRidDesc = true;
     }
-    var session = ctx.getDatabaseSession();
+
     var clazz = loadClassFromSchema(className, ctx);
     var classClusters = clazz.getPolymorphicClusterIds();
     var filteredClassClusters = new IntArrayList();

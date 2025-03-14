@@ -45,7 +45,12 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
 
   @Override
   public @Nonnull Collection<String> getPropertyNames() {
-    return EdgeInternal.filterPropertyNames(getPropertyNamesInternal());
+    return EdgeInternal.filterPropertyNames(entity.getPropertyNames());
+  }
+
+  @Override
+  public int getPropertiesCount() {
+    return getPropertyNames().size();
   }
 
   @Override
@@ -90,6 +95,13 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
   public boolean exists() {
 
     return entity.exists();
+  }
+
+  @Override
+  public <RET> RET getPropertyOnLoadValue(@Nonnull String name) {
+    EdgeInternal.checkPropertyName(name);
+
+    return entity.getPropertyOnLoadValue(name);
   }
 
   @Override
@@ -269,13 +281,12 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
 
 
   @Override
-  public Collection<String> getPropertyNamesInternal() {
-
-    return entity.getPropertyNamesInternal();
+  public Collection<String> getPropertyNamesInternal(boolean includeSystemProperties,
+      boolean checkAccess) {
+    return entity.getPropertyNamesInternal(includeSystemProperties, checkAccess);
   }
 
   public <RET> RET getPropertyInternal(String name) {
-
     return entity.getPropertyInternal(name);
   }
 
@@ -285,13 +296,21 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
   }
 
   @Override
-  public <RET> RET getPropertyOnLoadValue(@Nonnull String name) {
-    return entity.getPropertyOnLoadValue(name);
+  public <RET> RET getPropertyOnLoadValueInternal(@Nonnull String name) {
+    EdgeInternal.checkPropertyName(name);
+    return entity.getPropertyOnLoadValueInternal(name);
   }
 
   @Override
-  public Collection<String> getDirtyProperties() {
-    return EdgeInternal.filterPropertyNames(entity.getDirtyProperties());
+  public Collection<String> getDirtyPropertiesInternal(boolean includeSystemProperties,
+      boolean checkAccess) {
+    return entity.getDirtyPropertiesInternal(includeSystemProperties, checkAccess);
+  }
+
+  @Override
+  public Collection<String> getDirtyPropertiesBetweenCallbacksInternal(boolean includeSystemFields,
+      boolean checkAccess) {
+    return entity.getDirtyPropertiesBetweenCallbacksInternal(includeSystemFields, checkAccess);
   }
 
   @Nullable
@@ -308,7 +327,6 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
 
   @Override
   public void setPropertyInternal(String name, Object value) {
-
     entity.setPropertyInternal(name, value);
   }
 
@@ -357,7 +375,6 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
 
   @Override
   public <RET> RET removePropertyInternal(String name) {
-
     return entity.removePropertyInternal(name);
   }
 
@@ -373,14 +390,20 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
 
   @Nonnull
   @Override
-  public Edge castToEdge() {
+  public Edge asEdge() {
     return this;
   }
 
   @Nullable
   @Override
-  public Edge asEdge() {
+  public Edge asEdgeOrNull() {
     return this;
+  }
+
+  @Nonnull
+  @Override
+  public Vertex asVertex() {
+    return null;
   }
 
   @Override
@@ -388,27 +411,12 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
     return true;
   }
 
-  @Override
-  public boolean isBlob() {
-    return false;
-  }
-
   @Nonnull
   @Override
-  public Blob castToBlob() {
-    throw new DatabaseException("Not a blob");
-  }
-
-  @Nonnull
-  @Override
-  public DBRecord castToRecord() {
+  public DBRecord asRecord() {
     return entity;
   }
 
-  @Override
-  public boolean isRecord() {
-    return true;
-  }
 
   @Override
   public boolean isProjection() {
@@ -427,14 +435,9 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
     return entity.getIdentity();
   }
 
-  @Override
-  public boolean isEntity() {
-    return true;
-  }
-
   @Nonnull
   @Override
-  public Entity castToEntity() {
+  public Entity asEntity() {
     return entity;
   }
 
@@ -504,6 +507,16 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
   }
 
   @Override
+  public Collection<String> getDirtyProperties() {
+    return EdgeInternal.filterPropertyNames(entity.getDirtyProperties());
+  }
+
+  @Override
+  public Collection<String> getDirtyPropertiesBetweenCallbacks() {
+    return EdgeInternal.filterPropertyNames(entity.getDirtyPropertiesBetweenCallbacks());
+  }
+
+  @Override
   public boolean isNotBound(@Nonnull DatabaseSession session) {
     return entity.isNotBound(session);
   }
@@ -521,31 +534,37 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
 
   @Nonnull
   @Override
-  public Identifiable castToIdentifiable() {
-    return entity;
-  }
-
-  @Nullable
-  @Override
   public Identifiable asIdentifiable() {
     return entity;
   }
 
   @Nullable
   @Override
-  public Entity asEntity() {
+  public Identifiable asIdentifiableOrNull() {
     return entity;
   }
 
   @Nullable
   @Override
-  public Blob asBlob() {
+  public Entity asEntityOrNull() {
+    return entity;
+  }
+
+  @Nullable
+  @Override
+  public Blob asBlobOrNull() {
     throw new DatabaseException("Not a blob");
   }
 
   @Nullable
   @Override
-  public DBRecord asRecord() {
+  public Vertex asVertexOrNull() {
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public DBRecord asRecordOrNull() {
     return entity;
   }
 
@@ -562,7 +581,7 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
       return null;
     }
 
-    return v.castToVertex();
+    return v.asVertex();
   }
 
   @Nullable
@@ -593,7 +612,7 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
       return null;
     }
 
-    return v.castToVertex();
+    return v.asVertex();
   }
 
   @Nullable
@@ -646,7 +665,7 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
 
     types.add(typeClass.getName());
     typeClass.getAllSuperClasses().stream()
-        .map(x -> x.getName())
+        .map(SchemaClass::getName)
         .forEach(types::add);
     for (var s : labels) {
       for (var type : types) {
@@ -687,13 +706,13 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
 
   @Nonnull
   @Override
-  public StatefulEdge castToStatefulEdge() {
+  public StatefulEdge asStatefulEdge() {
     return this;
   }
 
   @Nullable
   @Override
-  public StatefulEdge asStatefulEdge() {
+  public StatefulEdge asStatefulEdgeOrNull() {
     return this;
   }
 }

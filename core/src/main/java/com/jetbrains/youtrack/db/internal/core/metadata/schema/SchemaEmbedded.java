@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
@@ -385,7 +384,7 @@ public class SchemaEmbedded extends SchemaShared {
   public void dropClass(DatabaseSessionInternal session, final String className) {
     acquireSchemaWriteLock(session);
     try {
-      if (session.getTransaction().isActive()) {
+      if (session.getTransactionInternal().isActive()) {
         throw new IllegalStateException("Cannot drop a class inside a transaction");
       }
 
@@ -431,7 +430,7 @@ public class SchemaEmbedded extends SchemaShared {
   protected void dropClassInternal(DatabaseSessionInternal session, final String className) {
     acquireSchemaWriteLock(session);
     try {
-      if (session.getTransaction().isActive()) {
+      if (session.getTransactionInternal().isActive()) {
         throw new IllegalStateException("Cannot drop a class inside a transaction");
       }
 

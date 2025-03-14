@@ -77,10 +77,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     session.commit();
 
     final var keyIndexMap = getIndex("mapIndexTestKey");
-    Assert.assertEquals(keyIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(keyIndexMap.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var keyStream = keyIndexMap.getInternal().keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream()) {
       keyIterator = keyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -94,9 +94,9 @@ public class LinkMapIndexTest extends BaseDBTest {
 
     final var valueIndexMap = getIndex("mapIndexTestValue");
 
-    Assert.assertEquals(valueIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(valueIndexMap.size(session), 2);
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.getInternal().keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -136,10 +136,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     }
 
     final var keyIndexMap = getIndex("mapIndexTestKey");
-    Assert.assertEquals(keyIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(keyIndexMap.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var keyStream = keyIndexMap.getInternal().keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream()) {
       keyIterator = keyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -151,10 +151,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     }
 
     final var valueIndexMap = getIndex("mapIndexTestValue");
-    Assert.assertEquals(valueIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(valueIndexMap.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.getInternal().keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -195,10 +195,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     session.commit();
 
     final var keyIndexMap = getIndex("mapIndexTestKey");
-    Assert.assertEquals(keyIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(keyIndexMap.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.getInternal().keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -210,10 +210,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     }
 
     final var valueIndexMap = getIndex("mapIndexTestValue");
-    Assert.assertEquals(valueIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(valueIndexMap.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.getInternal().keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -250,10 +250,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     }
 
     final var keyIndexMap = getIndex("mapIndexTestKey");
-    Assert.assertEquals(keyIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(keyIndexMap.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.getInternal().keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -265,10 +265,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     }
 
     final var valueIndexMap = getIndex("mapIndexTestValue");
-    Assert.assertEquals(valueIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(valueIndexMap.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.getInternal().keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -313,10 +313,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     session.rollback();
 
     final var keyIndexMap = getIndex("mapIndexTestKey");
-    Assert.assertEquals(keyIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(keyIndexMap.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.getInternal().keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -328,10 +328,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     }
 
     final var valueIndexMap = getIndex("mapIndexTestValue");
-    Assert.assertEquals(valueIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(valueIndexMap.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.getInternal().keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -372,10 +372,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     session.commit();
 
     final var keyIndexMap = getIndex("mapIndexTestKey");
-    Assert.assertEquals(keyIndexMap.getInternal().size(session), 3);
+    Assert.assertEquals(keyIndexMap.size(session), 3);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.getInternal().keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -387,10 +387,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     }
 
     final var valueIndexMap = getIndex("mapIndexTestValue");
-    Assert.assertEquals(valueIndexMap.getInternal().size(session), 3);
+    Assert.assertEquals(valueIndexMap.size(session), 3);
 
     final Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.getInternal().keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -436,10 +436,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     }
 
     final var keyIndexMap = getIndex("mapIndexTestKey");
-    Assert.assertEquals(keyIndexMap.getInternal().size(session), 3);
+    Assert.assertEquals(keyIndexMap.size(session), 3);
 
     final Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.getInternal().keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -452,10 +452,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     }
 
     final var valueIndexMap = getIndex("mapIndexTestValue");
-    Assert.assertEquals(valueIndexMap.getInternal().size(session), 3);
+    Assert.assertEquals(valueIndexMap.size(session), 3);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.getInternal().keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -496,10 +496,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     session.rollback();
 
     final var keyIndexMap = getIndex("mapIndexTestKey");
-    Assert.assertEquals(keyIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(keyIndexMap.size(session), 2);
 
     final Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.getInternal().keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -511,10 +511,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     }
 
     final var valueIndexMap = getIndex("mapIndexTestValue");
-    Assert.assertEquals(valueIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(valueIndexMap.size(session), 2);
 
     final Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.getInternal().keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -556,9 +556,9 @@ public class LinkMapIndexTest extends BaseDBTest {
 
     final var keyIndexMap = getIndex("mapIndexTestKey");
 
-    Assert.assertEquals(keyIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(keyIndexMap.size(session), 2);
     final Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.getInternal().keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -570,10 +570,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     }
 
     final var valueIndexMap = getIndex("mapIndexTestValue");
-    Assert.assertEquals(valueIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(valueIndexMap.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.getInternal().keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -618,11 +618,11 @@ public class LinkMapIndexTest extends BaseDBTest {
     }
 
     final var keyIndexMap = getIndex("mapIndexTestKey");
-    Assert.assertEquals(keyIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(keyIndexMap.size(session), 2);
 
-    Assert.assertEquals(keyIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(keyIndexMap.size(session), 2);
     final Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.getInternal().keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -634,10 +634,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     }
 
     final var valueIndexMap = getIndex("mapIndexTestValue");
-    Assert.assertEquals(valueIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(valueIndexMap.size(session), 2);
 
     final Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.getInternal().keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -677,10 +677,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     session.rollback();
 
     final var keyIndexMap = getIndex("mapIndexTestKey");
-    Assert.assertEquals(keyIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(keyIndexMap.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.getInternal().keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -692,10 +692,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     }
 
     final var valueIndexMap = getIndex("mapIndexTestValue");
-    Assert.assertEquals(valueIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(valueIndexMap.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.getInternal().keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -734,10 +734,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     session.commit();
 
     final var keyIndexMap = getIndex("mapIndexTestKey");
-    Assert.assertEquals(keyIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(keyIndexMap.size(session), 2);
 
     final Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.getInternal().keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -749,10 +749,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     }
 
     final var valueIndexMap = getIndex("mapIndexTestValue");
-    Assert.assertEquals(valueIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(valueIndexMap.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.getInternal().keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -798,10 +798,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     }
 
     final var keyIndexMap = getIndex("mapIndexTestKey");
-    Assert.assertEquals(keyIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(keyIndexMap.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.getInternal().keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -813,10 +813,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     }
 
     final var valueIndexMap = getIndex("mapIndexTestValue");
-    Assert.assertEquals(valueIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(valueIndexMap.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.getInternal().keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -857,10 +857,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     session.rollback();
 
     final var keyIndexMap = getIndex("mapIndexTestKey");
-    Assert.assertEquals(keyIndexMap.getInternal().size(session), 3);
+    Assert.assertEquals(keyIndexMap.size(session), 3);
 
     final Iterator<Object> keyIterator;
-    try (var keyStream = keyIndexMap.getInternal().keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream()) {
       keyIterator = keyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -872,10 +872,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     }
 
     final var valueIndexMap = getIndex("mapIndexTestValue");
-    Assert.assertEquals(valueIndexMap.getInternal().size(session), 3);
+    Assert.assertEquals(valueIndexMap.size(session), 3);
 
     final Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.getInternal().keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -914,10 +914,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     session.commit();
 
     final var keyIndexMap = getIndex("mapIndexTestKey");
-    Assert.assertEquals(keyIndexMap.getInternal().size(session), 0);
+    Assert.assertEquals(keyIndexMap.size(session), 0);
 
     final var valueIndexMap = getIndex("mapIndexTestValue");
-    Assert.assertEquals(valueIndexMap.getInternal().size(session), 0);
+    Assert.assertEquals(valueIndexMap.size(session), 0);
   }
 
   public void testIndexMapRemoveInTx() {
@@ -948,10 +948,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     }
 
     final var keyIndexMap = getIndex("mapIndexTestKey");
-    Assert.assertEquals(keyIndexMap.getInternal().size(session), 0);
+    Assert.assertEquals(keyIndexMap.size(session), 0);
 
     final var valueIndexMap = getIndex("mapIndexTestValue");
-    Assert.assertEquals(valueIndexMap.getInternal().size(session), 0);
+    Assert.assertEquals(valueIndexMap.size(session), 0);
   }
 
   public void testIndexMapRemoveInTxRollback() {
@@ -977,10 +977,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     session.rollback();
 
     final var keyIndexMap = getIndex("mapIndexTestKey");
-    Assert.assertEquals(keyIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(keyIndexMap.size(session), 2);
 
     final Iterator<Object> keysIterator;
-    try (var keyStream = keyIndexMap.getInternal().keyStream()) {
+    try (var keyStream = keyIndexMap.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -992,10 +992,10 @@ public class LinkMapIndexTest extends BaseDBTest {
     }
 
     final var valueIndexMap = getIndex("mapIndexTestValue");
-    Assert.assertEquals(valueIndexMap.getInternal().size(session), 2);
+    Assert.assertEquals(valueIndexMap.size(session), 2);
 
     final Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndexMap.getInternal().keyStream()) {
+    try (var valueStream = valueIndexMap.keyStream()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {

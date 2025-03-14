@@ -112,14 +112,14 @@ public class ResultBinary implements Result {
 
   @Nonnull
   @Override
-  public Identifiable castToIdentifiable() {
+  public Identifiable asIdentifiable() {
     throw new UnsupportedOperationException(
         "Not supported yet.");
   }
 
   @Nullable
   @Override
-  public Identifiable asIdentifiable() {
+  public Identifiable asIdentifiableOrNull() {
     throw new UnsupportedOperationException(
         "Not supported yet.");
   }
@@ -171,6 +171,11 @@ public class ResultBinary implements Result {
   }
 
   @Override
+  public int getPropertiesCount() {
+    throw new UnsupportedOperationException("Not supported yet.");
+  }
+
+  @Override
   public RID getIdentity() {
     assert session != null && session.assertIfNotActive();
     return id;
@@ -191,14 +196,14 @@ public class ResultBinary implements Result {
 
   @Nonnull
   @Override
-  public Entity castToEntity() {
+  public Entity asEntity() {
     assert session != null && session.assertIfNotActive();
     return toEntityImpl();
   }
 
   @Nullable
   @Override
-  public Entity asEntity() {
+  public Entity asEntityOrNull() {
     assert session != null && session.assertIfNotActive();
     return toEntityImpl();
   }
@@ -225,26 +230,26 @@ public class ResultBinary implements Result {
 
   @Nonnull
   @Override
-  public Blob castToBlob() {
+  public Blob asBlob() {
     throw new IllegalStateException("Not a blob");
   }
 
   @Nullable
   @Override
-  public Blob asBlob() {
+  public Blob asBlobOrNull() {
     return null;
   }
 
   @Nonnull
   @Override
-  public DBRecord castToRecord() {
+  public DBRecord asRecord() {
     assert session != null && session.assertIfNotActive();
     return toEntityImpl();
   }
 
   @Nullable
   @Override
-  public DBRecord asRecord() {
+  public DBRecord asRecordOrNull() {
     return toEntityImpl();
   }
 
@@ -262,13 +267,13 @@ public class ResultBinary implements Result {
 
   @Nonnull
   @Override
-  public Edge castToEdge() {
+  public Edge asEdge() {
     throw new DatabaseException("Not an edge");
   }
 
   @Nullable
   @Override
-  public Edge asEdge() {
+  public Edge asEdgeOrNull() {
     return null;
   }
 

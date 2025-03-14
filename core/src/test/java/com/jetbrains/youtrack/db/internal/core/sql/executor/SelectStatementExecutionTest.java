@@ -191,9 +191,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Assert.assertTrue(("" + item.getProperty("name")).startsWith("name"));
       if (lastItem != null) {
         Assert.assertTrue(
-            lastItem.getIdentity().compareTo(item.castToEntity().getIdentity()) < 0);
+            lastItem.getIdentity().compareTo(item.asEntity().getIdentity()) < 0);
       }
-      lastItem = item.castToEntity();
+      lastItem = item.asEntity();
     }
     Assert.assertFalse(result.hasNext());
     session.commit();
@@ -225,9 +225,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Assert.assertTrue(("" + item.getProperty("name")).startsWith("name"));
       if (lastItem != null) {
         Assert.assertTrue(
-            lastItem.getIdentity().compareTo(item.castToEntity().getIdentity()) > 0);
+            lastItem.getIdentity().compareTo(item.asEntity().getIdentity()) > 0);
       }
-      lastItem = item.castToEntity();
+      lastItem = item.asEntity();
     }
     Assert.assertFalse(result.hasNext());
     session.commit();

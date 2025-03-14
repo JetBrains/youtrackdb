@@ -149,7 +149,7 @@ public class SQLUpdateItem extends SimpleNode {
 
     SchemaProperty schemaProperty = null;
     if (result.isEntity()) {
-      var entity = (EntityInternal) result.castToEntity();
+      var entity = (EntityInternal) result.asEntity();
       var cls = entity.getImmutableSchemaClass(session);
       schemaProperty = cls != null ? cls.getProperty(propertyName) : null;
     }
@@ -175,7 +175,7 @@ public class SQLUpdateItem extends SimpleNode {
     if (!entity.isEntity()) {
       return null;
     }
-    var oClass = ((EntityInternal) entity.castToEntity()).getImmutableSchemaClass(session);
+    var oClass = ((EntityInternal) entity.asEntity()).getImmutableSchemaClass(session);
     if (oClass == null) {
       return null;
     }
@@ -208,7 +208,7 @@ public class SQLUpdateItem extends SimpleNode {
   private static SchemaClass calculateLinkedTypeForThisItem(ResultInternal result,
       DatabaseSessionInternal session) {
     if (result.isEntity()) {
-      var entity = (EntityInternal) result.asEntity();
+      var entity = (EntityInternal) result.asEntityOrNull();
 
       return entity.getImmutableSchemaClass(session);
     }
@@ -229,7 +229,7 @@ public class SQLUpdateItem extends SimpleNode {
         if (res.isVertex() && VertexInternal.isEdgeProperty(propertyName)) {
           throw new IllegalStateException("Cannot update edges by assigning properties directly.");
         } else if (res.isEdge() && EdgeInternal.isEdgeConnectionProperty(propertyName)) {
-          var edge = res.castToEdge();
+          var edge = res.asEdge();
 
           Vertex toVertex;
           if (EdgeInternal.isInEdgeConnectionProperty(propertyName)) {
@@ -256,10 +256,10 @@ public class SQLUpdateItem extends SimpleNode {
 
           if (edge.isStateful()) {
             var statefulEdge = session.newStatefulEdge(fromVertex, toVertex, edge.getSchemaClass());
-            var entityImpl = (EntityImpl) statefulEdge.castToEntity();
+            var entityImpl = (EntityImpl) statefulEdge.asEntity();
 
             entityImpl.movePropertiesFromOtherEntity((EntityImpl)
-                edge.castToStatefulEdge().castToEntity(), Edge.DIRECTION_IN, Edge.DIRECTION_OUT);
+                edge.asStatefulEdge().asEntity(), Edge.DIRECTION_IN, Edge.DIRECTION_OUT);
             res.setIdentifiable(statefulEdge);
           } else {
             var lightweightEdge = session.newLightweightEdge(fromVertex, toVertex,
@@ -321,7 +321,7 @@ public class SQLUpdateItem extends SimpleNode {
       ResultInternal res, SQLIdentifier attrName, Object newValue, CommandContext ctx) {
 
     var session = ctx.getDatabaseSession();
-    var entity = (EntityInternal) res.asEntity();
+    var entity = (EntityInternal) res.asEntityOrNull();
     var optSchema = entity.getImmutableSchemaClass(session);
     if (optSchema == null) {
       return newValue;
@@ -419,7 +419,7 @@ public class SQLUpdateItem extends SimpleNode {
 
   public static Object convertResultToDocument(Object value) {
     if (value instanceof Result result && result.isEntity()) {
-      return result.asEntity();
+      return result.asEntityOrNull();
     }
     if (value instanceof Identifiable) {
       return value;

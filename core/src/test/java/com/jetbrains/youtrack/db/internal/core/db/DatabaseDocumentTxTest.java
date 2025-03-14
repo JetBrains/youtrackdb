@@ -1,5 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.db;
 
+import static org.junit.Assert.assertTrue;
+
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
@@ -15,10 +17,6 @@ import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import org.junit.Assert;
-
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-
 import org.junit.Test;
 
 public class DatabaseDocumentTxTest extends DbTestBase {
@@ -161,7 +159,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
 
     try (var result = session.query("select from testDocFromJsonEmbedded_Class1")) {
       Assert.assertTrue(result.hasNext());
-      var item = result.next().castToEntity();
+      var item = result.next().asEntity();
       EntityImpl meta = item.getProperty("meta");
       Assert.assertEquals("testDocFromJsonEmbedded_Class0", meta.getSchemaClassName());
       Assert.assertEquals("0:0:0:0:0:0:0:1", meta.field("ip"));
@@ -239,7 +237,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
       Assert.assertTrue(linkedVal instanceof Identifiable);
       session.load(((Identifiable) linkedVal).getIdentity());
 
-      Assert.assertTrue(res.asEntity().getProperty("linked") instanceof Vertex);
+      Assert.assertTrue(res.asEntityOrNull().getProperty("linked") instanceof Vertex);
     }
     session.commit();
   }

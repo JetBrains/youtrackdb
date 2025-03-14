@@ -28,7 +28,6 @@ import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.engine.local.EngineLocalPaginated;
 import com.jetbrains.youtrack.db.internal.core.engine.memory.EngineMemory;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import java.util.stream.Collectors;
 import org.assertj.core.api.Assertions;
 import org.junit.Test;
 
@@ -113,7 +112,7 @@ public class LuceneInsertMultithreadTest {
           .getClassIndex(session, "City.name");
 
       session.begin();
-      Assertions.assertThat(idx.getInternal().size(session))
+      Assertions.assertThat(idx.size(session))
           .isEqualTo(THREADS * CYCLE);
       session.commit();
     }
@@ -167,7 +166,7 @@ public class LuceneInsertMultithreadTest {
             .getClassIndex(session, "City.name");
 
         for (var i = 0; i < cycle; i++) {
-          try (var stream = idx.getInternal()
+          try (var stream = idx
               .getRids(session, "Rome")) {
             //noinspection ResultOfMethodCallIgnored
             stream.toList();

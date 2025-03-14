@@ -71,17 +71,17 @@ public class LuceneInsertUpdateSingleDocumentNoTxTest extends BaseLuceneTest {
 
     Collection<?> coll;
 
-    try (var stream = idx.getInternal().getRids(session, "Rome")) {
+    try (var stream = idx.getRids(session, "Rome")) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(2, coll.size());
-    try (var stream = idx.getInternal().getRids(session, "")) {
+    try (var stream = idx.getRids(session, "")) {
       coll = stream.collect(Collectors.toList());
     }
 
     session.begin();
     Assert.assertEquals(0, coll.size());
-    Assert.assertEquals(2, idx.getInternal().size(session));
+    Assert.assertEquals(2, idx.size(session));
     session.commit();
   }
 }

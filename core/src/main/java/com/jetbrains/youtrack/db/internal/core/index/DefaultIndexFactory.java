@@ -87,7 +87,7 @@ public class DefaultIndexFactory implements IndexFactory {
     return ALGORITHMS;
   }
 
-  public IndexInternal createIndex(Storage storage, IndexMetadata im)
+  public Index createIndex(Storage storage, IndexMetadata im)
       throws ConfigurationException {
     var version = im.getVersion();
     final var indexType = im.getType();

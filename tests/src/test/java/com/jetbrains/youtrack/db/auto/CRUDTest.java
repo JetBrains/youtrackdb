@@ -415,7 +415,7 @@ public class CRUDTest extends BaseDBTest {
     session = createSessionInstance();
     session.begin();
     var agendas = executeQuery("SELECT FROM " + rid);
-    var testLoadedEntity = (EntityImpl) agendas.getFirst().asEntity();
+    var testLoadedEntity = (EntityImpl) agendas.getFirst().asEntityOrNull();
 
     checkCollectionImplementations(testLoadedEntity);
 
@@ -457,7 +457,7 @@ public class CRUDTest extends BaseDBTest {
     session = createSessionInstance();
     session.begin();
     var agendas = executeQuery("SELECT FROM " + rid);
-    var testLoadedEntity = (EntityImpl) agendas.getFirst().asEntity();
+    var testLoadedEntity = (EntityImpl) agendas.getFirst().asEntityOrNull();
 
     checkCollectionImplementations(testLoadedEntity);
 
@@ -598,7 +598,7 @@ public class CRUDTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "readAndBrowseDescendingAndCheckHoleUtilization")
   public void mapEnumAndInternalObjects() {
-    session.executeInTxBatches((Iterator<EntityImpl>) session.browseClass("OUser"),
+    session.executeInTxBatches(session.browseClass("OUser"),
         ((session, document) -> {
 
         }));
@@ -740,7 +740,7 @@ public class CRUDTest extends BaseDBTest {
     session = createSessionInstance();
     session.begin();
     var agendas = executeQuery("SELECT FROM " + rid);
-    var agenda = agendas.getFirst().asEntity();
+    var agenda = agendas.getFirst().asEntityOrNull();
     //noinspection unused,StatementWithEmptyBody
     for (var e : agenda.<List<Entity>>getProperty("events")) {
       // NO NEED TO DO ANYTHING, JUST NEED TO ITERATE THE LIST
@@ -764,7 +764,7 @@ public class CRUDTest extends BaseDBTest {
       Assert.fail("Error iterating Object list", cme);
     }
 
-    if (session.getTransaction().isActive()) {
+    if (session.getTransactionInternal().isActive()) {
       session.rollback();
     }
   }
@@ -2293,7 +2293,7 @@ public class CRUDTest extends BaseDBTest {
   public void update() {
     var i = new int[]{0};
 
-    session.executeInTxBatches((Iterator<EntityImpl>) session.browseClass("Account"),
+    session.executeInTxBatches(session.browseClass("Account"),
         (session, a) -> {
           if (i[0] % 2 == 0) {
             var addresses = a.<List<Identifiable>>getProperty("addresses");
@@ -2328,7 +2328,7 @@ public class CRUDTest extends BaseDBTest {
     session.begin();
     Entity a;
     for (var iterator = session.query("select from Account"); iterator.hasNext(); ) {
-      a = iterator.next().asEntity();
+      a = iterator.next().asEntityOrNull();
 
       if (i % 2 == 0) {
         Assert.assertEquals(
@@ -2435,7 +2435,7 @@ public class CRUDTest extends BaseDBTest {
 
     Entity account;
     for (var entries : resultSet) {
-      account = entries.asEntity();
+      account = entries.asEntityOrNull();
       Assert.assertEquals(account.<Float>getProperty("salary"), 500.10f);
     }
     session.commit();
@@ -2451,7 +2451,7 @@ public class CRUDTest extends BaseDBTest {
 
     Entity profile;
     for (var entries : resultSet) {
-      profile = entries.asEntity();
+      profile = entries.asEntityOrNull();
       Assert.assertEquals(
           profile
               .getEntity("location")
@@ -2472,7 +2472,7 @@ public class CRUDTest extends BaseDBTest {
     startRecordNumber = session.countClass("Account");
 
     // DELETE ALL THE RECORD IN THE CLASS
-    session.forEachInTx((Iterator<EntityImpl>) session.browseClass("Account"),
+    session.forEachInTx(session.browseClass("Account"),
         ((session, document) -> {
           session.delete(document);
           return false;
@@ -2672,8 +2672,8 @@ public class CRUDTest extends BaseDBTest {
     var result1 = executeQuery("select from Profile where nick = 'foo'");
 
     Assert.assertEquals(result1.size(), 1);
-    Assert.assertEquals(result1.getFirst().asEntity().getSchemaClassName(), "Profile");
-    var profile = result1.getFirst().asEntity();
+    Assert.assertEquals(result1.getFirst().asEntityOrNull().getSchemaClassName(), "Profile");
+    var profile = result1.getFirst().asEntityOrNull();
 
     Assert.assertEquals(profile.getProperty("nick"), "foo");
     session.commit();

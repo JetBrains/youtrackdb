@@ -161,14 +161,14 @@ public interface Edge {
    * an exception is thrown.
    */
   @Nonnull
-  StatefulEdge castToStatefulEdge();
+  StatefulEdge asStatefulEdge();
 
   /**
    * Casts this edge to a stateful edge if this is a stateful edge. If this is not a stateful edge,
    * null is returned.
    */
   @Nullable
-  StatefulEdge asStatefulEdge();
+  StatefulEdge asStatefulEdgeOrNull();
 
   /**
    * Deletes the edge from the graph.

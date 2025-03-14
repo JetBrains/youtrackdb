@@ -34,7 +34,7 @@ public class CopyEntityStep extends AbstractExecutionStep {
   private Result mapResult(Result result, CommandContext ctx) {
     var resultEntity = ctx.getDatabaseSession().newEntity(className);
     if (result.isEntity()) {
-      var docToCopy = (EntityImpl) result.castToEntity();
+      var docToCopy = (EntityImpl) result.asEntity();
       for (var propName : docToCopy.getPropertyNames()) {
         resultEntity.setProperty(propName, docToCopy.getProperty(propName));
       }

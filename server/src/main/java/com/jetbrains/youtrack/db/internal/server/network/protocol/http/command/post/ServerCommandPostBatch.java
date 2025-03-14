@@ -90,8 +90,7 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
     EntityImpl batch = null;
     Object lastResult = null;
     try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
-
-      if (db.getTransaction().isActive()) {
+      if (db.getActiveTransaction() != null) {
         // TEMPORARY PATCH TO UNDERSTAND WHY UNDER HIGH LOAD TX IS NOT COMMITTED AFTER BATCH. MAYBE
         // A PENDING TRANSACTION?
         LogManager.instance()
@@ -123,7 +122,7 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
       }
 
       var txBegun = false;
-      if (tx && !db.getTransaction().isActive()) {
+      if (tx && db.getActiveTransaction() == null) {
         db.begin();
         txBegun = true;
       }
@@ -146,7 +145,7 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
           // DELETE
           final var entity = getRecord(db, operation);
           if (entity.isRecord()) {
-            entity.castToRecord().delete();
+            entity.asRecord().delete();
           } else {
             throw new IllegalArgumentException("Cannot delete a non-record entity");
           }

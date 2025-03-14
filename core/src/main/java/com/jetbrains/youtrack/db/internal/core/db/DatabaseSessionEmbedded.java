@@ -70,10 +70,7 @@ import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryHookV2;
 import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryListenerV2;
 import com.jetbrains.youtrack.db.internal.core.query.live.YTLiveQueryMonitorEmbedded;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
-import com.jetbrains.youtrack.db.internal.core.record.impl.VertexInternal;
 import com.jetbrains.youtrack.db.internal.core.schedule.ScheduledEvent;
 import com.jetbrains.youtrack.db.internal.core.schedule.SchedulerImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
@@ -412,10 +409,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
         storage.setDateFormat(stringValue);
         break;
 
-      case CLUSTER_SELECTION:
-        storage.setClusterSelection(stringValue);
-        break;
-
       case DATE_TIME_FORMAT:
         if (stringValue == null) {
           throw new IllegalArgumentException("date format is null");
@@ -451,20 +444,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
 
       case CHARSET:
         storage.setCharset(stringValue);
-        break;
-      case MINIMUM_CLUSTERS:
-        if (iValue != null) {
-          if (iValue instanceof Number) {
-            storage.setMinimumClusters(((Number) iValue).intValue());
-          } else {
-            storage.setMinimumClusters(Integer.parseInt(stringValue));
-          }
-        } else
-        // DEFAULT = 1
-        {
-          storage.setMinimumClusters(1);
-        }
-
         break;
       default:
         throw new IllegalArgumentException(
@@ -536,6 +515,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
    * thread without affecting current instance. The database copy is not set in thread local.
    */
   public DatabaseSessionInternal copy() {
+    assertIfNotActive();
     var storage = (Storage) getSharedContext().getStorage();
     storage.open(this, null, null, config.getConfiguration());
     String user;
@@ -550,7 +530,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     database.internalOpen(user, null, false);
     database.callOnOpenListeners();
 
-    this.activateOnCurrentThread();
+    database.activateOnCurrentThread();
     return database;
   }
 
@@ -885,6 +865,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       SchemaImmutableClass clazz = null;
       clazz = entity.getImmutableSchemaClass(this);
       if (clazz != null) {
+        ensureLinksConsistencyOnModification(entity, clazz);
         checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, clazz.getName());
         if (clazz.isScheduler()) {
           getSharedContext().getScheduler().initScheduleRecord(entity);
@@ -903,7 +884,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
         if (clazz.isFunction()) {
           FunctionLibraryImpl.validateFunctionRecord(entity);
         }
-        EntityInternalUtils.setPropertyEncryption(entity, PropertyEncryptionNone.instance());
+        entity.propertyEncryption = PropertyEncryptionNone.instance();
       }
     }
 
@@ -923,9 +904,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     checkSecurity(Role.PERMISSION_UPDATE, id, iClusterName);
 
     if (id instanceof EntityImpl entity) {
-      SchemaImmutableClass clazz = null;
-      clazz = entity.getImmutableSchemaClass(this);
+      var clazz = entity.getImmutableSchemaClass(this);
       if (clazz != null) {
+        ensureLinksConsistencyOnModification(entity, clazz);
+
         if (clazz.isScheduler()) {
           getSharedContext().getScheduler().preHandleUpdateScheduleInTx(this, entity);
         }
@@ -953,7 +935,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
                   + entity.getIdentity()
                   + ": the resource has restricted access due to security policies");
         }
-        EntityInternalUtils.setPropertyEncryption(entity, PropertyEncryptionNone.instance());
+        entity.propertyEncryption = PropertyEncryptionNone.instance();
       }
     }
     callbackHooks(RecordHook.TYPE.BEFORE_UPDATE, id);
@@ -988,11 +970,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       SchemaImmutableClass clazz = null;
       clazz = entity.getImmutableSchemaClass(this);
       if (clazz != null) {
-        if (clazz.isVertexType()) {
-          VertexInternal.deleteLinks(entity.castToVertex());
-        } else if (clazz.isEdgeType()) {
-          EdgeEntityImpl.deleteLinks(this, entity.castToStatefulEdge());
-        }
+        ensureLinksConsistencyOnDeletion(entity, clazz);
 
         if (clazz.isTriggered()) {
           ClassTrigger.onRecordBeforeDelete(entity, this);
@@ -1124,9 +1102,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
           return true;
         }
 
-        EntityInternalUtils.setPropertyAccess(
-            entity, new PropertyAccess(this, entity, getSharedContext().getSecurity()));
-        EntityInternalUtils.setPropertyEncryption(entity, PropertyEncryptionNone.instance());
+        PropertyAccess propertyAccess = new PropertyAccess(this, entity,
+            getSharedContext().getSecurity());
+        entity.propertyAccess = propertyAccess;
+        entity.propertyEncryption = PropertyEncryptionNone.instance();
       }
     }
     return callbackHooks(RecordHook.TYPE.BEFORE_READ, identifiable) == RecordHook.RESULT.SKIP;
@@ -1136,7 +1115,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   public void afterCommitOperations() {
     assert assertIfNotActive();
 
-    for (var operation : currentTx.getRecordOperations()) {
+    for (var operation : currentTx.getRecordOperationsInternal()) {
       var record = operation.record;
 
       if (record instanceof EntityImpl entity) {
@@ -1278,7 +1257,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
           Role.PERMISSION_READ,
           getClusterNameById(rid.getClusterId()));
 
-      DBRecord record = getTransaction().getRecord(rid);
+      DBRecord record = getTransactionInternal().getRecord(rid);
       if (record == FrontendTransactionAbstract.DELETED_RECORD) {
         // DELETED IN TX
         return false;

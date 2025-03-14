@@ -171,7 +171,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
 
           for (var indexToRecreate : indexesToRecreate) {
             final var indexMetadata =
-                indexToRecreate.getInternal()
+                indexToRecreate
                     .loadMetadata(session, indexToRecreate.getConfiguration(session));
 
             final var fields = indexMetadata.getIndexDefinition().getFields();

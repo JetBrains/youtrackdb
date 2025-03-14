@@ -79,7 +79,7 @@ public class LiveQuery<T> extends SQLSynchQuery<T> {
       ((LocalLiveResultListener) getResultListener())
           .onLiveResult(session,
               token,
-              new RecordOperation((RecordAbstract) data.asEntity(), RecordOperation.CREATED));
+              new RecordOperation((RecordAbstract) data.asEntityOrNull(), RecordOperation.CREATED));
     }
 
     @Override
@@ -88,7 +88,8 @@ public class LiveQuery<T> extends SQLSynchQuery<T> {
       ((LocalLiveResultListener) getResultListener())
           .onLiveResult(session,
               token,
-              new RecordOperation((RecordAbstract) after.asEntity(), RecordOperation.UPDATED));
+              new RecordOperation((RecordAbstract) after.asEntityOrNull(),
+                  RecordOperation.UPDATED));
     }
 
     @Override
@@ -96,7 +97,7 @@ public class LiveQuery<T> extends SQLSynchQuery<T> {
       ((LocalLiveResultListener) getResultListener())
           .onLiveResult(session,
               token,
-              new RecordOperation((RecordAbstract) data.asEntity(), RecordOperation.DELETED));
+              new RecordOperation((RecordAbstract) data.asEntityOrNull(), RecordOperation.DELETED));
     }
 
     @Override

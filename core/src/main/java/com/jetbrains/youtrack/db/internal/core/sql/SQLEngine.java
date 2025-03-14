@@ -391,7 +391,7 @@ public class SQLEngine {
       return iCallable.call((Identifiable) iCurrent);
     } else if (iCurrent instanceof Result result) {
       assert result.isEntity();
-      return iCallable.call(result.asEntity());
+      return iCallable.call(result.asEntityOrNull());
     }
 
     return null;

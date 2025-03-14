@@ -115,7 +115,7 @@ public class ResultSerializerNetwork {
       if (propertyValue != null) {
         if (propertyValue instanceof Result) {
           if (((Result) propertyValue).isEntity()) {
-            var elem = ((Result) propertyValue).castToEntity();
+            var elem = ((Result) propertyValue).asEntity();
             writeOType(bytes, bytes.alloc(1), PropertyType.LINK);
             serializeValue(session, bytes, session.refreshRid(elem.getIdentity()),
                 PropertyType.LINK);
@@ -424,7 +424,7 @@ public class ResultSerializerNetwork {
         break;
       case LINK:
         if (value instanceof Result && ((Result) value).isEntity()) {
-          value = ((Result) value).castToEntity();
+          value = ((Result) value).asEntity();
         }
         if (!(value instanceof Identifiable)) {
           throw new ValidationException(session, "Value '" + value + "' is not a Identifiable");

@@ -86,7 +86,7 @@ public class SchedulerImpl {
   }
 
   public void onEventDropped(DatabaseSessionInternal session, RID rid) {
-    var currentTx = (FrontendTransactionOptimistic) session.getTransaction();
+    var currentTx = (FrontendTransactionOptimistic) session.getTransactionInternal();
 
     @SuppressWarnings("unchecked")
     var droppedSequencesMap = (HashMap<RID, String>) currentTx.getCustomData(DROPPED_EVENTS_MAP);
@@ -137,7 +137,7 @@ public class SchedulerImpl {
       try (var result = session.query("select from " + ScheduledEvent.CLASS_NAME)) {
         while (result.hasNext()) {
           var d = result.next();
-          scheduleEvent(session, new ScheduledEvent((EntityImpl) d.castToEntity(), session));
+          scheduleEvent(session, new ScheduledEvent((EntityImpl) d.asEntity(), session));
         }
       }
     }
@@ -204,7 +204,7 @@ public class SchedulerImpl {
       if (event != null) {
         // UPDATED EVENT
         final Set<String> dirtyFields;
-        var dirtyProperties = entity.getCallbackDirtyProperties();
+        var dirtyProperties = entity.getDirtyPropertiesBetweenCallbacksInternal(false, false);
 
         if (dirtyProperties instanceof Set<String> dirtyFieldsSet) {
           dirtyFields = dirtyFieldsSet;
@@ -219,7 +219,7 @@ public class SchedulerImpl {
 
         if (dirtyFields.contains(ScheduledEvent.PROP_RULE)) {
           // RULE CHANGED, STOP CURRENT EVENT AND RESCHEDULE IT
-          var tx = session.getTransaction();
+          var tx = session.getTransactionInternal();
 
           @SuppressWarnings("unchecked")
           var rids = (Set<RID>) tx.getCustomData(RIDS_OF_EVENTS_TO_RESCHEDULE_KEY);
@@ -239,7 +239,7 @@ public class SchedulerImpl {
   public void postHandleUpdateScheduleAfterTxCommit(DatabaseSessionInternal session,
       EntityImpl entity) {
     try {
-      var tx = session.getTransaction();
+      var tx = session.getTransactionInternal();
       @SuppressWarnings("unchecked")
       var rids = (Set<RID>) tx.getCustomData(RIDS_OF_EVENTS_TO_RESCHEDULE_KEY);
 

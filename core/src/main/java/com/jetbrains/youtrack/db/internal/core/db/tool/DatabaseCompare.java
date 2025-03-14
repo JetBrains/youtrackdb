@@ -19,9 +19,6 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db.tool;
 
-import static com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper.makeDbCall;
-
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
@@ -30,18 +27,13 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper.DbRelatedCall;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Stream;
@@ -74,9 +66,9 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
 
     listener.onMessage(
         "\nComparing two local databases:\n1) "
-            + makeDbCall(sessionOne, DatabaseSession::getURL)
+            + sessionOne.getURL()
             + "\n2) "
-            + makeDbCall(sessionTwo, DatabaseSession::getURL)
+            + sessionTwo.getURL()
             + "\n");
 
     this.sessionOne = sessionOne;
@@ -158,38 +150,25 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
               this,
               "Error on comparing database '%s' against '%s'",
               e,
-              makeDbCall(sessionOne, DatabaseSession::getDatabaseName),
-              makeDbCall(sessionTwo, DatabaseSession::getDatabaseName));
+              sessionOne.getDatabaseName(),
+              sessionTwo.getDatabaseName());
       throw new DatabaseExportException(
           "Error on comparing database '"
-              + makeDbCall(sessionOne, DatabaseSession::getDatabaseName)
+              + sessionOne.getDatabaseName()
               + "' against '"
-              + makeDbCall(sessionTwo, DatabaseSession::getDatabaseName)
+              + sessionTwo.getDatabaseName()
               + "'",
           e);
     } finally {
-      makeDbCall(
-          sessionOne,
-          (DbRelatedCall<Void>)
-              database -> {
-                database.close();
-                return null;
-              });
-      makeDbCall(
-          sessionTwo,
-          (DbRelatedCall<Void>)
-              database -> {
-                database.close();
-                return null;
-              });
+      sessionOne.close();
+      sessionTwo.close();
     }
   }
 
   private void compareSchema() {
-    Schema schema1 = makeDbCall(sessionOne,
-        database1 -> database1.getMetadata().getImmutableSchemaSnapshot());
-    Schema schema2 = makeDbCall(sessionTwo,
-        database2 -> database2.getMetadata().getImmutableSchemaSnapshot());
+    Schema schema1 = sessionOne.getMetadata().getImmutableSchemaSnapshot();
+    Schema schema2 = sessionTwo.getMetadata().getImmutableSchemaSnapshot();
+
     var ok = true;
     for (var clazz : schema1.getClasses()) {
       var clazz2 = schema2.getClass(clazz.getName());
@@ -368,26 +347,15 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
 
     var ok = true;
 
-    final var indexManagerOne =
-        makeDbCall(sessionOne, database -> database.getMetadata().getIndexManagerInternal());
+    final var indexManagerOne = sessionOne.getMetadata().getIndexManager();
+    final var indexManagerTwo = sessionTwo.getMetadata().getIndexManager();
 
-    final var indexManagerTwo =
-        makeDbCall(sessionTwo, database -> database.getMetadata().getIndexManagerInternal());
+    final var indexesOne = indexManagerOne.getIndexes();
+    var indexesSizeOne = indexesOne.size();
 
-    final var indexesOne =
-        makeDbCall(
-            sessionOne,
-            (DbRelatedCall<Collection<? extends Index>>) indexManagerOne::getIndexes);
+    var indexesSizeTwo = indexManagerTwo.getIndexes().size();
 
-    int indexesSizeOne = makeDbCall(sessionTwo, database -> indexesOne.size());
-
-    int indexesSizeTwo =
-        makeDbCall(sessionTwo, database -> indexManagerTwo.getIndexes(database).size());
-
-    if (makeDbCall(
-        sessionTwo,
-        database ->
-            indexManagerTwo.getIndex(database, DatabaseImport.EXPORT_IMPORT_INDEX_NAME) != null)) {
+    if (indexManagerTwo.getIndex(DatabaseImport.EXPORT_IMPORT_INDEX_NAME) != null) {
       indexesSizeTwo--;
     }
 
@@ -400,25 +368,13 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
       ++differences;
     }
 
-    final var iteratorOne =
-        makeDbCall(
-            sessionOne,
-            (DbRelatedCall<Iterator<? extends Index>>) database -> indexesOne.iterator());
-
-    while (makeDbCall(sessionOne, database -> iteratorOne.hasNext())) {
-      final var indexOne =
-          makeDbCall(sessionOne, (DbRelatedCall<Index>) database -> iteratorOne.next());
-
-      @SuppressWarnings("ObjectAllocationInLoop") final var indexName = makeDbCall(sessionOne,
-          database -> indexOne.getName());
+    for (var indexOne : indexesOne) {
+      final var indexName = indexOne.getName();
       if (excludeIndexes.contains(indexName)) {
         continue;
       }
 
-      @SuppressWarnings("ObjectAllocationInLoop") final var indexTwo =
-          makeDbCall(
-              sessionTwo, database -> indexManagerTwo.getIndex(database, indexOne.getName()));
-
+      final var indexTwo = indexManagerTwo.getIndex(indexOne.getName());
       if (indexTwo == null) {
         ok = false;
         listener.onMessage("\n- ERR: Index " + indexOne.getName() + " is absent in DB2.");
@@ -476,11 +432,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
         }
       }
 
-      final long indexOneSize =
-          makeDbCall(sessionOne, database -> ((IndexInternal) indexOne).size(sessionOne));
-
-      @SuppressWarnings("ObjectAllocationInLoop") final long indexTwoSize =
-          makeDbCall(sessionTwo, database -> ((IndexInternal) indexTwo).size(sessionTwo));
+      final var indexOneSize = indexOne.size(sessionOne);
+      final var indexTwoSize = indexTwo.size(sessionTwo);
 
       if (indexOneSize != indexTwoSize) {
         ok = false;
@@ -520,18 +473,10 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                   "\n- ERR: Metadata for index "
                       + indexOne.getName()
                       + " for DB1 and for DB2 are different.");
-              makeDbCall(
-                  sessionOne,
-                  database -> {
-                    listener.onMessage("\n--- M1: " + metadataOne);
-                    return null;
-                  });
-              makeDbCall(
-                  sessionTwo,
-                  database -> {
-                    listener.onMessage("\n--- M2: " + metadataTwo);
-                    return null;
-                  });
+
+              listener.onMessage("\n--- M1: " + metadataOne);
+              listener.onMessage("\n--- M2: " + metadataTwo);
+
               listener.onMessage("\n");
               ++differences;
             }
@@ -542,19 +487,12 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
       if (((compareEntriesForAutomaticIndexes && !indexOne.getType().equals("DICTIONARY"))
           || !indexOne.isAutomatic())) {
 
-        try (final var keyStream =
-            makeDbCall(sessionOne, database -> ((IndexInternal) indexOne).keyStream())) {
-          final var indexKeyIteratorOne =
-              makeDbCall(sessionOne, database -> keyStream.iterator());
-          while (makeDbCall(sessionOne, database -> indexKeyIteratorOne.hasNext())) {
-            final var indexKey = makeDbCall(sessionOne, database -> indexKeyIteratorOne.next());
-
-            try (var indexOneStream =
-                makeDbCall(sessionOne,
-                    database -> indexOne.getInternal().getRids(database, indexKey))) {
-              try (var indexTwoValue =
-                  makeDbCall(sessionTwo,
-                      database -> indexTwo.getInternal().getRids(database, indexKey))) {
+        try (final var keyStream = indexOne.keyStream()) {
+          final var indexKeyIteratorOne = keyStream.iterator();
+          while (indexKeyIteratorOne.hasNext()) {
+            final var indexKey = indexKeyIteratorOne.next();
+            try (var indexOneStream = indexOne.getRids(sessionOne, indexKey)) {
+              try (var indexTwoValue = indexTwo.getRids(sessionTwo, indexKey)) {
                 differences +=
                     compareIndexStreams(
                         indexKey, indexOneStream, indexTwoValue, ridMapper, listener);
@@ -643,11 +581,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
 
     listener.onMessage("\nChecking the number of clusters...");
 
-    var clusterNames1 =
-        makeDbCall(sessionOne, DatabaseSessionInternal::getClusterNames);
-
-    var clusterNames2 =
-        makeDbCall(sessionTwo, DatabaseSessionInternal::getClusterNames);
+    var clusterNames1 = sessionOne.getClusterNames();
+    var clusterNames2 = sessionTwo.getClusterNames();
 
     if (clusterNames1.size() != clusterNames2.size() - clusterDifference) {
       listener.onMessage(
@@ -663,9 +598,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
     for (final var clusterName : clusterNames1) {
       // CHECK IF THE CLUSTER IS INCLUDED
       ok = true;
-      final int cluster1Id =
-          makeDbCall(sessionTwo, database -> database.getClusterIdByName(clusterName));
-
+      final var cluster1Id = sessionTwo.getClusterIdByName(clusterName);
       listener.onMessage(
           "\n- Checking cluster " + String.format("%-25s: ", "'" + clusterName + "'"));
 
@@ -679,8 +612,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
         ok = false;
       }
 
-      final int cluster2Id =
-          makeDbCall(sessionOne, database -> database.getClusterIdByName(clusterName));
+      final var cluster2Id = sessionOne.getClusterIdByName(clusterName);
       if (cluster1Id != cluster2Id) {
         listener.onMessage(
             "ERR: cluster id is different for cluster "
@@ -693,10 +625,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
         ok = false;
       }
 
-      long countCluster1 =
-          makeDbCall(sessionOne, database -> database.countClusterElements(cluster1Id));
-      long countCluster2 =
-          makeDbCall(sessionOne, database -> database.countClusterElements(cluster2Id));
+      var countCluster1 = sessionOne.countClusterElements(cluster1Id);
+      var countCluster2 = sessionTwo.countClusterElements(cluster2Id);
 
       if (countCluster1 != countCluster2) {
         listener.onMessage(
@@ -725,35 +655,22 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
     listener.onMessage(
         "\nStarting deep comparison record by record. This may take a few minutes. Wait please...");
 
-    var clusterNames1 =
-        makeDbCall(sessionOne, DatabaseSessionInternal::getClusterNames);
+    var clusterNames1 = sessionOne.getClusterNames();
 
     for (final var clusterName : clusterNames1) {
       // CHECK IF THE CLUSTER IS INCLUDED
-      final int clusterId1 =
-          makeDbCall(sessionOne, database -> database.getClusterIdByName(clusterName));
+      final var clusterId1 = sessionOne.getClusterIdByName(clusterName);
+      final var rid1 = new RecordId(clusterId1);
 
-      @SuppressWarnings("ObjectAllocationInLoop") final var rid1 = new RecordId(
-          clusterId1);
+      var physicalPositions = sessionOne.getStorage()
+          .ceilingPhysicalPositions(sessionOne, clusterId1, new PhysicalPosition(0),
+              Integer.MAX_VALUE);
 
-      var selectedDatabase = sessionOne;
+      var configuration1 = sessionOne.getStorageInfo().getConfiguration();
+      var configuration2 = sessionTwo.getStorageInfo().getConfiguration();
 
-      var physicalPositions =
-          makeDbCall(
-              selectedDatabase,
-              database ->
-                  database
-                      .getStorage()
-                      .ceilingPhysicalPositions(sessionOne, clusterId1, new PhysicalPosition(0),
-                          Integer.MAX_VALUE));
-
-      var configuration1 =
-          makeDbCall(sessionOne, database -> database.getStorageInfo().getConfiguration());
-      var configuration2 =
-          makeDbCall(sessionTwo, database -> database.getStorageInfo().getConfiguration());
-
-      var storageType1 = makeDbCall(sessionOne, database -> database.getStorage().getType());
-      var storageType2 = makeDbCall(sessionTwo, database -> database.getStorage().getType());
+      var storageType1 = sessionOne.getStorage().getType();
+      var storageType2 = sessionTwo.getStorage().getType();
 
       long recordsCounter = 0;
       while (physicalPositions.length > 0) {
@@ -762,12 +679,10 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
             recordsCounter++;
 
             sessionOne.activateOnCurrentThread();
-            @SuppressWarnings("ObjectAllocationInLoop") final var entity1 = new EntityImpl(
-                sessionOne);
+            final var entity1 = new EntityImpl(sessionOne);
             sessionTwo.activateOnCurrentThread();
 
-            @SuppressWarnings("ObjectAllocationInLoop") final var entity2 = new EntityImpl(
-                sessionTwo);
+            final var entity2 = new EntityImpl(sessionTwo);
 
             final var position = physicalPosition.clusterPosition;
             rid1.setClusterPosition(position);
@@ -792,15 +707,9 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
             }
 
             final var buffer1 =
-                makeDbCall(
-                    sessionOne,
-                    database -> database.getStorage()
-                        .readRecord(sessionOne, rid1, false, false)).buffer();
-            final var buffer2 =
-                makeDbCall(
-                    sessionTwo,
-                    database -> database.getStorage()
-                        .readRecord(sessionTwo, rid2, false, false)).buffer();
+                sessionOne.getStorage().readRecord(sessionOne, rid1, false, false).buffer();
+            final var buffer2 = sessionTwo.getStorage()
+                .readRecord(sessionTwo, rid2, false, false).buffer();
 
             if (buffer1.recordType != buffer2.recordType) {
               listener.onMessage(
@@ -845,37 +754,16 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                   if (buffer1.recordType == EntityImpl.RECORD_TYPE) {
                     // ENTITY: TRY TO INSTANTIATE AND COMPARE
 
-                    makeDbCall(
-                        sessionOne,
-                        database -> {
-                          RecordInternal.unsetDirty(entity1);
-                          RecordInternal.fromStream(entity1, buffer1.buffer);
-                          return null;
-                        });
+                    RecordInternal.unsetDirty(entity1);
+                    RecordInternal.fromStream(entity1, buffer1.buffer);
 
-                    makeDbCall(
-                        sessionTwo,
-                        database -> {
-                          RecordInternal.unsetDirty(entity2);
-                          RecordInternal.fromStream(entity2, buffer2.buffer);
-                          return null;
-                        });
+                    RecordInternal.unsetDirty(entity2);
+                    RecordInternal.fromStream(entity2, buffer2.buffer);
 
                     if (rid1.toString().equals(configuration1.getSchemaRecordId())
                         && rid1.toString().equals(configuration2.getSchemaRecordId())) {
-                      makeDbCall(
-                          sessionOne,
-                          database -> {
-                            convertSchemaDoc(entity1);
-                            return null;
-                          });
-
-                      makeDbCall(
-                          sessionTwo,
-                          database -> {
-                            convertSchemaDoc(entity2);
-                            return null;
-                          });
+                      convertSchemaDoc(entity1);
+                      convertSchemaDoc(entity2);
                     }
 
                     if (!EntityHelper.hasSameContentOf(
@@ -886,9 +774,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                               + ":"
                               + position
                               + " entity content is different");
-                      //noinspection ObjectAllocationInLoop
                       listener.onMessage("\n--- REC1: " + new String(buffer1.buffer));
-                      //noinspection ObjectAllocationInLoop
                       listener.onMessage("\n--- REC2: " + new String(buffer2.buffer));
                       listener.onMessage("\n");
                       ++differences;
@@ -954,14 +840,9 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
           }
         }
         final var curPosition = physicalPositions;
-        physicalPositions =
-            makeDbCall(
-                selectedDatabase,
-                database ->
-                    database
-                        .getStorage()
-                        .higherPhysicalPositions(sessionOne, clusterId1,
-                            curPosition[curPosition.length - 1], Integer.MAX_VALUE));
+        physicalPositions = sessionOne.getStorage()
+            .higherPhysicalPositions(sessionOne, clusterId1,
+                curPosition[curPosition.length - 1], Integer.MAX_VALUE);
         if (recordsCounter % 10000 == 0) {
           listener.onMessage(
               "\n"

@@ -22,8 +22,8 @@ import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexFactory;
-import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
 import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrack.db.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
@@ -85,7 +85,7 @@ public class LuceneSpatialIndexFactory implements IndexFactory, DatabaseLifecycl
   }
 
   @Override
-  public IndexInternal createIndex(Storage storage, IndexMetadata im)
+  public Index createIndex(Storage storage, IndexMetadata im)
       throws ConfigurationException {
     var metadata = im.getMetadata();
     final var indexType = im.getType();
@@ -142,12 +142,11 @@ public class LuceneSpatialIndexFactory implements IndexFactory, DatabaseLifecycl
       }
 
       LogManager.instance().debug(this, "Dropping spatial indexes...");
-      final var internalDb = session;
-      for (var idx : internalDb.getMetadata().getIndexManagerInternal().getIndexes(internalDb)) {
+      for (var idx : session.getMetadata().getIndexManagerInternal().getIndexes(session)) {
 
-        if (idx.getInternal() instanceof LuceneSpatialIndex) {
+        if (idx instanceof LuceneSpatialIndex) {
           LogManager.instance().debug(this, "- index '%s'", idx.getName());
-          internalDb.getMetadata().getIndexManager().dropIndex(idx.getName());
+          session.getMetadata().getIndexManager().dropIndex(idx.getName());
         }
       }
     } catch (Exception e) {

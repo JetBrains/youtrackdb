@@ -13,7 +13,8 @@ public class BeginStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testBegin() {
-    Assert.assertTrue(session.getTransaction() == null || !session.getTransaction().isActive());
+    Assert.assertTrue(
+        session.getTransactionInternal() == null || !session.getTransactionInternal().isActive());
     var result = session.command("begin");
     printExecutionPlan(null, result);
     Assert.assertNotNull(result);
@@ -21,7 +22,8 @@ public class BeginStatementExecutionTest extends DbTestBase {
     var item = result.next();
     Assert.assertEquals("begin", item.getProperty("operation"));
     Assert.assertFalse(result.hasNext());
-    Assert.assertFalse(session.getTransaction() == null || !session.getTransaction().isActive());
+    Assert.assertFalse(
+        session.getTransactionInternal() == null || !session.getTransactionInternal().isActive());
     session.commit();
   }
 }

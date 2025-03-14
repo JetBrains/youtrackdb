@@ -76,7 +76,7 @@ public class SQLUpdateRemoveItem extends SimpleNode {
       var leftVal = left.execute(result, ctx);
       var rightVal = right.execute(result, ctx);
       if (rightVal instanceof Result && ((Result) rightVal).isEntity()) {
-        rightVal = ((Result) rightVal).castToEntity();
+        rightVal = ((Result) rightVal).asEntity();
       }
       if (rightVal instanceof Collection<?>
           && ((Collection<?>) rightVal)
@@ -84,7 +84,7 @@ public class SQLUpdateRemoveItem extends SimpleNode {
         rightVal =
             ((Collection<?>) rightVal)
                 .stream()
-                .map(x -> ((Result) x).castToEntity())
+                .map(x -> ((Result) x).asEntity())
                 .collect(Collectors.toList());
       }
       if (MultiValue.isMultiValue(leftVal)) {

@@ -197,7 +197,7 @@ public interface Result {
   @Nullable
   default <T> List<T> getEmbeddedList(@Nonnull String name) {
     if (isEntity()) {
-      return castToEntity().getEmbeddedList(name);
+      return asEntity().getEmbeddedList(name);
     }
 
     var value = getProperty(name);
@@ -217,7 +217,7 @@ public interface Result {
   @Nullable
   default List<Identifiable> getLinkList(@Nonnull String name) {
     if (isEntity()) {
-      return castToEntity().getLinkList(name);
+      return asEntity().getLinkList(name);
     }
 
     var value = getProperty(name);
@@ -238,7 +238,7 @@ public interface Result {
   @Nullable
   default <T> Set<T> getEmbeddedSet(@Nonnull String name) {
     if (isEntity()) {
-      return castToEntity().getEmbeddedSet(name);
+      return asEntity().getEmbeddedSet(name);
     }
 
     var value = getProperty(name);
@@ -258,7 +258,7 @@ public interface Result {
   @Nullable
   default Set<Identifiable> getLinkSet(@Nonnull String name) {
     if (isEntity()) {
-      return castToEntity().getLinkSet(name);
+      return asEntity().getLinkSet(name);
     }
 
     var value = getProperty(name);
@@ -278,7 +278,7 @@ public interface Result {
   @Nullable
   default <T> Map<String, T> getEmbeddedMap(@Nonnull String name) {
     if (isEntity()) {
-      return castToEntity().getEmbeddedMap(name);
+      return asEntity().getEmbeddedMap(name);
     }
 
     var value = getProperty(name);
@@ -298,7 +298,7 @@ public interface Result {
   @Nullable
   default Map<String, Identifiable> getLinkMap(@Nonnull String name) {
     if (isEntity()) {
-      return castToEntity().getLinkMap(name);
+      return asEntity().getLinkMap(name);
     }
 
     var value = getProperty(name);
@@ -346,7 +346,7 @@ public interface Result {
       return null;
     }
 
-    return entity.castToVertex();
+    return entity.asVertex();
   }
 
   /**
@@ -364,7 +364,7 @@ public interface Result {
       return null;
     }
 
-    return entity.castToEdge();
+    return entity.asEdge();
   }
 
   /**
@@ -396,23 +396,25 @@ public interface Result {
   @Nonnull
   Collection<String> getPropertyNames();
 
+  int getPropertiesCount();
+
   @Nullable
   RID getIdentity();
 
   boolean isEntity();
 
   @Nonnull
-  Entity castToEntity();
+  Entity asEntity();
 
   @Nullable
-  Entity asEntity();
+  Entity asEntityOrNull();
 
   default boolean isVertex() {
     if (!isEntity()) {
       return false;
     }
 
-    var entity = asEntity();
+    var entity = asEntityOrNull();
     if (entity == null) {
       return false;
     }
@@ -420,58 +422,58 @@ public interface Result {
   }
 
   @Nonnull
-  default Vertex castToVertex() {
-    return castToEntity().castToVertex();
+  default Vertex asVertex() {
+    return asEntity().asVertex();
   }
 
   @Nullable
-  default Vertex asVertex() {
-    var entity = asEntity();
+  default Vertex asVertexOrNull() {
+    var entity = asEntityOrNull();
 
     if (entity == null) {
       return null;
     }
-    return entity.asVertex();
+    return entity.asVertexOrNull();
   }
 
   boolean isEdge();
 
   @Nonnull
-  Edge castToEdge();
+  Edge asEdge();
 
   @Nullable
-  Edge asEdge();
+  Edge asEdgeOrNull();
 
   boolean isStatefulEdge();
 
   @Nonnull
-  default StatefulEdge castToStatefulEdge() {
-    return castToEntity().castToStatefulEdge();
+  default StatefulEdge asStatefulEdge() {
+    return asEntity().asStatefulEdge();
   }
 
   @Nullable
-  default StatefulEdge asStatefulEdge() {
-    var entity = asEntity();
+  default StatefulEdge asStatefulEdgeOrNull() {
+    var entity = asEntityOrNull();
     if (entity == null) {
       return null;
     }
 
-    return entity.asStatefulEdge();
+    return entity.asStatefulEdgeOrNull();
   }
 
   boolean isBlob();
 
   @Nonnull
-  Blob castToBlob();
-
-  @Nullable
   Blob asBlob();
 
+  @Nullable
+  Blob asBlobOrNull();
+
   @Nonnull
-  DBRecord castToRecord();
+  DBRecord asRecord();
 
   @Nullable
-  DBRecord asRecord();
+  DBRecord asRecordOrNull();
 
   boolean isRecord();
 
@@ -505,8 +507,8 @@ public interface Result {
   Result detach();
 
   @Nonnull
-  Identifiable castToIdentifiable();
+  Identifiable asIdentifiable();
 
   @Nullable
-  Identifiable asIdentifiable();
+  Identifiable asIdentifiableOrNull();
 }

@@ -60,9 +60,8 @@ public class QueryOperatorContainsValue extends QueryOperatorEqualityNotNulls {
       CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
     final var indexDefinition = index.getDefinition();
 
-    final var internalIndex = index.getInternal();
     Stream<RawPair<Object, RID>> stream;
-    if (!internalIndex.canBeUsedInEqualityOperators()) {
+    if (!index.canBeUsedInEqualityOperators()) {
       return null;
     }
 
@@ -81,7 +80,7 @@ public class QueryOperatorContainsValue extends QueryOperatorEqualityNotNulls {
         return null;
       }
 
-      stream = index.getInternal().getRids(iContext.getDatabaseSession(), key)
+      stream = index.getRids(iContext.getDatabaseSession(), key)
           .map((rid) -> new RawPair<>(key, rid));
     } else {
       // in case of composite keys several items can be returned in case of we perform search
@@ -104,16 +103,16 @@ public class QueryOperatorContainsValue extends QueryOperatorEqualityNotNulls {
         return null;
       }
 
-      if (internalIndex.hasRangeQuerySupport()) {
+      if (index.hasRangeQuerySupport()) {
         final Object keyTwo =
             compositeIndexDefinition.createSingleValue(iContext.getDatabaseSession(), keyParams);
 
-        stream = index.getInternal()
+        stream = index
             .streamEntriesBetween(iContext.getDatabaseSession(), keyOne, true, keyTwo, true,
                 ascSortOrder);
       } else {
         if (indexDefinition.getParamCount() == keyParams.size()) {
-          stream = index.getInternal().getRids(iContext.getDatabaseSession(), keyOne)
+          stream = index.getRids(iContext.getDatabaseSession(), keyOne)
               .map((rid) -> new RawPair<>(keyOne, rid));
         } else {
           return null;
@@ -161,8 +160,8 @@ public class QueryOperatorContainsValue extends QueryOperatorEqualityNotNulls {
           ((SQLFilterItemField) iCondition.getLeft()).getFieldChain().getItemName(0);
       if (fieldName != null) {
         if (iRecord.isEntity()) {
-          SchemaImmutableClass result = null;
-          var entity = iRecord.castToEntity();
+          SchemaImmutableClass result;
+          var entity = iRecord.asEntity();
           result = ((EntityImpl) entity).getImmutableSchemaClass(session);
           var property =
               result

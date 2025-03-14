@@ -174,7 +174,7 @@ public class DefaultValuesTrivialTest {
       assertEquals("default name", doc.field("name"));
       session.begin();
       session.commit();
-      try (var stream = session.getIndex("ClassA.name").getInternal()
+      try (var stream = session.getIndex("ClassA.name")
           .getRids(session, "default name")) {
         assertEquals(1, stream.count());
       }
@@ -201,14 +201,14 @@ public class DefaultValuesTrivialTest {
       session.commit();
 
       var index = session.getIndex("ClassA.name");
-      try (var stream = index.getInternal()
+      try (var stream = index
           .getRids(session, "default name")) {
         assertEquals(1, stream.count());
       }
       session.commit();
 
       index = session.getIndex("ClassA.name");
-      try (var stream = index.getInternal().getRids(session, "default name")) {
+      try (var stream = index.getRids(session, "default name")) {
         assertEquals(1, stream.count());
       }
     }
@@ -236,7 +236,7 @@ public class DefaultValuesTrivialTest {
       session.begin();
       session.commit();
 
-      try (var stream = index.getInternal().getRids(session, new CompositeKey("1"))) {
+      try (var stream = index.getRids(session, new CompositeKey("1"))) {
         assertEquals(1, stream.count());
       }
     }
@@ -248,11 +248,11 @@ public class DefaultValuesTrivialTest {
       session.begin();
       session.commit();
 
-      try (var stream = index.getInternal().getRids(session, new CompositeKey("2"))) {
+      try (var stream = index.getRids(session, new CompositeKey("2"))) {
         assertEquals(1, stream.count());
       }
     }
-    try (var stream = index.getInternal().getRids(session, new CompositeKey("3"))) {
+    try (var stream = index.getRids(session, new CompositeKey("3"))) {
       assertEquals(0, stream.count());
     }
   }

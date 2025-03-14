@@ -238,8 +238,7 @@ public class CommandExecutorSQLDelete extends CommandExecutorSQLAbstract
           session
               .getMetadata()
               .getIndexManagerInternal()
-              .getIndex(session, indexName)
-              .getInternal();
+              .getIndex(session, indexName);
       if (index == null) {
         throw new CommandExecutionException(session, "Target index '" + indexName + "' not found");
       }

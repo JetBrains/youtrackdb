@@ -77,7 +77,7 @@ public class ResultInternal implements Result {
     if (edge.isLightweight()) {
       lightweightEdge = edge;
     } else {
-      setIdentifiable(edge.castToStatefulEdge());
+      setIdentifiable(edge.asStatefulEdge());
     }
   }
 
@@ -89,7 +89,7 @@ public class ResultInternal implements Result {
         if (edge.isLightweight()) {
           yield edge.toMap();
         } else {
-          yield edge.castToStatefulEdge().getIdentity();
+          yield edge.asStatefulEdge().getIdentity();
         }
       }
       case Blob blob -> blob.toStream();
@@ -244,16 +244,16 @@ public class ResultInternal implements Result {
       }
       case Result result -> {
         if (result.isEntity()) {
-          return convertPropertyValue(result.castToEntity());
+          return convertPropertyValue(result.asEntity());
         } else if (result.isBlob()) {
-          return convertPropertyValue(result.castToBlob());
+          return convertPropertyValue(result.asBlob());
         }
         if (result.isEdge()) {
           if (!result.isStatefulEdge()) {
             throw new IllegalStateException("Lightweight edges are not supported in properties");
           }
 
-          return convertPropertyValue(result.castToStatefulEdge());
+          return convertPropertyValue(result.asStatefulEdge());
         }
 
         if (result.getBoundedToSession() != session) {
@@ -344,7 +344,7 @@ public class ResultInternal implements Result {
     }
 
     if (value instanceof Result && ((Result) value).isEntity()) {
-      temporaryContent.put(name, ((Result) value).castToEntity());
+      temporaryContent.put(name, ((Result) value).asEntity());
     } else {
       temporaryContent.put(name, value);
     }
@@ -379,7 +379,7 @@ public class ResultInternal implements Result {
       result = (T) content.get(name);
     } else {
       if (isEntity()) {
-        result = castToEntity().getProperty(name);
+        result = asEntity().getProperty(name);
       }
     }
 
@@ -395,7 +395,7 @@ public class ResultInternal implements Result {
       result = content.get(name);
     } else {
       if (isEntity()) {
-        result = castToEntity().getEntity(name);
+        result = asEntity().getEntity(name);
       }
     }
 
@@ -424,7 +424,7 @@ public class ResultInternal implements Result {
       result = content.get(name);
     } else {
       if (isEntity()) {
-        result = castToEntity().getResult(name);
+        result = asEntity().getResult(name);
       }
     }
 
@@ -448,7 +448,7 @@ public class ResultInternal implements Result {
       result = content.get(name);
     } else {
       if (isEntity()) {
-        result = castToEntity().getVertex(name);
+        result = asEntity().getVertex(name);
       }
     }
 
@@ -472,7 +472,7 @@ public class ResultInternal implements Result {
       result = content.get(name);
     } else {
       if (isEntity()) {
-        result = castToEntity().getEdge(name);
+        result = asEntity().getEdge(name);
       }
     }
 
@@ -500,7 +500,7 @@ public class ResultInternal implements Result {
       result = content.get(name);
     } else {
       if (isEntity()) {
-        result = castToEntity().getProperty(name);
+        result = asEntity().getProperty(name);
       }
     }
 
@@ -525,7 +525,7 @@ public class ResultInternal implements Result {
       result = content.get(name);
     } else {
       if (isEntity()) {
-        result = castToEntity().getLink(name);
+        result = asEntity().getLink(name);
       }
     }
 
@@ -545,15 +545,29 @@ public class ResultInternal implements Result {
     }
 
     if (isEntity()) {
-      return castToEntity().getPropertyNames();
+      return asEntity().getPropertyNames();
     }
 
     return Collections.emptyList();
   }
 
+  @Override
+  public int getPropertiesCount() {
+    checkSession();
+    if (content != null) {
+      return content.size();
+    }
+
+    if (isEntity()) {
+      return asEntity().getPropertiesCount();
+    }
+
+    return 0;
+  }
+
   public boolean hasProperty(@Nonnull String propName) {
     checkSession();
-    if (isEntity() && castToEntity().hasProperty(propName)) {
+    if (isEntity() && asEntity().hasProperty(propName)) {
       return true;
     }
     if (content != null) {
@@ -600,7 +614,7 @@ public class ResultInternal implements Result {
 
   @Nonnull
   @Override
-  public Identifiable castToIdentifiable() {
+  public Identifiable asIdentifiable() {
     if (identifiable != null) {
       return identifiable;
     }
@@ -610,7 +624,7 @@ public class ResultInternal implements Result {
 
   @Nullable
   @Override
-  public Identifiable asIdentifiable() {
+  public Identifiable asIdentifiableOrNull() {
     return identifiable;
   }
 
@@ -636,7 +650,7 @@ public class ResultInternal implements Result {
   }
 
   @Nonnull
-  public Entity castToEntity() {
+  public Entity asEntity() {
     checkSession();
 
     if (identifiable instanceof Entity) {
@@ -646,7 +660,7 @@ public class ResultInternal implements Result {
 
     if (isEntity()) {
       this.identifiable = identifiable.getEntity(session);
-      return castToEntity();
+      return asEntity();
     }
 
     throw new IllegalStateException("Result is not an entity");
@@ -663,7 +677,7 @@ public class ResultInternal implements Result {
 
   @Nullable
   @Override
-  public Entity asEntity() {
+  public Entity asEntityOrNull() {
     checkSession();
     if (identifiable instanceof Entity) {
       bindToSession();
@@ -672,7 +686,7 @@ public class ResultInternal implements Result {
 
     if (isEntity()) {
       this.identifiable = identifiable.getEntity(session);
-      return asEntity();
+      return asEntityOrNull();
     }
 
     return null;
@@ -699,7 +713,7 @@ public class ResultInternal implements Result {
 
   @Nonnull
   @Override
-  public DBRecord castToRecord() {
+  public DBRecord asRecord() {
     checkSession();
 
     if (identifiable == null) {
@@ -712,12 +726,12 @@ public class ResultInternal implements Result {
     }
 
     this.identifiable = identifiable.getRecord(session);
-    return castToRecord();
+    return asRecord();
   }
 
   @Nullable
   @Override
-  public DBRecord asRecord() {
+  public DBRecord asRecordOrNull() {
     checkSession();
     if (identifiable == null) {
       return null;
@@ -729,7 +743,7 @@ public class ResultInternal implements Result {
     }
 
     this.identifiable = this.identifiable.getRecord(session);
-    return asRecord();
+    return asRecordOrNull();
   }
 
   @Override
@@ -751,7 +765,7 @@ public class ResultInternal implements Result {
 
   @Nonnull
   @Override
-  public Blob castToBlob() {
+  public Blob asBlob() {
     checkSession();
 
     if (identifiable instanceof Blob) {
@@ -761,7 +775,7 @@ public class ResultInternal implements Result {
 
     if (isBlob()) {
       this.identifiable = this.identifiable.getBlob(session);
-      return castToBlob();
+      return asBlob();
     }
 
     throw new IllegalStateException("Result is not a blob");
@@ -773,7 +787,7 @@ public class ResultInternal implements Result {
 
   @Nullable
   @Override
-  public Blob asBlob() {
+  public Blob asBlobOrNull() {
     checkSession();
     if (identifiable instanceof Blob) {
       bindToSession();
@@ -782,7 +796,7 @@ public class ResultInternal implements Result {
 
     if (isBlob()) {
       this.identifiable = this.identifiable.getBlob(session);
-      return asBlob();
+      return asBlobOrNull();
     }
 
     return null;
@@ -857,7 +871,7 @@ public class ResultInternal implements Result {
     }
 
     if (isEntity()) {
-      return castToEntity().toMap();
+      return asEntity().toMap();
     }
 
     var map = new HashMap<String, Object>();
@@ -894,7 +908,7 @@ public class ResultInternal implements Result {
         return true;
       }
       case Entity entity -> {
-        return castToEntity().isStatefulEdge();
+        return asEntity().isStatefulEdge();
       }
       default -> {
       }
@@ -910,14 +924,14 @@ public class ResultInternal implements Result {
 
   @Nonnull
   @Override
-  public Edge castToEdge() {
+  public Edge asEdge() {
     checkSession();
     if (lightweightEdge != null) {
       return lightweightEdge;
     }
 
     if (isStatefulEdge()) {
-      return castToStatefulEdge();
+      return asStatefulEdge();
     }
 
     throw new DatabaseException("Result is not an edge");
@@ -925,7 +939,7 @@ public class ResultInternal implements Result {
 
   @Nullable
   @Override
-  public Edge asEdge() {
+  public Edge asEdgeOrNull() {
     checkSession();
 
     if (lightweightEdge != null) {
@@ -933,7 +947,7 @@ public class ResultInternal implements Result {
     }
 
     if (isStatefulEdge()) {
-      return castToStatefulEdge();
+      return asStatefulEdge();
     }
 
     return null;
@@ -947,7 +961,7 @@ public class ResultInternal implements Result {
     }
 
     if (isEntity()) {
-      return castToEntity().toJSON();
+      return asEntity().toJSON();
     }
 
     var result = new StringBuilder();
@@ -1101,7 +1115,7 @@ public class ResultInternal implements Result {
     checkSession();
     if (identifiable instanceof RecordAbstract record) {
       var identity = record.getIdentity();
-      var tx = db.getTransaction();
+      var tx = db.getTransactionInternal();
 
       if (tx.isActive()) {
         var recordEntry = tx.getRecordEntry(identity);

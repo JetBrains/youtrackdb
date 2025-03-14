@@ -9,7 +9,6 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
-import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStreamProducer;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.MultipleExecutionStream;
@@ -38,7 +37,7 @@ import java.util.stream.Stream;
  */
 public class DeleteFromIndexStep extends AbstractExecutionStep {
 
-  protected final IndexInternal index;
+  protected final Index index;
   private final SQLBinaryCondition additional;
   private final SQLBooleanExpression ridCondition;
   private final boolean orderAsc;
@@ -64,7 +63,7 @@ public class DeleteFromIndexStep extends AbstractExecutionStep {
       CommandContext ctx,
       boolean profilingEnabled) {
     super(ctx, profilingEnabled);
-    this.index = index.getInternal();
+    this.index = index;
     this.condition = condition;
     this.additional = additionalRangeCondition;
     this.ridCondition = ridCondition;

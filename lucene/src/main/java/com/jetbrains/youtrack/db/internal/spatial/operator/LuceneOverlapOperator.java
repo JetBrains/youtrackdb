@@ -47,9 +47,7 @@ public class LuceneOverlapOperator extends LuceneSpatialOperator {
     queryParams.put(SpatialQueryBuilderAbstract.GEO_FILTER, SpatialQueryBuilderOverlap.NAME);
     queryParams.put(SpatialQueryBuilderAbstract.SHAPE, key);
 
-    //noinspection resource
     return index
-        .getInternal()
         .getRids(iContext.getDatabaseSession(), queryParams)
         .map((rid) -> new RawPair<>(new SpatialCompositeKey(keyParams), rid));
   }

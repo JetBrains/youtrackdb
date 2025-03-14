@@ -104,7 +104,7 @@ public class CommandExecutorSQLOptimizeDatabase extends CommandExecutorSQLAbstra
 
   private String optimizeEdges(DatabaseSessionInternal db) {
     long transformed = 0;
-    if (db.getTransaction().isActive()) {
+    if (db.getTransactionInternal().isActive()) {
       db.commit();
     }
 
@@ -191,7 +191,7 @@ public class CommandExecutorSQLOptimizeDatabase extends CommandExecutorSQLAbstra
       db.commit();
 
     } finally {
-      if (db.getTransaction().isActive()) {
+      if (db.getTransactionInternal().isActive()) {
         db.rollback();
       }
     }

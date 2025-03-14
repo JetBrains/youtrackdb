@@ -23,7 +23,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.HashMap;
@@ -167,7 +166,7 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
       final String expectedAlgorithm) {
     final var index = clazz.getIndexesInternal().iterator().next();
     System.out.println(
-        "key-name: " + ((IndexInternal) index).getIndexId() + "-" + index.getName());
+        "key-name: " + index.getIndexId() + "-" + index.getName());
 
     Assert.assertEquals("index algorithm", expectedAlgorithm, index.getAlgorithm());
     Assert.assertEquals("index type", "FULLTEXT", index.getType());

@@ -75,7 +75,7 @@ public class FunctionLibraryImpl {
       try (var result = session.query("select from OFunction order by name")) {
         while (result.hasNext()) {
           var res = result.next();
-          var d = (EntityImpl) res.castToEntity();
+          var d = (EntityImpl) res.asEntity();
           // skip the function records which do not contain real data
           if (d.fields() == 0) {
             continue;
@@ -107,7 +107,7 @@ public class FunctionLibraryImpl {
 
 
   public void onFunctionDropped(@Nonnull DatabaseSessionInternal session, @Nonnull RID rid) {
-    var currentTx = (FrontendTransactionOptimistic) session.getTransaction();
+    var currentTx = (FrontendTransactionOptimistic) session.getTransactionInternal();
 
     @SuppressWarnings("unchecked")
     var droppedSequencesMap = (HashMap<RID, String>) currentTx.getCustomData(DROPPED_FUNCTIONS_MAP);

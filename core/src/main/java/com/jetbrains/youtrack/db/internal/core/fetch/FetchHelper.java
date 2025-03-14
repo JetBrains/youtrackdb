@@ -30,7 +30,6 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson.FormatSettings;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
@@ -135,7 +134,7 @@ public class FetchHelper {
     }
 
     Object fieldValue;
-    for (var fieldName : record.getPropertyNamesInternal()) {
+    for (var fieldName : record.getPropertyNamesInternal(false, true)) {
       int depthLevel;
       final var fieldPath =
           !iFieldPathFromRoot.isEmpty() ? iFieldPathFromRoot + "." + fieldName : fieldName;
@@ -148,7 +147,7 @@ public class FetchHelper {
         depthLevel = iFieldDepthLevel;
       }
 
-      fieldValue = EntityInternalUtils.getRawProperty(record, fieldName);
+      fieldValue = record.getProperty(fieldName);
       if (fieldValue == null
           || !(fieldValue instanceof Identifiable)
           && (!(fieldValue instanceof Iterable<?>)
@@ -412,7 +411,7 @@ public class FetchHelper {
     // Pre-process to gather fieldTypes
     fetchContext.onBeforeFetch(record);
     if (settings.keepTypes) {
-      for (final var fieldName : record.getPropertyNamesInternal()) {
+      for (final var fieldName : record.getPropertyNamesInternal(false, true)) {
         processFieldTypes(
             record,
             userObject,
@@ -430,7 +429,7 @@ public class FetchHelper {
 
     fetchContext.onBeforeFetch(record);
     final Set<String> toRemove = new HashSet<>();
-    for (final var fieldName : record.getPropertyNamesInternal()) {
+    for (final var fieldName : record.getPropertyNamesInternal(false, true)) {
       process(db,
           record,
           userObject,
@@ -477,7 +476,11 @@ public class FetchHelper {
       depthLevel = fieldDepthLevel;
     }
 
-    fieldValue = EntityInternalUtils.getRawProperty(record, fieldName);
+    Object result = null;
+    if (record != null) {
+      result = record.getProperty(fieldName);
+    }
+    fieldValue = result;
     final var fieldType = record.getPropertyType(fieldName);
     var fetch =
         !format.contains("shallow")
@@ -534,7 +537,11 @@ public class FetchHelper {
       depthLevel = fieldDepthLevel;
     }
 
-    fieldValue = EntityInternalUtils.getRawProperty(record, fieldName);
+    Object result = null;
+    if (record != null) {
+      result = record.getProperty(fieldName);
+    }
+    fieldValue = result;
     final var fieldType = record.getPropertyType(fieldName);
     var fetch =
         !format.contains("shallow")

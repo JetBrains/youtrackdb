@@ -143,12 +143,10 @@ public class YouTrackDbJdbcConnection implements Connection {
   public void close() throws SQLException {
     status = DatabaseSession.STATUS.CLOSED;
     if (database != null) {
-      database.activateOnCurrentThread();
       database.close();
       database = null;
     }
     if (youtrackDBisPrivate) {
-
       youTrackDB.close();
     }
   }

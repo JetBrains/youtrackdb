@@ -48,7 +48,7 @@ public class BreadthFirstTraverseStep extends AbstractTraverseStep {
         path.add(identity);
 
         ((ResultInternal) item).setMetadata("$path", path);
-        if (item.isEntity() && !traversed.contains(item.castToEntity().getIdentity())) {
+        if (item.isEntity() && !traversed.contains(item.asEntity().getIdentity())) {
           tryAddEntryPoint(item, ctx, entryPoints, traversed);
         }
       }
@@ -59,8 +59,8 @@ public class BreadthFirstTraverseStep extends AbstractTraverseStep {
     TraverseResult res = null;
     if (item instanceof TraverseResult) {
       res = (TraverseResult) item;
-    } else if (item.isEntity() && item.castToEntity().getIdentity().isPersistent()) {
-      res = new TraverseResult(db, item.castToEntity());
+    } else if (item.isEntity() && item.asEntity().getIdentity().isPersistent()) {
+      res = new TraverseResult(db, item.asEntity());
       res.depth = 0;
       res.setMetadata("$depth", 0);
     } else if (item.getPropertyNames().size() == 1) {
@@ -199,7 +199,7 @@ public class BreadthFirstTraverseStep extends AbstractTraverseStep {
 
       tryAddEntryPoint(nextStep, ctx, entryPoints, traversed);
     } else {
-      var res = new TraverseResult(ctx.getDatabaseSession(), nextStep.castToEntity());
+      var res = new TraverseResult(ctx.getDatabaseSession(), nextStep.asEntity());
       res.depth = depth;
       res.setMetadata("$depth", depth);
 

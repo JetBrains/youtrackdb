@@ -126,7 +126,6 @@ public class LuceneSearchOnFieldsFunction extends LuceneSearchFunctionTemplate {
       Set<Identifiable> luceneResultSet;
       try (var rids =
           index
-              .getInternal()
               .getRids(ctx.getDatabaseSession(),
                   new LuceneKeyAndMetadata(
                       new LuceneCompositeKey(Collections.singletonList(query)).setContext(ctx),

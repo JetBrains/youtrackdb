@@ -64,10 +64,10 @@ public class IndexTxAwareMultiValueGetEntriesTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertNull(session.getTransaction().getIndexChanges(INDEX_NAME));
+    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
     Set<Identifiable> resultOne = new HashSet<>();
     var stream =
-        index.getInternal().streamEntries(session, Arrays.asList(1, 2), true);
+        index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultOne);
     Assert.assertEquals(resultOne.size(), 3);
 
@@ -75,17 +75,17 @@ public class IndexTxAwareMultiValueGetEntriesTest extends BaseDBTest {
 
     ((EntityImpl) session.newEntity(CLASS_NAME)).field(FIELD_NAME, 2);
 
-    Assert.assertNotNull(session.getTransaction().getIndexChanges(INDEX_NAME));
+    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
     Set<Identifiable> resultTwo = new HashSet<>();
-    stream = index.getInternal().streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultTwo);
     Assert.assertEquals(resultTwo.size(), 4);
 
     session.rollback();
 
-    Assert.assertNull(session.getTransaction().getIndexChanges(INDEX_NAME));
+    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
     Set<Identifiable> resultThree = new HashSet<>();
-    stream = index.getInternal().streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultThree);
     Assert.assertEquals(resultThree.size(), 3);
   }
@@ -108,10 +108,10 @@ public class IndexTxAwareMultiValueGetEntriesTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertNull(session.getTransaction().getIndexChanges(INDEX_NAME));
+    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
     Set<Identifiable> resultOne = new HashSet<>();
     var stream =
-        index.getInternal().streamEntries(session, Arrays.asList(1, 2), true);
+        index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultOne);
     Assert.assertEquals(resultOne.size(), 3);
 
@@ -123,17 +123,17 @@ public class IndexTxAwareMultiValueGetEntriesTest extends BaseDBTest {
     docOne.delete();
     docTwo.delete();
 
-    Assert.assertNotNull(session.getTransaction().getIndexChanges(INDEX_NAME));
+    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
     Set<Identifiable> resultTwo = new HashSet<>();
-    stream = index.getInternal().streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultTwo);
     Assert.assertEquals(resultTwo.size(), 1);
 
     session.rollback();
 
-    Assert.assertNull(session.getTransaction().getIndexChanges(INDEX_NAME));
+    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
     Set<Identifiable> resultThree = new HashSet<>();
-    stream = index.getInternal().streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultThree);
     Assert.assertEquals(resultThree.size(), 3);
   }
@@ -156,10 +156,10 @@ public class IndexTxAwareMultiValueGetEntriesTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertNull(session.getTransaction().getIndexChanges(INDEX_NAME));
+    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
     Set<Identifiable> resultOne = new HashSet<>();
     var stream =
-        index.getInternal().streamEntries(session, Arrays.asList(1, 2), true);
+        index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultOne);
     Assert.assertEquals(resultOne.size(), 3);
 
@@ -168,17 +168,17 @@ public class IndexTxAwareMultiValueGetEntriesTest extends BaseDBTest {
     docOne = session.bindToSession(docOne);
     docOne.delete();
 
-    Assert.assertNotNull(session.getTransaction().getIndexChanges(INDEX_NAME));
+    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
     Set<Identifiable> resultTwo = new HashSet<>();
-    stream = index.getInternal().streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultTwo);
     Assert.assertEquals(resultTwo.size(), 2);
 
     session.rollback();
 
-    Assert.assertNull(session.getTransaction().getIndexChanges(INDEX_NAME));
+    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
     Set<Identifiable> resultThree = new HashSet<>();
-    stream = index.getInternal().streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultThree);
     Assert.assertEquals(resultThree.size(), 3);
   }
@@ -204,18 +204,18 @@ public class IndexTxAwareMultiValueGetEntriesTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertNotNull(session.getTransaction().getIndexChanges(INDEX_NAME));
+    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
 
     Set<Identifiable> result = new HashSet<>();
     var stream =
-        index.getInternal().streamEntries(session, Arrays.asList(1, 2), true);
+        index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 2);
 
     session.commit();
 
-    stream = index.getInternal().streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 2);
@@ -236,10 +236,10 @@ public class IndexTxAwareMultiValueGetEntriesTest extends BaseDBTest {
 
     ((EntityImpl) session.newEntity(CLASS_NAME)).field(FIELD_NAME, 2);
 
-    Assert.assertNotNull(session.getTransaction().getIndexChanges(INDEX_NAME));
+    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
     Set<Identifiable> result = new HashSet<>();
     var stream =
-        index.getInternal().streamEntries(session, Arrays.asList(1, 2), true);
+        index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
     Assert.assertEquals(result.size(), 2);
     session.commit();
@@ -249,7 +249,7 @@ public class IndexTxAwareMultiValueGetEntriesTest extends BaseDBTest {
 
     session.commit();
 
-    stream = index.getInternal().streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
     Assert.assertEquals(result.size(), 3);
   }
@@ -271,18 +271,18 @@ public class IndexTxAwareMultiValueGetEntriesTest extends BaseDBTest {
 
     doc.delete();
 
-    Assert.assertNotNull(session.getTransaction().getIndexChanges(INDEX_NAME));
+    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
     session.commit();
 
     Set<Identifiable> result = new HashSet<>();
     var stream =
-        index.getInternal().streamEntries(session, Arrays.asList(1, 2), true);
+        index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 1);
 
     result = new HashSet<>();
-    stream = index.getInternal().streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 1);
@@ -305,18 +305,18 @@ public class IndexTxAwareMultiValueGetEntriesTest extends BaseDBTest {
 
     docOne.delete();
 
-    Assert.assertNotNull(session.getTransaction().getIndexChanges(INDEX_NAME));
+    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
 
     Set<Identifiable> result = new HashSet<>();
     var stream =
-        index.getInternal().streamEntries(session, Arrays.asList(1, 2), true);
+        index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 1);
 
     session.commit();
 
-    stream = index.getInternal().streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 1);
@@ -340,18 +340,18 @@ public class IndexTxAwareMultiValueGetEntriesTest extends BaseDBTest {
     docOne.delete();
     ((EntityImpl) session.newEntity(CLASS_NAME)).field(FIELD_NAME, 1);
 
-    Assert.assertNotNull(session.getTransaction().getIndexChanges(INDEX_NAME));
+    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
 
     Set<Identifiable> result = new HashSet<>();
     var stream =
-        index.getInternal().streamEntries(session, Arrays.asList(1, 2), true);
+        index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 2);
 
     session.commit();
 
-    stream = index.getInternal().streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 2);

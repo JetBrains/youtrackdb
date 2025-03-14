@@ -42,7 +42,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
 
     validatePropertyName(propertyName);
-    if (session.getTransaction().isActive()) {
+    if (session.getTransactionInternal().isActive()) {
       throw new SchemaException(session.getDatabaseName(),
           "Cannot create property '" + propertyName + "' inside a transaction");
     }
@@ -407,7 +407,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   }
 
   public void dropProperty(DatabaseSessionInternal session, final String propertyName) {
-    if (session.getTransaction().isActive()) {
+    if (session.getTransactionInternal().isActive()) {
       throw new IllegalStateException("Cannot drop a property inside a transaction");
     }
 
@@ -427,7 +427,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
 
   protected void dropPropertyInternal(
       DatabaseSessionInternal session, final String iPropertyName) {
-    if (session.getTransaction().isActive()) {
+    if (session.getTransactionInternal().isActive()) {
       throw new IllegalStateException("Cannot drop a property inside a transaction");
     }
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_DELETE);

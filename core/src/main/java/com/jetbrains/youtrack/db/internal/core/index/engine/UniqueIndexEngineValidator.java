@@ -2,7 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.index.engine;
 
 import com.jetbrains.youtrack.db.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
+import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexUnique;
 
 public class UniqueIndexEngineValidator implements IndexEngineValidator<Object, RID> {
@@ -20,7 +20,7 @@ public class UniqueIndexEngineValidator implements IndexEngineValidator<Object, 
       // CHECK IF THE ID IS THE SAME OF CURRENT: THIS IS THE UPDATE CASE
       if (!oldValue.equals(newValue)) {
         final var mergeSameKey =
-            metadata != null ? (Boolean) metadata.get(IndexInternal.MERGE_KEYS) : Boolean.FALSE;
+            metadata != null ? (Boolean) metadata.get(Index.MERGE_KEYS) : Boolean.FALSE;
         if (mergeSameKey == null || !mergeSameKey) {
           throw new RecordDuplicatedException(
               null, String.format(

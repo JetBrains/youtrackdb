@@ -20,9 +20,9 @@ package com.jetbrains.youtrack.db.internal.lucene.tests;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrack.db.api.SessionPool;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.session.SessionPool;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
@@ -74,7 +74,7 @@ public class LuceneInsertReadMultiThreadTest extends LuceneBaseTest {
     var idx = schema.getClassInternal("City").getClassIndex(session, "City.name");
 
     db1.begin();
-    Assert.assertEquals(idx.getInternal().size(db1), THREADS * CYCLE);
+    Assert.assertEquals(idx.size(db1), THREADS * CYCLE);
     db1.commit();
   }
 
@@ -95,7 +95,6 @@ public class LuceneInsertReadMultiThreadTest extends LuceneBaseTest {
     public void run() {
 
       final var db = pool.acquire();
-      db.activateOnCurrentThread();
       db.begin();
       var i = 0;
       for (; i < cycle; i++) {
@@ -137,7 +136,7 @@ public class LuceneInsertReadMultiThreadTest extends LuceneBaseTest {
             db.query("select from City where SEARCH_FIELDS(['name'], 'Rome') =true ");
 
         if (resultSet.hasNext()) {
-          assertThat(resultSet.next().asEntity().<String>getProperty("name"))
+          assertThat(resultSet.next().asEntityOrNull().<String>getProperty("name"))
               .isEqualToIgnoringCase("rome");
         }
         resultSet.close();

@@ -138,7 +138,7 @@ public class EntityTreeTest extends BaseDBTest {
 
     Assert.assertEquals(resultSet.size(), 1);
     for (var result : resultSet) {
-      var profile = result.asEntity();
+      var profile = result.asEntityOrNull();
       final Collection<Identifiable> followers = profile.getProperty("followers");
       if (followers != null) {
         for (var follower : followers) {

@@ -21,7 +21,7 @@ public class LuceneIssuesTest extends BaseLuceneTest {
         session.getMetadata().getIndexManagerInternal().getIndex(session, "class_7382_multi");
     try (var rids =
         index
-            .getInternal()
+
             .getRids(session, "server:206012226875414 AND date:[201703120000 TO  201703120001]")) {
       Assertions.assertThat(rids.count()).isEqualTo(1);
     }
@@ -54,7 +54,7 @@ public class LuceneIssuesTest extends BaseLuceneTest {
     }
 
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Item.content");
-    try (var rids = index.getInternal().getRids(session, "'Харько~0.2")) {
+    try (var rids = index.getRids(session, "'Харько~0.2")) {
       Assertions.assertThat(rids.count() >= 3).isTrue();
     }
   }

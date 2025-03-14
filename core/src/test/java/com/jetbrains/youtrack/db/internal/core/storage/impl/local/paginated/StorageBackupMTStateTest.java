@@ -443,7 +443,7 @@ public class StorageBackupMTStateTest {
 
                 if (docs.hasNext()) {
                   var document = docs.next();
-                  databaseDocumentTx.delete(document.castToEntity());
+                  databaseDocumentTx.delete(document.asEntity());
                   deleted = true;
                 }
               } while (!deleted);

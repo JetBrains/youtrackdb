@@ -74,7 +74,7 @@ public class SQLMethodField extends AbstractSQLMethod {
           ioResult = null;
         }
       } else if (ioResult instanceof Result result && result.isEntity()) {
-        ioResult = result.asEntity();
+        ioResult = result.asEntityOrNull();
       } else if (ioResult instanceof Iterable && !(ioResult instanceof EntityImpl)) {
         ioResult = ((Iterable) ioResult).iterator();
       }

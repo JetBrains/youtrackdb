@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.api;
 
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.session.SessionPool;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;

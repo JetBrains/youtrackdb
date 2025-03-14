@@ -122,7 +122,6 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
     Set<Identifiable> luceneResultSet;
     try (var rids =
         index
-            .getInternal()
             .getRids(ctx.getDatabaseSession(),
                 new LuceneKeyAndMetadata(
                     new LuceneCompositeKey(Collections.singletonList(mltQuery.toString()))

@@ -436,6 +436,10 @@ public class RecordSerializerJackson {
       var schemaClass = entity.getImmutableSchemaClass(session);
       var schemaProperty = schemaClass != null ? schemaClass.getProperty(fieldName) : null;
 
+      if (EntityImpl.isSystemProperty(fieldName)) {
+        throw new SerializationException(
+            "System property can not be updated from JSON: " + fieldName);
+      }
       var type = determineType(session, entity, fieldName,
           fieldTypes.get(fieldName), schemaProperty);
       var v = parseValue(session, entity, jsonParser, type, schemaProperty);
@@ -483,7 +487,7 @@ public class RecordSerializerJackson {
     writeMetadata(session, jsonGenerator, (RecordAbstract) record, formatSettings);
 
     if (record instanceof EntityImpl entity) {
-      for (var propertyName : entity.getPropertyNamesInternal()) {
+      for (var propertyName : entity.getPropertyNamesInternal(false, true)) {
         jsonGenerator.writeFieldName(propertyName);
         var propertyValue = entity.getPropertyInternal(propertyName);
 

@@ -180,15 +180,15 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     Assert.assertEquals(indexes.size(), 1);
 
     var indexDefinition = indexes.iterator().next();
-    try (final var stream = indexDefinition.getInternal().getRids(session, "JayM1")) {
+    try (final var stream = indexDefinition.getRids(session, "JayM1")) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
 
-    try (final var stream = indexDefinition.getInternal().getRids(session, "JayM2")) {
+    try (final var stream = indexDefinition.getRids(session, "JayM2")) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
 
-    try (var stream = indexDefinition.getInternal().getRids(session, "JayM3")) {
+    try (var stream = indexDefinition.getRids(session, "JayM3")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
   }
@@ -213,7 +213,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
     var indexName = indexes.iterator().next();
     // We must get 2 records for "nameA".
-    try (var stream = indexName.getInternal().getRids(session, "Jack")) {
+    try (var stream = indexName.getRids(session, "Jack")) {
       Assert.assertEquals(stream.count(), 2);
     }
 
@@ -223,7 +223,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     session.commit();
 
     // We must get 1 record for "nameA".
-    try (var stream = indexName.getInternal().getRids(session, "Jack")) {
+    try (var stream = indexName.getRids(session, "Jack")) {
       Assert.assertEquals(stream.count(), 1);
     }
   }
@@ -712,7 +712,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     var resultSet = executeQuery("select from Account");
 
     session.begin();
-    var doc = (EntityImpl) resultSet.getFirst().asEntity();
+    var doc = (EntityImpl) resultSet.getFirst().asEntityOrNull();
     doc.field("name", "modified");
     var oldVersion = doc.getVersion();
 

@@ -68,9 +68,10 @@ public class ContextConfiguration implements Serializable {
   }
 
   public Object getValue(final GlobalConfiguration iConfig) {
-    if (config != null && config.containsKey(iConfig.getKey())) {
+    if (config.containsKey(iConfig.getKey())) {
       return config.get(iConfig.getKey());
     }
+
     return iConfig.getValue();
   }
 
@@ -110,7 +111,7 @@ public class ContextConfiguration implements Serializable {
 
   @SuppressWarnings("unchecked")
   public <T> T getValue(final String iName, final T iDefaultValue) {
-    if (config != null && config.containsKey(iName)) {
+    if (config.containsKey(iName)) {
       return (T) config.get(iName);
     }
 
@@ -127,7 +128,7 @@ public class ContextConfiguration implements Serializable {
     if (v == null) {
       return false;
     }
-    return v instanceof Boolean ? ((Boolean) v).booleanValue() : Boolean.parseBoolean(v.toString());
+    return v instanceof Boolean ? (Boolean) v : Boolean.parseBoolean(v.toString());
   }
 
   public String getValueAsString(final String iName, final String iDefaultValue) {

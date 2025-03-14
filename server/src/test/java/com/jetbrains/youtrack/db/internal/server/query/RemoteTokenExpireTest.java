@@ -3,9 +3,9 @@ package com.jetbrains.youtrack.db.internal.server.query;
 import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.SessionPool;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.session.SessionPool;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemote;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
@@ -88,9 +88,6 @@ public class RemoteTokenExpireTest {
   public void itShouldNotFailWithQuery() {
 
     waitAndClean();
-
-    session.activateOnCurrentThread();
-
     try (var res = session.query("select from Some")) {
 
       Assert.assertEquals(0, res.stream().count());
@@ -105,9 +102,6 @@ public class RemoteTokenExpireTest {
   public void itShouldNotFailWithCommand() {
 
     waitAndClean();
-
-    session.activateOnCurrentThread();
-
     session.begin();
     try (var res = session.command("insert into V set name = 'foo'")) {
       session.commit();
@@ -124,9 +118,6 @@ public class RemoteTokenExpireTest {
   public void itShouldNotFailWithScript() {
 
     waitAndClean();
-
-    session.activateOnCurrentThread();
-
     try (var res = session.execute("sql", "begin;insert into V set name = 'foo';commit;")) {
 
       Assert.assertEquals(1, res.stream().count());
@@ -145,7 +136,6 @@ public class RemoteTokenExpireTest {
     try (var res = session.query("select from ORole")) {
 
       waitAndClean();
-      session.activateOnCurrentThread();
       Assert.assertEquals(3, res.stream().count());
 
     } catch (TokenSecurityException e) {
@@ -160,9 +150,6 @@ public class RemoteTokenExpireTest {
   public void itShouldNotFailWithNewTXAndQuery() {
 
     waitAndClean();
-
-    session.activateOnCurrentThread();
-
     session.begin();
 
     session.newEntity("Some");
@@ -187,8 +174,6 @@ public class RemoteTokenExpireTest {
       Assert.assertEquals(1, resultSet.stream().count());
     }
     waitAndClean();
-
-    session.activateOnCurrentThread();
 
     try {
       session.query("select from Some");
@@ -221,9 +206,6 @@ public class RemoteTokenExpireTest {
     }
 
     waitAndClean();
-
-    session.activateOnCurrentThread();
-
     try {
       try (var resultSet = session.query("select from Some")) {
         Assert.assertEquals(0, resultSet.stream().count());
@@ -237,7 +219,6 @@ public class RemoteTokenExpireTest {
   @After
   public void after() {
     QUERY_REMOTE_RESULTSET_PAGE_SIZE.setValue(oldPageSize);
-    session.activateOnCurrentThread();
     session.close();
     youTrackDB.close();
     server.shutdown();

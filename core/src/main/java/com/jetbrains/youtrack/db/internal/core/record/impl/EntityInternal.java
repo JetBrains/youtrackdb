@@ -11,7 +11,7 @@ import javax.annotation.Nullable;
 
 public interface EntityInternal extends Entity {
 
-  Collection<String> getPropertyNamesInternal();
+  Collection<String> getPropertyNamesInternal(boolean includeSystemProperties, boolean checkAccess);
 
   void setPropertyInternal(String name, Object value);
 
@@ -26,6 +26,14 @@ public interface EntityInternal extends Entity {
   @Nullable
   RID getLinkPropertyInternal(String name);
 
+  <RET> RET getPropertyOnLoadValueInternal(@Nonnull String name);
+
   @Nullable
   SchemaImmutableClass getImmutableSchemaClass(@Nonnull DatabaseSessionInternal session);
+
+  Collection<String> getDirtyPropertiesInternal(boolean includeSystemProperties,
+      boolean checkAccess);
+
+  Collection<String> getDirtyPropertiesBetweenCallbacksInternal(boolean includeSystemFields,
+      boolean checkAccess);
 }

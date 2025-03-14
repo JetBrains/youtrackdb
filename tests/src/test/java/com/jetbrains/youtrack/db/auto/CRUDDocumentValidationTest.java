@@ -26,7 +26,6 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Collections;
-import java.util.Date;
 import org.testng.Assert;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
@@ -208,7 +207,7 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
         session.query("SELECT FROM MyTestClass WHERE keyField = ?", "K1").stream().toList();
     session.begin();
     Assert.assertEquals(result.size(), 1);
-    var readDoc = result.getFirst().asEntity();
+    var readDoc = result.getFirst().asEntityOrNull();
     assert readDoc != null;
     readDoc.setProperty("keyField", "K1N");
     session.commit();
@@ -231,7 +230,7 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
         session.query("SELECT FROM MyTestClass WHERE keyField = ?", "K2").stream().toList();
     session.begin();
     Assert.assertEquals(result.size(), 1);
-    var readDoc = result.getFirst().asEntity();
+    var readDoc = result.getFirst().asEntityOrNull();
     assert readDoc != null;
     readDoc.setProperty("keyField", "K2N");
     session.commit();
@@ -252,7 +251,7 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
     var result =
         session.query("SELECT FROM MyTestClass WHERE keyField = ?", "K3").stream().toList();
     Assert.assertEquals(result.size(), 1);
-    var readDoc = result.getFirst().asEntity();
+    var readDoc = result.getFirst().asEntityOrNull();
     assert readDoc != null;
     readDoc.setProperty("keyField", "K3N");
     session.commit();

@@ -36,7 +36,7 @@ public class TransactionMetadataTest {
   public void test() {
     db.begin();
     var metadata = new byte[]{1, 2, 4};
-    ((TransactionInternal) db.getTransaction())
+    db.getTransactionInternal()
         .setMetadataHolder(new TestTransacationMetadataHolder(metadata));
     var v = db.newVertex("V");
     v.setProperty("name", "Foo");

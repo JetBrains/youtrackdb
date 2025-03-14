@@ -1,6 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.storage;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
@@ -48,7 +47,7 @@ public class StorageTestIT {
             .addGlobalConfigurationParameter(
                 GlobalConfiguration.STORAGE_CHECKSUM_MODE,
                 ChecksumMode.StoreAndSwitchReadOnlyMode)
-            .addAttribute(DatabaseSession.ATTRIBUTES.MINIMUM_CLUSTERS, 1)
+            .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_MINIMUM_CLUSTERS, 1)
             .build();
 
     youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), config);
@@ -114,7 +113,7 @@ public class StorageTestIT {
             .addGlobalConfigurationParameter(
                 GlobalConfiguration.STORAGE_CHECKSUM_MODE,
                 ChecksumMode.StoreAndSwitchReadOnlyMode)
-            .addAttribute(DatabaseSession.ATTRIBUTES.MINIMUM_CLUSTERS, 1)
+            .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_MINIMUM_CLUSTERS, 1)
             .build();
 
     youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), config);
@@ -177,7 +176,7 @@ public class StorageTestIT {
         (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_CHECKSUM_MODE,
                 ChecksumMode.StoreAndVerify)
-            .addAttribute(DatabaseSession.ATTRIBUTES.MINIMUM_CLUSTERS, 1)
+            .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_MINIMUM_CLUSTERS, 1)
             .build();
 
     youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), config);
@@ -240,7 +239,7 @@ public class StorageTestIT {
         (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_CHECKSUM_MODE,
                 ChecksumMode.StoreAndVerify)
-            .addAttribute(DatabaseSession.ATTRIBUTES.MINIMUM_CLUSTERS, 1)
+            .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_MINIMUM_CLUSTERS, 1)
             .build();
 
     youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), config);

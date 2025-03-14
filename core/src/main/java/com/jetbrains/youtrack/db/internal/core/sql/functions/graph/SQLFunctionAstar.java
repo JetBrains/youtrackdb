@@ -87,7 +87,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
 
     var db = iContext.getDatabaseSession();
     var record =
-        iCurrentRecord != null && iCurrentRecord.isEntity() ? iCurrentRecord.castToEntity() : null;
+        iCurrentRecord != null && iCurrentRecord.isEntity() ? iCurrentRecord.asEntity() : null;
 
     var source = iParams[0];
     if (MultiValue.isMultiValue(source)) {
@@ -96,7 +96,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
       }
       source = MultiValue.getFirstValue(source);
       if (source instanceof Result && ((Result) source).isEntity()) {
-        source = ((Result) source).castToEntity();
+        source = ((Result) source).asEntity();
       }
     }
     source = SQLHelper.getValue(source, record, iContext);
@@ -105,7 +105,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
       if (!elem.isVertex()) {
         throw new IllegalArgumentException("The sourceVertex must be a vertex record");
       }
-      paramSourceVertex = elem.asVertex();
+      paramSourceVertex = elem.asVertexOrNull();
     } else {
       throw new IllegalArgumentException("The sourceVertex must be a vertex record");
     }
@@ -117,7 +117,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
       }
       dest = MultiValue.getFirstValue(dest);
       if (dest instanceof Result && ((Result) dest).isEntity()) {
-        dest = ((Result) dest).castToEntity();
+        dest = ((Result) dest).asEntity();
       }
     }
     dest = SQLHelper.getValue(dest, record, iContext);
@@ -126,7 +126,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
       if (!elem.isVertex()) {
         throw new IllegalArgumentException("The destinationVertex must be a vertex record");
       }
-      paramDestinationVertex = elem.castToVertex();
+      paramDestinationVertex = elem.asVertex();
     } else {
       throw new IllegalArgumentException("The destinationVertex must be a vertex record");
     }
@@ -220,7 +220,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
     if (!(outVertex instanceof Entity)) {
       outVertex = outVertex.getRecord(db);
     }
-    return ((Entity) outVertex).asVertex();
+    return ((Entity) outVertex).asVertexOrNull();
   }
 
   protected Set<Edge> getNeighborEdges(final Vertex node) {
@@ -317,7 +317,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
       }
     }
     if (e != null && e.isStateful()) {
-      final var fieldValue = e.castToStatefulEdge().getProperty(paramWeightFieldName);
+      final var fieldValue = e.asStatefulEdge().getProperty(paramWeightFieldName);
       if (fieldValue != null) {
         if (fieldValue instanceof Float) {
           return (Float) fieldValue;
@@ -332,7 +332,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
 
   protected double getDistance(final Edge edge) {
     if (edge != null && edge.isStateful()) {
-      final var fieldValue = edge.castToStatefulEdge().getProperty(paramWeightFieldName);
+      final var fieldValue = edge.asStatefulEdge().getProperty(paramWeightFieldName);
       if (fieldValue != null) {
         if (fieldValue instanceof Float) {
           return (Float) fieldValue;

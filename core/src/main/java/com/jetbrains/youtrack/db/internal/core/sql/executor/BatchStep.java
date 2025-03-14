@@ -28,8 +28,8 @@ public class BatchStep extends AbstractExecutionStep {
 
   private Result mapResult(Result result, CommandContext ctx) {
     var db = ctx.getDatabaseSession();
-    if (db.getTransaction().isActive()) {
-      if (db.getTransaction().getEntryCount() % batchSize == 0) {
+    if (db.getTransactionInternal().isActive()) {
+      if (db.getTransactionInternal().getEntryCount() % batchSize == 0) {
         db.commit();
         db.begin();
       }

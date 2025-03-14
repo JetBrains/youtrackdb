@@ -31,7 +31,6 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.LiveQueryListenerImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
@@ -279,7 +278,7 @@ public class LiveQueryHookV2 {
       @Nonnull DatabaseSessionInternal db, EntityImpl entity,
       Set<String> projectionsToLoad) {
     var result = new ResultInternal(db);
-    for (var prop : entity.getPropertyNamesInternal()) {
+    for (var prop : entity.getPropertyNamesInternal(false, true)) {
       if (projectionsToLoad == null || projectionsToLoad.contains(prop)) {
         result.setProperty(prop, unboxRidbags(entity.getPropertyInternal(prop)));
       }
@@ -287,7 +286,7 @@ public class LiveQueryHookV2 {
     result.setProperty("@rid", entity.getIdentity());
     result.setProperty("@class", entity.getSchemaClassName());
     result.setProperty("@version", entity.getVersion());
-    for (var rawEntry : EntityInternalUtils.rawEntries(entity)) {
+    for (var rawEntry : entity.getRawEntries()) {
       var entry = rawEntry.getValue();
       if (entry.isChanged()) {
         result.setProperty(
@@ -314,7 +313,7 @@ public class LiveQueryHookV2 {
   private static ResultInternal calculateAfter(
       DatabaseSessionInternal db, EntityImpl entity, Set<String> projectionsToLoad) {
     var result = new ResultInternal(db);
-    for (var prop : entity.getPropertyNamesInternal()) {
+    for (var prop : entity.getPropertyNamesInternal(false, true)) {
       if (projectionsToLoad == null || projectionsToLoad.contains(prop)) {
         result.setProperty(prop, unboxRidbags(entity.getPropertyInternal(prop)));
       }

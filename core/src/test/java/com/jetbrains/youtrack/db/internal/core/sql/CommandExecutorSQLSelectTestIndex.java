@@ -36,7 +36,7 @@ public class CommandExecutorSQLSelectTestIndex extends BaseMemoryInternalDatabas
     assertEquals(results.stream().count(), 1);
 
     final var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Foo.bar");
-    assertEquals(index.getInternal().size(session), 1);
+    assertEquals(index.size(session), 1);
   }
 
   @Test

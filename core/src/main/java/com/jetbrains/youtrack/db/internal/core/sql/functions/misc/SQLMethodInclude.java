@@ -99,7 +99,7 @@ public class SQLMethodInclude extends AbstractSQLMethod {
           return null;
         }
       } else if (iThis instanceof Result result) {
-        iThis = result.asEntity();
+        iThis = result.asEntityOrNull();
       }
       if (iThis instanceof EntityImpl) {
         // ACT ON SINGLE ENTITY

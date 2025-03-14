@@ -43,7 +43,7 @@ public class UpdateContentStep extends AbstractExecutionStep {
 
   private Result mapResult(Result result, CommandContext ctx) {
     if (result instanceof ResultInternal) {
-      var entity = result.asEntity();
+      var entity = result.asEntityOrNull();
       assert entity != null;
       handleContent((EntityInternal) entity, ctx);
     }
@@ -87,7 +87,7 @@ public class UpdateContentStep extends AbstractExecutionStep {
     SchemaClass recordClass = entity1.getImmutableSchemaClass(session);
 
     if (recordClass != null && recordClass.isSubClassOf("V")) {
-      for (var fieldName : record.getPropertyNamesInternal()) {
+      for (var fieldName : record.getPropertyNamesInternal(false, true)) {
         if (fieldName.startsWith("in_") || fieldName.startsWith("out_")) {
           if (fieldsToPreserve == null) {
             fieldsToPreserve = new ResultInternal(session);
@@ -96,7 +96,7 @@ public class UpdateContentStep extends AbstractExecutionStep {
         }
       }
     } else if (recordClass != null && recordClass.isSubClassOf("E")) {
-      for (var fieldName : record.getPropertyNamesInternal()) {
+      for (var fieldName : record.getPropertyNamesInternal(false, true)) {
         if (fieldName.equals("in") || fieldName.equals("out")) {
           if (fieldsToPreserve == null) {
             fieldsToPreserve = new ResultInternal(session);

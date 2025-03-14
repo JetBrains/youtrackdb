@@ -110,14 +110,14 @@ public class EntityImpl extends RecordAbstract
   public static final String RESULT_PROPERTY_TYPES = "$propertyTypes";
   private int fieldSize;
 
-  protected Map<String, EntityEntry> fields;
+  private Map<String, EntityEntry> fields;
 
   private boolean trackingChanges = true;
-  protected boolean ordered = true;
+  private boolean ordered = true;
   private boolean lazyLoad = true;
-  protected transient WeakReference<RecordElement> owner = null;
+  protected WeakReference<RecordElement> owner = null;
 
-  protected ImmutableSchema schema;
+  private ImmutableSchema schema;
   private String className;
   private SchemaImmutableClass immutableClazz;
 
@@ -125,9 +125,9 @@ public class EntityImpl extends RecordAbstract
   private ArrayList<RidBag> ridBagsToDelete;
 
   private int immutableSchemaVersion = 1;
-  PropertyAccess propertyAccess;
-  PropertyEncryption propertyEncryption;
 
+  public PropertyAccess propertyAccess;
+  public PropertyEncryption propertyEncryption;
 
   /**
    * Internal constructor used on unmarshalling.
@@ -175,28 +175,9 @@ public class EntityImpl extends RecordAbstract
     }
   }
 
-  @Nullable
-  @Override
-  public Entity asEntity() {
-    return this;
-  }
-
-  @Nullable
-  @Override
-  public Blob asBlob() {
-    return null;
-  }
-
-  @Nullable
-  @Override
-  public DBRecord asRecord() {
-    return this;
-  }
-
-
   @Override
   @Nonnull
-  public Vertex castToVertex() {
+  public Vertex asVertex() {
     checkForBinding();
     if (this instanceof Vertex vertex) {
       return vertex;
@@ -216,7 +197,7 @@ public class EntityImpl extends RecordAbstract
 
   @Nullable
   @Override
-  public Vertex asVertex() {
+  public Vertex asVertexOrNull() {
     checkForBinding();
     if (this instanceof Vertex vertex) {
       return vertex;
@@ -235,7 +216,7 @@ public class EntityImpl extends RecordAbstract
   }
 
   @Nonnull
-  public StatefulEdge castToStatefulEdge() {
+  public StatefulEdge asStatefulEdge() {
     checkForBinding();
     if (this instanceof StatefulEdge edge) {
       return edge;
@@ -254,7 +235,7 @@ public class EntityImpl extends RecordAbstract
   }
 
   @Nullable
-  public StatefulEdge asStatefulEdge() {
+  public StatefulEdge asStatefulEdgeOrNull() {
     checkForBinding();
     if (this instanceof StatefulEdge edge) {
       return edge;
@@ -309,36 +290,14 @@ public class EntityImpl extends RecordAbstract
 
   @Nonnull
   @Override
-  public Edge castToEdge() {
-    return castToStatefulEdge();
+  public Edge asEdge() {
+    return asStatefulEdgeOrNull();
   }
 
   @Nullable
   @Override
-  public Edge asEdge() {
-    return asStatefulEdge();
-  }
-
-  @Override
-  public boolean isBlob() {
-    return false;
-  }
-
-  @Nonnull
-  @Override
-  public Blob castToBlob() {
-    throw new DatabaseException("Entity is not a blob");
-  }
-
-  @Nonnull
-  @Override
-  public DBRecord castToRecord() {
-    return this;
-  }
-
-  @Override
-  public boolean isRecord() {
-    return true;
+  public Edge asEdgeOrNull() {
+    return asStatefulEdgeOrNull();
   }
 
   @Override
@@ -346,7 +305,7 @@ public class EntityImpl extends RecordAbstract
     return false;
   }
 
-  Set<String> calculatePropertyNames() {
+  Set<String> calculatePropertyNames(boolean includeSystemProperties) {
     checkForBinding();
 
     if (status == RecordElement.STATUS.LOADED && source != null) {
@@ -356,12 +315,12 @@ public class EntityImpl extends RecordAbstract
         Set<String> fields = new LinkedHashSet<>();
         if (propertyAccess != null && propertyAccess.hasFilters()) {
           for (var fieldName : fieldNames) {
-            if (propertyAccess.isReadable(fieldName)) {
+            if ((includeSystemProperties || !isSystemProperty(fieldName))
+                && propertyAccess.isReadable(fieldName)) {
               fields.add(fieldName);
             }
           }
         } else {
-
           Collections.addAll(fields, fieldNames);
         }
         return fields;
@@ -377,14 +336,20 @@ public class EntityImpl extends RecordAbstract
     Set<String> fields = new LinkedHashSet<>();
     if (propertyAccess != null && propertyAccess.hasFilters()) {
       for (var entry : this.fields.entrySet()) {
-        if (entry.getValue().exists() && propertyAccess.isReadable(entry.getKey())) {
+        var propertyName = entry.getKey();
+        if (entry.getValue().exists() && (includeSystemProperties || !isSystemProperty(
+            propertyName)) &&
+            propertyAccess.isReadable(propertyName)) {
           fields.add(entry.getKey());
         }
       }
     } else {
       for (var entry : this.fields.entrySet()) {
         if (entry.getValue().exists()) {
-          fields.add(entry.getKey());
+          var propertyName = entry.getKey();
+          if (includeSystemProperties || !isSystemProperty(propertyName)) {
+            fields.add(propertyName);
+          }
         }
       }
     }
@@ -394,23 +359,33 @@ public class EntityImpl extends RecordAbstract
 
   @Override
   public @Nonnull Collection<String> getPropertyNames() {
-    return getPropertyNamesInternal();
+    return getPropertyNamesInternal(false, true);
   }
 
   @Override
-  public boolean isEntity() {
-    return true;
-  }
+  public Collection<String> getPropertyNamesInternal(boolean includeSystemProperties,
+      boolean checkAccess) {
+    if (checkAccess) {
+      return calculatePropertyNames(includeSystemProperties);
+    } else {
+      checkForBinding();
+      if (fields == null || fields.isEmpty()) {
+        return Collections.emptySet();
+      }
 
-  @Nonnull
-  @Override
-  public Entity castToEntity() {
-    return this;
-  }
+      Set<String> propertyNames = new LinkedHashSet<>();
 
-  @Override
-  public Collection<String> getPropertyNamesInternal() {
-    return calculatePropertyNames();
+      for (var entry : this.fields.entrySet()) {
+        if (entry.getValue().exists()) {
+          var propertyName = entry.getKey();
+          if (includeSystemProperties || !isSystemProperty(propertyName)) {
+            propertyNames.add(propertyName);
+          }
+        }
+      }
+
+      return propertyNames;
+    }
   }
 
   /**
@@ -421,6 +396,11 @@ public class EntityImpl extends RecordAbstract
    * @return the field value. Null if the field does not exist.
    */
   public <RET> RET getProperty(final @Nonnull String fieldName) {
+    validatePropertyName(fieldName, true);
+    if (!filterPropertyAccess(fieldName)) {
+      return null;
+    }
+
     return getPropertyInternal(fieldName);
   }
 
@@ -477,13 +457,28 @@ public class EntityImpl extends RecordAbstract
     }
 
     checkForBinding();
-    var value = (RET) EntityHelper.getIdentifiableValue(session, this, name);
-    if (!(!name.isEmpty() && name.charAt(0) == '@')
-        && lazyLoad
-        && value instanceof RID rid
-        && (rid.isPersistent() || rid.isNew())) {
+    if (!name.isEmpty() && name.charAt(0) == '@') {
+      var value = (RET) EntityHelper.getRecordAttribute(session, this, name);
+      if (value != null) {
+        return value;
+      }
+    }
+
+    RET value = null;
+    checkForFields(name);
+
+    var entry = fields.get(name);
+    if (entry != null && entry.exists()) {
+      value = (RET) entry.value;
+    }
+
+    if (value == null) {
+      return null;
+    }
+
+    if (value instanceof RID rid && lazyLoad) {
       try {
-        value = session.load((RID) value);
+        value = session.load(rid);
       } catch (RecordNotFoundException e) {
         return null;
       }
@@ -494,11 +489,24 @@ public class EntityImpl extends RecordAbstract
 
   @Override
   public <RET> RET getPropertyOnLoadValue(@Nonnull String name) {
+    validatePropertyName(name, false);
+
+    return getPropertyOnLoadValueInternal(name);
+  }
+
+  @Override
+  public Collection<String> getDirtyProperties() {
+    return getDirtyPropertiesInternal(false, true);
+  }
+
+  @Override
+  public Collection<String> getDirtyPropertiesBetweenCallbacks() {
+    return getDirtyPropertiesBetweenCallbacksInternal(false, true);
+  }
+
+  @Override
+  public <RET> RET getPropertyOnLoadValueInternal(@Nonnull String name) {
     checkForBinding();
-
-    Objects.requireNonNull(name, "Name argument is required.");
-    VertexInternal.checkPropertyName(name);
-
     checkForFields();
 
     var field = fields.get(name);
@@ -534,12 +542,12 @@ public class EntityImpl extends RecordAbstract
 
 
   private static <RET> RET convertToGraphElement(RET value) {
-    if (value instanceof Entity) {
-      if (((Entity) value).isVertex()) {
-        value = (RET) ((Entity) value).castToVertex();
+    if (value instanceof Entity entity) {
+      if (entity.isVertex()) {
+        value = (RET) entity.asVertex();
       } else {
-        if (((Entity) value).isStatefulEdge()) {
-          value = (RET) ((Entity) value).castToEdge();
+        if (entity.isStatefulEdge()) {
+          value = (RET) entity.asEdge();
         }
       }
     }
@@ -558,32 +566,26 @@ public class EntityImpl extends RecordAbstract
   @Nullable
   @Override
   public RID getLink(@Nonnull String fieldName) {
+    validatePropertyName(fieldName, true);
+    if (!filterPropertyAccess(fieldName)) {
+      return null;
+    }
+
     return getLinkPropertyInternal(fieldName);
   }
 
   @Nullable
   @Override
   public RID getLinkPropertyInternal(String name) {
-    if (name == null) {
-      return null;
-    }
+    var result = getPropertyInternal(name, false);
 
-    var result = accessProperty(name);
-    if (result == null) {
-      return null;
-    }
-
-    if (!(result instanceof Identifiable identifiable)
-        || (result instanceof EntityImpl entity && entity.isEmbedded())) {
-      throw new IllegalArgumentException("Requested property " + name + " is not a link.");
-    }
-
-    var id = identifiable.getIdentity();
-    if (!(id.isPersistent() || id.isNew())) {
-      throw new IllegalArgumentException("Requested property " + name + " is not a link.");
-    }
-
-    return id;
+    return switch (result) {
+      case null -> null;
+      case RecordAbstract recordAbstract -> recordAbstract.getIdentity();
+      case Identifiable identifiable -> identifiable.getIdentity();
+      default -> throw new IllegalArgumentException(
+          "Property " + name + " is not a link type, but " + result.getClass().getName());
+    };
   }
 
   @Nullable
@@ -688,31 +690,13 @@ public class EntityImpl extends RecordAbstract
   }
 
   /**
-   * retrieves a property value from the current entity, without evaluating it (eg. no conversion
-   * from RID to entity)
-   *
-   * @param iFieldName The field name, it can contain any character (it's not evaluated as an
-   *                   expression, as in #eval()
-   * @return the field value. Null if the field does not exist.
-   */
-  public <RET> RET getRawProperty(final String iFieldName) {
-    checkForBinding();
-
-    if (iFieldName == null) {
-      return null;
-    }
-
-    return (RET) EntityHelper.getIdentifiableValue(session, this, iFieldName);
-  }
-
-  /**
    * sets a property value on current entity
    *
    * @param propertyName  The property name
    * @param propertyValue The property value
    */
   public void setProperty(final @Nonnull String propertyName, @Nullable Object propertyValue) {
-    validatePropertyName(propertyName);
+    validatePropertyName(propertyName, false);
     validatePropertyValue(propertyName, propertyValue);
 
     setPropertyInternal(propertyName, propertyValue);
@@ -721,6 +705,8 @@ public class EntityImpl extends RecordAbstract
 
   @Override
   public @Nonnull <T> List<T> getOrCreateEmbeddedList(@Nonnull String name) {
+    validatePropertyName(name, false);
+
     var value = this.<List<T>>getPropertyInternal(name);
 
     if (value == null) {
@@ -734,6 +720,8 @@ public class EntityImpl extends RecordAbstract
   @Nonnull
   @Override
   public <T> List<T> newEmbeddedList(@Nonnull String name) {
+    validatePropertyName(name, false);
+
     var value = new TrackedList<T>(this);
     setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST);
     return value;
@@ -742,6 +730,7 @@ public class EntityImpl extends RecordAbstract
   @Nonnull
   @Override
   public <T> List<T> newEmbeddedList(@Nonnull String name, List<T> source) {
+    validatePropertyName(name, false);
     var value = new TrackedList<T>(source.size());
     value.addAll(source);
     setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST);
@@ -751,6 +740,7 @@ public class EntityImpl extends RecordAbstract
   @Nonnull
   @Override
   public <T> List<T> newEmbeddedList(@Nonnull String name, T[] source) {
+    validatePropertyName(name, false);
     var value = new TrackedList<T>(source.length);
     Collections.addAll(value, source);
     setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST);
@@ -760,6 +750,8 @@ public class EntityImpl extends RecordAbstract
   @Nonnull
   @Override
   public List<Byte> newEmbeddedList(@Nonnull String name, byte[] source) {
+    validatePropertyName(name, false);
+
     var value = new TrackedList<Byte>(source.length);
     for (var b : source) {
       value.add(b);
@@ -771,6 +763,8 @@ public class EntityImpl extends RecordAbstract
   @Nonnull
   @Override
   public List<Short> newEmbeddedList(@Nonnull String name, short[] source) {
+    validatePropertyName(name, false);
+
     var value = new TrackedList<Short>(source.length);
     for (var s : source) {
       value.add(s);
@@ -782,6 +776,8 @@ public class EntityImpl extends RecordAbstract
   @Nonnull
   @Override
   public List<Integer> newEmbeddedList(@Nonnull String name, int[] source) {
+    validatePropertyName(name, false);
+
     var value = new TrackedList<Integer>(source.length);
     for (var i : source) {
       value.add(i);
@@ -793,6 +789,8 @@ public class EntityImpl extends RecordAbstract
   @Nonnull
   @Override
   public List<Long> newEmbeddedList(@Nonnull String name, long[] source) {
+    validatePropertyName(name, false);
+
     var value = new TrackedList<Long>(source.length);
     for (var l : source) {
       value.add(l);
@@ -804,6 +802,8 @@ public class EntityImpl extends RecordAbstract
   @Nonnull
   @Override
   public List<Boolean> newEmbeddedList(@Nonnull String name, boolean[] source) {
+    validatePropertyName(name, false);
+
     var value = new TrackedList<Boolean>(source.length);
     for (var b : source) {
       value.add(b);
@@ -815,6 +815,8 @@ public class EntityImpl extends RecordAbstract
   @Nonnull
   @Override
   public List<Float> newEmbeddedList(@Nonnull String name, float[] source) {
+    validatePropertyName(name, false);
+
     var value = new TrackedList<Float>(source.length);
     for (var f : source) {
       value.add(f);
@@ -826,6 +828,8 @@ public class EntityImpl extends RecordAbstract
   @Nonnull
   @Override
   public List<Double> newEmbeddedList(@Nonnull String name, double[] source) {
+    validatePropertyName(name, false);
+
     var value = new TrackedList<Double>(source.length);
     for (var d : source) {
       value.add(d);
@@ -836,6 +840,8 @@ public class EntityImpl extends RecordAbstract
 
   @Override
   public @Nonnull <T> Set<T> getOrCreateEmbeddedSet(@Nonnull String name) {
+    validatePropertyName(name, false);
+
     var value = this.<Set<T>>getPropertyInternal(name);
     if (value == null) {
       value = new TrackedSet<>(this);
@@ -848,6 +854,8 @@ public class EntityImpl extends RecordAbstract
   @Nonnull
   @Override
   public <T> Set<T> newEmbeddedSet(@Nonnull String name) {
+    validatePropertyName(name, false);
+
     var value = new TrackedSet<T>(this);
     setPropertyInternal(name, value, PropertyType.EMBEDDEDSET);
     return value;
@@ -855,6 +863,8 @@ public class EntityImpl extends RecordAbstract
 
   @Override
   public <T> Set<T> newEmbeddedSet(@Nonnull String name, Set<T> source) {
+    validatePropertyName(name, false);
+
     var value = new TrackedSet<T>(source.size());
     value.addAll(source);
     setPropertyInternal(name, value, PropertyType.EMBEDDEDSET);
@@ -863,6 +873,8 @@ public class EntityImpl extends RecordAbstract
 
   @Override
   public @Nonnull <T> Map<String, T> getOrCreateEmbeddedMap(@Nonnull String name) {
+    validatePropertyName(name, false);
+
     var value = this.<Map<String, T>>getPropertyInternal(name);
     if (value == null) {
       value = new TrackedMap<>(this);
@@ -875,6 +887,8 @@ public class EntityImpl extends RecordAbstract
   @Nonnull
   @Override
   public <T> Map<String, T> newEmbeddedMap(@Nonnull String name) {
+    validatePropertyName(name, false);
+
     var value = new TrackedMap<T>(this);
     setPropertyInternal(name, value, PropertyType.EMBEDDEDMAP);
     return value;
@@ -882,6 +896,8 @@ public class EntityImpl extends RecordAbstract
 
   @Override
   public <T> Map<String, T> newEmbeddedMap(@Nonnull String name, Map<String, T> source) {
+    validatePropertyName(name, false);
+
     var value = new TrackedMap<T>(source.size());
     value.putAll(source);
     setPropertyInternal(name, value, PropertyType.EMBEDDEDMAP);
@@ -890,6 +906,8 @@ public class EntityImpl extends RecordAbstract
 
   @Override
   public @Nonnull List<Identifiable> getOrCreateLinkList(@Nonnull String name) {
+    validatePropertyName(name, false);
+
     var value = this.<List<Identifiable>>getPropertyInternal(name);
     if (value == null) {
       value = new LinkList(this);
@@ -902,13 +920,18 @@ public class EntityImpl extends RecordAbstract
   @Nonnull
   @Override
   public List<Identifiable> newLinkList(@Nonnull String name) {
+    validatePropertyName(name, false);
+
     var value = new LinkList(this);
     setPropertyInternal(name, value, PropertyType.LINKLIST);
     return value;
   }
 
+
   @Override
   public List<Identifiable> newLinkList(@Nonnull String name, List<Identifiable> source) {
+    validatePropertyName(name, false);
+
     var value = new LinkList(this);
     value.addAll(source);
     setPropertyInternal(name, value, PropertyType.LINKLIST);
@@ -918,6 +941,8 @@ public class EntityImpl extends RecordAbstract
   @Nonnull
   @Override
   public Set<Identifiable> getOrCreateLinkSet(@Nonnull String name) {
+    validatePropertyName(name, false);
+
     var value = this.<Set<Identifiable>>getPropertyInternal(name);
     if (value == null) {
       value = new LinkSet(this);
@@ -930,6 +955,8 @@ public class EntityImpl extends RecordAbstract
   @Nonnull
   @Override
   public Set<Identifiable> newLinkSet(@Nonnull String name) {
+    validatePropertyName(name, false);
+
     var value = new LinkSet(this);
     setPropertyInternal(name, value, PropertyType.LINKSET);
     return value;
@@ -937,6 +964,8 @@ public class EntityImpl extends RecordAbstract
 
   @Override
   public Set<Identifiable> newLinkSet(@Nonnull String name, Set<Identifiable> source) {
+    validatePropertyName(name, false);
+
     var value = new LinkSet(this);
     value.addAll(source);
     setPropertyInternal(name, value, PropertyType.LINKSET);
@@ -946,6 +975,8 @@ public class EntityImpl extends RecordAbstract
   @Nonnull
   @Override
   public Map<String, Identifiable> getOrCreateLinkMap(@Nonnull String name) {
+    validatePropertyName(name, false);
+
     var value = this.<Map<String, Identifiable>>getPropertyInternal(name);
     if (value == null) {
       value = new LinkMap(this);
@@ -958,6 +989,8 @@ public class EntityImpl extends RecordAbstract
   @Nonnull
   @Override
   public Map<String, Identifiable> newLinkMap(@Nonnull String name) {
+    validatePropertyName(name, false);
+
     var value = new LinkMap(this);
     setPropertyInternal(name, value, PropertyType.LINKMAP);
     return value;
@@ -966,6 +999,8 @@ public class EntityImpl extends RecordAbstract
   @Override
   public Map<String, Identifiable> newLinkMap(@Nonnull String name,
       Map<String, Identifiable> source) {
+    validatePropertyName(name, false);
+
     var value = new LinkMap(this);
     value.putAll(source);
     setPropertyInternal(name, value, PropertyType.LINKMAP);
@@ -986,12 +1021,18 @@ public class EntityImpl extends RecordAbstract
     setPropertyInternal(name, value, null);
   }
 
-  private static void validatePropertyName(String propertyName) {
+  private static void validatePropertyName(String propertyName, boolean allowMetadata) {
     if (propertyName == null || propertyName.isEmpty()) {
       throw new DatabaseException("Empty property name was provided");
     }
-    if (!Character.isLetter(propertyName.charAt(0))) {
-      throw new DatabaseException("Property name has to start with a letter");
+    if (allowMetadata && propertyName.charAt(0) == '@') {
+      return;
+    }
+
+    var firstChar = propertyName.charAt(0);
+    if (firstChar != '_' && !Character.isLetter(firstChar)) {
+      throw new DatabaseException(
+          "Property name has to start with a letter or underscore, provided " + propertyName);
     }
   }
 
@@ -1103,7 +1144,7 @@ public class EntityImpl extends RecordAbstract
    */
   public void setProperty(@Nonnull String propertyName, Object propertyValue,
       @Nonnull PropertyType type) {
-    validatePropertyName(propertyName);
+    validatePropertyName(propertyName, true);
     validatePropertyValue(propertyName, propertyValue);
 
     setPropertyInternal(propertyName, propertyValue, type);
@@ -1271,6 +1312,7 @@ public class EntityImpl extends RecordAbstract
   }
 
   public <RET> RET removeProperty(@Nonnull final String iFieldName) {
+    validatePropertyName(iFieldName, false);
     return removePropertyInternal(iFieldName);
   }
 
@@ -1902,7 +1944,9 @@ public class EntityImpl extends RecordAbstract
       var value = entry.getValue().value;
 
       if (propertyAccess == null || propertyAccess.isReadable(propertyName)) {
-        map.put(propertyName, ResultInternal.toMapValue(value, true));
+        if (!isSystemProperty(propertyName)) {
+          map.put(propertyName, ResultInternal.toMapValue(value, true));
+        }
       }
     }
 
@@ -1939,14 +1983,14 @@ public class EntityImpl extends RecordAbstract
    * Returns the set of field names.
    */
   public String[] fieldNames() {
-    return calculatePropertyNames().toArray(new String[]{});
+    return calculatePropertyNames(false).toArray(new String[]{});
   }
 
   /**
    * Returns the array of field values.
    */
   public Object[] fieldValues() {
-    var propertyNames = calculatePropertyNames();
+    var propertyNames = calculatePropertyNames(false);
     if (propertyNames != null) {
       var values = new Object[propertyNames.size()];
 
@@ -1962,7 +2006,7 @@ public class EntityImpl extends RecordAbstract
   }
 
   public <RET> RET rawField(final String iFieldName) {
-    return getRawProperty(iFieldName);
+    return getProperty(iFieldName);
   }
 
   /**
@@ -2009,7 +2053,6 @@ public class EntityImpl extends RecordAbstract
    * @param iFieldName field name
    * @return field value if defined, otherwise null
    */
-  @Override
   public <RET> RET field(final String iFieldName) {
     return getProperty(iFieldName);
   }
@@ -2109,6 +2152,10 @@ public class EntityImpl extends RecordAbstract
           }
         }
       }
+      if (isSystemProperty(propertyName)) {
+        throw new IllegalArgumentException(
+            "System properties can not be updated from result : " + propertyName);
+      }
 
       var property = cls != null ? cls.getProperty(propertyName) : null;
       var type = property != null ? property.getType() : null;
@@ -2181,8 +2228,9 @@ public class EntityImpl extends RecordAbstract
       if (key.isEmpty()) {
         continue;
       }
-      if (key.charAt(0) == '@') {
-        continue;
+      if (isSystemProperty(key)) {
+        throw new IllegalArgumentException(
+            "System properties can not be updated from map : " + key);
       }
 
       var property = cls != null ? cls.getProperty(key) : null;
@@ -2471,7 +2519,6 @@ public class EntityImpl extends RecordAbstract
   /**
    * Removes a field.
    */
-  @Override
   public Object removeField(final String iFieldName) {
     return removeProperty(iFieldName);
   }
@@ -2495,7 +2542,7 @@ public class EntityImpl extends RecordAbstract
     checkForBinding();
 
     if (className == null && iOther.isEntity()) {
-      var entity = (EntityImpl) iOther.castToEntity();
+      var entity = (EntityImpl) iOther.asEntity();
       var cls = entity.getImmutableSchemaClass(session);
       className = cls.getName();
     }
@@ -2518,7 +2565,8 @@ public class EntityImpl extends RecordAbstract
    *
    * @return Array of fields, values of which were changed.
    */
-  public Collection<String> getCallbackDirtyProperties() {
+  public Collection<String> getDirtyPropertiesBetweenCallbacksInternal(boolean includeSystemFields,
+      boolean checkAccess) {
     checkForBinding();
 
     if (fields == null || fields.isEmpty()) {
@@ -2527,8 +2575,20 @@ public class EntityImpl extends RecordAbstract
 
     final Set<String> dirtyFields = new HashSet<>();
     for (var entry : fields.entrySet()) {
-      if (entry.getValue().isChanged() || entry.getValue().isTrackedModified()) {
-        dirtyFields.add(entry.getKey());
+      var propertyName = entry.getKey();
+
+      if (checkAccess) {
+        if (includeSystemFields || !isSystemProperty(propertyName)) {
+          if (propertyAccess == null || propertyAccess.isReadable(propertyName)) {
+            if (entry.getValue().isChanged() || entry.getValue().isTrackedModified()) {
+              dirtyFields.add(propertyName);
+            }
+          }
+        }
+      } else if (includeSystemFields || !isSystemProperty(propertyName)) {
+        if (entry.getValue().isChanged() || entry.getValue().isTrackedModified()) {
+          dirtyFields.add(propertyName);
+        }
       }
     }
 
@@ -2536,7 +2596,8 @@ public class EntityImpl extends RecordAbstract
   }
 
   @Override
-  public Collection<String> getDirtyProperties() {
+  public Collection<String> getDirtyPropertiesInternal(boolean includeSystemProperties,
+      boolean checkAccess) {
     checkForBinding();
 
     if (fields == null || fields.isEmpty()) {
@@ -2545,8 +2606,19 @@ public class EntityImpl extends RecordAbstract
 
     final Set<String> dirtyFields = new HashSet<>();
     for (var entry : fields.entrySet()) {
-      if (entry.getValue().isTxChanged() || entry.getValue().isTxTrackedModified()) {
-        dirtyFields.add(entry.getKey());
+      var propertyName = entry.getKey();
+      if (checkAccess) {
+        if (includeSystemProperties || !isSystemProperty(propertyName)) {
+          if (propertyAccess == null || propertyAccess.isReadable(propertyName)) {
+            if (entry.getValue().isTxChanged() || entry.getValue().isTxTrackedModified()) {
+              dirtyFields.add(propertyName);
+            }
+          }
+        }
+      } else if (includeSystemProperties || !isSystemProperty(propertyName)) {
+        if (entry.getValue().isTxChanged() || entry.getValue().isTxTrackedModified()) {
+          dirtyFields.add(propertyName);
+        }
       }
     }
 
@@ -2680,7 +2752,6 @@ public class EntityImpl extends RecordAbstract
    *
    * @return True if exists, otherwise false.
    */
-  @Override
   public boolean containsField(final String iFieldName) {
     return hasProperty(iFieldName);
   }
@@ -2713,16 +2784,13 @@ public class EntityImpl extends RecordAbstract
     return result;
   }
 
-  @Nonnull
-  @Override
-  public Identifiable castToIdentifiable() {
-    return this;
-  }
+  public static boolean isSystemProperty(String propertyName) {
+    if (propertyName != null && !propertyName.isEmpty()) {
+      var firstChar = propertyName.charAt(0);
+      return firstChar != '_' && !Character.isLetter(firstChar);
+    }
 
-  @Nullable
-  @Override
-  public Identifiable asIdentifiable() {
-    return this;
+    return false;
   }
 
   private void convertToResult(ResultInternal result) {
@@ -2925,7 +2993,7 @@ public class EntityImpl extends RecordAbstract
     }
     internalReset();
 
-    var currentTx = (FrontendTransactionOptimistic) session.getTransaction();
+    var currentTx = (FrontendTransactionOptimistic) session.getTransactionInternal();
     currentTx.preProcessRecordsAndExecuteCallCallbacks();
   }
 
@@ -2961,7 +3029,7 @@ public class EntityImpl extends RecordAbstract
   public EntityImpl reset() {
     checkForBinding();
 
-    if (session.getTransaction().isActive()) {
+    if (session.getTransactionInternal().isActive()) {
       throw new IllegalStateException(
           "Cannot reset entities during a transaction. Create a new one each time");
     }
@@ -3116,8 +3184,12 @@ public class EntityImpl extends RecordAbstract
   /**
    * Returns the number of fields in memory.
    */
-  @Override
   public int fields() {
+    return getPropertiesCount();
+  }
+
+  @Override
+  public int getPropertiesCount() {
     checkForBinding();
     checkForFields();
 
@@ -3143,8 +3215,9 @@ public class EntityImpl extends RecordAbstract
    */
   public void setFieldType(final String iFieldName, final PropertyType iFieldType) {
     checkForBinding();
-    checkForFields(iFieldName);
+    validatePropertyName(iFieldName, false);
 
+    checkForFields(iFieldName);
     if (iFieldType != null) {
       if (fields == null) {
         throw new DatabaseException("Fields are not loaded");
@@ -3544,7 +3617,7 @@ public class EntityImpl extends RecordAbstract
 
     if (!iUpdateOnlyMode) {
       // REMOVE PROPERTIES NOT FOUND IN OTHER ENTITY
-      for (var property : getPropertyNamesInternal()) {
+      for (var property : getPropertyNames()) {
         if (!result.hasProperty(property)) {
           removePropertyInternal(property);
         }
@@ -3573,7 +3646,7 @@ public class EntityImpl extends RecordAbstract
     schema = null;
   }
 
-  protected GlobalProperty getGlobalPropertyById(int id) {
+  public GlobalProperty getGlobalPropertyById(int id) {
     checkForBinding();
     if (schema == null) {
       var metadata = session.getMetadata();
@@ -3599,7 +3672,7 @@ public class EntityImpl extends RecordAbstract
     return prop;
   }
 
-  void fillClassIfNeed(final String iClassName) {
+  public void fillClassIfNeed(final String iClassName) {
     checkForBinding();
 
     if (this.className == null) {
@@ -3638,7 +3711,7 @@ public class EntityImpl extends RecordAbstract
     return immutableClazz;
   }
 
-  protected void rawField(
+  public void rawField(
       final String iFieldName, final Object iFieldValue, final PropertyType iFieldType) {
     checkForBinding();
     checkForFields(iFieldName);
@@ -3669,7 +3742,7 @@ public class EntityImpl extends RecordAbstract
     return entry;
   }
 
-  boolean rawContainsField(final String iFiledName) {
+  public boolean rawContainsField(final String iFiledName) {
     checkForBinding();
     return fields != null && fields.containsKey(iFiledName);
   }
@@ -3860,6 +3933,10 @@ public class EntityImpl extends RecordAbstract
     }
   }
 
+  private boolean filterPropertyAccess(final String property) {
+    return propertyAccess == null || propertyAccess.isReadable(property);
+  }
+
   private void setup() {
     if (session != null) {
       recordFormat = session.getSerializer();
@@ -3905,14 +3982,14 @@ public class EntityImpl extends RecordAbstract
     }
   }
 
-  Set<Entry<String, EntityEntry>> getRawEntries() {
+  public Set<Entry<String, EntityEntry>> getRawEntries() {
     checkForBinding();
 
     checkForFields();
     return fields == null ? new HashSet<>() : fields.entrySet();
   }
 
-  List<Entry<String, EntityEntry>> getFilteredEntries() {
+  public List<Entry<String, EntityEntry>> getFilteredEntries() {
     checkForBinding();
     checkForFields();
 
@@ -3954,7 +4031,7 @@ public class EntityImpl extends RecordAbstract
     }
   }
 
-  void autoConvertFieldsToClass(final DatabaseSessionInternal database) {
+  public void autoConvertFieldsToClass(final DatabaseSessionInternal database) {
     checkForBinding();
 
     if (className != null) {
@@ -4125,7 +4202,7 @@ public class EntityImpl extends RecordAbstract
     }
   }
 
-  ImmutableSchema getImmutableSchema() {
+  public ImmutableSchema getImmutableSchema() {
     return schema;
   }
 

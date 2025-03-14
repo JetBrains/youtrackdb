@@ -156,7 +156,7 @@ public class CheckIndexTool extends DatabaseTool {
     }
 
     for (final var key : indexKeys) {
-      try (final var stream = index.getInternal().getRids(session, key)) {
+      try (final var stream = index.getRids(session, key)) {
         if (stream.noneMatch((rid) -> rid.equals(entityId))) {
           totalErrors++;
           message(

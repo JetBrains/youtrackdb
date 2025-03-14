@@ -343,7 +343,7 @@ public class MessageHelper {
       RecordSerializer recordSerializer)
       throws IOException {
     channel.writeByte(QueryResponse.RECORD_TYPE_BLOB);
-    writeIdentifiable(session, channel, row.castToBlob(), recordSerializer);
+    writeIdentifiable(session, channel, row.asBlob(), recordSerializer);
   }
 
   private static void writeVertex(
@@ -351,7 +351,7 @@ public class MessageHelper {
       RecordSerializer recordSerializer)
       throws IOException {
     channel.writeByte(QueryResponse.RECORD_TYPE_VERTEX);
-    writeDocument(session, channel, row.castToEntity().getRecord(session), recordSerializer);
+    writeDocument(session, channel, row.asEntity().getRecord(session), recordSerializer);
   }
 
   private static void writeEntity(
@@ -359,7 +359,7 @@ public class MessageHelper {
       RecordSerializer recordSerializer)
       throws IOException {
     channel.writeByte(QueryResponse.RECORD_TYPE_ELEMENT);
-    writeDocument(session, channel, row.castToEntity().getRecord(session), recordSerializer);
+    writeDocument(session, channel, row.asEntity().getRecord(session), recordSerializer);
   }
 
   private static void writeEdge(
@@ -367,7 +367,7 @@ public class MessageHelper {
       RecordSerializer recordSerializer)
       throws IOException {
     channel.writeByte(QueryResponse.RECORD_TYPE_EDGE);
-    writeDocument(session, channel, row.castToEntity().getRecord(session), recordSerializer);
+    writeDocument(session, channel, row.asEntity().getRecord(session), recordSerializer);
   }
 
   private static void writeDocument(

@@ -83,7 +83,7 @@ public class ClassIndexManager {
     final Collection<Index> indexes = cls.getRawIndexes();
     if (!indexes.isEmpty()) {
       final Set<String> dirtyFields;
-      var dirtyProperties = entity.getCallbackDirtyProperties();
+      var dirtyProperties = entity.getDirtyPropertiesBetweenCallbacksInternal(false, false);
 
       if (dirtyProperties instanceof Set<String> dirtyFieldsSet) {
         dirtyFields = dirtyFieldsSet;
@@ -455,7 +455,7 @@ public class ClassIndexManager {
 
     if (!indexes.isEmpty()) {
       final Set<String> dirtyFields;
-      var dirtyProperties = entity.getCallbackDirtyProperties();
+      var dirtyProperties = entity.getDirtyPropertiesBetweenCallbacksInternal(false, false);
 
       if (dirtyProperties instanceof Set<String> dirtyFieldsSet) {
         dirtyFields = dirtyFieldsSet;

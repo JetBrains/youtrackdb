@@ -9,7 +9,7 @@ import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
+import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -216,7 +216,7 @@ public class FrontendTransactionOptimisticClient extends FrontendTransactionOpti
 
   @Override
   public void addIndexEntry(
-      IndexInternal index, String iIndexName, OPERATION iOperation, Object key,
+      Index index, String iIndexName, OPERATION iOperation, Object key,
       Identifiable iValue) {
     this.indexChanged.add(index.getName());
   }

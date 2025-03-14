@@ -425,7 +425,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
                   return new ImmutableUser(sessionInternal,
                       0,
                       new SecuritySystemUserImpl(sessionInternal,
-                          resultset.next().castToEntity().getRecord(session), dbName));
+                          resultset.next().asEntity().getRecord(session), dbName));
                 }
                 return null;
               },

@@ -114,7 +114,7 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
     oSpatialCompositeKey.setContext(baseContext);
 
     Collection<?> coll;
-    try (var stream = index.getInternal().getRids(session, oSpatialCompositeKey)) {
+    try (var stream = index.getRids(session, oSpatialCompositeKey)) {
       coll = stream.toList();
     }
     Assert.assertEquals(1, coll.size());
@@ -183,7 +183,7 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Point.ll");
 
     Collection<?> coll;
-    try (var stream = index.getInternal().getRids(session, oSpatialCompositeKey)) {
+    try (var stream = index.getRids(session, oSpatialCompositeKey)) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(1, coll.size());
@@ -201,7 +201,7 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
 
     Assert.assertEquals(0, query.size());
 
-    try (var stream = index.getInternal().getRids(session, oSpatialCompositeKey)) {
+    try (var stream = index.getRids(session, oSpatialCompositeKey)) {
       coll = stream.collect(Collectors.toList());
     }
 

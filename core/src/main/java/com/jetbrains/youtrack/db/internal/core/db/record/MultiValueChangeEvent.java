@@ -36,7 +36,6 @@ public class MultiValueChangeEvent<K, V> {
     ADD,
     UPDATE,
     REMOVE,
-    NESTED
   }
 
   /**

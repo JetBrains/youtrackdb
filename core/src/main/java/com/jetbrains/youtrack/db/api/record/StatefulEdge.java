@@ -85,9 +85,9 @@ public interface StatefulEdge extends Edge, Entity {
 
   @Nonnull
   @Override
-  StatefulEdge castToStatefulEdge();
+  StatefulEdge asStatefulEdge();
 
   @Nullable
   @Override
-  StatefulEdge asStatefulEdge();
+  StatefulEdge asStatefulEdgeOrNull();
 }

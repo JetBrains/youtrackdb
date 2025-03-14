@@ -44,7 +44,7 @@ public class ClassIndexFinder implements IndexFinder {
         if (prop.getType().isLink() && linkedClass != null) {
           var found = false;
           for (var index : indexes) {
-            if (index.getInternal().canBeUsedInEqualityOperators()) {
+            if (index.canBeUsedInEqualityOperators()) {
               if (cand.chain.isPresent()) {
                 ((IndexCandidateChain) cand.chain.get()).add(index.getName());
               } else {
@@ -89,7 +89,7 @@ public class ClassIndexFinder implements IndexFinder {
     if (prop != null) {
       var indexes = prop.getAllIndexesInternal();
       for (var index : indexes) {
-        if (index.getInternal().canBeUsedInEqualityOperators()) {
+        if (index.canBeUsedInEqualityOperators()) {
           if (cand.isPresent()) {
             ((IndexCandidateChain) cand.get()).add(index.getName());
             ((IndexCandidateChain) cand.get()).setOperation(Operation.Eq);
@@ -120,7 +120,7 @@ public class ClassIndexFinder implements IndexFinder {
       if (prop.getType() == PropertyType.EMBEDDEDMAP) {
         var indexes = prop.getAllIndexesInternal();
         for (var index : indexes) {
-          if (index.getInternal().canBeUsedInEqualityOperators()) {
+          if (index.canBeUsedInEqualityOperators()) {
             var def = index.getDefinition();
             for (var o : def.getFieldsToIndex()) {
               if (o.equalsIgnoreCase(last + " by key")) {
@@ -156,7 +156,7 @@ public class ClassIndexFinder implements IndexFinder {
     if (prop != null) {
       var indexes = prop.getAllIndexesInternal();
       for (var index : indexes) {
-        if (index.getInternal().canBeUsedInEqualityOperators()
+        if (index.canBeUsedInEqualityOperators()
             && index.supportsOrderedIterations()) {
           if (cand.isPresent()) {
             ((IndexCandidateChain) cand.get()).add(index.getName());
@@ -189,7 +189,7 @@ public class ClassIndexFinder implements IndexFinder {
         var indexes = prop.getAllIndexesInternal();
         for (var index : indexes) {
           var def = index.getDefinition();
-          if (index.getInternal().canBeUsedInEqualityOperators()) {
+          if (index.canBeUsedInEqualityOperators()) {
             for (var o : def.getFieldsToIndex()) {
               if (o.equalsIgnoreCase(last + " by value")) {
                 if (cand.isPresent()) {

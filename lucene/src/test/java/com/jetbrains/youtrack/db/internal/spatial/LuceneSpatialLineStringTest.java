@@ -128,7 +128,7 @@ public class LuceneSpatialLineStringTest extends BaseSpatialLuceneTest {
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Place.location");
 
     session.begin();
-    Assert.assertEquals(3, index.getInternal().size(session));
+    Assert.assertEquals(3, index.size(session));
     session.commit();
     queryLineString();
   }

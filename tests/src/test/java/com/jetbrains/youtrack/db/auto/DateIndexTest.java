@@ -123,10 +123,10 @@ public class DateIndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "DateIndexTestDateIndex");
-    try (var stream = dateIndexTestDateIndex.getInternal().getRids(session, dateOne)) {
+    try (var stream = dateIndexTestDateIndex.getRids(session, dateOne)) {
       Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
     }
-    try (var stream = dateIndexTestDateIndex.getInternal().getRids(session, dateTwo)) {
+    try (var stream = dateIndexTestDateIndex.getRids(session, dateTwo)) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
 
@@ -135,11 +135,11 @@ public class DateIndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "DateIndexTestDateTimeIndex");
-    try (var stream = dateIndexTestDateTimeIndex.getInternal()
+    try (var stream = dateIndexTestDateTimeIndex
         .getRids(session, dateTwo)) {
       Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
     }
-    try (var stream = dateIndexTestDateTimeIndex.getInternal()
+    try (var stream = dateIndexTestDateTimeIndex
         .getRids(session, dateOne)) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
@@ -150,12 +150,12 @@ public class DateIndexTest extends BaseDBTest {
             .getIndexManagerInternal()
             .getIndex(session, "DateIndexTestValueDateIndex");
     try (var stream =
-        dateIndexTestValueDateIndex.getInternal()
+        dateIndexTestValueDateIndex
             .getRids(session, new CompositeKey("v1", dateOne))) {
       Assert.assertEquals((stream.findAny().orElse(null)), dateDoc.getIdentity());
     }
     try (var stream =
-        dateIndexTestValueDateIndex.getInternal()
+        dateIndexTestValueDateIndex
             .getRids(session, new CompositeKey("v1", dateTwo))) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
@@ -166,12 +166,12 @@ public class DateIndexTest extends BaseDBTest {
             .getIndexManagerInternal()
             .getIndex(session, "DateIndexTestValueDateTimeIndex");
     try (var stream =
-        dateIndexTestValueDateTimeIndex.getInternal()
+        dateIndexTestValueDateTimeIndex
             .getRids(session, new CompositeKey("v1", dateTwo))) {
       Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
     }
     try (var stream =
-        dateIndexTestValueDateTimeIndex.getInternal()
+        dateIndexTestValueDateTimeIndex
             .getRids(session, new CompositeKey("v1", dateOne))) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
@@ -183,12 +183,12 @@ public class DateIndexTest extends BaseDBTest {
             .getIndex(session, "DateIndexTestValueDateListIndex");
 
     try (var stream =
-        dateIndexTestValueDateListIndex.getInternal()
+        dateIndexTestValueDateListIndex
             .getRids(session, new CompositeKey("v1", dateThree))) {
       Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
     }
     try (var stream =
-        dateIndexTestValueDateListIndex.getInternal()
+        dateIndexTestValueDateListIndex
             .getRids(session, new CompositeKey("v1", dateFour))) {
       Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
     }
@@ -200,13 +200,13 @@ public class DateIndexTest extends BaseDBTest {
             .getIndex(session, "DateIndexTestValueDateListIndex");
     try (var stream =
         dateIndexTestValueDateTimeListIndex
-            .getInternal()
+
             .getRids(session, new CompositeKey("v1", dateThree))) {
       Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
     }
     try (var stream =
         dateIndexTestValueDateTimeListIndex
-            .getInternal()
+
             .getRids(session, new CompositeKey("v1", dateFour))) {
       Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
     }
@@ -216,11 +216,11 @@ public class DateIndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "DateIndexTestDateHashIndex");
-    try (var stream = dateIndexTestDateHashIndexIndex.getInternal()
+    try (var stream = dateIndexTestDateHashIndexIndex
         .getRids(session, dateOne)) {
       Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
     }
-    try (var stream = dateIndexTestDateHashIndexIndex.getInternal()
+    try (var stream = dateIndexTestDateHashIndexIndex
         .getRids(session, dateTwo)) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
@@ -230,11 +230,11 @@ public class DateIndexTest extends BaseDBTest {
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "DateIndexTestDateTimeHashIndex");
-    try (var stream = dateIndexTestDateTimeHashIndex.getInternal()
+    try (var stream = dateIndexTestDateTimeHashIndex
         .getRids(session, dateTwo)) {
       Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
     }
-    try (var stream = dateIndexTestDateTimeHashIndex.getInternal()
+    try (var stream = dateIndexTestDateTimeHashIndex
         .getRids(session, dateOne)) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
@@ -245,12 +245,12 @@ public class DateIndexTest extends BaseDBTest {
             .getIndexManagerInternal()
             .getIndex(session, "DateIndexTestValueDateHashIndex");
     try (var stream =
-        dateIndexTestValueDateHashIndex.getInternal()
+        dateIndexTestValueDateHashIndex
             .getRids(session, new CompositeKey("v1", dateOne))) {
       Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
     }
     try (var stream =
-        dateIndexTestValueDateHashIndex.getInternal()
+        dateIndexTestValueDateHashIndex
             .getRids(session, new CompositeKey("v1", dateTwo))) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
@@ -262,13 +262,13 @@ public class DateIndexTest extends BaseDBTest {
             .getIndex(session, "DateIndexTestValueDateTimeHashIndex");
     try (var stream =
         dateIndexTestValueDateTimeHashIndex
-            .getInternal()
+
             .getRids(session, new CompositeKey("v1", dateTwo))) {
       Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
     }
     try (var stream =
         dateIndexTestValueDateTimeHashIndex
-            .getInternal()
+
             .getRids(session, new CompositeKey("v1", dateOne))) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
@@ -281,13 +281,13 @@ public class DateIndexTest extends BaseDBTest {
 
     try (var stream =
         dateIndexTestValueDateListHashIndex
-            .getInternal()
+
             .getRids(session, new CompositeKey("v1", dateThree))) {
       Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
     }
     try (var stream =
         dateIndexTestValueDateListHashIndex
-            .getInternal()
+
             .getRids(session, new CompositeKey("v1", dateFour))) {
       Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
     }
@@ -299,13 +299,13 @@ public class DateIndexTest extends BaseDBTest {
             .getIndex(session, "DateIndexTestValueDateListHashIndex");
     try (var stream =
         dateIndexTestValueDateTimeListHashIndex
-            .getInternal()
+
             .getRids(session, new CompositeKey("v1", dateThree))) {
       Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
     }
     try (var stream =
         dateIndexTestValueDateTimeListHashIndex
-            .getInternal()
+
             .getRids(session, new CompositeKey("v1", dateFour))) {
       Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
     }

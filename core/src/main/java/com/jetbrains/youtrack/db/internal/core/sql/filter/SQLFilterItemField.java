@@ -32,7 +32,6 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.BinaryField;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.BytesContainer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
@@ -136,7 +135,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
 
     final var v = stringValue == null ? iRecord.getProperty(name) : stringValue;
     if (!collatePreset && iRecord.isEntity()) {
-      var entity = (EntityImpl) iRecord.castToEntity();
+      var entity = (EntityImpl) iRecord.asEntity();
       SchemaImmutableClass result = null;
       result = entity.getImmutableSchemaClass(session);
       SchemaClass schemaClass = result;
@@ -161,7 +160,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
     }
 
     final EntityImpl rec = iRecord.getRecord(session);
-    var encryption = EntityInternalUtils.getPropertyEncryption(rec);
+    var encryption = rec.propertyEncryption;
     var serialized = new BytesContainer(rec.toStream());
     var version = serialized.bytes[serialized.offset++];
     var serializer = RecordSerializerBinary.INSTANCE.getSerializer(version);

@@ -42,7 +42,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
     }
 
     validatePropertyName(propertyName);
-    if (session.getTransaction().isActive()) {
+    if (session.getTransactionInternal().isActive()) {
       throw new SchemaException(session,
           "Cannot create property '" + propertyName + "' inside a transaction");
     }
@@ -304,7 +304,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
   }
 
   public void dropProperty(DatabaseSessionInternal session, final String propertyName) {
-    if (session.getTransaction().isActive()) {
+    if (session.getTransactionInternal().isActive()) {
       throw new IllegalStateException("Cannot drop a property inside a transaction");
     }
 

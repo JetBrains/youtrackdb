@@ -160,7 +160,7 @@ public class SQLMethodCall extends SimpleNode {
       var current = ctx.getVariable("$current");
       if (current instanceof Result result) {
         if (result.isEntity()) {
-          current = result.castToEntity();
+          current = result.asEntity();
         } else {
           current = null;
         }

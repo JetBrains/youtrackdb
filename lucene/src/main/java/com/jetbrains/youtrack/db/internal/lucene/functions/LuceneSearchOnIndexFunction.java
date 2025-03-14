@@ -123,9 +123,7 @@ public class LuceneSearchOnIndexFunction extends LuceneSearchFunctionTemplate {
 
       List<Identifiable> luceneResultSet;
       try (var rids =
-          index
-              .getInternal()
-              .getRids(ctx.getDatabaseSession(),
+          index.getRids(ctx.getDatabaseSession(),
                   new LuceneKeyAndMetadata(
                       new LuceneCompositeKey(List.of(query)).setContext(ctx), meta))) {
         luceneResultSet = rids.collect(Collectors.toList());
@@ -164,7 +162,7 @@ public class LuceneSearchOnIndexFunction extends LuceneSearchFunctionTemplate {
             .getIndexManagerInternal()
             .getClassIndex(database, className, indexName);
 
-    if (index != null && index.getInternal() instanceof LuceneFullTextIndex) {
+    if (index instanceof LuceneFullTextIndex) {
       return (LuceneFullTextIndex) index;
     }
 
@@ -175,7 +173,7 @@ public class LuceneSearchOnIndexFunction extends LuceneSearchFunctionTemplate {
     final var database = ctx.getDatabaseSession();
     var index = database.getMetadata().getIndexManagerInternal().getIndex(database, indexName);
 
-    if (index != null && index.getInternal() instanceof LuceneFullTextIndex) {
+    if (index instanceof LuceneFullTextIndex) {
       return (LuceneFullTextIndex) index;
     }
 

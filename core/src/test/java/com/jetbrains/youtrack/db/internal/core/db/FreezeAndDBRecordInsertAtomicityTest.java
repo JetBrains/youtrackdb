@@ -112,7 +112,7 @@ public class FreezeAndDBRecordInsertAtomicityTest extends DbTestBase {
                           while (entityIterator.hasNext()) {
                             var entity = entityIterator.next();
                             try (var rids =
-                                index.getInternal().getRids(session, entity.field("name"))) {
+                                index.getRids(session, entity.field("name"))) {
                               assertEquals(entity.getIdentity(), rids.findFirst().orElse(null));
                             }
                           }

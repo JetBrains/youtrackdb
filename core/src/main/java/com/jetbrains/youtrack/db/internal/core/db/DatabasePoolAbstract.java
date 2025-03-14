@@ -327,7 +327,7 @@ public abstract class DatabasePoolAbstract extends AdaptiveLock
             try {
               LogManager.instance()
                   .debug(this, "Closing pooled database '%s'...", db.getDatabaseName());
-              db.activateOnCurrentThread();
+              ((DatabaseSessionInternal) db).activateOnCurrentThread();
               ((DatabasePooled) db).forceClose();
               LogManager.instance().debug(this, "OK", db.getDatabaseName());
             } catch (Exception e) {

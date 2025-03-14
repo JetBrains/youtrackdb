@@ -128,7 +128,7 @@ public class DatabaseDocumentTxPooled extends DatabaseDocumentTx implements Data
     }
 
     try {
-      if (getTransaction().isActive()) {
+      if (getTransactionInternal().isActive()) {
         commit();
       }
     } catch (Exception e) {

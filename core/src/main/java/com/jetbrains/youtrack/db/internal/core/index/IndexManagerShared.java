@@ -115,7 +115,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
     acquireSharedLock();
     try {
       final var index = indexes.get(indexName);
-      if (index.getInternal().getClusters().contains(clusterName)) {
+      if (index.getClusters().contains(clusterName)) {
         return;
       }
     } finally {
@@ -128,13 +128,8 @@ public class IndexManagerShared implements IndexManagerAbstract {
         throw new IndexException(session.getDatabaseName(),
             "Index with name " + indexName + " does not exist.");
       }
-
-      if (index.getInternal() == null) {
-        throw new IndexException(session.getDatabaseName(),
-            "Index with name " + indexName + " has no internal presentation.");
-      }
-      if (!index.getInternal().getClusters().contains(clusterName)) {
-        index.getInternal().addCluster(session, clusterName);
+      if (!index.getClusters().contains(clusterName)) {
+        index.addCluster(session, clusterName);
       }
     } finally {
       releaseExclusiveLock(session, true);
@@ -146,7 +141,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
     acquireSharedLock();
     try {
       final var index = indexes.get(indexName);
-      if (!index.getInternal().getClusters().contains(clusterName)) {
+      if (!index.getClusters().contains(clusterName)) {
         return;
       }
     } finally {
@@ -159,7 +154,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
         throw new IndexException(session.getDatabaseName(),
             "Index with name " + indexName + " does not exist.");
       }
-      index.getInternal().removeCluster(session, clusterName);
+      index.removeCluster(session, clusterName);
     } finally {
       releaseExclusiveLock(session, true);
     }
@@ -512,7 +507,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
     } else {
       checkSecurityConstraintsForIndexCreate(session, indexDefinition);
     }
-    if (session.getTransaction().isActive()) {
+    if (session.getTransactionInternal().isActive()) {
       throw new IllegalStateException("Cannot create a new index inside a transaction");
     }
 
@@ -531,7 +526,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
       algorithm = Indexes.chooseDefaultIndexAlgorithm(type);
     }
 
-    final IndexInternal index;
+    final Index index;
     acquireExclusiveLock(session);
     try {
 
@@ -579,7 +574,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
     return index;
   }
 
-  private IndexInternal createIndexFromMetadata(
+  private Index createIndexFromMetadata(
       DatabaseSessionInternal session, Storage storage, IndexMetadata indexMetadata,
       ProgressListener progressListener) {
 
@@ -666,7 +661,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
   }
 
   public void dropIndex(DatabaseSessionInternal session, final String iIndexName) {
-    if (session.getTransaction().isActive()) {
+    if (session.getTransactionInternal().isActive()) {
       throw new IllegalStateException("Cannot drop an index inside a transaction");
     }
 
@@ -706,9 +701,8 @@ public class IndexManagerShared implements IndexManagerAbstract {
       EntityImpl entity = session.load(identity);
       final var indexes = new TrackedSet<Map<String, ?>>(entity);
 
-      for (final var i : this.indexes.values()) {
-        var indexInternal = (IndexInternal) i;
-        indexes.add(indexInternal.updateConfiguration(session));
+      for (final var index : this.indexes.values()) {
+        indexes.add(index.updateConfiguration(session));
       }
 
       entity.field(CONFIG_INDEXES, indexes, PropertyType.EMBEDDEDSET);
@@ -788,7 +782,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
       final Collection<Map<String, ?>> indexEntities = entity.field(CONFIG_INDEXES);
 
       if (indexEntities != null) {
-        IndexInternal index;
+        Index index;
         var configUpdated = false;
         var indexConfigurationIterator = indexEntities.iterator();
         while (indexConfigurationIterator.hasNext()) {
@@ -804,7 +798,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
             var oldIndex = oldIndexes.remove(normalizedName);
             if (oldIndex != null) {
               var oldIndexMetadata =
-                  oldIndex.getInternal().loadMetadata(session, oldIndex.getConfiguration(session));
+                  oldIndex.loadMetadata(session, oldIndex.getConfiguration(session));
 
               if (!(oldIndexMetadata.equals(newIndexMetadata)
                   || newIndexMetadata.getIndexDefinition() == null)) {

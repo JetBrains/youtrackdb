@@ -2121,7 +2121,7 @@ public class SelectExecutionPlanner {
     // get all valid index descriptors
     var descriptors =
         indexes.stream()
-            .filter(x -> x.getInternal().canBeUsedInEqualityOperators())
+            .filter(x -> x.canBeUsedInEqualityOperators())
             .map(index -> buildIndexSearchDescriptor(ctx, index, block, clazz))
             .filter(Objects::nonNull)
             .filter(x -> x.getKeyCondition() != null)

@@ -35,7 +35,6 @@ public class DbClosedTest extends BaseDBTest {
     DatabaseSession dbAnother = acquireSession();
     dbAnother.close();
 
-    db.activateOnCurrentThread();
     db.close();
   }
 
@@ -46,7 +45,6 @@ public class DbClosedTest extends BaseDBTest {
     DatabaseSession dbAnother = acquireSession();
     dbAnother.close();
 
-    db.activateOnCurrentThread();
     db.close();
   }
 

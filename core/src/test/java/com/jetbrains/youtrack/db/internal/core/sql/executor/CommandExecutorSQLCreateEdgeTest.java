@@ -78,9 +78,9 @@ public class CommandExecutorSQLCreateEdgeTest extends DbTestBase {
 
     var edge = list.next();
     Assert.assertEquals(edge.getProperty("foo"), "bar");
-    Assert.assertEquals(((EntityImpl) edge.castToEntity()).getPropertyInternal("out"),
+    Assert.assertEquals(((EntityImpl) edge.asEntity()).getPropertyInternal("out"),
         owner1.getIdentity());
-    Assert.assertEquals(((EntityImpl) edge.castToEntity()).getPropertyInternal("in"),
+    Assert.assertEquals(((EntityImpl) edge.asEntity()).getPropertyInternal("in"),
         owner2.getIdentity());
     Assert.assertFalse(list.hasNext());
     session.commit();
@@ -109,7 +109,7 @@ public class CommandExecutorSQLCreateEdgeTest extends DbTestBase {
 
     var res = list.next();
     Assert.assertEquals(
-        ((RidBag) ((EntityImpl) res.castToEntity()).getPropertyInternal("in_link")).size(), 19);
+        ((RidBag) ((EntityImpl) res.asEntity()).getPropertyInternal("in_link")).size(), 19);
     Assert.assertFalse(list.hasNext());
     session.commit();
   }

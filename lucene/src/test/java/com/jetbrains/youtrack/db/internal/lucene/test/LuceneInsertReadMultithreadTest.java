@@ -82,7 +82,7 @@ public class LuceneInsertReadMultithreadTest extends BaseLuceneTest {
     var idx = session.getClassInternal("City").getClassIndex(session, "City.name");
 
     session.begin();
-    Assert.assertEquals(idx.getInternal().size(session), THREADS * CYCLE);
+    Assert.assertEquals(idx.size(session), THREADS * CYCLE);
     session.commit();
   }
 

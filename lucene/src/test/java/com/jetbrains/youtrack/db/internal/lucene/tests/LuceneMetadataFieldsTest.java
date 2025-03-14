@@ -27,7 +27,7 @@ public class LuceneMetadataFieldsTest extends LuceneBaseTest {
         session.getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "Song.title")
-            .getInternal()
+
             .size(session))
         .isEqualTo(585);
 

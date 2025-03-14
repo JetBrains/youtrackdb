@@ -221,7 +221,7 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
     DBRecord record;
 
     try (var resultSet = db.command("insert into Some set prop = 'value'")) {
-      record = resultSet.next().castToRecord();
+      record = resultSet.next().asRecord();
     }
 
     db.commit();

@@ -86,7 +86,6 @@ public class LuceneTextOperator extends QueryTargetOperator {
     }
 
     return index
-        .getInternal()
         .getRids(iContext.getDatabaseSession(),
             new LuceneKeyAndMetadata(
                 new LuceneCompositeKey(keyParams).setContext(iContext), Collections.emptyMap()))
@@ -118,7 +117,7 @@ public class LuceneTextOperator extends QueryTargetOperator {
       CommandContext iContext,
       final EntitySerializer serializer) {
 
-    var index = involvedIndex(iContext.getDatabaseSession(), iRecord.castToEntity(),
+    var index = involvedIndex(iContext.getDatabaseSession(), iRecord.asEntity(),
         iCondition
     );
     if (index == null) {
@@ -246,8 +245,8 @@ public class LuceneTextOperator extends QueryTargetOperator {
         LuceneFullTextIndex idx = null;
         for (var classInvolvedIndex : classInvolvedIndexes) {
 
-          if (classInvolvedIndex.getInternal() instanceof LuceneFullTextIndex) {
-            idx = (LuceneFullTextIndex) classInvolvedIndex.getInternal();
+          if (classInvolvedIndex instanceof LuceneFullTextIndex) {
+            idx = (LuceneFullTextIndex) classInvolvedIndex;
             break;
           }
         }

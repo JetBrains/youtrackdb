@@ -27,15 +27,22 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
  * Listener Interface for all the events of the session instances.
  */
 public interface SessionListener {
-  void onBeforeTxBegin(final DatabaseSession iDatabase);
 
-  void onBeforeTxRollback(final DatabaseSession iDatabase);
+  default void onBeforeTxBegin(final DatabaseSession iDatabase) {
+  }
 
-  void onAfterTxRollback(final DatabaseSession iDatabase);
 
-  void onBeforeTxCommit(final DatabaseSession iDatabase);
+  default void onBeforeTxRollback(final DatabaseSession iDatabase) {
+  }
 
-  void onAfterTxCommit(final DatabaseSession iDatabase);
+  default void onAfterTxRollback(final DatabaseSession iDatabase) {
+  }
+
+  default void onBeforeTxCommit(final DatabaseSession iDatabase) {
+  }
+
+  default void onAfterTxCommit(final DatabaseSession iDatabase) {
+  }
 
   default void onClose(final DatabaseSession iDatabase) {
   }

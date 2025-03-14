@@ -58,13 +58,13 @@ public class LuceneInsertUpdateTransactionTest extends BaseLuceneTest {
     Assert.assertNotNull(idx);
 
     Collection<?> coll;
-    try (var stream = idx.getInternal().getRids(session, "Rome")) {
+    try (var stream = idx.getRids(session, "Rome")) {
       coll = stream.collect(Collectors.toList());
     }
 
     Assert.assertEquals(coll.size(), 1);
     session.rollback();
-    try (var stream = idx.getInternal().getRids(session, "Rome")) {
+    try (var stream = idx.getRids(session, "Rome")) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(coll.size(), 0);
@@ -76,7 +76,7 @@ public class LuceneInsertUpdateTransactionTest extends BaseLuceneTest {
     user.save(session);
 
     session.commit();
-    try (var stream = idx.getInternal().getRids(session, "Rome")) {
+    try (var stream = idx.getRids(session, "Rome")) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(coll.size(), 1);

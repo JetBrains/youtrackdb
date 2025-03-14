@@ -67,7 +67,7 @@ public class IndexTxTest extends BaseDBTest {
 
     var index = getIndex("IndexTxTestIndex");
     Iterator<Object> keyIterator;
-    try (var keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keyIterator = keyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -75,7 +75,7 @@ public class IndexTxTest extends BaseDBTest {
 
         final var expectedValue = expectedResult.get(key);
         final RID value;
-        try (var stream = index.getInternal().getRids(session, key)) {
+        try (var stream = index.getRids(session, key)) {
           value = stream.findAny().orElse(null);
         }
 

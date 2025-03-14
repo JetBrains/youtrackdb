@@ -242,7 +242,7 @@ public class SchemaRemote extends SchemaShared {
 
     acquireSchemaWriteLock(session);
     try {
-      if (session.getTransaction().isActive()) {
+      if (session.getTransactionInternal().isActive()) {
         throw new IllegalStateException("Cannot drop a class inside a transaction");
       }
 

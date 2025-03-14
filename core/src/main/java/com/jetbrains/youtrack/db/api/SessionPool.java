@@ -1,6 +1,5 @@
-package com.jetbrains.youtrack.db.api.session;
+package com.jetbrains.youtrack.db.api;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.AcquireTimeoutException;
 
 public interface SessionPool extends AutoCloseable {

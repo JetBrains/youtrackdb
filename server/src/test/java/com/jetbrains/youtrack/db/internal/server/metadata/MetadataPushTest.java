@@ -55,10 +55,8 @@ public class MetadataPushTest {
 
   @After
   public void after() {
-    database.activateOnCurrentThread();
     database.close();
     youTrackDB.close();
-    secondDatabase.activateOnCurrentThread();
     secondDatabase.close();
     secondYouTrackDB.close();
     server.shutdown();
@@ -70,7 +68,6 @@ public class MetadataPushTest {
 
   @Test
   public void testStorageUpdate() throws Exception {
-    database.activateOnCurrentThread();
     database.command(" ALTER DATABASE LOCALE_LANGUAGE  ?", Locale.GERMANY.getLanguage());
     // Push done in background for now, do not guarantee update before command return.
     secondDatabase.activateOnCurrentThread();
@@ -86,7 +83,6 @@ public class MetadataPushTest {
 
   @Test
   public void testSchemaUpdate() throws Exception {
-    database.activateOnCurrentThread();
     database.command(" create class X");
 
     // Push done in background for now, do not guarantee update before command return.
@@ -101,7 +97,6 @@ public class MetadataPushTest {
 
   @Test
   public void testSequencesUpdate() throws Exception {
-    database.activateOnCurrentThread();
     database.begin();
     database.command("CREATE SEQUENCE test TYPE CACHED");
     database.commit();

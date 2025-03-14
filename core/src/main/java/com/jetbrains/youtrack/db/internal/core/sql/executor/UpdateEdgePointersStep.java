@@ -35,7 +35,7 @@ public class UpdateEdgePointersStep extends AbstractExecutionStep {
   private static Result mapResult(Result result, CommandContext ctx) {
     if (result instanceof ResultInternal resultInternal && resultInternal.isEntity()) {
       var db = ctx.getDatabaseSession();
-      handleUpdateEdge(result.castToEntity().getRecord(db), db);
+      handleUpdateEdge(result.asEntity().getRecord(db), db);
     }
 
     return result;

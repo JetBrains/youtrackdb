@@ -74,7 +74,7 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
 
     var tagsIndex = schema.getClassInternal("City").getClassIndex(session, "City.tags");
     Collection<?> coll;
-    try (var stream = tagsIndex.getInternal().getRids(session, "Sunny")) {
+    try (var stream = tagsIndex.getRids(session, "Sunny")) {
       coll = stream.collect(Collectors.toList());
     }
     assertThat(coll).hasSize(1);
@@ -92,7 +92,7 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
     session.commit();
 
     session.begin();
-    try (var stream = tagsIndex.getInternal().getRids(session, "Sunny")) {
+    try (var stream = tagsIndex.getRids(session, "Sunny")) {
       coll = stream.collect(Collectors.toList());
     }
     assertThat(coll).hasSize(2);
@@ -105,17 +105,17 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
 
     session.commit();
 
-    try (var stream = tagsIndex.getInternal().getRids(session, "Rainy")) {
+    try (var stream = tagsIndex.getRids(session, "Rainy")) {
       coll = stream.collect(Collectors.toList());
     }
     assertThat(coll).hasSize(1);
 
-    try (var stream = tagsIndex.getInternal().getRids(session, "Beautiful")) {
+    try (var stream = tagsIndex.getRids(session, "Beautiful")) {
       coll = stream.collect(Collectors.toList());
     }
     assertThat(coll).hasSize(2);
 
-    try (var stream = tagsIndex.getInternal().getRids(session, "Sunny")) {
+    try (var stream = tagsIndex.getRids(session, "Sunny")) {
       coll = stream.collect(Collectors.toList());
     }
     assertThat(coll).hasSize(1);
@@ -141,7 +141,7 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
     session.begin();
     var idx = schema.getClassInternal("Person").getClassIndex(session, "Person.name_tags");
     Collection<?> coll;
-    try (var stream = idx.getInternal().getRids(session, "Enrico")) {
+    try (var stream = idx.getRids(session, "Enrico")) {
       coll = stream.collect(Collectors.toList());
     }
 
@@ -154,7 +154,7 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
     session.commit();
 
     session.begin();
-    try (var stream = idx.getInternal().getRids(session, "Jared")) {
+    try (var stream = idx.getRids(session, "Jared")) {
       coll = stream.collect(Collectors.toList());
     }
 
@@ -167,12 +167,12 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
 
     session.commit();
 
-    try (var stream = idx.getInternal().getRids(session, "Funny")) {
+    try (var stream = idx.getRids(session, "Funny")) {
       coll = stream.collect(Collectors.toList());
     }
     assertThat(coll).hasSize(1);
 
-    try (var stream = idx.getInternal().getRids(session, "Geek")) {
+    try (var stream = idx.getRids(session, "Geek")) {
       coll = stream.collect(Collectors.toList());
     }
     assertThat(coll).hasSize(2);

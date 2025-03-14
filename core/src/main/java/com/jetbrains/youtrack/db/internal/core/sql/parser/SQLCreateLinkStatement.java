@@ -290,7 +290,7 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
     }
     List<EntityImpl> result = new ArrayList<>();
     while (rs.hasNext()) {
-      result.add((EntityImpl) rs.next().asEntity());
+      result.add((EntityImpl) rs.next().asEntityOrNull());
     }
     return result;
   }

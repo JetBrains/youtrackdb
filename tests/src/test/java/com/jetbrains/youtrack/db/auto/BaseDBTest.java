@@ -585,7 +585,7 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
     Assert.assertEquals(result.size(), 2);
     for (var v : result) {
       Assert.assertTrue(
-          v.castToEntity().getSchemaClass().isSubClassOf(vehicleClass));
+          v.asEntity().getSchemaClass().isSubClassOf(vehicleClass));
     }
 
     session.commit();
@@ -597,10 +597,10 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
 
     for (var v : result) {
       Assert.assertTrue(
-          v.castToEntity().getSchemaClass().isSubClassOf("GraphVehicle"));
+          v.asEntity().getSchemaClass().isSubClassOf("GraphVehicle"));
 
-      if (v.castToEntity().getSchemaClass() != null
-          && v.castToEntity().getSchemaClassName().equals("GraphCar")) {
+      if (v.asEntity().getSchemaClass() != null
+          && v.asEntity().getSchemaClassName().equals("GraphCar")) {
         Assert.assertEquals(
             CollectionUtils.size(
                 session.<Vertex>load(v.getIdentity()).getEdges(Direction.OUT)),

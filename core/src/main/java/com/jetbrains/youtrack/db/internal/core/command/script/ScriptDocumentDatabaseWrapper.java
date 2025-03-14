@@ -185,7 +185,7 @@ public class ScriptDocumentDatabaseWrapper {
   }
 
   public FrontendTransaction getTransaction() {
-    return session.getTransaction();
+    return session.getTransactionInternal();
   }
 
   public void begin() {

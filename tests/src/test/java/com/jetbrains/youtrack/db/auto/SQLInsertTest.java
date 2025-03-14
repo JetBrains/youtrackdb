@@ -88,7 +88,7 @@ public class SQLInsertTest extends BaseDBTest {
                     + positions.get(3)
                     + ", 'hooray')")
             .next()
-            .castToEntity();
+            .asEntity();
     session.commit();
 
     doc = session.bindToSession(doc);
@@ -110,7 +110,7 @@ public class SQLInsertTest extends BaseDBTest {
                     + positions.get(3)
                     + ", dummy =  'hooray'")
             .next()
-            .castToEntity();
+            .asEntity();
     session.commit();
 
     doc = session.bindToSession(doc);
@@ -142,7 +142,7 @@ public class SQLInsertTest extends BaseDBTest {
                 new RecordId(addressId, positions.get(3)),
                 "hooray")
             .next()
-            .castToEntity();
+            .asEntity();
     session.commit();
 
     doc = session.bindToSession(doc);
@@ -169,7 +169,7 @@ public class SQLInsertTest extends BaseDBTest {
                 new RecordId(addressId, positions.get(3)),
                 "hooray")
             .next()
-            .castToEntity();
+            .asEntity();
     session.commit();
 
     doc = session.bindToSession(doc);
@@ -193,7 +193,7 @@ public class SQLInsertTest extends BaseDBTest {
                 "insert into O (equaledges, name, properties) values ('no',"
                     + " 'circle', {'round':'eeee', 'blaaa':'zigzag'} )")
             .next()
-            .castToEntity();
+            .asEntity();
     session.commit();
 
     Assert.assertNotNull(doc);
@@ -220,7 +220,7 @@ public class SQLInsertTest extends BaseDBTest {
                 "insert into O SET equaledges = 'no', name = 'circle',"
                     + " properties = {'round':'eeee', 'blaaa':'zigzag'} ")
             .next()
-            .castToEntity();
+            .asEntity();
     session.commit();
 
     doc = session.bindToSession(doc);
@@ -247,7 +247,7 @@ public class SQLInsertTest extends BaseDBTest {
                 "insert into O (equaledges, name, list) values ('yes',"
                     + " 'square', ['bottom', 'top','left','right'] )")
             .next()
-            .castToEntity();
+            .asEntity();
     session.commit();
 
     Assert.assertNotNull(doc);
@@ -276,7 +276,7 @@ public class SQLInsertTest extends BaseDBTest {
                 "insert into O SET equaledges = 'yes', name = 'square', list"
                     + " = ['bottom', 'top','left','right'] ")
             .next()
-            .castToEntity();
+            .asEntity();
     session.commit();
 
     doc = session.bindToSession(doc);
@@ -336,7 +336,7 @@ public class SQLInsertTest extends BaseDBTest {
         session
             .command("INSERT INTO test SET names = (select name from OUser)")
             .next()
-            .castToEntity();
+            .asEntity();
     session.commit();
 
     doc = session.bindToSession(doc);
@@ -353,7 +353,7 @@ public class SQLInsertTest extends BaseDBTest {
         session
             .command(
                 "insert into Account cluster anotherdefault (id, title) values (10, 'NoSQL"
-                    + " movement')").stream().findFirst().orElseThrow().asEntity();
+                    + " movement')").stream().findFirst().orElseThrow().asEntityOrNull();
     session.commit();
 
     Assert.assertNotNull(doc);
@@ -383,7 +383,7 @@ public class SQLInsertTest extends BaseDBTest {
                     + " {\"key\":\"value\"},dir= '',user= #3:"
                     + positions.getFirst())
             .next()
-            .castToEntity();
+            .asEntity();
     session.commit();
     Assert.assertNotNull(result);
 
@@ -417,8 +417,8 @@ public class SQLInsertTest extends BaseDBTest {
 
     Assert.assertEquals(result.size(), 2);
     for (var r : result) {
-      Assert.assertEquals(r.asEntity().getSchemaClassName(), "UserCopy");
-      Assert.assertNotEquals(((EntityImpl) r.asEntity()).field("name"), "admin");
+      Assert.assertEquals(r.asEntityOrNull().getSchemaClassName(), "UserCopy");
+      Assert.assertNotEquals(((EntityImpl) r.asEntityOrNull()).field("name"), "admin");
     }
   }
 
@@ -519,7 +519,7 @@ public class SQLInsertTest extends BaseDBTest {
                 "INSERT INTO TestConvert SET name = 'embeddedSetNoLinkedClass',"
                     + " embeddedSetNoLinkedClass = [{'line1':'123 Fake Street'}]")
             .next()
-            .castToEntity();
+            .asEntity();
     session.commit();
 
     doc = session.bindToSession(doc);
@@ -546,7 +546,7 @@ public class SQLInsertTest extends BaseDBTest {
                 "INSERT INTO TestConvert SET name = 'embeddedSetWithLinkedClass',"
                     + " embeddedSetWithLinkedClass = [{'line1':'123 Fake Street'}]")
             .next()
-            .castToEntity();
+            .asEntity();
     session.commit();
 
     doc = session.bindToSession(doc);
@@ -571,7 +571,7 @@ public class SQLInsertTest extends BaseDBTest {
                 "INSERT INTO TestConvert SET name = 'embeddedListNoLinkedClass',"
                     + " embeddedListNoLinkedClass = [{'line1':'123 Fake Street'}]")
             .next()
-            .castToEntity();
+            .asEntity();
     session.commit();
 
     doc = session.bindToSession(doc);
@@ -600,7 +600,7 @@ public class SQLInsertTest extends BaseDBTest {
                 "INSERT INTO TestConvert SET name = 'embeddedListWithLinkedClass',"
                     + " embeddedListWithLinkedClass = [{'line1':'123 Fake Street'}]")
             .next()
-            .castToEntity();
+            .asEntity();
     session.commit();
 
     doc = session.bindToSession(doc);
@@ -627,7 +627,7 @@ public class SQLInsertTest extends BaseDBTest {
                 "INSERT INTO TestConvert SET name = 'embeddedMapNoLinkedClass',"
                     + " embeddedMapNoLinkedClass = {test:{'line1':'123 Fake Street'}}")
             .next()
-            .castToEntity();
+            .asEntity();
     session.commit();
 
     doc = session.bindToSession(doc);
@@ -654,7 +654,7 @@ public class SQLInsertTest extends BaseDBTest {
                 "INSERT INTO TestConvert SET name = 'embeddedMapWithLinkedClass',"
                     + " embeddedMapWithLinkedClass = {test:{'line1':'123 Fake Street'}}")
             .next()
-            .castToEntity();
+            .asEntity();
     session.commit();
 
     doc = session.bindToSession(doc);
@@ -679,7 +679,7 @@ public class SQLInsertTest extends BaseDBTest {
                 "INSERT INTO TestConvert SET name = 'embeddedNoLinkedClass',"
                     + " embeddedNoLinkedClass = {'line1':'123 Fake Street'}")
             .next()
-            .castToEntity();
+            .asEntity();
     session.commit();
 
     doc = session.bindToSession(doc);
@@ -716,7 +716,7 @@ public class SQLInsertTest extends BaseDBTest {
     }
 
     session.begin();
-    session.delete(result.castToRecord());
+    session.delete(result.asRecord());
     session.commit();
 
     Assert.assertTrue(found);
@@ -737,7 +737,7 @@ public class SQLInsertTest extends BaseDBTest {
                 "INSERT INTO TestConvert SET name = 'embeddedWithLinkedClass',"
                     + " embeddedWithLinkedClass = {'line1':'123 Fake Street'}")
             .next()
-            .castToEntity();
+            .asEntity();
     session.commit();
 
     doc = session.bindToSession(doc);
@@ -767,7 +767,7 @@ public class SQLInsertTest extends BaseDBTest {
                     + "      '@class': 'EmbeddedWithRecordAttributes_Like'\n"
                     + "    } ")
             .next()
-            .castToEntity();
+            .asEntity();
     session.commit();
 
     doc = session.bindToSession(doc);
@@ -798,7 +798,7 @@ public class SQLInsertTest extends BaseDBTest {
                     + "      @class: 'EmbeddedWithRecordAttributes2_Like'\n"
                     + "    } ")
             .next()
-            .castToEntity();
+            .asEntity();
     session.commit();
 
     doc = session.bindToSession(doc);

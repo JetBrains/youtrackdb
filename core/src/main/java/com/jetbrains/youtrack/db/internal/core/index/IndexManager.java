@@ -28,10 +28,7 @@ import java.util.Set;
 
 /**
  * Manager of indexes.
- *
- * @deprecated Manual indexes are deprecated and will be removed
  */
-@Deprecated
 public interface IndexManager {
 
   /**
@@ -66,9 +63,7 @@ public interface IndexManager {
    * Returns all indexes registered in database.
    *
    * @return list of registered indexes.
-   * @deprecated Manual indexes are deprecated and will be removed
    */
-  @Deprecated
   Collection<? extends Index> getIndexes();
 
   /**
@@ -76,9 +71,7 @@ public interface IndexManager {
    *
    * @param iName name of index
    * @return index if one registered in database or null otherwise.
-   * @deprecated Manual indexes are deprecated and will be removed
    */
-  @Deprecated
   Index getIndex(final String iName);
 
 
@@ -87,9 +80,7 @@ public interface IndexManager {
    *
    * @param iName name of index.
    * @return true if index with specified name exists, false otherwise.
-   * @deprecated Manual indexes are deprecated and will be removed
    */
-  @Deprecated
   boolean existsIndex(final String iName);
 
   /**
@@ -102,9 +93,7 @@ public interface IndexManager {
    * @param progressListener  listener to track task progress.
    * @param metadata          document with additional properties that can be used by index engine.
    * @return a newly created index instance
-   * @deprecated Manual indexes are deprecated and will be removed
    */
-  @Deprecated
   Index createIndex(
       final String iName,
       final String iType,
@@ -126,9 +115,7 @@ public interface IndexManager {
    * @param metadata          document with additional properties that can be used by index engine.
    * @param algorithm         tip to an index factory what algorithm to use
    * @return a newly created index instance
-   * @deprecated Manual indexes are deprecated and will be removed
    */
-  @Deprecated
   Index createIndex(
       final String iName,
       final String iType,
@@ -143,9 +130,7 @@ public interface IndexManager {
    *
    * @param iIndexName the name of index to drop
    * @return this
-   * @deprecated Manual indexes are deprecated and will be removed
    */
-  @Deprecated
   IndexManager dropIndex(final String iIndexName);
 
 
@@ -156,7 +141,6 @@ public interface IndexManager {
    *
    * @return a document that used to store index configurations.
    */
-  @Deprecated
   EntityImpl getConfiguration(DatabaseSession session);
 
   /**
@@ -169,9 +153,7 @@ public interface IndexManager {
    * @param className name of class which is indexed.
    * @param fields    Field names.
    * @return list of indexes that contain passed in fields names as their first keys.
-   * @deprecated Manual indexes are deprecated and will be removed
    */
-  @Deprecated
   Set<Index> getClassInvolvedIndexes(String className, Collection<String> fields);
 
   /**
@@ -184,9 +166,7 @@ public interface IndexManager {
    * @param className name of class which is indexed.
    * @param fields    Field names.
    * @return list of indexes that contain passed in fields names as their first keys.
-   * @deprecated Manual indexes are deprecated and will be removed
    */
-  @Deprecated
   Set<Index> getClassInvolvedIndexes(String className, String... fields);
 
   /**
@@ -197,9 +177,7 @@ public interface IndexManager {
    * @param className name of class which contain {@code fields}.
    * @param fields    Field names.
    * @return <code>true</code> if given fields are contained as first key fields in class indexes.
-   * @deprecated
    */
-  @Deprecated
   boolean areIndexed(String className, Collection<String> fields);
 
   /**
@@ -207,9 +185,7 @@ public interface IndexManager {
    * @param fields    Field names.
    * @return <code>true</code> if given fields are contained as first key fields in class indexes.
    * @see #areIndexed(String, java.util.Collection)
-   * @deprecated Manual indexes are deprecated and will be removed
    */
-  @Deprecated
   boolean areIndexed(String className, String... fields);
 
   /**
@@ -217,9 +193,7 @@ public interface IndexManager {
    *
    * @param className name of class which is indexed.
    * @return a set of indexes related to specified class
-   * @deprecated Manual indexes are deprecated and will be removed
    */
-  @Deprecated
   Set<Index> getClassIndexes(String className);
 
   /**
@@ -227,17 +201,12 @@ public interface IndexManager {
    *
    * @param className name of class which is indexed.
    * @param indexes   Collection of indexes where to add all the indexes
-   * @deprecated Manual indexes are deprecated and will be removed
    */
-  @Deprecated
   void getClassIndexes(String className, Collection<Index> indexes);
 
   /**
    * Returns the unique index for a class, if any.
-   *
-   * @deprecated Manual indexes are deprecated and will be removed
    */
-  @Deprecated
   IndexUnique getClassUniqueIndex(String className);
 
   /**
@@ -246,17 +215,13 @@ public interface IndexManager {
    * @param className name of class which is indexed.
    * @param indexName name of index.
    * @return an index instance or null if such does not exist.
-   * @deprecated Manual indexes are deprecated and will be removed
    */
-  @Deprecated
   Index getClassIndex(String className, String indexName);
 
   /**
    * Blocks current thread till indexes will be restored.
    *
-   * @deprecated Manual indexes are deprecated and will be removed
    */
-  @Deprecated
   void waitTillIndexRestore();
 
   /**
@@ -279,8 +244,6 @@ public interface IndexManager {
    * @param clusterName cluster to add.
    * @param indexName   name of index.
    */
-  @SuppressWarnings("DeprecatedIsStillUsed")
-  @Deprecated
   void addClusterToIndex(DatabaseSession session, String clusterName, String indexName);
 
   /**
@@ -292,8 +255,6 @@ public interface IndexManager {
    * @param clusterName cluster to remove.
    * @param indexName   name of index.
    */
-  @SuppressWarnings("DeprecatedIsStillUsed")
-  @Deprecated
   void removeClusterFromIndex(DatabaseSession session, String clusterName, String indexName);
 
   /**
@@ -312,7 +273,5 @@ public interface IndexManager {
    * @param session
    * @param idx     index to remove.
    */
-  @SuppressWarnings("DeprecatedIsStillUsed")
-  @Deprecated
   void removeClassPropertyIndex(DatabaseSession session, Index idx);
 }

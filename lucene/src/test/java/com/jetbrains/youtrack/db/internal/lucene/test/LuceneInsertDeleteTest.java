@@ -58,13 +58,13 @@ public class LuceneInsertDeleteTest extends BaseLuceneTest {
 
     var idx = session.getClassInternal("City").getClassIndex(session, "City.name");
     Collection<?> coll;
-    try (var stream = idx.getInternal().getRids(session, "Rome")) {
+    try (var stream = idx.getRids(session, "Rome")) {
       coll = stream.collect(Collectors.toList());
     }
 
     session.begin();
     assertThat(coll).hasSize(1);
-    assertThat(idx.getInternal().size(session)).isEqualTo(1);
+    assertThat(idx.size(session)).isEqualTo(1);
     session.commit();
 
     var next = (Identifiable) coll.iterator().next();
@@ -75,11 +75,11 @@ public class LuceneInsertDeleteTest extends BaseLuceneTest {
     session.delete(doc);
     session.commit();
 
-    try (var stream = idx.getInternal().getRids(session, "Rome")) {
+    try (var stream = idx.getRids(session, "Rome")) {
       coll = stream.collect(Collectors.toList());
     }
     assertThat(coll).hasSize(0);
-    assertThat(idx.getInternal().size(session)).isEqualTo(0);
+    assertThat(idx.size(session)).isEqualTo(0);
   }
 
   @Test

@@ -954,7 +954,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     var item = qResult.next();
     Assert.assertFalse(qResult.hasNext());
     qResult.close();
-    return item.castToEntity().getRecord(session);
+    return item.asEntity().getRecord(session);
   }
 
   private EntityImpl getManagerArrows(String personName) {
@@ -976,7 +976,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     var item = qResult.next();
     Assert.assertFalse(qResult.hasNext());
     qResult.close();
-    return item.castToEntity().getRecord(session);
+    return item.asEntity().getRecord(session);
   }
 
   @Test

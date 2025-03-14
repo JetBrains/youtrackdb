@@ -313,7 +313,7 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
 
     session.begin();
     // verify index state
-    try (var stream = index.getInternal().getRids(session, "Name")) {
+    try (var stream = index.getRids(session, "Name")) {
       stream.forEach(
           (rid) -> {
             final EntityImpl document = session.load(rid);
@@ -327,7 +327,7 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
   @SuppressWarnings("unchecked")
   private void assertRids(String indexKey, Identifiable... rids) {
     final Set<RID> actualRids;
-    try (var stream = index.getInternal().getRids(session, indexKey)) {
+    try (var stream = index.getRids(session, indexKey)) {
       actualRids = stream.collect(Collectors.toSet());
     }
     Assert.assertEquals(actualRids, new HashSet<Object>(Arrays.asList(rids)));

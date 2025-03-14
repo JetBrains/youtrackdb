@@ -37,7 +37,6 @@ public class RemoteSecurityTests {
 
   @After
   public void after() {
-    this.db.activateOnCurrentThread();
     this.db.close();
     youTrackDB.drop(DB_NAME);
     youTrackDB.close();
@@ -484,7 +483,7 @@ public class RemoteSecurityTests {
       try {
         db.begin();
         var item = resultSet.next();
-        var doc = item.castToEntity();
+        var doc = item.asEntity();
         doc.setProperty("name", "bar");
 
         db.commit();

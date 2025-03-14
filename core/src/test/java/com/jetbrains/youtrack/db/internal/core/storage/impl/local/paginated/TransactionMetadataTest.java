@@ -14,7 +14,6 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPagina
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransacationMetadataHolder;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionId;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionSequenceStatus;
-import com.jetbrains.youtrack.db.internal.core.tx.TransactionInternal;
 import java.io.File;
 import java.nio.file.Path;
 import org.junit.After;
@@ -41,7 +40,7 @@ public class TransactionMetadataTest {
   public void testBackupRestore() {
     db.begin();
     var metadata = new byte[]{1, 2, 4};
-    ((TransactionInternal) db.getTransaction())
+    db.getTransactionInternal()
         .setMetadataHolder(new TestTransacationMetadataHolder(metadata));
     var v = db.newVertex("V");
     v.setProperty("name", "Foo");

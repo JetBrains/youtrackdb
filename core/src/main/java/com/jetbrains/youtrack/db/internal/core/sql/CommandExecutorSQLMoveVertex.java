@@ -198,7 +198,7 @@ public class CommandExecutorSQLMoveVertex extends CommandExecutorSQLSetAware
 
   private static Vertex toVertex(DatabaseSessionInternal db, Identifiable item) {
     if (item instanceof Entity) {
-      return ((Entity) item).asVertex();
+      return ((Entity) item).asVertexOrNull();
     } else {
       try {
         item = db.load(item.getIdentity());
@@ -206,7 +206,7 @@ public class CommandExecutorSQLMoveVertex extends CommandExecutorSQLSetAware
         return null;
       }
       if (item instanceof Entity) {
-        return ((Entity) item).asVertex();
+        return ((Entity) item).asVertexOrNull();
       }
     }
     return null;

@@ -1326,7 +1326,6 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
                         .getMetadata()
                         .getIndexManagerInternal()
                         .getIndex(session, parsedTarget.getTargetIndex())
-                        .getInternal()
                         .size(session);
               } else {
                 final var recs = parsedTarget.getTargetRecords();
@@ -1637,7 +1636,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
 
   private boolean canRunParallel(DatabaseSessionInternal db, int[] clusterIds,
       Iterator<? extends Identifiable> iTarget) {
-    if (db.getTransaction().isActive()) {
+    if (db.getTransactionInternal().isActive()) {
       return false;
     }
 
@@ -1661,7 +1660,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
   }
 
   private boolean canScanStorageCluster(DatabaseSessionInternal db, final int[] clusterIds) {
-    if (clusterIds != null && request.isIdempotent() && !db.getTransaction().isActive()) {
+    if (clusterIds != null && request.isIdempotent() && !db.getTransactionInternal().isActive()) {
       final var schema = db.getMetadata().getImmutableSchemaSnapshot();
       for (var clusterId : clusterIds) {
         final var cls = (SchemaImmutableClass) schema.getClassByClusterId(
@@ -2110,7 +2109,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
           Stream<RawPair<Object, RID>> cursor;
           indexIsUsedInOrderBy =
               orderByOptimizer.canBeUsedByOrderBy(index, orderedFields)
-                  && !(index.getInternal() instanceof ChainedIndexProxy);
+                  && !(index instanceof ChainedIndexProxy);
           try {
             var ascSortOrder =
                 !indexIsUsedInOrderBy || orderedFields.get(0).getValue().equals(KEYWORD_ASC);
@@ -2274,7 +2273,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
             Stream<RawPair<Object, RID>> stream;
             indexIsUsedInOrderBy =
                 orderByOptimizer.canBeUsedByOrderBy(index, orderedFields)
-                    && !(index.getInternal() instanceof ChainedIndexProxy);
+                    && !(index instanceof ChainedIndexProxy);
             try {
               var ascSortOrder =
                   !indexIsUsedInOrderBy || orderedFields.get(0).getValue().equals(KEYWORD_ASC);
@@ -2487,9 +2486,9 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
         Stream<RawPair<Object, RID>> stream = null;
 
         if (ascSortOrder) {
-          stream = index.getInternal().stream(session);
+          stream = index.stream(session);
         } else {
-          stream = index.getInternal().descStream(session);
+          stream = index.descStream(session);
         }
 
         if (stream != null) {
@@ -2497,7 +2496,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
         }
 
         if (!index.getDefinition().isNullValuesIgnored()) {
-          final var nullRids = index.getInternal()
+          final var nullRids = index
               .getRids(session, null);
           streams.add(nullRids.map((rid) -> new RawPair<>(null, rid)));
         }
@@ -2762,7 +2761,6 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
 
         try (var stream =
             index
-                .getInternal()
                 .streamEntriesBetween(session,
                     getIndexKey(session, index.getDefinition(), values[0], context),
                     true,
@@ -2775,7 +2773,6 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
 
         try (var stream =
             index
-                .getInternal()
                 .streamEntriesMajor(session,
                     getIndexKey(session, index.getDefinition(), value, context),
                     false, ascOrder)) {
@@ -2785,7 +2782,6 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
         final var value = compiledFilter.getRootCondition().getRight();
         try (var stream =
             index
-                .getInternal()
                 .streamEntriesMajor(session,
                     getIndexKey(session, index.getDefinition(), value, context), true, ascOrder)) {
           fetchEntriesFromIndexStream(session, stream);
@@ -2796,7 +2792,6 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
 
         try (var stream =
             index
-                .getInternal()
                 .streamEntriesMinor(session,
                     getIndexKey(session, index.getDefinition(), value, context),
                     false, ascOrder)) {
@@ -2807,7 +2802,6 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
 
         try (var stream =
             index
-                .getInternal()
                 .streamEntriesMinor(session,
                     getIndexKey(session, index.getDefinition(), value, context), true, ascOrder)) {
           fetchEntriesFromIndexStream(session, stream);
@@ -2825,7 +2819,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
         }
 
         try (var stream =
-            index.getInternal().streamEntries(session, values, true)) {
+            index.streamEntries(session, values, true)) {
           fetchEntriesFromIndexStream(session, stream);
         }
       } else {
@@ -2841,8 +2835,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
           final var type = index.getDefinition().getTypes()[0];
           keyValue = PropertyType.convert(session, keyValue, type.getDefaultJavaType());
 
-          //noinspection resource
-          res = index.getInternal().getRids(session, keyValue);
+          res = index.getRids(session, keyValue);
         } else {
           final var secondKey = getIndexKey(session, index.getDefinition(), right, context);
           if (keyValue instanceof CompositeKey
@@ -2851,11 +2844,10 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
               == index.getDefinition().getParamCount()
               && ((CompositeKey) secondKey).getKeys().size()
               == index.getDefinition().getParamCount()) {
-            //noinspection resource
-            res = index.getInternal().getRids(session, keyValue);
+            res = index.getRids(session, keyValue);
           } else {
             try (var stream =
-                index.getInternal()
+                index
                     .streamEntriesBetween(session, keyValue, true, secondKey, true, true)) {
               fetchEntriesFromIndexStream(session, stream);
             }
@@ -2879,39 +2871,38 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
     } else {
       if (isIndexSizeQuery(session)) {
         getProjectionGroup(null, context)
-            .applyValue(projections.keySet().iterator().next(), index.getInternal().size(session));
+            .applyValue(projections.keySet().iterator().next(), index.size(session));
         return;
       }
 
       if (isIndexKeySizeQuery(session)) {
         getProjectionGroup(null, context)
-            .applyValue(projections.keySet().iterator().next(), index.getInternal().size(session));
+            .applyValue(projections.keySet().iterator().next(), index.size(session));
         return;
       }
 
-      final var indexInternal = index.getInternal();
-      if (indexInternal instanceof SharedResource) {
-        ((SharedResource) indexInternal).acquireExclusiveLock();
+      if (index instanceof SharedResource) {
+        ((SharedResource) index).acquireExclusiveLock();
       }
 
       try {
 
         // ADD ALL THE ITEMS AS RESULT
         if (ascOrder) {
-          try (var stream = index.getInternal().stream(session)) {
+          try (var stream = index.stream(session)) {
             fetchEntriesFromIndexStream(session, stream);
           }
           fetchNullKeyEntries(session, index);
         } else {
 
-          try (var stream = index.getInternal().descStream(session)) {
+          try (var stream = index.descStream(session)) {
             fetchNullKeyEntries(session, index);
             fetchEntriesFromIndexStream(session, stream);
           }
         }
       } finally {
-        if (indexInternal instanceof SharedResource) {
-          ((SharedResource) indexInternal).releaseExclusiveLock();
+        if (index instanceof SharedResource) {
+          ((SharedResource) index).releaseExclusiveLock();
         }
       }
     }
@@ -2922,12 +2913,12 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
       return;
     }
 
-    final var rids = index.getInternal().getRids(db, null);
+    final var rids = index.getRids(db, null);
     BreakingForEach.forEach(
         rids,
         (rid, breaker) -> {
           final var entity = new EntityImpl(db).setOrdered(true);
-          entity.field("key", (Object) null);
+          entity.field("key", null);
           entity.field("rid", rid);
           RecordInternal.unsetDirty(entity);
 

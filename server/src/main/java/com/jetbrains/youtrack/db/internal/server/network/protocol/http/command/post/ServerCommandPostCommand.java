@@ -172,8 +172,7 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
     } finally {
       if (session != null) {
         session.activateOnCurrentThread();
-
-        if (txBegun && session.getTransaction().isActive()) {
+        if (txBegun && session.getActiveTransaction() != null) {
           if (ok) {
             session.commit();
           } else {

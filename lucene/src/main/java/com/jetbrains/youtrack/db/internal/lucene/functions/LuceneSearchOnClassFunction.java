@@ -130,7 +130,6 @@ public class LuceneSearchOnClassFunction extends LuceneSearchFunctionTemplate {
       List<Identifiable> luceneResultSet;
       try (var rids =
           index
-              .getInternal()
               .getRids(ctx.getDatabaseSession(),
                   new LuceneKeyAndMetadata(
                       new LuceneCompositeKey(Collections.singletonList(query)).setContext(ctx),

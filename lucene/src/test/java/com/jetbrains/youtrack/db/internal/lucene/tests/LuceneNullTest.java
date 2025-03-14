@@ -34,7 +34,7 @@ public class LuceneNullTest extends LuceneBaseTest {
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Test.names");
 
     session.begin();
-    Assert.assertEquals(1, index.getInternal().size(session));
+    Assert.assertEquals(1, index.size(session));
     session.commit();
   }
 
@@ -56,7 +56,7 @@ public class LuceneNullTest extends LuceneBaseTest {
 
     session.begin();
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Test.names");
-    Assert.assertEquals(0, index.getInternal().size(session));
+    Assert.assertEquals(0, index.size(session));
     session.commit();
   }
 }

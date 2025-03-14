@@ -105,7 +105,7 @@ public class HttpGraphResponse extends HttpResponseAbstract {
 
         if (entry != null && entry instanceof Result && ((Result) entry).isEntity()) {
 
-          entry = ((Result) entry).castToEntity();
+          entry = ((Result) entry).asEntity();
 
         } else if (entry == null || !(entry instanceof Identifiable)) {
           // IGNORE IT
@@ -122,9 +122,9 @@ public class HttpGraphResponse extends HttpResponseAbstract {
 
         if (entry instanceof Entity element) {
           if (element.isVertex()) {
-            vertices.add(element.castToVertex());
+            vertices.add(element.asVertex());
           } else if (element.isStatefulEdge()) {
-            var edge = element.castToStatefulEdge();
+            var edge = element.asStatefulEdge();
             vertices.add(edge.getTo());
             vertices.add(edge.getFrom());
             if (edge.getIdentity() != null) {
@@ -154,7 +154,7 @@ public class HttpGraphResponse extends HttpResponseAbstract {
         json.writeAttribute(session, "@class", vertex.getSchemaClassName());
 
         // ADD ALL THE PROPERTIES
-        for (var field : ((VertexInternal) vertex).getPropertyNamesInternal()) {
+        for (var field : ((VertexInternal) vertex).getPropertyNamesInternal(false, true)) {
           final var v = ((VertexInternal) vertex).getPropertyInternal(field);
           if (v != null) {
             json.writeAttribute(session, field, v);
@@ -180,7 +180,7 @@ public class HttpGraphResponse extends HttpResponseAbstract {
               continue;
             }
 
-            var statefulEdge = e.castToStatefulEdge();
+            var statefulEdge = e.asStatefulEdge();
             if (edgeRids.contains(statefulEdge.getIdentity())) {
               continue;
             }
@@ -200,7 +200,7 @@ public class HttpGraphResponse extends HttpResponseAbstract {
         for (var edgeRid : edgeRids) {
           try {
             Entity elem = edgeRid.getRecord(session);
-            var edge = elem.asStatefulEdge();
+            var edge = elem.asStatefulEdgeOrNull();
 
             if (edge != null) {
               printEdge(session, json, edge);
@@ -250,7 +250,7 @@ public class HttpGraphResponse extends HttpResponseAbstract {
     json.beginObject();
 
     if (!edge.isLightweight()) {
-      var statefulEdge = edge.castToStatefulEdge();
+      var statefulEdge = edge.asStatefulEdge();
       json.writeAttribute(session, "@rid", statefulEdge.getIdentity());
       json.writeAttribute(session, "@class", statefulEdge.getSchemaClassName());
 

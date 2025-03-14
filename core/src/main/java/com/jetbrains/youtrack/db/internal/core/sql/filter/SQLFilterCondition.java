@@ -176,7 +176,7 @@ public class SQLFilterCondition {
       // no collate for regular expressions, otherwise quotes will result in no match
       Collate collate = null;
       if (iCurrentRecord.isEntity()) {
-        var entity = iCurrentRecord.castToEntity();
+        var entity = iCurrentRecord.asEntity();
         collate = operator instanceof QueryOperatorMatches ? null : getCollate(session, entity);
       }
 
@@ -452,7 +452,7 @@ public class SQLFilterCondition {
 
     var session = iContext.getDatabaseSession();
     if (iCurrentRecord != null && iCurrentRecord.isEntity()) {
-      var entity = iCurrentRecord.castToEntity();
+      var entity = iCurrentRecord.asEntity();
       if (binaryEvaluation
           && iValue instanceof SQLFilterItemField
           && !entity.isDirty()

@@ -413,7 +413,7 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
       wrappingResult.setProperty(
           "rid", item.getIdentity());
       if (item.isRecord()) {
-        wrappingResult.setProperty("version", item.castToRecord().getVersion());
+        wrappingResult.setProperty("version", item.asRecord().getVersion());
       }
 
       return wrappingResult;

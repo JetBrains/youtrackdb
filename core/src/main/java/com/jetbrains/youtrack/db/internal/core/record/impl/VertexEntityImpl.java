@@ -34,7 +34,7 @@ public class VertexEntityImpl extends EntityImpl implements VertexInternal {
 
     VertexInternal.checkPropertyName(fieldName);
 
-    return getPropertyInternal(fieldName);
+    return super.getProperty(fieldName);
   }
 
   @Nullable
@@ -69,7 +69,7 @@ public class VertexEntityImpl extends EntityImpl implements VertexInternal {
     checkForBinding();
 
     VertexInternal.checkPropertyName(fieldName);
-    return removePropertyInternal(fieldName);
+    return super.removeProperty(fieldName);
   }
 
   @Override

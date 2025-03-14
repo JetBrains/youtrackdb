@@ -220,7 +220,7 @@ public class CommandExecutorSQLDeleteEdge extends CommandExecutorSQLSetAware
       throw new CommandExecutionException(session,
           "Cannot execute the command because it has not been parsed yet");
     }
-    txAlreadyBegun = session.getTransaction().isActive();
+    txAlreadyBegun = session.getTransactionInternal().isActive();
 
     if (rids != null) {
       // REMOVE PUNCTUAL RID
@@ -321,7 +321,7 @@ public class CommandExecutorSQLDeleteEdge extends CommandExecutorSQLSetAware
           // ADDITIONAL FILTERING
           edges.removeIf(
               edge -> edge.isStateful() && !(Boolean) compiledFilter.evaluate(
-                  edge.castToStatefulEdge(), null, context));
+                  edge.asStatefulEdge(), null, context));
         }
 
         // DELETE THE FOUND EDGES
@@ -386,7 +386,7 @@ public class CommandExecutorSQLDeleteEdge extends CommandExecutorSQLSetAware
 
   private Edge toEdge(DatabaseSessionInternal session, Identifiable item) {
     if (item instanceof Entity) {
-      return ((Entity) item).castToStatefulEdge();
+      return ((Entity) item).asStatefulEdge();
     } else {
       try {
         item = session.load(item.getIdentity());
@@ -396,7 +396,7 @@ public class CommandExecutorSQLDeleteEdge extends CommandExecutorSQLSetAware
 
       if (item instanceof Entity) {
         final var a = item;
-        return ((Entity) item).castToStatefulEdge();
+        return ((Entity) item).asStatefulEdge();
       }
     }
     return null;
@@ -404,7 +404,7 @@ public class CommandExecutorSQLDeleteEdge extends CommandExecutorSQLSetAware
 
   private static Vertex toVertex(DatabaseSessionInternal db, Identifiable item) {
     if (item instanceof Entity) {
-      return ((Entity) item).asVertex();
+      return ((Entity) item).asVertexOrNull();
     } else {
       try {
         item = db.load(item.getIdentity());
@@ -412,7 +412,7 @@ public class CommandExecutorSQLDeleteEdge extends CommandExecutorSQLSetAware
         return null;
       }
       if (item instanceof Entity) {
-        return ((Entity) item).asVertex();
+        return ((Entity) item).asVertexOrNull();
       }
     }
     return null;

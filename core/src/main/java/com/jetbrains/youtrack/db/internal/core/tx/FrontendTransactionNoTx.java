@@ -31,12 +31,14 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
+import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -135,8 +137,28 @@ public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
     return Collections.emptyList();
   }
 
-  public Collection<RecordOperation> getRecordOperations() {
+  public Collection<RecordOperation> getRecordOperationsInternal() {
     return Collections.emptyList();
+  }
+
+  @Override
+  public Map<String, FrontendTransactionIndexChanges> getIndexOperations() {
+    throw new UnsupportedOperationException("GetIndexOperations is not supported in no tx mode");
+  }
+
+  @Override
+  public void setStatus(TXSTATUS iStatus) {
+    throw new UnsupportedOperationException("SetStatus is not supported in no tx mode");
+  }
+
+  @Override
+  public void setMetadataHolder(FrontendTransacationMetadataHolder metadata) {
+    throw new UnsupportedOperationException("SetMetadataHolder is not supported in no tx mode");
+  }
+
+  @Override
+  public Iterator<byte[]> getSerializedOperations() {
+    return null;
   }
 
   public List<RecordOperation> getNewRecordEntriesByClass(
@@ -178,7 +200,7 @@ public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
   }
 
   public void addIndexEntry(
-      final IndexInternal delegate,
+      final Index delegate,
       final String indexName,
       final OPERATION status,
       final Object key,

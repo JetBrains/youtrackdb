@@ -55,7 +55,7 @@ public class LinkListIndexTest extends BaseDBTest {
 
     if (!session.getStorage().isRemote()) {
       final var index = getIndex("linkCollectionIndex");
-      Assert.assertEquals(index.getInternal().size(session), 0);
+      Assert.assertEquals(index.size(session), 0);
     }
 
     super.afterMethod();
@@ -77,10 +77,10 @@ public class LinkListIndexTest extends BaseDBTest {
     session.commit();
 
     var index = getIndex("linkCollectionIndex");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.getInternal().keyStream()) {
+    try (var indexKeyStream = index.keyStream()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -118,10 +118,10 @@ public class LinkListIndexTest extends BaseDBTest {
     }
 
     var index = getIndex("linkCollectionIndex");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.getInternal().keyStream()) {
+    try (var indexKeyStream = index.keyStream()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -157,10 +157,10 @@ public class LinkListIndexTest extends BaseDBTest {
     session.commit();
 
     var index = getIndex("linkCollectionIndex");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.getInternal().keyStream()) {
+    try (var indexKeyStream = index.keyStream()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -204,10 +204,10 @@ public class LinkListIndexTest extends BaseDBTest {
     }
 
     var index = getIndex("linkCollectionIndex");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.getInternal().keyStream()) {
+    try (var indexKeyStream = index.keyStream()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -247,10 +247,10 @@ public class LinkListIndexTest extends BaseDBTest {
     session.rollback();
 
     var index = getIndex("linkCollectionIndex");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.getInternal().keyStream()) {
+    try (var indexKeyStream = index.keyStream()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -291,10 +291,10 @@ public class LinkListIndexTest extends BaseDBTest {
     session.commit();
 
     var index = getIndex("linkCollectionIndex");
-    Assert.assertEquals(index.getInternal().size(session), 3);
+    Assert.assertEquals(index.size(session), 3);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.getInternal().keyStream()) {
+    try (var indexKeyStream = index.keyStream()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -337,10 +337,10 @@ public class LinkListIndexTest extends BaseDBTest {
     }
 
     var index = getIndex("linkCollectionIndex");
-    Assert.assertEquals(index.getInternal().size(session), 3);
+    Assert.assertEquals(index.size(session), 3);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.getInternal().keyStream()) {
+    try (var indexKeyStream = index.keyStream()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -378,10 +378,10 @@ public class LinkListIndexTest extends BaseDBTest {
     session.rollback();
 
     var index = getIndex("linkCollectionIndex");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.getInternal().keyStream()) {
+    try (var indexKeyStream = index.keyStream()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -421,10 +421,10 @@ public class LinkListIndexTest extends BaseDBTest {
     }
 
     var index = getIndex("linkCollectionIndex");
-    Assert.assertEquals(index.getInternal().size(session), 1);
+    Assert.assertEquals(index.size(session), 1);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.getInternal().keyStream()) {
+    try (var indexKeyStream = index.keyStream()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -458,10 +458,10 @@ public class LinkListIndexTest extends BaseDBTest {
     session.rollback();
 
     var index = getIndex("linkCollectionIndex");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.getInternal().keyStream()) {
+    try (var indexKeyStream = index.keyStream()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -495,10 +495,10 @@ public class LinkListIndexTest extends BaseDBTest {
     session.commit();
 
     var index = getIndex("linkCollectionIndex");
-    Assert.assertEquals(index.getInternal().size(session), 1);
+    Assert.assertEquals(index.size(session), 1);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.getInternal().keyStream()) {
+    try (var indexKeyStream = index.keyStream()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -533,7 +533,7 @@ public class LinkListIndexTest extends BaseDBTest {
 
     var index = getIndex("linkCollectionIndex");
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testIndexCollectionRemoveInTx() {
@@ -562,7 +562,7 @@ public class LinkListIndexTest extends BaseDBTest {
     }
 
     var index = getIndex("linkCollectionIndex");
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testIndexCollectionRemoveInTxRollback() {
@@ -586,10 +586,10 @@ public class LinkListIndexTest extends BaseDBTest {
 
     var index = getIndex("linkCollectionIndex");
 
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.getInternal().keyStream()) {
+    try (var indexKeyStream = index.keyStream()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {

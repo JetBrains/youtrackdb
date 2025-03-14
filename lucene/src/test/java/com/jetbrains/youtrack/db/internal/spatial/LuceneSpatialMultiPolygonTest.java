@@ -224,7 +224,7 @@ public class LuceneSpatialMultiPolygonTest extends BaseSpatialLuceneTest {
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Place.location");
 
     session.begin();
-    Assert.assertEquals(1, index.getInternal().size(session));
+    Assert.assertEquals(1, index.size(session));
     session.commit();
 
     var systemResourceAsStream = ClassLoader.getSystemResourceAsStream("multipolygon.txt");
@@ -245,7 +245,7 @@ public class LuceneSpatialMultiPolygonTest extends BaseSpatialLuceneTest {
         .close();
     session.commit();
 
-    Assert.assertEquals(3, index.getInternal().size(session));
+    Assert.assertEquals(3, index.size(session));
 
     queryMultiPolygon();
   }

@@ -54,11 +54,11 @@ public class IndexTxAwareOneValueGetTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertNull(session.getTransaction().getIndexChanges(INDEX));
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX));
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = index.getInternal().getRids(session, 2)) {
+    try (var stream = index.getRids(session, 2)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
 
@@ -66,21 +66,21 @@ public class IndexTxAwareOneValueGetTest extends BaseDBTest {
 
     ((EntityImpl) session.newEntity(CLASS_NAME)).field(PROPERTY_NAME, 3);
 
-    Assert.assertNotNull(session.getTransaction().getIndexChanges(INDEX));
-    try (var stream = index.getInternal().getRids(session, 3)) {
+    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX));
+    try (var stream = index.getRids(session, 3)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
 
     session.rollback();
 
-    Assert.assertNull(session.getTransaction().getIndexChanges(INDEX));
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX));
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = index.getInternal().getRids(session, 2)) {
+    try (var stream = index.getRids(session, 2)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = index.getInternal().getRids(session, 3)) {
+    try (var stream = index.getRids(session, 3)) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
   }
@@ -100,11 +100,11 @@ public class IndexTxAwareOneValueGetTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertNull(session.getTransaction().getIndexChanges(INDEX));
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX));
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = index.getInternal().getRids(session, 2)) {
+    try (var stream = index.getRids(session, 2)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
 
@@ -113,21 +113,21 @@ public class IndexTxAwareOneValueGetTest extends BaseDBTest {
     document = session.bindToSession(document);
     document.delete();
 
-    Assert.assertNotNull(session.getTransaction().getIndexChanges(INDEX));
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX));
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
-    try (var stream = index.getInternal().getRids(session, 2)) {
+    try (var stream = index.getRids(session, 2)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
 
     session.rollback();
 
-    Assert.assertNull(session.getTransaction().getIndexChanges(INDEX));
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX));
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = index.getInternal().getRids(session, 2)) {
+    try (var stream = index.getRids(session, 2)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
   }
@@ -147,11 +147,11 @@ public class IndexTxAwareOneValueGetTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertNull(session.getTransaction().getIndexChanges(INDEX));
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX));
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = index.getInternal().getRids(session, 2)) {
+    try (var stream = index.getRids(session, 2)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
 
@@ -162,11 +162,11 @@ public class IndexTxAwareOneValueGetTest extends BaseDBTest {
 
     document.field(PROPERTY_NAME, 1);
 
-    Assert.assertNotNull(session.getTransaction().getIndexChanges(INDEX));
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX));
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
-    try (var stream = index.getInternal().getRids(session, 2)) {
+    try (var stream = index.getRids(session, 2)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
 
@@ -188,13 +188,13 @@ public class IndexTxAwareOneValueGetTest extends BaseDBTest {
     document.field(PROPERTY_NAME, 0);
     document.field(PROPERTY_NAME, 1);
 
-    Assert.assertNotNull(session.getTransaction().getIndexChanges(INDEX));
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX));
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
     session.commit();
 
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
   }
@@ -211,8 +211,8 @@ public class IndexTxAwareOneValueGetTest extends BaseDBTest {
 
     ((EntityImpl) session.newEntity(CLASS_NAME)).field(PROPERTY_NAME, 1);
 
-    Assert.assertNotNull(session.getTransaction().getIndexChanges(INDEX));
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX));
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
     session.commit();
@@ -222,7 +222,7 @@ public class IndexTxAwareOneValueGetTest extends BaseDBTest {
 
     session.commit();
 
-    try (var stream = index.getInternal().getRids(session, 2)) {
+    try (var stream = index.getRids(session, 2)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
   }
@@ -241,14 +241,14 @@ public class IndexTxAwareOneValueGetTest extends BaseDBTest {
 
     document.delete();
 
-    Assert.assertNotNull(session.getTransaction().getIndexChanges(INDEX));
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX));
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
 
     session.commit();
 
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
   }
@@ -269,14 +269,14 @@ public class IndexTxAwareOneValueGetTest extends BaseDBTest {
 
     document.field(PROPERTY_NAME, 1);
 
-    Assert.assertNotNull(session.getTransaction().getIndexChanges(INDEX));
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX));
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
 
     session.commit();
 
-    try (var stream = index.getInternal().getRids(session, 1)) {
+    try (var stream = index.getRids(session, 1)) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
   }

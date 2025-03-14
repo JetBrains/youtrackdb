@@ -35,7 +35,6 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.embedded.Embedde
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedRidBag;
@@ -218,7 +217,7 @@ public class HelperClasses {
 
   public static GlobalProperty getGlobalProperty(final EntityImpl entity, final int len) {
     final var id = (len * -1) - 1;
-    return EntityInternalUtils.getGlobalPropertyById(entity, id);
+    return entity.getGlobalPropertyById(id);
   }
 
   public static int writeBinary(final BytesContainer bytes, final byte[] valueBytes) {
@@ -382,9 +381,9 @@ public class HelperClasses {
       var entry = entries[i];
       if (entry instanceof Identifiable itemValue) {
         if (!session.isClosed()
-            && session.getTransaction().isActive()
+            && session.getTransactionInternal().isActive()
             && !itemValue.getIdentity().isPersistent()) {
-          itemValue = session.getTransaction().getRecord(itemValue.getIdentity());
+          itemValue = session.getTransactionInternal().getRecord(itemValue.getIdentity());
         }
         if (itemValue == null || itemValue == FrontendTransactionAbstract.DELETED_RECORD) {
           entries[i] = null;
@@ -413,7 +412,7 @@ public class HelperClasses {
     var pointer = ridbag.getPointer();
 
     final RecordSerializationContext context;
-    var tx = session.getTransaction();
+    var tx = session.getTransactionInternal();
     if (!(tx instanceof FrontendTransactionOptimistic optimisticTx)) {
       throw new DatabaseException(session.getDatabaseName(),
           "Transaction is not active. Changes are not allowed");

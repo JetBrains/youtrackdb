@@ -111,8 +111,8 @@ import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
-import com.jetbrains.youtrack.db.internal.core.tx.TransactionInternal;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.DistributedRedirectException;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
@@ -1262,7 +1262,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
 
     final var request =
         new Commit38Request(tx.getDatabaseSession(),
-            tx.getId(), true, true, tx.getRecordOperations(), Collections.emptyMap());
+            tx.getId(), true, true, tx.getRecordOperationsInternal(), Collections.emptyMap());
 
     final var response = networkOperationNoRetry(remoteSession, request,
         "Error on commit");
@@ -1276,14 +1276,14 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
         tx.getDatabaseSession().getBTreeCollectionManager(), response.getCollectionChanges(),
         tx.getDatabaseSession());
     // SET ALL THE RECORDS AS UNDIRTY
-    for (var txEntry : tx.getRecordOperations()) {
+    for (var txEntry : tx.getRecordOperationsInternal()) {
       RecordInternal.unsetDirty(txEntry.record);
     }
 
     return null;
   }
 
-  public void rollback(TransactionInternal iTx) {
+  public void rollback(FrontendTransaction iTx) {
     var remoteSession = (DatabaseSessionRemote) iTx.getDatabaseSession();
     try {
       if (((FrontendTransactionOptimistic) iTx).isStartedOnServer()
@@ -2049,7 +2049,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
             transaction.getId(),
             true,
             true,
-            transaction.getRecordOperations(), Collections.emptyMap());
+            transaction.getRecordOperationsInternal(), Collections.emptyMap());
     var response =
         networkOperationNoRetry(database, request, "Error on remote transaction begin");
     for (var entry : response.getUpdatedIds().entrySet()) {
@@ -2063,7 +2063,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     var database = (DatabaseSessionRemote) transaction.getDatabaseSession();
     var request =
         new SendTransactionStateRequest(database, transaction.getId(),
-            transaction.getRecordOperations());
+            transaction.getRecordOperationsInternal());
 
     var response =
         networkOperationNoRetry(database, request,

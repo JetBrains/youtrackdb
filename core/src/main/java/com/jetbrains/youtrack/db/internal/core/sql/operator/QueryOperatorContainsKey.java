@@ -74,8 +74,7 @@ public class QueryOperatorContainsKey extends QueryOperatorEqualityNotNulls {
     final var indexDefinition = index.getDefinition();
 
     Stream<RawPair<Object, RID>> stream;
-    final var internalIndex = index.getInternal();
-    if (!internalIndex.canBeUsedInEqualityOperators()) {
+    if (!index.canBeUsedInEqualityOperators()) {
       return null;
     }
 
@@ -94,7 +93,7 @@ public class QueryOperatorContainsKey extends QueryOperatorEqualityNotNulls {
         return null;
       }
 
-      stream = index.getInternal().getRids(iContext.getDatabaseSession(), key)
+      stream = index.getRids(iContext.getDatabaseSession(), key)
           .map((rid) -> new RawPair<>(key, rid));
     } else {
       // in case of composite keys several items can be returned in case of we perform search
@@ -118,15 +117,15 @@ public class QueryOperatorContainsKey extends QueryOperatorEqualityNotNulls {
         return null;
       }
 
-      if (internalIndex.hasRangeQuerySupport()) {
+      if (index.hasRangeQuerySupport()) {
         final Object keyTwo =
             compositeIndexDefinition.createSingleValue(iContext.getDatabaseSession(), keyParams);
-        stream = index.getInternal()
-            .streamEntriesBetween(iContext.getDatabaseSession(), keyOne, true, keyTwo, true,
-                ascSortOrder);
+        stream = index.streamEntriesBetween(iContext.getDatabaseSession(), keyOne, true, keyTwo,
+            true,
+            ascSortOrder);
       } else {
         if (indexDefinition.getParamCount() == keyParams.size()) {
-          stream = index.getInternal().getRids(iContext.getDatabaseSession(), keyOne)
+          stream = index.getRids(iContext.getDatabaseSession(), keyOne)
               .map((rid) -> new RawPair<>(keyOne, rid));
         } else {
           return null;

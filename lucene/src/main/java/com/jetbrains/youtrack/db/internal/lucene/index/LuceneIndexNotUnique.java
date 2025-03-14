@@ -62,7 +62,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
       final Identifiable rid) {
 
     if (key != null) {
-      var transaction = session.getTransaction();
+      var transaction = session.getTransactionInternal();
 
       transaction.addIndexEntry(
           this, super.getName(), FrontendTransactionIndexChanges.OPERATION.REMOVE, encodeKey(key),
@@ -77,7 +77,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   @Override
   public boolean remove(DatabaseSessionInternal session, final Object key) {
     if (key != null) {
-      var transaction = session.getTransaction();
+      var transaction = session.getTransactionInternal();
       transaction.addIndexEntry(
           this, super.getName(), FrontendTransactionIndexChanges.OPERATION.REMOVE, encodeKey(key),
           null);
@@ -281,7 +281,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   @Override
   public Stream<RID> getRids(DatabaseSessionInternal session, Object key) {
     return session.computeInTx(() -> {
-      var transaction = session.getTransaction();
+      var transaction = session.getTransactionInternal();
       while (true) {
         try {
           return storage
@@ -307,7 +307,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
     final var rid = value.getIdentity();
 
     if (key != null) {
-      var transaction = db.getTransaction();
+      var transaction = db.getTransactionInternal();
       var transactionChanges = getTransactionChanges(transaction);
       transaction.addIndexEntry(
           this, super.getName(), FrontendTransactionIndexChanges.OPERATION.PUT, encodeKey(key),
@@ -344,7 +344,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
               false,
               indexId,
               engine -> {
-                var transaction = session.getTransaction();
+                var transaction = session.getTransactionInternal();
                 var indexEngine = (LuceneIndexEngine) engine;
                 return indexEngine.sizeInTx(getTransactionChanges(transaction), storage);
               });

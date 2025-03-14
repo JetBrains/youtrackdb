@@ -43,59 +43,59 @@ public class UpdatableResult extends ResultInternal {
   @Override
   public Entity getEntity(@Nonnull String name) {
     checkSession();
-    return castToEntity().getEntity(name);
+    return this.asEntity().getEntity(name);
   }
 
   @Nullable
   @Override
   public Result getResult(@Nonnull String name) {
     checkSession();
-    return castToEntity().getResult(name);
+    return this.asEntity().getResult(name);
   }
 
   @Override
   public Vertex getVertex(@Nonnull String name) {
     checkSession();
-    return castToEntity().getVertex(name);
+    return this.asEntity().getVertex(name);
   }
 
   @Override
   public Edge getEdge(@Nonnull String name) {
     checkSession();
-    return castToEntity().getEdge(name);
+    return this.asEntity().getEdge(name);
   }
 
   @Nullable
   @Override
   public RID getLink(@Nonnull String name) {
     checkSession();
-    return castToEntity().getLink(name);
+    return this.asEntity().getLink(name);
   }
 
   @Override
   public Blob getBlob(String name) {
     checkSession();
-    return castToEntity().getBlob(name);
+    return this.asEntity().getBlob(name);
   }
 
   @Nonnull
   @Override
   public Collection<String> getPropertyNames() {
     checkSession();
-    return castToEntity().getPropertyNames();
+    return this.asEntity().getPropertyNames();
   }
 
   @Override
   public boolean hasProperty(@Nonnull String propName) {
     checkSession();
-    return castToEntity().hasProperty(propName);
+    return this.asEntity().hasProperty(propName);
   }
 
   @Override
   @Nonnull
   public Result detach() {
     checkSession();
-    return castToEntity().detach();
+    return this.asEntity().detach();
   }
 
   @Override
@@ -106,7 +106,7 @@ public class UpdatableResult extends ResultInternal {
 
   @Nonnull
   @Override
-  public Entity castToEntity() {
+  public Entity asEntity() {
     checkSession();
     var entity = ((Entity) identifiable);
 
@@ -124,9 +124,9 @@ public class UpdatableResult extends ResultInternal {
 
   @Nullable
   @Override
-  public Entity asEntity() {
+  public Entity asEntityOrNull() {
     checkSession();
-    return castToEntity();
+    return this.asEntity();
   }
 
   @Override
@@ -143,16 +143,16 @@ public class UpdatableResult extends ResultInternal {
 
   @Nonnull
   @Override
-  public DBRecord castToRecord() {
+  public DBRecord asRecord() {
     checkSession();
-    return castToEntity();
+    return this.asEntity();
   }
 
   @Nullable
   @Override
-  public DBRecord asRecord() {
+  public DBRecord asRecordOrNull() {
     checkSession();
-    return castToEntity();
+    return this.asEntity();
   }
 
   @Override
@@ -163,14 +163,14 @@ public class UpdatableResult extends ResultInternal {
 
   @Nonnull
   @Override
-  public Blob castToBlob() {
+  public Blob asBlob() {
     checkSession();
     throw new DatabaseException("Result is not a blob");
   }
 
   @Nullable
   @Override
-  public Blob asBlob() {
+  public Blob asBlobOrNull() {
     checkSession();
     return null;
   }
@@ -196,40 +196,40 @@ public class UpdatableResult extends ResultInternal {
   @Override
   public Map<String, Object> toMap() {
     checkSession();
-    return castToEntity().toMap();
+    return this.asEntity().toMap();
   }
 
   @Override
   public boolean isEdge() {
     checkSession();
-    return castToEntity().isEdge();
+    return this.asEntity().isEdge();
   }
 
   @Override
   public boolean isStatefulEdge() {
     checkSession();
-    return castToEntity().isStatefulEdge();
+    return this.asEntity().isStatefulEdge();
   }
 
   @Nonnull
   @Override
-  public Edge castToEdge() {
+  public Edge asEdge() {
     checkSession();
-    return castToEntity().castToEdge();
+    return this.asEntity().asEdge();
   }
 
   @Nullable
   @Override
-  public Edge asEdge() {
+  public Edge asEdgeOrNull() {
     checkSession();
-    return castToEntity().asEdge();
+    return this.asEntity().asEdgeOrNull();
   }
 
   @Nonnull
   @Override
   public String toJSON() {
     checkSession();
-    return castToEntity().toJSON();
+    return this.asEntity().toJSON();
   }
 
   @Override

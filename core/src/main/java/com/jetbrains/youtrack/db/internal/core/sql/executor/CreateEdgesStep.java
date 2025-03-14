@@ -140,9 +140,6 @@ public class CreateEdgesStep extends AbstractExecutionStep {
         .map(
             (obj) -> {
               var currentTo = asVertex(session, obj);
-              if (currentTo == null) {
-                throw new CommandExecutionException(session, "Invalid TO vertex for edge");
-              }
               EdgeInternal edgeToUpdate = null;
               if (uniqueIndex != null) {
                 var existingEdge =
@@ -158,7 +155,7 @@ public class CreateEdgesStep extends AbstractExecutionStep {
               }
 
               if (edgeToUpdate.isStateful()) {
-                return new UpdatableResult(session, edgeToUpdate.castToStatefulEdge());
+                return new UpdatableResult(session, edgeToUpdate.asStatefulEdge());
               } else {
                 return new ResultInternal(session, edgeToUpdate);
               }
@@ -176,7 +173,7 @@ public class CreateEdgesStep extends AbstractExecutionStep {
             .createValue(db, currentFrom.getIdentity(), currentTo.getIdentity());
 
     final Iterator<RID> iterator;
-    try (var stream = uniqueIndex.getInternal().getRids(db, key)) {
+    try (var stream = uniqueIndex.getRids(db, key)) {
       iterator = stream.iterator();
       if (iterator.hasNext()) {
         return iterator.next().getRecord(db);
@@ -193,7 +190,7 @@ public class CreateEdgesStep extends AbstractExecutionStep {
     if (currentFrom instanceof Result) {
       currentFrom =
           ((Result) currentFrom)
-              .castToVertex();
+              .asVertex();
     }
     if (currentFrom instanceof Vertex) {
       return (Vertex) currentFrom;

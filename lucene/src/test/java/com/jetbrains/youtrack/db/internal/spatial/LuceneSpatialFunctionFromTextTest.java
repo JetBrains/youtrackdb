@@ -44,7 +44,7 @@ public class LuceneSpatialFunctionFromTextTest extends BaseSpatialLuceneTest {
 
     assertTrue(docs.hasNext());
 
-    var geom = ((Result) docs.next().getProperty("geom")).asEntity();
+    var geom = ((Result) docs.next().getProperty("geom")).asEntityOrNull();
     assertGeometry(source, geom);
     assertFalse(docs.hasNext());
   }
@@ -114,7 +114,7 @@ public class LuceneSpatialFunctionFromTextTest extends BaseSpatialLuceneTest {
     var docs = session.command(query);
 
     assertTrue(docs.hasNext());
-    var geom = ((Result) docs.next().getProperty("geom")).asEntity();
+    var geom = ((Result) docs.next().getProperty("geom")).asEntityOrNull();
     assertFalse(docs.hasNext());
     Assert.assertNotNull(geom);
 

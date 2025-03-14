@@ -184,7 +184,7 @@ public class YouTrackDbJdbcStatement implements Statement {
   }
 
   public void close() throws SQLException {
-    if (connection.getAutoCommit() && session.getTransaction().isActive()) {
+    if (connection.getAutoCommit() && session.getTransactionInternal().isActive()) {
       session.commit();
     }
 

@@ -75,8 +75,7 @@ public class QueryOperatorMajor extends QueryOperatorEqualityNotNulls {
     final var indexDefinition = index.getDefinition();
 
     Stream<RawPair<Object, RID>> stream;
-    final var internalIndex = index.getInternal();
-    if (!internalIndex.canBeUsedInEqualityOperators() || !internalIndex.hasRangeQuerySupport()) {
+    if (!index.canBeUsedInEqualityOperators() || !index.hasRangeQuerySupport()) {
       return null;
     }
 
@@ -94,7 +93,7 @@ public class QueryOperatorMajor extends QueryOperatorEqualityNotNulls {
         return null;
       }
 
-      stream = index.getInternal()
+      stream = index
           .streamEntriesMajor(iContext.getDatabaseSession(), key, false, ascSortOrder);
     } else {
       // if we have situation like "field1 = 1 AND field2 > 2"
@@ -122,8 +121,8 @@ public class QueryOperatorMajor extends QueryOperatorEqualityNotNulls {
         return null;
       }
 
-      stream = index.getInternal()
-          .streamEntriesBetween(iContext.getDatabaseSession(), keyOne, false, keyTwo, true,
+      stream = index.streamEntriesBetween(iContext.getDatabaseSession(), keyOne, false, keyTwo,
+          true,
               ascSortOrder);
     }
 

@@ -27,6 +27,7 @@ public class DatabaseSessionRemotePooled extends DatabaseSessionRemote {
 
   @Override
   public DatabaseSessionInternal copy() {
+    assertIfNotActive();
     return (DatabaseSessionInternal) pool.acquire();
   }
 

@@ -69,10 +69,10 @@ public class CollectionIndexTest extends BaseDBTest {
     session.commit();
 
     final var index = getIndex("Collector.stringCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -98,10 +98,10 @@ public class CollectionIndexTest extends BaseDBTest {
     }
 
     final var index = getIndex("Collector.stringCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
@@ -123,10 +123,10 @@ public class CollectionIndexTest extends BaseDBTest {
     session.commit();
 
     final var index = getIndex("Collector.stringCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -158,9 +158,9 @@ public class CollectionIndexTest extends BaseDBTest {
 
     final var index = getIndex("Collector.stringCollection");
 
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
     Iterator<Object> keysIterator;
-    try (var keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -188,10 +188,10 @@ public class CollectionIndexTest extends BaseDBTest {
 
     final var index = getIndex("Collector.stringCollection");
 
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -223,10 +223,10 @@ public class CollectionIndexTest extends BaseDBTest {
     session.commit();
 
     final var index = getIndex("Collector.stringCollection");
-    Assert.assertEquals(index.getInternal().size(session), 3);
+    Assert.assertEquals(index.size(session), 3);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -259,10 +259,10 @@ public class CollectionIndexTest extends BaseDBTest {
 
     final var index = getIndex("Collector.stringCollection");
 
-    Assert.assertEquals(index.getInternal().size(session), 3);
+    Assert.assertEquals(index.size(session), 3);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -289,10 +289,10 @@ public class CollectionIndexTest extends BaseDBTest {
     session.rollback();
 
     final var index = getIndex("Collector.stringCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -324,10 +324,10 @@ public class CollectionIndexTest extends BaseDBTest {
     }
 
     final var index = getIndex("Collector.stringCollection");
-    Assert.assertEquals(index.getInternal().size(session), 1);
+    Assert.assertEquals(index.size(session), 1);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -354,10 +354,10 @@ public class CollectionIndexTest extends BaseDBTest {
     session.rollback();
 
     final var index = getIndex("Collector.stringCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -387,7 +387,7 @@ public class CollectionIndexTest extends BaseDBTest {
     final var index = getIndex("Collector.stringCollection");
 
     Iterator<Object> keysIterator;
-    try (var keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -411,7 +411,7 @@ public class CollectionIndexTest extends BaseDBTest {
 
     final var index = getIndex("Collector.stringCollection");
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testIndexCollectionRemoveInTx() {
@@ -433,7 +433,7 @@ public class CollectionIndexTest extends BaseDBTest {
 
     final var index = getIndex("Collector.stringCollection");
 
-    Assert.assertEquals(index.getInternal().size(session), 0);
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testIndexCollectionRemoveInTxRollback() {
@@ -450,10 +450,10 @@ public class CollectionIndexTest extends BaseDBTest {
     session.rollback();
 
     final var index = getIndex("Collector.stringCollection");
-    Assert.assertEquals(index.getInternal().size(session), 2);
+    Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {

@@ -1,10 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.db;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.SessionPool;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.AcquireTimeoutException;
-import com.jetbrains.youtrack.db.api.session.SessionPool;
-import com.jetbrains.youtrack.db.internal.core.util.DatabaseURLConnection;
 import com.jetbrains.youtrack.db.internal.core.util.URLHelper;
 
 /**
@@ -117,7 +116,7 @@ public class SessionPoolImpl implements SessionPool {
       YouTrackDBConfigImpl configuration) {
     var val = URLHelper.parseNew(url);
     youTrackDb = new YouTrackDBImpl(val.getType() + ":" + val.getPath(),
-        (YouTrackDBConfigImpl) configuration);
+        configuration);
     autoclose = true;
     internal = youTrackDb.openPool(val.getDbName(), user, password, configuration);
   }

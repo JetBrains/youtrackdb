@@ -49,7 +49,6 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityEntry;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.serialization.EntitySerializable;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
@@ -86,7 +85,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
       final String[] iFields) {
     final var className = readString(bytes);
     if (!className.isEmpty()) {
-      EntityInternalUtils.fillClassNameIfNeeded(entity, className);
+      entity.fillClassIfNeed(className);
     }
 
     String fieldName;
@@ -103,10 +102,10 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
       } else {
         value = deserializeValue(db, bytes, type, entity);
       }
-      if (EntityInternalUtils.rawContainsField(entity, fieldName)) {
+      if (entity.rawContainsField(fieldName)) {
         continue;
       }
-      EntityInternalUtils.rawField(entity, fieldName, value, type);
+      entity.rawField(fieldName, value, type);
 
       for (var field : iFields) {
         if (field.equals(fieldName)) {
@@ -123,7 +122,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
       final BytesContainer bytes) {
     final var className = readString(bytes);
     if (!className.isEmpty()) {
-      EntityInternalUtils.fillClassNameIfNeeded(entity, className);
+      entity.fillClassIfNeed(className);
     }
 
     String fieldName;
@@ -139,10 +138,10 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
       } else {
         value = deserializeValue(db, bytes, type, entity);
       }
-      if (EntityInternalUtils.rawContainsField(entity, fieldName)) {
+      if (entity.rawContainsField(fieldName)) {
         continue;
       }
-      EntityInternalUtils.rawField(entity, fieldName, value, type);
+      entity.rawField(fieldName, value, type);
     }
 
     RecordInternal.clearSource(entity);
@@ -176,7 +175,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
   }
 
   protected Collection<Entry<String, EntityEntry>> fetchEntries(EntityImpl entity) {
-    return EntityInternalUtils.filteredEntries(entity);
+    return entity.getFilteredEntries();
   }
 
   public String[] getFieldNames(DatabaseSessionInternal db, EntityImpl reference,

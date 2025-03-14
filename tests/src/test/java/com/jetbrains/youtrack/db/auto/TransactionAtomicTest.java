@@ -44,8 +44,6 @@ public class TransactionAtomicTest extends BaseDBTest {
     var db1 = acquireSession();
     var db2 = acquireSession();
 
-
-
     db2.begin();
     var record1 = ((EntityImpl) db2.newEntity());
     record1
@@ -228,7 +226,7 @@ public class TransactionAtomicTest extends BaseDBTest {
         .command(new CommandSQL("transactional insert into Account set name = 'txTest2'"))
         .execute(session);
 
-    Assert.assertTrue(session.getTransaction().isActive());
+    Assert.assertNotNull(session.getActiveTransaction());
 
     if (!remoteDB) {
       Assert.assertEquals(session.countClass("Account"), prev + 1);
@@ -236,7 +234,7 @@ public class TransactionAtomicTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertFalse(session.getTransaction().isActive());
+    Assert.assertNull(session.getActiveTransaction());
     Assert.assertEquals(session.countClass("Account"), prev + 1);
   }
 }

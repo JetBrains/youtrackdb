@@ -99,7 +99,7 @@ public abstract class SQLFunctionAbstract implements SQLFunction {
       }
       source = MultiValue.getFirstValue(source);
       if (source instanceof Result && ((Result) source).isEntity()) {
-        source = ((Result) source).castToEntity();
+        source = ((Result) source).asEntity();
       }
     }
     return source;

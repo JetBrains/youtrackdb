@@ -90,7 +90,7 @@ public class SQLRecordAttribute extends SimpleNode {
       return identity;
     } else if (name.equalsIgnoreCase("@class")) {
       if (iCurrentResult.isEntity()) {
-        var schemaClass = ((EntityInternal) iCurrentResult.castToEntity()).getImmutableSchemaClass(
+        var schemaClass = ((EntityInternal) iCurrentResult.asEntity()).getImmutableSchemaClass(
             session);
         if (schemaClass != null) {
           return schemaClass.getName();
@@ -100,11 +100,11 @@ public class SQLRecordAttribute extends SimpleNode {
       return null;
     } else if (name.equalsIgnoreCase("@version")) {
       if (iCurrentResult.isRecord()) {
-        return iCurrentResult.castToRecord().getVersion();
+        return iCurrentResult.asRecord().getVersion();
       }
     } else if (name.equals("@type")) {
       if (iCurrentResult.isRecord()) {
-        var r = iCurrentResult.castToRecord();
+        var r = iCurrentResult.asRecord();
         var recordType = RecordInternal.getRecordType(ctx.getDatabaseSession(), r);
         if (recordType == EntityImpl.RECORD_TYPE) {
           return "document";
@@ -117,11 +117,11 @@ public class SQLRecordAttribute extends SimpleNode {
       return null;
     } else if (name.equals("@size")) {
       if (iCurrentResult.isRecord()) {
-        return ((RecordAbstract) iCurrentResult.castToRecord()).toStream().length;
+        return ((RecordAbstract) iCurrentResult.asRecord()).toStream().length;
       }
     } else if (name.equals("@raw")) {
       if (iCurrentResult.isRecord()) {
-        return ((RecordAbstract) iCurrentResult.castToRecord()).toStream();
+        return ((RecordAbstract) iCurrentResult.asRecord()).toStream();
       }
       return null;
     } else if (name.equals("@rid")) {

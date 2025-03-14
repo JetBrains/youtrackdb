@@ -25,7 +25,7 @@ public class UpdateEdgeStatementExecutionTest extends DbTestBase {
     try (var res1 = session.command("create vertex")) {
       var r = res1.next();
       Assert.assertEquals("V", r.getProperty("@class"));
-      v1 = r.asEntity();
+      v1 = r.asEntityOrNull();
     }
     session.commit();
 
@@ -34,7 +34,7 @@ public class UpdateEdgeStatementExecutionTest extends DbTestBase {
     try (var res2 = session.command("create vertex V1")) {
       var r = res2.next();
       Assert.assertEquals("V1", r.getProperty("@class"));
-      v2 = r.asEntity();
+      v2 = r.asEntityOrNull();
     }
     session.commit();
 
@@ -44,7 +44,7 @@ public class UpdateEdgeStatementExecutionTest extends DbTestBase {
       var r = res3.next();
       Assert.assertEquals("V", r.getProperty("@class"));
       Assert.assertEquals("fiat", r.getProperty("brand"));
-      v3 = r.asEntity();
+      v3 = r.asEntityOrNull();
     }
     session.commit();
 
@@ -56,7 +56,7 @@ public class UpdateEdgeStatementExecutionTest extends DbTestBase {
       Assert.assertEquals("V1", r.getProperty("@class"));
       Assert.assertEquals("fiat", r.getProperty("brand"));
       Assert.assertEquals("wow", r.getProperty("name"));
-      v4 = r.asEntity();
+      v4 = r.asEntityOrNull();
     }
     session.commit();
 
@@ -68,7 +68,7 @@ public class UpdateEdgeStatementExecutionTest extends DbTestBase {
     var edge = edges.next();
     Assert.assertFalse(edges.hasNext());
     Assert.assertEquals("E1",
-        ((EntityImpl) edge.asEntity().getRecord(session)).getSchemaClassName());
+        ((EntityImpl) edge.asEntityOrNull().getRecord(session)).getSchemaClassName());
     edges.close();
     session.commit();
     session.begin();
@@ -78,7 +78,7 @@ public class UpdateEdgeStatementExecutionTest extends DbTestBase {
             + ", in = "
             + v4.getIdentity()
             + " where @rid = "
-            + edge.asEntity().getIdentity());
+            + edge.asEntityOrNull().getIdentity());
     session.commit();
 
     session.begin();
@@ -124,7 +124,7 @@ public class UpdateEdgeStatementExecutionTest extends DbTestBase {
 
     session.begin();
     session.command(
-            "UPDATE EDGE " + edge.asEntity().getIdentity() + " SET in = " + v3.getIdentity())
+            "UPDATE EDGE " + edge.asEntityOrNull().getIdentity() + " SET in = " + v3.getIdentity())
         .close();
     session.commit();
     edges.close();

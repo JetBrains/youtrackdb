@@ -23,7 +23,7 @@ public class ResultSetTest extends DbTestBase {
     Assert.assertEquals(45, result.get().intValue());
   }
 
-  @Test
+  @Test(expected = IllegalStateException.class)
   public void testResultEmptyVertexStream() {
     var rs = new InternalResultSet(session);
     for (var i = 0; i < 10; i++) {
@@ -31,12 +31,10 @@ public class ResultSetTest extends DbTestBase {
       item.setProperty("i", i);
       rs.add(item);
     }
-    var result =
-        rs.vertexStream().map(x -> (int) x.getProperty("i")).reduce(Integer::sum);
-    Assert.assertFalse(result.isPresent());
+    rs.vertexStream().map(x -> (int) x.getProperty("i")).reduce(Integer::sum);
   }
 
-  @Test
+  @Test(expected = IllegalStateException.class)
   public void testResultEdgeVertexStream() {
     var rs = new InternalResultSet(session);
     for (var i = 0; i < 10; i++) {
@@ -44,8 +42,6 @@ public class ResultSetTest extends DbTestBase {
       item.setProperty("i", i);
       rs.add(item);
     }
-    var result =
-        rs.vertexStream().map(x -> (int) x.getProperty("i")).reduce(Integer::sum);
-    Assert.assertFalse(result.isPresent());
+    rs.vertexStream().map(x -> (int) x.getProperty("i")).reduce(Integer::sum);
   }
 }

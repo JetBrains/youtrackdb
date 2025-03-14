@@ -73,8 +73,7 @@ public class QueryOperatorMinor extends QueryOperatorEqualityNotNulls {
       CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
     final var indexDefinition = index.getDefinition();
 
-    final var internalIndex = index.getInternal();
-    if (!internalIndex.canBeUsedInEqualityOperators() || !internalIndex.hasRangeQuerySupport()) {
+    if (!index.canBeUsedInEqualityOperators() || !index.hasRangeQuerySupport()) {
       return null;
     }
 
@@ -93,8 +92,7 @@ public class QueryOperatorMinor extends QueryOperatorEqualityNotNulls {
         return null;
       }
 
-      stream = index.getInternal()
-          .streamEntriesMinor(iContext.getDatabaseSession(), key, false, ascSortOrder);
+      stream = index.streamEntriesMinor(iContext.getDatabaseSession(), key, false, ascSortOrder);
     } else {
       // if we have situation like "field1 = 1 AND field2 < 2"
       // then we fetch collection which left included boundary is the smallest composite key in the
@@ -120,7 +118,7 @@ public class QueryOperatorMinor extends QueryOperatorEqualityNotNulls {
         return null;
       }
 
-      stream = index.getInternal()
+      stream = index
           .streamEntriesBetween(iContext.getDatabaseSession(), keyOne, true, keyTwo, false,
               ascSortOrder);
     }

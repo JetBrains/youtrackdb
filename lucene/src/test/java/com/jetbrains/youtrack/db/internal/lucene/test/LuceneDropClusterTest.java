@@ -53,7 +53,7 @@ public class LuceneDropClusterTest extends BaseLuceneTest {
 
     session.begin();
     var initialIndexSize =
-        metadata.getIndexManagerInternal().getIndex(session, "Song.title").getInternal().size(
+        metadata.getIndexManagerInternal().getIndex(session, "Song.title").size(
             session);
 
     var clusterIds = metadata.getSchema().getClass("Song").getClusterIds();
@@ -62,7 +62,7 @@ public class LuceneDropClusterTest extends BaseLuceneTest {
     session.dropCluster(clusterIds[1]);
 
     var afterDropIndexSize =
-        metadata.getIndexManagerInternal().getIndex(session, "Song.title").getInternal().size(
+        metadata.getIndexManagerInternal().getIndex(session, "Song.title").size(
             session);
 
     Assertions.assertThat(afterDropIndexSize).isLessThan(initialIndexSize);

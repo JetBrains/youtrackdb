@@ -65,9 +65,8 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
       CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
     final var indexDefinition = index.getDefinition();
 
-    final var internalIndex = index.getInternal();
     Stream<RawPair<Object, RID>> stream;
-    if (!internalIndex.canBeUsedInEqualityOperators()) {
+    if (!index.canBeUsedInEqualityOperators()) {
       return null;
     }
 
@@ -124,7 +123,7 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
         return null;
       }
 
-      stream = index.getInternal()
+      stream = index
           .streamEntries(iContext.getDatabaseSession(), inKeys, ascSortOrder);
     } else {
       final List<Object> partialKey = new ArrayList<Object>();
@@ -167,14 +166,14 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
       }
 
       if (indexDefinition.getParamCount() == keyParams.size()) {
-        stream = index.getInternal()
+        stream = index
             .streamEntries(iContext.getDatabaseSession(), inKeys, ascSortOrder);
       } else {
         return null;
       }
     }
 
-    updateProfiler(iContext, internalIndex, keyParams);
+    updateProfiler(iContext, index, keyParams);
     return stream;
   }
 

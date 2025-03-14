@@ -80,8 +80,8 @@ public class RemoteResultSet implements ResultSet {
     }
     var internal = currentPage.removeFirst();
 
-    if (internal.isRecord() && session != null && session.getTransaction().isActive()) {
-      DBRecord record = session.getTransaction().getRecord(internal.getIdentity());
+    if (internal.isRecord() && session != null && session.getActiveTransaction() != null) {
+      DBRecord record = session.getTransactionInternal().getRecord(internal.getIdentity());
       if (record != null && record != FrontendTransactionAbstract.DELETED_RECORD) {
         internal = new ResultInternal(session, record);
       }

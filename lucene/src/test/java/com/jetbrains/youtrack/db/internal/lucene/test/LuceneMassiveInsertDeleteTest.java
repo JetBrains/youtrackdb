@@ -82,7 +82,7 @@ public class LuceneMassiveInsertDeleteTest extends BaseLuceneTest {
     session.begin();
     var idx = session.getMetadata().getSchemaInternal().getClassInternal("City")
         .getClassIndex(session, "City.name");
-    Assert.assertEquals(idx.getInternal().size(session), 0);
+    Assert.assertEquals(idx.size(session), 0);
     session.commit();
   }
 }

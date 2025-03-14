@@ -49,13 +49,10 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.LinkedHashSet;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -79,11 +76,6 @@ public class EntityHelper {
   public static final String ATTRIBUTE_FIELDS = "@fields";
   public static final String ATTRIBUTE_FIELS_TYPES = "@fieldtypes";
   public static final String ATTRIBUTE_RAW = "@raw";
-
-  public interface DbRelatedCall<T> {
-
-    T call(DatabaseSessionInternal database);
-  }
 
   public interface RIDMapper {
 
@@ -321,7 +313,7 @@ public class EntityHelper {
           if (indexParts.size() == 1 && indexCondition.size() == 1 && indexRanges.size() == 1)
           // SINGLE VALUE
           {
-            value = map.get(index);
+            value = map.get(index.toString());
           } else if (indexParts.size() > 1) {
             // MULTI VALUE
             final var values = new Object[indexParts.size()];
@@ -381,14 +373,9 @@ public class EntityHelper {
 
           final var indexParts = StringSerializerHelper.smartSplit(indexAsString, ',');
           final var indexRanges = StringSerializerHelper.smartSplit(indexAsString, '-');
-          final var indexCondition =
-              StringSerializerHelper.smartSplit(indexAsString, '=', ' ');
-
           if (isFieldName(indexAsString)) {
             // SINGLE VALUE
-            if (value instanceof Map<?, ?>) {
-              value = getMapEntry(session, (Map<String, ?>) value, index);
-            } else if (Character.isDigit(indexAsString.charAt(0))) {
+            if (Character.isDigit(indexAsString.charAt(0))) {
               value = MultiValue.getValue(value, Integer.parseInt(indexAsString));
             } else
             // FILTER BY FIELD
@@ -448,7 +435,7 @@ public class EntityHelper {
                 }
               } else if (v instanceof Map) {
                 var entity = (EntityImpl) session.newEmbeddedEntity();
-                entity.updateFromMap((Map<String, ? extends Object>) v);
+                entity.updateFromMap((Map<String, ?>) v);
                 var result = pred.evaluate(entity, entity, iContext);
                 if (Boolean.TRUE.equals(result)) {
                   values.add(v);
@@ -530,7 +517,7 @@ public class EntityHelper {
 
               if (item != null) {
                 if (item instanceof Collection<?>) {
-                  values.addAll((Collection<? extends Object>) item);
+                  values.addAll((Collection<?>) item);
                 } else {
                   values.add(item);
                 }
@@ -593,7 +580,8 @@ public class EntityHelper {
 
   private static boolean isFieldName(String indexAsString) {
     indexAsString = indexAsString.trim();
-    if (indexAsString.startsWith("`") && indexAsString.endsWith("`")) {
+    if (!indexAsString.isEmpty() && indexAsString.charAt(0) == '`'
+        && indexAsString.charAt(indexAsString.length() - 1) == '`') {
       // quoted identifier
       return !indexAsString.substring(1, indexAsString.length() - 1).contains("`");
     }
@@ -695,11 +683,8 @@ public class EntityHelper {
   /**
    * Retrieves the value crossing the map with the dotted notation
    *
-   * @param session
-   * @param iMap
-   * @param iKey    Field(s) to retrieve. If are multiple fields, then the dot must be used as
-   *                separator
-   * @return
+   * @param iKey Field(s) to retrieve. If are multiple fields, then the dot must be used as
+   *             separator
    */
   @SuppressWarnings("unchecked")
   public static Object getMapEntry(DatabaseSessionInternal session, final Map<String, ?> iMap,
@@ -730,7 +715,7 @@ public class EntityHelper {
 
       return value;
     } else {
-      return iMap.get(iKey);
+      return iMap.get(iKey.toString());
     }
   }
 
@@ -740,7 +725,25 @@ public class EntityHelper {
     if (iFieldName == null) {
       return null;
     }
+    if (current == null) {
+      return null;
+    }
 
+    var result = getRecordAttribute(session, current, iFieldName);
+    if (result != null) {
+      return result;
+    }
+
+    try {
+      final EntityImpl entity = current.getRecord(session);
+      return entity.accessProperty(iFieldName);
+    } catch (RecordNotFoundException rnf) {
+      return null;
+    }
+  }
+
+  public static Object getRecordAttribute(DatabaseSessionInternal session, Identifiable current,
+      String iFieldName) {
     if (!iFieldName.isEmpty()) {
       final var begin = iFieldName.charAt(0);
       if (begin == '@') {
@@ -771,15 +774,8 @@ public class EntityHelper {
           return new String(((RecordAbstract) current.getRecord(session)).toStream());
         }
       }
-    }
-    if (current == null) {
       return null;
-    }
-
-    try {
-      final EntityImpl entity = current.getRecord(session);
-      return entity.accessProperty(iFieldName);
-    } catch (RecordNotFoundException rnf) {
+    } else {
       return null;
     }
   }
@@ -972,7 +968,6 @@ public class EntityHelper {
    * @return true if the two document are identical, otherwise false
    * @see #equals(Object)
    */
-  @SuppressWarnings("unchecked")
   public static boolean hasSameContentOf(
       final EntityImpl iCurrent,
       final DatabaseSessionInternal iMyDb,
@@ -1008,34 +1003,10 @@ public class EntityHelper {
       return false;
     }
 
-    if (iMyDb != null) {
-      makeDbCall(
-          iMyDb,
-          new DbRelatedCall<Object>() {
-            public Object call(DatabaseSessionInternal database) {
-              iCurrent.checkForFields();
-              return null;
-            }
-          });
-    } else {
-      iCurrent.checkForFields();
-    }
+    iCurrent.checkForFields();
+    iOther.checkForFields();
 
-    if (iOtherDb != null) {
-      makeDbCall(
-          iOtherDb,
-          new DbRelatedCall<Object>() {
-            public Object call(DatabaseSessionInternal database) {
-              iOther.checkForFields();
-              return null;
-            }
-          });
-    } else {
-      iOther.checkForFields();
-    }
-
-    if ((int) makeDbCall(iMyDb, database -> iCurrent.fields())
-        != makeDbCall(iOtherDb, database -> iOther.fields())) {
+    if (iCurrent.fields() != iOther.fields()) {
       return false;
     }
 
@@ -1043,10 +1014,10 @@ public class EntityHelper {
     Object myFieldValue;
     Object otherFieldValue;
 
-    var propertyNames = makeDbCall(iMyDb, database -> iCurrent.getPropertyNames());
+    var propertyNames = iCurrent.getPropertyNames();
     for (var name : propertyNames) {
-      myFieldValue = iCurrent.fields.get(name).value;
-      otherFieldValue = iOther.fields.get(name).value;
+      myFieldValue = iCurrent.getProperty(name);
+      otherFieldValue = iOther.getProperty(name);
 
       if (myFieldValue == otherFieldValue) {
         continue;
@@ -1110,99 +1081,27 @@ public class EntityHelper {
       Map<Object, Object> otherFieldValue,
       RIDMapper ridMapper) {
     // CHECK IF THE ORDER IS RESPECTED
-    final var myMap = myFieldValue;
-    final var otherMap = otherFieldValue;
 
-    if (myMap.size() != otherMap.size()) {
+    if (myFieldValue.size() != otherFieldValue.size()) {
       return false;
     }
 
-    var oldMyAutoConvert = false;
-    var oldOtherAutoConvert = false;
-
-    final var myEntryIterator =
-        makeDbCall(
-            iMyDb,
-            new DbRelatedCall<Iterator<Entry<Object, Object>>>() {
-              public Iterator<Entry<Object, Object>> call(DatabaseSessionInternal database) {
-                return myMap.entrySet().iterator();
-              }
-            });
-
-    while (makeDbCall(
-        iMyDb,
-        new DbRelatedCall<Boolean>() {
-          public Boolean call(DatabaseSessionInternal database) {
-            return myEntryIterator.hasNext();
-          }
-        })) {
-      final var myEntry =
-          makeDbCall(
-              iMyDb,
-              new DbRelatedCall<Entry<Object, Object>>() {
-                public Entry<Object, Object> call(DatabaseSessionInternal database) {
-                  return myEntryIterator.next();
-                }
-              });
-      final var myKey =
-          makeDbCall(
-              iMyDb,
-              new DbRelatedCall<Object>() {
-                public Object call(DatabaseSessionInternal database) {
-                  return myEntry.getKey();
-                }
-              });
-
-      if (makeDbCall(
-          iOtherDb,
-          new DbRelatedCall<Boolean>() {
-            public Boolean call(DatabaseSessionInternal database) {
-              return !otherMap.containsKey(myKey);
-            }
-          })) {
+    for (var myEntry : myFieldValue.entrySet()) {
+      final var myKey = myEntry.getKey();
+      if (!otherFieldValue.containsKey(myKey)) {
         return false;
       }
 
-      if (myEntry.getValue() instanceof EntityImpl) {
-        if (!hasSameContentOf(
-            makeDbCall(
-                iMyDb,
-                new DbRelatedCall<EntityImpl>() {
-                  public EntityImpl call(DatabaseSessionInternal database) {
-                    return (EntityImpl) myEntry.getValue();
-                  }
-                }),
-            iMyDb,
-            makeDbCall(
-                iOtherDb,
-                new DbRelatedCall<EntityImpl>() {
-                  public EntityImpl call(DatabaseSessionInternal database) {
-                    return ((Identifiable) otherMap.get(myEntry.getKey())).getRecord(database);
-                  }
-                }),
+      if (myEntry.getValue() instanceof EntityImpl entity) {
+        if (!hasSameContentOf(entity, iMyDb,
+            ((Identifiable) otherFieldValue.get(myEntry.getKey())).getRecord(iOtherDb),
             iOtherDb,
             ridMapper)) {
           return false;
         }
       } else {
-        final var myValue =
-            makeDbCall(
-                iMyDb,
-                new DbRelatedCall<Object>() {
-                  public Object call(DatabaseSessionInternal database) {
-                    return myEntry.getValue();
-                  }
-                });
-
-        final var otherValue =
-            makeDbCall(
-                iOtherDb,
-                new DbRelatedCall<Object>() {
-                  public Object call(DatabaseSessionInternal database) {
-                    return otherMap.get(myEntry.getKey());
-                  }
-                });
-
+        final var myValue = myEntry.getValue();
+        final var otherValue = otherFieldValue.get(myEntry.getKey());
         if (!compareScalarValues(myValue, iMyDb, otherValue, iOtherDb, ridMapper)) {
           return false;
         }
@@ -1217,56 +1116,15 @@ public class EntityHelper {
       DatabaseSessionInternal iOtherDb,
       Collection<?> otherFieldValue,
       RIDMapper ridMapper) {
-    final var myCollection = myFieldValue;
-    final var otherCollection = otherFieldValue;
-
-    if (myCollection.size() != otherCollection.size()) {
+    if (myFieldValue.size() != otherFieldValue.size()) {
       return false;
     }
 
-    final var myIterator =
-        makeDbCall(
-            iMyDb,
-            new DbRelatedCall<Iterator<?>>() {
-              public Iterator<?> call(DatabaseSessionInternal database) {
-                return myCollection.iterator();
-              }
-            });
-
-    final var otherIterator =
-        makeDbCall(
-            iOtherDb,
-            new DbRelatedCall<Iterator<?>>() {
-              public Iterator<?> call(DatabaseSessionInternal database) {
-                return otherCollection.iterator();
-              }
-            });
-
-    while (makeDbCall(
-        iMyDb,
-        new DbRelatedCall<Boolean>() {
-          public Boolean call(DatabaseSessionInternal database) {
-            return myIterator.hasNext();
-          }
-        })) {
-      final var myNextVal =
-          makeDbCall(
-              iMyDb,
-              new DbRelatedCall<Object>() {
-                public Object call(DatabaseSessionInternal database) {
-                  return myIterator.next();
-                }
-              });
-
-      final var otherNextVal =
-          makeDbCall(
-              iOtherDb,
-              new DbRelatedCall<Object>() {
-                public Object call(DatabaseSessionInternal database) {
-                  return otherIterator.next();
-                }
-              });
-
+    final var myIterator = myFieldValue.iterator();
+    final var otherIterator = otherFieldValue.iterator();
+    while (myIterator.hasNext()) {
+      final var myNextVal = myIterator.next();
+      final var otherNextVal = otherIterator.next();
       if (!hasSameContentItem(myNextVal, iMyDb, otherNextVal, iOtherDb, ridMapper)) {
         return false;
       }
@@ -1280,84 +1138,18 @@ public class EntityHelper {
       DatabaseSessionInternal iOtherDb,
       Set<?> otherFieldValue,
       RIDMapper ridMapper) {
-    final var mySet = myFieldValue;
-    final var otherSet = otherFieldValue;
-
-    final int mySize =
-        makeDbCall(
-            iMyDb,
-            new DbRelatedCall<Integer>() {
-              public Integer call(DatabaseSessionInternal database) {
-                return mySet.size();
-              }
-            });
-
-    final int otherSize =
-        makeDbCall(
-            iOtherDb,
-            new DbRelatedCall<Integer>() {
-              public Integer call(DatabaseSessionInternal database) {
-                return otherSet.size();
-              }
-            });
+    final var mySize = myFieldValue.size();
+    final var otherSize = otherFieldValue.size();
 
     if (mySize != otherSize) {
       return false;
     }
 
-    final var myIterator =
-        makeDbCall(
-            iMyDb,
-            new DbRelatedCall<Iterator<?>>() {
-              public Iterator<?> call(DatabaseSessionInternal database) {
-                return mySet.iterator();
-              }
-            });
-
-    while (makeDbCall(
-        iMyDb,
-        new DbRelatedCall<Boolean>() {
-          public Boolean call(DatabaseSessionInternal database) {
-            return myIterator.hasNext();
-          }
-        })) {
-
-      final var otherIterator =
-          makeDbCall(
-              iOtherDb,
-              new DbRelatedCall<Iterator<?>>() {
-                public Iterator<?> call(DatabaseSessionInternal database) {
-                  return otherSet.iterator();
-                }
-              });
-
-      final var myNextVal =
-          makeDbCall(
-              iMyDb,
-              new DbRelatedCall<Object>() {
-                public Object call(DatabaseSessionInternal database) {
-                  return myIterator.next();
-                }
-              });
-
+    for (var myNextVal : myFieldValue) {
+      final var otherIterator = otherFieldValue.iterator();
       var found = false;
-      while (!found
-          && makeDbCall(
-          iOtherDb,
-          new DbRelatedCall<Boolean>() {
-            public Boolean call(DatabaseSessionInternal database) {
-              return otherIterator.hasNext();
-            }
-          })) {
-        final var otherNextVal =
-            makeDbCall(
-                iOtherDb,
-                new DbRelatedCall<Object>() {
-                  public Object call(DatabaseSessionInternal database) {
-                    return otherIterator.next();
-                  }
-                });
-
+      while (!found && otherIterator.hasNext()) {
+        final var otherNextVal = otherIterator.next();
         found = hasSameContentItem(myNextVal, iMyDb, otherNextVal, iOtherDb, ridMapper);
       }
 
@@ -1374,59 +1166,18 @@ public class EntityHelper {
       DatabaseSessionInternal iOtherDb,
       RidBag otherFieldValue,
       RIDMapper ridMapper) {
-    final var myBag = myFieldValue;
-    final var otherBag = otherFieldValue;
-
-    final int mySize =
-        makeDbCall(
-            iMyDb,
-            new DbRelatedCall<Integer>() {
-              public Integer call(DatabaseSessionInternal database) {
-                return myBag.size();
-              }
-            });
-
-    final int otherSize =
-        makeDbCall(
-            iOtherDb,
-            new DbRelatedCall<Integer>() {
-              public Integer call(DatabaseSessionInternal database) {
-                return otherBag.size();
-              }
-            });
+    final var mySize = myFieldValue.size();
+    final var otherSize = otherFieldValue.size();
 
     if (mySize != otherSize) {
       return false;
     }
 
-    final var otherBagCopy =
-        makeDbCall(
-            iOtherDb,
-            new DbRelatedCall<List<RID>>() {
-              @Override
-              public List<RID> call(final DatabaseSessionInternal database) {
-                final List<RID> otherRidBag = new LinkedList<RID>();
-                for (Identifiable identifiable : otherBag) {
-                  otherRidBag.add(identifiable.getIdentity());
-                }
-
-                return otherRidBag;
-              }
-            });
-
-    final var myIterator =
-        makeDbCall(
-            iMyDb,
-            database -> myBag.iterator());
-
-    while (makeDbCall(
-        iMyDb,
-        database -> myIterator.hasNext())) {
-      final var myIdentifiable =
-          makeDbCall(
-              iMyDb,
-              (DbRelatedCall<Identifiable>) database -> myIterator.next());
-
+    final var otherBagCopy = new ArrayList<RID>();
+    for (Identifiable identifiable : otherFieldValue) {
+      otherBagCopy.add(identifiable.getIdentity());
+    }
+    for (var myIdentifiable : myFieldValue) {
       final RID otherRid;
       if (ridMapper != null) {
         var convertedRid = ridMapper.map(myIdentifiable.getIdentity());
@@ -1439,25 +1190,10 @@ public class EntityHelper {
         otherRid = myIdentifiable.getIdentity();
       }
 
-      makeDbCall(
-          iOtherDb,
-          new DbRelatedCall<Object>() {
-            @Override
-            public Object call(final DatabaseSessionInternal database) {
-              otherBagCopy.remove(otherRid);
-              return null;
-            }
-          });
+      otherBagCopy.remove(otherRid);
     }
 
-    return makeDbCall(
-        iOtherDb,
-        new DbRelatedCall<Boolean>() {
-          @Override
-          public Boolean call(DatabaseSessionInternal database) {
-            return otherBagCopy.isEmpty();
-          }
-        });
+    return otherBagCopy.isEmpty();
   }
 
   private static boolean compareScalarValues(
@@ -1544,11 +1280,5 @@ public class EntityHelper {
 
   private static boolean isFloat(Number value) {
     return value instanceof Float || value instanceof Double;
-  }
-
-  public static <T> T makeDbCall(
-      final DatabaseSessionInternal databaseRecord, final DbRelatedCall<T> function) {
-    databaseRecord.activateOnCurrentThread();
-    return function.call(databaseRecord);
   }
 }

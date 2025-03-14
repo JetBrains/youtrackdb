@@ -60,7 +60,7 @@ public class LuceneRangeTest extends BaseLuceneTest {
         session.getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "Person.age")
-            .getInternal()
+
             .size(session))
         .isEqualTo(10);
     session.commit();
@@ -85,7 +85,7 @@ public class LuceneRangeTest extends BaseLuceneTest {
         session.getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "Person.date")
-            .getInternal()
+
             .size(session))
         .isEqualTo(10);
     session.commit();
@@ -115,7 +115,7 @@ public class LuceneRangeTest extends BaseLuceneTest {
         session.getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "Person.composite")
-            .getInternal()
+
             .size(session))
         .isEqualTo(10);
     session.commit();
@@ -167,7 +167,7 @@ public class LuceneRangeTest extends BaseLuceneTest {
         session.getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "Person.composite")
-            .getInternal()
+
             .size(session))
         .isEqualTo(10);
     session.commit();
@@ -180,20 +180,20 @@ public class LuceneRangeTest extends BaseLuceneTest {
     // name and age range
     final var index =
         session.getMetadata().getIndexManagerInternal().getIndex(session, "Person.composite");
-    try (var stream = index.getInternal().getRids(session, "name:luke  age:[5 TO 6]")) {
+    try (var stream = index.getRids(session, "name:luke  age:[5 TO 6]")) {
       assertThat(stream.count()).isEqualTo(2);
     }
 
     // date range
     try (var stream =
-        index.getInternal().getRids(session, "date:[" + fiveDaysAgo + " TO " + today + "]")) {
+        index.getRids(session, "date:[" + fiveDaysAgo + " TO " + today + "]")) {
       assertThat(stream.count()).isEqualTo(5);
     }
 
     // age and date range with MUST
     try (var stream =
         index
-            .getInternal()
+
             .getRids(session, "+age:[4 TO 7]  +date:[" + fiveDaysAgo + " TO " + today + "]")) {
       assertThat(stream.count()).isEqualTo(2);
     }
@@ -208,7 +208,7 @@ public class LuceneRangeTest extends BaseLuceneTest {
         session.getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "Person.name")
-            .getInternal()
+
             .size(session))
         .isEqualTo(10);
     session.commit();

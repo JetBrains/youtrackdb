@@ -125,7 +125,7 @@ public class YouTrackDbJdbcResultSetMetaData implements ResultSetMetaData {
 
     PropertyType otype = null;
     if (currentRecord.isEntity()) {
-      var entity = currentRecord.castToEntity();
+      var entity = currentRecord.asEntity();
       var schemaClass = entity.getSchemaClass();
       if (schemaClass != null) {
         otype = schemaClass.getProperty(fieldName).getType();
@@ -237,7 +237,7 @@ public class YouTrackDbJdbcResultSetMetaData implements ResultSetMetaData {
     var columnLabel = fieldNames[column - 1];
 
     if (currentRecord.isEntity()) {
-      var entity = currentRecord.castToEntity();
+      var entity = currentRecord.asEntity();
       var schemaClass = entity.getSchemaClass();
       if (schemaClass != null) {
         var property = schemaClass.getProperty(columnLabel);
@@ -263,7 +263,7 @@ public class YouTrackDbJdbcResultSetMetaData implements ResultSetMetaData {
     if (currentRecord == null || !currentRecord.isEntity()) {
       return "";
     } else {
-      return ((EntityImpl) currentRecord.asEntity()).getSession().getDatabaseName();
+      return ((EntityImpl) currentRecord.asEntityOrNull()).getSession().getDatabaseName();
     }
   }
 
@@ -308,7 +308,7 @@ public class YouTrackDbJdbcResultSetMetaData implements ResultSetMetaData {
     final var currentRecord = getCurrentRecord();
     PropertyType otype = null;
     if (currentRecord.isEntity()) {
-      var entity = currentRecord.castToEntity();
+      var entity = currentRecord.asEntity();
       var schemaClass = entity.getSchemaClass();
       if (schemaClass != null) {
         otype = schemaClass.getProperty(fieldNames[column - 1]).getType();
@@ -346,7 +346,7 @@ public class YouTrackDbJdbcResultSetMetaData implements ResultSetMetaData {
 
     var currentRecord = getCurrentRecord();
     if (currentRecord.isEntity()) {
-      var entity = currentRecord.castToEntity();
+      var entity = currentRecord.asEntity();
       var schemaClass = entity.getSchemaClass();
       if (schemaClass != null) {
         return schemaClass.getProperty(fieldName);

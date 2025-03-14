@@ -78,7 +78,7 @@ public class DepthFirstTraverseStep extends AbstractTraverseStep {
     if (item instanceof TraverseResult) {
       res = (TraverseResult) item;
     } else if (item.isEntity() && ((RecordId) item.getIdentity()).isValid()) {
-      res = new TraverseResult(db, item.castToEntity());
+      res = new TraverseResult(db, item.asEntity());
       res.depth = 0;
     } else if (item.getPropertyNames().size() == 1) {
       var val = item.getProperty(item.getPropertyNames().iterator().next());
@@ -233,7 +233,7 @@ public class DepthFirstTraverseStep extends AbstractTraverseStep {
 
       tryAddEntryPoint(nextStep, ctx, entryPoints, traversed);
     } else {
-      var res = new TraverseResult(ctx.getDatabaseSession(), nextStep.castToEntity());
+      var res = new TraverseResult(ctx.getDatabaseSession(), nextStep.asEntity());
       res.depth = depth;
       res.setMetadata("$depth", depth);
       List<Identifiable> newPath = new ArrayList<>();

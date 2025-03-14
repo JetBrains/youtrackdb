@@ -19,22 +19,28 @@
  */
 package com.jetbrains.youtrack.db.internal.core.tx;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.api.session.RecordOperationType;
+import com.jetbrains.youtrack.db.api.session.Transaction;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
+import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
+import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public interface FrontendTransaction {
+public interface FrontendTransaction extends Transaction {
 
   enum TXSTATUS {
     INVALID,
@@ -55,7 +61,7 @@ public interface FrontendTransaction {
 
   void rollback(boolean force, int commitLevelDiff);
 
-  DatabaseSession getDatabaseSession();
+  DatabaseSessionInternal getDatabaseSession();
 
   @Deprecated
   void clearRecordEntries();
@@ -70,8 +76,6 @@ public interface FrontendTransaction {
 
   @Deprecated
   Iterable<? extends RecordOperation> getCurrentRecordEntries();
-
-  Iterable<? extends RecordOperation> getRecordOperations();
 
   List<RecordOperation> getNewRecordEntriesByClass(SchemaClass iClass, boolean iPolymorphic);
 
@@ -132,7 +136,7 @@ public interface FrontendTransaction {
    * @param value     the index key value.
    */
   void addIndexEntry(
-      IndexInternal index,
+      Index index,
       String indexName,
       OPERATION operation,
       Object key,
@@ -179,6 +183,41 @@ public interface FrontendTransaction {
     return getId();
   }
 
+
+  /**
+   * Extract all the record operations for the current transaction
+   *
+   * @return the record operations, the collection should not be modified.
+   */
+  Collection<RecordOperation> getRecordOperationsInternal();
+
+  /**
+   * Extract all the calculated index operations for the current transaction changes, the key of the
+   * map is the index name the value all the changes for the specified index.
+   *
+   * @return the index changes, the map should not be modified.
+   */
+  Map<String, FrontendTransactionIndexChanges> getIndexOperations();
+
+  /**
+   * Change the status of the transaction.
+   */
+  void setStatus(final FrontendTransaction.TXSTATUS iStatus);
+
+  void setSession(DatabaseSessionInternal session);
+
+  @Nullable
+  default byte[] getMetadata() {
+    return null;
+  }
+
+  void setMetadataHolder(FrontendTransacationMetadataHolder metadata);
+
+  default void storageBegun() {
+  }
+
+  Iterator<byte[]> getSerializedOperations();
+
   boolean isReadOnly();
 
   long getId();
@@ -200,5 +239,32 @@ public interface FrontendTransaction {
   boolean isDeletedInTx(@Nonnull RID rid);
 
   default void preProcessRecordsAndExecuteCallCallbacks() {
+  }
+
+  @Override
+  default Stream<com.jetbrains.youtrack.db.api.session.RecordOperation> getRecordOperations() {
+    return getRecordOperationsInternal().stream().map(recordOperation ->
+        switch (recordOperation.type) {
+          case RecordOperation.CREATED ->
+              new com.jetbrains.youtrack.db.api.session.RecordOperation(recordOperation.record,
+                  RecordOperationType.CREATED);
+          case RecordOperation.UPDATED ->
+              new com.jetbrains.youtrack.db.api.session.RecordOperation(recordOperation.record,
+                  RecordOperationType.UPDATED);
+          case RecordOperation.DELETED ->
+              new com.jetbrains.youtrack.db.api.session.RecordOperation(recordOperation.record,
+                  RecordOperationType.DELETED);
+          default -> throw new IllegalStateException("Unexpected value: " + recordOperation.type);
+        });
+  }
+
+  @Override
+  default int getRecordOperationsCount() {
+    return getRecordOperationsInternal().size();
+  }
+
+  @Override
+  default int activeTxCount() {
+    return amountOfNestedTxs();
   }
 }

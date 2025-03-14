@@ -104,7 +104,7 @@ public class SQLFunctionCall extends SimpleNode {
     if (targetObjects instanceof Identifiable) {
       record = targetObjects;
     } else if (targetObjects instanceof Result result && result.isEntity()) {
-      record = result.castToEntity();
+      record = result.asEntity();
     } else {
       record = targetObjects;
     }
@@ -115,7 +115,7 @@ public class SQLFunctionCall extends SimpleNode {
         if (current instanceof Identifiable) {
           record = current;
         } else if (current instanceof Result result && result.isEntity()) {
-          record = result.castToEntity();
+          record = result.asEntity();
         } else {
           record = current;
         }

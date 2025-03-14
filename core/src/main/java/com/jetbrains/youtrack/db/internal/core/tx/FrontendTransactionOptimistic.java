@@ -41,7 +41,6 @@ import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.ClassIndexManager;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
@@ -64,7 +63,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class FrontendTransactionOptimistic extends FrontendTransactionAbstract implements
-    TransactionInternal, IdentityChangeListener {
+    IdentityChangeListener {
 
   private static final AtomicLong txSerial = new AtomicLong();
 
@@ -288,7 +287,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
 
   @Override
   public void addIndexEntry(
-      final IndexInternal index,
+      final Index index,
       final String iIndexName,
       final OPERATION iOperation,
       final Object key,
@@ -1188,7 +1187,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     return recordOperations.values();
   }
 
-  public Collection<RecordOperation> getRecordOperations() {
+  public Collection<RecordOperation> getRecordOperationsInternal() {
     return recordOperations.values();
   }
 

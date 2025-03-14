@@ -214,7 +214,7 @@ public class SecurityRemote implements SecurityInternal {
         iUserName)) {
       if (result.hasNext()) {
         return new SecurityUserImpl((DatabaseSessionInternal) session,
-            (EntityImpl) result.next().castToEntity());
+            (EntityImpl) result.next().asEntity());
       }
     }
     return null;
@@ -254,7 +254,7 @@ public class SecurityRemote implements SecurityInternal {
         session.query("select from " + Role.CLASS_NAME + " where name = ? limit 1", iRoleName)) {
       if (result.hasNext()) {
         return new Role((DatabaseSessionInternal) session,
-            (EntityImpl) result.next().castToEntity());
+            (EntityImpl) result.next().asEntity());
       }
     }
 
@@ -263,14 +263,14 @@ public class SecurityRemote implements SecurityInternal {
 
   public List<EntityImpl> getAllUsers(final DatabaseSession session) {
     try (var rs = session.query("select from OUser")) {
-      return rs.stream().map((e) -> (EntityImpl) e.castToEntity())
+      return rs.stream().map((e) -> (EntityImpl) e.asEntity())
           .collect(Collectors.toList());
     }
   }
 
   public List<EntityImpl> getAllRoles(final DatabaseSession session) {
     try (var rs = session.query("select from " + Role.CLASS_NAME)) {
-      return rs.stream().map((e) -> (EntityImpl) e.castToEntity())
+      return rs.stream().map((e) -> (EntityImpl) e.asEntity())
           .collect(Collectors.toList());
     }
   }

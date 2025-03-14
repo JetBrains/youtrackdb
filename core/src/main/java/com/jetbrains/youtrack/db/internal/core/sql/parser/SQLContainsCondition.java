@@ -49,7 +49,7 @@ public class SQLContainsCondition extends SQLBooleanExpression {
             return true;
           }
           if (item instanceof Result) {
-            item = ((Result) item).asEntity();
+            item = ((Result) item).asEntityOrNull();
           }
           if (item instanceof Identifiable && ((Collection) left).contains(item)) {
             return true;

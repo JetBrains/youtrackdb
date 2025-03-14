@@ -21,6 +21,9 @@ package com.jetbrains.youtrack.db.internal.core.record.impl;
 
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.Blob;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.StatefulEdge;
+import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -31,6 +34,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Arrays;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * The rawest representation of a record. It's schema less. Use this if you need to store Strings or
@@ -163,5 +167,73 @@ public class RecordBytes extends RecordAbstract implements Blob {
   @Override
   public void setOwner(RecordElement owner) {
     throw new UnsupportedOperationException("RecordBytes cannot be owned by another record");
+  }
+
+  @Override
+  public boolean isBlob() {
+    return true;
+  }
+
+  @Override
+  public boolean isEntity() {
+    return false;
+  }
+
+  @Override
+  public boolean isStatefulEdge() {
+    return false;
+  }
+
+  @Override
+  public boolean isVertex() {
+    return false;
+  }
+
+  @Nonnull
+  @Override
+  public Entity asEntity() {
+    throw new IllegalStateException("Blob is not an Entity");
+  }
+
+  @Nonnull
+  @Override
+  public Blob asBlob() {
+    return this;
+  }
+
+  @Nonnull
+  @Override
+  public StatefulEdge asStatefulEdge() {
+    throw new IllegalStateException("Blob is not a StatefulEdge");
+  }
+
+  @Nonnull
+  @Override
+  public Vertex asVertex() {
+    throw new IllegalStateException("Blob is not a Vertex");
+  }
+
+  @Nullable
+  @Override
+  public Entity asEntityOrNull() {
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public Blob asBlobOrNull() {
+    return this;
+  }
+
+  @Nullable
+  @Override
+  public StatefulEdge asStatefulEdgeOrNull() {
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public Vertex asVertexOrNull() {
+    return null;
   }
 }

@@ -59,9 +59,9 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
     result.close();
     Assert.assertTrue(set.containsAll(Arrays.asList(5, 6, 7, 8, 9, -1)));
 
-    Assert.assertEquals(index.getInternal().size(session), 6);
+    Assert.assertEquals(index.size(session), 6);
 
-    try (var stream = index.getInternal().stream(session)) {
+    try (var stream = index.stream(session)) {
       stream.forEach(
           (entry) -> {
             Assert.assertTrue(set.contains((Integer) entry.first));
@@ -160,13 +160,13 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
       final var indexManager = session.getMetadata().getIndexManagerInternal();
       final var indexOne =
           indexManager.getIndex(session, "TestTruncateVertexClassSuperclassWithIndex_index");
-      Assert.assertEquals(2, indexOne.getInternal().size(session));
+      Assert.assertEquals(2, indexOne.size(session));
 
       session.command("truncate class TestTruncateVertexClassSubclassWithIndex");
-      Assert.assertEquals(1, indexOne.getInternal().size(session));
+      Assert.assertEquals(1, indexOne.size(session));
 
       session.command("truncate class TestTruncateVertexClassSuperclassWithIndex polymorphic");
-      Assert.assertEquals(0, indexOne.getInternal().size(session));
+      Assert.assertEquals(0, indexOne.size(session));
     }
   }
 

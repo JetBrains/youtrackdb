@@ -335,9 +335,9 @@ public class BTreeBasedRidBag implements RidBagDelegate {
   private void rearrangeChanges() {
     for (var change : this.changes.entrySet()) {
       Identifiable key = change.getKey();
-      if (session.getTransaction().isActive()) {
+      if (session.getTransactionInternal().isActive()) {
         if (!key.getIdentity().isPersistent()) {
-          var record = session.getTransaction().getRecord(key.getIdentity());
+          var record = session.getTransactionInternal().getRecord(key.getIdentity());
           if (record != null && record != FrontendTransactionAbstract.DELETED_RECORD) {
             changes.remove(key);
             changes.put(record.getIdentity(), change.getValue());
@@ -361,7 +361,7 @@ public class BTreeBasedRidBag implements RidBagDelegate {
 
     final RecordSerializationContext context;
 
-    var tx = session.getTransaction();
+    var tx = session.getTransactionInternal();
     if (!(tx instanceof FrontendTransactionOptimistic)) {
       throw new DatabaseException(session.getDatabaseName(),
           "Changes are not supported outside of transactions");

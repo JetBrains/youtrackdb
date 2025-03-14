@@ -19,14 +19,14 @@
  */
 package com.jetbrains.youtrack.db.internal.client.db;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.internal.client.remote.EngineRemote;
 import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
 import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
@@ -91,7 +91,6 @@ public class DatabaseHelper {
       throws IOException {
     if (existsDatabase(database, storageType)) {
       if (database.getURL().startsWith("remote:")) {
-        database.activateOnCurrentThread();
         database.close();
         var admin =
             new ServerAdmin(database.getURL()).connect("root", getServerRootPassword(directory));
@@ -100,8 +99,6 @@ public class DatabaseHelper {
       } else {
         if (database.isClosed()) {
           openDatabase(database);
-        } else {
-          database.activateOnCurrentThread();
         }
         ((DatabaseSessionInternal) database).drop();
       }
@@ -111,7 +108,6 @@ public class DatabaseHelper {
   @Deprecated
   public static boolean existsDatabase(final DatabaseSession database, String storageType)
       throws IOException {
-    database.activateOnCurrentThread();
     if (database.getURL().startsWith("remote")) {
       var admin =
           new ServerAdmin(database.getURL()).connect("root", getServerRootPassword());
@@ -125,7 +121,6 @@ public class DatabaseHelper {
 
   @Deprecated
   public static void freezeDatabase(final DatabaseSession database) throws IOException {
-    database.activateOnCurrentThread();
     if (database.getURL().startsWith("remote")) {
       final var serverAdmin = new ServerAdmin(database.getURL());
       serverAdmin.connect("root", getServerRootPassword()).freezeDatabase("plocal");
@@ -137,7 +132,6 @@ public class DatabaseHelper {
 
   @Deprecated
   public static void releaseDatabase(final DatabaseSession database) throws IOException {
-    database.activateOnCurrentThread();
     if (database.getURL().startsWith("remote")) {
       final var serverAdmin = new ServerAdmin(database.getURL());
       serverAdmin.connect("root", getServerRootPassword()).releaseDatabase("plocal");

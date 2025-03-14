@@ -2,8 +2,8 @@ package com.jetbrains.youtrack.db.internal.core.sql;
 
 import static org.junit.Assert.assertEquals;
 
+import com.jetbrains.youtrack.db.api.SessionPool;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
-import com.jetbrains.youtrack.db.api.session.SessionPool;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.db.SessionPoolImpl;

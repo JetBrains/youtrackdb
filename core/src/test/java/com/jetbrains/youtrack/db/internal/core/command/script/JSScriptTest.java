@@ -38,7 +38,7 @@ public class JSScriptTest extends DbTestBase {
     Assert.assertEquals(2, results.size()); // no default users anymore, 'admin' created
 
     results.stream()
-        .map(Result::castToEntity)
+        .map(Result::asEntity)
         .forEach(
             oElement -> {
               Assert.assertEquals("OUser", oElement.getSchemaClassName());

@@ -13,11 +13,6 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.util.HashSet;
@@ -738,7 +733,7 @@ public class MatchStatementExecutionTest extends DbTestBase {
 
     var qResult = session.query(query).toList();
     assertEquals(1, qResult.size());
-    return qResult.getFirst().castToEntity();
+    return qResult.getFirst().asEntity();
   }
 
   private Entity getManagerArrows(String personName) {
@@ -757,7 +752,7 @@ public class MatchStatementExecutionTest extends DbTestBase {
     session.begin();
     var qResult = session.query(query).toList();
     assertEquals(1, qResult.size());
-    return qResult.getFirst().castToEntity();
+    return qResult.getFirst().asEntity();
   }
 
   @Test
@@ -795,7 +790,7 @@ public class MatchStatementExecutionTest extends DbTestBase {
 
     var qResult = session.command(query).toList();
     assertEquals(1, qResult.size());
-    return qResult.getFirst().castToEntity();
+    return qResult.getFirst().asEntity();
   }
 
   private Entity getManager2Arrows(String personName) {
@@ -814,7 +809,7 @@ public class MatchStatementExecutionTest extends DbTestBase {
 
     var qResult = session.query(query).toList();
     assertEquals(1, qResult.size());
-    return qResult.getFirst().castToEntity();
+    return qResult.getFirst().asEntity();
   }
 
   @Test

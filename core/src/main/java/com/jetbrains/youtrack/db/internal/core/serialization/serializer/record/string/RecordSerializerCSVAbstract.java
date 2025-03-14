@@ -44,7 +44,6 @@ import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.serialization.EntitySerializable;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.string.StringSerializerEmbedded;
@@ -692,7 +691,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
           if (iLinkedClass != null) {
             var entity = new EntityImpl(session);
             objectToAdd = fromString(session, item, entity, null);
-            EntityInternalUtils.fillClassNameIfNeeded(entity, iLinkedClass.getName());
+            entity.fillClassIfNeed(iLinkedClass.getName());
           } else
           // EMBEDDED OBJECT
           {

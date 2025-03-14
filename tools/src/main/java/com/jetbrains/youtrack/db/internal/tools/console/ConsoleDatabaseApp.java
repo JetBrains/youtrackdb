@@ -555,10 +555,10 @@ public class ConsoleDatabaseApp extends ConsoleApplication
   public void begin() throws IOException {
     checkForDatabase();
 
-    if (currentDatabaseSession.getTransaction().isActive()) {
+    if (currentDatabaseSession.getTransactionInternal().isActive()) {
       message(
           "\nError: an active transaction is currently open (id="
-              + currentDatabaseSession.getTransaction().getId()
+              + currentDatabaseSession.getTransactionInternal().getId()
               + "). Commit or rollback before starting a new one.");
       return;
     }
@@ -581,21 +581,22 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     }
 
     currentDatabaseSession.begin();
-    message("\nTransaction " + currentDatabaseSession.getTransaction().getId() + " is running");
+    message(
+        "\nTransaction " + currentDatabaseSession.getTransactionInternal().getId() + " is running");
   }
 
   @ConsoleCommand(description = "Commits transaction changes to the database")
   public void commit() throws IOException {
     checkForDatabase();
 
-    if (!currentDatabaseSession.getTransaction().isActive()) {
+    if (!currentDatabaseSession.getTransactionInternal().isActive()) {
       message("\nError: no active transaction is currently open.");
       return;
     }
 
     final var begin = System.currentTimeMillis();
 
-    final var txId = currentDatabaseSession.getTransaction().getId();
+    final var txId = currentDatabaseSession.getTransactionInternal().getId();
     currentDatabaseSession.commit();
 
     message(
@@ -610,14 +611,14 @@ public class ConsoleDatabaseApp extends ConsoleApplication
   public void rollback() throws IOException {
     checkForDatabase();
 
-    if (!currentDatabaseSession.getTransaction().isActive()) {
+    if (!currentDatabaseSession.getTransactionInternal().isActive()) {
       message("\nError: no active transaction is running right now.");
       return;
     }
 
     final var begin = System.currentTimeMillis();
 
-    final var txId = currentDatabaseSession.getTransaction().getId();
+    final var txId = currentDatabaseSession.getTransactionInternal().getId();
     currentDatabaseSession.rollback();
     message(
         "\nTransaction "
@@ -1108,7 +1109,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       while (rs.hasNext()) {
         var item = rs.next();
         if (item.isBlob()) {
-          result.add(new RawPair<>(item.getIdentity(), item.castToBlob().toStream()));
+          result.add(new RawPair<>(item.getIdentity(), item.asBlob().toStream()));
         } else {
           result.add(new RawPair<>(item.getIdentity(), item.toMap()));
         }
@@ -1864,7 +1865,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
         row.put("RECORDS", indexSize);
         try {
           final var indexDefinition = index.getDefinition();
-          final var size = index.getInternal().size(currentDatabaseSession);
+          final var size = index.size(currentDatabaseSession);
           if (indexDefinition != null) {
             row.put("CLASS", indexDefinition.getClassName());
             row.put("COLLATE", indexDefinition.getCollate().getName());
@@ -2622,7 +2623,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
           while (rs.hasNext() && (displayLimit < 0 || count < displayLimit)) {
             var item = rs.next();
             if (item.isBlob()) {
-              result.add(new RawPair<>(item.getIdentity(), item.castToBlob()));
+              result.add(new RawPair<>(item.getIdentity(), item.asBlob()));
             } else {
               result.add(new RawPair<>(item.getIdentity(), item.toMap()));
             }
@@ -2859,9 +2860,9 @@ public class ConsoleDatabaseApp extends ConsoleApplication
 
       buffer.append(" {db=");
       buffer.append(currentDatabaseName);
-      if (currentDatabaseSession.getTransaction().isActive()) {
+      if (currentDatabaseSession.getTransactionInternal().isActive()) {
         buffer.append(" tx=[");
-        buffer.append(currentDatabaseSession.getTransaction().getEntryCount());
+        buffer.append(currentDatabaseSession.getTransactionInternal().getEntryCount());
         buffer.append(" entries]");
       }
     } else if (urlConnection != null) {

@@ -23,14 +23,20 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Stream;
 
 /**
  * Proxied abstract index.
@@ -80,7 +86,7 @@ public class IndexRemote implements Index {
     if (configuration == null) {
       version = -1;
     } else {
-      final Integer version = (Integer) configuration.get(IndexInternal.INDEX_VERSION);
+      final var version = (Integer) configuration.get(Index.INDEX_VERSION);
       this.version = Objects.requireNonNullElse(version, -1);
     }
   }
@@ -152,6 +158,150 @@ public class IndexRemote implements Index {
     return false;
   }
 
+  @Override
+  public Object getCollatingValue(Object key) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public boolean loadFromConfiguration(DatabaseSessionInternal session, Map<String, ?> config) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Map<String, ?> updateConfiguration(DatabaseSessionInternal session) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Index addCluster(DatabaseSessionInternal session, String iClusterName) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void removeCluster(DatabaseSessionInternal session, String iClusterName) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public boolean canBeUsedInEqualityOperators() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public boolean hasRangeQuerySupport() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public IndexMetadata loadMetadata(DatabaseSessionInternal session, Map<String, ?> config) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void close() {
+
+  }
+
+  @Override
+  public boolean acquireAtomicExclusiveLock() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public long size(DatabaseSessionInternal session) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Stream<RID> getRids(DatabaseSessionInternal session, Object key) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Stream<RawPair<Object, RID>> stream(DatabaseSessionInternal session) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Stream<RawPair<Object, RID>> descStream(DatabaseSessionInternal session) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Stream<Object> keyStream() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Stream<RawPair<Object, RID>> streamEntriesBetween(DatabaseSessionInternal session,
+      Object fromKey, boolean fromInclusive, Object toKey, boolean toInclusive, boolean ascOrder) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Stream<RawPair<Object, RID>> streamEntries(DatabaseSessionInternal session,
+      Collection<?> keys, boolean ascSortOrder) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Stream<RawPair<Object, RID>> streamEntriesMajor(DatabaseSessionInternal session,
+      Object fromKey, boolean fromInclusive, boolean ascOrder) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Stream<RawPair<Object, RID>> streamEntriesMinor(DatabaseSessionInternal session,
+      Object toKey, boolean toInclusive, boolean ascOrder) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public boolean isNativeTxSupported() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Iterable<TransactionIndexEntry> interpretTxKeyChanges(
+      FrontendTransactionIndexChangesPerKey changes) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void doPut(DatabaseSessionInternal session, AbstractPaginatedStorage storage, Object key,
+      RID rid) throws InvalidIndexEngineIdException {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public boolean doRemove(DatabaseSessionInternal session, AbstractPaginatedStorage storage,
+      Object key, RID rid) throws InvalidIndexEngineIdException {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public boolean doRemove(AbstractPaginatedStorage storage, Object key)
+      throws InvalidIndexEngineIdException {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Stream<RID> getRidsIgnoreTx(DatabaseSessionInternal session, Object key) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Index create(DatabaseSessionInternal session, IndexMetadata metadata, boolean rebuild,
+      ProgressListener progressListener) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public int getIndexId() {
+    throw new UnsupportedOperationException();
+  }
+
   public String getName() {
     return name;
   }
@@ -184,10 +334,6 @@ public class IndexRemote implements Index {
 
   public RID getIdentity() {
     return rid;
-  }
-
-  public IndexInternal getInternal() {
-    return null;
   }
 
   public long rebuild(DatabaseSessionInternal session,

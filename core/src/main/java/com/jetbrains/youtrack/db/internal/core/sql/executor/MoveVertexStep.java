@@ -41,7 +41,7 @@ public class MoveVertexStep extends AbstractExecutionStep {
 
   private Result mapResult(Result result, CommandContext ctx) {
     if (result.isVertex()) {
-      var v = result.castToVertex();
+      var v = result.asVertex();
       v.moveTo(targetClass);
     }
 

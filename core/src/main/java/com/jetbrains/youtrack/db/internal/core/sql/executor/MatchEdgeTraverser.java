@@ -46,7 +46,7 @@ public class MatchEdgeTraverser {
     }
     var endPointAlias = getEndpointAlias();
     var nextR = downstream.next(ctx);
-    Identifiable nextElement = nextR.castToEntity();
+    Identifiable nextElement = nextR.asEntity();
     var prevValue = sourceRecord.getProperty(endPointAlias);
     if (prevValue != null && !equals(prevValue, nextElement)) {
       return null;
@@ -73,14 +73,14 @@ public class MatchEdgeTraverser {
   protected static boolean equals(Object prevValue, Identifiable nextElement) {
     if (prevValue instanceof Result result) {
       if (result.isEntity()) {
-        prevValue = result.castToEntity();
+        prevValue = result.asEntity();
       } else {
         prevValue = null;
       }
     }
     if (nextElement instanceof Result result) {
       if (result.isEntity()) {
-        nextElement = result.castToEntity();
+        nextElement = result.asEntity();
       } else {
         nextElement = null;
       }
@@ -108,7 +108,7 @@ public class MatchEdgeTraverser {
       var startingElem = sourceRecord.getProperty(getStartingPointAlias());
       if (startingElem instanceof Result result) {
         if (result.isEntity()) {
-          startingElem = result.castToEntity();
+          startingElem = result.asEntity();
         } else {
           startingElem = null;
         }
@@ -195,7 +195,7 @@ public class MatchEdgeTraverser {
           }
 
           assert origin.isEntity();
-          var elem = origin.castToEntity();
+          var elem = origin.asEntity();
           newPath.add(elem);
 
           var subResult =
@@ -227,7 +227,7 @@ public class MatchEdgeTraverser {
     }
     assert next.isEntity();
 
-    var elem = next.castToEntity();
+    var elem = next.asEntity();
     iCommandContext.setVariable("$currentMatch", elem);
     if (matchesFilters(iCommandContext, theFilter, elem)
         && matchesClass(iCommandContext, theClassName, elem)

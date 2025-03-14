@@ -82,7 +82,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
 
     var session = iContext.getDatabaseSession();
     var record =
-        iCurrentRecord != null && iCurrentRecord.isEntity() ? iCurrentRecord.castToEntity() : null;
+        iCurrentRecord != null && iCurrentRecord.isEntity() ? iCurrentRecord.asEntity() : null;
 
     final var ctx = new ShortestPathContext();
 
@@ -97,7 +97,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
       if (!elem.isVertex()) {
         throw new IllegalArgumentException("The sourceVertex must be a vertex record");
       }
-      ctx.sourceVertex = elem.castToVertex();
+      ctx.sourceVertex = elem.asVertex();
     } else {
       throw new IllegalArgumentException("The sourceVertex must be a vertex record");
     }
@@ -113,7 +113,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
       if (elem == null || !elem.isVertex()) {
         throw new IllegalArgumentException("The destinationVertex must be a vertex record");
       }
-      ctx.destinationVertex = elem.castToVertex();
+      ctx.destinationVertex = elem.asVertex();
     } else {
       throw new IllegalArgumentException("The destinationVertex must be a vertex record");
     }
@@ -374,7 +374,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
 
           RID neighborEdgeIdentity;
           if (edge.isStateful()) {
-            neighborEdgeIdentity = edge.castToStatefulEdge().getIdentity();
+            neighborEdgeIdentity = edge.asStatefulEdge().getIdentity();
           } else {
             neighborEdgeIdentity = null;
           }
@@ -447,7 +447,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
 
           RID neighborEdgeIdentity;
           if (edge.isStateful()) {
-            neighborEdgeIdentity = edge.castToStatefulEdge().getIdentity();
+            neighborEdgeIdentity = edge.asStatefulEdge().getIdentity();
           } else {
             neighborEdgeIdentity = null;
           }

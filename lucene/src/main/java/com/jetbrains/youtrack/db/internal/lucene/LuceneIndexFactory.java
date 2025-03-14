@@ -24,8 +24,8 @@ import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexFactory;
-import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
 import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrack.db.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
@@ -83,7 +83,7 @@ public class LuceneIndexFactory implements IndexFactory, DatabaseLifecycleListen
   }
 
   @Override
-  public IndexInternal createIndex(Storage storage, IndexMetadata im)
+  public Index createIndex(Storage storage, IndexMetadata im)
       throws ConfigurationException {
     var metadata = im.getMetadata();
     final var indexType = im.getType();
@@ -142,9 +142,8 @@ public class LuceneIndexFactory implements IndexFactory, DatabaseLifecycleListen
 
       LogManager.instance().debug(this, "Dropping Lucene indexes...");
 
-      final var internal = session;
-      internal.getMetadata().getIndexManagerInternal().getIndexes(internal).stream()
-          .filter(idx -> idx.getInternal() instanceof LuceneFullTextIndex)
+      session.getMetadata().getIndexManagerInternal().getIndexes(session).stream()
+          .filter(idx -> idx instanceof LuceneFullTextIndex)
           .peek(idx -> LogManager.instance().debug(this, "deleting index " + idx.getName()))
           .forEach(idx -> idx.delete(session));
 

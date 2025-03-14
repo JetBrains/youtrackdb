@@ -50,7 +50,7 @@ public class SQLContainsAllCondition extends SQLBooleanExpression {
             found = true;
           } else if (next instanceof Result
               && ((Result) next).isEntity()
-              && ((Collection) left).contains(((Result) next).asEntity())) {
+              && ((Collection) left).contains(((Result) next).asEntityOrNull())) {
             found = true;
           }
           if (!found) {

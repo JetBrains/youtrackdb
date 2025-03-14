@@ -228,7 +228,7 @@ public class ClientConnection {
   public void endOperation() {
     if (session != null) {
       if (!session.isClosed()
-          && !session.getTransaction().isActive()
+          && !session.getTransactionInternal().isActive()
           && session.getLocalCache() != null) {
         session.getLocalCache().clear();
       }

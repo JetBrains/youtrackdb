@@ -105,7 +105,7 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
       while (toIter.hasNext()) {
         var elem = toIter.next();
         if (elem instanceof Result result && result.isEntity()) {
-          elem = result.castToEntity();
+          elem = result.asEntity();
         }
         if (elem instanceof Identifiable && !(elem instanceof Entity)) {
           elem = ((Identifiable) elem).getRecord(session);
@@ -113,7 +113,7 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
         if (!(elem instanceof Entity)) {
           throw new CommandExecutionException(session, "Invalid vertex: " + elem);
         }
-        var vertex = ((Entity) elem).asVertex();
+        var vertex = ((Entity) elem).asVertexOrNull();
         if (vertex != null) {
           toList.add(vertex.getIdentity());
         }
@@ -145,13 +145,13 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
 
   private static Iterable<Edge> loadNextResults(DatabaseSessionInternal session, Object from) {
     if (from instanceof Result result && result.isEntity()) {
-      from = result.asEntity();
+      from = result.asEntityOrNull();
     }
     if (from instanceof Identifiable && !(from instanceof Entity)) {
       from = ((Identifiable) from).getRecord(session);
     }
     if (from instanceof Entity && ((Entity) from).isVertex()) {
-      var vertex = ((Entity) from).castToVertex();
+      var vertex = ((Entity) from).asVertex();
       return vertex.getEdges(Direction.OUT);
     } else {
       throw new CommandExecutionException(session, "Invalid vertex: " + from);
@@ -163,7 +163,7 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
       return true;
     }
     if (edge.isStateful()) {
-      var statefulEdge = edge.castToStatefulEdge();
+      var statefulEdge = edge.asStatefulEdge();
       var clusterId = statefulEdge.getIdentity().getClusterId();
       var clusterName = ctx.getDatabaseSession().getClusterNameById(clusterId);
       return clusterName.equals(targetCluster.getStringValue());

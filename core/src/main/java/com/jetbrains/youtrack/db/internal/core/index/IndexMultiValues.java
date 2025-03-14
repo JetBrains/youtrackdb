@@ -109,7 +109,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
     final var collatedKey = getCollatingValue(key);
     var backedStream = getRidsIgnoreTx(session, key);
     final var indexChanges =
-        session.getTransaction().getIndexChangesInternal(getName());
+        session.getTransactionInternal().getIndexChangesInternal(getName());
     if (indexChanges == null) {
       return backedStream;
     }
@@ -142,7 +142,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
 
     key = getCollatingValue(key);
 
-    var singleTx = db.getTransaction();
+    var singleTx = db.getTransactionInternal();
     singleTx.addIndexEntry(
         this, super.getName(), FrontendTransactionIndexChanges.OPERATION.PUT, key, singleValue);
     return this;
@@ -176,7 +176,8 @@ public abstract class IndexMultiValues extends IndexAbstract {
   @Override
   public boolean remove(DatabaseSessionInternal session, Object key, final Identifiable value) {
     key = getCollatingValue(key);
-    session.getTransaction().addIndexEntry(this, super.getName(), OPERATION.REMOVE, key, value);
+    session.getTransactionInternal()
+        .addIndexEntry(this, super.getName(), OPERATION.REMOVE, key, value);
     return true;
   }
 
@@ -231,7 +232,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
     }
 
     final var indexChanges =
-        session.getTransaction().getIndexChangesInternal(getName());
+        session.getTransactionInternal().getIndexChangesInternal(getName());
     if (indexChanges == null) {
       return stream;
     }
@@ -284,7 +285,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
     }
 
     final var indexChanges =
-        session.getTransaction().getIndexChangesInternal(getName());
+        session.getTransactionInternal().getIndexChangesInternal(getName());
     if (indexChanges == null) {
       return stream;
     }
@@ -340,7 +341,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
     }
 
     final var indexChanges =
-        session.getTransaction().getIndexChangesInternal(getName());
+        session.getTransactionInternal().getIndexChangesInternal(getName());
     if (indexChanges == null) {
       return stream;
     }
@@ -387,7 +388,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
         IndexStreamSecurityDecorator.decorateStream(
             this, sortedKeys.stream().flatMap(key1 -> streamForKey(session, key1)), session);
 
-    final var indexChanges = session.getTransaction()
+    final var indexChanges = session.getTransactionInternal()
         .getIndexChangesInternal(getName());
     if (indexChanges == null) {
       return stream;
@@ -499,7 +500,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
     }
 
     final var indexChanges =
-        session.getTransaction().getIndexChanges(getName());
+        session.getTransactionInternal().getIndexChanges(getName());
     if (indexChanges != null) {
       try (var stream = stream(session)) {
         return stream.count();
@@ -530,7 +531,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
     }
 
     final var indexChanges =
-        session.getTransaction().getIndexChangesInternal(getName());
+        session.getTransactionInternal().getIndexChangesInternal(getName());
     if (indexChanges == null) {
       return stream;
     }
@@ -617,7 +618,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
     }
 
     final var indexChanges =
-        session.getTransaction().getIndexChangesInternal(getName());
+        session.getTransactionInternal().getIndexChangesInternal(getName());
     if (indexChanges == null) {
       return stream;
     }

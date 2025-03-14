@@ -320,7 +320,7 @@ public class FrontendTransactionOptimisticTest extends BaseDBTest {
 
     session.commit();
 
-    Assert.assertFalse(session.getTransaction().isActive());
+    Assert.assertFalse(session.getTransactionInternal().isActive());
     Assert.assertEquals(session.countClass("NestedTxClass"), 3);
   }
 
@@ -401,7 +401,7 @@ public class FrontendTransactionOptimisticTest extends BaseDBTest {
       session.rollback();
     }
 
-    Assert.assertFalse(session.getTransaction().isActive());
+    Assert.assertFalse(session.getTransactionInternal().isActive());
     Assert.assertEquals(session.countClass("NestedTxRollbackOne"), 1);
   }
 
@@ -429,7 +429,7 @@ public class FrontendTransactionOptimisticTest extends BaseDBTest {
       session.rollback();
     }
 
-    Assert.assertFalse(session.getTransaction().isActive());
+    Assert.assertFalse(session.getTransactionInternal().isActive());
     Assert.assertEquals(session.countClass("NestedTxRollbackTwo"), 0);
   }
 }

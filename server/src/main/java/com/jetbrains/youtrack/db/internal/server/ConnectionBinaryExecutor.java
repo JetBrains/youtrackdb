@@ -572,7 +572,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
   public BinaryResponse executeCommit(final CommitRequest request) {
     var recordOperations = request.getOperations();
     var session = connection.getDatabaseSession();
-    var tx = session.getTransaction();
+    var tx = session.getTransactionInternal();
 
     if (!tx.isActive()) {
       throw new DatabaseException(session, "There is no active transaction on server.");
@@ -1161,8 +1161,8 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     var database = connection.getDatabaseSession();
     var metadataListener = new QueryMetadataUpdateListener();
     database.getSharedContext().registerListener(metadataListener);
-    if (database.getTransaction().isActive()) {
-      ((FrontendTransactionOptimistic) database.getTransaction()).resetChangesTracking();
+    if (database.getTransactionInternal().isActive()) {
+      ((FrontendTransactionOptimistic) database.getTransactionInternal()).resetChangesTracking();
     }
     ResultSet rs;
     if (QueryRequest.QUERY == request.getOperationType()) {
@@ -1205,8 +1205,8 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
 
     var hasNext = rs.hasNext();
     var txChanges = false;
-    if (database.getTransaction().isActive()) {
-      txChanges = ((FrontendTransactionOptimistic) database.getTransaction()).isChanged();
+    if (database.getTransactionInternal().isActive()) {
+      txChanges = ((FrontendTransactionOptimistic) database.getTransactionInternal()).isChanged();
     }
     database.getSharedContext().unregisterListener(metadataListener);
 
@@ -1273,7 +1273,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
   @Override
   public BinaryResponse executeBeginTransaction(BeginTransactionRequest request) {
     var session = connection.getDatabaseSession();
-    var tx = session.getTransaction();
+    var tx = session.getTransactionInternal();
 
     var recordOperations = request.getOperations();
     if (tx.isActive()) {
@@ -1298,7 +1298,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     }
 
     session.begin(new FrontendTransactionOptimisticServer(session, request.getTxId()));
-    var serverTransaction = (FrontendTransactionOptimisticServer) session.getTransaction();
+    var serverTransaction = (FrontendTransactionOptimisticServer) session.getTransactionInternal();
 
     try {
       serverTransaction.mergeReceivedTransaction(recordOperations);
@@ -1317,7 +1317,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     var session = connection.getDatabaseSession();
     var recordOperations = request.getOperations();
 
-    var tx = session.getTransaction();
+    var tx = session.getTransactionInternal();
 
     if (tx.isActive()) {
       throw new DatabaseException(session, "Transaction is already started on server");
@@ -1335,7 +1335,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     assert database.activeTxCount() == 0;
 
     database.begin(new FrontendTransactionOptimisticServer(database, txId));
-    var serverTransaction = (FrontendTransactionOptimisticServer) database.getTransaction();
+    var serverTransaction = (FrontendTransactionOptimisticServer) database.getTransactionInternal();
 
     try {
       serverTransaction.mergeReceivedTransaction(recordOperations);
@@ -1353,7 +1353,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     var session = connection.getDatabaseSession();
     var recordOperations = request.getOperations();
 
-    var tx = session.getTransaction();
+    var tx = session.getTransactionInternal();
 
     if (!tx.isActive()) {
       throw new DatabaseException(session,
@@ -1384,7 +1384,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     var recordOperations = request.getOperations();
 
     var session = connection.getDatabaseSession();
-    var tx = session.getTransaction();
+    var tx = session.getTransactionInternal();
 
     var started = tx.isActive();
     if (!started) {
@@ -1463,7 +1463,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
   public BinaryResponse executeCommit37(Commit37Request request) {
     var recordOperations = request.getOperations();
     var session = connection.getDatabaseSession();
-    var tx = session.getTransaction();
+    var tx = session.getTransactionInternal();
 
     if (!tx.isActive()) {
       tx = doExecuteBeginTransaction(request.getTxId(), session, recordOperations);
@@ -1536,11 +1536,11 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
   @Override
   public BinaryResponse executeFetchTransaction(FetchTransactionRequest request) {
     var session = connection.getDatabaseSession();
-    if (!session.getTransaction().isActive()) {
+    if (!session.getTransactionInternal().isActive()) {
       throw new DatabaseException(session, "No Transaction Active");
     }
 
-    var tx = (FrontendTransactionOptimistic) session.getTransaction();
+    var tx = (FrontendTransactionOptimistic) session.getTransactionInternal();
     if (tx.getId() != request.getTxId()) {
       throw new DatabaseException(session,
           "Invalid transaction id, expected " + tx.getId() + " but received " + request.getTxId());
@@ -1548,17 +1548,17 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
 
     return new FetchTransactionResponse(session,
         tx.getId(),
-        tx.getRecordOperations(),
+        tx.getRecordOperationsInternal(),
         tx.getGeneratedOriginalRecordIdMap());
   }
 
   @Override
   public BinaryResponse executeFetchTransaction38(FetchTransaction38Request request) {
     var session = connection.getDatabaseSession();
-    if (!session.getTransaction().isActive()) {
+    if (!session.getTransactionInternal().isActive()) {
       throw new DatabaseException(session, "No Transaction Active");
     }
-    var tx = (FrontendTransactionOptimistic) session.getTransaction();
+    var tx = (FrontendTransactionOptimistic) session.getTransactionInternal();
     if (tx.getId() != request.getTxId()) {
       throw new DatabaseException(session,
           "Invalid transaction id, expected " + tx.getId() + " but received " + request.getTxId());
@@ -1566,7 +1566,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
 
     return new FetchTransaction38Response(session,
         tx.getId(),
-        tx.getRecordOperations(),
+        tx.getRecordOperationsInternal(),
         Collections.emptyMap(),
         tx.getGeneratedOriginalRecordIdMap(),
         session);
@@ -1575,7 +1575,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
   @Override
   public BinaryResponse executeRollback(RollbackTransactionRequest request) {
     var database = connection.getDatabaseSession();
-    if (database.getTransaction().isActive()) {
+    if (database.getTransactionInternal().isActive()) {
       database.rollback(true);
     }
     return new RollbackTransactionResponse();

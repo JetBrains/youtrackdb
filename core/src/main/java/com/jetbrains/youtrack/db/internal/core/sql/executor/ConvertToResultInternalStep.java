@@ -29,7 +29,7 @@ public class ConvertToResultInternalStep extends AbstractExecutionStep {
   private static Result filterMap(Result result, CommandContext ctx) {
     if (result instanceof UpdatableResult) {
       if (result.isEntity()) {
-        var entity = result.asEntity();
+        var entity = result.asEntityOrNull();
         return new ResultInternal(ctx.getDatabaseSession(), entity);
       }
       return result;

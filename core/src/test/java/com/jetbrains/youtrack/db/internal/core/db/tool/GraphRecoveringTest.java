@@ -115,7 +115,7 @@ public class GraphRecoveringTest {
         session.begin();
         for (var e :
             session.query("select from E").stream()
-                .map(Result::castToStatefulEdge)
+                .map(Result::asStatefulEdge)
                 .toList()) {
           e.<EntityImpl>getRecord(session).removePropertyInternal("out");
         }
@@ -151,9 +151,9 @@ public class GraphRecoveringTest {
         session.begin();
         for (var v :
             session.query("select from V").stream()
-                .map(Result::asEntity)
+                .map(Result::asEntityOrNull)
                 .filter(Objects::nonNull)
-                .map(Entity::castToVertex)
+                .map(Entity::asVertex)
                 .toList()) {
           for (var f : v.<EntityImpl>getRecord(session).fieldNames()) {
             if (f.startsWith(Vertex.DIRECTION_OUT_PREFIX)) {

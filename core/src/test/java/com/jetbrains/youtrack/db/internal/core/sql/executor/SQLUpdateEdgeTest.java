@@ -33,14 +33,14 @@ public class SQLUpdateEdgeTest extends DbTestBase {
 
     // VERTEXES
     session.begin();
-    var v1 = session.command("create vertex").next().castToEntity();
+    var v1 = session.command("create vertex").next().asEntity();
     assertEquals("V", v1.getSchemaClass().getName());
 
-    var v2 = session.command("create vertex V1").next().castToEntity();
+    var v2 = session.command("create vertex V1").next().asEntity();
     assertEquals("V1", v2.getSchemaClass().getName());
 
     var v3 =
-        session.command("create vertex set vid = 'v3', brand = 'fiat'").next().castToEntity();
+        session.command("create vertex set vid = 'v3', brand = 'fiat'").next().asEntity();
 
     assertEquals("V", v3.getSchemaClass().getName());
     assertEquals("fiat", v3.getProperty("brand"));
@@ -48,7 +48,7 @@ public class SQLUpdateEdgeTest extends DbTestBase {
     var v4 =
         session.command("create vertex V1 set vid = 'v4',  brand = 'fiat',name = 'wow'")
             .next()
-            .castToEntity();
+            .asEntity();
     session.commit();
 
     session.begin();
@@ -59,7 +59,7 @@ public class SQLUpdateEdgeTest extends DbTestBase {
 
     var edges =
         session.command("create edge E1 from " + v1.getIdentity() + " to " + v2.getIdentity());
-    var edge = edges.next().castToStatefulEdge();
+    var edge = edges.next().asStatefulEdge();
     assertFalse(edges.hasNext());
     assertEquals("E1", edge.getSchemaClassName());
     session.commit();
@@ -96,15 +96,15 @@ public class SQLUpdateEdgeTest extends DbTestBase {
   public void testUpdateEdgeOfTypeE() {
     // issue #6378
     session.begin();
-    var v1 = session.command("create vertex").next().castToVertex();
-    var v2 = session.command("create vertex").next().castToVertex();
-    var v3 = session.command("create vertex").next().castToVertex();
+    var v1 = session.command("create vertex").next().asVertex();
+    var v2 = session.command("create vertex").next().asVertex();
+    var v3 = session.command("create vertex").next().asVertex();
     session.commit();
 
     session.begin();
     var edges =
         session.command("create edge E from " + v1.getIdentity() + " to " + v2.getIdentity());
-    var edge = edges.next().castToStatefulEdge();
+    var edge = edges.next().asStatefulEdge();
 
     session.command("UPDATE EDGE " + edge.getIdentity() + " SET in = " + v3.getIdentity());
     session.commit();

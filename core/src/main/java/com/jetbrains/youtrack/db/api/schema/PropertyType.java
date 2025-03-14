@@ -659,7 +659,7 @@ public enum PropertyType {
         }
         case Result result -> {
           if (result.isRecord()) {
-            return result.castToIdentifiable();
+            return result.asIdentifiable();
           }
           if (result.isProjection()) {
             return convert(result.toMap(), linkedType, linkedClass, session);
@@ -1290,7 +1290,7 @@ public enum PropertyType {
       if (value instanceof Result result) {
         if (result.isRecord()) {
           if (result.isEntity()) {
-            var identifable = result.castToIdentifiable();
+            var identifable = result.asIdentifiable();
             if (identifable instanceof Entity entity && entity.isEmbedded()) {
               return EMBEDDED;
             }
@@ -1336,7 +1336,7 @@ public enum PropertyType {
 
     if (value instanceof Result result) {
       if (result.isRecord()) {
-        var identifiable = result.castToIdentifiable();
+        var identifiable = result.asIdentifiable();
         if (!(identifiable instanceof Entity entity)) {
           return true;
         }
@@ -1466,13 +1466,15 @@ public enum PropertyType {
             convert(session,
                 result.getProperty(result.getPropertyNames().iterator().next()),
                 targetClass);
-        case Entity entity when ((EntityInternal) value).getPropertyNamesInternal().size() == 1
+        case Entity entity when ((EntityInternal) value).getPropertyNames().size() == 1
             && !Entity.class.isAssignableFrom(targetClass) ->
           // try to unbox Result with a single property, for subqueries
             convert(session,
                 entity
                     .getProperty(
-                        ((EntityInternal) value).getPropertyNamesInternal().iterator().next()),
+                        ((EntityInternal) value).getPropertyNamesInternal(false,
+                                true).iterator()
+                            .next()),
                 targetClass);
         default -> throw BaseException.wrapException(
             new ValidationException(session != null ? session.getDatabaseName() : null,

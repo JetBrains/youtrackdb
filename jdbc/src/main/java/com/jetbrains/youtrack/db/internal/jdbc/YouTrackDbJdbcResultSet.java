@@ -288,7 +288,7 @@ public class YouTrackDbJdbcResultSet implements java.sql.ResultSet {
 
   public void deleteRow() throws SQLException {
     if (result.isEntity()) {
-      result.asEntity().delete();
+      result.asEntityOrNull().delete();
     } else {
       throw new SQLException("The current record is not an entity and can not be deleted");
     }
@@ -658,7 +658,7 @@ public class YouTrackDbJdbcResultSet implements java.sql.ResultSet {
   public int getInt(String columnLabel) throws SQLException {
     if ("@version".equals(columnLabel)) {
       if (result.isEntity()) {
-        return result.asEntity().getVersion();
+        return result.asEntityOrNull().getVersion();
       } else {
         throw new SQLException(
             "The current record is not an entity so its version can not be retrieved");
@@ -752,7 +752,7 @@ public class YouTrackDbJdbcResultSet implements java.sql.ResultSet {
         throw new SQLException(
             "The current record is not an entity. Its class can not be retrieved");
       }
-      var r = result.castToEntity().getSchemaClassName();
+      var r = result.asEntity().getSchemaClassName();
       lastReadWasNull = r == null;
       return r;
     }
@@ -802,7 +802,7 @@ public class YouTrackDbJdbcResultSet implements java.sql.ResultSet {
       if (!result.isEntity()) {
         throw new SQLException("The current record is not an entity and does not have a rowid");
       }
-      return new YouTrackDbRowId((RecordId) result.asEntity().getIdentity());
+      return new YouTrackDbRowId((RecordId) result.asEntityOrNull().getIdentity());
     } catch (Exception e) {
       throw new SQLException(
           "An error occurred during the retrieval of the rowid for record '" + result + "'", e);
@@ -857,7 +857,7 @@ public class YouTrackDbJdbcResultSet implements java.sql.ResultSet {
             "The current record is not an entity. Its identity can not be retrieved");
       }
       lastReadWasNull = false;
-      return result.asEntity().getIdentity().toString();
+      return result.asEntityOrNull().getIdentity().toString();
     }
 
     if ("@class".equals(columnLabel) || "class".equals(columnLabel)) {
@@ -866,7 +866,7 @@ public class YouTrackDbJdbcResultSet implements java.sql.ResultSet {
             "The current record is not an entity. Its class can not be retrieved");
       }
       lastReadWasNull = false;
-      var className = result.castToEntity().getSchemaClassName();
+      var className = result.asEntity().getSchemaClassName();
       if (className == null) {
         return "NOCLASS";
       }

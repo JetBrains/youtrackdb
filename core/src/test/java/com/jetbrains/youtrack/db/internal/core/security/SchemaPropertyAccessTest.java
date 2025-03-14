@@ -12,7 +12,6 @@ import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyAccess;
 import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -30,7 +29,7 @@ public class SchemaPropertyAccessTest extends DbTestBase {
     assertTrue(doc.containsField("name"));
     Set<String> toHide = new HashSet<>();
     toHide.add("name");
-    EntityInternalUtils.setPropertyAccess(doc, new PropertyAccess(toHide));
+    doc.propertyAccess = new PropertyAccess(toHide);
     assertNull(doc.getProperty("name"));
     assertNull(doc.field("name"));
     assertNull(doc.getString("name"));
@@ -55,7 +54,7 @@ public class SchemaPropertyAccessTest extends DbTestBase {
 
     Set<String> toHide = new HashSet<>();
     toHide.add("name");
-    EntityInternalUtils.setPropertyAccess(doc1, new PropertyAccess(toHide));
+    doc1.propertyAccess = new PropertyAccess(toHide);
     assertNull(doc1.getProperty("name"));
     assertNull(doc1.field("name"));
     assertFalse(doc1.containsField("name"));
@@ -79,7 +78,7 @@ public class SchemaPropertyAccessTest extends DbTestBase {
 
     Set<String> toHide = new HashSet<>();
     toHide.add("name");
-    EntityInternalUtils.setPropertyAccess(doc, new PropertyAccess(toHide));
+    doc.propertyAccess = new PropertyAccess(toHide);
     assertArrayEquals(new String[]{}, doc.fieldNames());
     assertArrayEquals(new String[]{}, doc.fieldValues());
     assertEquals(new HashSet<String>(), doc.getPropertyNames());
@@ -108,7 +107,7 @@ public class SchemaPropertyAccessTest extends DbTestBase {
     var doc = (EntityImpl) session.newEntity();
     RecordInternal.unsetDirty(doc);
     doc.fromStream(docPre.toStream());
-    EntityInternalUtils.setPropertyAccess(doc, new PropertyAccess(toHide));
+    doc.propertyAccess = new PropertyAccess(toHide);
     assertArrayEquals(new String[]{}, doc.getPropertyNames().toArray());
     assertArrayEquals(
         new String[]{}, doc.getPropertyNames().stream().map(doc::getProperty).toArray());
@@ -132,7 +131,7 @@ public class SchemaPropertyAccessTest extends DbTestBase {
 
     Set<String> toHide = new HashSet<>();
     toHide.add("name");
-    EntityInternalUtils.setPropertyAccess(entity, new PropertyAccess(toHide));
+    entity.propertyAccess = new PropertyAccess(toHide);
     assertFalse(entity.toJSON().contains("name"));
     entity.delete();
     session.commit();
@@ -147,7 +146,7 @@ public class SchemaPropertyAccessTest extends DbTestBase {
 
     Set<String> toHide = new HashSet<>();
     toHide.add("name");
-    EntityInternalUtils.setPropertyAccess(doc, new PropertyAccess(toHide));
+    doc.propertyAccess = new PropertyAccess(toHide);
     assertFalse(doc.toMap().containsKey("name"));
     session.rollback();
   }
@@ -161,7 +160,7 @@ public class SchemaPropertyAccessTest extends DbTestBase {
 
     Set<String> toHide = new HashSet<>();
     toHide.add("name");
-    EntityInternalUtils.setPropertyAccess(doc, new PropertyAccess(toHide));
+    doc.propertyAccess = new PropertyAccess(toHide);
     assertFalse(doc.toString().contains("name"));
     session.rollback();
   }

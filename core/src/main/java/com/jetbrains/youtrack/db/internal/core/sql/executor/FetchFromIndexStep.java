@@ -18,7 +18,6 @@ import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionMultiValue;
-import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStreamProducer;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.MultipleExecutionStream;
@@ -92,7 +91,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
             return ExecutionStream.resultIterator(
                 s.map((nextEntry) -> {
                   var session = ctx.getDatabaseSession();
-                  var tx = session.getTransaction();
+                  var tx = session.getTransactionInternal();
 
                   if (tx instanceof FrontendTransactionOptimistic frontendTransactionOptimistic) {
                     frontendTransactionOptimistic.preProcessRecordsAndExecuteCallCallbacks();
@@ -181,7 +180,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   private static List<Stream<RawPair<Object, RID>>> init(
       IndexSearchDescriptor desc, boolean isOrderAsc, CommandContext ctx) {
 
-    var index = desc.getIndex().getInternal();
+    var index = desc.getIndex();
     var condition = desc.getKeyCondition();
     var additionalRangeCondition = desc.getAdditionalRangeCondition();
 
@@ -203,7 +202,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   }
 
   private static List<Stream<RawPair<Object, RID>>> processInCondition(
-      IndexInternal index, SQLBooleanExpression condition, CommandContext ctx, boolean orderAsc) {
+      Index index, SQLBooleanExpression condition, CommandContext ctx, boolean orderAsc) {
     List<Stream<RawPair<Object, RID>>> streams = new ArrayList<>();
     Set<Stream<RawPair<Object, RID>>> acquiredStreams =
         Collections.newSetFromMap(new IdentityHashMap<>());
@@ -221,7 +220,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       for (var item : MultiValue.getMultiValueIterable(rightValue)) {
         if (item instanceof Result) {
           if (((Result) item).isEntity()) {
-            item = ((Result) item).castToEntity();
+            item = ((Result) item).asEntity();
           } else if (((Result) item).getPropertyNames().size() == 1) {
             item =
                 ((Result) item).getProperty(
@@ -254,7 +253,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
    * ignored)
    */
   private static List<Stream<RawPair<Object, RID>>> processAndBlock(
-      IndexInternal index,
+      Index index,
       SQLBooleanExpression condition,
       SQLBinaryCondition additionalRangeCondition,
       boolean isOrderAsc,
@@ -277,7 +276,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   }
 
   private static List<Stream<RawPair<Object, RID>>> processFlatIteration(
-      DatabaseSessionInternal session, IndexInternal index, boolean isOrderAsc) {
+      DatabaseSessionInternal session, Index index, boolean isOrderAsc) {
     List<Stream<RawPair<Object, RID>>> streams = new ArrayList<>();
     Set<Stream<RawPair<Object, RID>>> acquiredStreams =
         Collections.newSetFromMap(new IdentityHashMap<>());
@@ -296,7 +295,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   }
 
   private static Stream<RawPair<Object, RID>> fetchNullKeys(DatabaseSessionInternal session,
-      IndexInternal index) {
+      Index index) {
     if (index.getDefinition().isNullValuesIgnored()) {
       return null;
     }
@@ -305,7 +304,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   }
 
   private static List<Stream<RawPair<Object, RID>>> multipleRange(
-      IndexInternal index,
+      Index index,
       SQLCollection fromKey,
       boolean fromKeyIncluded,
       SQLCollection toKey,
@@ -453,7 +452,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   }
 
   private static Stream<RawPair<Object, RID>> getStreamForNullKey(
-      DatabaseSessionInternal session, IndexInternal index) {
+      DatabaseSessionInternal session, Index index) {
     final var stream = index.getRids(session, null);
     return stream.map((rid) -> new RawPair<>(null, rid));
   }
@@ -585,7 +584,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   }
 
   private static List<Stream<RawPair<Object, RID>>> processBetweenCondition(
-      IndexInternal index, SQLBooleanExpression condition, boolean isOrderAsc,
+      Index index, SQLBooleanExpression condition, boolean isOrderAsc,
       CommandContext ctx) {
     List<Stream<RawPair<Object, RID>>> streams = new ArrayList<>();
 
@@ -615,7 +614,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
 
   private static List<Stream<RawPair<Object, RID>>> processBinaryCondition(
       DatabaseSessionInternal session,
-      IndexInternal index,
+      Index index,
       SQLBooleanExpression condition,
       boolean isOrderAsc,
       CommandContext ctx) {
@@ -677,7 +676,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
 
   private static Stream<RawPair<Object, RID>> createCursor(
       DatabaseSessionInternal session,
-      IndexInternal index,
+      Index index,
       SQLBinaryCompareOperator operator,
       IndexDefinition definition,
       Object value,

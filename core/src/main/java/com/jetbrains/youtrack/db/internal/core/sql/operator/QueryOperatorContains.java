@@ -108,7 +108,7 @@ public class QueryOperatorContains extends QueryOperatorEqualityNotNulls {
               ((SQLFilterItemField) iCondition.getLeft()).getFieldChain().getItemName(0);
           if (fieldName != null) {
             if (iRecord.isEntity()) {
-              var entity = iRecord.castToEntity();
+              var entity = iRecord.asEntity();
               var result = ((EntityImpl) entity).getImmutableSchemaClass(session);
               var property =
                   result
@@ -164,8 +164,7 @@ public class QueryOperatorContains extends QueryOperatorEqualityNotNulls {
     final var indexDefinition = index.getDefinition();
 
     Stream<RawPair<Object, RID>> stream;
-    final var internalIndex = index.getInternal();
-    if (!internalIndex.canBeUsedInEqualityOperators()) {
+    if (!index.canBeUsedInEqualityOperators()) {
       return null;
     }
 
@@ -183,7 +182,7 @@ public class QueryOperatorContains extends QueryOperatorEqualityNotNulls {
         return null;
       }
 
-      stream = index.getInternal().getRids(database, key).map((rid) -> new RawPair<>(key, rid));
+      stream = index.getRids(database, key).map((rid) -> new RawPair<>(key, rid));
     } else {
       // in case of composite keys several items can be returned in case of we perform search
       // using part of composite key stored in index.
@@ -198,13 +197,13 @@ public class QueryOperatorContains extends QueryOperatorEqualityNotNulls {
       }
 
       final Object keyTwo = compositeIndexDefinition.createSingleValue(database, keyParams);
-      if (internalIndex.hasRangeQuerySupport()) {
-        stream = index.getInternal().streamEntriesBetween(database, keyOne, true, keyTwo, true,
+      if (index.hasRangeQuerySupport()) {
+        stream = index.streamEntriesBetween(database, keyOne, true, keyTwo, true,
             ascSortOrder);
       } else {
         var indexParamCount = indexDefinition.getParamCount();
         if (indexParamCount == keyParams.size()) {
-          stream = index.getInternal().getRids(database, keyOne)
+          stream = index.getRids(database, keyOne)
               .map((rid) -> new RawPair<>(keyOne, rid));
         } else {
           return null;

@@ -4,6 +4,7 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import java.util.Iterator;
 import java.util.List;
@@ -109,7 +110,7 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
   default <R> R findFirstEntity(@Nonnull Function<Entity, R> function) {
     try {
       if (hasNext()) {
-        return function.apply(next().castToEntity());
+        return function.apply(next().asEntity());
       } else {
         throw new NoSuchElementException();
       }
@@ -121,7 +122,7 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
   default <R> R findFirstEntityOrNull(@Nonnull Function<Entity, R> function) {
     try {
       if (hasNext()) {
-        var entity = next().asEntity();
+        var entity = next().asEntityOrNull();
 
         if (entity != null) {
           return function.apply(entity);
@@ -139,7 +140,7 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
   default <R> R findFirstVertex(@Nonnull Function<Vertex, R> function) {
     try {
       if (hasNext()) {
-        return function.apply(next().castToVertex());
+        return function.apply(next().asVertex());
       } else {
         throw new NoSuchElementException();
       }
@@ -151,7 +152,7 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
   default <R> R findFirstVertexOrNull(@Nonnull Function<Vertex, R> function) {
     try {
       if (hasNext()) {
-        var vertex = next().asVertex();
+        var vertex = next().asVertexOrNull();
         if (vertex != null) {
           return function.apply(vertex);
         }
@@ -168,7 +169,7 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
   default <R> R findFirstEdge(@Nonnull Function<Edge, R> function) {
     try {
       if (hasNext()) {
-        return function.apply(next().castToEdge());
+        return function.apply(next().asEdge());
       } else {
         throw new NoSuchElementException();
       }
@@ -180,7 +181,7 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
   default <R> R findFirstEdgeOrNull(@Nonnull Function<Edge, R> function) {
     try {
       if (hasNext()) {
-        var edge = next().asEdge();
+        var edge = next().asEdgeOrNull();
         if (edge != null) {
           return function.apply(edge);
         }
@@ -197,7 +198,7 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
   default <R> R findFirstStateFullEdge(@Nonnull Function<Edge, R> function) {
     try {
       if (hasNext()) {
-        return function.apply(next().castToStatefulEdge());
+        return function.apply(next().asStatefulEdge());
       } else {
         throw new NoSuchElementException();
       }
@@ -209,7 +210,7 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
   default <R> R findFirstSateFullEdgeOrNull(@Nonnull Function<Edge, R> function) {
     try {
       if (hasNext()) {
-        var edge = next().asStatefulEdge();
+        var edge = next().asStatefulEdgeOrNull();
         if (edge != null) {
           return function.apply(edge);
         }
@@ -242,8 +243,8 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
               public boolean tryAdvance(Consumer<? super Entity> action) {
                 while (hasNext()) {
                   var elem = next();
-                  if (elem.isEntity()) {
-                    action.accept(elem.castToEntity());
+                  if (elem != null) {
+                    action.accept(elem.asEntity());
                     return true;
                   }
                 }
@@ -284,10 +285,12 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
               public boolean tryAdvance(Consumer<? super Vertex> action) {
                 while (hasNext()) {
                   var elem = next();
-                  if (elem.isVertex()) {
-                    action.accept(elem.castToVertex());
+
+                  if (elem != null) {
+                    action.accept(elem.asVertex());
                     return true;
                   }
+
                 }
                 return false;
               }
@@ -322,11 +325,19 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
               public boolean tryAdvance(Consumer<? super RID> action) {
                 while (hasNext()) {
                   var elem = next();
+
+                  if (elem == null) {
+                    continue;
+                  }
+
                   if (elem.isRecord()) {
                     action.accept(elem.getIdentity());
                     return true;
+                  } else {
+                    throw new IllegalStateException(elem + " is not a record");
                   }
                 }
+
                 return false;
               }
 
@@ -357,15 +368,15 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
    * Returns the result set as a stream of vertices (filters only the results that are edges - where
    * the isEdge() method returns true). IMPORTANT: the stream consumes the result set!
    */
-  default Stream<Edge> edgeStream() {
+  default Stream<StatefulEdge> statefulEdgeStream() {
     return StreamSupport.stream(
-            new Spliterator<Edge>() {
+            new Spliterator<StatefulEdge>() {
               @Override
-              public boolean tryAdvance(Consumer<? super Edge> action) {
+              public boolean tryAdvance(Consumer<? super StatefulEdge> action) {
                 while (hasNext()) {
                   var nextElem = next();
-                  if (nextElem != null && nextElem.isStatefulEdge()) {
-                    action.accept(nextElem.castToStatefulEdge());
+                  if (nextElem != null) {
+                    action.accept(nextElem.asStatefulEdge());
                     return true;
                   }
                 }
@@ -373,7 +384,7 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
               }
 
               @Override
-              public Spliterator<Edge> trySplit() {
+              public Spliterator<StatefulEdge> trySplit() {
                 return null;
               }
 
@@ -391,8 +402,8 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
         .onClose(this::close);
   }
 
-  default List<Edge> toEdgeList() {
-    return edgeStream().toList();
+  default List<StatefulEdge> toStatefulEdgeList() {
+    return statefulEdgeStream().toList();
   }
 }
 

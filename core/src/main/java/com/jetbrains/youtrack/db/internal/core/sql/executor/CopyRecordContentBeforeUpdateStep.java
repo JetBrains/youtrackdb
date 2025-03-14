@@ -33,7 +33,7 @@ public class CopyRecordContentBeforeUpdateStep extends AbstractExecutionStep {
     var session = ctx.getDatabaseSession();
     if (result instanceof UpdatableResult) {
       var prevValue = new ResultInternal(session);
-      var rec = result.asEntity();
+      var rec = result.asEntityOrNull();
       prevValue.setProperty("@rid", rec.getIdentity());
       prevValue.setProperty("@version", rec.getVersion());
       if (rec instanceof EntityImpl) {
@@ -45,7 +45,7 @@ public class CopyRecordContentBeforeUpdateStep extends AbstractExecutionStep {
             "@class",
             result1.getName());
       }
-      if (!result.asEntity().getIdentity().isNew()) {
+      if (!result.asEntityOrNull().getIdentity().isNew()) {
         for (var propName : result.getPropertyNames()) {
           prevValue.setProperty(
               propName, LiveQueryHookV2.unboxRidbags(result.getProperty(propName)));

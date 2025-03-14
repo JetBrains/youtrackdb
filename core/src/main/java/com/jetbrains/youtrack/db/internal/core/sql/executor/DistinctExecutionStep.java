@@ -54,7 +54,7 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
   private void markAsVisited(Result nextValue, Set<RID> pastRids, Set<Result> pastItems,
       DatabaseSessionInternal session) {
     if (nextValue.isEntity()) {
-      var identity = nextValue.asEntity().getIdentity();
+      var identity = nextValue.asEntityOrNull().getIdentity();
       var cluster = identity.getClusterId();
       var pos = identity.getClusterPosition();
       if (cluster >= 0 && pos >= 0) {
@@ -77,7 +77,7 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
   private static boolean alreadyVisited(Result nextValue, Set<RID> pastRids,
       Set<Result> pastItems) {
     if (nextValue.isEntity()) {
-      var identity = nextValue.asEntity().getIdentity();
+      var identity = nextValue.asEntityOrNull().getIdentity();
       var cluster = identity.getClusterId();
       var pos = identity.getClusterPosition();
       if (cluster >= 0 && pos >= 0) {

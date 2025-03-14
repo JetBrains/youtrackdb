@@ -34,7 +34,6 @@ import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import java.io.StringWriter;
 import java.math.BigDecimal;
@@ -93,8 +92,7 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
     pos = iContent.indexOf(StringSerializerHelper.CLASS_SEPARATOR);
     if (pos > -1 && (pos < posFirstValue || posFirstValue == -1)) {
       if ((record.getIdentity().getClusterId() < 0 || session == null)) {
-        EntityInternalUtils.fillClassNameIfNeeded(((EntityImpl) iRecord),
-            iContent.substring(0, pos));
+        ((EntityImpl) iRecord).fillClassIfNeed(iContent.substring(0, pos));
       }
       iContent = iContent.substring(pos + 1);
     } else {
@@ -273,7 +271,8 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
               fieldFromStream(session, iRecord, type, linkedClass, linkedType, fieldName,
                   fieldValue);
           if ("@class".equals(fieldName)) {
-            EntityInternalUtils.fillClassNameIfNeeded(((EntityImpl) iRecord), value.toString());
+            String className = value.toString();
+            ((EntityImpl) iRecord).fillClassIfNeed(className);
           } else {
             record.field(fieldName, value, type);
           }

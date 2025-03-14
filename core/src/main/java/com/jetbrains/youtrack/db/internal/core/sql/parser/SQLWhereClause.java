@@ -157,14 +157,14 @@ public class SQLWhereClause extends SimpleNode {
     }
     if (key != null) {
       if (conditions.size() == definitionFields.size()) {
-        try (var rids = index.getInternal().getRids(session, key)) {
+        try (var rids = index.getRids(session, key)) {
           return rids.count();
         }
       } else if (index.supportsOrderedIterations()) {
         final Spliterator<RawPair<Object, RID>> spliterator;
 
         try (var stream =
-            index.getInternal().streamEntriesBetween(session, key, true, key, true, true)) {
+            index.streamEntriesBetween(session, key, true, key, true, true)) {
           spliterator = stream.spliterator();
           return spliterator.estimateSize();
         }

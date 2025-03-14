@@ -47,6 +47,7 @@ import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.api.session.SessionListener;
+import com.jetbrains.youtrack.db.api.session.Transaction;
 import com.jetbrains.youtrack.db.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrack.db.internal.common.listener.ListenerManger;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
@@ -64,6 +65,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SessionNotActivatedException;
 import com.jetbrains.youtrack.db.internal.core.exception.TransactionBlockedException;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
@@ -82,6 +84,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImp
 import com.jetbrains.youtrack.db.internal.core.query.Query;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EmbeddedEntityImpl;
@@ -545,7 +548,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     final var scope = RecordHook.SCOPE.typeToScope(type);
     final var scopeOrdinal = scope.ordinal();
 
-    var identity = ((RecordId) id.getIdentity()).copy();
+    var identity = id.getIdentity().copy();
     if (!pushInHook(identity)) {
       return RecordHook.RESULT.RECORD_NOT_CHANGED;
     }
@@ -725,8 +728,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
       case LOCALE_COUNTRY -> storage.getConfiguration().getLocaleCountry();
       case LOCALE_LANGUAGE -> storage.getConfiguration().getLocaleLanguage();
       case CHARSET -> storage.getConfiguration().getCharset();
-      case CLUSTER_SELECTION -> storage.getConfiguration().getClusterSelection();
-      case MINIMUM_CLUSTERS -> storage.getConfiguration().getMinimumClusters();
     };
   }
 
@@ -747,7 +748,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
 
-  public FrontendTransaction getTransaction() {
+  public FrontendTransaction getTransactionInternal() {
     assert assertIfNotActive();
     return currentTx;
   }
@@ -1009,7 +1010,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
           Role.PERMISSION_READ,
           getClusterNameById(rid.getClusterId()));
       // SEARCH IN LOCAL TX
-      var record = getTransaction().getRecord(rid);
+      var record = getTransactionInternal().getRecord(rid);
       if (record == FrontendTransactionAbstract.DELETED_RECORD) {
         // DELETED IN TX
         return createRecordNotFoundResult(rid, fetchPreviousRid, fetchNextRid,
@@ -1693,7 +1694,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
       return false;
     }
 
-    final var oper = getTransaction().getRecordEntry(id);
+    final var oper = getTransactionInternal().getRecordEntry(id);
     if (oper == null) {
       return id.isTemporary();
     } else {
@@ -1792,8 +1793,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     long deletedInTx = 0;
     long addedInTx = 0;
     var className = cls.getName();
-    if (getTransaction().isActive()) {
-      for (var op : getTransaction().getRecordOperations()) {
+    if (getTransactionInternal().isActive()) {
+      for (var op : getTransactionInternal().getRecordOperationsInternal()) {
         if (op.type == RecordOperation.DELETED) {
           final DBRecord rec = op.record;
           if (rec instanceof EntityImpl) {
@@ -2478,7 +2479,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   public int activeTxCount() {
     assert assertIfNotActive();
 
-    var transaction = getTransaction();
+    var transaction = getTransactionInternal();
     return transaction.amountOfNestedTxs();
   }
 
@@ -2645,5 +2646,136 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     var linkMap = new LinkMap(source.size(), this);
     linkMap.putAll(source);
     return linkMap;
+  }
+
+  @Override
+  public Transaction getActiveTransaction() {
+    if (currentTx.isActive()) {
+      return currentTx;
+    }
+
+    return null;
+  }
+
+  protected static void ensureLinksConsistencyOnModification(EntityImpl entity,
+      SchemaImmutableClass clazz) {
+    var dirtyProperties = entity.getDirtyPropertiesBetweenCallbacksInternal(false, false);
+    if (clazz.isVertexType()) {
+      dirtyProperties = filterVertexProperties(dirtyProperties);
+    } else if (clazz.isEdgeType()) {
+      dirtyProperties = filterEdgeProperties(dirtyProperties);
+    }
+
+    var linksToRemove = new HashSet<RecordId>();
+    var linksToAdd = new HashSet<RecordId>();
+
+    for (var propertyName : dirtyProperties) {
+      var originalValue = entity.getOriginalValue(propertyName);
+      var currentPropertyValue = entity.getPropertyInternal(propertyName);
+
+      if (originalValue == currentPropertyValue) {
+        var timeLine = entity.getCollectionTimeLine(propertyName);
+        if (timeLine != null) {
+          if (originalValue instanceof LinkList || originalValue instanceof LinkSet) {
+            for (var event : timeLine.getMultiValueChangeEvents()) {
+              switch (event.getChangeType()) {
+                case ADD -> {
+                  linksToAdd.add((RecordId) event.getValue());
+                }
+                case REMOVE -> {
+                  linksToRemove.add((RecordId) event.getValue());
+                }
+                case UPDATE -> {
+                  linksToAdd.add((RecordId) event.getValue());
+                  linksToRemove.add((RecordId) event.getOldValue());
+                }
+              }
+            }
+          } else if (originalValue instanceof LinkMap) {
+            for (var event : timeLine.getMultiValueChangeEvents()) {
+              switch (event.getChangeType()) {
+                case ADD -> {
+                  linksToAdd.add((RecordId) event.getKey());
+                }
+                case REMOVE -> {
+                  linksToRemove.add((RecordId) event.getKey());
+                }
+              }
+            }
+          }
+        } else {
+          accumulateLinkContainer(originalValue, linksToRemove);
+          accumulateLinkContainer(currentPropertyValue, linksToAdd);
+        }
+      } else {
+        accumulateLinkContainer(originalValue, linksToRemove);
+        accumulateLinkContainer(currentPropertyValue, linksToAdd);
+      }
+    }
+  }
+
+  private static void accumulateLinkContainer(Object value,
+      HashSet<RecordId> links) {
+    if (value == null) {
+      return;
+    }
+
+    switch (value) {
+      case RecordId recordId -> links.add(recordId);
+      case LinkList linkList -> {
+        for (var link : linkList) {
+          links.add((RecordId) link);
+        }
+      }
+      case LinkSet linkSet -> {
+        for (var link : linkSet) {
+          links.add((RecordId) link);
+        }
+      }
+      case LinkMap linkMap -> {
+        for (var link : linkMap.values()) {
+          links.add((RecordId) link);
+        }
+      }
+      case RidBag ridBag -> {
+        for (var link : ridBag) {
+          links.add((RecordId) link);
+        }
+      }
+      default -> {
+      }
+    }
+
+  }
+
+  private static List<String> filterEdgeProperties(Collection<String> properties) {
+    var result = new ArrayList<String>(properties.size());
+    for (var property : properties) {
+      if (!EdgeInternal.isEdgeConnectionProperty(property)) {
+        result.add(property);
+      }
+    }
+
+    return result;
+  }
+
+  private static List<String> filterVertexProperties(Collection<String> properties) {
+    var result = new ArrayList<String>(properties.size());
+    for (var property : properties) {
+      if (!VertexInternal.isConnectionToEdge(Direction.BOTH, property)) {
+        result.add(property);
+      }
+    }
+
+    return result;
+  }
+
+
+  protected void ensureLinksConsistencyOnDeletion(EntityImpl entity, SchemaImmutableClass clazz) {
+    if (clazz.isVertexType()) {
+      VertexInternal.deleteLinks(entity.asVertex());
+    } else if (clazz.isEdgeType()) {
+      EdgeEntityImpl.deleteLinks(this, entity.asStatefulEdgeOrNull());
+    }
   }
 }

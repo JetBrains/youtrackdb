@@ -76,9 +76,9 @@ import com.jetbrains.youtrack.db.internal.core.exception.InvalidInstanceIdExcept
 import com.jetbrains.youtrack.db.internal.core.exception.RetryQueryException;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
-import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
 import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrack.db.internal.core.index.Indexes;
 import com.jetbrains.youtrack.db.internal.core.index.engine.BaseIndexEngine;
@@ -138,10 +138,10 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedRidBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManagerShared;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
-import com.jetbrains.youtrack.db.internal.core.tx.TransactionInternal;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
@@ -472,7 +472,7 @@ public abstract class AbstractPaginatedStorage
   }
 
   private static TreeMap<String, FrontendTransactionIndexChanges> getSortedIndexOperations(
-      final TransactionInternal clientTx) {
+      final FrontendTransaction clientTx) {
     return new TreeMap<>(clientTx.getIndexOperations());
   }
 
@@ -1823,9 +1823,9 @@ public abstract class AbstractPaginatedStorage
    *
    * @param clientTx the transaction of witch allocate rids
    */
-  public void preallocateRids(final TransactionInternal clientTx) {
+  public void preallocateRids(final FrontendTransaction clientTx) {
     try {
-      final Iterable<RecordOperation> entries = clientTx.getRecordOperations();
+      final Iterable<RecordOperation> entries = clientTx.getRecordOperationsInternal();
       final var clustersToLock = new TreeMap<Integer, StorageCluster>();
 
       final Set<RecordOperation> newRecords = new TreeSet<>(COMMIT_RECORD_OPERATION_COMPARATOR);
@@ -1849,7 +1849,7 @@ public abstract class AbstractPaginatedStorage
             atomicOperation -> {
               lockClusters(clustersToLock);
 
-              var db = clientTx.getDatabaseSession();
+              var session = clientTx.getDatabaseSession();
               for (final var txEntry : newRecords) {
                 final DBRecord rec = txEntry.record;
                 if (!rec.getIdentity().isPersistent()) {
@@ -1860,7 +1860,7 @@ public abstract class AbstractPaginatedStorage
                     final var cluster = doGetAndCheckCluster(rid.getClusterId());
                     final var ppos =
                         cluster.allocatePosition(
-                            RecordInternal.getRecordType(db, rec), atomicOperation);
+                            RecordInternal.getRecordType(session, rec), atomicOperation);
                     rid.setClusterPosition(ppos.clusterPosition);
                     clientTx.updateIdentityAfterCommit(oldRID, rid);
                   }
@@ -1874,22 +1874,22 @@ public abstract class AbstractPaginatedStorage
                   if (recordStatus == RECORD_STATUS.NOT_EXISTENT) {
                     var ppos =
                         cluster.allocatePosition(
-                            RecordInternal.getRecordType(db, rec), atomicOperation);
+                            RecordInternal.getRecordType(session, rec), atomicOperation);
                     while (ppos.clusterPosition < rid.getClusterPosition()) {
                       ppos =
                           cluster.allocatePosition(
-                              RecordInternal.getRecordType(db, rec), atomicOperation);
+                              RecordInternal.getRecordType(session, rec), atomicOperation);
                     }
                     if (ppos.clusterPosition != rid.getClusterPosition()) {
-                      throw new ConcurrentCreateException(db.getDatabaseName(),
+                      throw new ConcurrentCreateException(session.getDatabaseName(),
                           rid, new RecordId(rid.getClusterId(), ppos.clusterPosition));
                     }
                   } else if (recordStatus == RECORD_STATUS.PRESENT
                       || recordStatus == RECORD_STATUS.REMOVED) {
                     final var ppos =
                         cluster.allocatePosition(
-                            RecordInternal.getRecordType(db, rec), atomicOperation);
-                    throw new ConcurrentCreateException(db.getDatabaseName(),
+                            RecordInternal.getRecordType(session, rec), atomicOperation);
+                    throw new ConcurrentCreateException(session.getDatabaseName(),
                         rid, new RecordId(rid.getClusterId(), ppos.clusterPosition));
                   }
                 }
@@ -1962,7 +1962,7 @@ public abstract class AbstractPaginatedStorage
 
       session.getMetadata().makeThreadLocalSchemaSnapshot();
 
-      final var recordOperations = transaction.getRecordOperations();
+      final var recordOperations = transaction.getRecordOperationsInternal();
       final var clustersToLock = new TreeMap<Integer, StorageCluster>();
       final Map<RecordOperation, Integer> clusterOverrides = new IdentityHashMap<>(8);
 
@@ -2156,7 +2156,7 @@ public abstract class AbstractPaginatedStorage
   }
 
   private void applyTxChanges(DatabaseSessionInternal session,
-      FrontendTransactionIndexChangesPerKey changes, IndexInternal index)
+      FrontendTransactionIndexChangesPerKey changes, Index index)
       throws InvalidIndexEngineIdException {
     assert !(changes.key instanceof RID orid) || orid.isPersistent();
     for (var op : index.interpretTxKeyChanges(changes)) {
@@ -4186,7 +4186,7 @@ public abstract class AbstractPaginatedStorage
     assert atomicOperationsManager.getCurrentOperation() == null;
   }
 
-  private void startStorageTx(final TransactionInternal clientTx) throws IOException {
+  private void startStorageTx(final FrontendTransaction clientTx) throws IOException {
     final var storageTx = transaction.get();
     assert storageTx == null || storageTx.getClientTx().getId() == clientTx.getId();
     assert atomicOperationsManager.getCurrentOperation() == null;

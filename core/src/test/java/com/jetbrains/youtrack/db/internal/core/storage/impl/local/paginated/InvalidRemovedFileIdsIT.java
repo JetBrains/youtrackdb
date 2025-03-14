@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
@@ -32,7 +32,7 @@ public class InvalidRemovedFileIdsIT {
 
     final var config =
         YouTrackDBConfig.builder()
-            .addAttribute(DatabaseSession.ATTRIBUTES.MINIMUM_CLUSTERS, 1)
+            .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_MINIMUM_CLUSTERS, 1)
             .build();
 
     YouTrackDB youTrackDB = new YouTrackDBImpl("plocal:" + buildDirectory, config);

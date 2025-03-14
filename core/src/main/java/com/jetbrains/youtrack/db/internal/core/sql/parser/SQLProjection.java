@@ -140,7 +140,7 @@ public class SQLProjection extends SimpleNode {
       }
       if (item.isAll()) {
         if (inResult.isEntity()) {
-          ((EntityImpl) inResult.castToEntity()).deserializeFields();
+          ((EntityImpl) inResult.asEntity()).deserializeFields();
         }
         for (var alias : inResult.getPropertyNames()) {
           if (this.excludes.contains(alias)) {
@@ -153,7 +153,7 @@ public class SQLProjection extends SimpleNode {
           result.setProperty(alias, val);
         }
         if (inResult.isEntity()) {
-          var x = (EntityInternal) inResult.castToEntity();
+          var x = (EntityInternal) inResult.asEntity();
           if (!this.excludes.contains("@rid")) {
             result.setProperty("@rid", x.getIdentity());
           }

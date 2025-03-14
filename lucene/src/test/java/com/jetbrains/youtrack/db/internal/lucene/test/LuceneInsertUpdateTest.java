@@ -61,7 +61,7 @@ public class LuceneInsertUpdateTest extends BaseLuceneTest {
     session.begin();
     var idx = session.getClassInternal("City").getClassIndex(session, "City.name");
     Collection<?> coll;
-    try (var stream = idx.getInternal().getRids(session, "Rome")) {
+    try (var stream = idx.getRids(session, "Rome")) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(coll.size(), 1);
@@ -75,11 +75,11 @@ public class LuceneInsertUpdateTest extends BaseLuceneTest {
     session.commit();
 
     session.begin();
-    try (var stream = idx.getInternal().getRids(session, "Rome")) {
+    try (var stream = idx.getRids(session, "Rome")) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(coll.size(), 0);
-    try (var stream = idx.getInternal().getRids(session, "London")) {
+    try (var stream = idx.getRids(session, "London")) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(coll.size(), 1);
@@ -92,15 +92,15 @@ public class LuceneInsertUpdateTest extends BaseLuceneTest {
 
     session.commit();
 
-    try (var stream = idx.getInternal().getRids(session, "Rome")) {
+    try (var stream = idx.getRids(session, "Rome")) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(coll.size(), 0);
-    try (var stream = idx.getInternal().getRids(session, "London")) {
+    try (var stream = idx.getRids(session, "London")) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(coll.size(), 0);
-    try (var stream = idx.getInternal().getRids(session, "Berlin")) {
+    try (var stream = idx.getRids(session, "Berlin")) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(coll.size(), 1);

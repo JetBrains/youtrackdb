@@ -239,7 +239,7 @@ public class LuceneSpatialMultiLineStringTest extends BaseSpatialLuceneTest {
 
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Place.location");
 
-    Assert.assertEquals(1, index.getInternal().size(session));
+    Assert.assertEquals(1, index.size(session));
     session.commit();
 
     testQueryMultiLineString();

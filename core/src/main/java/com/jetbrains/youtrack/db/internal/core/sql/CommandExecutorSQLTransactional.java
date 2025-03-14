@@ -44,7 +44,8 @@ public class CommandExecutorSQLTransactional extends CommandExecutorSQLDelegate 
 
   @Override
   public Object execute(DatabaseSessionInternal session, Map<Object, Object> iArgs) {
-    var txbegun = session.getTransaction() == null || !session.getTransaction().isActive();
+    var txbegun =
+        session.getTransactionInternal() == null || !session.getTransactionInternal().isActive();
     if (txbegun) {
       session.begin();
     }

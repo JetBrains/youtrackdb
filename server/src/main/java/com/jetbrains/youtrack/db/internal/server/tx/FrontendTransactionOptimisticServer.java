@@ -17,7 +17,6 @@ import com.jetbrains.youtrack.db.internal.core.index.ClassIndexManager;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.DocumentSerializerDelta;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
@@ -155,7 +154,7 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
         unmarshallRecord(record);
         if (record instanceof EntityImpl) {
           // Force conversion of value to class for trigger default values.
-          EntityInternalUtils.autoConvertValueToClass(getDatabaseSession(), (EntityImpl) record);
+          ((EntityImpl) record).autoConvertFieldsToClass(getDatabaseSession());
         }
       }
       for (DBRecord record : updatedRecords.values()) {

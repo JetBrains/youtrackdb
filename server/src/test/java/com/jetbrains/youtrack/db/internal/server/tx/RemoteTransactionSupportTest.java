@@ -128,7 +128,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     assertTrue(result.hasNext());
     assertEquals(2L, (long) result.next().getProperty("count(*)"));
 
-    assertTrue(db.getTransaction().isActive());
+    assertTrue(db.getTransactionInternal().isActive());
     result.close();
     db.rollback();
 
@@ -136,7 +136,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     assertTrue(result1.hasNext());
     assertEquals(1L, (long) result1.next().getProperty("count(*)"));
 
-    assertFalse(db.getTransaction().isActive());
+    assertFalse(db.getTransactionInternal().isActive());
     result1.close();
   }
 
@@ -145,7 +145,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     db.begin();
 
     db.command("insert into SomeTx set name ='Jane' ").close();
-    assertEquals(1, db.getTransaction().getEntryCount());
+    assertEquals(1, db.getTransactionInternal().getEntryCount());
   }
 
   @Test
@@ -186,7 +186,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     db.begin();
     var someTx = db.newEntity("SomeTx");
     someTx.setProperty("name", "foo");
-    assertEquals(1, db.getTransaction().getEntryCount());
+    assertEquals(1, db.getTransactionInternal().getEntryCount());
     assertEquals(1, db.countClass("SomeTx"));
     db.commit();
     assertEquals(1, db.countClass("SomeTx"));
@@ -203,7 +203,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     result = db.query("select from SomeTx");
     assertEquals(1, result.stream().count());
     result.close();
-    assertEquals(1, db.getTransaction().getEntryCount());
+    assertEquals(1, db.getTransactionInternal().getEntryCount());
     assertEquals(1, db.countClass("SomeTx"));
     db.commit();
     assertEquals(1, db.countClass("SomeTx"));
@@ -288,7 +288,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     assertTrue(result.hasNext());
     assertEquals(6L, (long) result.next().getProperty("count(*)"));
     result.close();
-    assertTrue(db.getTransaction().isActive());
+    assertTrue(db.getTransactionInternal().isActive());
 
     db.commit();
 
@@ -296,7 +296,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     assertTrue(result1.hasNext());
     assertEquals(6L, (long) result1.next().getProperty("count(*)"));
     result1.close();
-    assertFalse(db.getTransaction().isActive());
+    assertFalse(db.getTransactionInternal().isActive());
   }
 
   @Test

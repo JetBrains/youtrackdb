@@ -48,7 +48,7 @@ public class FetchTemporaryFromTxStep extends AbstractExecutionStep {
 
   private Iterator<DBRecord> init(CommandContext ctx) {
     var iterable =
-        ctx.getDatabaseSession().getTransaction().getRecordOperations();
+        ctx.getDatabaseSession().getTransactionInternal().getRecordOperationsInternal();
 
     var db = ctx.getDatabaseSession();
     List<DBRecord> records = new ArrayList<>();

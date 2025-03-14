@@ -26,9 +26,9 @@ public class CastToVertexStep extends AbstractExecutionStep {
     var db = ctx.getDatabaseSession();
     if (result.isVertex()) {
       if (result instanceof ResultInternal) {
-        ((ResultInternal) result).setIdentifiable(result.castToVertex());
+        ((ResultInternal) result).setIdentifiable(result.asVertex());
       } else {
-        result = new ResultInternal(db, result.castToVertex());
+        result = new ResultInternal(db, result.asVertex());
       }
     } else {
       throw new CommandExecutionException(ctx.getDatabaseSession(),

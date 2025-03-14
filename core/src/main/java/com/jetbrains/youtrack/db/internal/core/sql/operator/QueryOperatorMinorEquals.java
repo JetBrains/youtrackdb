@@ -74,9 +74,8 @@ public class QueryOperatorMinorEquals extends QueryOperatorEqualityNotNulls {
       CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
     final var indexDefinition = index.getDefinition();
 
-    final var internalIndex = index.getInternal();
     Stream<RawPair<Object, RID>> stream;
-    if (!internalIndex.canBeUsedInEqualityOperators() || !internalIndex.hasRangeQuerySupport()) {
+    if (!index.canBeUsedInEqualityOperators() || !index.hasRangeQuerySupport()) {
       return null;
     }
 
@@ -94,7 +93,7 @@ public class QueryOperatorMinorEquals extends QueryOperatorEqualityNotNulls {
         return null;
       }
 
-      stream = index.getInternal()
+      stream = index
           .streamEntriesMinor(iContext.getDatabaseSession(), key, true, ascSortOrder);
     } else {
       // if we have situation like "field1 = 1 AND field2 <= 2"
@@ -121,8 +120,7 @@ public class QueryOperatorMinorEquals extends QueryOperatorEqualityNotNulls {
         return null;
       }
 
-      stream = index.getInternal()
-          .streamEntriesBetween(iContext.getDatabaseSession(), keyOne, true, keyTwo, true,
+      stream = index.streamEntriesBetween(iContext.getDatabaseSession(), keyOne, true, keyTwo, true,
               ascSortOrder);
     }
 

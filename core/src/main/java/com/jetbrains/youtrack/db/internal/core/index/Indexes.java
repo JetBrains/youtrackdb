@@ -143,7 +143,7 @@ public final class Indexes {
    * @throws ConfigurationException if index creation failed
    * @throws IndexException         if index type does not exist
    */
-  public static IndexInternal createIndex(Storage storage, IndexMetadata metadata)
+  public static Index createIndex(Storage storage, IndexMetadata metadata)
       throws ConfigurationException, IndexException {
     var indexType = metadata.getType();
     var algorithm = metadata.getAlgorithm();

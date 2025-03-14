@@ -64,7 +64,7 @@ public class StorageEncryptionTestIT {
               session.query("select from EncryptedData where id = ?", random.nextInt(10_000_000))) {
             if (resultSet.hasNext()) {
               final var result = resultSet.next();
-              result.castToEntity().delete();
+              result.asEntity().delete();
             }
           }
         }
@@ -130,11 +130,11 @@ public class StorageEncryptionTestIT {
           final var entity = entityIterator.next();
           final int id = entity.getProperty("id");
           final RID treeRid;
-          try (var rids = treeIndex.getInternal().getRids(session, id)) {
+          try (var rids = treeIndex.getRids(session, id)) {
             treeRid = rids.findFirst().orElse(null);
           }
           final RID hashRid;
-          try (var rids = hashIndex.getInternal().getRids(session, id)) {
+          try (var rids = hashIndex.getRids(session, id)) {
             hashRid = rids.findFirst().orElse(null);
           }
 
@@ -143,9 +143,9 @@ public class StorageEncryptionTestIT {
         }
 
         Assert.assertEquals(session.countClass("EncryptedData"),
-            treeIndex.getInternal().size(session));
+            treeIndex.size(session));
         Assert.assertEquals(session.countClass("EncryptedData"),
-            hashIndex.getInternal().size(session));
+            hashIndex.size(session));
       }
     }
   }

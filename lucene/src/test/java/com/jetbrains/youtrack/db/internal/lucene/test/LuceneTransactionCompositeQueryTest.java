@@ -84,7 +84,7 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
     var vertices = session.query(query);
 
     Collection coll;
-    try (var stream = index.getInternal().getRids(session, "abc")) {
+    try (var stream = index.getRids(session, "abc")) {
       coll = stream.collect(Collectors.toList());
     }
 
@@ -92,7 +92,7 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
 
     Assert.assertEquals(0, coll.size());
 
-    Assert.assertEquals(0, index.getInternal().size(session));
+    Assert.assertEquals(0, index.size(session));
 
     session.rollback();
 
@@ -101,7 +101,7 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
 
     session.begin();
     assertThat(vertices).hasSize(1);
-    Assert.assertEquals(1, index.getInternal().size(session));
+    Assert.assertEquals(1, index.size(session));
     session.commit();
   }
 
@@ -113,7 +113,7 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
     c1.truncate();
 
     session.begin();
-    Assert.assertEquals(0, index.getInternal().size(session));
+    Assert.assertEquals(0, index.size(session));
 
     var doc = ((EntityImpl) session.newEntity("Foo"));
     doc.field("name", "Test");
@@ -129,7 +129,7 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
     var query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";
     var vertices = session.query(query);
     Collection coll;
-    try (var stream = index.getInternal().getRids(session, "abc")) {
+    try (var stream = index.getRids(session, "abc")) {
       coll = stream.collect(Collectors.toList());
     }
 
@@ -144,11 +144,11 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
     }
     Assert.assertEquals(0, i);
 
-    Assert.assertEquals(1, index.getInternal().size(session));
+    Assert.assertEquals(1, index.size(session));
 
     query = "select from Foo where name = 'Test' and bar lucene \"removed\" ";
     vertices = session.query(query);
-    try (var stream = index.getInternal().getRids(session, "removed")) {
+    try (var stream = index.getRids(session, "removed")) {
       coll = stream.collect(Collectors.toList());
     }
 
@@ -162,7 +162,7 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
 
     assertThat(vertices).hasSize(1);
 
-    Assert.assertEquals(1, index.getInternal().size(session));
+    Assert.assertEquals(1, index.size(session));
   }
 
   @Test
@@ -173,7 +173,7 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
     c1.truncate();
 
     session.begin();
-    Assert.assertEquals(0, index.getInternal().size(session));
+    Assert.assertEquals(0, index.size(session));
 
     var doc = ((EntityImpl) session.newEntity("Foo"));
     doc.field("name", "Test");
@@ -193,7 +193,7 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
     var query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";
     var vertices = session.command(query);
     Collection coll;
-    try (var stream = index.getInternal().getRids(session, "abc")) {
+    try (var stream = index.getRids(session, "abc")) {
       coll = stream.collect(Collectors.toList());
     }
 
@@ -212,11 +212,11 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
     Assert.assertNotNull(rid);
     Assert.assertNotNull(doc1);
     Assert.assertEquals(rid.getIdentity().toString(), doc1.getIdentity().toString());
-    Assert.assertEquals(2, index.getInternal().size(session));
+    Assert.assertEquals(2, index.size(session));
 
     query = "select from Foo where name = 'Test' and bar lucene \"removed\" ";
     vertices = session.query(query);
-    try (var stream = index.getInternal().getRids(session, "removed")) {
+    try (var stream = index.getRids(session, "removed")) {
       coll = stream.collect(Collectors.toList());
     }
 
@@ -231,6 +231,6 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
 
     assertThat(vertices).hasSize(2);
 
-    Assert.assertEquals(2, index.getInternal().size(session));
+    Assert.assertEquals(2, index.size(session));
   }
 }

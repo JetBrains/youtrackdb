@@ -121,7 +121,7 @@ public class SQLSelectTest extends AbstractSelectTest {
         executeQuery("select * from cluster:profile where name like 'Gi%'", session);
 
     for (var record : result1) {
-      Assert.assertTrue(record.asEntity().getSchemaClassName().equalsIgnoreCase("profile"));
+      Assert.assertTrue(record.asEntityOrNull().getSchemaClassName().equalsIgnoreCase("profile"));
       Assert.assertTrue(record.getProperty("name").toString().startsWith("Gi"));
     }
 
@@ -138,14 +138,14 @@ public class SQLSelectTest extends AbstractSelectTest {
     result1 = executeQuery("select * from cluster:profile where name like '%Gi%'", session);
 
     for (var record : result1) {
-      Assert.assertTrue(record.asEntity().getSchemaClassName().equalsIgnoreCase("profile"));
+      Assert.assertTrue(record.asEntityOrNull().getSchemaClassName().equalsIgnoreCase("profile"));
       Assert.assertTrue(record.getProperty("name").toString().contains("Gi"));
     }
 
     result1 = executeQuery("select * from cluster:profile where name like ?", session, "%Gi%");
 
     for (var record : result1) {
-      Assert.assertTrue(record.asEntity().getSchemaClassName().equalsIgnoreCase("profile"));
+      Assert.assertTrue(record.asEntityOrNull().getSchemaClassName().equalsIgnoreCase("profile"));
       Assert.assertTrue(record.getProperty("name").toString().contains("Gi"));
     }
   }
@@ -362,7 +362,7 @@ public class SQLSelectTest extends AbstractSelectTest {
             session);
 
     for (var record : result) {
-      Assert.assertTrue(record.asEntity().getSchemaClassName().equalsIgnoreCase("profile"));
+      Assert.assertTrue(record.asEntityOrNull().getSchemaClassName().equalsIgnoreCase("profile"));
       Assert.assertNotNull(record.getProperty("races"));
 
       Collection<EntityImpl> races = record.getProperty("races");
@@ -398,7 +398,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     var found = false;
     for (var i = 0; i < result.size() && !found; ++i) {
-      record = (EntityImpl) result.get(i).asEntity();
+      record = (EntityImpl) result.get(i).asEntityOrNull();
 
       Assert.assertTrue(
           Objects.requireNonNull(record.getSchemaClassName()).equalsIgnoreCase("animal"));
@@ -422,7 +422,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     found = false;
     for (var i = 0; i < result.size() && !found; ++i) {
-      record = (EntityImpl) result.get(i).asEntity();
+      record = (EntityImpl) result.get(i).asEntityOrNull();
 
       Assert.assertTrue(
           Objects.requireNonNull(record.getSchemaClassName()).equalsIgnoreCase("animal"));
@@ -490,7 +490,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     var found = false;
     for (var i = 0; i < result.size() && !found; ++i) {
-      record = (EntityImpl) result.get(i).asEntity();
+      record = (EntityImpl) result.get(i).asEntityOrNull();
 
       Assert.assertTrue(record.getSchemaClassName().equalsIgnoreCase("animal"));
       Assert.assertNotNull(record.getProperty("rates"));
@@ -554,7 +554,7 @@ public class SQLSelectTest extends AbstractSelectTest {
         executeQuery("select * from OUser where name in [ :name ]", session, "admin");
 
     Assert.assertEquals(result.size(), 1);
-    Assert.assertEquals(result.getFirst().asEntity().getProperty("name"), "admin");
+    Assert.assertEquals(result.getFirst().asEntityOrNull().getProperty("name"), "admin");
   }
 
   @Test
@@ -574,7 +574,7 @@ public class SQLSelectTest extends AbstractSelectTest {
     Assert.assertFalse(result.isEmpty());
 
     for (var record : result) {
-      Assert.assertTrue(record.asEntity().getSchemaClassName().equalsIgnoreCase("Profile"));
+      Assert.assertTrue(record.asEntityOrNull().getSchemaClassName().equalsIgnoreCase("Profile"));
 
       var found = false;
       for (var fieldValue :
@@ -821,7 +821,7 @@ public class SQLSelectTest extends AbstractSelectTest {
     Assert.assertFalse(result.isEmpty());
 
     for (var d : result) {
-      Assert.assertEquals(d.asEntity().getSchemaClassName(), "Profile");
+      Assert.assertEquals(d.asEntityOrNull().getSchemaClassName(), "Profile");
     }
   }
 
@@ -832,7 +832,7 @@ public class SQLSelectTest extends AbstractSelectTest {
     Assert.assertFalse(result.isEmpty());
 
     for (var d : result) {
-      Assert.assertTrue(d.asEntity().getVersion() > 0);
+      Assert.assertTrue(d.asEntityOrNull().getVersion() > 0);
     }
   }
 
@@ -1171,7 +1171,7 @@ public class SQLSelectTest extends AbstractSelectTest {
             1);
 
     var smaller = Calendar.getInstance();
-    smaller.setTime(result.getFirst().asEntity().getProperty("date"));
+    smaller.setTime(result.getFirst().asEntityOrNull().getProperty("date"));
     Assert.assertEquals(smaller.get(Calendar.YEAR), oneYearAgo.get(Calendar.YEAR));
 
     result =
@@ -1373,7 +1373,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     Assert.assertFalse(result.isEmpty());
     for (var r : result) {
-      Assert.assertEquals(((EntityImpl) r.asEntity()).<Object>field("counter"), 1);
+      Assert.assertEquals(((EntityImpl) r.asEntityOrNull()).<Object>field("counter"), 1);
     }
   }
 
@@ -1436,7 +1436,7 @@ public class SQLSelectTest extends AbstractSelectTest {
     Assert.assertEquals(result.size(), 1);
 
     for (var r : result) {
-      Assert.assertNull(r.asEntity().getProperty("name"));
+      Assert.assertNull(r.asEntityOrNull().getProperty("name"));
     }
   }
 

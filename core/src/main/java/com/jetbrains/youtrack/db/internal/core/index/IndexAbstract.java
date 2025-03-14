@@ -25,7 +25,6 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.api.exception.ManualIndexesAreProhibited;
 import com.jetbrains.youtrack.db.api.exception.RecordDuplicatedException;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -62,7 +61,7 @@ import java.util.stream.Stream;
  * of distributed. This is to avoid deadlock situation between nodes where keys have the same hash
  * code.
  */
-public abstract class IndexAbstract implements IndexInternal {
+public abstract class IndexAbstract implements Index {
 
   private static final AlwaysLessKey ALWAYS_LESS_KEY = new AlwaysLessKey();
   private static final AlwaysGreaterKey ALWAYS_GREATER_KEY = new AlwaysGreaterKey();
@@ -161,7 +160,7 @@ public abstract class IndexAbstract implements IndexInternal {
   /**
    * Creates the index.
    */
-  public IndexInternal create(
+  public Index create(
       DatabaseSessionInternal session, final IndexMetadata indexMetadata,
       boolean rebuild,
       final ProgressListener progressListener) {
@@ -547,14 +546,14 @@ public abstract class IndexAbstract implements IndexInternal {
 
   public boolean remove(DatabaseSessionInternal session, Object key, final Identifiable rid) {
     key = getCollatingValue(key);
-    session.getTransaction().addIndexEntry(this, getName(), OPERATION.REMOVE, key, rid);
+    session.getTransactionInternal().addIndexEntry(this, getName(), OPERATION.REMOVE, key, rid);
     return true;
   }
 
   public boolean remove(DatabaseSessionInternal session, Object key) {
     key = getCollatingValue(key);
 
-    session.getTransaction().addIndexEntry(this, getName(), OPERATION.REMOVE, key, null);
+    session.getTransactionInternal().addIndexEntry(this, getName(), OPERATION.REMOVE, key, null);
     return true;
   }
 
@@ -572,11 +571,12 @@ public abstract class IndexAbstract implements IndexInternal {
   @Override
   @Deprecated
   public Index clear(DatabaseSessionInternal session) {
-    session.getTransaction().addIndexEntry(this, this.getName(), OPERATION.CLEAR, null, null);
+    session.getTransactionInternal()
+        .addIndexEntry(this, this.getName(), OPERATION.CLEAR, null, null);
     return this;
   }
 
-  public IndexInternal delete(DatabaseSessionInternal session) {
+  public Index delete(DatabaseSessionInternal session) {
     acquireExclusiveLock();
 
     try {
@@ -655,10 +655,6 @@ public abstract class IndexAbstract implements IndexInternal {
     } finally {
       releaseSharedLock();
     }
-  }
-
-  public IndexInternal getInternal() {
-    return this;
   }
 
   public Set<String> getClusters() {

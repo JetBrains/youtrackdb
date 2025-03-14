@@ -51,7 +51,7 @@ public class CountFromIndexWithKeyStep extends AbstractExecutionStep {
     var val =
         idx.getDefinition()
             .createValue(db, keyValue.execute(new ResultInternal(db), ctx));
-    var size = idx.getInternal().getRids(db, val).distinct().count();
+    var size = idx.getRids(db, val).distinct().count();
     var result = new ResultInternal(db);
     result.setProperty(alias, size);
     return result;

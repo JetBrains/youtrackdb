@@ -144,7 +144,7 @@ public class NewTraverseTest extends BaseDBTest {
     while (result1.hasNext()) {
       var d = result1.next();
 
-      Assert.assertEquals(d.castToEntity().getSchemaClassName(), "Movie");
+      Assert.assertEquals(d.asEntity().getSchemaClassName(), "Movie");
     }
     result1.close();
   }
@@ -159,7 +159,7 @@ public class NewTraverseTest extends BaseDBTest {
     Assert.assertTrue(result1.hasNext());
     while (result1.hasNext()) {
       var d = result1.next();
-      Assert.assertEquals(d.castToEntity().getSchemaClassName(), "Movie");
+      Assert.assertEquals(d.asEntity().getSchemaClassName(), "Movie");
     }
     result1.close();
   }
@@ -181,7 +181,7 @@ public class NewTraverseTest extends BaseDBTest {
     Assert.assertTrue(result2.hasNext());
     var size2 = 0;
     while (result2.hasNext()) {
-      EntityImpl d = result2.next().castToEntity().getRecord(session);
+      EntityImpl d = result2.next().asEntity().getRecord(session);
       Assert.assertEquals(d.getSchemaClassName(), "Movie");
       size2++;
     }
@@ -194,7 +194,7 @@ public class NewTraverseTest extends BaseDBTest {
     Assert.assertTrue(result3.hasNext());
     var size3 = 0;
     while (result3.hasNext()) {
-      EntityImpl d = result3.next().castToEntity().getRecord(session);
+      EntityImpl d = result3.next().asEntity().getRecord(session);
       Assert.assertEquals(d.getSchemaClassName(), "Movie");
       size3++;
     }
