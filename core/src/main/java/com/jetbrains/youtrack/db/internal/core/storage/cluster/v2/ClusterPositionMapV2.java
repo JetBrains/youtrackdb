@@ -457,9 +457,10 @@ public final class ClusterPositionMapV2 extends ClusterPositionMap {
         var currentLimit = Math.min(resultSize, limit);
         result = new long[resultSize];
 
-        for (var i = resultSize - 1; i >= 0 && entriesCount < currentLimit; index--, i--) {
-          if (bucket.exists(index)) {
-            result[entriesCount] = startPosition + index - ClusterPositionMapBucket.MAX_ENTRIES;
+        for (var i = Math.max(0, resultSize - limit); i < resultSize && entriesCount < currentLimit;
+            i++) {
+          if (bucket.exists(i)) {
+            result[entriesCount] = startPosition + i - ClusterPositionMapBucket.MAX_ENTRIES;
             entriesCount++;
           }
         }

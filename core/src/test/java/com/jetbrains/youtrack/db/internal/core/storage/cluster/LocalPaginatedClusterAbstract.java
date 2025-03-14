@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.storage.cluster;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.internal.common.types.ModifiableInteger;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
@@ -23,6 +24,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 public abstract class LocalPaginatedClusterAbstract {
+
   protected static String buildDirectory;
   protected static PaginatedCluster paginatedCluster;
   protected static DatabaseSessionInternal databaseDocumentTx;
@@ -94,7 +96,12 @@ public abstract class LocalPaginatedClusterAbstract {
     }
 
     Assert.assertEquals(0, paginatedCluster.getEntries());
-    Assert.assertNull(paginatedCluster.readRecord(physicalPosition[0].clusterPosition));
+    try {
+      paginatedCluster.readRecord(physicalPosition[0].clusterPosition);
+      Assert.fail();
+    } catch (RecordNotFoundException ignore) {
+      // expected
+    }
 
     atomicOperationsManager.executeInsideAtomicOperation(
         null,
@@ -134,7 +141,12 @@ public abstract class LocalPaginatedClusterAbstract {
     }
 
     Assert.assertEquals(0, paginatedCluster.getEntries());
-    Assert.assertNull(paginatedCluster.readRecord(physicalPosition[0].clusterPosition));
+    try {
+      paginatedCluster.readRecord(physicalPosition[0].clusterPosition);
+      Assert.fail();
+    } catch (RecordNotFoundException recordNotFoundException) {
+      // expected
+    }
 
     atomicOperationsManager.executeInsideAtomicOperation(
         null,
@@ -174,7 +186,12 @@ public abstract class LocalPaginatedClusterAbstract {
     }
 
     Assert.assertEquals(0, paginatedCluster.getEntries());
-    Assert.assertNull(paginatedCluster.readRecord(physicalPosition[0].clusterPosition));
+    try {
+      paginatedCluster.readRecord(physicalPosition[0].clusterPosition);
+      Assert.fail();
+    } catch (RecordNotFoundException recordNotFoundException) {
+      // expected
+    }
 
     atomicOperationsManager.executeInsideAtomicOperation(
         null,
@@ -240,8 +257,12 @@ public abstract class LocalPaginatedClusterAbstract {
     }
 
     for (long clusterPosition : rolledBackRecordSet) {
-      var rawBuffer = paginatedCluster.readRecord(clusterPosition);
-      Assert.assertNull(rawBuffer);
+      try {
+        paginatedCluster.readRecord(clusterPosition);
+        Assert.fail();
+      } catch (RecordNotFoundException recordNotFoundException) {
+        // expected
+      }
     }
 
     for (var i = records / 2; i < records; i++) {
@@ -326,8 +347,12 @@ public abstract class LocalPaginatedClusterAbstract {
     }
 
     for (long clusterPosition : rolledBackRecordSet) {
-      var rawBuffer = paginatedCluster.readRecord(clusterPosition);
-      Assert.assertNull(rawBuffer);
+      try {
+        paginatedCluster.readRecord(clusterPosition);
+        Assert.fail();
+      } catch (RecordNotFoundException recordNotFoundException) {
+        // expected
+      }
     }
 
     for (var i = records / 2; i < records; i++) {
@@ -408,8 +433,12 @@ public abstract class LocalPaginatedClusterAbstract {
     }
 
     for (long clusterPosition : rolledBackRecordSet) {
-      var rawBuffer = paginatedCluster.readRecord(clusterPosition);
-      Assert.assertNull(rawBuffer);
+      try {
+        paginatedCluster.readRecord(clusterPosition);
+        Assert.fail();
+      } catch (RecordNotFoundException recordNotFoundException) {
+        // expected
+      }
     }
 
     for (var i = records / 2; i < records; i++) {
@@ -456,14 +485,19 @@ public abstract class LocalPaginatedClusterAbstract {
             atomicOperation -> paginatedCluster.allocatePosition((byte) 'd', atomicOperation));
 
     Assert.assertTrue(position.clusterPosition >= 0);
-    var rec = paginatedCluster.readRecord(position.clusterPosition);
-    Assert.assertNull(rec);
+    try {
+      paginatedCluster.readRecord(position.clusterPosition);
+      Assert.fail();
+    } catch (RecordNotFoundException recordNotFoundException) {
+      // expected
+    }
+
     atomicOperationsManager.executeInsideAtomicOperation(
         null,
         atomicOperation ->
             paginatedCluster.createRecord(new byte[20], 1, (byte) 'd', position, atomicOperation));
 
-    rec = paginatedCluster.readRecord(position.clusterPosition);
+    var rec = paginatedCluster.readRecord(position.clusterPosition);
     Assert.assertNotNull(rec);
   }
 
@@ -478,8 +512,12 @@ public abstract class LocalPaginatedClusterAbstract {
               null,
               atomicOperation -> paginatedCluster.allocatePosition((byte) 'd', atomicOperation));
       Assert.assertTrue(position.clusterPosition >= 0);
-      var rec = paginatedCluster.readRecord(position.clusterPosition);
-      Assert.assertNull(rec);
+      try {
+        paginatedCluster.readRecord(position.clusterPosition);
+        Assert.fail();
+      } catch (RecordNotFoundException recordNotFoundException) {
+        // expected
+      }
       positions.add(position);
     }
 
@@ -491,8 +529,12 @@ public abstract class LocalPaginatedClusterAbstract {
               var position =
                   paginatedCluster.allocatePosition((byte) 'd', atomicOperation);
               Assert.assertTrue(position.clusterPosition >= 0);
-              var rec = paginatedCluster.readRecord(position.clusterPosition);
-              Assert.assertNull(rec);
+              try {
+                paginatedCluster.readRecord(position.clusterPosition);
+                Assert.fail();
+              } catch (RecordNotFoundException recordNotFoundException) {
+                //expected
+              }
             }
             throw new RollbackException();
           });
@@ -505,8 +547,13 @@ public abstract class LocalPaginatedClusterAbstract {
               null,
               atomicOperation -> paginatedCluster.allocatePosition((byte) 'd', atomicOperation));
       Assert.assertTrue(position.clusterPosition >= 0);
-      var rec = paginatedCluster.readRecord(position.clusterPosition);
-      Assert.assertNull(rec);
+      try {
+        paginatedCluster.readRecord(position.clusterPosition);
+        Assert.fail();
+      } catch (RecordNotFoundException recordNotFoundException) {
+        // expected
+      }
+
       positions.add(position);
     }
 
@@ -602,7 +649,13 @@ public abstract class LocalPaginatedClusterAbstract {
 
     Assert.assertEquals(paginatedCluster.getEntries(), records - deletedRecords);
     for (long deletedPosition : deletedPositions) {
-      Assert.assertNull(paginatedCluster.readRecord(deletedPosition));
+      try {
+        paginatedCluster.readRecord(deletedPosition);
+        Assert.fail();
+      } catch (RecordNotFoundException recordNotFoundException) {
+        // expected
+      }
+
       atomicOperationsManager.executeInsideAtomicOperation(
           null,
           atomicOperation ->
@@ -705,7 +758,13 @@ public abstract class LocalPaginatedClusterAbstract {
 
     Assert.assertEquals(paginatedCluster.getEntries(), records - deletedRecords);
     for (long deletedPosition : deletedPositions) {
-      Assert.assertNull(paginatedCluster.readRecord(deletedPosition));
+      try {
+        paginatedCluster.readRecord(deletedPosition);
+        Assert.fail();
+      } catch (RecordNotFoundException ignore) {
+        // expected
+      }
+
       atomicOperationsManager.executeInsideAtomicOperation(
           null,
           atomicOperation ->
@@ -803,7 +862,12 @@ public abstract class LocalPaginatedClusterAbstract {
 
     Assert.assertEquals(paginatedCluster.getEntries(), records - deletedRecords);
     for (long deletedPosition : deletedPositions) {
-      Assert.assertNull(paginatedCluster.readRecord(deletedPosition));
+      try {
+        paginatedCluster.readRecord(deletedPosition);
+        Assert.fail();
+      } catch (RecordNotFoundException ignore) {
+      }
+
       atomicOperationsManager.executeInsideAtomicOperation(
           null,
           atomicOperation ->
