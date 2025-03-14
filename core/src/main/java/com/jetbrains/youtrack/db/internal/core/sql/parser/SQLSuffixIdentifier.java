@@ -403,15 +403,27 @@ public class SQLSuffixIdentifier extends SimpleNode {
     if (target == null) {
       return;
     }
-    if (target instanceof ResultInternal intTarget) {
-      if (identifier != null) {
-        intTarget.setProperty(identifier.getStringValue(), value);
-      } else if (recordAttribute != null) {
-        intTarget.setProperty(recordAttribute.getName(), value);
-      }
-    } else {
+
+    if (!(target instanceof ResultInternal) && !(target instanceof Entity)) {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Cannot set property on unmodifiable target: " + target);
+    }
+
+    final var propertyName =
+        identifier != null ?
+            identifier.getStringValue() :
+            recordAttribute != null ?
+                recordAttribute.getName() :
+                null;
+
+    if (propertyName == null) {
+      return;
+    }
+
+    if (target instanceof ResultInternal intTarget) {
+      intTarget.setProperty(propertyName, value);
+    } else {
+      ((Entity) target).setProperty(propertyName, value);
     }
   }
 
