@@ -49,7 +49,7 @@ public class ExpandStep extends AbstractExecutionStep {
       case Identifiable identifiable -> {
         DBRecord rec;
         try {
-          rec = ((Identifiable) projValue).getRecord(db);
+          rec = identifiable.getRecord(db);
         } catch (RecordNotFoundException rnf) {
           return ExecutionStream.empty();
         }
@@ -60,16 +60,18 @@ public class ExpandStep extends AbstractExecutionStep {
       case Result result -> {
         return ExecutionStream.singleton(result);
       }
-      case Iterator iterator -> {
-        //noinspection unchecked
-        return ExecutionStream.iterator((Iterator<Object>) projValue);
+      case Iterator<?> iterator -> {
+        return ExecutionStream.iterator(iterator);
       }
-      case Iterable iterable -> {
-        //noinspection unchecked
-        return ExecutionStream.iterator(((Iterable<Object>) projValue).iterator());
+      case Iterable<?> iterable -> {
+        return ExecutionStream.iterator(iterable.iterator());
       }
-      case Map map -> {
-        return ExecutionStream.iterator(((Map) projValue).entrySet().iterator());
+      case Map<?, ?> map -> {
+        return ExecutionStream.iterator(
+            map.entrySet().stream()
+                .map(Map::ofEntries)
+                .iterator()
+        );
       }
       default -> {
         return ExecutionStream.empty();
