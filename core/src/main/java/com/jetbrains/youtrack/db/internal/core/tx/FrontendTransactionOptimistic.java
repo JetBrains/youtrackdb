@@ -508,8 +508,8 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
                 "Record is already in transaction with different associated transaction entry");
           }
 
-          record.txEntry = txEntry;
           txEntry = new RecordOperation(record, status);
+          record.txEntry = txEntry;
 
           recordOperations.put(txEntry.initialRecordId, txEntry);
           affectedRecordsSortedByRID.add(record.getIdentity());
@@ -542,10 +542,8 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
               }
               break;
             case RecordOperation.DELETED:
-              if (status == RecordOperation.UPDATED || status == RecordOperation.CREATED) {
-                throw new IllegalStateException(
-                    "Invalid operation, record can not be updated or created as it is already deleted");
-              }
+              throw new IllegalStateException(
+                  "Invalid operation, record can not be updated, created or deleted as it is already deleted");
             case RecordOperation.CREATED:
               if (status == RecordOperation.DELETED) {
                 txEntry.type = RecordOperation.DELETED;
@@ -687,24 +685,18 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
             if (className != null) {
               ClassIndexManager.checkIndexesAfterCreate(entityImpl, session);
             }
-            if (processRecordCreation(recordOperation, record)) {
-              changed = true;
-            }
+            processRecordCreation(recordOperation, record);
           } else {
             if (className != null) {
               ClassIndexManager.checkIndexesAfterUpdate(entityImpl, session);
             }
-            if (processRecordUpdate(recordOperation, record)) {
-              changed = true;
-            }
+            processRecordUpdate(recordOperation, record);
           }
         } else {
           if (className != null) {
             ClassIndexManager.checkIndexesAfterUpdate(entityImpl, session);
           }
-          if (processRecordUpdate(recordOperation, record)) {
-            changed = true;
-          }
+          processRecordUpdate(recordOperation, record);
         }
       }
     } else if (recordOperation.type == RecordOperation.DELETED) {
@@ -753,7 +745,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     }
   }
 
-  private boolean processRecordUpdate(RecordOperation recordOperation, RecordAbstract record) {
+  private void processRecordUpdate(RecordOperation recordOperation, RecordAbstract record) {
     var dirtyCounter = record.getDirtyCounter();
     var clusterName = session.getClusterNameById(record.getIdentity().getClusterId());
 
@@ -770,11 +762,9 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     } finally {
       session.callbackHooks(TYPE.FINALIZE_UPDATE, record);
     }
-
-    return record.getDirtyCounter() != recordOperation.recordCallBackDirtyCounter;
   }
 
-  private boolean processRecordCreation(RecordOperation recordOperation, RecordAbstract record) {
+  private void processRecordCreation(RecordOperation recordOperation, RecordAbstract record) {
     session.assignAndCheckCluster(recordOperation.record, null);
 
     var clusterName = session.getClusterNameById(record.getIdentity().getClusterId());
@@ -791,8 +781,6 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     } finally {
       session.callbackHooks(TYPE.FINALIZE_CREATION, record);
     }
-
-    return recordOperation.recordCallBackDirtyCounter != record.getDirtyCounter();
   }
 
   public void resetChangesTracking() {

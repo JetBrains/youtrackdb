@@ -160,17 +160,10 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     checkForBinding();
 
     if (status != STATUS.UNMARSHALLING) {
-      dirty++;
-
-      assert txEntry == null || dirty >= txEntry.recordCallBackDirtyCounter;
-      assert txEntry == null || txEntry.record == this;
-
-      if (txEntry == null || dirty > txEntry.recordCallBackDirtyCounter) {
-        registerInTx();
-        source = null;
-      }
-
+      source = null;
       contentChanged = true;
+
+      incrementDirtyCounterAndRegisterInTx();
     } else {
       assert dirty == 0;
     }
@@ -178,27 +171,29 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   @Override
   public void setDirtyNoChanged() {
+    checkForBinding();
+
     if (status != STATUS.UNMARSHALLING) {
-      if (dirty == 0) {
-        checkForBinding();
-        registerInTx();
+      source = null;
 
-        source = null;
-      }
-
-      dirty++;
+      incrementDirtyCounterAndRegisterInTx();
     } else {
       assert dirty == 0;
     }
   }
 
-  private void registerInTx() {
-    if (recordId.isPersistent()) {
-      var tx = session.getTransactionInternal();
-      if (!isEmbedded()) {
-        assert recordId.isPersistent();
+  private void incrementDirtyCounterAndRegisterInTx() {
+    dirty++;
 
+    assert txEntry == null || dirty >= txEntry.recordCallBackDirtyCounter + 1;
+    assert txEntry == null || txEntry.record == this;
+
+    //either record is not registered in transaction or callbacks were called on previous version of record
+    if (txEntry == null || dirty == txEntry.recordCallBackDirtyCounter + 1) {
+      if (!isEmbedded()) {
+        var tx = session.getTransactionInternal();
         var optimistic = (FrontendTransactionOptimistic) tx;
+
         optimistic.addRecordOperation(this, RecordOperation.UPDATED);
       }
     }
@@ -310,6 +305,10 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   public void delete() {
     checkForBinding();
+
+    var tx = session.getTransactionInternal();
+    //preprocess any creation, deletion operations
+    tx.preProcessRecordsAndExecuteCallCallbacks();
 
     dirty++;
     session.deleteInternal(this);

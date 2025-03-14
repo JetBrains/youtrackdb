@@ -42,7 +42,8 @@ public class UpsertStep extends AbstractExecutionStep {
     var session = ctx.getDatabaseSession();
     EntityImpl entity;
     if (commandTarget.getItem().getIdentifier() != null) {
-      entity = new EntityImpl(session, commandTarget.getItem().getIdentifier().getStringValue());
+      entity = (EntityImpl) session.newEntity(
+          commandTarget.getItem().getIdentifier().getStringValue());
     } else if (commandTarget.getItem().getCluster() != null) {
       var cluster = commandTarget.getItem().getCluster();
       var clusterId = cluster.getClusterNumber();

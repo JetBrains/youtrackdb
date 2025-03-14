@@ -75,7 +75,6 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordVersionHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLPredicate;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -2990,7 +2989,6 @@ public class EntityImpl extends RecordAbstract
       }
     }
 
-    var session = this.session;
     try {
       super.delete();
     } catch (Exception e) {
@@ -2998,9 +2996,6 @@ public class EntityImpl extends RecordAbstract
       throw e;
     }
     internalReset();
-
-    var currentTx = (FrontendTransactionOptimistic) session.getTransactionInternal();
-    currentTx.preProcessRecordsAndExecuteCallCallbacks();
   }
 
   @Nullable
@@ -3502,24 +3497,22 @@ public class EntityImpl extends RecordAbstract
       }
 
       var first = true;
-      for (var f : fields.entrySet()) {
-        if (propertyAccess != null && !propertyAccess.isReadable(f.getKey())) {
-          continue;
-        }
+      for (var propertyName : calculatePropertyNames(false)) {
         buffer.append(first ? '{' : ',');
-        buffer.append(f.getKey());
+        buffer.append(propertyName);
         buffer.append(':');
-        if (f.getValue().value == null) {
+        var propertyValue = getPropertyInternal(propertyName);
+        if (propertyValue == null) {
           buffer.append("null");
         } else {
-          if (f.getValue().value instanceof Collection<?>
-              || f.getValue().value instanceof Map<?, ?>
-              || f.getValue().value.getClass().isArray()) {
+          if (propertyValue instanceof Collection<?>
+              || propertyValue instanceof Map<?, ?>
+              || propertyValue.getClass().isArray()) {
             buffer.append('[');
-            buffer.append(MultiValue.getSize(f.getValue().value));
+            buffer.append(MultiValue.getSize(propertyValue));
             buffer.append(']');
           } else {
-            if (f.getValue().value instanceof RecordAbstract record) {
+            if (propertyValue instanceof RecordAbstract record) {
               if (record.getIdentity().isValid()) {
                 record.getIdentity().toString(buffer);
               } else {
@@ -3530,7 +3523,7 @@ public class EntityImpl extends RecordAbstract
                 }
               }
             } else {
-              buffer.append(f.getValue().value);
+              buffer.append(propertyValue);
             }
           }
         }

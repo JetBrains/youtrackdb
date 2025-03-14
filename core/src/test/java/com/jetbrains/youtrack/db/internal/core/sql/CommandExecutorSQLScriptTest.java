@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.command.script.CommandScript;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
@@ -45,14 +44,13 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
   public void testTx() {
     var script =
         """
-            begin
-            let $a = insert into V set test = 'sql script test'
-            commit retry 10
-            return $a
+            begin;
+            let $a = insert into V set test = 'sql script test';
+            commit retry 10;
+            return $a;
             """;
-    EntityImpl qResult = session.command(new CommandScript("sql", script)).execute(session);
-
-    Assert.assertNotNull(qResult);
+    var result = session.execute("sql", script).toList();
+    Assert.assertEquals(1, result.size());
   }
 
   @Test
