@@ -103,7 +103,6 @@
                 <argument>-Xmx${heapSize}</argument>
                 <argument>-DridBag.embeddedToSbtreeBonsaiThreshold=10000000</argument>
                 <argument>-Dmemory.directMemory.preallocate=false</argument>
-                <argument>-Dtx.nonTxReadsWarningMode=SILENT</argument>
                 <argument>-classpath</argument>
                 <classpath/>
                 <argument>com.jetbrains.youtrack.db.internal.tools.console.ConsoleDatabaseApp

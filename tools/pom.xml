@@ -105,7 +105,6 @@
           -Dstorage.diskCache.checksumMode=storeAndThrow
           -Dsecurity.warningDefaultUsers=false
           -Dfile.log.deletion=false
-          -Dtx.nonTxReadsWarningMode=SILENT
           --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED
           --add-opens java.base/sun.security.x509=ALL-UNNAMED
         </argLine>

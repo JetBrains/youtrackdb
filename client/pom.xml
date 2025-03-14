@@ -39,7 +39,6 @@
       -Dstorage.diskCache.bufferSize=4096
       -Dsecurity.warningDefaultUsers=false
       -Dfile.log.deletion=false
-      -Dtx.nonTxReadsWarningMode=SILENT
     </argLine>
   </properties>
 

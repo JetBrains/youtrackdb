@@ -36,7 +36,6 @@
       -Dstorage.diskCache.checksumMode=storeAndThrow
       -Dsecurity.warningDefaultUsers=false
       -Dfile.log.deletion=false
-      -Dtx.nonTxReadsWarningMode=SILENT
       --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED
     </argLine>
   </properties>

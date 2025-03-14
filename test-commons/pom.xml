@@ -28,7 +28,6 @@
     <argLine>-Xmx${heapSize} --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED
       --add-opens java.base/sun.security.x509=ALL-UNNAMED
       -Dmemory.directMemory.preallocate=false
-      -Dtx.nonTxReadsWarningMode=SILENT
     </argLine>
     <project.rootdir>${project.basedir}/../</project.rootdir>
     <!--This property is updated automatically and is needed to make build reproducible-->
