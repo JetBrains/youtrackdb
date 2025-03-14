@@ -13,6 +13,7 @@ import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.util.Triple;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement.STATUS;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
 import java.util.ArrayList;
@@ -121,7 +122,7 @@ public class TransactionRidAllocationTest {
       var record = recordOperation.value.value;
       var deserialized = serializer.fromStream(second, record, null, null);
       deserialized.setIdentity(recordOperation.value.key.getIdentity());
-
+      deserialized.setInternalStatus(STATUS.LOADED);
       transactionOptimistic.addRecordOperation(deserialized,
           recordOperation.key);
     }
@@ -190,6 +191,7 @@ public class TransactionRidAllocationTest {
       var serializer = second.getSerializer();
       var deserialized = serializer.fromStream(second, record, null, null);
       deserialized.setIdentity(recordOperation.value.key.getIdentity());
+      deserialized.setInternalStatus(STATUS.LOADED);
       transactionOptimistic.addRecordOperation(deserialized,
           recordOperation.key);
     }
