@@ -105,6 +105,8 @@ import javax.annotation.Nullable;
 public class EntityImpl extends RecordAbstract
     implements Iterable<Entry<String, Object>>, RecordSchemaAware, EntityInternal {
 
+  public static char OPPOSITE_LINK_CONTAINER_PREFIX = '#';
+
   public static final byte RECORD_TYPE = 'd';
   private static final String[] EMPTY_STRINGS = new String[]{};
   public static final String RESULT_PROPERTY_TYPES = "$propertyTypes";
@@ -321,7 +323,11 @@ public class EntityImpl extends RecordAbstract
             }
           }
         } else {
-          Collections.addAll(fields, fieldNames);
+          for (var fieldName : fieldNames) {
+            if ((includeSystemProperties || !isSystemProperty(fieldName))) {
+              fields.add(fieldName);
+            }
+          }
         }
         return fields;
       }

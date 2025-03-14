@@ -28,8 +28,8 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
  */
 public final class RecordOperation implements Comparable<RecordOperation> {
 
-  public static final byte UPDATED = 1;
-  public static final byte DELETED = 2;
+  public static final byte DELETED = 1;
+  public static final byte UPDATED = 2;
   public static final byte CREATED = 3;
 
   public byte type;

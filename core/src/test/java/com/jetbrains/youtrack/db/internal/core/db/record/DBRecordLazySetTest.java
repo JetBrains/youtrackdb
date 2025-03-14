@@ -71,9 +71,13 @@ public class DBRecordLazySetTest extends DbTestBase {
     test.createProperty("fi", PropertyType.LINKSET).setLinkedClass(test1);
 
     session.begin();
+    var stubEntity = session.newEntity();
+    session.commit();
+
+    session.begin();
     var doc = (EntityImpl) session.newEntity(test);
     var set = new LinkSet(doc);
-    set.add(new RecordId(5, 1000));
+    set.add(stubEntity.getIdentity());
     doc.field("fi", set);
     session.commit();
   }

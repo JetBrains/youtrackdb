@@ -4,7 +4,6 @@ import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import org.junit.Test;
 
@@ -17,9 +16,13 @@ public class TestSerializationCompatibilityDBRecord extends DbTestBase {
             .getSchema()
             .createClass("Test", session.getMetadata().getSchema().getClass("V"));
     session.begin();
+    var stubEntity = session.newEntity();
+    session.commit();
+
+    session.begin();
     var entity = session.newEntity("Test");
     var map = session.newLinkMap();
-    map.put("some", new RecordId(10, 20));
+    map.put("some", stubEntity.getIdentity());
     entity.setLinkMap("map", map);
     var id = entity.getIdentity();
     session.commit();

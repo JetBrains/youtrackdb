@@ -65,7 +65,6 @@ import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SessionNotActivatedException;
 import com.jetbrains.youtrack.db.internal.core.exception.TransactionBlockedException;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
@@ -509,6 +508,12 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     checkOpenness();
     assert assertIfNotActive();
 
+    if (record instanceof EntityImpl entity) {
+      var clazz = entity.getImmutableSchemaClass(this);
+      if (clazz != null) {
+        ensureEdgeConsistencyOnDeletion(entity, clazz);
+      }
+    }
     try {
       currentTx.deleteRecord((RecordAbstract) record);
     } catch (BaseException e) {
@@ -2657,125 +2662,12 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     return null;
   }
 
-  protected static void ensureLinksConsistencyOnModification(EntityImpl entity,
-      SchemaImmutableClass clazz) {
-    var dirtyProperties = entity.getDirtyPropertiesBetweenCallbacksInternal(false, false);
-    if (clazz.isVertexType()) {
-      dirtyProperties = filterVertexProperties(dirtyProperties);
-    } else if (clazz.isEdgeType()) {
-      dirtyProperties = filterEdgeProperties(dirtyProperties);
-    }
-
-    var linksToRemove = new HashSet<RecordId>();
-    var linksToAdd = new HashSet<RecordId>();
-
-    for (var propertyName : dirtyProperties) {
-      var originalValue = entity.getOriginalValue(propertyName);
-      var currentPropertyValue = entity.getPropertyInternal(propertyName);
-
-      if (originalValue == currentPropertyValue) {
-        var timeLine = entity.getCollectionTimeLine(propertyName);
-        if (timeLine != null) {
-          if (originalValue instanceof LinkList || originalValue instanceof LinkSet) {
-            for (var event : timeLine.getMultiValueChangeEvents()) {
-              switch (event.getChangeType()) {
-                case ADD -> {
-                  linksToAdd.add((RecordId) event.getValue());
-                }
-                case REMOVE -> {
-                  linksToRemove.add((RecordId) event.getValue());
-                }
-                case UPDATE -> {
-                  linksToAdd.add((RecordId) event.getValue());
-                  linksToRemove.add((RecordId) event.getOldValue());
-                }
-              }
-            }
-          } else if (originalValue instanceof LinkMap) {
-            for (var event : timeLine.getMultiValueChangeEvents()) {
-              switch (event.getChangeType()) {
-                case ADD -> {
-                  linksToAdd.add((RecordId) event.getKey());
-                }
-                case REMOVE -> {
-                  linksToRemove.add((RecordId) event.getKey());
-                }
-              }
-            }
-          }
-        } else {
-          accumulateLinkContainer(originalValue, linksToRemove);
-          accumulateLinkContainer(currentPropertyValue, linksToAdd);
-        }
-      } else {
-        accumulateLinkContainer(originalValue, linksToRemove);
-        accumulateLinkContainer(currentPropertyValue, linksToAdd);
-      }
-    }
-  }
-
-  private static void accumulateLinkContainer(Object value,
-      HashSet<RecordId> links) {
-    if (value == null) {
-      return;
-    }
-
-    switch (value) {
-      case RecordId recordId -> links.add(recordId);
-      case LinkList linkList -> {
-        for (var link : linkList) {
-          links.add((RecordId) link);
-        }
-      }
-      case LinkSet linkSet -> {
-        for (var link : linkSet) {
-          links.add((RecordId) link);
-        }
-      }
-      case LinkMap linkMap -> {
-        for (var link : linkMap.values()) {
-          links.add((RecordId) link);
-        }
-      }
-      case RidBag ridBag -> {
-        for (var link : ridBag) {
-          links.add((RecordId) link);
-        }
-      }
-      default -> {
-      }
-    }
-
-  }
-
-  private static List<String> filterEdgeProperties(Collection<String> properties) {
-    var result = new ArrayList<String>(properties.size());
-    for (var property : properties) {
-      if (!EdgeInternal.isEdgeConnectionProperty(property)) {
-        result.add(property);
-      }
-    }
-
-    return result;
-  }
-
-  private static List<String> filterVertexProperties(Collection<String> properties) {
-    var result = new ArrayList<String>(properties.size());
-    for (var property : properties) {
-      if (!VertexInternal.isConnectionToEdge(Direction.BOTH, property)) {
-        result.add(property);
-      }
-    }
-
-    return result;
-  }
-
-
-  protected void ensureLinksConsistencyOnDeletion(EntityImpl entity, SchemaImmutableClass clazz) {
+  private void ensureEdgeConsistencyOnDeletion(@Nonnull EntityImpl entity,
+      @Nonnull SchemaImmutableClass clazz) {
     if (clazz.isVertexType()) {
       VertexInternal.deleteLinks(entity.asVertex());
     } else if (clazz.isEdgeType()) {
-      EdgeEntityImpl.deleteLinks(this, entity.asStatefulEdgeOrNull());
+      EdgeEntityImpl.deleteLinks(this, entity.asEdge());
     }
   }
 }

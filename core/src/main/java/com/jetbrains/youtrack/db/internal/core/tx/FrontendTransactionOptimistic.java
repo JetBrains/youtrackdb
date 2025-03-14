@@ -618,6 +618,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     List<RecordOperation> newDeletedRecords = null;
     while (!operationsBetweenCallbacks.isEmpty()) {
       var operations = new ArrayList<>(operationsBetweenCallbacks.values());
+      operations.sort((first, second) -> -Byte.compare(first.type, second.type));
       operationsBetweenCallbacks.clear();
 
       for (var recordOperation : operations) {

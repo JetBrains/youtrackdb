@@ -52,7 +52,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37Client;
@@ -512,11 +511,6 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
     assert assertIfNotActive();
     checkSecurity(Role.PERMISSION_CREATE, id, iClusterName);
 
-    if (id instanceof EntityImpl entity) {
-      var clazz = entity.getImmutableSchemaClass(this);
-      ensureLinksConsistencyOnModification(entity, clazz);
-    }
-
     callbackHooks(RecordHook.TYPE.BEFORE_CREATE, id);
   }
 
@@ -525,11 +519,6 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
     assert assertIfNotActive();
     checkSecurity(Role.PERMISSION_UPDATE, id, iClusterName);
 
-    if (id instanceof EntityImpl entity) {
-      var clazz = entity.getImmutableSchemaClass(this);
-      ensureLinksConsistencyOnModification(entity, clazz);
-    }
-
     callbackHooks(RecordHook.TYPE.BEFORE_UPDATE, id);
   }
 
@@ -537,12 +526,6 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   public void beforeDeleteOperations(RecordAbstract id, String iClusterName) {
     assert assertIfNotActive();
     checkSecurity(Role.PERMISSION_DELETE, id, iClusterName);
-
-    if (id instanceof EntityImpl entity) {
-      var clazz = entity.getImmutableSchemaClass(this);
-      ensureLinksConsistencyOnDeletion(entity, clazz);
-    }
-
     callbackHooks(RecordHook.TYPE.BEFORE_DELETE, id);
   }
 

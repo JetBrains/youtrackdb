@@ -5,10 +5,11 @@ import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.BaseMemoryInternalDatabase;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import java.util.ArrayList;
 import java.util.Collections;
 import org.junit.Assert;
 import org.junit.Test;
@@ -25,13 +26,22 @@ public class SBTreeBagDeleteTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testDeleteRidbagTx() throws InterruptedException {
+    var size =
+        GlobalConfiguration.INDEX_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.getValueAsInteger() << 1;
+    var stubIds = new ArrayList<RID>();
+    session.begin();
+    for (var i = 0; i < size; i++) {
+      var stub = session.newEntity();
+      stubIds.add(stub.getIdentity());
+    }
+    session.commit();
+
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     var bag = new RidBag(session);
-    var size =
-        GlobalConfiguration.INDEX_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.getValueAsInteger() << 1;
+
     for (var i = 0; i < size; i++) {
-      bag.add(new RecordId(10, i));
+      bag.add(stubIds.get(i));
     }
 
     entity.setProperty("bag", bag);

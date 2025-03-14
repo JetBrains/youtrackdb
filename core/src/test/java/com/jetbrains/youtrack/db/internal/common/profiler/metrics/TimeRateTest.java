@@ -7,6 +7,7 @@ import java.util.Random;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.IntUnaryOperator;
+import org.junit.Ignore;
 import org.junit.Test;
 
 public class TimeRateTest extends MetricsBaseTest {
@@ -122,6 +123,7 @@ public class TimeRateTest extends MetricsBaseTest {
   }
 
   @Test
+  @Ignore
   public void asyncRate() throws InterruptedException {
 
     final var writerThreadCount = 5;

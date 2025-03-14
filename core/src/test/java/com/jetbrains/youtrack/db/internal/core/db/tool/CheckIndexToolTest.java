@@ -63,7 +63,11 @@ public class CheckIndexToolTest extends BaseMemoryInternalDatabase {
     session.command("create index testclass_tags_idx on testclass (tags) NOTUNIQUE");
 
     session.begin();
-    session.command("insert into testclass set name = 'a',tags = [#5:0] ");
+    var entity = session.newEntity();
+    session.commit();
+
+    session.begin();
+    session.command("insert into testclass set name = 'a',tags = [" + entity.getIdentity() + " ] ");
     session.command("insert into testclass set name = 'b'");
     session.command("insert into testclass set name = 'c' ");
     session.commit();

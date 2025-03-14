@@ -35,6 +35,9 @@ import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
 import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.jetbrains.youtrack.db.api.record.Direction;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.api.security.SecurityUser;
@@ -46,7 +49,12 @@ import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrack.db.internal.core.db.record.ClassTrigger;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.FunctionLibraryImpl;
@@ -70,7 +78,9 @@ import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryHookV2;
 import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryListenerV2;
 import com.jetbrains.youtrack.db.internal.core.query.live.YTLiveQueryMonitorEmbedded;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.VertexInternal;
 import com.jetbrains.youtrack.db.internal.core.schedule.ScheduledEvent;
 import com.jetbrains.youtrack.db.internal.core.schedule.SchedulerImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
@@ -93,8 +103,12 @@ import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionNoTx.NonTxR
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
 import java.nio.file.Path;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -585,8 +599,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       var result = new LocalResultSetLifecycleDecorator(original);
       queryStarted(result);
       return result;
-    } catch (Exception e) {
-      throw e;
     } finally {
       cleanQueryState();
       getSharedContext().getYouTrackDB().endCommand();
@@ -865,7 +877,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       SchemaImmutableClass clazz = null;
       clazz = entity.getImmutableSchemaClass(this);
       if (clazz != null) {
-        ensureLinksConsistencyOnModification(entity, clazz);
+        ensureLinksConsistencyBeforeModification(entity, clazz);
+
         checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, clazz.getName());
         if (clazz.isScheduler()) {
           getSharedContext().getScheduler().initScheduleRecord(entity);
@@ -906,7 +919,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     if (id instanceof EntityImpl entity) {
       var clazz = entity.getImmutableSchemaClass(this);
       if (clazz != null) {
-        ensureLinksConsistencyOnModification(entity, clazz);
+        ensureLinksConsistencyBeforeModification(entity, clazz);
 
         if (clazz.isScheduler()) {
           getSharedContext().getScheduler().preHandleUpdateScheduleInTx(this, entity);
@@ -967,11 +980,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     checkSecurity(Role.PERMISSION_DELETE, id, iClusterName);
 
     if (id instanceof EntityImpl entity) {
-      SchemaImmutableClass clazz = null;
-      clazz = entity.getImmutableSchemaClass(this);
+      ensureLinksConsistencyBeforeDeletion(entity);
+      var clazz = entity.getImmutableSchemaClass(this);
       if (clazz != null) {
-        ensureLinksConsistencyOnDeletion(entity, clazz);
-
         if (clazz.isTriggered()) {
           ClassTrigger.onRecordBeforeDelete(entity, this);
         }
@@ -1102,7 +1113,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
           return true;
         }
 
-        PropertyAccess propertyAccess = new PropertyAccess(this, entity,
+        var propertyAccess = new PropertyAccess(this, entity,
             getSharedContext().getSecurity());
         entity.propertyAccess = propertyAccess;
         entity.propertyEncryption = PropertyEncryptionNone.instance();
@@ -1858,4 +1869,243 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   public TransactionMeters transactionMeters() {
     return transactionMeters;
   }
+
+  private void ensureLinksConsistencyBeforeDeletion(@Nonnull EntityImpl entity) {
+    var properties = entity.getPropertyNamesInternal(true, false);
+
+    for (var propertyName : properties) {
+      if (propertyName.charAt(0) == EntityImpl.OPPOSITE_LINK_CONTAINER_PREFIX) {
+        var oppositeLinksContainer = (RidBag) entity.getPropertyInternal(propertyName);
+
+        for (var link : oppositeLinksContainer) {
+          var oppositeEntity = (EntityImpl) link.getEntitySilently(this);
+          //skip self-links and already deleted entities
+          if (oppositeEntity == null || oppositeEntity.equals(entity)) {
+            continue;
+          }
+
+          var linkName = propertyName.substring(1);
+          var oppositeLinkProperty = oppositeEntity.getPropertyInternal(linkName);
+
+          if (oppositeLinkProperty == null) {
+            throw new IllegalStateException("Cannot remove link " + entity.getIdentity()
+                + " from opposite entity because system property "
+                + linkName + " does not exist");
+          }
+          switch (oppositeLinkProperty) {
+            case Identifiable identifiable -> {
+              if (identifiable.getIdentity().equals(entity.getIdentity())) {
+                oppositeEntity.setPropertyInternal(linkName, null);
+              } else {
+                throw new IllegalStateException(
+                    "Cannot remove link" + linkName + ":" + entity.getIdentity()
+                        + " from opposite entity because it does not exist");
+              }
+            }
+            case LinkList linkList -> {
+              var removed = linkList.remove(entity);
+              if (!removed) {
+                throw new IllegalStateException(
+                    "Cannot remove link " + linkName + ":" + entity.getIdentity()
+                        + " from opposite entity because it does not exist in the list");
+              }
+            }
+            case LinkSet linkSet -> {
+              var removed = linkSet.remove(entity);
+              if (!removed) {
+                throw new IllegalStateException(
+                    "Cannot remove link " + linkName + ":" + entity.getIdentity()
+                        + " from opposite entity because it does not exist in the set");
+              }
+            }
+            case LinkMap linkMap -> {
+              var removed = false;
+              var entrySetIterator = linkMap.entrySet().iterator();
+              while (entrySetIterator.hasNext()) {
+                var entry = entrySetIterator.next();
+
+                if (entry.getValue().equals(entity)) {
+                  entrySetIterator.remove();
+                  removed = true;
+                  break;
+                }
+              }
+
+              if (!removed) {
+                throw new IllegalStateException(
+                    "Cannot remove link " + linkName + ":" + entity.getIdentity()
+                        + " from opposite entity because it does not exist in the map");
+              }
+            }
+            case RidBag ridBag -> {
+              assert ridBag.contains(entity.getIdentity());
+              ridBag.remove(entity.getIdentity());
+            }
+            default -> {
+              throw new IllegalStateException("Unexpected type of link property: "
+                  + oppositeLinkProperty.getClass().getName());
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private void ensureLinksConsistencyBeforeModification(@Nonnull EntityImpl entity,
+      @Nonnull SchemaImmutableClass clazz) {
+    var dirtyProperties = entity.getDirtyPropertiesBetweenCallbacksInternal(false,
+        false);
+    if (clazz.isVertexType()) {
+      dirtyProperties = filterVertexProperties(dirtyProperties);
+    } else if (clazz.isEdgeType()) {
+      dirtyProperties = filterEdgeProperties(dirtyProperties);
+    }
+
+    var linksToRemove = new HashSet<RecordId>();
+    var linksToAdd = new HashSet<RecordId>();
+
+    for (var propertyName : dirtyProperties) {
+      var originalValue = entity.getOriginalValue(propertyName);
+      var currentPropertyValue = entity.getPropertyInternal(propertyName);
+
+      if (originalValue == currentPropertyValue) {
+        var timeLine = entity.getCollectionTimeLine(propertyName);
+        if (timeLine != null) {
+          if (originalValue instanceof LinkList || originalValue instanceof LinkSet) {
+            for (var event : timeLine.getMultiValueChangeEvents()) {
+              switch (event.getChangeType()) {
+                case ADD -> {
+                  linksToAdd.add((RecordId) event.getValue());
+                }
+                case REMOVE -> {
+                  linksToRemove.add((RecordId) event.getValue());
+                }
+                case UPDATE -> {
+                  linksToAdd.add((RecordId) event.getValue());
+                  linksToRemove.add((RecordId) event.getOldValue());
+                }
+              }
+            }
+          } else if (originalValue instanceof LinkMap) {
+            for (var event : timeLine.getMultiValueChangeEvents()) {
+              switch (event.getChangeType()) {
+                case ADD -> {
+                  linksToAdd.add((RecordId) event.getKey());
+                }
+                case REMOVE -> {
+                  linksToRemove.add((RecordId) event.getKey());
+                }
+              }
+            }
+          }
+        } else {
+          accumulateLinkContainer(originalValue, linksToRemove);
+          accumulateLinkContainer(currentPropertyValue, linksToAdd);
+        }
+      } else {
+        accumulateLinkContainer(originalValue, linksToRemove);
+        accumulateLinkContainer(currentPropertyValue, linksToAdd);
+      }
+
+      var oppositeLinkBagPropertyName = EntityImpl.OPPOSITE_LINK_CONTAINER_PREFIX + propertyName;
+      for (var linkToAdd : linksToAdd) {
+        var oppositeRecord = load(linkToAdd);
+        if (!oppositeRecord.isEntity()) {
+          continue;
+        }
+
+        var oppositeEntity = (EntityImpl) oppositeRecord;
+        //skip self-links
+        if (oppositeEntity.equals(entity)) {
+          continue;
+        }
+        var linkBag = (RidBag) oppositeEntity.getPropertyInternal(oppositeLinkBagPropertyName);
+
+        if (linkBag == null) {
+          linkBag = new RidBag(this);
+          oppositeEntity.setPropertyInternal(oppositeLinkBagPropertyName, linkBag);
+        }
+
+        linkBag.add(linkToAdd);
+      }
+      for (var linkToRemove : linksToRemove) {
+        var oppositeEntity = (EntityImpl) loadEntity(linkToRemove);
+        var linkBag = (RidBag) oppositeEntity.getPropertyInternal(oppositeLinkBagPropertyName);
+
+        if (linkBag != null) {
+          assert linkBag.contains(linkToRemove);
+          linkBag.remove(linkToRemove);
+        } else {
+          throw new IllegalStateException("Cannot remove link " + linkToRemove
+              + " from opposite entity because required system property "
+              + oppositeLinkBagPropertyName + " does not exist");
+        }
+      }
+    }
+  }
+
+  private static void accumulateLinkContainer(Object value,
+      HashSet<RecordId> links) {
+    if (value == null) {
+      return;
+    }
+
+    switch (value) {
+      case Identifiable identifiable -> {
+        if (identifiable instanceof Entity entity) {
+          if (!entity.isEmbedded()) {
+            links.add((RecordId) identifiable.getIdentity());
+          }
+        } else {
+          links.add((RecordId) identifiable.getIdentity());
+        }
+      }
+      case LinkList linkList -> {
+        for (var link : linkList) {
+          links.add((RecordId) link);
+        }
+      }
+      case LinkSet linkSet -> {
+        for (var link : linkSet) {
+          links.add((RecordId) link);
+        }
+      }
+      case LinkMap linkMap -> {
+        for (var link : linkMap.values()) {
+          links.add((RecordId) link);
+        }
+      }
+      case RidBag ridBag -> {
+        for (var link : ridBag) {
+          links.add((RecordId) link);
+        }
+      }
+      default -> {
+      }
+    }
+
+  }
+
+  private static List<String> filterEdgeProperties(Collection<String> properties) {
+    var result = new ArrayList<String>(properties.size());
+    for (var property : properties) {
+      if (!EdgeInternal.isEdgeConnectionProperty(property)) {
+        result.add(property);
+      }
+    }
+
+    return result;
+  }
+
+  private static List<String> filterVertexProperties(@Nonnull Collection<String> properties) {
+    var result = new ArrayList<String>(properties.size());
+    for (var property : properties) {
+      if (!VertexInternal.isConnectionToEdge(Direction.BOTH, property)) {
+        result.add(property);
+      }
+    }
+
+    return result;
+  }
+
 }
