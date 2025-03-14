@@ -65,10 +65,12 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     session.rollback();
 
+    session.begin();
     rootDoc = session.load(rootDoc.getIdentity());
     ridBag = rootDoc.field("ridBag");
 
     Assert.assertEquals(0, ridBag.size());
+    session.commit();
   }
 
   @Test
@@ -115,10 +117,12 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     } catch (ConcurrentModificationException ignored) {
     }
 
+    session.begin();
     rootDoc = session.load(rootDoc.getIdentity());
     ridBag = rootDoc.field("ridBag");
 
     Assert.assertEquals(0, ridBag.size());
+    session.commit();
   }
 
   @Test
@@ -152,6 +156,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     session.rollback();
 
+    session.begin();
     Assert.assertEquals(session.countClass(Entity.DEFAULT_CLASS_NAME), recordsCount);
 
     rootDoc = session.load(rootDoc.getIdentity());
@@ -165,6 +170,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     Assert.assertTrue(addedDocs.remove(iterator.next()));
     Assert.assertTrue(addedDocs.remove(iterator.next()));
+    session.commit();
   }
 
   @Test
@@ -285,6 +291,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     Assert.assertEquals(session.countClass(Entity.DEFAULT_CLASS_NAME), recordsCount);
 
+    session.begin();
     rootDoc = session.load(rootDoc.getIdentity());
     ridBag = rootDoc.field("ridBag");
 
@@ -296,6 +303,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     Assert.assertTrue(addedDocs.remove(iterator.next()));
     Assert.assertTrue(addedDocs.remove(iterator.next()));
+    session.commit();
   }
 
   @Test
@@ -340,9 +348,9 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
 
+    session.begin();
     rootDoc = session.load(rootDoc.getIdentity());
 
-    session.begin();
     rootDoc = session.bindToSession(rootDoc);
     ridBag = rootDoc.field("ridBag");
 
@@ -355,6 +363,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     session.rollback();
 
+    session.begin();
     Assert.assertEquals(session.countClass(Entity.DEFAULT_CLASS_NAME), recordsCount);
 
     rootDoc = session.load(rootDoc.getIdentity());
@@ -367,6 +376,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     var iterator = ridBag.iterator();
     Assert.assertTrue(addedDocs.remove(iterator.next()));
     Assert.assertTrue(addedDocs.remove(iterator.next()));
+    session.commit();
   }
 
   @Test
@@ -393,8 +403,8 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
 
-    rootDoc = session.load(rootDoc.getIdentity());
     session.begin();
+    rootDoc = session.load(rootDoc.getIdentity());
 
     cmeDoc = session.bindToSession(cmeDoc);
     cmeDoc.field("v", "v");
@@ -419,6 +429,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     Assert.assertEquals(session.countClass(Entity.DEFAULT_CLASS_NAME), recordsCount);
 
+    session.begin();
     rootDoc = session.load(rootDoc.getIdentity());
     ridBag = rootDoc.field("ridBag");
 
@@ -430,6 +441,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     var iterator = ridBag.iterator();
     Assert.assertTrue(addedDocs.remove(iterator.next()));
     Assert.assertTrue(addedDocs.remove(iterator.next()));
+    session.commit();
   }
 
   @Test
@@ -488,12 +500,14 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     List<RID> addedDocs = new ArrayList<>(
         Arrays.asList(docOne.getIdentity(), docTwo.getIdentity()));
 
+    session.begin();
     rootDoc = session.load(rootDoc.getIdentity());
     ridBag = rootDoc.field("ridBag");
 
     var iterator = ridBag.iterator();
     Assert.assertTrue(addedDocs.remove(iterator.next()));
     Assert.assertTrue(addedDocs.remove(iterator.next()));
+    session.commit();
   }
 
   @Test
@@ -564,12 +578,14 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     List<RID> addedDocs = new ArrayList<>(
         Arrays.asList(docOne.getIdentity(), docTwo.getIdentity()));
 
+    session.begin();
     rootDoc = session.load(rootDoc.getIdentity());
     ridBag = rootDoc.field("ridBag");
 
     var iterator = ridBag.iterator();
     Assert.assertTrue(addedDocs.remove(iterator.next()));
     Assert.assertTrue(addedDocs.remove(iterator.next()));
+    session.commit();
   }
 
   @Test
@@ -604,14 +620,17 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     addedDocPerLevel = new HashMap<>(addedDocPerLevel);
 
-    rootDoc = session.load(rootDoc.getIdentity());
     session.begin();
+    rootDoc = session.load(rootDoc.getIdentity());
+
     deleteDocsForLevel(session, amountOfDeletedDocsPerLevel, 0, levels, rootDoc, rnd);
     addDocsForLevel(session, amountOfAddedDocsAfterSavePerLevel, 0, levels, rootDoc);
     session.rollback();
 
+    session.begin();
     rootDoc = session.load(rootDoc.getIdentity());
     assertDocsAfterRollback(0, levels, addedDocPerLevel, rootDoc);
+    session.commit();
   }
 
   @Test
@@ -649,8 +668,9 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     addedDocPerLevel = new HashMap<>(addedDocPerLevel);
 
-    rootDoc = session.load(rootDoc.getIdentity());
     session.begin();
+    rootDoc = session.load(rootDoc.getIdentity());
+
     deleteDocsForLevel(session, amountOfDeletedDocsPerLevel, 0, levels, rootDoc, rnd);
     addDocsForLevel(session, amountOfAddedDocsAfterSavePerLevel, 0, levels, rootDoc);
 
@@ -664,8 +684,10 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     } catch (ConcurrentModificationException ignored) {
     }
 
+    session.begin();
     rootDoc = session.load(rootDoc.getIdentity());
     assertDocsAfterRollback(0, levels, addedDocPerLevel, rootDoc);
+    session.commit();
   }
 
   @Test
@@ -695,6 +717,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     session.commit();
 
+    session.begin();
     document = session.bindToSession(document);
     ridBag = document.field("ridBag");
     Assert.assertEquals(3, docsToAdd.size());
@@ -702,7 +725,6 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     document = session.load(document.getIdentity());
 
-    session.begin();
     document = session.bindToSession(document);
     ridBag = document.field("ridBag");
 
@@ -716,6 +738,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     session.rollback();
 
+    session.begin();
     document = session.load(document.getIdentity());
     ridBag = document.field("ridBag");
 
@@ -725,6 +748,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     }
 
     Assert.assertTrue(docsToAdd.isEmpty());
+    session.commit();
   }
 
   @Test
@@ -764,12 +788,11 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     Assert.assertEquals(3, docsToAdd.size());
     Assert.assertTrue(ridBag.isEmbedded());
 
+    session.begin();
     document = session.load(document.getIdentity());
 
     EntityImpl staleDocument = session.load(cmeDocument.getIdentity());
     Assert.assertNotSame(staleDocument, cmeDocument);
-
-    session.begin();
 
     cmeDocument = session.bindToSession(cmeDocument);
     cmeDocument.field("v", "v234");
@@ -791,6 +814,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     } catch (ConcurrentModificationException ignored) {
     }
 
+    session.begin();
     document = session.load(document.getIdentity());
     ridBag = document.field("ridBag");
 
@@ -800,6 +824,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     }
 
     Assert.assertTrue(docsToAdd.isEmpty());
+    session.commit();
   }
 
   @Test
@@ -832,11 +857,11 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     Assert.assertEquals(3, docsToAdd.size());
     Assert.assertTrue(ridBag.isEmbedded());
 
+    session.begin();
     document = session.load(document.getIdentity());
 
     var rid = document.getIdentity();
 
-    session.begin();
     document = session.bindToSession(document);
     ridBag = document.field("ridBag");
     for (var i = 0; i < 3; i++) {
@@ -854,6 +879,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     } catch (ConcurrentModificationException ignored) {
     }
 
+    session.begin();
     document = session.load(document.getIdentity());
     ridBag = document.field("ridBag");
 
@@ -863,6 +889,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     }
 
     Assert.assertTrue(docsToAdd.isEmpty());
+    session.commit();
   }
 
   private void generateCME(RID rid) throws InterruptedException {
@@ -912,6 +939,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     session.commit();
 
+    session.begin();
     document = session.bindToSession(document);
     ridBag = document.field("ridBag");
     Assert.assertEquals(10, docsToAdd.size());
@@ -919,7 +947,6 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     document = session.load(document.getIdentity());
 
-    session.begin();
     document = session.bindToSession(document);
     ridBag = document.field("ridBag");
     for (var i = 0; i < 4; i++) {
@@ -931,6 +958,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     session.rollback();
 
+    session.begin();
     document = session.load(document.getIdentity());
     ridBag = document.field("ridBag");
 
@@ -941,6 +969,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     }
 
     Assert.assertTrue(docsToAdd.isEmpty());
+    session.commit();
   }
 
   @Test
@@ -979,10 +1008,10 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     Assert.assertEquals(10, docsToAdd.size());
     Assert.assertFalse(ridBag.isEmbedded());
 
+    session.begin();
     document = session.load(document.getIdentity());
     document.field("ridBag");
 
-    session.begin();
     cmeDoc = session.bindToSession(cmeDoc);
     cmeDoc.field("v", "sd");
 
@@ -1002,6 +1031,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     } catch (ConcurrentModificationException ignored) {
     }
 
+    session.begin();
     document = session.load(document.getIdentity());
     ridBag = document.field("ridBag");
 
@@ -1012,6 +1042,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     }
 
     Assert.assertTrue(docsToAdd.isEmpty());
+    session.commit();
   }
 
   private void createDocsForLevel(
