@@ -5,7 +5,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
@@ -131,6 +130,17 @@ public class SQLModifier extends SimpleNode {
   }
 
   public Object execute(Result iCurrentRecord, Object result, CommandContext ctx) {
+    result = executeOneLevel(iCurrentRecord, result, ctx);
+    if (next != null) {
+      result = next.execute(iCurrentRecord, result, ctx);
+    }
+    return result;
+  }
+
+  /**
+   * Execute this modifier without stepping down to `next`.
+   */
+  Object executeOneLevel(Result iCurrentRecord, Object result, CommandContext ctx) {
     if (ctx.getVariable("$current") == null) {
       ctx.setVariable("$current", iCurrentRecord);
     }
@@ -146,9 +156,6 @@ public class SQLModifier extends SimpleNode {
       result = arraySingleValues.execute(iCurrentRecord, result, ctx);
     } else if (rightBinaryCondition != null) {
       result = rightBinaryCondition.execute(iCurrentRecord, result, ctx);
-    }
-    if (next != null) {
-      result = next.execute(iCurrentRecord, result, ctx);
     }
     return result;
   }

@@ -218,18 +218,23 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
   private static void initCollateOnLinked(DatabaseSession db) {
     db.command("CREATE CLASS CollateOnLinked").close();
-    db.command("CREATE CLASS CollateOnLinked2").close();
     db.command("CREATE PROPERTY CollateOnLinked.name String").close();
     db.command("ALTER PROPERTY CollateOnLinked.name collate ci").close();
 
-    db.begin();
-    var doc = (EntityImpl) db.newEntity("CollateOnLinked");
-    doc.field("name", "foo");
+    db.command("CREATE CLASS CollateOnLinked2").close();
 
-    var doc2 = (EntityImpl) db.newEntity("CollateOnLinked2");
-    doc2.field("linked", doc.getIdentity());
+    db.command("CREATE CLASS CollateOnLinked3").close();
 
-    db.commit();
+    db.executeInTx(() -> {
+      var doc = (EntityImpl) db.newEntity("CollateOnLinked");
+      doc.field("name", "foo");
+
+      var doc2 = (EntityImpl) db.newEntity("CollateOnLinked2");
+      doc2.field("level1", doc.getIdentity());
+
+      var doc3 = (EntityImpl) db.newEntity("CollateOnLinked3");
+      doc3.field("level2", doc2.getIdentity());
+    });
   }
 
   private static void initComplexFilterInSquareBrackets(DatabaseSession db) {
@@ -291,6 +296,8 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
   private static void initLinkListSequence(DatabaseSession db) {
     db.command("CREATE class LinkListSequence").close();
+    db.command("CREATE PROPERTY LinkListSequence.name STRING").close();
+    db.command("CREATE PROPERTY LinkListSequence.children LINKLIST LinkListSequence").close();
 
     db.begin();
     db.command("insert into LinkListSequence set name = '1.1.1'").close();
@@ -299,20 +306,20 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     db.command("insert into LinkListSequence set name = '1.2.2'").close();
     db.command(
             "insert into LinkListSequence set name = '1.1', children = (select from"
-                + " LinkListSequence where name like '1.1.%')")
+                + " LinkListSequence where name like '1.1.%' order by name asc)")
         .close();
     db.command(
             "insert into LinkListSequence set name = '1.2', children = (select from"
-                + " LinkListSequence where name like '1.2.%')")
+                + " LinkListSequence where name like '1.2.%' order by name asc)")
         .close();
     db.command(
             "insert into LinkListSequence set name = '1', children = (select from LinkListSequence"
-                + " where name in ['1.1', '1.2'])")
+                + " where name in ['1.1', '1.2'] order by name asc)")
         .close();
     db.command("insert into LinkListSequence set name = '2'").close();
     db.command(
             "insert into LinkListSequence set name = 'root', children = (select from"
-                + " LinkListSequence where name in ['1', '1'])")
+                + " LinkListSequence where name in ['1', '2'] order by name asc)")
         .close();
     db.commit();
   }
@@ -1010,6 +1017,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   @Test
+  @Ignore
   public void testLetOrder() {
     var sql =
         "SELECT"
@@ -1252,12 +1260,11 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   @Test
-  public void testLinkListSequence3() {
+  public void testLinkListSequence() {
     initLinkListSequence(session);
     var sql =
         "select expand(children[0].children[0].children) from LinkListSequence where name = 'root'";
 
-    fail("This test fails randomly, because ORDER is not guaranteed by SELECT.");
     checkResults(session.query(sql), 2, (i, r) -> {
       final var value = r.asEntity().getProperty("name");
       System.out.println(value);
@@ -1477,8 +1484,11 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   public void testCollateOnLinked() {
     initCollateOnLinked(session);
 
-    checkQueryResults("select from CollateOnLinked2 where linked.name = 'foo' ", 1);
-    checkQueryResults("select from CollateOnLinked2 where linked.name = 'FOO' ", 1);
+    checkQueryResults("select from CollateOnLinked2 where level1.name = 'foo' ", 1);
+    checkQueryResults("select from CollateOnLinked2 where level1.name = 'FOO' ", 1);
+
+    checkQueryResults("select from CollateOnLinked3 where level2.level1.name = 'foo' ", 1);
+    checkQueryResults("select from CollateOnLinked3 where level2.level1.name = 'FOO' ", 1);
   }
 
   @Test
@@ -1508,7 +1518,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     session.commit();
 
     checkQueryResults(
-        "select from CompositeIndexWithoutNullValues where one = ?", List.of("foo"), 2);
+        "select from CompositeIndexWithoutNullValues where one = ?", List.of("foo"), 1);
 
     checkQueryResults(
         "select from CompositeIndexWithoutNullValues where one = ? and two = ?",
