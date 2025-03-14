@@ -62,6 +62,7 @@ public class IndexChangesQueryTest {
     var doc1 = ((EntityImpl) db.newEntity(CLASS_NAME));
     doc1.setProperty(FIELD_NAME, 2);
 
+    db.getTransactionInternal().preProcessRecordsAndExecuteCallCallbacks();
     Assert.assertNotNull(db.getTransactionInternal().getIndexChanges(INDEX_NAME));
 
     db.getTransactionInternal().preProcessRecordsAndExecuteCallCallbacks();
