@@ -292,8 +292,8 @@ public class SQLBaseExpression extends SQLMathExpression {
       if (lastModifier.next == null) {
         iterate = false;
       } else {
-        record = modifier.executeOneLevel(currentRecord, record, ctx);
-        lastModifier = modifier.next;
+        record = lastModifier.executeOneLevel(currentRecord, record, ctx);
+        lastModifier = lastModifier.next;
       }
     }
     return (record instanceof Result result) ? lastModifier.suffix.getCollate(result, ctx) : null;

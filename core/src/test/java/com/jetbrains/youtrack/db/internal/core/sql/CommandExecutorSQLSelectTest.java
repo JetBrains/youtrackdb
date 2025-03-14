@@ -225,6 +225,8 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
     db.command("CREATE CLASS CollateOnLinked3").close();
 
+    db.command("CREATE CLASS CollateOnLinked4").close();
+
     db.executeInTx(() -> {
       var doc = (EntityImpl) db.newEntity("CollateOnLinked");
       doc.field("name", "foo");
@@ -234,6 +236,9 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
       var doc3 = (EntityImpl) db.newEntity("CollateOnLinked3");
       doc3.field("level2", doc2.getIdentity());
+
+      var doc4 = (EntityImpl) db.newEntity("CollateOnLinked4");
+      doc4.field("level3", doc3.getIdentity());
     });
   }
 
@@ -1489,6 +1494,9 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
     checkQueryResults("select from CollateOnLinked3 where level2.level1.name = 'foo' ", 1);
     checkQueryResults("select from CollateOnLinked3 where level2.level1.name = 'FOO' ", 1);
+
+    checkQueryResults("select from CollateOnLinked4 where level3.level2.level1.name = 'foo' ", 1);
+    checkQueryResults("select from CollateOnLinked4 where level3.level2.level1.name = 'FOO' ", 1);
   }
 
   @Test
