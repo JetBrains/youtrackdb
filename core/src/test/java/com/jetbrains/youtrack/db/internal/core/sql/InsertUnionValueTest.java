@@ -5,7 +5,6 @@ import static org.junit.Assert.assertEquals;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import org.junit.After;
 import org.junit.Before;

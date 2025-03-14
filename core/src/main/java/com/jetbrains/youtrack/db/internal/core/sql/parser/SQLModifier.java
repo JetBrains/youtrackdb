@@ -5,6 +5,8 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.schema.Collate;
+import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -342,12 +344,21 @@ public class SQLModifier extends SimpleNode {
       throw new UnsupportedOperationException(
           "SET value on conditional filtering will be supported soon");
     } else if (arraySingleValues != null) {
+
       if (schemaProperty != null) {
-        var linkedType = schemaProperty.getLinkedType();
-        if (linkedType != null) {
-          value = linkedType.convert(value, session);
+        if (PropertyType.isSingleValueType(value)) {
+          var linkedType = schemaProperty.getLinkedType();
+          if (linkedType != null) {
+            value = linkedType.convert(value, session);
+          }
+        } else {
+          var type = schemaProperty.getType();
+          if (type != null) {
+            value = type.convert(value, session);
+          }
         }
       }
+
       arraySingleValues.setValue(currentRecord, target, value, ctx);
     } else if (rightBinaryCondition != null) {
       throw new UnsupportedOperationException(

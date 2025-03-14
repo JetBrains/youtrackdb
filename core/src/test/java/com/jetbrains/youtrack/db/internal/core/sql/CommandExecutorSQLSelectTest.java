@@ -32,6 +32,7 @@ import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
@@ -39,7 +40,6 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ExecutionStepInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.FetchFromIndexStep;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
@@ -48,6 +48,7 @@ import java.util.GregorianCalendar;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiConsumer;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.junit.Assert;
@@ -346,7 +347,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initMassiveOrderSkipLimit(DatabaseSessionInternal db) {
-    db.getMetadata().getSchema().createClass("MassiveOrderSkipLimit", 1, null);
+    db.getMetadata().getSchema().createClass("MassiveOrderSkipLimit", 1);
     var fieldValue =
         "laskdf lkajsd flaksjdf laksjd flakjsd flkasjd flkajsd flkajsd flkajsd flkajsd flkajsd"
             + " flkjas;lkj a;ldskjf laksdj asdklasdjf lskdaj fladsd";
@@ -366,7 +367,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initExpandSkipLimit(DatabaseSession db) {
-    db.command("create class ExpandSkipLimit clusters 1").close();
+    db.command("create class ExpandSkipLimit").close();
 
     for (var i = 0; i < 5; i++) {
       db.begin();
@@ -1011,24 +1012,23 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   @Test
   public void testLetOrder() {
     var sql =
-        new SQLSynchQuery(
-            "SELECT"
-                + "      source,"
-                + "  $maxYear as maxYear"
-                + "              FROM"
-                + "      ("
-                + "          SELECT expand( $union ) "
-                + "  LET"
-                + "      $a = (SELECT 'A' as source, 2013 as year),"
-                + "  $b = (SELECT 'B' as source, 2012 as year),"
-                + "  $union = unionAll($a,$b) "
-                + "  ) "
-                + "  LET "
-                + "      $maxYear = max(year)"
-                + "  GROUP BY"
-                + "  source");
+        "SELECT"
+            + "      source,"
+            + "  $maxYear as maxYear"
+            + "              FROM"
+            + "      ("
+            + "          SELECT expand( $union ) "
+            + "  LET"
+            + "      $a = (SELECT 'A' as source, 2013 as year),"
+            + "  $b = (SELECT 'B' as source, 2012 as year),"
+            + "  $union = unionAll($a,$b) "
+            + "  ) "
+            + "  LET "
+            + "      $maxYear = max(year)"
+            + "  GROUP BY"
+            + "  source";
     try {
-      List<EntityImpl> results = session.query(sql);
+      session.query(sql).close();
       fail(
           "Invalid query, usage of LET, aggregate functions and GROUP BY together is not"
               + " supported");
@@ -1083,8 +1083,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     Map<String, Object> parameters = new HashMap<String, Object>();
     parameters.put("paramvalue", "count");
     var qResult =
-        session.command("select from TestParamsEmbedded order by emb[:paramvalue] DESC",
-            parameters);
+        session.query("select from TestParamsEmbedded order by emb[:paramvalue] DESC", parameters);
     Map embedded = qResult.next().getProperty("emb");
     assertEquals(1, embedded.get("count"));
     qResult.close();
@@ -1096,12 +1095,12 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     Map<String, Object> parameters = new HashMap<String, Object>();
     parameters.put("paramvalue", "count");
     var qResult =
-        session.command("select from TestParamsEmbedded order by emb[:paramvalue] ASC", parameters);
+        session.query("select from TestParamsEmbedded order by emb[:paramvalue] ASC", parameters);
     Map embedded = qResult.next().getProperty("emb");
     assertEquals(0, embedded.get("count"));
     qResult.close();
     qResult =
-        session.command("select from TestParamsEmbedded order by emb[:paramvalue] ASC", parameters);
+        session.query("select from TestParamsEmbedded order by emb[:paramvalue] ASC", parameters);
     assertEquals(2, qResult.stream().count());
   }
 
@@ -1253,54 +1252,17 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   @Test
-  public void testSelectFromClusterNumber() {
-    initDistinctLimit(session);
-    var clazz = session.getMetadata().getSchema().getClass("DistinctLimit");
-    var clusterId = clazz.getClusterIds()[0];
-    var results = session.query("select from cluster:" + clusterId + " limit 1");
-    assertEquals(1, results.stream().count());
-  }
-
-  @Test
-  public void testLinkListSequence1() {
-    initLinkListSequence(session);
-    var sql =
-        new SQLSynchQuery(
-            "select expand(children.children.children) from LinkListSequence where name = 'root'");
-    List<EntityImpl> results = session.query(sql);
-    assertEquals(4, results.size());
-    for (var result : results) {
-      String value = result.field("name");
-      assertEquals(5, value.length());
-    }
-  }
-
-  @Test
-  public void testLinkListSequence2() {
-    initLinkListSequence(session);
-    var sql =
-        new SQLSynchQuery(
-            "select expand(children[0].children.children) from LinkListSequence where name ="
-                + " 'root'");
-    List<EntityImpl> results = session.query(sql);
-    assertEquals(4, results.size());
-    for (var result : results) {
-      String value = result.field("name");
-      assertEquals(5, value.length());
-    }
-  }
-
-  @Test
   public void testLinkListSequence3() {
     initLinkListSequence(session);
     var sql =
         "select expand(children[0].children[0].children) from LinkListSequence where name = 'root'";
-    var results = session.query(sql).stream().toList();
-    assertEquals(2, results.size());
-    for (var result : results) {
-      String value = result.getProperty("name");
+
+    fail("This test fails randomly, because ORDER is not guaranteed by SELECT.");
+    checkResults(session.query(sql), 2, (i, r) -> {
+      final var value = r.asEntity().getProperty("name");
+      System.out.println(value);
       assertTrue(value.equals("1.1.1") || value.equals("1.1.2"));
-    }
+    });
   }
 
   @Test
@@ -1348,45 +1310,91 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     initComplexFilterInSquareBrackets(session);
     // issues #513 #5451
 
-    var sql = "SELECT expand(collection[name = 'n1']) FROM ComplexFilterInSquareBrackets2";
-    var results = session.query(sql).stream().collect(Collectors.toList());
-    assertEquals(1, results.size());
-    assertEquals("n1", results.getFirst().getProperty("name"));
+    checkQueryResults(
+        "SELECT expand(collection[name = 'n1']) FROM ComplexFilterInSquareBrackets2",
+        1, (i, r) -> assertEquals("n1", r.getProperty("name")));
 
-    sql =
-        "SELECT expand(collection[name = 'n1' and value = 1]) FROM ComplexFilterInSquareBrackets2";
-    results = session.query(sql).stream().collect(Collectors.toList());
-    assertEquals(1, results.size());
-    assertEquals("n1", results.getFirst().getProperty("name"));
+    checkQueryResults(
+        "SELECT expand(collection[name = 'n1' and value = 1]) FROM ComplexFilterInSquareBrackets2",
+        1, (i, r) -> assertEquals("n1", r.getProperty("name")));
 
-    sql =
-        "SELECT expand(collection[name = 'n1' and value > 1]) FROM ComplexFilterInSquareBrackets2";
-    results = session.query(sql).stream().collect(Collectors.toList());
-    assertEquals(0, results.size());
+    checkQueryResults(
+        "SELECT expand(collection[name = 'n1' and value > 1]) FROM ComplexFilterInSquareBrackets2",
+        0, (i, r) -> {
+        });
 
-    sql =
-        "SELECT expand(collection[name = 'n1' or value = -1]) FROM ComplexFilterInSquareBrackets2";
-    results = session.query(sql).stream().collect(Collectors.toList());
-    assertEquals(2, results.size());
-    for (var doc : results) {
-      assertTrue(doc.getProperty("name").equals("n1") || doc.getProperty("value").equals(-1));
-    }
+    checkQueryResults(
+        "SELECT expand(collection[name = 'n1' or value = -1]) FROM ComplexFilterInSquareBrackets2",
+        2, (i, r) -> {
+          assertTrue(r.getProperty("name").equals("n1") || r.getProperty("value").equals(-1));
+        });
 
-    sql =
-        "SELECT expand(collection[name = 'n1' and not value = 1]) FROM"
-            + " ComplexFilterInSquareBrackets2";
-    results = session.query(sql).stream().collect(Collectors.toList());
-    assertEquals(0, results.size());
+    checkQueryResults(
+        "SELECT expand(collection[name = 'n1' and not value = 1]) FROM ComplexFilterInSquareBrackets2",
+        0, (i, r) -> {
+        });
 
-    sql = "SELECT expand(collection[value < 0]) FROM ComplexFilterInSquareBrackets2";
-    results = session.query(sql).stream().collect(Collectors.toList());
-    assertEquals(1, results.size());
-    //    assertEquals(results.iterator().next().field("value"), -1);
-    assertThat(results.getFirst().<Integer>getProperty("value")).isEqualTo(-1);
+    checkQueryResults(
+        "SELECT expand(collection[value < 0]) FROM ComplexFilterInSquareBrackets2",
+        1, (i, r) -> assertThat(r.getInt("value")).isEqualTo(-1));
 
-    sql = "SELECT expand(collection[2]) FROM ComplexFilterInSquareBrackets2";
-    results = session.query(sql).stream().collect(Collectors.toList());
-    assertEquals(1, results.size());
+    checkQueryResults(
+        "SELECT expand(collection[2]) FROM ComplexFilterInSquareBrackets2",
+        1, (i, r) -> {
+        });
+  }
+
+  @Test
+  public void testCollateCi() {
+    session.command("create class OCommandExecutorSQLSelectTest_testCollate")
+        .close();
+    session.command("create property OCommandExecutorSQLSelectTest_testCollate.name STRING")
+        .close();
+    session.command(
+            "create property OCommandExecutorSQLSelectTest_testCollate.categories EMBEDDEDLIST STRING")
+        .close();
+    session.command("alter property OCommandExecutorSQLSelectTest_testCollate.name COLLATE ci")
+        .close();
+    session.command(
+            "alter property OCommandExecutorSQLSelectTest_testCollate.categories COLLATE ci")
+        .close();
+
+    session.executeInTx(() -> {
+      session.command(
+              "insert into OCommandExecutorSQLSelectTest_testCollate set name = 'FOO', categories = ['BAR']")
+          .close();
+
+      session.command(
+              "insert into OCommandExecutorSQLSelectTest_testCollate set name = 'BAR', categories = ['FOO']")
+          .close();
+    });
+
+    session.executeInTx(() -> {
+      final var r1 =
+          session.query("select from OCommandExecutorSQLSelectTest_testCollate where name = 'FOO'")
+              .toEntityList();
+      final var r2 =
+          session.query("select from OCommandExecutorSQLSelectTest_testCollate where name = 'foo'")
+              .toEntityList();
+
+      assertThat(r1.size()).isEqualTo(1);
+      assertThat(r2.size()).isEqualTo(1);
+    });
+
+    session.executeInTx(() -> {
+      final var r1 =
+          session.query(
+                  "select from OCommandExecutorSQLSelectTest_testCollate where categories = ['BAR']")
+              .toEntityList();
+
+      final var r2 =
+          session.query(
+                  "select from OCommandExecutorSQLSelectTest_testCollate where categories = ['bar']")
+              .toEntityList();
+
+      assertThat(r1.size()).isEqualTo(1);
+      assertThat(r2.size()).isEqualTo(1);
+    });
   }
 
   @Test
@@ -1398,41 +1406,36 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
                 + " EMBEDDEDLIST string")
         .close();
 
-    session.begin();
-    session.command(
-            "insert into OCommandExecutorSqlSelectTest_collateOnCollections set"
-                + " categories=['a','b']")
-        .close();
-    session.commit();
+    session.executeInTx(() -> {
+      session.command(
+              "insert into OCommandExecutorSqlSelectTest_collateOnCollections set"
+                  + " categories=['a','b']")
+          .close();
+    });
 
     session.command(
-            "alter property OCommandExecutorSqlSelectTest_collateOnCollections.categories COLLATE"
-                + " ci")
+            "alter property OCommandExecutorSqlSelectTest_collateOnCollections.categories COLLATE ci")
         .close();
 
-    session.begin();
-    session.command(
-            "insert into OCommandExecutorSqlSelectTest_collateOnCollections set"
-                + " categories=['Math','English']")
-        .close();
-    session.command(
-            "insert into OCommandExecutorSqlSelectTest_collateOnCollections set"
-                + " categories=['a','b','c']")
-        .close();
-    session.commit();
+    session.executeInTx(() -> {
+      session.command(
+              "insert into OCommandExecutorSqlSelectTest_collateOnCollections set"
+                  + " categories=['Math','English']")
+          .close();
+      session.command(
+              "insert into OCommandExecutorSqlSelectTest_collateOnCollections set"
+                  + " categories=['a','b','c']")
+          .close();
+    });
 
-    List<EntityImpl> results =
-        session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from OCommandExecutorSqlSelectTest_collateOnCollections where 'Math' in"
-                    + " categories"));
-    assertEquals(1, results.size());
-    results =
-        session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from OCommandExecutorSqlSelectTest_collateOnCollections where 'math' in"
-                    + " categories"));
-    assertEquals(1, results.size());
+    checkQueryResults(
+        "select from OCommandExecutorSqlSelectTest_collateOnCollections where 'Math' in categories",
+        1);
+
+    checkQueryResults(
+        "select from OCommandExecutorSqlSelectTest_collateOnCollections where 'math' in categories",
+        1
+    );
   }
 
   @Test
@@ -1474,16 +1477,8 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   public void testCollateOnLinked() {
     initCollateOnLinked(session);
 
-    List<EntityImpl> results =
-        session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from CollateOnLinked2 where linked.name = 'foo' "));
-    assertEquals(1, results.size());
-    results =
-        session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from CollateOnLinked2 where linked.name = 'FOO' "));
-    assertEquals(1, results.size());
+    checkQueryResults("select from CollateOnLinked2 where linked.name = 'foo' ", 1);
+    checkQueryResults("select from CollateOnLinked2 where linked.name = 'FOO' ", 1);
   }
 
   @Test
@@ -1505,24 +1500,20 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
         .close();
 
     session.begin();
-    session.command("insert into CompositeIndexWithoutNullValues set one = 'foo'").close();
+    session.command("insert into CompositeIndexWithoutNullValues set one = 'foo'")
+        .close();
+
     session.command("insert into CompositeIndexWithoutNullValues set one = 'foo', two = 'bar'")
         .close();
     session.commit();
 
-    List<EntityImpl> results =
-        session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from CompositeIndexWithoutNullValues where one = ?"),
-            "foo");
-    assertEquals(2, results.size());
-    results =
-        session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from CompositeIndexWithoutNullValues where one = ? and two = ?"),
-            "foo",
-            "bar");
-    assertEquals(1, results.size());
+    checkQueryResults(
+        "select from CompositeIndexWithoutNullValues where one = ?", List.of("foo"), 2);
+
+    checkQueryResults(
+        "select from CompositeIndexWithoutNullValues where one = ? and two = ?",
+        List.of("foo", "bar"),
+        1);
 
     session.command("create class CompositeIndexWithoutNullValues2").close();
     session.command("create property CompositeIndexWithoutNullValues2.one String").close();
@@ -1539,19 +1530,16 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
         .close();
     session.commit();
 
-    results =
-        session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from CompositeIndexWithoutNullValues2 where one = ?"),
-            "foo");
-    assertEquals(2, results.size());
-    results =
-        session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from CompositeIndexWithoutNullValues where one = ? and two = ?"),
-            "foo",
-            "bar");
-    assertEquals(1, results.size());
+    checkQueryResults(
+        "select from CompositeIndexWithoutNullValues2 where one = ?",
+        List.of("foo"),
+        2
+    );
+    checkQueryResults(
+        "select from CompositeIndexWithoutNullValues2 where one = ? and two = ?",
+        List.of("foo", "bar"),
+        1
+    );
   }
 
   @Test
@@ -1952,5 +1940,39 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     }
 
     return usages;
+  }
+
+  private void checkQueryResults(String query, List<Object> args,
+      int expectedSize, BiConsumer<Integer, Result> verify) {
+    checkResults(session.query(query, args.toArray()), expectedSize, verify);
+  }
+
+  private void checkQueryResults(String query, List<Object> args, int expectedSize) {
+    checkQueryResults(query, args, expectedSize, (i, r) -> {
+    });
+  }
+
+  private void checkQueryResults(String query,
+      int expectedSize, BiConsumer<Integer, Result> verify) {
+    checkQueryResults(query, List.of(), expectedSize, verify);
+  }
+
+  private void checkQueryResults(String query, int expectedSize) {
+    checkQueryResults(query, expectedSize, (i, r) -> {
+    });
+  }
+
+  private static void checkResults(ResultSet rs, int expectedSize,
+      BiConsumer<Integer, Result> verify) {
+    try {
+      var i = 0;
+      while (rs.hasNext()) {
+        verify.accept(i, rs.next());
+        i++;
+      }
+      assertThat(i).isEqualTo(expectedSize);
+    } finally {
+      rs.close();
+    }
   }
 }

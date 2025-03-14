@@ -31,7 +31,9 @@ public class CommandExecutorSQLSelectTestIndex extends BaseMemoryInternalDatabas
     session.command("create class Foo").close();
     session.command("create property Foo.bar EMBEDDEDLIST STRING").close();
     session.command("create index Foo.bar on Foo (bar) NOTUNIQUE").close();
-    session.command("insert into Foo set bar = ['yep']").close();
+    session.executeInTx(() -> {
+      session.command("insert into Foo set bar = ['yep']").close();
+    });
     var results = session.query("select from Foo where bar = 'yep'");
     assertEquals(results.stream().count(), 1);
 
@@ -59,7 +61,10 @@ public class CommandExecutorSQLSelectTestIndex extends BaseMemoryInternalDatabas
   public void testListContainsField() {
     session.command("CREATE CLASS Foo").close();
     session.command("CREATE PROPERTY Foo.name String").close();
-    session.command("INSERT INTO Foo SET name = 'foo'").close();
+
+    session.executeInTx(() -> {
+      session.command("INSERT INTO Foo SET name = 'foo'").close();
+    });
 
     var result = session.query("SELECT * FROM Foo WHERE ['foo', 'bar'] CONTAINS name");
     assertEquals(result.stream().count(), 1);

@@ -594,6 +594,25 @@ public enum PropertyType {
           }
           return embeddedMap;
         }
+        case Iterable<?> iterable -> {
+          var embeddedMap = session.newEmbeddedMap();
+          var iterator = iterable.iterator();
+
+          while (iterator.hasNext()) {
+            var element = iterator.next();
+            if ((element instanceof Map<?, ?> map) &&
+                !(element instanceof LinkMap) &&
+                (map.isEmpty() || map.keySet().iterator().next() instanceof String)
+            ) {
+              embeddedMap.putAll((Map<String, ?>) map);
+            } else {
+              throw new DatabaseException(session != null ? session.getDatabaseName() : null,
+                  conversionErrorMessage(value, this));
+            }
+          }
+
+          return embeddedMap;
+        }
         default -> {
           var embeddedMap = session.newEmbeddedMap();
           embeddedMap.put("value", PropertyType.convertEmbeddedCollectionItem(linkedType,
@@ -617,6 +636,20 @@ public enum PropertyType {
       if (value instanceof LinkMap) {
         return false;
       }
+
+      if (value instanceof Iterable<?> iterable) {
+        var iterator = iterable.iterator();
+        if (iterator.hasNext()) {
+          var firstValue = iterator.next();
+          if (firstValue instanceof Map<?, ?> map && !(firstValue instanceof LinkMap) &&
+              (map.isEmpty() || map.keySet().iterator().next() instanceof String)) {
+            return true;
+          }
+        } else {
+          return true;
+        }
+      }
+
       return super.isConvertibleFrom(value);
     }
 

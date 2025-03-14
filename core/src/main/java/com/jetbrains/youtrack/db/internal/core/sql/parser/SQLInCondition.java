@@ -83,6 +83,15 @@ public class SQLInCondition extends SQLBooleanExpression {
     }
 
     var leftVal = evaluateLeft(currentRecord, ctx);
+
+    var collate = left.getCollate(currentRecord, ctx);
+    if (collate == null && rightMathExpression != null) {
+      collate = rightMathExpression.getCollate(currentRecord, ctx);
+    }
+    if (collate != null) {
+      leftVal = collate.transform(leftVal);
+      rightVal = collate.transform(rightVal);
+    }
     return evaluateExpression(ctx.getDatabaseSession(), leftVal, rightVal);
   }
 

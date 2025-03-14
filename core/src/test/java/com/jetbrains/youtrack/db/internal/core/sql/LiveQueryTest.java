@@ -162,6 +162,7 @@ public class LiveQueryTest {
     var query = session.query("select from OUSer where name = 'reader'");
 
     final Identifiable reader = query.next().getIdentity();
+    query.close();
     final var current = session.geCurrentUser().getIdentity();
 
     var executorService = Executors.newSingleThreadExecutor();
@@ -223,14 +224,13 @@ public class LiveQueryTest {
     session.begin();
     session.command("insert into test set name = 'foo', surname = 'bar'").close();
 
+
+    final var allow = session.newLinkList();
+    allow.add(current);
+    allow.add(reader);
     session.command(
             "insert into test set name = 'foo', surname = 'bar', _allow=?",
-            new ArrayList<Identifiable>() {
-              {
-                add(current);
-                add(reader);
-              }
-            })
+            allow)
         .close();
     session.commit();
 
