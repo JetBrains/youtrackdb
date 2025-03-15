@@ -51,7 +51,7 @@ public class SBTreeBagDeleteTest extends BaseMemoryInternalDatabase {
 
     session.begin();
     entity = session.bindToSession(entity);
-    bag = entity.field("bag");
+    bag = entity.getProperty("bag");
     var pointer = bag.getPointer();
 
     entity = session.bindToSession(entity);

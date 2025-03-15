@@ -206,7 +206,7 @@ public class FrontendTransactionOptimisticTest extends BaseDBTest {
     for (var g = 0; g < 1000; g++) {
       var doc = ((EntityImpl) session.newEntity("Account"));
       doc.updateFromJSON(json);
-      doc.field("nr", g);
+      doc.setProperty("nr", g);
 
     }
     session.commit();
@@ -226,20 +226,21 @@ public class FrontendTransactionOptimisticTest extends BaseDBTest {
 
     session.begin();
 
-    var kim = ((EntityImpl) session.newEntity("Profile")).field("name", "Kim")
-        .field("surname", "Bauer");
-    var teri = ((EntityImpl) session.newEntity("Profile")).field("name", "Teri")
-        .field("surname", "Bauer");
-    var jack = ((EntityImpl) session.newEntity("Profile")).field("name", "Jack")
-        .field("surname", "Bauer");
+    var kim = ((EntityImpl) session.newEntity("Profile")).setPropertyInChain("name", "Kim")
+        .setPropertyInChain("surname", "Bauer");
+    var teri = ((EntityImpl) session.newEntity("Profile")).setPropertyInChain("name", "Teri")
+        .setPropertyInChain("surname", "Bauer");
+    var jack = ((EntityImpl) session.newEntity("Profile")).setPropertyInChain("name", "Jack")
+        .setPropertyInChain("surname", "Bauer");
 
-    ((HashSet<EntityImpl>) jack.field("following", new HashSet<EntityImpl>())
-        .field("following"))
+    EntityImpl entity2 = jack.setPropertyInChain("following", new HashSet<EntityImpl>());
+    ((HashSet<EntityImpl>) entity2.getProperty("following"))
         .add(kim);
-    ((HashSet<EntityImpl>) kim.field("following", new HashSet<EntityImpl>()).field("following"))
+    EntityImpl entity1 = kim.setPropertyInChain("following", new HashSet<EntityImpl>());
+    ((HashSet<EntityImpl>) entity1.getProperty("following"))
         .add(teri);
-    ((HashSet<EntityImpl>) teri.field("following", new HashSet<EntityImpl>())
-        .field("following"))
+    EntityImpl entity = teri.setPropertyInChain("following", new HashSet<EntityImpl>());
+    ((HashSet<EntityImpl>) entity.getProperty("following"))
         .add(jack);
 
     session.commit();
@@ -248,8 +249,8 @@ public class FrontendTransactionOptimisticTest extends BaseDBTest {
     session = acquireSession();
 
     EntityImpl loadedJack = session.load(jack.getIdentity());
-    Assert.assertEquals(loadedJack.field("name"), "Jack");
-    Collection<Identifiable> jackFollowings = loadedJack.field("following");
+    Assert.assertEquals(loadedJack.getProperty("name"), "Jack");
+    Collection<Identifiable> jackFollowings = loadedJack.getProperty("following");
     Assert.assertNotNull(jackFollowings);
     Assert.assertEquals(jackFollowings.size(), 1);
 
@@ -297,7 +298,7 @@ public class FrontendTransactionOptimisticTest extends BaseDBTest {
     session.begin();
 
     final var externalDocOne = ((EntityImpl) session.newEntity("NestedTxClass"));
-    externalDocOne.field("v", "val1");
+    externalDocOne.setProperty("v", "val1");
 
     Future assertFuture = executorService.submit(assertEmptyRecord);
     assertFuture.get();
@@ -305,7 +306,7 @@ public class FrontendTransactionOptimisticTest extends BaseDBTest {
     session.begin();
 
     final var externalDocTwo = ((EntityImpl) session.newEntity("NestedTxClass"));
-    externalDocTwo.field("v", "val2");
+    externalDocTwo.setProperty("v", "val2");
 
     assertFuture = executorService.submit(assertEmptyRecord);
     assertFuture.get();
@@ -316,7 +317,7 @@ public class FrontendTransactionOptimisticTest extends BaseDBTest {
     assertFuture.get();
 
     final var externalDocThree = ((EntityImpl) session.newEntity("NestedTxClass"));
-    externalDocThree.field("v", "val3");
+    externalDocThree.setProperty("v", "val3");
 
     session.commit();
 
@@ -355,14 +356,14 @@ public class FrontendTransactionOptimisticTest extends BaseDBTest {
       session.begin();
 
       final var externalDocOne = ((EntityImpl) session.newEntity("NestedTxRollbackOne"));
-      externalDocOne.field("v", "val1");
+      externalDocOne.setProperty("v", "val1");
 
       Future assertFuture = executorService.submit(assertEmptyRecord);
       assertFuture.get();
 
       session.begin();
       var externalDocTwo = ((EntityImpl) session.newEntity("NestedTxRollbackOne"));
-      externalDocTwo.field("v", "val2");
+      externalDocTwo.setProperty("v", "val2");
 
       assertFuture = executorService.submit(assertEmptyRecord);
       assertFuture.get();
@@ -376,7 +377,7 @@ public class FrontendTransactionOptimisticTest extends BaseDBTest {
       assertFuture.get();
 
       final var externalDocThree = ((EntityImpl) session.newEntity("NestedTxRollbackOne"));
-      externalDocThree.field("v", "val3");
+      externalDocThree.setProperty("v", "val3");
 
       session.begin();
 
@@ -389,7 +390,7 @@ public class FrontendTransactionOptimisticTest extends BaseDBTest {
                 try (var db = acquireSession()) {
                   db.executeInTx(() -> {
                     EntityImpl brokenDocTwo = db.load(brokenRid);
-                    brokenDocTwo.field("v", "vstr");
+                    brokenDocTwo.setProperty("v", "vstr");
 
                   });
                 }
@@ -414,12 +415,12 @@ public class FrontendTransactionOptimisticTest extends BaseDBTest {
     session.begin();
     try {
       final var externalDocOne = ((EntityImpl) session.newEntity("NestedTxRollbackTwo"));
-      externalDocOne.field("v", "val1");
+      externalDocOne.setProperty("v", "val1");
 
       session.begin();
 
       final var externalDocTwo = ((EntityImpl) session.newEntity("NestedTxRollbackTwo"));
-      externalDocTwo.field("v", "val2");
+      externalDocTwo.setProperty("v", "val2");
 
       session.rollback();
 

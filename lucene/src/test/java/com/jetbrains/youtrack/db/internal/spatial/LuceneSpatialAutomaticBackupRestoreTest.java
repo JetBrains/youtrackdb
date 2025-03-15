@@ -127,11 +127,11 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
   protected EntityImpl newCity(String name, final Double longitude, final Double latitude) {
     var city =
         ((EntityImpl) db.newEntity("City"))
-            .field("name", name)
-            .field(
+            .setPropertyInChain("name", name)
+            .setPropertyInChain(
                 "location",
                 ((EntityImpl) db.newEntity("OPoint"))
-                    .field(
+                    .setPropertyInChain(
                         "coordinates",
                         new ArrayList<Double>() {
                           {
@@ -174,12 +174,12 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
     var doc =
         ((EntityImpl) db.newEntity());
     doc.updateFromJSON(jsonConfig);
-    doc.field("enabled", true)
-        .field("targetFileName", "${DBNAME}.json")
-        .field("targetDirectory", BACKUPDIR)
-        .field("mode", "EXPORT")
-        .field("dbInclude", new String[]{DBNAME})
-        .field(
+    doc.setPropertyInChain("enabled", true)
+        .setPropertyInChain("targetFileName", "${DBNAME}.json")
+        .setPropertyInChain("targetDirectory", BACKUPDIR)
+        .setPropertyInChain("mode", "EXPORT")
+        .setPropertyInChain("dbInclude", new String[]{DBNAME})
+        .setPropertyInChain(
             "firstTime",
             new SimpleDateFormat("HH:mm:ss")
                 .format(new Date(System.currentTimeMillis() + 2000)));

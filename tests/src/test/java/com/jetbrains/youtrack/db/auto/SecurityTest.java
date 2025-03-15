@@ -95,7 +95,7 @@ public class SecurityTest extends BaseDBTest {
 
       session.begin();
       ((EntityImpl) session.newEntity("Profile"))
-          .fields(
+          .properties(
               "nick",
               "error",
               "password",

@@ -43,7 +43,7 @@ public class HttpBatchTest extends BaseHttpDatabaseTest {
     var responseDoc = new EntityImpl(null);
     responseDoc.updateFromJSON(response);
     var insertedDocument =
-        ((List<EntityImpl>) responseDoc.field("result")).get(0);
+        ((List<EntityImpl>) responseDoc.getProperty("result")).get(0);
 
     // TEST UPDATE
     Assert.assertEquals(

@@ -130,8 +130,8 @@ public abstract class SchemaPropertyRidBagAbstractIndexDefinition extends DbTest
     session.begin();
     final var document = (EntityImpl) session.newEntity();
 
-    document.field("fOne", ridBag);
-    document.field("fTwo", 10);
+    document.setProperty("fOne", ridBag);
+    document.setProperty("fTwo", 10);
 
     final var result = propertyIndex.getDocumentValueToIndex(session, document);
     Assert.assertTrue(result instanceof Collection);

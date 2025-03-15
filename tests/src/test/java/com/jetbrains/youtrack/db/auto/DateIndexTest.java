@@ -93,8 +93,8 @@ public class DateIndexTest extends BaseDBTest {
 
     final var dateDoc = ((EntityImpl) session.newEntity("DateIndexTest"));
 
-    dateDoc.field("dateField", dateOne);
-    dateDoc.field("dateTimeField", dateTwo);
+    dateDoc.setProperty("dateField", dateOne);
+    dateDoc.setProperty("dateTimeField", dateTwo);
 
     final List<Date> dateList = new ArrayList<>();
 
@@ -109,10 +109,10 @@ public class DateIndexTest extends BaseDBTest {
     dateTimeList.add(new Date(dateThree.getTime()));
     dateTimeList.add(new Date(dateFour.getTime()));
 
-    dateDoc.field("dateList", dateList);
-    dateDoc.field("dateTimeList", dateTimeList);
+    dateDoc.setProperty("dateList", dateList);
+    dateDoc.setProperty("dateTimeList", dateTimeList);
 
-    dateDoc.field("value", "v1");
+    dateDoc.setProperty("value", "v1");
 
     session.begin();
 

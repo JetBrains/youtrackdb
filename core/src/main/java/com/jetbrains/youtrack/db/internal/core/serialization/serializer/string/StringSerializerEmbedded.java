@@ -52,7 +52,7 @@ public class StringSerializerEmbedded implements StringSerializer {
     RecordSerializerSchemaAware2CSV.INSTANCE.fromStream(session,
         iStream.getBytes(StandardCharsets.UTF_8), instance, null);
 
-    final String className = instance.field(EntitySerializable.CLASS_NAME);
+    final String className = instance.getProperty(EntitySerializable.CLASS_NAME);
     if (className == null) {
       return instance;
     }

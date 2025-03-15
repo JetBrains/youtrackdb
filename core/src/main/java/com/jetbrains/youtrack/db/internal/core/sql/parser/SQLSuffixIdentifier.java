@@ -474,7 +474,8 @@ public class SQLSuffixIdentifier extends SimpleNode {
 
   public boolean isDefinedFor(DatabaseSessionInternal db, Entity currentRecord) {
     if (identifier != null) {
-      return ((EntityImpl) currentRecord.getRecord(db)).containsField(identifier.getStringValue());
+      EntityImpl entity = currentRecord.getRecord(db);
+      return entity.hasProperty(identifier.getStringValue());
     }
     return true;
   }

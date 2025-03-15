@@ -40,7 +40,7 @@ public class LiveIndexRebuildTest {
 
     for (var i = 0; i < 1000000; i++) {
       var document = (EntityImpl) db.newEntity(className);
-      document.field(propertyName, i);
+      document.setProperty(propertyName, i);
 
     }
 

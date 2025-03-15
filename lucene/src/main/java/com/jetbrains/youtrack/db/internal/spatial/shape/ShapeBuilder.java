@@ -99,7 +99,7 @@ public abstract class ShapeBuilder<T extends Shape> {
 
   public T fromMapGeoJson(Map<String, Object> geoJsonMap) {
     var doc = new EntityImpl(null, getName());
-    doc.field(COORDINATES, geoJsonMap.get(COORDINATES));
+    doc.setProperty(COORDINATES, geoJsonMap.get(COORDINATES));
     return fromDoc(doc);
   }
 

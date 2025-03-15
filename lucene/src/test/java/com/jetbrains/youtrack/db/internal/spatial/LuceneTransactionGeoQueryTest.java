@@ -134,9 +134,7 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
   protected static EntityImpl newCity(DatabaseSession db, String name, final Double longitude,
       final Double latitude) {
     var location = ((EntityImpl) db.newEntity("OPoint"));
-    location.field(
-        "coordinates",
-        new ArrayList<Double>() {
+    location.setProperty("coordinates", new ArrayList<Double>() {
           {
             add(longitude);
             add(latitude);
@@ -144,8 +142,8 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
         });
 
     var city = ((EntityImpl) db.newEntity("City"));
-    city.field("name", name);
-    city.field("location", location);
+    city.setProperty("name", name);
+    city.setProperty("location", location);
     return city;
   }
 }

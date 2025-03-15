@@ -42,12 +42,12 @@ public class DateTest extends BaseDBTest {
     session.createClass("Order");
     session.begin();
     var doc1 = ((EntityImpl) session.newEntity("Order"));
-    doc1.field("context", "test");
-    doc1.field("date", new Date());
+    doc1.setProperty("context", "test");
+    doc1.setProperty("date", new Date());
 
     var doc2 = ((EntityImpl) session.newEntity("Order"));
-    doc2.field("context", "test");
-    doc2.field("date", System.currentTimeMillis());
+    doc2.setProperty("context", "test");
+    doc2.setProperty("date", System.currentTimeMillis());
 
     session.commit();
 
@@ -71,8 +71,9 @@ public class DateTest extends BaseDBTest {
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("Order"));
-    doc.field("context", "testPrecision");
-    doc.field("date", DateHelper.now(), PropertyType.DATETIME);
+    doc.setProperty("context", "testPrecision");
+    Object propertyValue = DateHelper.now();
+    doc.setProperty("date", propertyValue, PropertyType.DATETIME);
 
     session.commit();
 
@@ -89,10 +90,11 @@ public class DateTest extends BaseDBTest {
   @Test
   public void testDateTypes() throws ParseException {
     var doc = ((EntityImpl) session.newEntity());
-    doc.field("context", "test");
-    doc.field("date", System.currentTimeMillis(), PropertyType.DATE);
+    doc.setProperty("context", "test");
+    Object propertyValue = System.currentTimeMillis();
+    doc.setProperty("date", propertyValue, PropertyType.DATE);
 
-    Assert.assertTrue(doc.field("date") instanceof Date);
+    Assert.assertTrue(doc.getProperty("date") instanceof Date);
   }
 
   /**

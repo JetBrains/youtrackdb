@@ -49,8 +49,8 @@ public class LuceneCreateIndexTest extends BaseLuceneTest {
 
     var doc = ((EntityImpl) session.newEntity("Song"));
 
-    doc.field("title", "Local");
-    doc.field("author", "Local");
+    doc.setProperty("title", "Local");
+    doc.setProperty("author", "Local");
 
     session.begin();
     session.commit();

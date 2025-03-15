@@ -82,11 +82,11 @@ public class SymmetricKeyCI implements CredentialInterceptor {
     }
 
     // Override algorithm and transform, if they exist in the JSON document.
-    if (jsonDoc.containsField("algorithm")) {
-      algorithm = jsonDoc.field("algorithm");
+    if (jsonDoc.hasProperty("algorithm")) {
+      algorithm = jsonDoc.getProperty("algorithm");
     }
-    if (jsonDoc.containsField("transform")) {
-      transform = jsonDoc.field("transform");
+    if (jsonDoc.hasProperty("transform")) {
+      transform = jsonDoc.getProperty("transform");
     }
 
     // Just in case the default configuration gets changed, check it.
@@ -105,48 +105,50 @@ public class SymmetricKeyCI implements CredentialInterceptor {
     SymmetricKey key = null;
 
     // "key" has priority over "keyFile" and "keyStore".
-    if (jsonDoc.containsField("key")) {
-      final String base64Key = jsonDoc.field("key");
+    if (jsonDoc.hasProperty("key")) {
+      final String base64Key = jsonDoc.getProperty("key");
 
       key = SymmetricKey.fromString(algorithm, base64Key);
       key.setDefaultCipherTransform(transform);
     } else // "keyFile" has priority over "keyStore".
-      if (jsonDoc.containsField("keyFile")) {
-        key = SymmetricKey.fromFile(algorithm, jsonDoc.field("keyFile"));
-        key.setDefaultCipherTransform(transform);
-      } else if (jsonDoc.containsField("keyStore")) {
-        EntityImpl ksDoc = jsonDoc.field("keyStore");
-
-        if (ksDoc.containsField("file")) {
-          keystoreFile = ksDoc.field("file");
-        }
-
-        if (keystoreFile == null || keystoreFile.isEmpty()) {
-          throw new SecurityException((String) null,
-              "SymmetricKeyCI.intercept() keystore file is required");
-        }
-
-        // Specific to Keystore, but override if present in the JSON document.
-        if (ksDoc.containsField("password")) {
-          keystorePassword = ksDoc.field("password");
-        }
-
-        String keyAlias = ksDoc.field("keyAlias");
-
-        if (keyAlias == null || keyAlias.isEmpty()) {
-          throw new SecurityException((String) null,
-              "SymmetricKeyCI.intercept() keystore key alias is required");
-        }
-
-        // keyPassword may be null.
-        String keyPassword = ksDoc.field("keyPassword");
-
-        // keystorePassword may be null.
-        key = SymmetricKey.fromKeystore(keystoreFile, keystorePassword, keyAlias, keyPassword);
+      if (jsonDoc.hasProperty("keyFile")) {
+        key = SymmetricKey.fromFile(algorithm, jsonDoc.getProperty("keyFile"));
         key.setDefaultCipherTransform(transform);
       } else {
-        throw new SecurityException((String) null,
-            "SymmetricKeyCI.intercept() No suitable symmetric key property exists");
+        if (jsonDoc.hasProperty("keyStore")) {
+          EntityImpl ksDoc = jsonDoc.getProperty("keyStore");
+
+          if (ksDoc.hasProperty("file")) {
+            keystoreFile = ksDoc.getProperty("file");
+          }
+
+          if (keystoreFile == null || keystoreFile.isEmpty()) {
+            throw new SecurityException((String) null,
+                "SymmetricKeyCI.intercept() keystore file is required");
+          }
+
+          // Specific to Keystore, but override if present in the JSON document.
+          if (ksDoc.hasProperty("password")) {
+            keystorePassword = ksDoc.getProperty("password");
+          }
+
+          String keyAlias = ksDoc.getProperty("keyAlias");
+
+          if (keyAlias == null || keyAlias.isEmpty()) {
+            throw new SecurityException((String) null,
+                "SymmetricKeyCI.intercept() keystore key alias is required");
+          }
+
+          // keyPassword may be null.
+          String keyPassword = ksDoc.getProperty("keyPassword");
+
+          // keystorePassword may be null.
+          key = SymmetricKey.fromKeystore(keystoreFile, keystorePassword, keyAlias, keyPassword);
+          key.setDefaultCipherTransform(transform);
+        } else {
+          throw new SecurityException((String) null,
+              "SymmetricKeyCI.intercept() No suitable symmetric key property exists");
+        }
       }
 
     encodedJSON = key.encrypt(transform, username);

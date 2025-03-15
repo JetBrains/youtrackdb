@@ -42,19 +42,19 @@ public class BetweenConversionTest extends BaseDBTest {
 
     for (var i = 0; i < 10; i++) {
       var document = ((EntityImpl) session.newEntity("BetweenConversionTest"));
-      document.field("a", i);
-      document.field("ai", i);
+      document.setProperty("a", i);
+      document.setProperty("ai", i);
 
       if (i < 5) {
-        document.field("vl", "v1");
+        document.setProperty("vl", "v1");
       } else {
-        document.field("vl", "v2");
+        document.setProperty("vl", "v2");
       }
 
       var ed = ((EntityImpl) session.newEntity());
-      ed.field("a", i);
+      ed.setProperty("a", i);
 
-      document.field("d", ed);
+      document.setProperty("d", ed);
 
       session.begin();
 
@@ -70,14 +70,14 @@ public class BetweenConversionTest extends BaseDBTest {
     List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3));
 
     for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.field("a")));
+      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
     }
 
     Assert.assertTrue(values.isEmpty());
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
 
-    Assert.assertEquals(explain.<Object>field("rangeQueryConvertedInBetween"), 1);
+    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
   }
 
   public void testBetweenRightLeftIncludedReverseOrder() {
@@ -88,14 +88,14 @@ public class BetweenConversionTest extends BaseDBTest {
     List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3));
 
     for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.field("a")));
+      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
     }
 
     Assert.assertTrue(values.isEmpty());
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
 
-    Assert.assertEquals(explain.<Object>field("rangeQueryConvertedInBetween"), 1);
+    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
   }
 
   public void testBetweenRightIncluded() {
@@ -106,14 +106,14 @@ public class BetweenConversionTest extends BaseDBTest {
     List<Integer> values = new ArrayList<Integer>(Arrays.asList(2, 3));
 
     for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.field("a")));
+      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
     }
 
     Assert.assertTrue(values.isEmpty());
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
 
-    Assert.assertEquals(explain.<Object>field("rangeQueryConvertedInBetween"), 1);
+    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
   }
 
   public void testBetweenRightIncludedReverse() {
@@ -124,14 +124,14 @@ public class BetweenConversionTest extends BaseDBTest {
     List<Integer> values = new ArrayList<Integer>(Arrays.asList(2, 3));
 
     for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.field("a")));
+      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
     }
 
     Assert.assertTrue(values.isEmpty());
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
 
-    Assert.assertEquals(explain.<Object>field("rangeQueryConvertedInBetween"), 1);
+    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
   }
 
   public void testBetweenLeftIncluded() {
@@ -142,14 +142,14 @@ public class BetweenConversionTest extends BaseDBTest {
     List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2));
 
     for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.field("a")));
+      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
     }
 
     Assert.assertTrue(values.isEmpty());
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
 
-    Assert.assertEquals(explain.<Object>field("rangeQueryConvertedInBetween"), 1);
+    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
   }
 
   public void testBetweenLeftIncludedReverseOrder() {
@@ -160,14 +160,14 @@ public class BetweenConversionTest extends BaseDBTest {
     List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2));
 
     for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.field("a")));
+      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
     }
 
     Assert.assertTrue(values.isEmpty());
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
 
-    Assert.assertEquals(explain.<Object>field("rangeQueryConvertedInBetween"), 1);
+    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
   }
 
   public void testBetween() {
@@ -178,14 +178,14 @@ public class BetweenConversionTest extends BaseDBTest {
     List<Integer> values = new ArrayList<Integer>(List.of(2));
 
     for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.field("a")));
+      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
     }
 
     Assert.assertTrue(values.isEmpty());
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
 
-    Assert.assertEquals(explain.<Object>field("rangeQueryConvertedInBetween"), 1);
+    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
   }
 
   public void testBetweenRightLeftIncludedIndex() {
@@ -196,16 +196,17 @@ public class BetweenConversionTest extends BaseDBTest {
     List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3));
 
     for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.field("ai")));
+      Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
     }
 
     Assert.assertTrue(values.isEmpty());
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
 
-    Assert.assertEquals(explain.<Object>field("rangeQueryConvertedInBetween"), 1);
+    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
     Assert.assertTrue(
-        ((Set<String>) explain.field("involvedIndexes")).contains("BetweenConversionTestIndex"));
+        ((Set<String>) explain.getProperty("involvedIndexes")).contains(
+            "BetweenConversionTestIndex"));
   }
 
   public void testBetweenRightLeftIncludedReverseOrderIndex() {
@@ -216,16 +217,17 @@ public class BetweenConversionTest extends BaseDBTest {
     List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3));
 
     for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.field("ai")));
+      Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
     }
 
     Assert.assertTrue(values.isEmpty());
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
 
-    Assert.assertEquals(explain.<Object>field("rangeQueryConvertedInBetween"), 1);
+    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
     Assert.assertTrue(
-        ((Set<String>) explain.field("involvedIndexes")).contains("BetweenConversionTestIndex"));
+        ((Set<String>) explain.getProperty("involvedIndexes")).contains(
+            "BetweenConversionTestIndex"));
   }
 
   public void testBetweenRightIncludedIndex() {
@@ -236,16 +238,17 @@ public class BetweenConversionTest extends BaseDBTest {
     List<Integer> values = new ArrayList<Integer>(Arrays.asList(2, 3));
 
     for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.field("ai")));
+      Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
     }
 
     Assert.assertTrue(values.isEmpty());
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
 
-    Assert.assertEquals(explain.<Object>field("rangeQueryConvertedInBetween"), 1);
+    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
     Assert.assertTrue(
-        ((Set<String>) explain.field("involvedIndexes")).contains("BetweenConversionTestIndex"));
+        ((Set<String>) explain.getProperty("involvedIndexes")).contains(
+            "BetweenConversionTestIndex"));
   }
 
   public void testBetweenRightIncludedReverseOrderIndex() {
@@ -256,16 +259,17 @@ public class BetweenConversionTest extends BaseDBTest {
     List<Integer> values = new ArrayList<Integer>(Arrays.asList(2, 3));
 
     for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.field("ai")));
+      Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
     }
 
     Assert.assertTrue(values.isEmpty());
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
 
-    Assert.assertEquals(explain.<Object>field("rangeQueryConvertedInBetween"), 1);
+    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
     Assert.assertTrue(
-        ((Set<String>) explain.field("involvedIndexes")).contains("BetweenConversionTestIndex"));
+        ((Set<String>) explain.getProperty("involvedIndexes")).contains(
+            "BetweenConversionTestIndex"));
   }
 
   public void testBetweenLeftIncludedIndex() {
@@ -276,16 +280,17 @@ public class BetweenConversionTest extends BaseDBTest {
     List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2));
 
     for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.field("ai")));
+      Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
     }
 
     Assert.assertTrue(values.isEmpty());
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
 
-    Assert.assertEquals(explain.<Object>field("rangeQueryConvertedInBetween"), 1);
+    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
     Assert.assertTrue(
-        ((Set<String>) explain.field("involvedIndexes")).contains("BetweenConversionTestIndex"));
+        ((Set<String>) explain.getProperty("involvedIndexes")).contains(
+            "BetweenConversionTestIndex"));
   }
 
   public void testBetweenLeftIncludedReverseOrderIndex() {
@@ -296,16 +301,17 @@ public class BetweenConversionTest extends BaseDBTest {
     List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2));
 
     for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.field("ai")));
+      Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
     }
 
     Assert.assertTrue(values.isEmpty());
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
 
-    Assert.assertEquals(explain.<Object>field("rangeQueryConvertedInBetween"), 1);
+    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
     Assert.assertTrue(
-        ((Set<String>) explain.field("involvedIndexes")).contains("BetweenConversionTestIndex"));
+        ((Set<String>) explain.getProperty("involvedIndexes")).contains(
+            "BetweenConversionTestIndex"));
   }
 
   public void testBetweenIndex() {
@@ -316,16 +322,17 @@ public class BetweenConversionTest extends BaseDBTest {
     List<Integer> values = new ArrayList<Integer>(List.of(2));
 
     for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.field("ai")));
+      Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
     }
 
     Assert.assertTrue(values.isEmpty());
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
 
-    Assert.assertEquals(explain.<Object>field("rangeQueryConvertedInBetween"), 1);
+    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
     Assert.assertTrue(
-        ((Set<String>) explain.field("involvedIndexes")).contains("BetweenConversionTestIndex"));
+        ((Set<String>) explain.getProperty("involvedIndexes")).contains(
+            "BetweenConversionTestIndex"));
   }
 
   public void testBetweenRightLeftIncludedDeepQuery() {
@@ -338,14 +345,14 @@ public class BetweenConversionTest extends BaseDBTest {
     List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3, 4));
 
     for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.field("a")));
+      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
     }
 
     Assert.assertTrue(values.isEmpty());
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
 
-    Assert.assertEquals(explain.<Object>field("rangeQueryConvertedInBetween"), 1);
+    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
   }
 
   public void testBetweenRightLeftIncludedDeepQueryIndex() {
@@ -358,16 +365,17 @@ public class BetweenConversionTest extends BaseDBTest {
     List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3, 4));
 
     for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.field("ai")));
+      Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
     }
 
     Assert.assertTrue(values.isEmpty());
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
 
-    Assert.assertEquals(explain.<Object>field("rangeQueryConvertedInBetween"), 1);
+    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
     Assert.assertTrue(
-        ((Set<String>) explain.field("involvedIndexes")).contains("BetweenConversionTestIndex"));
+        ((Set<String>) explain.getProperty("involvedIndexes")).contains(
+            "BetweenConversionTestIndex"));
   }
 
   public void testBetweenRightLeftIncludedDifferentFields() {
@@ -378,14 +386,14 @@ public class BetweenConversionTest extends BaseDBTest {
     List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3));
 
     for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.field("a")));
+      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
     }
 
     Assert.assertTrue(values.isEmpty());
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
 
-    Assert.assertNull(explain.field("rangeQueryConvertedInBetween"));
+    Assert.assertNull(explain.getProperty("rangeQueryConvertedInBetween"));
   }
 
   public void testBetweenNotRangeQueryRight() {
@@ -396,14 +404,14 @@ public class BetweenConversionTest extends BaseDBTest {
     List<Integer> values = new ArrayList<Integer>(List.of(3));
 
     for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.field("a")));
+      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
     }
 
     Assert.assertTrue(values.isEmpty());
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
 
-    Assert.assertNull(explain.field("rangeQueryConvertedInBetween"));
+    Assert.assertNull(explain.getProperty("rangeQueryConvertedInBetween"));
   }
 
   public void testBetweenNotRangeQueryLeft() {
@@ -414,14 +422,14 @@ public class BetweenConversionTest extends BaseDBTest {
     List<Integer> values = new ArrayList<Integer>(List.of(1));
 
     for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.field("a")));
+      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
     }
 
     Assert.assertTrue(values.isEmpty());
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
 
-    Assert.assertNull(explain.field("rangeQueryConvertedInBetween"));
+    Assert.assertNull(explain.getProperty("rangeQueryConvertedInBetween"));
   }
 
   public void testBetweenRightLeftIncludedBothFieldsLeft() {
@@ -432,14 +440,14 @@ public class BetweenConversionTest extends BaseDBTest {
     List<Integer> values = new ArrayList<Integer>(Arrays.asList(0, 1, 2, 3));
 
     for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.field("a")));
+      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
     }
 
     Assert.assertTrue(values.isEmpty());
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
 
-    Assert.assertNull(explain.field("rangeQueryConvertedInBetween"));
+    Assert.assertNull(explain.getProperty("rangeQueryConvertedInBetween"));
   }
 
   public void testBetweenRightLeftIncludedBothFieldsRight() {
@@ -450,14 +458,14 @@ public class BetweenConversionTest extends BaseDBTest {
     List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9));
 
     for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.field("a")));
+      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
     }
 
     Assert.assertTrue(values.isEmpty());
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
 
-    Assert.assertNull(explain.field("rangeQueryConvertedInBetween"));
+    Assert.assertNull(explain.getProperty("rangeQueryConvertedInBetween"));
   }
 
   public void testBetweenRightLeftIncludedFieldChainLeft() {
@@ -468,14 +476,14 @@ public class BetweenConversionTest extends BaseDBTest {
     List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3));
 
     for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.field("a")));
+      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
     }
 
     Assert.assertTrue(values.isEmpty());
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
 
-    Assert.assertNull(explain.field("rangeQueryConvertedInBetween"));
+    Assert.assertNull(explain.getProperty("rangeQueryConvertedInBetween"));
   }
 
   public void testBetweenRightLeftIncludedFieldChainRight() {
@@ -486,13 +494,13 @@ public class BetweenConversionTest extends BaseDBTest {
     List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3));
 
     for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.field("a")));
+      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
     }
 
     Assert.assertTrue(values.isEmpty());
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
 
-    Assert.assertNull(explain.field("rangeQueryConvertedInBetween"));
+    Assert.assertNull(explain.getProperty("rangeQueryConvertedInBetween"));
   }
 }

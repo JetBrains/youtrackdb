@@ -64,7 +64,8 @@ public class RestrictedTest extends BaseDBTest {
         .createClass("CMSDocument", session.getMetadata().getSchema().getClass("ORestricted"));
 
     session.begin();
-    var adminRecord = ((EntityImpl) session.newEntity("CMSDocument")).field("user", "admin");
+    var adminRecord = ((EntityImpl) session.newEntity("CMSDocument")).setPropertyInChain("user",
+        "admin");
 
     this.adminRecordId = adminRecord.getIdentity();
     session.commit();
@@ -89,7 +90,8 @@ public class RestrictedTest extends BaseDBTest {
   public void testCreateAsWriter() throws IOException {
     session = createSessionInstance("writer", "writer");
     session.begin();
-    var writerRecord = ((EntityImpl) session.newEntity("CMSDocument")).field("user", "writer");
+    var writerRecord = ((EntityImpl) session.newEntity("CMSDocument")).setPropertyInChain("user",
+        "writer");
 
     this.writerRecordId = writerRecord.getIdentity();
     session.commit();
@@ -155,7 +157,7 @@ public class RestrictedTest extends BaseDBTest {
     session = createSessionInstance();
     session.begin();
     var adminRecord = session.<EntityImpl>load(this.adminRecordId);
-    Assert.assertEquals(adminRecord.field("user"), "admin");
+    Assert.assertEquals(adminRecord.getProperty("user"), "admin");
     session.commit();
   }
 
@@ -174,7 +176,7 @@ public class RestrictedTest extends BaseDBTest {
     session = createSessionInstance();
     session.begin();
     var adminRecord = session.<EntityImpl>load(this.adminRecordId);
-    Assert.assertEquals(adminRecord.field("user"), "admin");
+    Assert.assertEquals(adminRecord.getProperty("user"), "admin");
     session.commit();
   }
 
@@ -185,7 +187,7 @@ public class RestrictedTest extends BaseDBTest {
       session.begin();
       // FORCE LOADING
       EntityImpl adminRecord = session.load(this.adminRecordId);
-      Set<Identifiable> allows = adminRecord.field(SecurityShared.ALLOW_ALL_FIELD);
+      Set<Identifiable> allows = adminRecord.getProperty(SecurityShared.ALLOW_ALL_FIELD);
       allows.add(
           session.getMetadata().getSecurity().getUser(session.geCurrentUser().getName(session))
               .getIdentity());
@@ -204,7 +206,7 @@ public class RestrictedTest extends BaseDBTest {
     session = createSessionInstance("writer", "writer");
     session.begin();
     var writerRecord = session.<EntityImpl>load(this.writerRecordId);
-    Set<Identifiable> allows = writerRecord.field(SecurityShared.ALLOW_ALL_FIELD);
+    Set<Identifiable> allows = writerRecord.getProperty(SecurityShared.ALLOW_ALL_FIELD);
     allows.add(readerRole.getIdentity());
 
     session.commit();
@@ -224,14 +226,16 @@ public class RestrictedTest extends BaseDBTest {
     session.begin();
     EntityImpl writerRecord = session.load(this.writerRecordId);
     Assert.assertEquals(
-        ((Collection<?>) writerRecord.field(RestrictedOperation.ALLOW_ALL.getFieldName())).size(),
+        ((Collection<?>) writerRecord.getProperty(
+            RestrictedOperation.ALLOW_ALL.getFieldName())).size(),
         2);
     session
         .getMetadata()
         .getSecurity()
         .denyRole(writerRecord, RestrictedOperation.ALLOW_ALL, "reader");
     Assert.assertEquals(
-        ((Collection<?>) writerRecord.field(RestrictedOperation.ALLOW_ALL.getFieldName())).size(),
+        ((Collection<?>) writerRecord.getProperty(
+            RestrictedOperation.ALLOW_ALL.getFieldName())).size(),
         1);
 
     session.commit();
@@ -377,7 +381,8 @@ public class RestrictedTest extends BaseDBTest {
             "TestUpdateRestricted", session.getMetadata().getSchema().getClass("ORestricted"));
 
     session.begin();
-    var adminRecord = ((EntityImpl) session.newEntity("TestUpdateRestricted")).field("user",
+    var adminRecord = ((EntityImpl) session.newEntity("TestUpdateRestricted")).setPropertyInChain(
+        "user",
         "admin");
 
     this.adminRecordId = adminRecord.getIdentity();

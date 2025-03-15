@@ -45,7 +45,7 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
   @Test
   public void testRollback() {
     var doc = ((EntityImpl) session.newEntity("c1"));
-    doc.field("p1", new String[]{"abc"});
+    doc.setProperty("p1", new String[]{"abc"});
     session.begin();
 
     var query = "select from C1 where search_class( \"abc\")=true ";
@@ -66,7 +66,7 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
     session.begin();
 
     var doc = ((EntityImpl) session.newEntity("c1"));
-    doc.field("p1", new String[]{"abc"});
+    doc.setProperty("p1", new String[]{"abc"});
 
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "C1.p1");
 
@@ -128,7 +128,7 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
     session.begin();
 
     var doc = ((EntityImpl) session.newEntity("c1"));
-    doc.field("p1", new String[]{"update removed", "update fixed"});
+    doc.setProperty("p1", new String[]{"update removed", "update fixed"});
 
     var query = "select from C1 where search_class(\"update\")=true ";
     try (var vertices = session.command(query)) {
@@ -150,7 +150,7 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
     session.begin();
 
     // select in transaction while updating
-    Collection p1 = doc.field("p1");
+    Collection p1 = doc.getProperty("p1");
     p1.remove("update removed");
 
     try (var vertices = session.command(query)) {
@@ -189,17 +189,17 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
     Assert.assertEquals(index.size(session), 0);
 
     var doc = ((EntityImpl) session.newEntity("c1"));
-    doc.field("p1", new String[]{"abc"});
+    doc.setProperty("p1", new String[]{"abc"});
 
     var doc1 = ((EntityImpl) session.newEntity("c1"));
-    doc1.field("p1", new String[]{"abc"});
+    doc1.setProperty("p1", new String[]{"abc"});
 
     session.commit();
 
     session.begin();
 
     doc = session.bindToSession(doc);
-    doc.field("p1", new String[]{"removed"});
+    doc.setProperty("p1", new String[]{"removed"});
 
     var query = "select from C1 where p1 lucene \"abc\"";
 

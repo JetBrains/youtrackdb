@@ -122,10 +122,10 @@ public class PolymorphicQueryTest extends BaseDBTest {
     for (var i = 0; i < 10000; i++) {
 
       final var doc1 = ((EntityImpl) session.newEntity("IndexInSubclassesTestChild1"));
-      doc1.field("name", "name" + i);
+      doc1.setProperty("name", "name" + i);
 
       final var doc2 = ((EntityImpl) session.newEntity("IndexInSubclassesTestChild2"));
-      doc2.field("name", "name" + i);
+      doc2.setProperty("name", "name" + i);
 
       if (i % 100 == 0) {
         session.commit();
@@ -139,11 +139,12 @@ public class PolymorphicQueryTest extends BaseDBTest {
                 "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
                     + " 'name9999' order by name ASC"));
     Assert.assertEquals(result.size(), 6);
-    String lastName = result.getFirst().field("name");
+    EntityImpl entity1 = result.getFirst();
+    String lastName = entity1.getProperty("name");
 
     for (var i = 1; i < result.size(); i++) {
       var current = result.get(i);
-      String currentName = current.field("name");
+      String currentName = current.getProperty("name");
       Assert.assertTrue(lastName.compareTo(currentName) <= 0);
       lastName = currentName;
     }
@@ -158,10 +159,11 @@ public class PolymorphicQueryTest extends BaseDBTest {
                 "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
                     + " 'name9999' order by name DESC"));
     Assert.assertEquals(result.size(), 6);
-    lastName = result.getFirst().field("name");
+    EntityImpl entity = result.getFirst();
+    lastName = entity.getProperty("name");
     for (var i = 1; i < result.size(); i++) {
       var current = result.get(i);
-      String currentName = current.field("name");
+      String currentName = current.getProperty("name");
       Assert.assertTrue(lastName.compareTo(currentName) >= 0);
       lastName = currentName;
     }
@@ -186,13 +188,13 @@ public class PolymorphicQueryTest extends BaseDBTest {
 
     for (var i = 0; i < 10000; i++) {
       final var doc0 = session.newInstance("IndexInSubclassesTestBase");
-      doc0.field("name", "name" + i);
+      doc0.setProperty("name", "name" + i);
 
       final var doc1 = ((EntityImpl) session.newEntity("IndexInSubclassesTestChild1"));
-      doc1.field("name", "name" + i);
+      doc1.setProperty("name", "name" + i);
 
       final var doc2 = ((EntityImpl) session.newEntity("IndexInSubclassesTestChild2"));
-      doc2.field("name", "name" + i);
+      doc2.setProperty("name", "name" + i);
 
       if (i % 100 == 0) {
         session.commit();
@@ -206,10 +208,11 @@ public class PolymorphicQueryTest extends BaseDBTest {
                 "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
                     + " 'name9999' order by name ASC"));
     Assert.assertEquals(result.size(), 9);
-    String lastName = result.getFirst().field("name");
+    EntityImpl entity1 = result.getFirst();
+    String lastName = entity1.getProperty("name");
     for (var i = 1; i < result.size(); i++) {
       var current = result.get(i);
-      String currentName = current.field("name");
+      String currentName = current.getProperty("name");
       Assert.assertTrue(lastName.compareTo(currentName) <= 0);
       lastName = currentName;
     }
@@ -225,10 +228,11 @@ public class PolymorphicQueryTest extends BaseDBTest {
                 "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
                     + " 'name9999' order by name DESC"));
     Assert.assertEquals(result.size(), 9);
-    lastName = result.getFirst().field("name");
+    EntityImpl entity = result.getFirst();
+    lastName = entity.getProperty("name");
     for (var i = 1; i < result.size(); i++) {
       var current = result.get(i);
-      String currentName = current.field("name");
+      String currentName = current.getProperty("name");
       Assert.assertTrue(lastName.compareTo(currentName) >= 0);
       lastName = currentName;
     }
@@ -243,10 +247,10 @@ public class PolymorphicQueryTest extends BaseDBTest {
     for (var i = 0; i < 10000; i++) {
 
       final var doc1 = ((EntityImpl) session.newEntity("IndexInSubclassesTestChild1Fail"));
-      doc1.field("name", "name" + i);
+      doc1.setProperty("name", "name" + i);
 
       final var doc2 = ((EntityImpl) session.newEntity("IndexInSubclassesTestChild2Fail"));
-      doc2.field("name", "name" + i);
+      doc2.setProperty("name", "name" + i);
 
       if (i % 100 == 0) {
         session.commit();
@@ -289,7 +293,7 @@ public class PolymorphicQueryTest extends BaseDBTest {
     for (var i = 0; i < 2; i++) {
       final var doc1 = ((EntityImpl) session.newEntity("GenericCrash"));
       session.begin();
-      doc1.field("name", "foo");
+      doc1.setProperty("name", "foo");
 
     }
 

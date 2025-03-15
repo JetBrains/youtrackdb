@@ -33,19 +33,24 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
     session.command("truncate class test_class");
 
     session.begin();
-    ((EntityImpl) session.newEntity(testClass)).field("name", "x")
-        .newEmbeddedList("data", Arrays.asList(1, 2));
-    ((EntityImpl) session.newEntity(testClass)).field("name", "y")
-        .newEmbeddedList("data", Arrays.asList(3, 0));
+    var e1 = ((EntityImpl) session.newEntity(testClass));
+    e1.setProperty("name", "x");
+    e1.newEmbeddedList("data", Arrays.asList(1, 2));
+    var e2 = ((EntityImpl) session.newEntity(testClass));
+    e2.setProperty("name", "y");
+    e2.newEmbeddedList("data", Arrays.asList(3, 0));
     session.commit();
 
     session.command("truncate class test_class").close();
 
     session.begin();
-    ((EntityImpl) session.newEntity(testClass)).field("name", "x")
-        .newEmbeddedList("data", Arrays.asList(5, 6, 7));
-    ((EntityImpl) session.newEntity(testClass)).field("name", "y")
-        .newEmbeddedList("data", Arrays.asList(8, 9, -1));
+    var e3 = ((EntityImpl) session.newEntity(testClass));
+    e3.setProperty("name", "x");
+    e3.newEmbeddedList("data", Arrays.asList(5, 6, 7));
+
+    var e4 = ((EntityImpl) session.newEntity(testClass));
+    e4.setProperty("name", "y");
+    e4.newEmbeddedList("data", Arrays.asList(8, 9, -1));
     session.commit();
 
     session.begin();
@@ -209,10 +214,13 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
     session.command("truncate class test_class");
 
     session.begin();
-    ((EntityImpl) session.newEntity(testClass)).field("name", "x")
-        .newEmbeddedList("data", Arrays.asList(1, 2));
-    ((EntityImpl) session.newEntity(testClass)).field("name", "y")
-        .newEmbeddedList("data", Arrays.asList(3, 0));
+    var e1 = ((EntityImpl) session.newEntity(testClass));
+    e1.setProperty("name", "x");
+    e1.newEmbeddedList("data", Arrays.asList(1, 2));
+
+    var e2 = ((EntityImpl) session.newEntity(testClass));
+    e2.setProperty("name", "y");
+    e2.newEmbeddedList("data", Arrays.asList(3, 0));
     session.commit();
 
     session.begin();

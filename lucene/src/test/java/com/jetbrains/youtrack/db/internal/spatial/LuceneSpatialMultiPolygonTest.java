@@ -215,8 +215,8 @@ public class LuceneSpatialMultiPolygonTest extends BaseSpatialLuceneTest {
     var location = loadMultiPolygon();
 
     var italy = ((EntityImpl) session.newEntity("Place"));
-    italy.field("name", "Italy");
-    italy.field("location", location);
+    italy.setProperty("name", "Italy");
+    italy.setProperty("location", location);
 
     session.begin();
     session.commit();

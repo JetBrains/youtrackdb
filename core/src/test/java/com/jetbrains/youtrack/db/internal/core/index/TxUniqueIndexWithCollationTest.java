@@ -96,9 +96,9 @@ public class TxUniqueIndexWithCollationTest extends DbTestBase {
             .map(x -> ((EntityImpl) (x.asEntityOrNull())))
             .toList();
     assertEquals(3, r.size());
-    assertEquals("abc", r.get(0).field("name"));
-    assertEquals("abd", r.get(1).field("name"));
-    assertEquals("abz", r.get(2).field("name"));
+    assertEquals("abc", r.get(0).getProperty("name"));
+    assertEquals("abd", r.get(1).getProperty("name"));
+    assertEquals("abz", r.get(2).getProperty("name"));
 
     session.commit();
   }

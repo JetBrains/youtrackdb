@@ -67,7 +67,7 @@ public class BTreeRidBagConcurrencySingleBasedRidBagTestIT {
     var document = ((EntityImpl) db.newEntity());
     var ridBag = new RidBag(db);
 
-    document.field("ridBag", ridBag);
+    document.setProperty("ridBag", ridBag);
     for (var i = 0; i < 100; i++) {
       final RID ridToAdd = new RecordId(0, positionCounter.incrementAndGet());
       ridBag.add(ridToAdd);
@@ -98,7 +98,7 @@ public class BTreeRidBagConcurrencySingleBasedRidBagTestIT {
     document = db.load(document.getIdentity());
     document.setLazyLoad(false);
 
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
 
     for (Identifiable identifiable : ridBag) {
       Assert.assertTrue(ridTree.remove(identifiable.getIdentity()));
@@ -137,7 +137,7 @@ public class BTreeRidBagConcurrencySingleBasedRidBagTestIT {
             EntityImpl document = db.load(docContainerRid);
             document.setLazyLoad(false);
 
-            RidBag ridBag = document.field("ridBag");
+            RidBag ridBag = document.getProperty("ridBag");
             for (var rid : ridsToAdd) {
               ridBag.add(rid);
             }
@@ -184,7 +184,7 @@ public class BTreeRidBagConcurrencySingleBasedRidBagTestIT {
           while (true) {
             EntityImpl document = db.load(docContainerRid);
             document.setLazyLoad(false);
-            RidBag ridBag = document.field("ridBag");
+            RidBag ridBag = document.getProperty("ridBag");
             var iterator = ridBag.iterator();
 
             List<RID> ridsToDelete = new ArrayList<>();

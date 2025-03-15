@@ -142,42 +142,42 @@ public class SQLFindReferencesTest extends BaseDBTest {
   private void populateDatabase() {
     session.begin();
     var car = ((EntityImpl) session.newEntity(CAR));
-    car.field("plate", "JINF223S");
+    car.setProperty("plate", "JINF223S");
 
     var johnDoe = ((EntityImpl) session.newEntity(WORKER));
-    johnDoe.field("name", "John");
-    johnDoe.field("surname", "Doe");
-    johnDoe.field("car", car);
+    johnDoe.setProperty("name", "John");
+    johnDoe.setProperty("surname", "Doe");
+    johnDoe.setProperty("car", car);
 
     var janeDoe = ((EntityImpl) session.newEntity(WORKER));
-    janeDoe.field("name", "Jane");
-    janeDoe.field("surname", "Doe");
+    janeDoe.setProperty("name", "Jane");
+    janeDoe.setProperty("surname", "Doe");
 
     var chuckNorris = ((EntityImpl) session.newEntity(WORKER));
-    chuckNorris.field("name", "Chuck");
-    chuckNorris.field("surname", "Norris");
+    chuckNorris.setProperty("name", "Chuck");
+    chuckNorris.setProperty("surname", "Norris");
 
     var jackBauer = ((EntityImpl) session.newEntity(WORKER));
-    jackBauer.field("name", "Jack");
-    jackBauer.field("surname", "Bauer");
+    jackBauer.setProperty("name", "Jack");
+    jackBauer.setProperty("surname", "Bauer");
 
     var ctu = ((EntityImpl) session.newEntity(WORKPLACE));
-    ctu.field("name", "CTU");
-    ctu.field("boss", jackBauer);
+    ctu.setProperty("name", "CTU");
+    ctu.setProperty("boss", jackBauer);
     List<EntityImpl> workplace1Workers = new ArrayList<EntityImpl>();
     workplace1Workers.add(chuckNorris);
     workplace1Workers.add(janeDoe);
-    ctu.field("workers", workplace1Workers);
+    ctu.setProperty("workers", workplace1Workers);
 
     var fbi = ((EntityImpl) session.newEntity(WORKPLACE));
-    fbi.field("name", "FBI");
-    fbi.field("boss", chuckNorris);
+    fbi.setProperty("name", "FBI");
+    fbi.setProperty("boss", chuckNorris);
     List<EntityImpl> workplace2Workers = new ArrayList<EntityImpl>();
     workplace2Workers.add(chuckNorris);
     workplace2Workers.add(jackBauer);
-    fbi.field("workers", workplace2Workers);
+    fbi.setProperty("workers", workplace2Workers);
 
-    car.field("owner", jackBauer);
+    car.setProperty("owner", jackBauer);
 
     session.commit();
 

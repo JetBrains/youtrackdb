@@ -144,8 +144,8 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
     final var propertiesDoc = new EntityImpl(null);
     propertiesDoc.updateFromJSON(iRequest.getContent());
 
-    for (var propertyName : propertiesDoc.fieldNames()) {
-      final Map<String, String> entity = propertiesDoc.field(propertyName);
+    for (var propertyName : propertiesDoc.propertyNames()) {
+      final Map<String, String> entity = propertiesDoc.getProperty(propertyName);
       final var propertyType = PropertyType.valueOf(entity.get(PROPERTY_TYPE_JSON_FIELD));
       switch (propertyType) {
         case LINKLIST:

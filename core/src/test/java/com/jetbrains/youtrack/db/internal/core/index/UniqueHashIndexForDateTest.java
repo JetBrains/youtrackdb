@@ -18,10 +18,10 @@ public class UniqueHashIndexForDateTest extends DbTestBase {
     prop.createIndex(INDEX_TYPE.UNIQUE);
     session.begin();
     var doc = (EntityImpl) session.newEntity("test_edge");
-    doc.field("date", "2015-03-24 08:54:49");
+    doc.setProperty("date", "2015-03-24 08:54:49");
 
     var doc1 = (EntityImpl) session.newEntity("test_edge");
-    doc1.field("date", "2015-03-24 08:54:49");
+    doc1.setProperty("date", "2015-03-24 08:54:49");
 
     try {
       session.commit();

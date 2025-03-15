@@ -179,10 +179,10 @@ public class SecurityShared implements SecurityInternal {
       final Identifiable iId) {
     return session.computeInTx(
         () -> {
-          Set<Identifiable> field = entity.field(iAllowFieldName);
+          Set<Identifiable> field = entity.getProperty(iAllowFieldName);
           if (field == null) {
             field = new TrackedSet<>(entity);
-            entity.field(iAllowFieldName, field);
+            entity.setProperty(iAllowFieldName, field);
           }
           field.add(iId);
 
@@ -229,7 +229,7 @@ public class SecurityShared implements SecurityInternal {
       final EntityImpl entity,
       final String iAllowFieldName,
       final Identifiable iId) {
-    Set<Identifiable> field = entity.field(iAllowFieldName);
+    Set<Identifiable> field = entity.getProperty(iAllowFieldName);
     if (field != null) {
       field.remove(iId);
     }

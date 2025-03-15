@@ -13,7 +13,6 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -53,8 +52,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     final List<String> list = new ArrayList<>();
     list.add("value1");
 
-    document.field("embeddedlist", list, PropertyType.EMBEDDEDLIST);
-    document.field("val", 1);
+    document.setProperty("embeddedlist", list, PropertyType.EMBEDDEDLIST);
+    document.setProperty("val", 1);
 
     session.begin();
 
@@ -65,7 +64,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
-    final List<String> trackedList = document.field("embeddedlist");
+    final List<String> trackedList = document.getProperty("embeddedlist");
     trackedList.add("value2");
 
     Assert.assertTrue(document.isDirty());
@@ -92,8 +91,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     final Map<String, String> map = new HashMap<>();
     map.put("key1", "value1");
 
-    document.field("embeddedmap", map, PropertyType.EMBEDDEDMAP);
-    document.field("val", 1);
+    document.setProperty("embeddedmap", map, PropertyType.EMBEDDEDMAP);
+    document.setProperty("val", 1);
 
     session.begin();
 
@@ -104,7 +103,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
-    final Map<String, String> trackedMap = document.field("embeddedmap");
+    final Map<String, String> trackedMap = document.getProperty("embeddedmap");
     trackedMap.put("key2", "value2");
 
     Assert.assertTrue(document.isDirty());
@@ -130,8 +129,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     final Set<String> set = new HashSet<>();
     set.add("value1");
 
-    document.field("embeddedset", set, PropertyType.EMBEDDEDSET);
-    document.field("val", 1);
+    document.setProperty("embeddedset", set, PropertyType.EMBEDDEDSET);
+    document.setProperty("val", 1);
 
     session.begin();
 
@@ -142,7 +141,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
-    final Set<String> trackedSet = document.field("embeddedset");
+    final Set<String> trackedSet = document.getProperty("embeddedset");
     trackedSet.add("value2");
 
     Assert.assertTrue(document.isDirty());
@@ -173,8 +172,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     final Set<RID> set = new HashSet<>();
     set.add(docOne.getIdentity());
 
-    document.field("linkset", set, PropertyType.LINKSET);
-    document.field("val", 1);
+    document.setProperty("linkset", set, PropertyType.LINKSET);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -183,7 +182,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
-    final Set<RID> trackedSet = document.field("linkset");
+    final Set<RID> trackedSet = document.getProperty("linkset");
     trackedSet.add(docTwo.getIdentity());
 
     Assert.assertTrue(document.isDirty());
@@ -206,8 +205,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     final List<RID> list = new ArrayList<>();
     list.add(docOne.getIdentity());
 
-    document.field("linklist", list, PropertyType.LINKLIST);
-    document.field("val", 1);
+    document.setProperty("linklist", list, PropertyType.LINKLIST);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -217,7 +216,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
-    final List<RID> trackedList = document.field("linklist");
+    final List<RID> trackedList = document.getProperty("linklist");
     trackedList.add(docTwo.getIdentity());
 
     Assert.assertTrue(document.isDirty());
@@ -240,8 +239,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     final Map<String, RID> map = new HashMap<>();
     map.put("key1", docOne.getIdentity());
 
-    document.field("linkmap", map, PropertyType.LINKMAP);
-    document.field("val", 1);
+    document.setProperty("linkmap", map, PropertyType.LINKMAP);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -251,7 +250,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
-    final Map<String, RID> trackedMap = document.field("linkmap");
+    final Map<String, RID> trackedMap = document.getProperty("linkmap");
     trackedMap.put("key2", docTwo.getIdentity());
 
     final MultiValueChangeTimeLine timeLine = document.getCollectionTimeLine("linkmap");
@@ -268,8 +267,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     final List<String> list = new ArrayList<>();
     list.add("value1");
 
-    document.field("embeddedlist", list, PropertyType.EMBEDDEDLIST);
-    document.field("val", 1);
+    document.setProperty("embeddedlist", list, PropertyType.EMBEDDEDLIST);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -278,7 +277,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
-    final List<String> trackedList = document.field("embeddedlist");
+    final List<String> trackedList = document.getProperty("embeddedlist");
     trackedList.add("value2");
 
     Assert.assertTrue(document.isDirty());
@@ -306,8 +305,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     final Map<String, String> map = new HashMap<>();
     map.put("key1", "value1");
 
-    document.field("embeddedmap", map, PropertyType.EMBEDDEDMAP);
-    document.field("val", 1);
+    document.setProperty("embeddedmap", map, PropertyType.EMBEDDEDMAP);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -316,7 +315,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
-    final Map<String, String> trackedMap = document.field("embeddedmap");
+    final Map<String, String> trackedMap = document.getProperty("embeddedmap");
     trackedMap.put("key2", "value2");
 
     Assert.assertTrue(document.isDirty());
@@ -343,8 +342,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     final Set<String> set = new HashSet<>();
     set.add("value1");
 
-    document.field("embeddedset", set, PropertyType.EMBEDDEDSET);
-    document.field("val", 1);
+    document.setProperty("embeddedset", set, PropertyType.EMBEDDEDSET);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -353,7 +352,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
-    final Set<String> trackedSet = document.field("embeddedset");
+    final Set<String> trackedSet = document.getProperty("embeddedset");
     trackedSet.add("value2");
 
     Assert.assertTrue(document.isDirty());
@@ -384,8 +383,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     final Set<RID> set = new HashSet<>();
     set.add(docOne.getIdentity());
 
-    document.field("linkset", set, PropertyType.LINKSET);
-    document.field("val", 1);
+    document.setProperty("linkset", set, PropertyType.LINKSET);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -394,7 +393,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
-    final Set<RID> trackedSet = document.field("linkset");
+    final Set<RID> trackedSet = document.getProperty("linkset");
     trackedSet.add(docTwo.getIdentity());
 
     Assert.assertTrue(document.isDirty());
@@ -417,8 +416,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     final List<RID> list = new ArrayList<>();
     list.add(docOne.getIdentity());
 
-    document.field("linklist", list, PropertyType.LINKLIST);
-    document.field("val", 1);
+    document.setProperty("linklist", list, PropertyType.LINKLIST);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -427,7 +426,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
-    final List<RID> trackedList = document.field("linklist");
+    final List<RID> trackedList = document.getProperty("linklist");
     trackedList.add(docTwo.getIdentity());
 
     Assert.assertTrue(document.isDirty());
@@ -450,8 +449,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     final Map<String, RID> map = new HashMap<>();
     map.put("key1", docOne.getIdentity());
 
-    document.field("linkmap", map, PropertyType.LINKMAP);
-    document.field("val", 1);
+    document.setProperty("linkmap", map, PropertyType.LINKMAP);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -460,7 +459,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
-    final Map<String, RID> trackedMap = document.field("linkmap");
+    final Map<String, RID> trackedMap = document.getProperty("linkmap");
     trackedMap.put("key2", docTwo.getIdentity());
 
     final MultiValueChangeTimeLine timeLine = document.getCollectionTimeLine("linkmap");
@@ -477,8 +476,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     final List<String> list = new ArrayList<>();
     list.add("value1");
 
-    document.field("embeddedlist", list);
-    document.field("val", 1);
+    document.setProperty("embeddedlist", list);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -487,7 +486,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
-    final List<String> trackedList = document.field("embeddedlist");
+    final List<String> trackedList = document.getProperty("embeddedlist");
     trackedList.add("value2");
 
     Assert.assertTrue(document.isDirty());
@@ -516,8 +515,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     map.put("key1", "value1");
 
     session.begin();
-    document.field("embeddedmap", map);
-    document.field("val", 1);
+    document.setProperty("embeddedmap", map);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -526,7 +525,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
-    final Map<String, String> trackedMap = document.field("embeddedmap");
+    final Map<String, String> trackedMap = document.getProperty("embeddedmap");
     trackedMap.put("key2", "value2");
 
     Assert.assertTrue(document.isDirty());
@@ -553,8 +552,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     set.add("value1");
 
     session.begin();
-    document.field("embeddedset", set);
-    document.field("val", 1);
+    document.setProperty("embeddedset", set);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -563,7 +562,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
-    final Set<String> trackedSet = document.field("embeddedset");
+    final Set<String> trackedSet = document.getProperty("embeddedset");
     trackedSet.add("value2");
 
     Assert.assertTrue(document.isDirty());
@@ -594,8 +593,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     final Set<RID> set = new HashSet<>();
     set.add(docOne.getIdentity());
 
-    document.field("linkset", set);
-    document.field("val", 1);
+    document.setProperty("linkset", set);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -604,7 +603,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
-    final Set<RID> trackedSet = document.field("linkset");
+    final Set<RID> trackedSet = document.getProperty("linkset");
     trackedSet.add(docTwo.getIdentity());
 
     final MultiValueChangeTimeLine timeLine = document.getCollectionTimeLine("linkset");
@@ -625,8 +624,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     final List<RID> list = new ArrayList<>();
     list.add(docOne.getIdentity());
 
-    document.field("linklist", list);
-    document.field("val", 1);
+    document.setProperty("linklist", list);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -635,7 +634,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
-    final List<RID> trackedList = document.field("linklist");
+    final List<RID> trackedList = document.getProperty("linklist");
     trackedList.add(docTwo.getIdentity());
 
     Assert.assertTrue(document.isDirty());
@@ -658,8 +657,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     final Map<String, RID> map = new HashMap<>();
     map.put("key1", docOne.getIdentity());
 
-    document.field("linkmap", map);
-    document.field("val", 1);
+    document.setProperty("linkmap", map);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -668,7 +667,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
-    final Map<String, RID> trackedMap = document.field("linkmap");
+    final Map<String, RID> trackedMap = document.getProperty("linkmap");
     trackedMap.put("key2", docTwo.getIdentity());
 
     final MultiValueChangeTimeLine timeLine = document.getCollectionTimeLine("linkmap");
@@ -686,8 +685,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     final Set<String> set = new HashSet<>();
     set.add("value1");
 
-    document.field("embeddedlist", set);
-    document.field("val", 1);
+    document.setProperty("embeddedlist", set);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -709,8 +708,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     final List<String> list = new ArrayList<>();
     list.add("value1");
 
-    document.field("embeddedset", list);
-    document.field("val", 1);
+    document.setProperty("embeddedset", list);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -731,8 +730,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     list.add("value1");
 
     session.begin();
-    document.field("embeddedlist", list);
-    document.field("val", 1);
+    document.setProperty("embeddedlist", list);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -741,11 +740,11 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
-    final List<String> trackedList = document.field("embeddedlist");
+    final List<String> trackedList = document.getProperty("embeddedlist");
     trackedList.add("value2");
 
     final List<String> newTrackedList = new TrackedList<>(document);
-    document.field("embeddedlist", newTrackedList);
+    document.setProperty("embeddedlist", newTrackedList);
     newTrackedList.add("value3");
 
     Assert.assertTrue(document.isDirty());
@@ -765,8 +764,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     map.put("key1", "value1");
 
     session.begin();
-    document.field("embeddedmap", map);
-    document.field("val", 1);
+    document.setProperty("embeddedmap", map);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -775,11 +774,11 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
-    final Map<String, String> trackedMap = document.field("embeddedmap");
+    final Map<String, String> trackedMap = document.getProperty("embeddedmap");
     trackedMap.put("key2", "value2");
 
     final Map<String, String> newTrackedMap = new TrackedMap<>(document);
-    document.field("embeddedmap", newTrackedMap);
+    document.setProperty("embeddedmap", newTrackedMap);
     newTrackedMap.put("key3", "value3");
 
     Assert.assertTrue(document.isDirty());
@@ -798,8 +797,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     set.add("value1");
 
     session.begin();
-    document.field("embeddedset", set);
-    document.field("val", 1);
+    document.setProperty("embeddedset", set);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -808,11 +807,11 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
-    final Set<String> trackedSet = document.field("embeddedset");
+    final Set<String> trackedSet = document.getProperty("embeddedset");
     trackedSet.add("value2");
 
     final Set<String> newTrackedSet = new TrackedSet<>(document);
-    document.field("embeddedset", newTrackedSet);
+    document.setProperty("embeddedset", newTrackedSet);
     newTrackedSet.add("value3");
 
     Assert.assertTrue(document.isDirty());
@@ -831,8 +830,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     list.add("value1");
 
     session.begin();
-    document.field("embeddedlist", list);
-    document.field("val", 1);
+    document.setProperty("embeddedlist", list);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -841,10 +840,10 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
-    final List<String> trackedList = document.field("embeddedlist");
+    final List<String> trackedList = document.getProperty("embeddedlist");
     trackedList.add("value2");
 
-    document.removeField("embeddedlist");
+    document.removeProperty("embeddedlist");
 
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(),
         new String[]{"embeddedlist"});
@@ -860,8 +859,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     list.add("value1");
 
     session.begin();
-    document.field("embeddedlist", list);
-    document.field("val", 1);
+    document.setProperty("embeddedlist", list);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -870,7 +869,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
-    final List<String> trackedList = document.field("embeddedlist");
+    final List<String> trackedList = document.getProperty("embeddedlist");
     trackedList.add("value2");
 
     document.setTrackingChanges(false);
@@ -888,8 +887,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     list.add("value1");
 
     session.begin();
-    document.field("embeddedlist", list);
-    document.field("val", 1);
+    document.setProperty("embeddedlist", list);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -898,7 +897,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
-    final List<String> trackedList = document.field("embeddedlist");
+    final List<String> trackedList = document.getProperty("embeddedlist");
     trackedList.add("value2");
 
     document.setTrackingChanges(false);
@@ -928,8 +927,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     list.add("value1");
 
     session.begin();
-    document.field("embeddedlist", list);
-    document.field("val", 1);
+    document.setProperty("embeddedlist", list);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -938,7 +937,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
-    final List<String> trackedList = document.field("embeddedlist");
+    final List<String> trackedList = document.getProperty("embeddedlist");
     trackedList.add("value2");
 
     document = ((EntityImpl) session.newEntity("DocumentTrackingTestClass"));
@@ -956,8 +955,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     list.add("value1");
 
     session.begin();
-    document.field("embeddedlist", list);
-    document.field("val", 1);
+    document.setProperty("embeddedlist", list);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -966,7 +965,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
-    final List<String> trackedList = document.field("embeddedlist");
+    final List<String> trackedList = document.getProperty("embeddedlist");
     trackedList.add("value2");
 
     document.clear();
@@ -984,8 +983,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     list.add("value1");
 
     session.begin();
-    document.field("embeddedlist", list);
-    document.field("val", 1);
+    document.setProperty("embeddedlist", list);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -994,7 +993,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
-    final List<String> trackedList = document.field("embeddedlist");
+    final List<String> trackedList = document.getProperty("embeddedlist");
     trackedList.add("value2");
 
     RecordInternal.unsetDirty(document);
@@ -1011,8 +1010,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     list.add("value1");
 
     session.begin();
-    document.field("embeddedlist", list);
-    document.field("val", 1);
+    document.setProperty("embeddedlist", list);
+    document.setProperty("val", 1);
 
     session.commit();
 
@@ -1021,7 +1020,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
-    final List<String> trackedList = document.field("embeddedlist");
+    final List<String> trackedList = document.getProperty("embeddedlist");
     trackedList.add("value2");
 
     RecordInternal.unsetDirty(document);
@@ -1037,7 +1036,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     list.add("value1");
 
     session.begin();
-    document.field("embeddedlist", list);
+    document.setProperty("embeddedlist", list);
 
     session.commit();
 
@@ -1046,12 +1045,12 @@ public class DocumentTrackingTest extends BaseDBTest {
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
-    final List<String> trackedList = document.field("embeddedlist");
+    final List<String> trackedList = document.getProperty("embeddedlist");
     trackedList.add("value2");
 
-    final Iterator fieldIterator = document.iterator();
-    fieldIterator.next();
-    fieldIterator.remove();
+    final var propertyNameIterator = document.getPropertyNames().iterator();
+    var name = propertyNameIterator.next();
+    document.removeProperty(name);
 
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(),
         new String[]{"embeddedlist"});

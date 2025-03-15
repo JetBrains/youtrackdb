@@ -46,9 +46,7 @@ public class LuceneSpatialIOTest extends BaseSpatialLuceneTest {
   public void testPointIO() throws ParseException, org.locationtech.jts.io.ParseException {
 
     var doc = ((EntityImpl) session.newEntity("OPoint"));
-    doc.field(
-        "coordinates",
-        new ArrayList<Double>() {
+    doc.setProperty("coordinates", new ArrayList<Double>() {
           {
             add(-100d);
             add(45d);
@@ -67,7 +65,8 @@ public class LuceneSpatialIOTest extends BaseSpatialLuceneTest {
 
     var parsed = builder.toEntitty(p2);
 
-    Assert.assertEquals(doc.<PointShapeBuilder>field("coordinates"), parsed.field("coordinates"));
+    Assert.assertEquals(doc.<PointShapeBuilder>getProperty("coordinates"),
+        parsed.getProperty("coordinates"));
   }
 
   // MULTIPOINT
@@ -75,9 +74,7 @@ public class LuceneSpatialIOTest extends BaseSpatialLuceneTest {
   public void testMultiPointIO() {
 
     var doc = ((EntityImpl) session.newEntity("OMultiPoint"));
-    doc.field(
-        "coordinates",
-        new ArrayList<List<Double>>() {
+    doc.setProperty("coordinates", new ArrayList<List<Double>>() {
           {
             add(Arrays.asList(-71.160281, 42.258729));
             add(Arrays.asList(-71.160837, 42.259113));
@@ -128,9 +125,7 @@ public class LuceneSpatialIOTest extends BaseSpatialLuceneTest {
   public void testLineStringIO() {
 
     var doc = ((EntityImpl) session.newEntity("OLineString"));
-    doc.field(
-        "coordinates",
-        new ArrayList<List<Double>>() {
+    doc.setProperty("coordinates", new ArrayList<List<Double>>() {
           {
             add(Arrays.asList(-71.160281, 42.258729));
             add(Arrays.asList(-71.160837, 42.259113));
@@ -161,9 +156,7 @@ public class LuceneSpatialIOTest extends BaseSpatialLuceneTest {
   public void testMultiLineStringIO() {
 
     var doc = ((EntityImpl) session.newEntity("OMultiLineString"));
-    doc.field(
-        "coordinates",
-        new ArrayList<List<List<Double>>>() {
+    doc.setProperty("coordinates", new ArrayList<List<List<Double>>>() {
           {
             add(
                 new ArrayList<List<Double>>() {
@@ -204,9 +197,7 @@ public class LuceneSpatialIOTest extends BaseSpatialLuceneTest {
   public void testPolygonNoHolesIO() {
 
     var doc = ((EntityImpl) session.newEntity("OPolygon"));
-    doc.field(
-        "coordinates",
-        new ArrayList<List<List<Double>>>() {
+    doc.setProperty("coordinates", new ArrayList<List<List<Double>>>() {
           {
             add(
                 new ArrayList<List<Double>>() {
@@ -242,7 +233,7 @@ public class LuceneSpatialIOTest extends BaseSpatialLuceneTest {
   public void testPolygonHolesIO() {
 
     var doc = ((EntityImpl) session.newEntity("OPolygon"));
-    doc.field("coordinates", polygonCoordTestHole());
+    doc.setProperty("coordinates", polygonCoordTestHole());
 
     var polygon1 = polygonTestHole();
 

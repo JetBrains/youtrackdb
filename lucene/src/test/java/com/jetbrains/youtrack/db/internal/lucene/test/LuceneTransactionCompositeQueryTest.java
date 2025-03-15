@@ -48,8 +48,8 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
   public void testRollback() {
 
     var doc = ((EntityImpl) session.newEntity("Foo"));
-    doc.field("name", "Test");
-    doc.field("bar", "abc");
+    doc.setProperty("name", "Test");
+    doc.setProperty("bar", "abc");
     session.begin();
 
     var query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";
@@ -68,8 +68,8 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
     session.begin();
 
     var doc = ((EntityImpl) session.newEntity("Foo"));
-    doc.field("name", "Test");
-    doc.field("bar", "abc");
+    doc.setProperty("name", "Test");
+    doc.setProperty("bar", "abc");
 
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Foo.bar");
 
@@ -116,15 +116,15 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
     Assert.assertEquals(0, index.size(session));
 
     var doc = ((EntityImpl) session.newEntity("Foo"));
-    doc.field("name", "Test");
-    doc.field("bar", "abc");
+    doc.setProperty("name", "Test");
+    doc.setProperty("bar", "abc");
 
     session.commit();
 
     session.begin();
 
     doc = session.bindToSession(doc);
-    doc.field("bar", "removed");
+    doc.setProperty("bar", "removed");
 
     var query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";
     var vertices = session.query(query);
@@ -176,19 +176,19 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
     Assert.assertEquals(0, index.size(session));
 
     var doc = ((EntityImpl) session.newEntity("Foo"));
-    doc.field("name", "Test");
-    doc.field("bar", "abc");
+    doc.setProperty("name", "Test");
+    doc.setProperty("bar", "abc");
 
     var doc1 = ((EntityImpl) session.newEntity("Foo"));
-    doc1.field("name", "Test");
-    doc1.field("bar", "abc");
+    doc1.setProperty("name", "Test");
+    doc1.setProperty("bar", "abc");
 
     session.commit();
 
     session.begin();
 
     doc = session.bindToSession(doc);
-    doc.field("bar", "removed");
+    doc.setProperty("bar", "removed");
 
     var query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";
     var vertices = session.command(query);

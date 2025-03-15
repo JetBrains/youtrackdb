@@ -141,7 +141,7 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
             continue;
           }
 
-          if (record.containsField(fieldName))
+          if (record.hasProperty(fieldName))
           // ALREADY UNMARSHALLED: DON'T OVERWRITE IT
           {
             continue;
@@ -274,11 +274,7 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
             String className = value.toString();
             ((EntityImpl) iRecord).fillClassIfNeed(className);
           } else {
-            record.field(fieldName, value, type);
-          }
-
-          if (uncertainType) {
-            record.setFieldType(fieldName, null);
+            record.setProperty(fieldName, value, type);
           }
         }
       } catch (Exception e) {
@@ -307,7 +303,7 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
     // Fix of nasty IBM JDK bug. In case of very depth recursive graph serialization
     // EntityImpl#_source property may be initialized incorrectly.
     final var recordSchemaAware = (EntityImpl) iRecord;
-    if (recordSchemaAware.fields() > 0) {
+    if (recordSchemaAware.getPropertiesCount() > 0) {
       return null;
     }
 
@@ -350,11 +346,11 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
     String fieldClassName;
     var i = 0;
 
-    final var fieldNames = record.fieldNames();
+    final var fieldNames = record.propertyNames();
 
     // MARSHALL ALL THE FIELDS OR DELTA IF TRACKING IS ENABLED
     for (var fieldName : fieldNames) {
-      var fieldValue = record.rawField(fieldName);
+      var fieldValue = record.getProperty(fieldName);
       if (i > 0) {
         iOutput.append(StringSerializerHelper.RECORD_SEPARATOR);
       }

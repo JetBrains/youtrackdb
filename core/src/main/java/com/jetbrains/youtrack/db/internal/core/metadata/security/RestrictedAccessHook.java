@@ -129,8 +129,8 @@ public class RestrictedAccessHook {
           .getMetadata()
           .getSecurity()
           .isAllowed(
-              entity.field(RestrictedOperation.ALLOW_ALL.getFieldName()),
-              entity.field(iAllowOperation.getFieldName()));
+              entity.getProperty(RestrictedOperation.ALLOW_ALL.getFieldName()),
+              entity.getProperty(iAllowOperation.getFieldName()));
     }
 
     return true;

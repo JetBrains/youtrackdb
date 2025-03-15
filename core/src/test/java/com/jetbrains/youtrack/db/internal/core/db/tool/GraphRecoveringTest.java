@@ -155,7 +155,7 @@ public class GraphRecoveringTest {
                 .filter(Objects::nonNull)
                 .map(Entity::asVertex)
                 .toList()) {
-          for (var f : v.<EntityImpl>getRecord(session).fieldNames()) {
+          for (var f : v.<EntityImpl>getRecord(session).propertyNames()) {
             if (f.startsWith(Vertex.DIRECTION_OUT_PREFIX)) {
               v.<EntityImpl>getRecord(session).removePropertyInternal(f);
             }

@@ -60,7 +60,6 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.QueryParsingException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.ClassIndexManager;
-import com.jetbrains.youtrack.db.internal.core.iterator.EmptyMapEntryIterator;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
@@ -69,7 +68,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.Identity;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyAccess;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyEncryption;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.RecordSchemaAware;
 import com.jetbrains.youtrack.db.internal.core.record.RecordVersionHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
@@ -81,7 +79,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -97,20 +94,18 @@ import javax.annotation.Nullable;
 /**
  * Entity representation to handle values dynamically. Can be used in schema-less, schema-mixed and
  * schema-full modes. Fields can be added at run-time. Instances can be reused across calls by using
- * the reset() before to re-use.
+ * the reset() before re-use.
  */
 @SuppressWarnings({"unchecked"})
-public class EntityImpl extends RecordAbstract
-    implements Iterable<Entry<String, Object>>, RecordSchemaAware, EntityInternal {
+public class EntityImpl extends RecordAbstract implements EntityInternal {
 
   public static char OPPOSITE_LINK_CONTAINER_PREFIX = '#';
-
   public static final byte RECORD_TYPE = 'd';
-  private static final String[] EMPTY_STRINGS = new String[]{};
-  public static final String RESULT_PROPERTY_TYPES = "$propertyTypes";
-  private int fieldSize;
 
-  private Map<String, EntityEntry> fields;
+  public static final String RESULT_PROPERTY_TYPES = "$propertyTypes";
+  private int propertiesCount;
+
+  private Map<String, EntityEntry> propertyEntries;
 
   private boolean trackingChanges = true;
   private boolean ordered = true;
@@ -167,11 +162,13 @@ public class EntityImpl extends RecordAbstract
     setClassName(iClassName);
 
     var cls = getImmutableSchemaClass(session);
-    if (!isEmbedded() && cls != null && cls.isAbstract()) {
-      throw new DatabaseException(session,
-          "Standalone entities can be only of non-abstract classes. Provided class : "
-              + cls.getName(
-          ) + " is abstract.");
+    if (cls != null) {
+      if (!isEmbedded() && cls.isAbstract()) {
+        throw new DatabaseException(session,
+            "Standalone entities can be only of non-abstract classes. Provided class : "
+                + cls.getName(
+            ) + " is abstract.");
+      }
     }
   }
 
@@ -310,55 +307,55 @@ public class EntityImpl extends RecordAbstract
 
     if (status == RecordElement.STATUS.LOADED && source != null) {
       // DESERIALIZE FIELD NAMES ONLY (SUPPORTED ONLY BY BINARY SERIALIZER)
-      final var fieldNames = recordFormat.getFieldNames(session, this, source);
-      if (fieldNames != null) {
-        Set<String> fields = new LinkedHashSet<>();
+      final var propertyNames = recordFormat.getFieldNames(session, this, source);
+      if (propertyNames != null) {
+        Set<String> properties = new LinkedHashSet<>();
         if (propertyAccess != null && propertyAccess.hasFilters()) {
-          for (var fieldName : fieldNames) {
-            if ((includeSystemProperties || !isSystemProperty(fieldName))
-                && propertyAccess.isReadable(fieldName)) {
-              fields.add(fieldName);
+          for (var propertyName : propertyNames) {
+            if ((includeSystemProperties || !isSystemProperty(propertyName))
+                && propertyAccess.isReadable(propertyName)) {
+              properties.add(propertyName);
             }
           }
         } else {
-          for (var fieldName : fieldNames) {
-            if ((includeSystemProperties || !isSystemProperty(fieldName))) {
-              fields.add(fieldName);
+          for (var propertyName : propertyNames) {
+            if ((includeSystemProperties || !isSystemProperty(propertyName))) {
+              properties.add(propertyName);
             }
           }
         }
-        return fields;
+        return properties;
       }
     }
 
-    checkForFields();
+    checkForProperties();
 
-    if (fields == null || fields.isEmpty()) {
+    if (propertyEntries == null || propertyEntries.isEmpty()) {
       return Collections.emptySet();
     }
 
-    Set<String> fields = new LinkedHashSet<>();
+    Set<String> properties = new LinkedHashSet<>();
     if (propertyAccess != null && propertyAccess.hasFilters()) {
-      for (var entry : this.fields.entrySet()) {
+      for (var entry : this.propertyEntries.entrySet()) {
         var propertyName = entry.getKey();
         if (entry.getValue().exists() && (includeSystemProperties || !isSystemProperty(
             propertyName)) &&
             propertyAccess.isReadable(propertyName)) {
-          fields.add(entry.getKey());
+          properties.add(entry.getKey());
         }
       }
     } else {
-      for (var entry : this.fields.entrySet()) {
+      for (var entry : this.propertyEntries.entrySet()) {
         if (entry.getValue().exists()) {
           var propertyName = entry.getKey();
           if (includeSystemProperties || !isSystemProperty(propertyName)) {
-            fields.add(propertyName);
+            properties.add(propertyName);
           }
         }
       }
     }
 
-    return fields;
+    return properties;
   }
 
   @Override
@@ -373,13 +370,13 @@ public class EntityImpl extends RecordAbstract
       return calculatePropertyNames(includeSystemProperties);
     } else {
       checkForBinding();
-      if (fields == null || fields.isEmpty()) {
+      if (propertyEntries == null || propertyEntries.isEmpty()) {
         return Collections.emptySet();
       }
 
       Set<String> propertyNames = new LinkedHashSet<>();
 
-      for (var entry : this.fields.entrySet()) {
+      for (var entry : this.propertyEntries.entrySet()) {
         if (entry.getValue().exists()) {
           var propertyName = entry.getKey();
           if (includeSystemProperties || !isSystemProperty(propertyName)) {
@@ -395,17 +392,17 @@ public class EntityImpl extends RecordAbstract
   /**
    * retrieves a property value from the current entity
    *
-   * @param fieldName The field name, it can contain any character (it's not evaluated as an
-   *                  expression, as in #eval()
-   * @return the field value. Null if the field does not exist.
+   * @param propertyName The property name, it can contain any character (it's not evaluated as an
+   *                     expression, as in #eval()
+   * @return the property value. Null if the property does not exist.
    */
-  public <RET> RET getProperty(final @Nonnull String fieldName) {
-    validatePropertyName(fieldName, true);
-    if (!filterPropertyAccess(fieldName)) {
+  public <RET> RET getProperty(final @Nonnull String propertyName) {
+    validatePropertyName(propertyName, true);
+    if (!filterPropertyAccess(propertyName)) {
       return null;
     }
 
-    return getPropertyInternal(fieldName);
+    return getPropertyInternal(propertyName);
   }
 
 
@@ -469,9 +466,9 @@ public class EntityImpl extends RecordAbstract
     }
 
     RET value = null;
-    checkForFields(name);
+    checkForProperties(name);
 
-    var entry = fields.get(name);
+    var entry = propertyEntries.get(name);
     if (entry != null && entry.exists()) {
       value = (RET) entry.value;
     }
@@ -511,11 +508,11 @@ public class EntityImpl extends RecordAbstract
   @Override
   public <RET> RET getPropertyOnLoadValueInternal(@Nonnull String name) {
     checkForBinding();
-    checkForFields();
+    checkForProperties();
 
-    var field = fields.get(name);
-    if (field != null) {
-      var onLoadValue = (RET) field.getOnLoadValue(session);
+    var property = propertyEntries.get(name);
+    if (property != null) {
+      var onLoadValue = (RET) property.getOnLoadValue(session);
       if (onLoadValue instanceof RidBag) {
         throw new IllegalArgumentException(
             "getPropertyOnLoadValue(name) is not designed to work with Edge properties");
@@ -560,22 +557,22 @@ public class EntityImpl extends RecordAbstract
 
   /**
    * This method similar to {@link Result#getProperty(String)} but unlike before mentioned method it
-   * does not load link automatically.
+   * does not load links automatically.
    *
-   * @param fieldName the name of the link property
+   * @param propertyName the name of the link property
    * @return the link property value, or null if the property does not exist
    * @throws IllegalArgumentException if requested property is not a link.
    * @see Result#getProperty(String)
    */
   @Nullable
   @Override
-  public RID getLink(@Nonnull String fieldName) {
-    validatePropertyName(fieldName, true);
-    if (!filterPropertyAccess(fieldName)) {
+  public RID getLink(@Nonnull String propertyName) {
+    validatePropertyName(propertyName, true);
+    if (!filterPropertyAccess(propertyName)) {
       return null;
     }
 
-    return getLinkPropertyInternal(fieldName);
+    return getLinkPropertyInternal(propertyName);
   }
 
   @Nullable
@@ -694,7 +691,7 @@ public class EntityImpl extends RecordAbstract
   }
 
   /**
-   * sets a property value on current entity
+   * sets a property value
    *
    * @param propertyName  The property name
    * @param propertyValue The property value
@@ -1171,11 +1168,14 @@ public class EntityImpl extends RecordAbstract
   }
 
   private static void validatePropertyName(String propertyName, boolean allowMetadata) {
-    if (propertyName == null || propertyName.isEmpty()) {
-      throw new DatabaseException("Empty property name was provided");
-    }
+    final var c = SchemaShared.checkPropertyNameIfValid(propertyName);
     if (allowMetadata && propertyName.charAt(0) == '@') {
       return;
+    }
+
+    if (c != null) {
+      throw new IllegalArgumentException(
+          "Invalid property name '" + propertyName);
     }
 
     var firstChar = propertyName.charAt(0);
@@ -1195,14 +1195,14 @@ public class EntityImpl extends RecordAbstract
    * @param exclude Field names to exclude from move.
    */
   public void movePropertiesFromOtherEntity(@Nonnull EntityImpl from, String... exclude) {
-    checkForFields();
-    from.checkForFields();
+    checkForProperties();
+    from.checkForProperties();
 
-    if (from.fields.isEmpty()) {
+    if (from.propertyEntries.isEmpty()) {
       return;
     }
 
-    var fromFields = new HashMap<>(from.fields);
+    var fromFields = new HashMap<>(from.propertyEntries);
     var sameCluster = from.recordId.getClusterId() == recordId.getClusterId();
     var excludeSet = new HashSet<String>();
 
@@ -1218,7 +1218,7 @@ public class EntityImpl extends RecordAbstract
         }
 
         var fromEntry = mapEntry.getValue();
-        var currentEntry = fields.get(mapEntry.getKey());
+        var currentEntry = propertyEntries.get(mapEntry.getKey());
         var currentValue = currentEntry != null ? currentEntry.value : null;
         var fromValue = fromEntry.value;
 
@@ -1370,17 +1370,17 @@ public class EntityImpl extends RecordAbstract
       }
     }
 
-    checkForFields();
+    checkForProperties();
 
-    var entry = fields.get(name);
+    var entry = propertyEntries.get(name);
     final boolean knownProperty;
     final Object oldValue;
     final PropertyType oldType;
 
     if (entry == null) {
       entry = new EntityEntry();
-      fieldSize++;
-      fields.put(name, entry);
+      propertiesCount++;
+      propertyEntries.put(name, entry);
       entry.markCreated();
       knownProperty = false;
       oldValue = null;
@@ -1395,11 +1395,11 @@ public class EntityImpl extends RecordAbstract
       value = value.toString();
     }
 
-    var fieldType = deriveFieldType(name, entry, type, value);
-    value = EntityHelper.convertField(session, this, name, fieldType, linkedType, value);
+    var propertyType = derivePropertyType(name, type, value);
+    value = convertField(session, this, name, propertyType, linkedType, value);
     if (knownProperty) {
       try {
-        if (fieldType == oldType) {
+        if (propertyType == oldType) {
           if (value instanceof byte[]
               && Arrays.equals((byte[]) value, (byte[]) oldValue)) {
             return;
@@ -1434,7 +1434,7 @@ public class EntityImpl extends RecordAbstract
 
     if (value != null) {
       switch (value) {
-        case EntityImpl entity when PropertyType.EMBEDDED.equals(fieldType) -> {
+        case EntityImpl entity when PropertyType.EMBEDDED.equals(propertyType) -> {
           entity.setOwner(this);
         }
         case RidBag ridBag -> {
@@ -1451,9 +1451,9 @@ public class EntityImpl extends RecordAbstract
         }
       }
 
-      if (oldType != fieldType) {
+      if (oldType != propertyType) {
         // can be made in a better way, but "keeping type" issue should be solved before
-        entry.type = fieldType;
+        entry.type = propertyType;
       }
     }
 
@@ -1462,7 +1462,7 @@ public class EntityImpl extends RecordAbstract
     entry.value = value;
     if (!entry.exists()) {
       entry.setExists(true);
-      fieldSize++;
+      propertiesCount++;
     }
 
     entry.enableTracking(this);
@@ -1483,7 +1483,7 @@ public class EntityImpl extends RecordAbstract
   @Override
   public <RET> RET removePropertyInternal(String name) {
     checkForBinding();
-    checkForFields();
+    checkForProperties();
 
     if (EntityHelper.ATTRIBUTE_RID.equalsIgnoreCase(name)) {
       throw new DatabaseException(session.getDatabaseName(),
@@ -1498,7 +1498,7 @@ public class EntityImpl extends RecordAbstract
           "Attribute " + EntityHelper.ATTRIBUTE_CLASS + " is read-only");
     }
 
-    final var entry = fields.get(name);
+    final var entry = propertyEntries.get(name);
     if (entry == null) {
       return null;
     }
@@ -1514,9 +1514,9 @@ public class EntityImpl extends RecordAbstract
       entry.setExists(false);
       entry.markChanged();
     } else {
-      fields.remove(name);
+      propertyEntries.remove(name);
     }
-    fieldSize--;
+    propertiesCount--;
     entry.disableTracking(this, oldValue);
 
     if (oldValue instanceof RidBag) {
@@ -1529,24 +1529,20 @@ public class EntityImpl extends RecordAbstract
     return (RET) oldValue;
   }
 
-  private static void validateFieldsSecurity(DatabaseSessionInternal session,
+  private static void validatePropertiesSecurity(@Nonnull DatabaseSessionInternal session,
       EntityImpl iRecord)
       throws ValidationException {
-    if (session == null) {
-      return;
-    }
-
     iRecord.checkForBinding();
     iRecord = (EntityImpl) iRecord.getRecord(session);
 
     var security = session.getSharedContext().getSecurity();
-    for (var mapEntry : iRecord.fields.entrySet()) {
+    for (var mapEntry : iRecord.propertyEntries.entrySet()) {
       var entry = mapEntry.getValue();
       if (entry != null && (entry.isTxChanged() || entry.isTxTrackedModified())) {
         if (!security.isAllowedWrite(session, iRecord, mapEntry.getKey())) {
           throw new SecurityException(session.getDatabaseName(),
               String.format(
-                  "Change of field '%s' is not allowed for user '%s'",
+                  "Change of property '%s' is not allowed for user '%s'",
                   iRecord.getSchemaClassName() + "." + mapEntry.getKey(),
                   session.geCurrentUser().getName(session)));
         }
@@ -1554,37 +1550,37 @@ public class EntityImpl extends RecordAbstract
     }
   }
 
-  private static void validateField(
+  private static void validateProperty(
       DatabaseSessionInternal session, ImmutableSchema schema, EntityImpl iRecord,
       ImmutableSchemaProperty p)
       throws ValidationException {
     iRecord.checkForBinding();
     iRecord = (EntityImpl) iRecord.getRecord(session);
 
-    final Object fieldValue;
-    var entry = iRecord.fields.get(p.getName());
+    final Object propertyValue;
+    var entry = iRecord.propertyEntries.get(p.getName());
     if (entry != null && entry.exists()) {
       // AVOID CONVERSIONS: FASTER!
-      fieldValue = entry.value;
+      propertyValue = entry.value;
 
-      if (p.isNotNull() && fieldValue == null)
+      if (p.isNotNull() && propertyValue == null)
       // NULLITY
       {
         throw new ValidationException(session.getDatabaseName(),
-            "The field '" + p.getFullName() + "' cannot be null, record: " + iRecord);
+            "The property '" + p.getFullName() + "' cannot be null, record: " + iRecord);
       }
 
-      if (fieldValue != null && p.getRegexp() != null && p.getType()
+      if (propertyValue != null && p.getRegexp() != null && p.getType()
           .equals(PropertyType.STRING)) {
         // REGEXP
-        if (!((String) fieldValue).matches(p.getRegexp())) {
+        if (!((String) propertyValue).matches(p.getRegexp())) {
           throw new ValidationException(session.getDatabaseName(),
-              "The field '"
+              "The property '"
                   + p.getFullName()
                   + "' does not match the regular expression '"
                   + p.getRegexp()
                   + "'. Field value is: "
-                  + fieldValue
+                  + propertyValue
                   + ", record: "
                   + iRecord);
         }
@@ -1593,122 +1589,123 @@ public class EntityImpl extends RecordAbstract
     } else {
       if (p.isMandatory()) {
         throw new ValidationException(session.getDatabaseName(),
-            "The field '"
+            "The property '"
                 + p.getFullName()
                 + "' is mandatory, but not found on record: "
                 + iRecord);
       }
-      fieldValue = null;
+      propertyValue = null;
     }
 
     final var type = p.getType();
 
-    if (fieldValue != null && type != null) {
+    if (propertyValue != null && type != null) {
       // CHECK TYPE
       switch (type) {
         case LINK:
-          validateLink(schema, session, p, fieldValue, false);
+          validateLink(schema, session, p, propertyValue, false);
           break;
         case LINKLIST:
-          if (!(fieldValue instanceof LinkList)) {
+          if (!(propertyValue instanceof LinkList)) {
             throw new ValidationException(session.getDatabaseName(),
-                "The field '"
+                "The property '"
                     + p.getFullName()
                     + "' has been declared as LINKLIST but an incompatible type is used. Value: "
-                    + fieldValue);
+                    + propertyValue);
           }
-          validateLinkCollection(session, schema, p, (Collection<Object>) fieldValue, entry);
+          validateLinkCollection(session, schema, p, (Collection<Object>) propertyValue, entry);
           break;
         case LINKSET:
-          if (!(fieldValue instanceof LinkSet)) {
+          if (!(propertyValue instanceof LinkSet)) {
             throw new ValidationException(session.getDatabaseName(),
-                "The field '"
+                "The property '"
                     + p.getFullName()
                     + "' has been declared as LINKSET but an incompatible type is used. Value: "
-                    + fieldValue);
+                    + propertyValue);
           }
-          validateLinkCollection(session, schema, p, (Collection<Object>) fieldValue, entry);
+          validateLinkCollection(session, schema, p, (Collection<Object>) propertyValue, entry);
           break;
         case LINKMAP:
-          if (!(fieldValue instanceof LinkMap)) {
+          if (!(propertyValue instanceof LinkMap)) {
             throw new ValidationException(session.getDatabaseName(),
-                "The field '"
+                "The property '"
                     + p.getFullName()
                     + "' has been declared as LINKMAP but an incompatible type is used. Value: "
-                    + fieldValue);
+                    + propertyValue);
           }
-          validateLinkCollection(session, schema, p, ((Map<?, Object>) fieldValue).values(), entry);
+          validateLinkCollection(session, schema, p, ((Map<?, Object>) propertyValue).values(),
+              entry);
           break;
 
         case LINKBAG:
-          if (!(fieldValue instanceof RidBag)) {
+          if (!(propertyValue instanceof RidBag)) {
             throw new ValidationException(session.getDatabaseName(),
-                "The field '"
+                "The property '"
                     + p.getFullName()
                     + "' has been declared as LINKBAG but an incompatible type is used. Value: "
-                    + fieldValue);
+                    + propertyValue);
           }
-          validateLinkCollection(session, schema, p, (Iterable<Object>) fieldValue, entry);
+          validateLinkCollection(session, schema, p, (Iterable<Object>) propertyValue, entry);
           break;
         case EMBEDDED:
-          validateEmbedded(session, p, fieldValue);
+          validateEmbedded(session, p, propertyValue);
           break;
         case EMBEDDEDLIST:
-          if (!(fieldValue instanceof TrackedList<?>)) {
+          if (!(propertyValue instanceof TrackedList<?>)) {
             throw new ValidationException(session.getDatabaseName(),
-                "The field '"
+                "The property '"
                     + p.getFullName()
                     + "' has been declared as EMBEDDEDLIST but an incompatible type is used. Value:"
                     + " "
-                    + fieldValue);
+                    + propertyValue);
           }
           if (p.getLinkedClass() != null) {
-            for (var item : ((List<?>) fieldValue)) {
+            for (var item : ((List<?>) propertyValue)) {
               validateEmbedded(session, p, item);
             }
           } else {
             if (p.getLinkedType() != null) {
-              for (var item : ((List<?>) fieldValue)) {
+              for (var item : ((List<?>) propertyValue)) {
                 validateType(session, p, item);
               }
             }
           }
           break;
         case EMBEDDEDSET:
-          if (!(fieldValue instanceof TrackedSet<?>)) {
+          if (!(propertyValue instanceof TrackedSet<?>)) {
             throw new ValidationException(session.getDatabaseName(),
-                "The field '"
+                "The property '"
                     + p.getFullName()
                     + "' has been declared as EMBEDDEDSET but an incompatible type is used. Value: "
-                    + fieldValue);
+                    + propertyValue);
           }
           if (p.getLinkedClass() != null) {
-            for (var item : ((Set<?>) fieldValue)) {
+            for (var item : ((Set<?>) propertyValue)) {
               validateEmbedded(session, p, item);
             }
           } else {
             if (p.getLinkedType() != null) {
-              for (var item : ((Set<?>) fieldValue)) {
+              for (var item : ((Set<?>) propertyValue)) {
                 validateType(session, p, item);
               }
             }
           }
           break;
         case EMBEDDEDMAP:
-          if (!(fieldValue instanceof TrackedMap<?>)) {
+          if (!(propertyValue instanceof TrackedMap<?>)) {
             throw new ValidationException(session.getDatabaseName(),
-                "The field '"
+                "The property '"
                     + p.getFullName()
                     + "' has been declared as EMBEDDEDMAP but an incompatible type is used. Value: "
-                    + fieldValue);
+                    + propertyValue);
           }
           if (p.getLinkedClass() != null) {
-            for (var colleEntry : ((Map<?, ?>) fieldValue).entrySet()) {
+            for (var colleEntry : ((Map<?, ?>) propertyValue).entrySet()) {
               validateEmbedded(session, p, colleEntry.getValue());
             }
           } else {
             if (p.getLinkedType() != null) {
-              for (var collEntry : ((Map<?, ?>) fieldValue).entrySet()) {
+              for (var collEntry : ((Map<?, ?>) propertyValue).entrySet()) {
                 validateType(session, p, collEntry.getValue());
               }
             }
@@ -1717,14 +1714,14 @@ public class EntityImpl extends RecordAbstract
       }
     }
 
-    if (p.getMin() != null && fieldValue != null) {
+    if (p.getMin() != null && propertyValue != null) {
       // MIN
       final var min = p.getMin();
-      if (p.getMinComparable().compareTo(fieldValue) > 0) {
+      if (p.getMinComparable().compareTo(propertyValue) > 0) {
         switch (p.getType()) {
           case STRING:
             throw new ValidationException(session.getDatabaseName(),
-                "The field '"
+                "The property '"
                     + p.getFullName()
                     + "' contains fewer characters than "
                     + min
@@ -1732,16 +1729,16 @@ public class EntityImpl extends RecordAbstract
           case DATE:
           case DATETIME:
             throw new ValidationException(session.getDatabaseName(),
-                "The field '"
+                "The property '"
                     + p.getFullName()
                     + "' contains the date "
-                    + fieldValue
+                    + propertyValue
                     + " which precedes the first acceptable date ("
                     + min
                     + ")");
           case BINARY:
             throw new ValidationException(session.getDatabaseName(),
-                "The field '"
+                "The property '"
                     + p.getFullName()
                     + "' contains fewer bytes than "
                     + min
@@ -1753,25 +1750,25 @@ public class EntityImpl extends RecordAbstract
           case EMBEDDEDMAP:
           case LINKMAP:
             throw new ValidationException(session.getDatabaseName(),
-                "The field '"
+                "The property '"
                     + p.getFullName()
                     + "' contains fewer items than "
                     + min
                     + " requested");
           default:
             throw new ValidationException(session.getDatabaseName(),
-                "The field '" + p.getFullName() + "' is less than " + min);
+                "The property '" + p.getFullName() + "' is less than " + min);
         }
       }
     }
 
-    if (p.getMaxComparable() != null && fieldValue != null) {
+    if (p.getMaxComparable() != null && propertyValue != null) {
       final var max = p.getMax();
-      if (p.getMaxComparable().compareTo(fieldValue) < 0) {
+      if (p.getMaxComparable().compareTo(propertyValue) < 0) {
         switch (p.getType()) {
           case STRING:
             throw new ValidationException(session.getDatabaseName(),
-                "The field '"
+                "The property '"
                     + p.getFullName()
                     + "' contains more characters than "
                     + max
@@ -1779,16 +1776,16 @@ public class EntityImpl extends RecordAbstract
           case DATE:
           case DATETIME:
             throw new ValidationException(session.getDatabaseName(),
-                "The field '"
+                "The property '"
                     + p.getFullName()
                     + "' contains the date "
-                    + fieldValue
+                    + propertyValue
                     + " which is after the last acceptable date ("
                     + max
                     + ")");
           case BINARY:
             throw new ValidationException(session.getDatabaseName(),
-                "The field '"
+                "The property '"
                     + p.getFullName()
                     + "' contains more bytes than "
                     + max
@@ -1800,14 +1797,14 @@ public class EntityImpl extends RecordAbstract
           case EMBEDDEDMAP:
           case LINKMAP:
             throw new ValidationException(session.getDatabaseName(),
-                "The field '"
+                "The property '"
                     + p.getFullName()
                     + "' contains more items than "
                     + max
                     + " requested");
           default:
             throw new ValidationException(session.getDatabaseName(),
-                "The field '" + p.getFullName() + "' is greater than " + max);
+                "The property '" + p.getFullName() + "' is greater than " + max);
         }
       }
     }
@@ -1816,17 +1813,17 @@ public class EntityImpl extends RecordAbstract
       if (entry != null
           && (entry.isTxChanged() || entry.isTxTrackedModified())
           && !entry.isTxCreated()) {
-        // check if the field is actually changed by equal.
+        // check if the property is actually changed by equal.
         // this is due to a limitation in the merge algorithm used server side marking all
-        // non-simple fields as dirty
+        // non-simple properties as dirty
         var orgVal = entry.getOnLoadValue(session);
         var simple =
-            fieldValue != null ? PropertyType.isSimpleValueType(fieldValue)
+            propertyValue != null ? PropertyType.isSimpleValueType(propertyValue)
                 : PropertyType.isSimpleValueType(orgVal);
-        if (simple || fieldValue != null && orgVal == null || fieldValue == null
-            || !Objects.deepEquals(fieldValue, orgVal)) {
+        if (simple || propertyValue != null && orgVal == null || propertyValue == null
+            || !Objects.deepEquals(propertyValue, orgVal)) {
           throw new ValidationException(session.getDatabaseName(),
-              "The field '"
+              "The property '"
                   + p.getFullName()
                   + "' is immutable and cannot be altered. Field value is: "
                   + entry.value);
@@ -1867,7 +1864,7 @@ public class EntityImpl extends RecordAbstract
             .convert(value, p.getLinkedType(), p.getLinkedClass(), session)
             == null) {
           throw new ValidationException(session.getDatabaseName(),
-              "The field '"
+              "The property '"
                   + p.getFullName()
                   + "' has been declared as "
                   + p.getType()
@@ -1878,7 +1875,7 @@ public class EntityImpl extends RecordAbstract
         }
       } catch (DatabaseException e) {
         throw BaseException.wrapException(new ValidationException(session.getDatabaseName(),
-            "The field '"
+            "The property '"
                 + p.getFullName()
                 + "' has been declared as "
                 + p.getType()
@@ -1893,13 +1890,13 @@ public class EntityImpl extends RecordAbstract
 
   private static void validateLink(
       ImmutableSchema schema, @Nonnull DatabaseSessionInternal session, final SchemaProperty p,
-      final Object fieldValue, boolean allowNull) {
-    if (fieldValue == null) {
+      final Object propertyValue, boolean allowNull) {
+    if (propertyValue == null) {
       if (allowNull) {
         return;
       } else {
         throw new ValidationException(session.getDatabaseName(),
-            "The field '"
+            "The property '"
                 + p.getFullName()
                 + "' has been declared as "
                 + p.getType()
@@ -1907,9 +1904,9 @@ public class EntityImpl extends RecordAbstract
       }
     }
 
-    if (!(fieldValue instanceof Identifiable)) {
+    if (!(propertyValue instanceof Identifiable)) {
       throw new ValidationException(session.getDatabaseName(),
-          "The field '"
+          "The property '"
               + p.getFullName()
               + "' has been declared as "
               + p.getType()
@@ -1919,7 +1916,7 @@ public class EntityImpl extends RecordAbstract
     final var schemaClass = p.getLinkedClass();
     if (schemaClass != null && !schemaClass.isSubClassOf(Identity.CLASS_NAME)) {
       // DON'T VALIDATE OUSER AND OROLE FOR SECURITY RESTRICTIONS
-      var identifiable = (Identifiable) fieldValue;
+      var identifiable = (Identifiable) propertyValue;
       final var rid = identifiable.getIdentity();
       if (!schemaClass.hasPolymorphicClusterId(rid.getClusterId())) {
         // AT THIS POINT CHECK THE CLASS ONLY IF != NULL BECAUSE IN CASE OF GRAPHS THE RECORD
@@ -1936,7 +1933,7 @@ public class EntityImpl extends RecordAbstract
 
         if (cls != null && !schemaClass.isSuperClassOf(cls)) {
           throw new ValidationException(session.getDatabaseName(),
-              "The field '"
+              "The property '"
                   + p.getFullName()
                   + "' has been declared as "
                   + p.getType()
@@ -1954,28 +1951,28 @@ public class EntityImpl extends RecordAbstract
 
   private static void validateEmbedded(@Nonnull DatabaseSessionInternal session,
       final SchemaProperty p,
-      final Object fieldValue) {
-    if (fieldValue == null) {
+      final Object propertyValue) {
+    if (propertyValue == null) {
       return;
     }
-    if (fieldValue instanceof RecordId) {
+    if (propertyValue instanceof RecordId) {
       throw new ValidationException(session.getDatabaseName(),
-          "The field '"
+          "The property '"
               + p.getFullName()
               + "' has been declared as "
               + p.getType()
               + " but the value is the RecordID "
-              + fieldValue);
+              + propertyValue);
     } else {
-      if (fieldValue instanceof Identifiable embedded) {
+      if (propertyValue instanceof Identifiable embedded) {
         if (((RecordId) embedded.getIdentity()).isValid()) {
           throw new ValidationException(session.getDatabaseName(),
-              "The field '"
+              "The property '"
                   + p.getFullName()
                   + "' has been declared as "
                   + p.getType()
                   + " but the value is a entity with the valid RecordID "
-                  + fieldValue);
+                  + propertyValue);
         }
 
         final var embeddedRecord = embedded.getRecord(session);
@@ -1983,7 +1980,7 @@ public class EntityImpl extends RecordAbstract
           final var embeddedClass = p.getLinkedClass();
           if (entity.isVertex()) {
             throw new ValidationException(session.getDatabaseName(),
-                "The field '"
+                "The property '"
                     + p.getFullName()
                     + "' has been declared as "
                     + p.getType()
@@ -1996,7 +1993,7 @@ public class EntityImpl extends RecordAbstract
 
           if (entity.isStatefulEdge()) {
             throw new ValidationException(session.getDatabaseName(),
-                "The field '"
+                "The property '"
                     + p.getFullName()
                     + "' has been declared as "
                     + p.getType()
@@ -2013,7 +2010,7 @@ public class EntityImpl extends RecordAbstract
 
           if (!(embeddedRecord instanceof EntityImpl entity)) {
             throw new ValidationException(session.getDatabaseName(),
-                "The field '"
+                "The property '"
                     + p.getFullName()
                     + "' has been declared as "
                     + p.getType()
@@ -2024,7 +2021,7 @@ public class EntityImpl extends RecordAbstract
 
           if (entity.getImmutableSchemaClass(session) == null) {
             throw new ValidationException(session.getDatabaseName(),
-                "The field '"
+                "The property '"
                     + p.getFullName()
                     + "' has been declared as "
                     + p.getType()
@@ -2035,7 +2032,7 @@ public class EntityImpl extends RecordAbstract
 
           if (!(entity.getImmutableSchemaClass(session).isSubClassOf(embeddedClass))) {
             throw new ValidationException(session.getDatabaseName(),
-                "The field '"
+                "The property '"
                     + p.getFullName()
                     + "' has been declared as "
                     + p.getType()
@@ -2051,12 +2048,12 @@ public class EntityImpl extends RecordAbstract
 
       } else {
         throw new ValidationException(session.getDatabaseName(),
-            "The field '"
+            "The property '"
                 + p.getFullName()
                 + "' has been declared as "
                 + p.getType()
                 + " but an incompatible type is used. Value: "
-                + fieldValue + " . Value class is :" + fieldValue.getClass());
+                + propertyValue + " . Value class is :" + propertyValue.getClass());
       }
     }
   }
@@ -2100,10 +2097,10 @@ public class EntityImpl extends RecordAbstract
   @Override
   public Map<String, Object> toMap(boolean includeMetadata) {
     checkForBinding();
-    checkForFields();
+    checkForProperties();
 
     final Map<String, Object> map = new HashMap<>();
-    for (var entry : fields.entrySet()) {
+    for (var entry : propertyEntries.entrySet()) {
       var propertyName = entry.getKey();
       var value = entry.getValue().value;
 
@@ -2144,16 +2141,16 @@ public class EntityImpl extends RecordAbstract
   }
 
   /**
-   * Returns the set of field names.
+   * Returns the set of property names.
    */
-  public String[] fieldNames() {
-    return calculatePropertyNames(false).toArray(new String[]{});
+  public String[] propertyNames() {
+    return getPropertyNames().toArray(new String[0]);
   }
 
   /**
-   * Returns the array of field values.
+   * Returns the array of property values.
    */
-  public Object[] fieldValues() {
+  public Object[] propertyValues() {
     var propertyNames = calculatePropertyNames(false);
     if (propertyNames != null) {
       var values = new Object[propertyNames.size()];
@@ -2167,10 +2164,6 @@ public class EntityImpl extends RecordAbstract
     }
 
     return new Object[0];
-  }
-
-  public <RET> RET rawField(final String iFieldName) {
-    return getProperty(iFieldName);
   }
 
   /**
@@ -2211,59 +2204,29 @@ public class EntityImpl extends RecordAbstract
     return new SQLPredicate(iContext, iExpression).evaluate(this, null, iContext);
   }
 
-  /**
-   * Reads the field value.
-   *
-   * @param iFieldName field name
-   * @return field value if defined, otherwise null
-   */
-  public <RET> RET field(final String iFieldName) {
-    return getProperty(iFieldName);
-  }
-
-  /**
-   * Writes the field value. This method sets the current entity as dirty.
-   *
-   * @param iFieldName     field name. If contains dots (.) the change is applied to the nested
-   *                       documents in chain.
-   * @param iPropertyValue field value
-   * @return The Record instance itself giving a "fluent interface". Useful to call multiple methods
-   * in chain.
-   */
-  public EntityImpl field(final String iFieldName, Object iPropertyValue) {
+  public EntityImpl setPropertyInChain(final String iFieldName, Object iPropertyValue) {
     setProperty(iFieldName, iPropertyValue);
     return this;
   }
 
   /**
-   * Fills a entity passing the field names/values.
+   * Fills a entity passing the property names/values.
    */
-  public EntityImpl fields(
-      final String iFieldName, final Object iFieldValue, final Object... iFields) {
+  public EntityImpl properties(
+      final String propertyName, final Object propertyValue, final Object... properties) {
     checkForBinding();
 
-    if (iFields != null && iFields.length % 2 != 0) {
+    if (properties != null && properties.length % 2 != 0) {
       throw new IllegalArgumentException("Fields must be passed in pairs as name and value");
     }
 
-    field(iFieldName, iFieldValue);
-    if (iFields != null && iFields.length > 0) {
-      for (var i = 0; i < iFields.length; i += 2) {
-        field(iFields[i].toString(), iFields[i + 1]);
+    setProperty(propertyName, propertyValue);
+    if (properties != null && properties.length > 0) {
+      for (var i = 0; i < properties.length; i += 2) {
+        final var iFieldName1 = properties[i].toString();
+        setProperty(iFieldName1, properties[i + 1]);
       }
     }
-    return this;
-  }
-
-  /**
-   * Deprecated. Use fromMap(Map) instead.<br> Fills a entity passing the field names/values as a
-   * Map String,Object where the keys are the field names and the values are the field values.
-   *
-   * @see #updateFromMap(Map)
-   */
-  @Deprecated
-  public EntityImpl fields(final Map<String, Object> iMap) {
-    updateFromMap(iMap);
     return this;
   }
 
@@ -2378,10 +2341,10 @@ public class EntityImpl extends RecordAbstract
   }
 
   /**
-   * Fills a entity passing the field names/values as a Map String,Object where the keys are the
-   * field names and the values are the field values. It accepts also @rid for record id and @class
-   * for class name.
+   * Fills a entity passing the property names/values as a Map String,Object where the keys are the
+   * property names and the values are the property values. It accepts also @rid for record id and
    *
+   * @class for class name.
    * @since 2.0
    */
   public void updateFromMap(@Nonnull final Map<String, ?> map) {
@@ -2654,35 +2617,17 @@ public class EntityImpl extends RecordAbstract
     return super.updateFromJSON(iSource, iOptions);
   }
 
-  public EntityImpl field(String fieldName, Object propertyValue, PropertyType fieldType) {
-    setProperty(fieldName, propertyValue, fieldType);
-    return this;
-  }
-
-  public EntityImpl field(String fieldName, Object propertyValue, PropertyType fieldType,
-      PropertyType linkedType) {
-    setProperty(fieldName, propertyValue, fieldType, linkedType);
-    return this;
-  }
-
   /**
-   * Removes a field.
-   */
-  public Object removeField(final String iFieldName) {
-    return removeProperty(iFieldName);
-  }
-
-  /**
-   * Merge current entity with the entity passed as parameter. If the field already exists then the
-   * conflicts are managed based on the value of the parameter 'iUpdateOnlyMode'.
+   * Merge current entity with the entity passed as parameter. If the property already exists then
+   * the conflicts are managed based on the value of the parameter 'iUpdateOnlyMode'.
    *
    * @param iOther                              Other EntityImpl instance to merge
    * @param iUpdateOnlyMode                     if true, the other entity properties will always be
    *                                            added or overwritten. If false, the missed
    *                                            properties in the "other" entity will be removed by
    *                                            original entity
-   * @param iMergeSingleItemsOfMultiValueFields If true, merges single items of multi field fields
-   *                                            (collections, maps, arrays, etc)
+   * @param iMergeSingleItemsOfMultiValueFields If true, merges single items of multi property
+   *                                            properties (collections, maps, arrays, etc)
    */
   public EntityImpl merge(
       final Result iOther,
@@ -2703,27 +2648,27 @@ public class EntityImpl extends RecordAbstract
   }
 
   /**
-   * Returns list of changed fields. There are two types of changes:
+   * Returns list of changed properties. There are two types of changes:
    *
    * <ol>
-   *   <li>Value of field itself was changed by calling of {@link #field(String, Object)} method for
+   *   <li>Value of property itself was changed by calling of {@link #setProperty(String, Object)} method for
    *       example.
-   *   <li>Internal state of field was changed but was not saved. This case currently is applicable
+   *   <li>Internal state of property was changed but was not saved. This case currently is applicable
    *       for for collections only.
    * </ol>
    *
-   * @return Array of fields, values of which were changed.
+   * @return Array of properties, values of which were changed.
    */
   public Collection<String> getDirtyPropertiesBetweenCallbacksInternal(boolean includeSystemFields,
       boolean checkAccess) {
     checkForBinding();
 
-    if (fields == null || fields.isEmpty()) {
+    if (propertyEntries == null || propertyEntries.isEmpty()) {
       return Collections.emptyList();
     }
 
     final Set<String> dirtyFields = new HashSet<>();
-    for (var entry : fields.entrySet()) {
+    for (var entry : propertyEntries.entrySet()) {
       var propertyName = entry.getKey();
 
       if (checkAccess) {
@@ -2749,12 +2694,12 @@ public class EntityImpl extends RecordAbstract
       boolean checkAccess) {
     checkForBinding();
 
-    if (fields == null || fields.isEmpty()) {
+    if (propertyEntries == null || propertyEntries.isEmpty()) {
       return Collections.emptyList();
     }
 
     final Set<String> dirtyFields = new HashSet<>();
-    for (var entry : fields.entrySet()) {
+    for (var entry : propertyEntries.entrySet()) {
       var propertyName = entry.getKey();
       if (checkAccess) {
         if (includeSystemProperties || !isSystemProperty(propertyName)) {
@@ -2775,134 +2720,28 @@ public class EntityImpl extends RecordAbstract
   }
 
   /**
-   * Returns the original value of a field before it has been changed.
+   * Returns the original value of a property before it has been changed.
    *
    * @param iFieldName Property name to retrieve the original value
    */
   public Object getOriginalValue(final String iFieldName) {
     checkForBinding();
 
-    if (fields != null) {
-      var entry = fields.get(iFieldName);
+    if (propertyEntries != null) {
+      var entry = propertyEntries.get(iFieldName);
       if (entry != null) {
         return entry.original;
       }
     }
+
     return null;
   }
 
   public MultiValueChangeTimeLine<Object, Object> getCollectionTimeLine(final String iFieldName) {
     checkForBinding();
 
-    var entry = fields != null ? fields.get(iFieldName) : null;
+    var entry = propertyEntries != null ? propertyEntries.get(iFieldName) : null;
     return entry != null ? entry.getTimeLine() : null;
-  }
-
-  /**
-   * Returns the iterator fields
-   */
-  @Override
-  @Nonnull
-  public Iterator<Entry<String, Object>> iterator() {
-    checkForBinding();
-    checkForFields();
-
-    if (fields == null) {
-      return EmptyMapEntryIterator.INSTANCE;
-    }
-
-    final var iterator = fields.entrySet().iterator();
-    return new Iterator<>() {
-      private Entry<String, EntityEntry> current;
-      private boolean read = true;
-
-      @Override
-      public boolean hasNext() {
-        while (iterator.hasNext()) {
-          current = iterator.next();
-          if (current.getValue().exists()
-              && (propertyAccess == null || propertyAccess.isReadable(current.getKey()))) {
-            read = false;
-            return true;
-          }
-        }
-        return false;
-      }
-
-      @Override
-      public Entry<String, Object> next() {
-        if (read) {
-          if (!hasNext()) {
-            // Look wrong but is correct, it need to fail if there isn't next.
-            iterator.next();
-          }
-        }
-        final Entry<String, Object> toRet =
-            new Entry<>() {
-              private final Entry<String, EntityEntry> intern = current;
-
-              @Override
-              public Object setValue(Object value) {
-                throw new UnsupportedOperationException();
-              }
-
-              @Override
-              public Object getValue() {
-                return intern.getValue().value;
-              }
-
-              @Override
-              public String getKey() {
-                return intern.getKey();
-              }
-
-              @Override
-              public int hashCode() {
-                return intern.hashCode();
-              }
-
-              @Override
-              public boolean equals(Object obj) {
-                //noinspection rawtypes
-                if (obj instanceof Entry entry) {
-                  return intern.getKey().equals(entry.getKey())
-                      && intern.getValue().value.equals(entry.getValue());
-                }
-
-                return intern.equals(obj);
-              }
-            };
-        read = true;
-        return toRet;
-      }
-
-      @Override
-      public void remove() {
-        var entry = current.getValue();
-        if (trackingChanges) {
-          if (entry.isChanged()) {
-            entry.original = entry.value;
-          }
-          entry.value = null;
-          entry.setExists(false);
-          entry.markChanged();
-        } else {
-          iterator.remove();
-        }
-        fieldSize--;
-
-        entry.disableTracking(EntityImpl.this, entry.value);
-      }
-    };
-  }
-
-  /**
-   * Checks if a field exists.
-   *
-   * @return True if exists, otherwise false.
-   */
-  public boolean containsField(final String iFieldName) {
-    return hasProperty(iFieldName);
   }
 
   /**
@@ -2914,9 +2753,9 @@ public class EntityImpl extends RecordAbstract
   public boolean hasProperty(final @Nonnull String propertyName) {
     checkForBinding();
 
-    if (checkForFields(propertyName)
+    if (checkForProperties(propertyName)
         && (propertyAccess == null || propertyAccess.isReadable(propertyName))) {
-      var entry = fields.get(propertyName);
+      var entry = propertyEntries.get(propertyName);
       return entry != null && entry.exists();
     } else {
       return false;
@@ -2926,7 +2765,7 @@ public class EntityImpl extends RecordAbstract
   @Override
   public @Nonnull Result detach() {
     checkForBinding();
-    checkForFields();
+    checkForProperties();
 
     var result = new ResultInternal(null);
     convertToResult(result);
@@ -2946,7 +2785,7 @@ public class EntityImpl extends RecordAbstract
     var propertyTypes = new HashMap<String, String>();
 
     var cls = getImmutableSchemaClass(session);
-    for (var entry : fields.entrySet()) {
+    for (var entry : propertyEntries.entrySet()) {
       var name = entry.getKey();
 
       if (propertyAccess == null || propertyAccess.isReadable(name)) {
@@ -3021,7 +2860,7 @@ public class EntityImpl extends RecordAbstract
   public void setDirty() {
     // THIS IS IMPORTANT TO BE SURE THAT FIELDS ARE LOADED BEFORE IT'S TOO LATE AND THE RECORD
     // _SOURCE IS NULL
-    checkForFields();
+    checkForProperties();
     super.setDirty();
 
     if (owner != null) {
@@ -3046,7 +2885,7 @@ public class EntityImpl extends RecordAbstract
 
     // THIS IS IMPORTANT TO BE SURE THAT FIELDS ARE LOADED BEFORE IT'S TOO LATE AND THE RECORD
     // _SOURCE IS NULL
-    checkForFields();
+    checkForProperties();
 
     super.setDirtyNoChanged();
   }
@@ -3063,8 +2902,8 @@ public class EntityImpl extends RecordAbstract
     try {
       removeAllCollectionChangeListeners();
 
-      fields = null;
-      fieldSize = 0;
+      propertyEntries = null;
+      propertiesCount = 0;
       contentChanged = false;
       schema = null;
 
@@ -3078,18 +2917,18 @@ public class EntityImpl extends RecordAbstract
   }
 
   /**
-   * Returns the forced field type if any.
+   * Returns the forced property type if any.
    *
-   * @param fieldName name of field to check
+   * @param propertyName name of property to check
    */
   @Nullable
-  public PropertyType getPropertyType(final String fieldName) {
+  public PropertyType getPropertyType(final String propertyName) {
     checkForBinding();
-    checkForFields(fieldName);
+    checkForProperties(propertyName);
 
-    var entry = fields.get(fieldName);
+    var entry = propertyEntries.get(propertyName);
     if (entry != null) {
-      if (propertyAccess == null || propertyAccess.isReadable(fieldName)) {
+      if (propertyAccess == null || propertyAccess.isReadable(propertyName)) {
         return entry.type;
       } else {
         return null;
@@ -3116,11 +2955,11 @@ public class EntityImpl extends RecordAbstract
   @Override
   public void delete() {
     checkForBinding();
-    checkForFields();
+    checkForProperties();
 
     ridBagsToDelete = new ArrayList<>();
 
-    for (var entry : fields.entrySet()) {
+    for (var entry : propertyEntries.entrySet()) {
       var value = entry.getValue();
       if (value.exists()) {
         if (value.value != null) {
@@ -3148,7 +2987,7 @@ public class EntityImpl extends RecordAbstract
   }
 
   /**
-   * Clears all the field values and types. Clears only record content, but saves its identity.
+   * Clears all the property values and types. Clears only record content, but saves its identity.
    *
    * <p>
    *
@@ -3203,8 +3042,9 @@ public class EntityImpl extends RecordAbstract
           "Cannot undo the entity because tracking of changes is disabled");
     }
 
-    if (fields != null) {
-      final var vals = fields.entrySet().iterator();
+    if (propertyEntries != null) {
+      final var vals = propertyEntries.entrySet().iterator();
+
       while (vals.hasNext()) {
         final var next = vals.next();
         final var val = next.getValue();
@@ -3214,11 +3054,12 @@ public class EntityImpl extends RecordAbstract
           val.undo();
         }
       }
-      fieldSize = fields.size();
+
+      propertiesCount = propertyEntries.size();
     }
   }
 
-  public void undo(final String field) {
+  public void undo(final String property) {
     checkForBinding();
 
     if (!trackingChanges) {
@@ -3227,11 +3068,11 @@ public class EntityImpl extends RecordAbstract
           "Cannot undo the entity because tracking of changes is disabled");
     }
 
-    if (fields != null) {
-      final var value = fields.get(field);
+    if (propertyEntries != null) {
+      final var value = propertyEntries.get(property);
       if (value != null) {
         if (value.isCreated()) {
-          fields.remove(field);
+          propertyEntries.remove(property);
         } else {
           value.undo();
         }
@@ -3250,7 +3091,7 @@ public class EntityImpl extends RecordAbstract
     checkForBinding();
 
     this.lazyLoad = iLazyLoad;
-    checkForFields();
+    checkForProperties();
   }
 
   public boolean isTrackingChanges() {
@@ -3259,7 +3100,7 @@ public class EntityImpl extends RecordAbstract
 
   /**
    * Enabled or disabled the tracking of changes in the entity. This is needed by some triggers like
-   * {@link ClassIndexManager} to determine what fields are changed to update indexes.
+   * {@link ClassIndexManager} to determine what properties are changed to update indexes.
    *
    * @param iTrackingChanges True to enable it, otherwise false
    * @return this
@@ -3268,9 +3109,9 @@ public class EntityImpl extends RecordAbstract
     checkForBinding();
 
     this.trackingChanges = iTrackingChanges;
-    if (!iTrackingChanges && fields != null) {
+    if (!iTrackingChanges && propertyEntries != null) {
       // FREE RESOURCES
-      var iter = fields.entrySet().iterator();
+      var iter = propertyEntries.entrySet().iterator();
       while (iter.hasNext()) {
         var cur = iter.next();
         if (!cur.getValue().exists()) {
@@ -3287,9 +3128,9 @@ public class EntityImpl extends RecordAbstract
   }
 
   public void clearTrackData() {
-    if (fields != null) {
+    if (propertyEntries != null) {
       // FREE RESOURCES
-      for (var cur : fields.entrySet()) {
+      for (var cur : propertyEntries.entrySet()) {
         if (cur.getValue().exists()) {
           cur.getValue().clear();
           cur.getValue().enableTracking(this);
@@ -3301,9 +3142,9 @@ public class EntityImpl extends RecordAbstract
   }
 
   public void clearTransactionTrackData() {
-    if (fields != null) {
+    if (propertyEntries != null) {
       // FREE RESOURCES
-      var iter = fields.entrySet().iterator();
+      var iter = propertyEntries.entrySet().iterator();
       while (iter.hasNext()) {
         var cur = iter.next();
         if (cur.getValue().exists()) {
@@ -3326,74 +3167,29 @@ public class EntityImpl extends RecordAbstract
     return this;
   }
 
-  /**
-   * Returns the number of fields in memory.
-   */
-  public int fields() {
-    return getPropertiesCount();
-  }
-
   @Override
   public int getPropertiesCount() {
     checkForBinding();
-    checkForFields();
+    checkForProperties();
 
-    return fieldSize;
+    return propertiesCount;
   }
 
   public boolean isEmpty() {
     checkForBinding();
 
-    checkForFields();
-    return fields == null || fields.isEmpty();
+    checkForProperties();
+    return propertyEntries == null || propertyEntries.isEmpty();
   }
 
   public boolean isEmbedded() {
     return owner != null;
   }
 
-  /**
-   * Sets the field type. This overrides the schema property settings if any.
-   *
-   * @param iFieldName Field name
-   * @param iFieldType Type to set between PropertyType enumeration values
-   */
-  public void setFieldType(final String iFieldName, final PropertyType iFieldType) {
-    checkForBinding();
-    validatePropertyName(iFieldName, false);
-
-    checkForFields(iFieldName);
-    if (iFieldType != null) {
-      if (fields == null) {
-        throw new DatabaseException("Fields are not loaded");
-      }
-
-      // SET THE FORCED TYPE
-      var entry = getOrCreate(iFieldName);
-      if (entry.type != iFieldType) {
-        if (entry.value == null) {
-          entry.type = iFieldType;
-        } else {
-          field(iFieldName, field(iFieldName), iFieldType);
-        }
-      }
-    } else {
-      if (fields != null) {
-        // REMOVE THE FIELD TYPE
-        var entry = fields.get(iFieldName);
-        if (entry != null)
-        // EMPTY: OPTIMIZE IT BY REMOVING THE ENTIRE MAP
-        {
-          entry.type = null;
-        }
-      }
-    }
-  }
-
   /*
    * Initializes the object if has been unserialized
    */
-  public boolean deserializeFields(String... iFields) {
+  public boolean deserializeProperties(String... iFields) {
     if (status != STATUS.LOADED) {
       return false;
     }
@@ -3438,10 +3234,11 @@ public class EntityImpl extends RecordAbstract
       }
 
       // CHECK IF HAS BEEN ALREADY UNMARSHALLED
-      if (fields != null && !fields.isEmpty()) {
+      if (propertyEntries != null && !propertyEntries.isEmpty()) {
         var allFound = true;
         for (var f : iFields) {
-          if (f != null && !(!f.isEmpty() && f.charAt(0) == '@') && !fields.containsKey(f)) {
+          if (f != null && !(!f.isEmpty() && f.charAt(0) == '@') && !propertyEntries.containsKey(
+              f)) {
             allFound = false;
             break;
           }
@@ -3457,8 +3254,8 @@ public class EntityImpl extends RecordAbstract
 
     status = RecordElement.STATUS.UNMARSHALLING;
     try {
-      if (fields == null) {
-        fields = ordered ? new LinkedHashMap<>() : new HashMap<>();
+      if (propertyEntries == null) {
+        propertyEntries = ordered ? new LinkedHashMap<>() : new HashMap<>();
       }
       recordFormat.fromStream(session, source, this, iFields);
     } finally {
@@ -3466,8 +3263,8 @@ public class EntityImpl extends RecordAbstract
     }
 
     if (iFields != null && iFields.length > 0) {
-      for (var field : iFields) {
-        if (field != null && !field.isEmpty() && field.charAt(0) == '@')
+      for (var property : iFields) {
+        if (property != null && !property.isEmpty() && property.charAt(0) == '@')
         // ATTRIBUTE
         {
           return true;
@@ -3475,9 +3272,9 @@ public class EntityImpl extends RecordAbstract
       }
 
       // PARTIAL UNMARSHALLING
-      if (fields != null && !fields.isEmpty()) {
+      if (propertyEntries != null && !propertyEntries.isEmpty()) {
         for (var f : iFields) {
-          if (f != null && fields.containsKey(f)) {
+          if (f != null && propertyEntries.containsKey(f)) {
             return true;
           }
         }
@@ -3512,7 +3309,7 @@ public class EntityImpl extends RecordAbstract
         .getClass(iClassName);
     if (_clazz != null) {
       className = _clazz.getName();
-      convertFieldsToClass(_clazz);
+      convertPropertiesToClassAndInitDefaultValues(_clazz);
     }
   }
 
@@ -3541,9 +3338,7 @@ public class EntityImpl extends RecordAbstract
     return className;
   }
 
-  protected void setClassName(@Nullable final String className) {
-    checkForBinding();
-
+  private void setClassName(@Nullable final String className) {
     immutableClazz = null;
     immutableSchemaVersion = -1;
 
@@ -3564,7 +3359,6 @@ public class EntityImpl extends RecordAbstract
     }
     if (clazz != null) {
       this.className = clazz.getName();
-      convertFieldsToClass(clazz);
     }
   }
 
@@ -3581,9 +3375,9 @@ public class EntityImpl extends RecordAbstract
   public void validate() throws ValidationException {
     checkForBinding();
 
-    checkForFields();
+    checkForProperties();
 
-    validateFieldsSecurity(session, this);
+    validatePropertiesSecurity(session, this);
     if (!session.isValidationEnabled()) {
       return;
     }
@@ -3592,10 +3386,10 @@ public class EntityImpl extends RecordAbstract
     if (immutableSchemaClass != null) {
       if (immutableSchemaClass.isStrictMode()) {
         // CHECK IF ALL FIELDS ARE DEFINED
-        for (var f : fieldNames()) {
+        for (var f : propertyNames()) {
           if (immutableSchemaClass.getProperty(f) == null) {
             throw new ValidationException(session.getDatabaseName(),
-                "Found additional field '"
+                "Found additional property '"
                     + f
                     + "'. It cannot be added because the schema class '"
                     + immutableSchemaClass.getName()
@@ -3606,7 +3400,7 @@ public class EntityImpl extends RecordAbstract
 
       final var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
       for (var p : immutableSchemaClass.properties()) {
-        validateField(session, immutableSchema, this, (ImmutableSchemaProperty) p);
+        validateProperty(session, immutableSchema, this, (ImmutableSchemaProperty) p);
       }
     }
   }
@@ -3625,7 +3419,7 @@ public class EntityImpl extends RecordAbstract
 
     try {
       final var buffer = new StringBuilder(128);
-      checkForFields();
+      checkForProperties();
 
       if (!session.isClosed()) {
         final var clsName = getSchemaClassName();
@@ -3696,12 +3490,12 @@ public class EntityImpl extends RecordAbstract
       final Result result,
       final boolean iUpdateOnlyMode,
       boolean iMergeSingleItemsOfMultiValueFields) {
-    checkForFields();
+    checkForProperties();
     source = null;
 
     for (var propertyName : result.getPropertyNames()) {
       var otherValue = result.getProperty(propertyName);
-      var curValue = fields.get(propertyName);
+      var curValue = propertyEntries.get(propertyName);
 
       if (otherValue instanceof Result) {
         var schemaClass = getImmutableSchemaClass(session);
@@ -3854,40 +3648,9 @@ public class EntityImpl extends RecordAbstract
     return immutableClazz;
   }
 
-  public void rawField(
-      final String iFieldName, final Object iFieldValue, final PropertyType iFieldType) {
+  public boolean rawContainsProperty(final String iFiledName) {
     checkForBinding();
-    checkForFields(iFieldName);
-
-    var entry = getOrCreate(iFieldName);
-    entry.disableTracking(this, entry.value);
-
-    if (iFieldValue instanceof RID rid && !rid.isPersistent()) {
-      entry.value = refreshNonPersistentRid(rid);
-    } else {
-      entry.value = iFieldValue;
-    }
-
-    entry.type = iFieldType;
-    entry.enableTracking(this);
-    if (iFieldValue instanceof RidBag) {
-      ((RidBag) iFieldValue).setRecordAndField(recordId, iFieldName);
-    }
-  }
-
-  private EntityEntry getOrCreate(String key) {
-    var entry = fields.get(key);
-    if (entry == null) {
-      entry = new EntityEntry();
-      fieldSize++;
-      fields.put(key, entry);
-    }
-    return entry;
-  }
-
-  public boolean rawContainsField(final String iFiledName) {
-    checkForBinding();
-    return fields != null && fields.containsKey(iFiledName);
+    return propertyEntries != null && propertyEntries.containsKey(iFiledName);
   }
 
 
@@ -3937,92 +3700,92 @@ public class EntityImpl extends RecordAbstract
 
   public void checkAllMultiValuesAreTrackedVersions() {
     checkForBinding();
-    if (fields == null) {
+    if (propertyEntries == null) {
       return;
     }
 
-    for (var fieldEntry : fields.entrySet()) {
-      var entry = fieldEntry.getValue();
-      final var fieldValue = entry.value;
-      if (fieldValue instanceof RidBag) {
+    for (var propertyEntry : propertyEntries.entrySet()) {
+      var entry = propertyEntry.getValue();
+      final var propertyValue = entry.value;
+      if (propertyValue instanceof RidBag) {
         if (isEmbedded()) {
           throw new DatabaseException(session.getDatabaseName(),
               "RidBag are supported only at entity root");
         }
-        ((RidBag) fieldValue).checkAndConvert();
+        ((RidBag) propertyValue).checkAndConvert();
       }
-      if (!(fieldValue instanceof Collection<?>)
-          && !(fieldValue instanceof Map<?, ?>)
-          && !(fieldValue instanceof EntityImpl)) {
+      if (!(propertyValue instanceof Collection<?>)
+          && !(propertyValue instanceof Map<?, ?>)
+          && !(propertyValue instanceof EntityImpl)) {
         continue;
       }
 
-      if (fieldValue instanceof EntityImpl && ((EntityImpl) fieldValue).isEmbedded()) {
-        ((EntityImpl) fieldValue).checkAllMultiValuesAreTrackedVersions();
+      if (propertyValue instanceof EntityImpl && ((EntityImpl) propertyValue).isEmbedded()) {
+        ((EntityImpl) propertyValue).checkAllMultiValuesAreTrackedVersions();
         continue;
       }
 
-      var fieldType = entry.type;
-      if (fieldType == null) {
+      var propertyType = entry.type;
+      if (propertyType == null) {
         SchemaClass clazz = getImmutableSchemaClass(session);
         if (clazz != null) {
-          final var prop = clazz.getProperty(fieldEntry.getKey());
-          fieldType = prop != null ? prop.getType() : null;
+          final var prop = clazz.getProperty(propertyEntry.getKey());
+          propertyType = prop != null ? prop.getType() : null;
         }
       }
-      if (fieldType == null) {
-        fieldType = PropertyType.getTypeByValue(fieldValue);
+      if (propertyType == null) {
+        propertyType = PropertyType.getTypeByValue(propertyValue);
       }
 
-      switch (fieldType) {
+      switch (propertyType) {
         case EMBEDDEDLIST:
-          if (fieldValue instanceof List<?> && !(fieldValue instanceof TrackedList)) {
+          if (propertyValue instanceof List<?> && !(propertyValue instanceof TrackedList)) {
             throw new DatabaseException(session.getDatabaseName(),
-                "Property " + fieldEntry.getKey() + " is supposed to be TrackedList but is "
-                    + fieldValue.getClass());
+                "Property " + propertyEntry.getKey() + " is supposed to be TrackedList but is "
+                    + propertyValue.getClass());
           }
           break;
         case EMBEDDEDSET:
-          if (fieldValue instanceof Set<?> && !(fieldValue instanceof TrackedSet)) {
+          if (propertyValue instanceof Set<?> && !(propertyValue instanceof TrackedSet)) {
             throw new DatabaseException(session.getDatabaseName(),
-                "Property " + fieldEntry.getKey() + " is supposed to be TrackedSet but is "
-                    + fieldValue.getClass());
+                "Property " + propertyEntry.getKey() + " is supposed to be TrackedSet but is "
+                    + propertyValue.getClass());
 
           }
           break;
         case EMBEDDEDMAP:
-          if (fieldValue instanceof Map<?, ?> && !(fieldValue instanceof TrackedMap)) {
+          if (propertyValue instanceof Map<?, ?> && !(propertyValue instanceof TrackedMap)) {
             throw new DatabaseException(session.getDatabaseName(),
-                "Property " + fieldEntry.getKey() + " is supposed to be TrackedMap but is "
-                    + fieldValue.getClass());
+                "Property " + propertyEntry.getKey() + " is supposed to be TrackedMap but is "
+                    + propertyValue.getClass());
           }
           break;
         case LINKLIST:
-          if (fieldValue instanceof List<?> && !(fieldValue instanceof LinkList)) {
+          if (propertyValue instanceof List<?> && !(propertyValue instanceof LinkList)) {
             throw new DatabaseException(session.getDatabaseName(),
-                "Property " + fieldEntry.getKey() + " is supposed to be LinkList but is "
-                    + fieldValue.getClass());
+                "Property " + propertyEntry.getKey() + " is supposed to be LinkList but is "
+                    + propertyValue.getClass());
           }
           break;
         case LINKSET:
-          if (fieldValue instanceof Set<?> && !(fieldValue instanceof LinkSet)) {
+          if (propertyValue instanceof Set<?> && !(propertyValue instanceof LinkSet)) {
             throw new DatabaseException(session.getDatabaseName(),
-                "Property " + fieldEntry.getKey() + " is supposed to be LinkSet but is "
-                    + fieldValue.getClass());
+                "Property " + propertyEntry.getKey() + " is supposed to be LinkSet but is "
+                    + propertyValue.getClass());
           }
           break;
         case LINKMAP:
-          if (fieldValue instanceof Map<?, ?> && !(fieldValue instanceof LinkMap)) {
+          if (propertyValue instanceof Map<?, ?> && !(propertyValue instanceof LinkMap)) {
             throw new DatabaseException(session.getDatabaseName(),
-                "Property " + fieldEntry.getKey() + " is supposed to be LinkMap but is "
-                    + fieldValue.getClass());
+                "Property " + propertyEntry.getKey() + " is supposed to be LinkMap but is "
+                    + propertyValue.getClass());
           }
           break;
         case LINKBAG:
-          if (!(fieldValue instanceof RidBag)) {
+          if (!(propertyValue instanceof RidBag)) {
             throw new DatabaseException(session.getDatabaseName(),
-                "Property " + fieldEntry.getKey() + " is supposed to be RidBag but is "
-                    + fieldValue.getClass());
+                "Property " + propertyEntry.getKey() + " is supposed to be RidBag but is "
+                    + propertyValue.getClass());
           }
           break;
         default:
@@ -4033,22 +3796,22 @@ public class EntityImpl extends RecordAbstract
 
   private void internalReset() {
     removeAllCollectionChangeListeners();
-    if (fields != null) {
-      fields.clear();
+    if (propertyEntries != null) {
+      propertyEntries.clear();
     }
 
-    fieldSize = 0;
+    propertiesCount = 0;
   }
 
-  boolean checkForFields(final String... iFields) {
+  boolean checkForProperties(final String... properties) {
     checkForBinding();
     if (status == RecordElement.STATUS.LOADED) {
-      if (fields == null) {
-        fields = ordered ? new LinkedHashMap<>() : new HashMap<>();
+      if (this.propertyEntries == null) {
+        this.propertyEntries = ordered ? new LinkedHashMap<>() : new HashMap<>();
       }
 
       if (source != null) {
-        return deserializeFields(iFields);
+        return deserializeProperties(properties);
       }
 
       return true;
@@ -4060,9 +3823,9 @@ public class EntityImpl extends RecordAbstract
   Object accessProperty(final String property) {
     checkForBinding();
 
-    if (checkForFields(property)) {
+    if (checkForProperties(property)) {
       if (propertyAccess == null || propertyAccess.isReadable(property)) {
-        var entry = fields.get(property);
+        var entry = propertyEntries.get(property);
         if (entry != null) {
           return entry.value;
         } else {
@@ -4090,16 +3853,6 @@ public class EntityImpl extends RecordAbstract
     }
   }
 
-  private static String checkFieldName(final String iFieldName) {
-    final var c = SchemaShared.checkFieldNameIfValid(iFieldName);
-    if (c != null) {
-      throw new IllegalArgumentException(
-          "Invalid field name '" + iFieldName + "'. Character '" + c + "' is invalid");
-    }
-
-    return iFieldName;
-  }
-
   void setClass(final SchemaClass iClass) {
     checkForBinding();
 
@@ -4121,30 +3874,30 @@ public class EntityImpl extends RecordAbstract
     immutableClazz = null;
     immutableSchemaVersion = -1;
     if (iClass != null) {
-      convertFieldsToClass(iClass);
+      convertPropertiesToClassAndInitDefaultValues(iClass);
     }
   }
 
   public Set<Entry<String, EntityEntry>> getRawEntries() {
     checkForBinding();
 
-    checkForFields();
-    return fields == null ? new HashSet<>() : fields.entrySet();
+    checkForProperties();
+    return propertyEntries == null ? new HashSet<>() : propertyEntries.entrySet();
   }
 
   public List<Entry<String, EntityEntry>> getFilteredEntries() {
     checkForBinding();
-    checkForFields();
+    checkForProperties();
 
-    if (fields == null) {
+    if (propertyEntries == null) {
       return Collections.emptyList();
     } else {
       if (propertyAccess == null) {
-        return fields.entrySet().stream()
+        return propertyEntries.entrySet().stream()
             .filter((x) -> x.getValue().exists())
             .collect(Collectors.toList());
       } else {
-        return fields.entrySet().stream()
+        return propertyEntries.entrySet().stream()
             .filter((x) -> x.getValue().exists() && propertyAccess.isReadable(x.getKey()))
             .collect(Collectors.toList());
       }
@@ -4174,28 +3927,30 @@ public class EntityImpl extends RecordAbstract
     }
   }
 
-  public void autoConvertFieldsToClass(final DatabaseSessionInternal database) {
+  public void autoConvertPropertiesToClass(final DatabaseSessionInternal database) {
     checkForBinding();
 
     if (className != null) {
-      var klazz = database.getMetadata().getImmutableSchemaSnapshot().getClass(className);
-      if (klazz != null) {
-        convertFieldsToClass(klazz);
+      var c = database.getMetadata().getImmutableSchemaSnapshot().getClass(className);
+      if (c != null) {
+        convertPropertiesToClassAndInitDefaultValues(c);
       }
     }
   }
 
   /**
-   * Checks and convert the field of the entity matching the types specified by the class.
+   * Checks and convert the property of the entity matching the types specified by the class.
    */
-  private void convertFieldsToClass(final SchemaClass clazz) {
+  public final void convertPropertiesToClassAndInitDefaultValues(final SchemaClass clazz) {
     for (var prop : clazz.properties()) {
-      var entry = fields != null ? fields.get(prop.getName()) : null;
+      var entry = propertyEntries != null ? propertyEntries.get(prop.getName()) : null;
       if (entry != null && entry.exists()) {
         if (entry.type == null || entry.type != prop.getType()) {
           var preChanged = entry.isChanged();
           var preCreated = entry.isCreated();
-          field(prop.getName(), entry.value, prop.getType());
+          var propertyName = prop.getName();
+          var propertyType = prop.getType();
+          setProperty(propertyName, entry.value, propertyType);
           if (recordId.isNew()) {
             if (preChanged) {
               entry.markChanged();
@@ -4211,38 +3966,38 @@ public class EntityImpl extends RecordAbstract
         }
       } else {
         var defValue = prop.getDefaultValue();
-        if (defValue != null && /*defValue.length() > 0 && */ !containsField(
-            prop.getName())) {
+        if (defValue != null && !hasProperty(prop.getName())) {
           var curFieldValue = SQLHelper.parseDefaultValue(session, this, defValue, prop);
-          var fieldValue =
-              EntityHelper.convertField(session,
-                  this, prop.getName(), prop.getType(), prop.getLinkedType(), curFieldValue);
-          rawField(prop.getName(), fieldValue, prop.getType());
+          var propertyValue = convertField(session,
+              this, prop.getName(), prop.getType(), prop.getLinkedType(), curFieldValue);
+          final var propertyName = prop.getName();
+          setPropertyInternal(propertyName, propertyValue, prop.getType());
         }
       }
     }
   }
 
-  private PropertyType deriveFieldType(String fieldName, EntityEntry entry,
-      PropertyType fieldType, Object value) {
+  private PropertyType derivePropertyType(String propertyName,
+      PropertyType propertyType, Object value) {
     SchemaClass clazz = getImmutableSchemaClass(session);
     if (clazz != null) {
       // SCHEMA-FULL?
-      final var prop = clazz.getProperty(fieldName);
+      final var prop = clazz.getProperty(propertyName);
       if (prop != null) {
-        fieldType = prop.getType();
+        propertyType = prop.getType();
       }
     }
 
-    if (fieldType == null) {
-      fieldType = PropertyType.getTypeByValue(value);
+    if (propertyType == null) {
+      propertyType = PropertyType.getTypeByValue(value);
     }
 
-    if (fieldType == null && value != null) {
-      throw new DatabaseException(session, "Cannot determine the type of the field " + fieldName);
+    if (propertyType == null && value != null) {
+      throw new DatabaseException(session,
+          "Cannot determine the type of the property " + propertyName);
     }
 
-    return fieldType;
+    return propertyType;
   }
 
   private void validatePropertyValue(String propertyName, @Nullable Object propertyValue) {
@@ -4288,22 +4043,14 @@ public class EntityImpl extends RecordAbstract
     return "Invalid value for property. " + propertyName + " : " + propertyValue.getClass();
   }
 
-  private RID refreshNonPersistentRid(RID identifiable) {
-    if (!identifiable.isPersistent()) {
-      identifiable = session.refreshRid(identifiable);
-    }
-
-    return identifiable;
-  }
-
 
   private void removeAllCollectionChangeListeners() {
-    if (fields == null) {
+    if (propertyEntries == null) {
       return;
     }
 
-    for (final var field : fields.entrySet()) {
-      var entityEntry = field.getValue();
+    for (final var property : propertyEntries.entrySet()) {
+      var entityEntry = property.getValue();
 
       var value = entityEntry.value;
       entityEntry.disableTracking(this, value);
@@ -4311,12 +4058,12 @@ public class EntityImpl extends RecordAbstract
   }
 
   private void addAllMultiValueChangeListeners() {
-    if (fields == null) {
+    if (propertyEntries == null) {
       return;
     }
 
-    for (final var field : fields.entrySet()) {
-      field.getValue().enableTracking(this);
+    for (final var property : propertyEntries.entrySet()) {
+      property.getValue().enableTracking(this);
     }
   }
 
@@ -4343,6 +4090,38 @@ public class EntityImpl extends RecordAbstract
         immutableClazz = (SchemaImmutableClass) immutableSchema.getClass(className);
       }
     }
+  }
+
+  @SuppressWarnings("unchecked")
+  private static <RET> RET convertField(
+      @Nonnull DatabaseSessionInternal session, @Nonnull final EntityImpl entity,
+      @Nonnull final String fieldName,
+      @Nullable PropertyType type,
+      @Nullable PropertyType linkedType,
+      @Nullable Object value) {
+    if (value == null) {
+      return null;
+    }
+
+    if (type == null) {
+      type = PropertyType.getTypeByValue(value);
+    }
+
+    if (type == null) {
+      return (RET) value;
+    }
+
+    var immutableSchemaClass = entity.getImmutableSchemaClass(session);
+    var property =
+        immutableSchemaClass != null ? immutableSchemaClass.getProperty(fieldName) : null;
+    if (linkedType == null) {
+      linkedType = property != null ? property.getLinkedType() : null;
+    }
+
+    value = type.convert(value, linkedType,
+        property != null ? property.getLinkedClass() : null, session);
+
+    return (RET) value;
   }
 
   public ImmutableSchema getImmutableSchema() {

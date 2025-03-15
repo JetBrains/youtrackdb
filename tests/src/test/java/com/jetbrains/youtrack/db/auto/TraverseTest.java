@@ -379,7 +379,7 @@ public class TraverseTest extends BaseDBTest {
     Assert.assertFalse(result1.isEmpty());
     var found = false;
     for (var doc : result1) {
-      String name = doc.field("name");
+      String name = doc.getProperty("name");
       if ("Nicole Kidman".equals(name)) {
         found = true;
         break;
@@ -404,7 +404,7 @@ public class TraverseTest extends BaseDBTest {
     Assert.assertFalse(result1.isEmpty());
     var found = false;
     for (var doc : result1) {
-      String name = doc.field("name");
+      String name = doc.getProperty("name");
       if ("Nicole Kidman".equals(name)) {
         found = true;
         break;

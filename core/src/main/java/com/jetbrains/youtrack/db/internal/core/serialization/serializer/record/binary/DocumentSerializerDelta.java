@@ -123,7 +123,7 @@ public class DocumentSerializerDelta {
     }
     SchemaClass oClass = result;
     final var fields = entity.getRawEntries();
-    VarIntSerializer.write(bytes, entity.fields());
+    VarIntSerializer.write(bytes, entity.getPropertiesCount());
     for (var entry : fields) {
       var entityEntry = entry.getValue();
       if (!entityEntry.exists()) {
@@ -1088,7 +1088,7 @@ public class DocumentSerializerDelta {
       case EMBEDDED:
         if (value instanceof EntitySerializable) {
           var cur = ((EntitySerializable) value).toEntity(session);
-          cur.field(EntitySerializable.CLASS_NAME, value.getClass().getName());
+          cur.setProperty(EntitySerializable.CLASS_NAME, value.getClass().getName());
           serialize(session, cur, bytes);
         } else {
           serialize(session, ((DBRecord) value).getRecord(session), bytes);
@@ -1264,8 +1264,8 @@ public class DocumentSerializerDelta {
       case EMBEDDED:
         value = new EmbeddedEntityImpl(session);
         deserialize(session, (EntityImpl) value, bytes);
-        if (((EntityImpl) value).containsField(EntitySerializable.CLASS_NAME)) {
-          String className = ((EntityImpl) value).field(EntitySerializable.CLASS_NAME);
+        if (((EntityImpl) value).hasProperty(EntitySerializable.CLASS_NAME)) {
+          String className = ((EntityImpl) value).getProperty(EntitySerializable.CLASS_NAME);
           try {
             var clazz = Class.forName(className);
             var newValue = (EntitySerializable) clazz.newInstance();

@@ -195,11 +195,11 @@ public class LuceneGeoTest extends BaseLuceneTest {
 
       EntityImpl doc = new EntityImpl(session).updateFromJSON(systemResourceAsStream);
 
-      Map geometry = doc.field("geometry");
+      Map geometry = doc.getProperty("geometry");
 
       var type = (String) geometry.get("type");
       var location = new EntityImpl(session, "O" + type);
-      location.field("coordinates", geometry.get("coordinates"));
+      location.setProperty("coordinates", geometry.get("coordinates"));
       return location;
     } catch (Exception e) {
       e.printStackTrace();

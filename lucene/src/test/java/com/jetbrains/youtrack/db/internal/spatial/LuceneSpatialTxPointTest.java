@@ -54,16 +54,14 @@ public class LuceneSpatialTxPointTest extends BaseSpatialLuceneTest {
     var location = newPoint(longitude, latitude);
 
     var city = ((EntityImpl) session.newEntity("City"));
-    city.field("name", name);
-    city.field("location", location);
+    city.setProperty("name", name);
+    city.setProperty("location", location);
     return city;
   }
 
   private EntityImpl newPoint(final Double longitude, final Double latitude) {
     var location = ((EntityImpl) session.newEntity("OPoint"));
-    location.field(
-        "coordinates",
-        new ArrayList<Double>() {
+    location.setProperty("coordinates", new ArrayList<Double>() {
           {
             add(longitude);
             add(latitude);
@@ -108,7 +106,7 @@ public class LuceneSpatialTxPointTest extends BaseSpatialLuceneTest {
     session.begin();
 
     rome = session.bindToSession(rome);
-    rome.field("location", newPoint(12.5, 41.9));
+    rome.setProperty("location", newPoint(12.5, 41.9));
 
     session.commit();
 
@@ -142,10 +140,10 @@ public class LuceneSpatialTxPointTest extends BaseSpatialLuceneTest {
     rome = session.bindToSession(rome);
     london = session.bindToSession(london);
 
-    rome.field("location", newPoint(12.5, 41.9));
-    london.field("location", newPoint(-0.1275, 51.507222));
-    london.field("location", newPoint(-0.1275, 51.507222));
-    london.field("location", newPoint(12.5, 41.9));
+    rome.setProperty("location", newPoint(12.5, 41.9));
+    london.setProperty("location", newPoint(-0.1275, 51.507222));
+    london.setProperty("location", newPoint(-0.1275, 51.507222));
+    london.setProperty("location", newPoint(12.5, 41.9));
 
     session.commit();
 

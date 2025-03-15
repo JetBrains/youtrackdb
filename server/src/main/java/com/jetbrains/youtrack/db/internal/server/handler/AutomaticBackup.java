@@ -109,27 +109,27 @@ public class AutomaticBackup extends ServerPluginAbstract implements OServerPlug
 
         // LEGACY <v2.2: CONVERT ALL SETTINGS IN JSON
       } else if (param.name.equalsIgnoreCase("enabled")) {
-        configuration.field("enabled", Boolean.parseBoolean(param.value));
+        configuration.setProperty("enabled", Boolean.parseBoolean(param.value));
       } else if (param.name.equalsIgnoreCase("delay")) {
-        configuration.field("delay", param.value);
+        configuration.setProperty("delay", param.value);
       } else if (param.name.equalsIgnoreCase("firstTime")) {
-        configuration.field("firstTime", param.value);
+        configuration.setProperty("firstTime", param.value);
       } else if (param.name.equalsIgnoreCase("target.directory")) {
-        configuration.field("targetDirectory", param.value);
+        configuration.setProperty("targetDirectory", param.value);
       } else if (param.name.equalsIgnoreCase("db.include") && param.value.trim().length() > 0) {
-        configuration.field("dbInclude", param.value);
+        configuration.setProperty("dbInclude", param.value);
       } else if (param.name.equalsIgnoreCase("db.exclude") && param.value.trim().length() > 0) {
-        configuration.field("dbExclude", param.value);
+        configuration.setProperty("dbExclude", param.value);
       } else if (param.name.equalsIgnoreCase("target.fileName")) {
-        configuration.field("targetFileName", param.value);
+        configuration.setProperty("targetFileName", param.value);
       } else if (param.name.equalsIgnoreCase("bufferSize")) {
-        configuration.field("bufferSize", Integer.parseInt(param.value));
+        configuration.setProperty("bufferSize", Integer.parseInt(param.value));
       } else if (param.name.equalsIgnoreCase("compressionLevel")) {
-        configuration.field("compressionLevel", Integer.parseInt(param.value));
+        configuration.setProperty("compressionLevel", Integer.parseInt(param.value));
       } else if (param.name.equalsIgnoreCase("mode")) {
-        configuration.field("mode", param.value);
+        configuration.setProperty("mode", param.value);
       } else if (param.name.equalsIgnoreCase("exportOptions")) {
-        configuration.field("exportOptions", param.value);
+        configuration.setProperty("exportOptions", param.value);
       }
     }
 
@@ -318,8 +318,8 @@ public class AutomaticBackup extends ServerPluginAbstract implements OServerPlug
     }
 
     // PARSE THE JSON FILE
-    for (var settingName : configuration.fieldNames()) {
-      final var settingValue = configuration.field(settingName);
+    for (var settingName : configuration.propertyNames()) {
+      final var settingValue = configuration.getProperty(settingName);
       final var settingValueAsString = settingValue != null ? settingValue.toString() : null;
 
       if (settingName.equalsIgnoreCase("enabled")) {
@@ -370,7 +370,7 @@ public class AutomaticBackup extends ServerPluginAbstract implements OServerPlug
 
   private String[] getDbsList(String settingName, String settingValueAsString) {
     String[] included = null;
-    var val = configuration.field(settingName);
+    var val = configuration.getProperty(settingName);
     if (val instanceof Collection dbs) {
       included = new String[dbs.size()];
       var i = 0;

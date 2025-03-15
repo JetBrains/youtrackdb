@@ -57,7 +57,7 @@ public class PreparedStatementTest extends BaseDBTest {
     var found = false;
     for (var doc : result) {
       found = true;
-      Assert.assertTrue(expected.contains(doc.field("name")));
+      Assert.assertTrue(expected.contains(doc.getProperty("name")));
     }
     Assert.assertTrue(found);
   }
@@ -76,7 +76,7 @@ public class PreparedStatementTest extends BaseDBTest {
     var found = false;
     for (var doc : result) {
       found = true;
-      Assert.assertTrue(expected.contains(doc.field("name")));
+      Assert.assertTrue(expected.contains(doc.getProperty("name")));
     }
     Assert.assertTrue(found);
   }
@@ -101,7 +101,7 @@ public class PreparedStatementTest extends BaseDBTest {
     for (var doc : result) {
       found = true;
       Assert.assertEquals(doc.getIdentity(), record.getIdentity());
-      Assert.assertEquals(doc.<Object>field("name"), record.field("name"));
+      Assert.assertEquals(doc.<Object>getProperty("name"), record.getProperty("name"));
     }
     Assert.assertTrue(found);
   }
@@ -124,7 +124,7 @@ public class PreparedStatementTest extends BaseDBTest {
     for (var doc : result) {
       found = true;
       Assert.assertEquals(doc.getIdentity(), record.getIdentity());
-      Assert.assertEquals(doc.<Object>field("name"), record.field("name"));
+      Assert.assertEquals(doc.<Object>getProperty("name"), record.getProperty("name"));
     }
     Assert.assertTrue(found);
   }
@@ -149,7 +149,7 @@ public class PreparedStatementTest extends BaseDBTest {
     for (var doc : result) {
       found = true;
       Assert.assertEquals(doc.getIdentity(), record.getIdentity());
-      Assert.assertEquals(doc.<Object>field("name"), record.field("name"));
+      Assert.assertEquals(doc.<Object>getProperty("name"), record.getProperty("name"));
     }
     Assert.assertTrue(found);
   }
@@ -170,7 +170,7 @@ public class PreparedStatementTest extends BaseDBTest {
     for (var doc : result) {
       found = true;
       Assert.assertEquals(doc.getIdentity(), record.getIdentity());
-      Assert.assertEquals(doc.<Object>field("name"), record.field("name"));
+      Assert.assertEquals(doc.<Object>getProperty("name"), record.getProperty("name"));
     }
     Assert.assertTrue(found);
   }
@@ -217,7 +217,7 @@ public class PreparedStatementTest extends BaseDBTest {
     var found = false;
     for (var doc : result) {
       found = true;
-      Assert.assertEquals(doc.field("name"), "foo1");
+      Assert.assertEquals(doc.getProperty("name"), "foo1");
     }
     Assert.assertTrue(found);
   }
@@ -236,7 +236,7 @@ public class PreparedStatementTest extends BaseDBTest {
     var found = false;
     for (var doc : result) {
       found = true;
-      Assert.assertEquals(doc.field("name"), "foo1");
+      Assert.assertEquals(doc.getProperty("name"), "foo1");
     }
     Assert.assertTrue(found);
   }
@@ -253,7 +253,7 @@ public class PreparedStatementTest extends BaseDBTest {
     var found = false;
     for (var doc : result) {
       found = true;
-      Assert.assertEquals(doc.field("name"), "foo1");
+      Assert.assertEquals(doc.getProperty("name"), "foo1");
     }
     Assert.assertTrue(found);
   }
@@ -272,7 +272,7 @@ public class PreparedStatementTest extends BaseDBTest {
     var found = false;
     for (var doc : result) {
       found = true;
-      Assert.assertEquals(doc.field("name"), "foo1");
+      Assert.assertEquals(doc.getProperty("name"), "foo1");
     }
     Assert.assertTrue(found);
   }

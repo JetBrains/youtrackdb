@@ -550,14 +550,14 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
     var response = new EntityImpl(null);
     var error = new EntityImpl(null);
 
-    error.field("code", iCode);
-    error.field("reason", iCode);
-    error.field("content", iContent);
+    error.setProperty("code", iCode);
+    error.setProperty("reason", iCode);
+    error.setProperty("content", iContent);
 
     List<EntityImpl> errors = new ArrayList<EntityImpl>();
     errors.add(error);
 
-    response.field("errors", errors);
+    response.setProperty("errors", errors);
 
     binaryContent = response.toJSON("prettyPrint").getBytes(utf8);
 

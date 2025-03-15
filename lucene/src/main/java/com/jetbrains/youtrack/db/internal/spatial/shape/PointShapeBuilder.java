@@ -60,7 +60,7 @@ public class PointShapeBuilder extends ShapeBuilder<Point> {
   @Override
   public Point fromDoc(EntityImpl document) {
     validate(document);
-    List<Number> coordinates = document.field(COORDINATES);
+    List<Number> coordinates = document.getProperty(COORDINATES);
     if (coordinates.size() == 2) {
       return SHAPE_FACTORY.pointXY(
           coordinates.get(0).doubleValue(), coordinates.get(1).doubleValue());
@@ -76,9 +76,7 @@ public class PointShapeBuilder extends ShapeBuilder<Point> {
   public EntityImpl toEntitty(final Point shape) {
 
     var doc = new EntityImpl(null, NAME);
-    doc.field(
-        COORDINATES,
-        new ArrayList<Double>() {
+    doc.setProperty(COORDINATES, new ArrayList<Double>() {
           {
             add(shape.getX());
             add(shape.getY());
@@ -94,9 +92,7 @@ public class PointShapeBuilder extends ShapeBuilder<Point> {
     }
 
     var doc = new EntityImpl(null, NAME + "Z");
-    doc.field(
-        COORDINATES,
-        new ArrayList<Double>() {
+    doc.setProperty(COORDINATES, new ArrayList<Double>() {
           {
             add(geometry.getCoordinate().getX());
             add(geometry.getCoordinate().getY());

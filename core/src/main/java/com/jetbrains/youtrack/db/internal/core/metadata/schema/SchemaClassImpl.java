@@ -502,34 +502,34 @@ public abstract class SchemaClassImpl {
     subclasses = null;
     superClasses.clear();
 
-    name = entity.field("name");
-    if (entity.containsField("description")) {
-      description = entity.field("description");
+    name = entity.getProperty("name");
+    if (entity.hasProperty("description")) {
+      description = entity.getProperty("description");
     } else {
       description = null;
     }
-    defaultClusterId = entity.field("defaultClusterId");
-    if (entity.containsField("strictMode")) {
-      strictMode = entity.field("strictMode");
+    defaultClusterId = entity.getProperty("defaultClusterId");
+    if (entity.hasProperty("strictMode")) {
+      strictMode = entity.getProperty("strictMode");
     } else {
       strictMode = false;
     }
 
-    if (entity.containsField("abstract")) {
-      abstractClass = entity.field("abstract");
+    if (entity.hasProperty("abstract")) {
+      abstractClass = entity.getProperty("abstract");
     } else {
       abstractClass = false;
     }
 
-    if (entity.field("overSize") != null) {
-      overSize = entity.field("overSize");
+    if (entity.getProperty("overSize") != null) {
+      overSize = entity.getProperty("overSize");
     } else {
       overSize = 0f;
     }
 
-    final var cc = entity.field("clusterIds");
+    final var cc = entity.getProperty("clusterIds");
     if (cc instanceof Collection<?>) {
-      final Collection<Integer> coll = entity.field("clusterIds");
+      final Collection<Integer> coll = entity.getProperty("clusterIds");
       clusterIds = new int[coll.size()];
       var i = 0;
       for (final var item : coll) {
@@ -550,12 +550,12 @@ public abstract class SchemaClassImpl {
     SchemaPropertyImpl prop;
 
     final Map<String, SchemaPropertyImpl> newProperties = new HashMap<>();
-    final Collection<EntityImpl> storedProperties = entity.field("properties");
+    final Collection<EntityImpl> storedProperties = entity.getProperty("properties");
 
     if (storedProperties != null) {
       for (Identifiable id : storedProperties) {
         EntityImpl p = id.getRecord(session);
-        String name = p.field("name");
+        String name = p.getProperty("name");
         // To lower case ?
         if (properties.containsKey(name)) {
           prop = properties.get(name);
@@ -1250,7 +1250,6 @@ public abstract class SchemaClassImpl {
 
     database.executeInTxBatches(ridsToMigrate, (s, rid) -> {
       var entity = (EntityImpl) s.loadEntity(rid);
-      entity.setFieldType(propertyName, type);
       entity.setPropertyInternal(newPropertyName, entity.getPropertyInternal(propertyName),
           type);
     });

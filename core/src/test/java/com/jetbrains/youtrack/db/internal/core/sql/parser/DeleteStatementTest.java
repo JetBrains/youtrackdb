@@ -46,9 +46,12 @@ public class DeleteStatementTest extends DbTestBase {
     session.command("create class Bar").close();
 
     session.begin();
-    final var doc1 = ((EntityImpl) session.newEntity("Foo")).field("k", "key1");
-    final var doc2 = ((EntityImpl) session.newEntity("Foo")).field("k", "key2");
-    final var doc3 = ((EntityImpl) session.newEntity("Foo")).field("k", "key3");
+    final var doc1 = ((EntityImpl) session.newEntity("Foo"));
+    doc1.setProperty("k", "key1");
+    final var doc2 = ((EntityImpl) session.newEntity("Foo"));
+    doc2.setProperty("k", "key2");
+    final var doc3 = ((EntityImpl) session.newEntity("Foo"));
+    doc3.setProperty("k", "key3");
 
     List<Identifiable> list = new ArrayList<>();
     list.add(doc1);

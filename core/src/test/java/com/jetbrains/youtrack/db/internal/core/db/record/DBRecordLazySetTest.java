@@ -20,10 +20,13 @@ public class DBRecordLazySetTest extends DbTestBase {
     super.beforeTest();
     session.begin();
     doc1 =
-        ((EntityImpl) session.newEntity()).field("doc1", "doc1");
+        ((EntityImpl) session.newEntity());
+    doc1.setProperty("doc1", "doc1");
     doc2 =
-        ((EntityImpl) session.newEntity()).field("doc2", "doc2");
-    ((EntityImpl) session.newEntity()).field("doc3", "doc3");
+        ((EntityImpl) session.newEntity());
+    doc2.setProperty("doc2", "doc2");
+    EntityImpl entity = ((EntityImpl) session.newEntity());
+    entity.setProperty("doc3", "doc3");
     session.commit();
   }
 
@@ -78,7 +81,7 @@ public class DBRecordLazySetTest extends DbTestBase {
     var doc = (EntityImpl) session.newEntity(test);
     var set = new LinkSet(doc);
     set.add(stubEntity.getIdentity());
-    doc.field("fi", set);
+    doc.setProperty("fi", set);
     session.commit();
   }
 }

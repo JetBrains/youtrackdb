@@ -28,7 +28,7 @@ public class DateBinaryComparatorTest extends DbTestBase {
     var document = (EntityImpl) session.newEntity(testClass.getName());
 
     try {
-      document.field("date", new SimpleDateFormat(dateFormat).parse(dateValue));
+      document.setProperty("date", new SimpleDateFormat(dateFormat).parse(dateValue));
 
       session.commit();
     } catch (ParseException e) {

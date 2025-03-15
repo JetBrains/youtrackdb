@@ -190,13 +190,13 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
     session.begin();
     var doc =
-        ((EntityImpl) session.newEntity("PropertyIndexTestClass")).fields("prop1",
+        ((EntityImpl) session.newEntity("PropertyIndexTestClass")).properties("prop1",
             "testComposite3");
 
-    ((EntityImpl) session.newEntity("PropertyIndexTestClass")).fields("prop0", doc, "prop1",
+    ((EntityImpl) session.newEntity("PropertyIndexTestClass")).properties("prop0", doc, "prop1",
         "testComposite1");
 
-    ((EntityImpl) session.newEntity("PropertyIndexTestClass")).fields("prop0", doc);
+    ((EntityImpl) session.newEntity("PropertyIndexTestClass")).properties("prop0", doc);
 
     session.commit();
 
@@ -238,13 +238,13 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
             .size(session);
 
     var doc =
-        ((EntityImpl) session.newEntity("PropertyIndexTestClass")).fields("prop1",
+        ((EntityImpl) session.newEntity("PropertyIndexTestClass")).properties("prop1",
             "testComposite34");
 
-    ((EntityImpl) session.newEntity("PropertyIndexTestClass")).fields("prop0", doc, "prop1",
+    ((EntityImpl) session.newEntity("PropertyIndexTestClass")).properties("prop0", doc, "prop1",
         "testComposite33");
 
-    ((EntityImpl) session.newEntity("PropertyIndexTestClass")).fields("prop0", doc);
+    ((EntityImpl) session.newEntity("PropertyIndexTestClass")).properties("prop0", doc);
 
     session.commit();
 

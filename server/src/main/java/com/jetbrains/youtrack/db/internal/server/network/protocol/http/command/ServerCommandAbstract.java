@@ -101,12 +101,12 @@ public abstract class ServerCommandAbstract implements ServerCommand {
       throws IOException {
     var response = new EntityImpl(null);
     var error = new EntityImpl(null);
-    error.field("code", iCode);
-    error.field("reason", iReason);
-    error.field("content", iContent);
+    error.setProperty("code", iCode);
+    error.setProperty("reason", iReason);
+    error.setProperty("content", iContent);
     List<EntityImpl> errors = new ArrayList<EntityImpl>();
     errors.add(error);
-    response.field("errors", errors);
+    response.setProperty("errors", errors);
     iResponse.send(
         iCode, iReason, HttpUtils.CONTENT_JSON, response.toJSON("prettyPrint"), iHeaders);
   }

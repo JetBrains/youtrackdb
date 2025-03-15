@@ -21,23 +21,23 @@ public class DepthFetchPlanTest extends DbTestBase {
     var doc = ((EntityImpl) session.newEntity("Test"));
     var doc1 = ((EntityImpl) session.newEntity("Test"));
     var doc2 = ((EntityImpl) session.newEntity("Test"));
-    doc.field("name", "name");
+    doc.setProperty("name", "name");
     session.commit();
 
     session.begin();
     doc = session.bindToSession(doc);
     doc1 = session.bindToSession(doc1);
 
-    doc1.field("name", "name1");
-    doc1.field("ref", doc);
+    doc1.setProperty("name", "name1");
+    doc1.setProperty("ref", doc);
     session.commit();
 
     session.begin();
     doc1 = session.bindToSession(doc1);
     doc2 = session.bindToSession(doc2);
 
-    doc2.field("name", "name2");
-    doc2.field("ref", doc1);
+    doc2.setProperty("name", "name2");
+    doc2.setProperty("ref", doc1);
     session.commit();
 
     session.begin();
@@ -60,31 +60,31 @@ public class DepthFetchPlanTest extends DbTestBase {
     var doc1 = ((EntityImpl) session.newEntity("Test"));
     var doc2 = ((EntityImpl) session.newEntity("Test"));
     var doc3 = ((EntityImpl) session.newEntity("Test"));
-    doc.field("name", "name");
+    doc.setProperty("name", "name");
     session.commit();
 
     session.begin();
     doc = session.bindToSession(doc);
     doc1 = session.bindToSession(doc1);
 
-    doc1.field("name", "name1");
-    doc1.field("ref", doc);
+    doc1.setProperty("name", "name1");
+    doc1.setProperty("ref", doc);
     session.commit();
 
     session.begin();
     doc1 = session.bindToSession(doc1);
     doc2 = session.bindToSession(doc2);
 
-    doc2.field("name", "name2");
-    doc2.field("ref", doc1);
+    doc2.setProperty("name", "name2");
+    doc2.setProperty("ref", doc1);
     session.commit();
 
     session.begin();
     doc2 = session.bindToSession(doc2);
     doc3 = session.bindToSession(doc3);
 
-    doc3.field("name", "name2");
-    doc3.field("ref", doc2);
+    doc3.setProperty("name", "name2");
+    doc3.setProperty("ref", doc2);
     session.commit();
 
     session.begin();

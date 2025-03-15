@@ -131,9 +131,9 @@ public class QueryOperatorTraverse extends QueryOperatorEqualityNotNulls {
         for (final var cfgField : cfgFields) {
           if (cfgField.equalsIgnoreCase(SQLFilterItemFieldAny.FULL_NAME)) {
             // ANY
-            for (final var fieldName : target.fieldNames()) {
+            for (final var fieldName : target.propertyNames()) {
               if (traverse(
-                  target.rawField(fieldName),
+                  target.getProperty(fieldName),
                   iCondition,
                   iLevel + 1,
                   iEvaluatedRecords,
@@ -143,9 +143,9 @@ public class QueryOperatorTraverse extends QueryOperatorEqualityNotNulls {
             }
           } else if (cfgField.equalsIgnoreCase(SQLFilterItemFieldAny.FULL_NAME)) {
             // ALL
-            for (final var fieldName : target.fieldNames()) {
+            for (final var fieldName : target.propertyNames()) {
               if (!traverse(
-                  target.rawField(fieldName),
+                  target.getProperty(fieldName),
                   iCondition,
                   iLevel + 1,
                   iEvaluatedRecords,
@@ -156,7 +156,8 @@ public class QueryOperatorTraverse extends QueryOperatorEqualityNotNulls {
             return true;
           } else {
             if (traverse(
-                target.rawField(cfgField), iCondition, iLevel + 1, iEvaluatedRecords, iContext)) {
+                target.getProperty(cfgField), iCondition, iLevel + 1, iEvaluatedRecords,
+                iContext)) {
               return true;
             }
           }

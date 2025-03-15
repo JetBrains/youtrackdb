@@ -89,7 +89,7 @@ public class EntityFieldWalker {
     SchemaImmutableClass result = null;
     result = entity.getImmutableSchemaClass(session);
     final SchemaClass clazz = result;
-    for (var fieldName : entity.fieldNames()) {
+    for (var fieldName : entity.propertyNames()) {
 
       final var concreteType = entity.getPropertyType(fieldName);
       var fieldType = concreteType;
@@ -198,7 +198,7 @@ public class EntityFieldWalker {
       Object newValue,
       PropertyType concreteType) {
     if (fieldValue != newValue) {
-      entity.field(fieldName, newValue, concreteType);
+      entity.setProperty(fieldName, newValue, concreteType);
       return true;
     }
 

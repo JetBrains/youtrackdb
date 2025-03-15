@@ -65,7 +65,7 @@ public class StorageTestIT {
 
     for (var i = 0; i < 10; i++) {
       var document = ((EntityImpl) session.newEntity("PageBreak"));
-      document.field("value", "value");
+      document.setProperty("value", "value");
 
     }
 
@@ -131,7 +131,7 @@ public class StorageTestIT {
 
     for (var i = 0; i < 10; i++) {
       var document = ((EntityImpl) db.newEntity("PageBreak"));
-      document.field("value", "value");
+      document.setProperty("value", "value");
 
     }
 
@@ -194,7 +194,7 @@ public class StorageTestIT {
 
     for (var i = 0; i < 10; i++) {
       var document = ((EntityImpl) db.newEntity("PageBreak"));
-      document.field("value", "value");
+      document.setProperty("value", "value");
 
     }
 
@@ -227,7 +227,7 @@ public class StorageTestIT {
     Thread.sleep(100); // lets wait till event will be propagated
 
     var document = ((EntityImpl) db.newEntity("PageBreak"));
-    document.field("value", "value");
+    document.setProperty("value", "value");
 
     db.close();
   }
@@ -257,7 +257,7 @@ public class StorageTestIT {
 
     for (var i = 0; i < 10; i++) {
       var document = ((EntityImpl) db.newEntity("PageBreak"));
-      document.field("value", "value");
+      document.setProperty("value", "value");
 
     }
 
@@ -293,7 +293,7 @@ public class StorageTestIT {
     Thread.sleep(100); // lets wait till event will be propagated
 
     var document = ((EntityImpl) db.newEntity("PageBreak"));
-    document.field("value", "value");
+    document.setProperty("value", "value");
 
     db.close();
   }

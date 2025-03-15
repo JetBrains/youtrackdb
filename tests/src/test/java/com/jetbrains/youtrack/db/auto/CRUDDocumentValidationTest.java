@@ -47,7 +47,7 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
     session.begin();
     account = ((EntityImpl) session.newEntity("Account"));
 
-    account.field("id", "1234567890");
+    account.setProperty("id", "1234567890");
     session.commit();
   }
 
@@ -98,9 +98,9 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
     session.begin();
     record = session.newInstance("Whiz");
     account = session.bindToSession(account);
-    record.field("account", account);
-    record.field("id", 23723);
-    record.field("text", "");
+    record.setProperty("account", account);
+    record.setProperty("id", 23723);
+    record.setProperty("text", "");
 
     session.commit();
   }
@@ -113,9 +113,9 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
     session.begin();
     record = session.newInstance("Whiz");
     account = session.bindToSession(account);
-    record.field("account", account);
-    record.field("id", 23723);
-    record.field(
+    record.setProperty("account", account);
+    record.setProperty("id", 23723);
+    record.setProperty(
         "text",
         "clfdkkjsd hfsdkjhf fjdkghjkfdhgjdfh gfdgjfdkhgfd skdjaksdjf skdjf sdkjfsd jfkldjfkjsdf"
             + " kljdk fsdjf kldjgjdhjg khfdjgk hfjdg hjdfhgjkfhdgj kfhdjghrjg");
@@ -131,9 +131,9 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
     session.begin();
     record = session.newInstance("Whiz");
     account = session.bindToSession(account);
-    record.field("account", account);
-    record.field("date", new SimpleDateFormat("dd/MM/yyyy").parse("01/33/1976"));
-    record.field("text", "test");
+    record.setProperty("account", account);
+    record.setPropertyInChain("date", new SimpleDateFormat("dd/MM/yyyy").parse("01/33/1976"));
+    record.setProperty("text", "test");
 
     session.commit();
   }
@@ -142,7 +142,7 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
   public void validationEmbeddedType() {
     session.begin();
     record = session.newInstance("Whiz");
-    record.field("account", session.geCurrentUser());
+    record.setPropertyInChain("account", session.geCurrentUser());
 
     session.commit();
   }
@@ -153,8 +153,8 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
   public void validationStrictClass() {
     session.begin();
     var doc = ((EntityImpl) session.newEntity("StrictTest"));
-    doc.field("id", 122112);
-    doc.field("antani", "122112");
+    doc.setProperty("id", 122112);
+    doc.setProperty("antani", "122112");
 
     session.commit();
   }
@@ -216,9 +216,9 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
   @Test(dependsOnMethods = "testUpdateDocDefined")
   public void validationMandatoryNullableCloseDb() {
     var doc = ((EntityImpl) session.newEntity("MyTestClass"));
-    doc.field("keyField", "K2");
-    doc.field("dateTimeField", null);
-    doc.field("stringField", null);
+    doc.setProperty("keyField", "K2");
+    doc.setProperty("dateTimeField", null);
+    doc.setProperty("stringField", null);
     session.begin();
 
     session.commit();
@@ -239,9 +239,9 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
   @Test(dependsOnMethods = "validationMandatoryNullableCloseDb")
   public void validationMandatoryNullableNoCloseDb() {
     var doc = ((EntityImpl) session.newEntity("MyTestClass"));
-    doc.field("keyField", "K3");
-    doc.field("dateTimeField", null);
-    doc.field("stringField", null);
+    doc.setProperty("keyField", "K3");
+    doc.setProperty("dateTimeField", null);
+    doc.setProperty("stringField", null);
 
     session.begin();
 
@@ -266,8 +266,8 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
   @Test
   public void testNullComparison() {
     // given
-    var doc1 = ((EntityImpl) session.newEntity()).field("testField", null);
-    var doc2 = ((EntityImpl) session.newEntity()).field("testField", null);
+    var doc1 = ((EntityImpl) session.newEntity()).setPropertyInChain("testField", null);
+    var doc2 = ((EntityImpl) session.newEntity()).setPropertyInChain("testField", null);
 
     var context = new BasicCommandContext();
     context.setDatabaseSession(session);

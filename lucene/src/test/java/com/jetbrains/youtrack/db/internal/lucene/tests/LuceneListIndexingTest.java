@@ -66,8 +66,8 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
 
     // Rome
     var doc = ((EntityImpl) session.newEntity("City"));
-    doc.field("name", "Rome");
-    doc.field("tags", Arrays.asList("Beautiful", "Touristic", "Sunny"));
+    doc.setProperty("name", "Rome");
+    doc.setProperty("tags", Arrays.asList("Beautiful", "Touristic", "Sunny"));
 
     session.begin();
     session.commit();
@@ -81,12 +81,12 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
 
     doc = session.load((RID) coll.iterator().next());
 
-    assertThat(doc.<String>field("name")).isEqualTo("Rome");
+    assertThat(doc.<String>getProperty("name")).isEqualTo("Rome");
 
     // London
     doc = ((EntityImpl) session.newEntity("City"));
-    doc.field("name", "London");
-    doc.field("tags", Arrays.asList("Beautiful", "Touristic", "Sunny"));
+    doc.setProperty("name", "London");
+    doc.setProperty("tags", Arrays.asList("Beautiful", "Touristic", "Sunny"));
 
     session.begin();
     session.commit();
@@ -99,7 +99,7 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
 
     doc = session.bindToSession(doc);
     // modify london: it is rainy
-    List<String> tags = doc.field("tags");
+    List<String> tags = doc.getProperty("tags");
     tags.remove("Sunny");
     tags.add("Rainy");
 
@@ -133,8 +133,8 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
     var schema = session.getMetadata().getSchema();
 
     var doc = ((EntityImpl) session.newEntity("Person"));
-    doc.field("name", "Enrico");
-    doc.field("tags", Arrays.asList("Funny", "Tall", "Geek"));
+    doc.setProperty("name", "Enrico");
+    doc.setProperty("tags", Arrays.asList("Funny", "Tall", "Geek"));
 
     session.commit();
 
@@ -148,8 +148,8 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
     assertThat(coll).hasSize(3);
 
     doc = ((EntityImpl) session.newEntity("Person"));
-    doc.field("name", "Jared");
-    doc.field("tags", Arrays.asList("Funny", "Tall"));
+    doc.setProperty("name", "Jared");
+    doc.setProperty("tags", Arrays.asList("Funny", "Tall"));
 
     session.commit();
 
@@ -160,7 +160,7 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
 
     assertThat(coll).hasSize(2);
 
-    List<String> tags = doc.field("tags");
+    List<String> tags = doc.getProperty("tags");
 
     tags.remove("Funny");
     tags.add("Geek");

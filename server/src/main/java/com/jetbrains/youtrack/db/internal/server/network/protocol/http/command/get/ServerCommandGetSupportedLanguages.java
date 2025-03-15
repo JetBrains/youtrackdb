@@ -49,7 +49,7 @@ public class ServerCommandGetSupportedLanguages extends ServerCommandAuthenticat
         }
       }
 
-      result.field("languages", languages);
+      result.setProperty("languages", languages);
       iResponse.writeRecord(result);
     }
     return false;

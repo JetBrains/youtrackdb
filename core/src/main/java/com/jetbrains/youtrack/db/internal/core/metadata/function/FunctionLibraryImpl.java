@@ -77,7 +77,7 @@ public class FunctionLibraryImpl {
           var res = result.next();
           var d = (EntityImpl) res.asEntity();
           // skip the function records which do not contain real data
-          if (d.fields() == 0) {
+          if (d.getPropertiesCount() == 0) {
             continue;
           }
 
@@ -86,7 +86,7 @@ public class FunctionLibraryImpl {
           // RESTORE CALLBACK IF ANY
           f.setCallback(callbacks.get(f.getName()));
 
-          functions.put(d.field("name").toString().toUpperCase(Locale.ENGLISH), f);
+          functions.put(d.getProperty("name").toString().toUpperCase(Locale.ENGLISH), f);
         }
       }
     }

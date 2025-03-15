@@ -369,7 +369,7 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
           for (var f : entity.getDirtyPropertiesBetweenCallbacksInternal(false, false)) {
             var fieldChanges = db.newEntity();
             fieldChanges.setProperty("from", entity.getOriginalValue(f));
-            fieldChanges.setProperty("to", entity.rawField(f));
+            fieldChanges.setProperty("to", entity.getProperty(f));
             changes.setProperty(f, fieldChanges, PropertyType.EMBEDDED);
           }
         }
@@ -418,7 +418,7 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
                 if (iVariable.startsWith("field.")) {
                   if (iRecord instanceof EntityImpl) {
                     final var fieldName = iVariable.substring("field.".length());
-                    return ((EntityImpl) iRecord).field(fieldName);
+                    return ((EntityImpl) iRecord).getProperty(fieldName);
                   }
                 }
                 return null;

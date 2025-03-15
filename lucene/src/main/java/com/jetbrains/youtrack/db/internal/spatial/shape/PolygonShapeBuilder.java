@@ -60,7 +60,7 @@ public class PolygonShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
   @Override
   public JtsGeometry fromDoc(EntityImpl document) {
     validate(document);
-    List<List<List<Number>>> coordinates = document.field("coordinates");
+    List<List<List<Number>>> coordinates = document.getProperty("coordinates");
 
     return toShape(createPolygon(coordinates));
   }
@@ -104,7 +104,7 @@ public class PolygonShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
     var doc = new EntityImpl(null, getName());
     var polygon = (Polygon) shape.getGeom();
     var polyCoordinates = coordinatesFromPolygon(polygon);
-    doc.field(COORDINATES, polyCoordinates);
+    doc.setProperty(COORDINATES, polyCoordinates);
     return doc;
   }
 
@@ -117,7 +117,7 @@ public class PolygonShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
     var doc = new EntityImpl(null, getName() + "Z");
     var polygon = (Polygon) shape.getGeom();
     var polyCoordinates = coordinatesFromPolygonZ(geometry);
-    doc.field(COORDINATES, polyCoordinates);
+    doc.setProperty(COORDINATES, polyCoordinates);
     return doc;
   }
 

@@ -32,8 +32,8 @@ public class CheckHookCallCountTest extends DbTestBase {
     var id = UUID.randomUUID().toString();
     session.begin();
     var first = (EntityImpl) session.newEntity(CLASS_NAME);
-    first.field(FIELD_ID, id);
-    first.field(FIELD_STATUS, STATUS);
+    first.setProperty(FIELD_ID, id);
+    first.setProperty(FIELD_STATUS, STATUS);
     session.commit();
 
     session.begin();
@@ -57,16 +57,16 @@ public class CheckHookCallCountTest extends DbTestBase {
 
     session.begin();
     var doc = (EntityImpl) session.newEntity(oClass);
-    doc.field("a", 2);
-    doc.field("b", 2);
+    doc.setProperty("a", 2);
+    doc.setProperty("b", 2);
 
     session.commit();
 
     session.begin();
     doc = session.bindToSession(doc);
-    assertEquals(Integer.valueOf(2), doc.field("a"));
-    assertEquals(Integer.valueOf(2), doc.field("b"));
-    assertNull(doc.field("c"));
+    assertEquals(Integer.valueOf(2), doc.getProperty("a"));
+    assertEquals(Integer.valueOf(2), doc.getProperty("b"));
+    assertNull(doc.getProperty("c"));
     session.rollback();
 
     session.registerHook(
@@ -86,7 +86,7 @@ public class CheckHookCallCountTest extends DbTestBase {
             var script = "select sum(a, b) as value from " + entity.getIdentity();
             try (var calculated = session.query(script)) {
               if (calculated.hasNext()) {
-                entity.field("c", calculated.next().getProperty("value"));
+                entity.setProperty("c", calculated.next().getProperty("value"));
               }
             }
           }
@@ -95,23 +95,23 @@ public class CheckHookCallCountTest extends DbTestBase {
 
     session.begin();
     doc = session.bindToSession(doc);
-    assertEquals(Integer.valueOf(2), doc.field("a"));
-    assertEquals(Integer.valueOf(2), doc.field("b"));
-    assertEquals(Integer.valueOf(4), doc.field("c"));
+    assertEquals(Integer.valueOf(2), doc.getProperty("a"));
+    assertEquals(Integer.valueOf(2), doc.getProperty("b"));
+    assertEquals(Integer.valueOf(4), doc.getProperty("c"));
     session.rollback();
 
     session.begin();
     doc = (EntityImpl) session.newEntity(oClass);
-    doc.field("a", 3);
-    doc.field("b", 3);
+    doc.setProperty("a", 3);
+    doc.setProperty("b", 3);
 
     session.commit();
 
     session.begin();
     doc = session.bindToSession(doc);
-    assertEquals(Integer.valueOf(3), doc.field("a"));
-    assertEquals(Integer.valueOf(3), doc.field("b"));
-    assertEquals(Integer.valueOf(6), doc.field("c"));
+    assertEquals(Integer.valueOf(3), doc.getProperty("a"));
+    assertEquals(Integer.valueOf(3), doc.getProperty("b"));
+    assertEquals(Integer.valueOf(6), doc.getProperty("c"));
     session.rollback();
   }
 

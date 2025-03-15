@@ -112,22 +112,22 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
 
   public static boolean encodePassword(
       DatabaseSessionInternal session, final EntityImpl entity) {
-    final String name = entity.field(NAME_PROPERTY);
+    final String name = entity.getProperty(NAME_PROPERTY);
     if (name == null) {
       throw new SecurityException(session.getDatabaseName(), "User name not found");
     }
 
-    final String password = entity.field("password");
+    final String password = entity.getProperty("password");
 
     if (password == null) {
       throw new SecurityException(session.getDatabaseName(),
-          "User '" + entity.field(NAME_PROPERTY) + "' has no password");
+          "User '" + entity.getProperty(NAME_PROPERTY) + "' has no password");
     }
     var security = session.getSharedContext().getYouTrackDB().getSecuritySystem();
     security.validatePassword(name, password);
 
     if (!(!password.isEmpty() && password.charAt(0) == '{')) {
-      entity.field("password", encryptPassword(password));
+      entity.setProperty("password", encryptPassword(password));
       return true;
     }
 

@@ -34,9 +34,9 @@ public class DBRecordSerializerBinaryDebugTest extends DbTestBase {
   public void testSimpleDocumentDebug() {
     session.begin();
     var doc = (EntityImpl) session.newEntity();
-    doc.field("test", "test");
-    doc.field("anInt", 2);
-    doc.field("anDouble", 2D);
+    doc.setProperty("test", "test");
+    doc.setProperty("anInt", 2);
+    doc.setProperty("anDouble", 2D);
 
     var bytes = doc.toStream();
 
@@ -66,9 +66,9 @@ public class DBRecordSerializerBinaryDebugTest extends DbTestBase {
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("some");
-    doc.field("testP", "test");
-    doc.field("theInt", 2);
-    doc.field("anDouble", 2D);
+    doc.setProperty("testP", "test");
+    doc.setProperty("theInt", 2);
+    doc.setProperty("anDouble", 2D);
 
     var bytes = doc.toStream();
 
@@ -94,9 +94,9 @@ public class DBRecordSerializerBinaryDebugTest extends DbTestBase {
   public void testSimpleBrokenDocumentDebug() {
     session.begin();
     var doc = (EntityImpl) session.newEntity();
-    doc.field("test", "test");
-    doc.field("anInt", 2);
-    doc.field("anDouble", 2D);
+    doc.setProperty("test", "test");
+    doc.setProperty("anInt", 2);
+    doc.setProperty("anDouble", 2D);
 
     var bytes = doc.toStream();
     var brokenBytes = new byte[bytes.length - 10];
@@ -131,9 +131,9 @@ public class DBRecordSerializerBinaryDebugTest extends DbTestBase {
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("some");
-    doc.field("testP", "test");
-    doc.field("theInt", 2);
-    doc.field("anDouble", 2D);
+    doc.setProperty("testP", "test");
+    doc.setProperty("theInt", 2);
+    doc.setProperty("anDouble", 2D);
 
     var bytes = doc.toStream();
     var brokenBytes = new byte[bytes.length - 10];

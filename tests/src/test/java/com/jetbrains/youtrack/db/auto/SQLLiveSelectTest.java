@@ -81,7 +81,7 @@ public class SQLLiveSelectTest extends AbstractSelectTest {
     Assert.assertEquals(tokens.size(), 1);
 
     var tokenDoc = tokens.get(0);
-    Integer token = tokenDoc.field("token");
+    Integer token = tokenDoc.getProperty("token");
     Assert.assertNotNull(token);
 
     session.begin();
@@ -99,9 +99,9 @@ public class SQLLiveSelectTest extends AbstractSelectTest {
     Assert.assertEquals(ops.size(), TOTAL_OPS);
     for (var doc : ops) {
       if (doc.type == RecordOperation.CREATED) {
-        Assert.assertEquals(((EntityImpl) doc.record).field("name"), "foo");
+        Assert.assertEquals(((EntityImpl) doc.record).getProperty("name"), "foo");
       } else if (doc.type == RecordOperation.UPDATED) {
-        Assert.assertEquals(((EntityImpl) doc.record).field("name"), "updated");
+        Assert.assertEquals(((EntityImpl) doc.record).getProperty("name"), "updated");
       } else {
         Assert.fail();
       }
@@ -137,7 +137,7 @@ public class SQLLiveSelectTest extends AbstractSelectTest {
     Assert.assertEquals(tokens.size(), 1);
 
     var tokenDoc = tokens.get(0);
-    Integer token = tokenDoc.field("token");
+    Integer token = tokenDoc.getProperty("token");
     Assert.assertNotNull(token);
 
     session.command("insert into liveclass set name = 'foo', surname = 'bar'").close();
@@ -151,9 +151,9 @@ public class SQLLiveSelectTest extends AbstractSelectTest {
     Assert.assertEquals(ops.size(), 6);
     for (var doc : ops) {
       if (doc.type == RecordOperation.CREATED) {
-        Assert.assertEquals(((EntityImpl) doc.record).field("name"), "foo");
+        Assert.assertEquals(((EntityImpl) doc.record).getProperty("name"), "foo");
       } else if (doc.type == RecordOperation.UPDATED) {
-        Assert.assertEquals(((EntityImpl) doc.record).field("name"), "updated");
+        Assert.assertEquals(((EntityImpl) doc.record).getProperty("name"), "updated");
       } else {
         Assert.fail();
       }

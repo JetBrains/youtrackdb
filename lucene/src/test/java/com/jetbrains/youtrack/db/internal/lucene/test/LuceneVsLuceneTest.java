@@ -19,9 +19,7 @@ package com.jetbrains.youtrack.db.internal.lucene.test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.lucene.analyzer.LucenePerFieldAnalyzerWrapper;
 import java.io.File;
 import java.io.IOException;
@@ -84,7 +82,7 @@ public class LuceneVsLuceneTest extends BaseLuceneTest {
     var entityIterator = session.browseClass("Song");
     while (entityIterator.hasNext()) {
       var oEntity = entityIterator.next();
-      String title = oEntity.field("title");
+      String title = oEntity.getProperty("title");
       if (title != null) {
         var d = new Document();
 

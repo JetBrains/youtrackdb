@@ -319,19 +319,19 @@ public class LocalPaginatedStorageRestoreFromWALIT {
 
         for (var i = 0; i < 5000; i++) {
           var docOne = ((EntityImpl) db.newEntity(classOne));
-          docOne.field("intProp", random.nextInt());
+          docOne.setProperty("intProp", random.nextInt());
 
           var stringData = new byte[256];
           random.nextBytes(stringData);
           var stringProp = new String(stringData);
 
-          docOne.field("stringProp", stringProp);
+          docOne.setProperty("stringProp", stringProp);
 
           Set<String> stringSet = new HashSet<String>();
           for (var n = 0; n < 5; n++) {
             stringSet.add("str" + random.nextInt());
           }
-          docOne.field("stringSet", stringSet);
+          docOne.setProperty("stringSet", stringSet);
 
           firstDocs.add(docOne.getIdentity());
 
@@ -344,7 +344,7 @@ public class LocalPaginatedStorageRestoreFromWALIT {
               stringList.add("strnd" + random.nextInt());
             }
 
-            docTwo.field("stringList", stringList);
+            docTwo.setProperty("stringList", stringList);
 
             testTwoList.add(docTwo.getIdentity());
           }
@@ -360,7 +360,7 @@ public class LocalPaginatedStorageRestoreFromWALIT {
               linkMap.put(docTwoRid.toString(), docTwoRid);
             }
 
-            docOne.field("linkMap", linkMap);
+            docOne.setProperty("linkMap", linkMap);
 
           }
 

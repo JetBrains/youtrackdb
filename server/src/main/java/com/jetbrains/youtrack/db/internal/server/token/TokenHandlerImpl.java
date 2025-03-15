@@ -389,9 +389,9 @@ public class TokenHandlerImpl implements TokenHandler {
     final var entity = new EntityImpl(null);
     entity.updateFromJSON(new String(decodedHeader, StandardCharsets.UTF_8));
     final var header = new YouTrackDBJwtHeader();
-    header.setType(entity.field("typ"));
-    header.setAlgorithm(entity.field("alg"));
-    header.setKeyId(entity.field("kid"));
+    header.setType(entity.getProperty("typ"));
+    header.setAlgorithm(entity.getProperty("alg"));
+    header.setKeyId(entity.getProperty("kid"));
     return header;
   }
 
@@ -403,18 +403,18 @@ public class TokenHandlerImpl implements TokenHandler {
     final var entity = new EntityImpl(null);
     entity.updateFromJSON(new String(decodedPayload, StandardCharsets.UTF_8));
     final var payload = new YouTrackDBJwtPayload();
-    payload.setUserName(entity.field("username"));
-    payload.setIssuer(entity.field("iss"));
-    payload.setExpiry(entity.field("exp"));
-    payload.setIssuedAt(entity.field("iat"));
-    payload.setNotBefore(entity.field("nbf"));
-    payload.setDatabase(entity.field("sub"));
-    payload.setAudience(entity.field("aud"));
-    payload.setTokenId(entity.field("jti"));
-    final int cluster = entity.field("uidc");
-    final long pos = entity.field("uidp");
+    payload.setUserName(entity.getProperty("username"));
+    payload.setIssuer(entity.getProperty("iss"));
+    payload.setExpiry(entity.getProperty("exp"));
+    payload.setIssuedAt(entity.getProperty("iat"));
+    payload.setNotBefore(entity.getProperty("nbf"));
+    payload.setDatabase(entity.getProperty("sub"));
+    payload.setAudience(entity.getProperty("aud"));
+    payload.setTokenId(entity.getProperty("jti"));
+    final int cluster = entity.getProperty("uidc");
+    final long pos = entity.getProperty("uidp");
     payload.setUserRid(new RecordId(cluster, pos));
-    payload.setDatabaseType(entity.field("bdtyp"));
+    payload.setDatabaseType(entity.getProperty("bdtyp"));
     return payload;
   }
 
@@ -424,9 +424,9 @@ public class TokenHandlerImpl implements TokenHandler {
     }
 
     var entity = new EntityImpl(null);
-    entity.field("typ", header.getType());
-    entity.field("alg", header.getAlgorithm());
-    entity.field("kid", header.getKeyId());
+    entity.setProperty("typ", header.getType());
+    entity.setProperty("alg", header.getAlgorithm());
+    entity.setProperty("kid", header.getKeyId());
     return entity.toJSON().getBytes(StandardCharsets.UTF_8);
   }
 
@@ -436,17 +436,17 @@ public class TokenHandlerImpl implements TokenHandler {
     }
 
     final var entity = new EntityImpl(null);
-    entity.field("username", payload.getUserName());
-    entity.field("iss", payload.getIssuer());
-    entity.field("exp", payload.getExpiry());
-    entity.field("iat", payload.getIssuedAt());
-    entity.field("nbf", payload.getNotBefore());
-    entity.field("sub", payload.getDatabase());
-    entity.field("aud", payload.getAudience());
-    entity.field("jti", payload.getTokenId());
-    entity.field("uidc", payload.getUserRid().getClusterId());
-    entity.field("uidp", payload.getUserRid().getClusterPosition());
-    entity.field("bdtyp", payload.getDatabaseType());
+    entity.setProperty("username", payload.getUserName());
+    entity.setProperty("iss", payload.getIssuer());
+    entity.setProperty("exp", payload.getExpiry());
+    entity.setProperty("iat", payload.getIssuedAt());
+    entity.setProperty("nbf", payload.getNotBefore());
+    entity.setProperty("sub", payload.getDatabase());
+    entity.setProperty("aud", payload.getAudience());
+    entity.setProperty("jti", payload.getTokenId());
+    entity.setProperty("uidc", payload.getUserRid().getClusterId());
+    entity.setProperty("uidp", payload.getUserRid().getClusterPosition());
+    entity.setProperty("bdtyp", payload.getDatabaseType());
     return entity.toJSON().getBytes(StandardCharsets.UTF_8);
   }
 

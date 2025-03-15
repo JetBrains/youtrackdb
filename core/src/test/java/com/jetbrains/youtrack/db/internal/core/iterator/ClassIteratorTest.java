@@ -20,7 +20,7 @@ public class ClassIteratorTest extends DbTestBase {
     // Create Person document
     session.begin();
     final var personDoc = session.newInstance(iClassName);
-    personDoc.field("First", first);
+    personDoc.setProperty("First", first);
     session.commit();
   }
 

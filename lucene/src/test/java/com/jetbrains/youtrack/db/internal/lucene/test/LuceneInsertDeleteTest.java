@@ -52,7 +52,7 @@ public class LuceneInsertDeleteTest extends BaseLuceneTest {
     Schema schema = session.getMetadata().getSchema();
 
     var doc = ((EntityImpl) session.newEntity("City"));
-    doc.field("name", "Rome");
+    doc.setProperty("name", "Rome");
     session.begin();
     session.commit();
 

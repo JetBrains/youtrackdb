@@ -73,9 +73,9 @@ public class LuceneSpatialDropTest {
   private static void fillDb(DatabaseSession db, int count) {
     for (var i = 0; i < count; i++) {
       var doc = ((EntityImpl) db.newEntity("test"));
-      doc.field("name", "TestInsert" + i);
-      doc.field("latitude", 50.0 + (i * 0.000001));
-      doc.field("longitude", 8.0 + (i * 0.000001));
+      doc.setProperty("name", "TestInsert" + i);
+      doc.setProperty("latitude", 50.0 + (i * 0.000001));
+      doc.setProperty("longitude", 8.0 + (i * 0.000001));
 
       db.begin();
       db.commit();

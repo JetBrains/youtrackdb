@@ -34,10 +34,12 @@ public class CommandExecutorSQLDeleteEdgeTest extends DbTestBase {
     schema.createClass("CanAccess", schema.getClass("E"));
 
     session.begin();
-    var doc = ((EntityImpl) session.newEntity("User")).field("username", "gongolo");
+    var doc = ((EntityImpl) session.newEntity("User"));
+    doc.setProperty("username", "gongolo");
 
     userId1 = doc.getIdentity();
-    doc = ((EntityImpl) session.newEntity("Folder")).field("keyId", "01234567893");
+    doc = ((EntityImpl) session.newEntity("Folder"));
+    doc.setProperty("keyId", "01234567893");
 
     folderId1 = doc.getIdentity();
     session.commit();

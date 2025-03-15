@@ -24,12 +24,12 @@ public class NestedInsertTest extends DbTestBase {
     session.commit();
 
     final EntityImpl res = ((Identifiable) result.next().getProperty("@this")).getRecord(session);
-    final EntityImpl embedded = res.field("meta");
+    final EntityImpl embedded = res.getProperty("meta");
     Assert.assertNotNull(embedded);
 
-    Assert.assertEquals(2, embedded.fields());
-    Assert.assertEquals("italy", embedded.field("country"));
-    Assert.assertEquals(java.util.Date.class, embedded.field("date").getClass());
+    Assert.assertEquals(2, embedded.getPropertiesCount());
+    Assert.assertEquals("italy", embedded.getProperty("country"));
+    Assert.assertEquals(java.util.Date.class, embedded.getProperty("date").getClass());
   }
 
   @Test
@@ -47,10 +47,10 @@ public class NestedInsertTest extends DbTestBase {
     session.commit();
 
     final EntityImpl res = ((Identifiable) result.next().getProperty("@this")).getRecord(session);
-    final EntityImpl ln = res.field("some");
+    final EntityImpl ln = res.getProperty("some");
     Assert.assertNotNull(ln);
     Assert.assertTrue(ln.getIdentity().isPersistent());
-    Assert.assertEquals(1, ln.fields());
-    Assert.assertEquals("a name", ln.field("name"));
+    Assert.assertEquals(1, ln.getPropertiesCount());
+    Assert.assertEquals("a name", ln.getProperty("name"));
   }
 }

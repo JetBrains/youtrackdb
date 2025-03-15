@@ -47,10 +47,8 @@ public class LuceneSpatialLineStringTest extends BaseSpatialLuceneTest {
     session.command("CREATE INDEX Place.location ON Place(location) SPATIAL ENGINE LUCENE").close();
 
     var linestring1 = ((EntityImpl) session.newEntity("Place"));
-    linestring1.field("name", "LineString1");
-    linestring1.field(
-        "location",
-        createLineString(
+    linestring1.setProperty("name", "LineString1");
+    linestring1.setProperty("location", createLineString(
             new ArrayList<List<Double>>() {
               {
                 add(Arrays.asList(0d, 0d));
@@ -59,10 +57,8 @@ public class LuceneSpatialLineStringTest extends BaseSpatialLuceneTest {
             }));
 
     var linestring2 = ((EntityImpl) session.newEntity("Place"));
-    linestring2.field("name", "LineString2");
-    linestring2.field(
-        "location",
-        createLineString(
+    linestring2.setProperty("name", "LineString2");
+    linestring2.setProperty("location", createLineString(
             new ArrayList<List<Double>>() {
               {
                 add(Arrays.asList(0d, 1d));
@@ -84,7 +80,7 @@ public class LuceneSpatialLineStringTest extends BaseSpatialLuceneTest {
 
   public EntityImpl createLineString(List<List<Double>> coordinates) {
     var location = ((EntityImpl) session.newEntity("OLineString"));
-    location.field("coordinates", coordinates);
+    location.setProperty("coordinates", coordinates);
     return location;
   }
 

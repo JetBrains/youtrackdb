@@ -68,14 +68,14 @@ public class LuceneSpatialPolygonTest extends BaseSpatialLuceneTest {
 
     EntityImpl doc = ((EntityImpl) session.newEntity()).updateFromJSON(systemResourceAsStream);
 
-    Map geometry = doc.field("geometry");
+    Map geometry = doc.getProperty("geometry");
 
     var type = (String) geometry.get("type");
     var location = ((EntityImpl) session.newEntity("O" + type));
-    location.field("coordinates", geometry.get("coordinates"));
+    location.setProperty("coordinates", geometry.get("coordinates"));
     var germany = ((EntityImpl) session.newEntity("Place"));
-    germany.field("name", "Germany");
-    germany.field("location", location);
+    germany.setProperty("name", "Germany");
+    germany.setProperty("location", location);
 
     session.begin();
     session.commit();

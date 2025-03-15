@@ -395,7 +395,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
           if (link != null)
           // OVERWRITE CONTENT
           {
-            iRecord.field(iName, link);
+            iRecord.setProperty(iName, link);
           }
         }
         break;
@@ -425,7 +425,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
             ((Collection<? extends Identifiable>) iValue).clear();
           }
 
-          iRecord.field(iName, coll);
+          iRecord.setProperty(iName, coll);
           it = coll.iterator();
         } else {
           // LAZY LIST
@@ -462,7 +462,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
           if (!(iValue instanceof LinkSet)) {
             final var set = new LinkSet(iRecord);
             set.addAll((Collection<Identifiable>) iValue);
-            iRecord.field(iName, set);
+            iRecord.setProperty(iName, set);
             coll = set;
           } else {
             coll = (Collection<Identifiable>) iValue;
@@ -508,7 +508,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
             newMap.put(entry.getKey(), (Identifiable) entry.getValue());
           }
           map.clear();
-          iRecord.field(iName, newMap);
+          iRecord.setProperty(iName, newMap);
         }
 
         iOutput.append(StringSerializerHelper.MAP_END);
@@ -522,7 +522,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
           iOutput.append(StringSerializerHelper.EMBEDDED_END);
         } else if (iValue instanceof EntitySerializable) {
           final var entity = ((EntitySerializable) iValue).toEntity(session);
-          entity.field(EntitySerializable.CLASS_NAME, iValue.getClass().getName());
+          entity.setProperty(EntitySerializable.CLASS_NAME, iValue.getClass().getName());
 
           iOutput.append(StringSerializerHelper.EMBEDDED_BEGIN);
           toString(session, entity, iOutput, null, true);
@@ -589,7 +589,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
               record = (EntityImpl) o.getValue();
             } else if (o.getValue() instanceof EntitySerializable) {
               record = ((EntitySerializable) o.getValue()).toEntity(db);
-              record.field(EntitySerializable.CLASS_NAME, o.getValue().getClass().getName());
+              record.setProperty(EntitySerializable.CLASS_NAME, o.getValue().getClass().getName());
             } else {
               record = null;
             }

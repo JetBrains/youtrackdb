@@ -127,7 +127,7 @@ public abstract class RidBagTest extends BaseDBTest {
     }
 
     var doc = ((EntityImpl) session.newEntity());
-    doc.field("ridbag", bag);
+    doc.setProperty("ridbag", bag);
     session.begin();
 
     session.commit();
@@ -137,7 +137,7 @@ public abstract class RidBagTest extends BaseDBTest {
     doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
     Assert.assertTrue(bag.contains(new RecordId("#77:3")));
@@ -202,7 +202,7 @@ public abstract class RidBagTest extends BaseDBTest {
     }
 
     var doc = ((EntityImpl) session.newEntity());
-    doc.field("ridbag", bag);
+    doc.setProperty("ridbag", bag);
     session.begin();
 
     session.commit();
@@ -212,7 +212,7 @@ public abstract class RidBagTest extends BaseDBTest {
     doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
     Assert.assertTrue(bag.contains(new RecordId("#77:3")));
@@ -246,7 +246,7 @@ public abstract class RidBagTest extends BaseDBTest {
     assertEmbedded(bag.isEmbedded());
 
     var doc = ((EntityImpl) session.newEntity());
-    doc.field("ridbag", bag);
+    doc.setProperty("ridbag", bag);
     session.begin();
 
     session.commit();
@@ -260,7 +260,7 @@ public abstract class RidBagTest extends BaseDBTest {
     doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
     bag.remove(new RecordId("#77:1"));
@@ -292,7 +292,7 @@ public abstract class RidBagTest extends BaseDBTest {
     }
 
     assertEmbedded(otherBag.isEmbedded());
-    doc.field("ridbag", otherBag);
+    doc.setProperty("ridbag", otherBag);
 
     session.commit();
 
@@ -301,7 +301,7 @@ public abstract class RidBagTest extends BaseDBTest {
     doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
     for (Identifiable identifiable : bag) {
@@ -327,7 +327,7 @@ public abstract class RidBagTest extends BaseDBTest {
     assertEmbedded(bag.isEmbedded());
 
     var doc = ((EntityImpl) session.newEntity());
-    doc.field("ridbag", bag);
+    doc.setProperty("ridbag", bag);
 
     session.commit();
 
@@ -339,7 +339,7 @@ public abstract class RidBagTest extends BaseDBTest {
     doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
     bag.remove(new RecordId("#77:1"));
@@ -391,7 +391,7 @@ public abstract class RidBagTest extends BaseDBTest {
     }
 
     assertEmbedded(otherBag.isEmbedded());
-    doc.field("ridbag", otherBag);
+    doc.setProperty("ridbag", otherBag);
 
     session.commit();
 
@@ -400,7 +400,7 @@ public abstract class RidBagTest extends BaseDBTest {
     doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
     for (Identifiable identifiable : bag) {
@@ -453,7 +453,7 @@ public abstract class RidBagTest extends BaseDBTest {
     assertEmbedded(bag.isEmbedded());
 
     var doc = ((EntityImpl) session.newEntity());
-    doc.field("ridbag", bag);
+    doc.setProperty("ridbag", bag);
 
     session.commit();
 
@@ -467,7 +467,7 @@ public abstract class RidBagTest extends BaseDBTest {
     doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
     bag.add(new RecordId("#77:2"));
@@ -514,7 +514,7 @@ public abstract class RidBagTest extends BaseDBTest {
     doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
     for (var identifiable : bag) {
@@ -527,7 +527,7 @@ public abstract class RidBagTest extends BaseDBTest {
   public void testContentChange() {
     var entity = ((EntityImpl) session.newEntity());
     var ridBag = new RidBag(session);
-    entity.field("ridBag", ridBag);
+    entity.setProperty("ridBag", ridBag);
 
     session.begin();
 
@@ -535,7 +535,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     session.begin();
     entity = session.bindToSession(entity);
-    ridBag = entity.field("ridBag");
+    ridBag = entity.getProperty("ridBag");
     ridBag.add(new RecordId("#77:10"));
     Assert.assertTrue(entity.isDirty());
 
@@ -552,7 +552,7 @@ public abstract class RidBagTest extends BaseDBTest {
     session.begin();
     var version = entity.getVersion();
     entity = session.bindToSession(entity);
-    ridBag = entity.field("ridBag");
+    ridBag = entity.getProperty("ridBag");
     ridBag.add(new RecordId("#77:12"));
 
     session.commit();
@@ -610,7 +610,7 @@ public abstract class RidBagTest extends BaseDBTest {
     assertEmbedded(bag.isEmbedded());
 
     var doc = ((EntityImpl) session.newEntity());
-    doc.field("ridbag", bag);
+    doc.setProperty("ridbag", bag);
 
     session.begin();
 
@@ -626,7 +626,7 @@ public abstract class RidBagTest extends BaseDBTest {
     doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
     bag.add(new RecordId("#77:0"));
@@ -665,7 +665,7 @@ public abstract class RidBagTest extends BaseDBTest {
       otherBag.add(id);
     }
 
-    doc.field("ridbag", otherBag);
+    doc.setProperty("ridbag", otherBag);
 
     session.commit();
 
@@ -674,7 +674,7 @@ public abstract class RidBagTest extends BaseDBTest {
     doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
     for (Identifiable identifiable : bag) {
@@ -691,8 +691,8 @@ public abstract class RidBagTest extends BaseDBTest {
     var docTwo = ((EntityImpl) session.newEntity());
     var ridBagTwo = new RidBag(session);
 
-    docOne.field("ridBag", ridBagOne);
-    docTwo.field("ridBag", ridBagTwo);
+    docOne.setProperty("ridBag", ridBagOne);
+    docTwo.setProperty("ridBag", ridBagTwo);
 
     session.begin();
 
@@ -702,19 +702,19 @@ public abstract class RidBagTest extends BaseDBTest {
     docOne = session.bindToSession(docOne);
     docTwo = session.bindToSession(docTwo);
 
-    ridBagOne = docOne.field("ridBag");
+    ridBagOne = docOne.getProperty("ridBag");
     ridBagOne.add(docTwo.getIdentity());
 
-    ridBagTwo = docTwo.field("ridBag");
+    ridBagTwo = docTwo.getProperty("ridBag");
     ridBagTwo.add(docOne.getIdentity());
 
     session.commit();
 
     docOne = session.load(docOne.getIdentity());
-    ridBagOne = docOne.field("ridBag");
+    ridBagOne = docOne.getProperty("ridBag");
 
     docTwo = session.load(docTwo.getIdentity());
-    ridBagTwo = docTwo.field("ridBag");
+    ridBagTwo = docTwo.getProperty("ridBag");
 
     Assert.assertEquals(ridBagOne.iterator().next(), docTwo);
     Assert.assertEquals(ridBagTwo.iterator().next(), docOne);
@@ -750,7 +750,7 @@ public abstract class RidBagTest extends BaseDBTest {
     assertEmbedded(bag.isEmbedded());
 
     var doc = ((EntityImpl) session.newEntity());
-    doc.field("ridbag", bag);
+    doc.setProperty("ridbag", bag);
 
     session.begin();
 
@@ -765,7 +765,7 @@ public abstract class RidBagTest extends BaseDBTest {
     doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
     bag.add(new RecordId("#77:0"));
@@ -866,7 +866,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     assertEmbedded(otherBag.isEmbedded());
 
-    doc.field("ridbag", otherBag);
+    doc.setProperty("ridbag", otherBag);
 
     session.commit();
 
@@ -875,7 +875,7 @@ public abstract class RidBagTest extends BaseDBTest {
     doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
     for (Identifiable identifiable : bag) {
@@ -942,7 +942,7 @@ public abstract class RidBagTest extends BaseDBTest {
     final var bag = new RidBag(session);
     bag.addAll(expected);
 
-    doc.field("ridbag", bag);
+    doc.setProperty("ridbag", bag);
     assertEmbedded(bag.isEmbedded());
 
     session.begin();
@@ -957,7 +957,7 @@ public abstract class RidBagTest extends BaseDBTest {
     doc = session.load(id);
     doc.setLazyLoad(false);
 
-    final RidBag loaded = doc.field("ridbag");
+    final RidBag loaded = doc.getProperty("ridbag");
     assertEmbedded(loaded.isEmbedded());
 
     Assert.assertEquals(loaded.size(), expected.size());
@@ -969,12 +969,12 @@ public abstract class RidBagTest extends BaseDBTest {
   }
 
   public void testSaveInBackOrder() {
-    var docA = ((EntityImpl) session.newEntity()).field("name", "A");
+    var docA = ((EntityImpl) session.newEntity()).setPropertyInChain("name", "A");
 
     session.begin();
     var docB =
         ((EntityImpl) session.newEntity())
-            .field("name", "B");
+            .setPropertyInChain("name", "B");
 
     session.commit();
 
@@ -1013,7 +1013,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     var random = new Random(seed);
     List<Identifiable> rids = new ArrayList<>();
-    document.field("bag", bag);
+    document.setProperty("bag", bag);
 
     session.begin();
 
@@ -1026,7 +1026,7 @@ public abstract class RidBagTest extends BaseDBTest {
       document = session.load(rid);
       document.setLazyLoad(false);
 
-      bag = document.field("bag");
+      bag = document.getProperty("bag");
       assertEmbedded(bag.isEmbedded());
 
       massiveInsertionIteration(random, rids, bag);
@@ -1044,7 +1044,7 @@ public abstract class RidBagTest extends BaseDBTest {
     session.begin();
     var ridBag = new RidBag(session);
     var document = ((EntityImpl) session.newEntity());
-    document.field("ridBag", ridBag);
+    document.setProperty("ridBag", ridBag);
     assertEmbedded(ridBag.isEmbedded());
 
     for (var i = 0; i < 10; i++) {
@@ -1061,7 +1061,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     session.begin();
     document = session.bindToSession(document);
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
 
     Set<Identifiable> docs = Collections.newSetFromMap(new IdentityHashMap<>());
     for (Identifiable id : ridBag) {
@@ -1069,7 +1069,7 @@ public abstract class RidBagTest extends BaseDBTest {
       docs.add(id.getRecord(session));
     }
 
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     assertEmbedded(ridBag.isEmbedded());
 
     for (var i = 0; i < 10; i++) {
@@ -1116,7 +1116,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     session.begin();
     document = session.bindToSession(document);
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     Assert.assertEquals(ridBag.size(), 0);
     Assert.assertEquals(docs.size(), 0);
     session.rollback();
@@ -1126,14 +1126,14 @@ public abstract class RidBagTest extends BaseDBTest {
     session.begin();
     var ridBag = new RidBag(session);
     var document = ((EntityImpl) session.newEntity());
-    document.field("ridBag", ridBag);
+    document.setProperty("ridBag", ridBag);
     assertEmbedded(ridBag.isEmbedded());
 
     List<Identifiable> itemsToAdd = new ArrayList<>();
 
     for (var i = 0; i < 10; i++) {
       var docToAdd = ((EntityImpl) session.newEntity());
-      ridBag = document.field("ridBag");
+      ridBag = document.getProperty("ridBag");
 
       for (var k = 0; k < 2; k++) {
         ridBag.add(docToAdd.getIdentity());
@@ -1150,7 +1150,7 @@ public abstract class RidBagTest extends BaseDBTest {
       var docToAdd = ((EntityImpl) session.newEntity());
 
       document = session.bindToSession(document);
-      ridBag = document.field("ridBag");
+      ridBag = document.getProperty("ridBag");
       for (var k = 0; k < 2; k++) {
         ridBag.add(docToAdd.getIdentity());
         itemsToAdd.add(docToAdd);
@@ -1164,7 +1164,7 @@ public abstract class RidBagTest extends BaseDBTest {
       var docToAdd = ((EntityImpl) session.newEntity());
 
       document = session.bindToSession(document);
-      ridBag = document.field("ridBag");
+      ridBag = document.getProperty("ridBag");
       ridBag.add(docToAdd.getIdentity());
       itemsToAdd.add(docToAdd);
 
@@ -1175,7 +1175,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     session.begin();
     document = session.bindToSession(document);
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     for (var i = 0; i < 10; i++) {
       var docToAdd = ((EntityImpl) session.newEntity());
 
@@ -1197,7 +1197,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     session.begin();
     document = session.bindToSession(document);
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     assertEmbedded(ridBag.isEmbedded());
 
     Assert.assertEquals(ridBag.size(), itemsToAdd.size());
@@ -1228,7 +1228,7 @@ public abstract class RidBagTest extends BaseDBTest {
     session.begin();
     var ridBag = new RidBag(session);
     var document = ((EntityImpl) session.newEntity());
-    document.field("ridBag", ridBag);
+    document.setProperty("ridBag", ridBag);
 
     Assert.assertTrue(ridBag.isEmbedded());
 
@@ -1236,7 +1236,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     session.begin();
     document = session.bindToSession(document);
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     Assert.assertTrue(ridBag.isEmbedded());
 
     List<RID> addedItems = new ArrayList<>();
@@ -1247,7 +1247,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
       session.commit();
 
-      ridBag = document.field("ridBag");
+      ridBag = document.getProperty("ridBag");
       ridBag.add(docToAdd.getIdentity());
       addedItems.add(docToAdd.getIdentity());
     }
@@ -1256,7 +1256,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     session.begin();
     document = session.bindToSession(document);
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     Assert.assertTrue(ridBag.isEmbedded());
     session.rollback();
 
@@ -1268,14 +1268,14 @@ public abstract class RidBagTest extends BaseDBTest {
 
     docToAdd = session.bindToSession(docToAdd);
     document = session.bindToSession(document);
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     ridBag.add(docToAdd.getIdentity());
     addedItems.add(docToAdd.getIdentity());
 
     session.commit();
 
     document = session.bindToSession(document);
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     Assert.assertFalse(ridBag.isEmbedded());
 
     List<RID> addedItemsCopy = new ArrayList<>(addedItems);
@@ -1287,7 +1287,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     session.begin();
     document = session.bindToSession(document);
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     Assert.assertFalse(ridBag.isEmbedded());
 
     addedItems.addAll(addedItemsCopy);
@@ -1310,7 +1310,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     session.begin();
     document = session.bindToSession(document);
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     Assert.assertFalse(ridBag.isEmbedded());
 
     for (var id : ridBag) {
@@ -1319,7 +1319,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     Assert.assertTrue(addedItems.isEmpty());
 
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     Assert.assertFalse(ridBag.isEmbedded());
 
     addedItems.addAll(addedItemsCopy);
@@ -1346,7 +1346,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     var ridBag = new RidBag(session);
     var document = ((EntityImpl) session.newEntity());
-    document.field("ridBag", ridBag);
+    document.setProperty("ridBag", ridBag);
 
     Assert.assertTrue(ridBag.isEmbedded());
     session.begin();
@@ -1355,12 +1355,12 @@ public abstract class RidBagTest extends BaseDBTest {
 
     session.begin();
     document = session.bindToSession(document);
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     Assert.assertTrue(ridBag.isEmbedded());
 
     List<Identifiable> addedItems = new ArrayList<>();
 
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     for (var i = 0; i < 6; i++) {
 
       var docToAdd = ((EntityImpl) session.newEntity());
@@ -1373,7 +1373,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     session.begin();
     document = session.bindToSession(document);
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     Assert.assertTrue(ridBag.isEmbedded());
 
     var docToAdd = ((EntityImpl) session.newEntity());
@@ -1384,7 +1384,7 @@ public abstract class RidBagTest extends BaseDBTest {
     document = session.bindToSession(document);
     docToAdd = session.bindToSession(docToAdd);
 
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     ridBag.add(docToAdd.getIdentity());
     addedItems.add(docToAdd);
 
@@ -1392,7 +1392,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     session.begin();
     document = session.bindToSession(document);
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     Assert.assertFalse(ridBag.isEmbedded());
 
     List<Identifiable> addedItemsCopy = new ArrayList<>(addedItems);
@@ -1402,7 +1402,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     Assert.assertTrue(addedItems.isEmpty());
 
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     Assert.assertFalse(ridBag.isEmbedded());
 
     addedItems.addAll(addedItemsCopy);
@@ -1425,7 +1425,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     session.begin();
     document = session.bindToSession(document);
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     Assert.assertFalse(ridBag.isEmbedded());
 
     for (Identifiable id : ridBag) {
@@ -1434,7 +1434,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     Assert.assertTrue(addedItems.isEmpty());
 
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     Assert.assertFalse(ridBag.isEmbedded());
 
     addedItems.addAll(addedItemsCopy);
@@ -1452,12 +1452,12 @@ public abstract class RidBagTest extends BaseDBTest {
 
     var ridBag = new RidBag(session);
     var document = ((EntityImpl) session.newEntity());
-    document.field("ridBag", ridBag);
+    document.setProperty("ridBag", ridBag);
 
     for (var i = 0; i < 5; i++) {
       var docToAdd = ((EntityImpl) session.newEntity());
 
-      ridBag = document.field("ridBag");
+      ridBag = document.getProperty("ridBag");
       ridBag.add(docToAdd.getIdentity());
 
       docsToAdd.add(docToAdd);
@@ -1467,13 +1467,13 @@ public abstract class RidBagTest extends BaseDBTest {
 
     session.begin();
     document = session.bindToSession(document);
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     assertEmbedded(ridBag.isEmbedded());
 
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     assertEmbedded(ridBag.isEmbedded());
 
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     for (var i = 0; i < 5; i++) {
       var docToAdd = ((EntityImpl) session.newEntity());
 
@@ -1498,7 +1498,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     session.begin();
     document = session.bindToSession(document);
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     assertEmbedded(ridBag.isEmbedded());
 
     List<Identifiable> docsToAddCopy = new ArrayList<>(docsToAdd);
@@ -1510,7 +1510,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     docsToAdd.addAll(docsToAddCopy);
 
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
 
     for (Identifiable id : ridBag) {
       Assert.assertTrue(docsToAdd.remove(id));
@@ -1580,13 +1580,13 @@ public abstract class RidBagTest extends BaseDBTest {
 
     Assert.assertEquals(ridBag.size(), size);
     var document = ((EntityImpl) session.newEntity());
-    document.field("ridBag", ridBag);
+    document.setProperty("ridBag", ridBag);
 
     session.commit();
 
     session.begin();
     document = session.load(document.getIdentity());
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     Assert.assertEquals(ridBag.size(), size);
 
     final List<Identifiable> newDocs = new ArrayList<>();
@@ -1605,7 +1605,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     session.begin();
     document = session.bindToSession(document);
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     Assert.assertEquals(ridBag.size(), size);
 
     var rnd = new Random();
@@ -1642,7 +1642,7 @@ public abstract class RidBagTest extends BaseDBTest {
     session.commit();
 
     document = session.load(document.getIdentity());
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
 
     rids.addAll(ridsCopy);
     for (Identifiable identifiable : ridBag) {
@@ -1667,9 +1667,9 @@ public abstract class RidBagTest extends BaseDBTest {
     }
 
     var testDocument = ((EntityImpl) session.newEntity());
-    testDocument.field("type", "testDocument");
-    testDocument.field("ridBag", highLevelRidBag);
-    testDocument.field("externalDoc", externalDoc);
+    testDocument.setProperty("type", "testDocument");
+    testDocument.setProperty("ridBag", highLevelRidBag);
+    testDocument.setProperty("externalDoc", externalDoc);
 
     session.commit();
 

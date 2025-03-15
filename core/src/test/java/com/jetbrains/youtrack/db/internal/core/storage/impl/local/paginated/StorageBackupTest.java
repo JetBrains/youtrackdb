@@ -55,8 +55,8 @@ public class StorageBackupTest {
       final var num = random.nextInt();
 
       final var document = ((EntityImpl) db.newEntity("BackupClass"));
-      document.field("num", num);
-      document.field("data", data);
+      document.setProperty("num", num);
+      document.setProperty("data", data);
 
       db.commit();
     }
@@ -134,8 +134,8 @@ public class StorageBackupTest {
       final var num = random.nextInt();
 
       final var document = ((EntityImpl) db.newEntity("BackupClass"));
-      document.field("num", num);
-      document.field("data", data);
+      document.setProperty("num", num);
+      document.setProperty("data", data);
 
       db.commit();
     }
@@ -158,8 +158,8 @@ public class StorageBackupTest {
         final var num = random.nextInt();
 
         final var document = ((EntityImpl) db.newEntity("BackupClass"));
-        document.field("num", num);
-        document.field("data", data);
+        document.setProperty("num", num);
+        document.setProperty("data", data);
 
         db.commit();
       }
@@ -235,8 +235,8 @@ public class StorageBackupTest {
       final var num = random.nextInt();
 
       final var document = ((EntityImpl) db.newEntity("BackupClass"));
-      document.field("num", num);
-      document.field("data", data);
+      document.setProperty("num", num);
+      document.setProperty("data", data);
 
       db.commit();
     }
@@ -259,8 +259,8 @@ public class StorageBackupTest {
         final var num = random.nextInt();
 
         final var document = ((EntityImpl) db.newEntity("BackupClass"));
-        document.field("num", num);
-        document.field("data", data);
+        document.setProperty("num", num);
+        document.setProperty("data", data);
 
         db.commit();
       }

@@ -153,7 +153,7 @@ public class SystemDBImporter extends Thread {
               if (entity.hasProperty("user")) {
                 // entity.field("user") will throw an exception if the user's RID is not found.
                 EntityImpl userDoc = entity.getProperty("user");
-                final String username = userDoc.field("name");
+                final String username = userDoc.getProperty("name");
 
                 if (username != null) {
                   copy.setProperty("user", username);

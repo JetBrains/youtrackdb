@@ -126,7 +126,7 @@ public class UpdateContentStep extends AbstractExecutionStep {
     }
     if (preDefaultValues != null) {
       for (var val : preDefaultValues.entrySet()) {
-        if (!entity.containsField(val.getKey())) {
+        if (!entity.hasProperty(val.getKey())) {
           entity.setProperty(val.getKey(), val.getValue());
         }
       }

@@ -125,8 +125,8 @@ public class SortedMultiIterator<T extends Identifiable> implements Iterator<T> 
         (right instanceof EntityImpl) ? (EntityImpl) right : (EntityImpl) right.getRecord(db);
 
     for (var orderItem : orderBy.getItems()) {
-      var leftVal = leftEntity.field(orderItem.getRecordAttr());
-      var rightVal = rightEntity.field(orderItem.getRecordAttr());
+      var leftVal = leftEntity.getProperty(orderItem.getRecordAttr());
+      var rightVal = rightEntity.getProperty(orderItem.getRecordAttr());
       if (rightVal == null) {
         return true;
       }

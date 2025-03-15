@@ -1,5 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
+import static org.junit.Assert.fail;
+
 import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Entity;
@@ -15,7 +17,6 @@ import java.util.Date;
 import java.util.Map;
 import java.util.Set;
 import org.junit.Assert;
-import static org.junit.Assert.fail;
 import org.junit.Test;
 
 public class DocumentValidationTest extends BaseMemoryInternalDatabase {
@@ -155,10 +156,11 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
     session.begin();
     var d = (EntityImpl) session.newEntity(clazz);
-    d.field("int", 30);
-    d.field("long", 30);
-    d.field("embedded",
-        ((EntityImpl) session.newEmbeddedEntity("EmbeddedValidation")).field("test", "test"));
+    d.setProperty("int", 30);
+    d.setProperty("long", 30);
+    var entity = ((EntityImpl) session.newEmbeddedEntity("EmbeddedValidation"));
+    entity.setProperty("test", "test");
+    d.setProperty("embedded", entity);
     try {
       d.validate();
       fail("Validation doesn't throw exception");
@@ -284,7 +286,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
       newD.unsetDirty();
       newD.fromStream(((EntityImpl) toCheck).toStream());
-      newD.removeField(fieldName);
+      newD.removeProperty(fieldName);
       newD.validate();
       fail();
     } catch (ValidationException v) {

@@ -340,7 +340,7 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
                 "WARNING: copying vertex record "
                     + entity
                     + " with INSERT/SELECT, the edge pointers won't be copied");
-        var fields = ((EntityImpl) rec).fieldNames();
+        var fields = ((EntityImpl) rec).propertyNames();
         for (var field : fields) {
           if (field.startsWith("out_") || field.startsWith("in_")) {
             var edges = entity.getPropertyInternal(field);

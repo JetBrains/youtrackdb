@@ -25,16 +25,16 @@ public class SchemaPropertyAccessTest extends DbTestBase {
     var doc = (EntityImpl) session.newEntity();
     doc.setProperty("name", "one value");
     assertEquals("one value", doc.getProperty("name"));
-    assertEquals("one value", doc.field("name"));
-    assertTrue(doc.containsField("name"));
+    assertEquals("one value", doc.getProperty("name"));
+    assertTrue(doc.hasProperty("name"));
     Set<String> toHide = new HashSet<>();
     toHide.add("name");
     doc.propertyAccess = new PropertyAccess(toHide);
     assertNull(doc.getProperty("name"));
-    assertNull(doc.field("name"));
+    assertNull(doc.getProperty("name"));
     assertNull(doc.getString("name"));
     assertNull(doc.getString("name"));
-    assertFalse(doc.containsField("name"));
+    assertFalse(doc.hasProperty("name"));
     assertNull(doc.getPropertyType("name"));
     session.rollback();
   }
@@ -48,16 +48,16 @@ public class SchemaPropertyAccessTest extends DbTestBase {
     RecordInternal.unsetDirty(doc1);
     doc1.fromStream(doc.toStream());
     assertEquals("one value", doc1.getProperty("name"));
-    assertEquals("one value", doc1.field("name"));
-    assertTrue(doc1.containsField("name"));
+    assertEquals("one value", doc1.getProperty("name"));
+    assertTrue(doc1.hasProperty("name"));
     assertEquals(PropertyType.STRING, doc1.getPropertyType("name"));
 
     Set<String> toHide = new HashSet<>();
     toHide.add("name");
     doc1.propertyAccess = new PropertyAccess(toHide);
     assertNull(doc1.getProperty("name"));
-    assertNull(doc1.field("name"));
-    assertFalse(doc1.containsField("name"));
+    assertNull(doc1.getProperty("name"));
+    assertFalse(doc1.hasProperty("name"));
     assertNull(doc1.getPropertyType("name"));
     session.rollback();
   }
@@ -71,19 +71,19 @@ public class SchemaPropertyAccessTest extends DbTestBase {
     assertArrayEquals(
         new String[]{"one value"},
         doc.getPropertyNames().stream().map(doc::getProperty).toArray());
-    assertEquals(new HashSet<String>(List.of("name")), doc.getPropertyNames());
-    for (var e : doc) {
-      assertEquals("name", e.getKey());
+    assertEquals(new HashSet<>(List.of("name")), doc.getPropertyNames());
+    for (var propertyName : doc.getPropertyNames()) {
+      assertEquals("name", propertyName);
     }
 
     Set<String> toHide = new HashSet<>();
     toHide.add("name");
     doc.propertyAccess = new PropertyAccess(toHide);
-    assertArrayEquals(new String[]{}, doc.fieldNames());
-    assertArrayEquals(new String[]{}, doc.fieldValues());
+    assertArrayEquals(new String[]{}, doc.propertyNames());
+    assertArrayEquals(new String[]{}, doc.propertyValues());
     assertEquals(new HashSet<String>(), doc.getPropertyNames());
-    for (var e : doc) {
-      assertNotEquals("name", e.getKey());
+    for (var propertyName : doc.getPropertyNames()) {
+      assertNotEquals("name", propertyName);
     }
     session.rollback();
   }
@@ -97,9 +97,9 @@ public class SchemaPropertyAccessTest extends DbTestBase {
     assertArrayEquals(
         new String[]{"one value"},
         docPre.getPropertyNames().stream().map(docPre::getProperty).toArray());
-    assertEquals(new HashSet<String>(List.of("name")), docPre.getPropertyNames());
-    for (var e : docPre) {
-      assertEquals("name", e.getKey());
+    assertEquals(new HashSet<>(List.of("name")), docPre.getPropertyNames());
+    for (var propertyName : docPre.getPropertyNames()) {
+      assertEquals("name", propertyName);
     }
 
     Set<String> toHide = new HashSet<>();
@@ -112,8 +112,9 @@ public class SchemaPropertyAccessTest extends DbTestBase {
     assertArrayEquals(
         new String[]{}, doc.getPropertyNames().stream().map(doc::getProperty).toArray());
     assertEquals(new HashSet<String>(), doc.getPropertyNames());
-    for (var e : doc) {
-      assertNotEquals("name", e.getKey());
+
+    for (var propertyName : doc.getPropertyNames()) {
+      assertNotEquals("name", propertyName);
     }
     session.rollback();
   }

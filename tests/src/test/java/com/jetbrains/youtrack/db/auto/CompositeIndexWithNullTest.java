@@ -40,11 +40,11 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     for (var i = 0; i < 20; i++) {
       var document = ((EntityImpl) session.newEntity("compositeIndexNullPointQueryClass"));
-      document.field("prop1", i / 10);
-      document.field("prop2", i / 5);
+      document.setProperty("prop1", i / 10);
+      document.setProperty("prop2", i / 5);
 
       if (i % 2 == 0) {
-        document.field("prop3", i);
+        document.setProperty("prop3", i);
       }
 
       session.begin();
@@ -63,8 +63,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
     Assert.assertTrue(
-        explain
-            .<Set<String>>field("involvedIndexes")
+        explain.<Set<String>>getProperty("involvedIndexes")
             .contains("compositeIndexNullPointQueryIndex"));
 
     query =
@@ -79,8 +78,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     explain = session.command(new CommandSQL("explain " + query)).execute(session);
     Assert.assertTrue(
-        explain
-            .<Set<String>>field("involvedIndexes")
+        explain.<Set<String>>getProperty("involvedIndexes")
             .contains("compositeIndexNullPointQueryIndex"));
   }
 
@@ -102,11 +100,11 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     for (var i = 0; i < 20; i++) {
       var document = ((EntityImpl) session.newEntity("compositeIndexNullPointQueryInTxClass"));
-      document.field("prop1", i / 10);
-      document.field("prop2", i / 5);
+      document.setProperty("prop1", i / 10);
+      document.setProperty("prop2", i / 5);
 
       if (i % 2 == 0) {
-        document.field("prop3", i);
+        document.setProperty("prop3", i);
       }
 
     }
@@ -125,8 +123,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
     Assert.assertTrue(
-        explain
-            .<Set<String>>field("involvedIndexes")
+        explain.<Set<String>>getProperty("involvedIndexes")
             .contains("compositeIndexNullPointQueryInTxIndex"));
 
     query =
@@ -141,8 +138,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     explain = session.command(new CommandSQL("explain " + query)).execute(session);
     Assert.assertTrue(
-        explain
-            .<Set<String>>field("involvedIndexes")
+        explain.<Set<String>>getProperty("involvedIndexes")
             .contains("compositeIndexNullPointQueryInTxIndex"));
   }
 
@@ -170,11 +166,11 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
     for (var i = 0; i < 20; i++) {
       var document = ((EntityImpl) session.newEntity(
           "compositeIndexNullPointQueryInMiddleTxClass"));
-      document.field("prop1", i / 10);
-      document.field("prop2", i / 5);
+      document.setProperty("prop1", i / 10);
+      document.setProperty("prop2", i / 5);
 
       if (i % 2 == 0) {
-        document.field("prop3", i);
+        document.setProperty("prop3", i);
       }
 
     }
@@ -192,8 +188,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
     Assert.assertTrue(
-        explain
-            .<Set<String>>field("involvedIndexes")
+        explain.<Set<String>>getProperty("involvedIndexes")
             .contains("compositeIndexNullPointQueryInMiddleTxIndex"));
 
     query =
@@ -208,8 +203,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     explain = session.command(new CommandSQL("explain " + query)).execute(session);
     Assert.assertTrue(
-        explain
-            .<Set<String>>field("involvedIndexes")
+        explain.<Set<String>>getProperty("involvedIndexes")
             .contains("compositeIndexNullPointQueryInMiddleTxIndex"));
 
     session.commit();
@@ -233,11 +227,11 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     for (var i = 0; i < 20; i++) {
       var document = ((EntityImpl) session.newEntity("compositeIndexNullRangeQueryClass"));
-      document.field("prop1", i / 10);
-      document.field("prop2", i / 5);
+      document.setProperty("prop1", i / 10);
+      document.setProperty("prop2", i / 5);
 
       if (i % 2 == 0) {
-        document.field("prop3", i);
+        document.setProperty("prop3", i);
       }
 
       session.begin();
@@ -257,8 +251,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
     Assert.assertTrue(
-        explain
-            .<Set<String>>field("involvedIndexes")
+        explain.<Set<String>>getProperty("involvedIndexes")
             .contains("compositeIndexNullRangeQueryIndex"));
 
     query = "select from compositeIndexNullRangeQueryClass where prop1 > 0";
@@ -295,11 +288,11 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
     for (var i = 0; i < 20; i++) {
       var document = ((EntityImpl) session.newEntity(
           "compositeIndexNullRangeQueryInMiddleTxClass"));
-      document.field("prop1", i / 10);
-      document.field("prop2", i / 5);
+      document.setProperty("prop1", i / 10);
+      document.setProperty("prop2", i / 5);
 
       if (i % 2 == 0) {
-        document.field("prop3", i);
+        document.setProperty("prop3", i);
       }
 
     }
@@ -317,8 +310,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
     Assert.assertTrue(
-        explain
-            .<Set<String>>field("involvedIndexes")
+        explain.<Set<String>>getProperty("involvedIndexes")
             .contains("compositeIndexNullRangeQueryInMiddleTxIndex"));
 
     query = "select from compositeIndexNullRangeQueryInMiddleTxClass where prop1 > 0";
@@ -352,13 +344,13 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
     for (var i = 0; i < 20; i++) {
       var document = ((EntityImpl) session.newEntity(
           "compositeIndexNullPointQueryNullInTheMiddleClass"));
-      document.field("prop1", i / 10);
+      document.setProperty("prop1", i / 10);
 
       if (i % 2 == 0) {
-        document.field("prop2", i);
+        document.setProperty("prop2", i);
       }
 
-      document.field("prop3", i);
+      document.setProperty("prop3", i);
 
       session.begin();
 
@@ -375,8 +367,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
     Assert.assertTrue(
-        explain
-            .<Set<String>>field("involvedIndexes")
+        explain.<Set<String>>getProperty("involvedIndexes")
             .contains("compositeIndexNullPointQueryNullInTheMiddleIndex"));
 
     query =
@@ -392,8 +383,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     explain = session.command(new CommandSQL("explain " + query)).execute(session);
     Assert.assertTrue(
-        explain
-            .<Set<String>>field("involvedIndexes")
+        explain.<Set<String>>getProperty("involvedIndexes")
             .contains("compositeIndexNullPointQueryNullInTheMiddleIndex"));
 
     query =
@@ -404,8 +394,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     explain = session.command(new CommandSQL("explain " + query)).execute(session);
     Assert.assertTrue(
-        explain
-            .<Set<String>>field("involvedIndexes")
+        explain.<Set<String>>getProperty("involvedIndexes")
             .contains("compositeIndexNullPointQueryNullInTheMiddleIndex"));
   }
 
@@ -435,13 +424,13 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
       var document =
           ((EntityImpl) session.newEntity(
               "compositeIndexNullPointQueryNullInTheMiddleInMiddleTxClass"));
-      document.field("prop1", i / 10);
+      document.setProperty("prop1", i / 10);
 
       if (i % 2 == 0) {
-        document.field("prop2", i);
+        document.setProperty("prop2", i);
       }
 
-      document.field("prop3", i);
+      document.setProperty("prop3", i);
 
     }
 
@@ -456,8 +445,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
     Assert.assertTrue(
-        explain
-            .<Set<String>>field("involvedIndexes")
+        explain.<Set<String>>getProperty("involvedIndexes")
             .contains("compositeIndexNullPointQueryNullInTheMiddleInMiddleTxIndex"));
 
     query =
@@ -473,8 +461,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     explain = session.command(new CommandSQL("explain " + query)).execute(session);
     Assert.assertTrue(
-        explain
-            .<Set<String>>field("involvedIndexes")
+        explain.<Set<String>>getProperty("involvedIndexes")
             .contains("compositeIndexNullPointQueryNullInTheMiddleInMiddleTxIndex"));
 
     query =
@@ -486,8 +473,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     explain = session.command(new CommandSQL("explain " + query)).execute(session);
     Assert.assertTrue(
-        explain
-            .<Set<String>>field("involvedIndexes")
+        explain.<Set<String>>getProperty("involvedIndexes")
             .contains("compositeIndexNullPointQueryNullInTheMiddleInMiddleTxIndex"));
 
     session.commit();
@@ -511,13 +497,13 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
     for (var i = 0; i < 20; i++) {
       var document = ((EntityImpl) session.newEntity(
           "compositeIndexNullRangeQueryNullInTheMiddleClass"));
-      document.field("prop1", i / 10);
+      document.setProperty("prop1", i / 10);
 
       if (i % 2 == 0) {
-        document.field("prop2", i);
+        document.setProperty("prop2", i);
       }
 
-      document.field("prop3", i);
+      document.setProperty("prop3", i);
 
       session.begin();
 
@@ -535,8 +521,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
     Assert.assertTrue(
-        explain
-            .<Set<String>>field("involvedIndexes")
+        explain.<Set<String>>getProperty("involvedIndexes")
             .contains("compositeIndexNullRangeQueryNullInTheMiddleIndex"));
   }
 
@@ -563,13 +548,13 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
       var document =
           ((EntityImpl) session.newEntity(
               "compositeIndexNullRangeQueryNullInTheMiddleInMiddleTxClass"));
-      document.field("prop1", i / 10);
+      document.setProperty("prop1", i / 10);
 
       if (i % 2 == 0) {
-        document.field("prop2", i);
+        document.setProperty("prop2", i);
       }
 
-      document.field("prop3", i);
+      document.setProperty("prop3", i);
 
       session.begin();
 
@@ -587,8 +572,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
     Assert.assertTrue(
-        explain
-            .<Set<String>>field("involvedIndexes")
+        explain.<Set<String>>getProperty("involvedIndexes")
             .contains("compositeIndexNullRangeQueryNullInTheMiddleInMiddleTxIndex"));
   }
 }

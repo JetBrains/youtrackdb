@@ -81,13 +81,14 @@ public class ServerCommandGetFileDownload extends ServerCommandAuthenticatedDbAb
               result
                   .properties()) {
             if (prop.getType().equals(PropertyType.BINARY)) {
+              final String iFieldName = prop.getName();
               sendBinaryFieldFileContent(
                   iRequest,
                   iResponse,
                   HttpUtils.STATUS_OK_CODE,
                   HttpUtils.STATUS_OK_DESCRIPTION,
                   fileType,
-                  ((EntityImpl) response).field(prop.getName()),
+                  ((EntityImpl) response).getProperty(iFieldName),
                   fileName);
             }
           }

@@ -41,8 +41,8 @@ public class BonsaiTreeRepair {
         final var edge = iterator.next();
         try {
           final String label;
-          if (edge.field("label") != null) {
-            label = edge.field("label");
+          if (edge.getProperty("label") != null) {
+            label = edge.getProperty("label");
           } else if (!edge.getSchemaClassName().equals(edgeClass.getName())) {
             label = edge.getSchemaClassName();
           } else {
@@ -50,8 +50,8 @@ public class BonsaiTreeRepair {
             continue;
           }
 
-          Identifiable inId = edge.field("in");
-          Identifiable outId = edge.field("out");
+          Identifiable inId = edge.getProperty("in");
+          Identifiable outId = edge.getProperty("out");
           if (inId == null || outId == null) {
             db.delete(edge);
             continue;
@@ -75,22 +75,22 @@ public class BonsaiTreeRepair {
             processedVertexes.put(outVertexName, outVertexes);
           }
 
-          if (inVertex.field(inVertexName) instanceof RidBag) {
+          if (inVertex.getProperty(inVertexName) instanceof RidBag) {
             if (inVertexes.add(inVertex.getIdentity())) {
-              inVertex.field(inVertexName, new RidBag(db));
+              inVertex.setProperty(inVertexName, new RidBag(db));
             }
 
-            final RidBag inRidBag = inVertex.field(inVertexName);
+            final RidBag inRidBag = inVertex.getProperty(inVertexName);
             inRidBag.add(edge.getIdentity());
 
           }
 
-          if (outVertex.field(outVertexName) instanceof RidBag) {
+          if (outVertex.getProperty(outVertexName) instanceof RidBag) {
             if (outVertexes.add(outVertex.getIdentity())) {
-              outVertex.field(outVertexName, new RidBag(db));
+              outVertex.setProperty(outVertexName, new RidBag(db));
             }
 
-            final RidBag outRidBag = outVertex.field(outVertexName);
+            final RidBag outRidBag = outVertex.getProperty(outVertexName);
             outRidBag.add(edge.getIdentity());
 
           }

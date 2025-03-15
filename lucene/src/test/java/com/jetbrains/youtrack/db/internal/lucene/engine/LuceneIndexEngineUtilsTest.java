@@ -18,9 +18,9 @@ public class LuceneIndexEngineUtilsTest extends BaseLuceneTest {
         "sort",
         Collections.singletonList(
             ((EntityImpl) session.newEntity())
-                .field("field", "score")
-                .field("reverse", false)
-                .field("type", "INT")
+                .setPropertyInChain("field", "score")
+                .setPropertyInChain("reverse", false)
+                .setPropertyInChain("type", "INT")
                 .toMap()));
 
     final var fields = LuceneIndexEngineUtils.buildSortFields(metadata);
@@ -37,8 +37,9 @@ public class LuceneIndexEngineUtilsTest extends BaseLuceneTest {
   public void buildIntSortField() throws Exception {
 
     final var sortConf =
-        ((EntityImpl) session.newEntity()).field("field", "score").field("reverse", true)
-            .field("type", "INT");
+        ((EntityImpl) session.newEntity()).setPropertyInChain("field", "score")
+            .setPropertyInChain("reverse", true)
+            .setPropertyInChain("type", "INT");
 
     final var sortField = LuceneIndexEngineUtils.buildSortField(sortConf);
 
@@ -50,7 +51,7 @@ public class LuceneIndexEngineUtilsTest extends BaseLuceneTest {
   @Test
   public void buildDocSortField() throws Exception {
 
-    final var sortConf = ((EntityImpl) session.newEntity()).field("type", "DOC");
+    final var sortConf = ((EntityImpl) session.newEntity()).setPropertyInChain("type", "DOC");
 
     final var sortField = LuceneIndexEngineUtils.buildSortField(sortConf);
 

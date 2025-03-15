@@ -563,12 +563,12 @@ public abstract class SchemaPropertyImpl {
   }
 
   public void fromStream(DatabaseSessionInternal session, EntityImpl entity) {
-    String name = entity.field("name");
+    String name = entity.getProperty("name");
     PropertyType type = null;
-    if (entity.field("type") != null) {
-      type = PropertyType.getById(((Integer) entity.field("type")).byteValue());
+    if (entity.getProperty("type") != null) {
+      type = PropertyType.getById(((Integer) entity.getProperty("type")).byteValue());
     }
-    Integer globalId = entity.field("globalId");
+    Integer globalId = entity.getProperty("globalId");
     if (globalId != null) {
       globalRef = owner.owner.getGlobalPropertyById(session, globalId);
     } else {
@@ -578,28 +578,67 @@ public abstract class SchemaPropertyImpl {
       globalRef = owner.owner.findOrCreateGlobalProperty(name, type);
     }
 
-    mandatory = entity.containsField("mandatory") ? (Boolean) entity.field("mandatory") : false;
-    readonly = entity.containsField("readonly") ? (Boolean) entity.field("readonly") : false;
-    notNull = entity.containsField("notNull") ? (Boolean) entity.field("notNull") : false;
-    defaultValue = entity.containsField("defaultValue") ? entity.field("defaultValue") : null;
-    if (entity.containsField("collate")) {
-      collate = SQLEngine.getCollate(entity.field("collate"));
+    if (entity.hasProperty("mandatory")) {
+      mandatory = entity.getProperty("mandatory");
+    } else {
+      mandatory = false;
+    }
+    if (entity.hasProperty("readonly")) {
+      readonly = entity.getProperty("readonly");
+    } else {
+      readonly = false;
+    }
+    if (entity.hasProperty("notNull")) {
+      notNull = entity.getProperty("notNull");
+    } else {
+      notNull = false;
+    }
+    if (entity.hasProperty("defaultValue")) {
+      defaultValue = entity.getProperty("defaultValue");
+    } else {
+      defaultValue = null;
+    }
+    if (entity.hasProperty("collate")) {
+      collate = SQLEngine.getCollate(entity.getProperty("collate"));
     }
 
-    min = entity.containsField("min") ? entity.field("min") : null;
-    max = entity.containsField("max") ? entity.field("max") : null;
-    regexp = entity.containsField("regexp") ? entity.field("regexp") : null;
-    linkedClassName = entity.containsField("linkedClass") ? entity.field("linkedClass") : null;
-    linkedType =
-        entity.field("linkedType") != null
-            ? PropertyType.getById(((Integer) entity.field("linkedType")).byteValue())
-            : null;
-    if (entity.containsField("customFields")) {
+    if (entity.hasProperty("min")) {
+      min = entity.getProperty("min");
+    } else {
+      min = null;
+    }
+    if (entity.hasProperty("max")) {
+      max = entity.getProperty("max");
+    } else {
+      max = null;
+    }
+    if (entity.hasProperty("regexp")) {
+      regexp = entity.getProperty("regexp");
+    } else {
+      regexp = null;
+    }
+    if (entity.hasProperty("linkedClass")) {
+      linkedClassName = entity.getProperty("linkedClass");
+    } else {
+      linkedClassName = null;
+    }
+    if (entity.getProperty("linkedType") != null) {
+      linkedType =
+          PropertyType.getById(((Integer) entity.getProperty("linkedType")).byteValue());
+    } else {
+      linkedType =
+          null;
+    }
+    if (entity.hasProperty("customFields")) {
       customFields = entity.getProperty("customFields");
     } else {
       customFields = null;
     }
-    description = entity.containsField("description") ? entity.field("description") : null;
+    if (entity.hasProperty("description")) {
+      description = entity.getProperty("description");
+    } else {
+      description = null;
+    }
   }
 
   public Collection<String> getAllIndexes(DatabaseSessionInternal session) {

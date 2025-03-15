@@ -52,8 +52,8 @@ public class YouTrackDbCreationHelper {
   public static EntityImpl createItem(int id, EntityImpl doc) {
     var itemKey = Integer.valueOf(id).toString();
 
-    doc.field("stringKey", itemKey);
-    doc.field("intKey", id);
+    doc.setProperty("stringKey", itemKey);
+    doc.setProperty("intKey", id);
     var contents =
         "YouTrackDB is a deeply scalable Document-Graph DBMS with the flexibility of the Document"
             + " databases and the power to manage links of the Graph databases. It can work in"
@@ -67,19 +67,19 @@ public class YouTrackDbCreationHelper {
             + " to 9.223.372.036 Billions of records for the maximum capacity of"
             + " 19.807.040.628.566.084 Terabytes of data distributed on multiple disks in multiple"
             + " nodes. YouTrackDB is FREE for any use. Open Source License Apache 2.0. ";
-    doc.field("text", contents);
-    doc.field("title", "youTrackDB");
-    doc.field("score", BigDecimal.valueOf(contents.length() / id));
-    doc.field("length", contents.length(), PropertyType.LONG);
-    doc.field("published", (id % 2 > 0));
-    doc.field("author", "anAuthor" + id);
+    doc.setProperty("text", contents);
+    doc.setProperty("title", "youTrackDB");
+    doc.setProperty("score", BigDecimal.valueOf(contents.length() / id));
+    doc.setProperty("length", contents.length(), PropertyType.LONG);
+    doc.setProperty("published", id % 2 > 0);
+    doc.setProperty("author", "anAuthor" + id);
     // PropertyType.EMBEDDEDLIST);
     var instance = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
 
     instance.add(Calendar.HOUR_OF_DAY, -id);
     var time = instance.getTime();
-    doc.field("date", time, PropertyType.DATE);
-    doc.field("time", time, PropertyType.DATETIME);
+    doc.setProperty("date", time, PropertyType.DATE);
+    doc.setProperty("time", time, PropertyType.DATETIME);
 
     return doc;
   }
@@ -90,23 +90,23 @@ public class YouTrackDbCreationHelper {
     for (var a = 1; a <= totAuthors; ++a) {
       var author = ((EntityImpl) db.newEntity("Author"));
       List<EntityImpl> articles = new ArrayList<>(totArticles);
-      author.field("articles", articles);
+      author.setProperty("articles", articles);
 
-      author.field("uuid", a, PropertyType.DOUBLE);
-      author.field("name", "Jay");
-      author.field("rating", new Random().nextDouble());
+      author.setProperty("uuid", a, PropertyType.DOUBLE);
+      author.setProperty("name", "Jay");
+      author.setProperty("rating", new Random().nextDouble());
 
       for (var i = 1; i <= totArticles; ++i) {
         var article = ((EntityImpl) db.newEntity("Article"));
 
         var instance = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
         var time = instance.getTime();
-        article.field("date", time, PropertyType.DATE);
+        article.setProperty("date", time, PropertyType.DATE);
 
-        article.field("uuid", articleSerial++);
-        article.field("title", "the title for article " + articleSerial);
-        article.field("content", "the content for article " + articleSerial);
-        article.field("attachment", loadFile(db, "./src/test/resources/file.pdf"));
+        article.setProperty("uuid", articleSerial++);
+        article.setProperty("title", "the title for article " + articleSerial);
+        article.setProperty("content", "the content for article " + articleSerial);
+        article.setProperty("attachment", loadFile(db, "./src/test/resources/file.pdf"));
 
         articles.add(article);
       }
@@ -121,13 +121,13 @@ public class YouTrackDbCreationHelper {
     var instance = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
 
     var time = instance.getTime();
-    article.field("date", time, PropertyType.DATE);
+    article.setProperty("date", time, PropertyType.DATE);
 
-    article.field("uuid", 1000000);
-    article.field("title", "the title 2");
-    article.field("content", "the content 2");
+    article.setProperty("uuid", 1000000);
+    article.setProperty("title", "the title 2");
+    article.setProperty("content", "the content 2");
     if (new File("./src/test/resources/file.pdf").exists()) {
-      article.field("attachment", loadFile(db, "./src/test/resources/file.pdf", 256));
+      article.setProperty("attachment", loadFile(db, "./src/test/resources/file.pdf", 256));
     }
     db.begin();
     db.commit();

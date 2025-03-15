@@ -307,8 +307,8 @@ public final class CommandResponse implements BinaryResponse {
         result = readSynchResult(network, this.session, temporaryResults);
         if (live) {
           final var entity = ((List<EntityImpl>) result).get(0);
-          final Integer token = entity.field("token");
-          final Boolean unsubscribe = entity.field("unsubscribe");
+          final Integer token = entity.getProperty("token");
+          final Boolean unsubscribe = entity.getProperty("unsubscribe");
           if (token != null) {
             //
             //            StorageRemote storage = (StorageRemote) database.getStorage();
@@ -445,7 +445,7 @@ public final class CommandResponse implements BinaryResponse {
         final var record = MessageHelper.readIdentifiable(database, network,
             serializer);
         // ((EntityImpl) record).setLazyLoad(false);
-        result = ((EntityImpl) record).field("result");
+        result = ((EntityImpl) record).getProperty("result");
         break;
 
       default:

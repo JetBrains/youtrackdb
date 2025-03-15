@@ -48,7 +48,7 @@ public class FunctionsTest extends BaseDBTest {
 
     session.begin();
     final EntityImpl record = result.getRecord(session);
-    final List<String> parameters = record.field("parameters");
+    final List<String> parameters = record.getProperty("parameters");
 
     Assert.assertNotNull(parameters);
     Assert.assertEquals(parameters.size(), 2);
@@ -77,7 +77,7 @@ public class FunctionsTest extends BaseDBTest {
 
     session.begin();
     EntityImpl func = f.getRecord(session);
-    func.field("code", "return 2;");
+    func.setProperty("code", "return 2;");
 
     session.commit();
 

@@ -229,16 +229,16 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
     db.executeInTx(() -> {
       var doc = (EntityImpl) db.newEntity("CollateOnLinked");
-      doc.field("name", "foo");
+      doc.setProperty("name", "foo");
 
       var doc2 = (EntityImpl) db.newEntity("CollateOnLinked2");
-      doc2.field("level1", doc.getIdentity());
+      doc2.setProperty("level1", doc.getIdentity());
 
       var doc3 = (EntityImpl) db.newEntity("CollateOnLinked3");
-      doc3.field("level2", doc2.getIdentity());
+      doc3.setProperty("level2", doc2.getIdentity());
 
       var doc4 = (EntityImpl) db.newEntity("CollateOnLinked4");
-      doc4.field("level3", doc3.getIdentity());
+      doc4.setProperty("level3", doc3.getIdentity());
     });
   }
 
@@ -366,13 +366,13 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     for (var i = 0; i < ORDER_SKIP_LIMIT_ITEMS; i++) {
       db.begin();
       var doc = (EntityImpl) db.newEntity("MassiveOrderSkipLimit");
-      doc.field("nnum", i);
-      doc.field("aaa", fieldValue);
-      doc.field("bbb", fieldValue);
-      doc.field("bbba", fieldValue);
-      doc.field("daf", fieldValue);
-      doc.field("dfgd", fieldValue);
-      doc.field("dgd", fieldValue);
+      doc.setProperty("nnum", i);
+      doc.setProperty("aaa", fieldValue);
+      doc.setProperty("bbb", fieldValue);
+      doc.setProperty("bbba", fieldValue);
+      doc.setProperty("daf", fieldValue);
+      doc.setProperty("dfgd", fieldValue);
+      doc.setProperty("dgd", fieldValue);
 
       db.commit();
     }
@@ -384,12 +384,12 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     for (var i = 0; i < 5; i++) {
       db.begin();
       var doc = (EntityImpl) db.newEntity("ExpandSkipLimit");
-      doc.field("nnum", i);
+      doc.setProperty("nnum", i);
 
       var parent = (EntityImpl) db.newEntity("ExpandSkipLimit");
-      parent.field("parent", true);
-      parent.field("num", i);
-      parent.field("linked", doc);
+      parent.setProperty("parent", true);
+      parent.setProperty("num", i);
+      parent.setProperty("linked", doc);
 
       db.commit();
     }

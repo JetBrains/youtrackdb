@@ -19,22 +19,14 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql;
 
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandDistributedReplicateRequest;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionRuntime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -129,86 +121,12 @@ public class CommandExecutorSQLMoveVertex extends CommandExecutorSQLSetAware
    * Executes the command and return the EntityImpl object created.
    */
   public Object execute(DatabaseSessionInternal session, final Map<Object, Object> iArgs) {
-
-    session.begin();
-    if (className == null && clusterName == null) {
-      throw new CommandExecutionException(session,
-          "Cannot execute the command because it has not been parsed yet");
-    }
-
-    final var sourceRIDs =
-        SQLEngine.getInstance().parseRIDTarget(session, source, context, iArgs);
-
-    // CREATE EDGES
-    final List<EntityImpl> result = new ArrayList<EntityImpl>(sourceRIDs.size());
-
-    for (var from : sourceRIDs) {
-      final var fromVertex = toVertex(session, from);
-      if (fromVertex == null) {
-        continue;
-      }
-
-      var oldVertex = ((RecordId) fromVertex.getIdentity()).copy();
-      var newVertex = fromVertex.moveTo(className);
-
-      final EntityImpl newVertexDoc = newVertex.getRecord(session);
-
-      if (fields != null) {
-        // EVALUATE FIELDS
-        for (final var f : fields) {
-          if (f.getValue() instanceof SQLFunctionRuntime) {
-            f.setValue(
-                ((SQLFunctionRuntime) f.getValue())
-                    .getValue(newVertex.getRecord(session), null, context));
-          }
-        }
-
-        SQLHelper.bindParameters(newVertexDoc, fields, new CommandParameters(iArgs), context);
-      }
-
-      if (merge != null) {
-        newVertexDoc.merge(merge, true, false);
-      }
-
-      // SAVE CHANGES
-
-      // PUT THE MOVE INTO THE RESULT
-      result.add(
-          new EntityImpl(session)
-              .setTrackingChanges(false)
-              .field("old", oldVertex, PropertyType.LINK)
-              .field("new", newVertex, PropertyType.LINK));
-
-      if (batch > 0 && result.size() % batch == 0) {
-        session.commit();
-        session.begin();
-      }
-    }
-
-    session.commit();
-
-    return result;
+    throw new UnsupportedOperationException();
   }
 
   @Override
   public String getSyntax() {
     return "MOVE VERTEX <source> TO <destination> [SET [<field>=<value>]* [,]] [MERGE <JSON>]"
         + " [BATCH <batch-size>]";
-  }
-
-  private static Vertex toVertex(DatabaseSessionInternal db, Identifiable item) {
-    if (item instanceof Entity) {
-      return ((Entity) item).asVertexOrNull();
-    } else {
-      try {
-        item = db.load(item.getIdentity());
-      } catch (RecordNotFoundException rnf) {
-        return null;
-      }
-      if (item instanceof Entity) {
-        return ((Entity) item).asVertexOrNull();
-      }
-    }
-    return null;
   }
 }

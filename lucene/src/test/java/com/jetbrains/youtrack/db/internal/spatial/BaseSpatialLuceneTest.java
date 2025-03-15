@@ -140,11 +140,11 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
 
       EntityImpl doc = ((EntityImpl) session.newEntity()).updateFromJSON(systemResourceAsStream);
 
-      Map geometry = doc.field("geometry");
+      Map geometry = doc.getProperty("geometry");
 
       var type = (String) geometry.get("type");
       var location = ((EntityImpl) session.newEntity("O" + type));
-      location.field("coordinates", geometry.get("coordinates"));
+      location.setPropertyInChain("coordinates", geometry.get("coordinates"));
       return location;
     } catch (Exception e) {
       e.printStackTrace();
@@ -166,7 +166,7 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
   protected EntityImpl geometryCollection() {
 
     final var point = ((EntityImpl) session.newEntity("OPoint"));
-    point.field(
+    point.setPropertyInChain(
         "coordinates",
         new ArrayList<Double>() {
           {
@@ -176,7 +176,7 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
         });
 
     final var lineString = ((EntityImpl) session.newEntity("OLineString"));
-    lineString.field(
+    lineString.setPropertyInChain(
         "coordinates",
         new ArrayList<List<Double>>() {
           {
@@ -187,7 +187,7 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
 
     var geometryCollection = ((EntityImpl) session.newEntity("OGeometryCollection"));
 
-    geometryCollection.field(
+    geometryCollection.setPropertyInChain(
         "geometries",
         new ArrayList<EntityImpl>() {
           {
@@ -200,7 +200,7 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
 
   protected EntityImpl lineStringDoc() {
     var point = ((EntityImpl) session.newEntity("OLineString"));
-    point.field(
+    point.setPropertyInChain(
         "coordinates",
         new ArrayList<List<Double>>() {
           {
@@ -225,7 +225,7 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
 
   protected EntityImpl point() {
     var point = ((EntityImpl) session.newEntity("OPoint"));
-    point.field(
+    point.setPropertyInChain(
         "coordinates",
         new ArrayList<Double>() {
           {
@@ -238,7 +238,7 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
 
   protected EntityImpl multiLineString() {
     var point = ((EntityImpl) session.newEntity("OMultiLineString"));
-    point.field(
+    point.setPropertyInChain(
         "coordinates",
         new ArrayList<List<List<Double>>>() {
           {
@@ -257,7 +257,7 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
 
   protected EntityImpl multiPoint() {
     var point = ((EntityImpl) session.newEntity("OMultiPoint"));
-    point.field(
+    point.setPropertyInChain(
         "coordinates",
         new ArrayList<List<Double>>() {
           {
@@ -271,7 +271,7 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
 
   protected EntityImpl rectangle() {
     var polygon = ((EntityImpl) session.newEntity("OPolygon"));
-    polygon.field(
+    polygon.setPropertyInChain(
         "coordinates",
         new ArrayList<List<List<Double>>>() {
           {
@@ -292,7 +292,7 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
 
   protected EntityImpl polygon() {
     var polygon = ((EntityImpl) session.newEntity("OPolygon"));
-    polygon.field(
+    polygon.setPropertyInChain(
         "coordinates",
         new ArrayList<List<List<Double>>>() {
           {

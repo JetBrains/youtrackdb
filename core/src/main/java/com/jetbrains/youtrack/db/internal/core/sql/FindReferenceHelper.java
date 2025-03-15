@@ -72,8 +72,8 @@ public class FindReferenceHelper {
       final var entity = new EntityImpl(session);
       result.add(entity);
 
-      entity.field("rid", entry.getKey());
-      entity.field("referredBy", entry.getValue());
+      entity.setProperty("rid", entry.getKey());
+      entity.setProperty("referredBy", entry.getValue());
     }
 
     return result;
@@ -89,8 +89,8 @@ public class FindReferenceHelper {
       var record = recordIterator.next();
       if (record instanceof EntityImpl) {
         try {
-          for (var fieldName : ((EntityImpl) record).fieldNames()) {
-            var value = ((EntityImpl) record).field(fieldName);
+          for (var fieldName : ((EntityImpl) record).propertyNames()) {
+            var value = ((EntityImpl) record).getProperty(fieldName);
             checkObject(db, iSourceRIDs, map, value, record);
           }
         } catch (Exception e) {
@@ -162,8 +162,8 @@ public class FindReferenceHelper {
         && value.getRecord(db) instanceof EntityImpl) {
       // embedded entity
       EntityImpl entity = value.getRecord(db);
-      for (var fieldName : entity.fieldNames()) {
-        var fieldValue = entity.field(fieldName);
+      for (var fieldName : entity.propertyNames()) {
+        var fieldValue = entity.getProperty(fieldName);
         checkObject(db, iSourceRIDs, map, fieldValue, iRootObject);
       }
     }

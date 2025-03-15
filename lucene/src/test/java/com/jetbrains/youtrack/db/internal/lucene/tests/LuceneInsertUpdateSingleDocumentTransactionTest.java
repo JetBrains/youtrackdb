@@ -49,17 +49,17 @@ public class LuceneInsertUpdateSingleDocumentTransactionTest extends LuceneBaseT
     Schema schema = session.getMetadata().getSchema();
     session.begin();
     var doc = ((EntityImpl) session.newEntity("City"));
-    doc.field("name", "");
+    doc.setProperty("name", "");
     var doc1 = ((EntityImpl) session.newEntity("City"));
-    doc1.field("name", "");
+    doc1.setProperty("name", "");
     doc = doc;
     doc1 = doc1;
     session.commit();
     session.begin();
     doc = session.load(doc.getIdentity());
     doc1 = session.load(doc1.getIdentity());
-    doc.field("name", "Rome");
-    doc1.field("name", "Rome");
+    doc.setProperty("name", "Rome");
+    doc1.setProperty("name", "Rome");
     session.commit();
 
     var indexManager = session.getMetadata().getIndexManager();

@@ -104,11 +104,11 @@ public class StringsTest extends BaseDBTest {
   @Test
   public void testDocumentSelfReference() {
     var document = ((EntityImpl) session.newEntity());
-    document.field("selfref", document);
+    document.setProperty("selfref", document);
 
     var docTwo = ((EntityImpl) session.newEntity());
-    docTwo.field("ref", document);
-    document.field("ref", docTwo);
+    docTwo.setProperty("ref", document);
+    document.setProperty("ref", docTwo);
 
     var value = document.toString();
 

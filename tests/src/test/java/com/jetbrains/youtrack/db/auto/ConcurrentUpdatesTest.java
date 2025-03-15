@@ -65,10 +65,12 @@ public class ConcurrentUpdatesTest extends BaseDBTest {
               db.begin();
 
               EntityImpl vDoc1 = db.load(rid1);
-              vDoc1.field(threadName, vDoc1.field(threadName) + ";" + i);
+              Object iPropertyValue1 = vDoc1.getProperty(threadName) + ";" + i;
+              vDoc1.setProperty(threadName, iPropertyValue1);
 
               EntityImpl vDoc2 = db.load(rid2);
-              vDoc2.field(threadName, vDoc2.field(threadName) + ";" + i);
+              Object iPropertyValue = vDoc2.getProperty(threadName) + ";" + i;
+              vDoc2.setProperty(threadName, iPropertyValue);
 
               db.commit();
 
@@ -149,14 +151,14 @@ public class ConcurrentUpdatesTest extends BaseDBTest {
     var database = acquireSession();
 
     EntityImpl doc1 = database.newInstance();
-    doc1.field("INIT", "ok");
+    doc1.setProperty("INIT", "ok");
     database.begin();
     database.commit();
 
     RID rid1 = doc1.getIdentity();
 
     EntityImpl doc2 = database.newInstance();
-    doc2.field("INIT", "ok");
+    doc2.setProperty("INIT", "ok");
 
     database.begin();
     database.commit();
@@ -186,7 +188,8 @@ public class ConcurrentUpdatesTest extends BaseDBTest {
     doc1 = database.load(rid1);
 
     for (var i = 0; i < THREADS; ++i) {
-      Assert.assertEquals(doc1.field(ops[i].threadName), ops[i].fieldValue, ops[i].threadName);
+      Assert.assertEquals(doc1.getProperty(ops[i].threadName), ops[i].fieldValue,
+          ops[i].threadName);
     }
 
     doc1.toJSON();
@@ -194,7 +197,8 @@ public class ConcurrentUpdatesTest extends BaseDBTest {
     doc2 = database.load(rid2);
 
     for (var i = 0; i < THREADS; ++i) {
-      Assert.assertEquals(doc2.field(ops[i].threadName), ops[i].fieldValue, ops[i].threadName);
+      Assert.assertEquals(doc2.getProperty(ops[i].threadName), ops[i].fieldValue,
+          ops[i].threadName);
     }
 
     doc2.toJSON();
@@ -218,7 +222,7 @@ public class ConcurrentUpdatesTest extends BaseDBTest {
 
     var database = acquireSession();
     EntityImpl doc1 = database.newInstance();
-    doc1.field("total", 0);
+    doc1.setProperty("total", 0);
 
     database.begin();
     database.commit();
@@ -246,7 +250,7 @@ public class ConcurrentUpdatesTest extends BaseDBTest {
     Assert.assertEquals(counter.get(), PESSIMISTIC_CYCLES * THREADS);
 
     doc1 = database.load(rid1);
-    Assert.assertEquals(doc1.<Object>field("total"), PESSIMISTIC_CYCLES * THREADS);
+    Assert.assertEquals(doc1.<Object>getProperty("total"), PESSIMISTIC_CYCLES * THREADS);
 
     database.close();
   }

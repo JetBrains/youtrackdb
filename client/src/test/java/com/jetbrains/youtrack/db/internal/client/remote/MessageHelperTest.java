@@ -15,7 +15,6 @@ import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkFactory;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -47,7 +46,7 @@ public class MessageHelperTest {
       var doc = ((EntityImpl) db.newEntity("Test"));
       var bags = new RidBag(db);
       bags.add(new RecordId(id, 0));
-      doc.field("bag", bags);
+      doc.setProperty("bag", bags);
 
       doc.fillClassIfNeed("Test");
       RecordInternal.setIdentity(doc, new RecordId(id, 1));
@@ -63,7 +62,7 @@ public class MessageHelperTest {
                   channel, RecordSerializerNetworkFactory.current());
 
       assertThat(newDoc.getSchemaClassName()).isEqualTo("Test");
-      assertThat((RidBag) newDoc.field("bag")).hasSize(1);
+      assertThat((RidBag) newDoc.getProperty("bag")).hasSize(1);
 
       Assert.assertTrue(
           db.getTransactionInternal().getRecordOperationsInternal()

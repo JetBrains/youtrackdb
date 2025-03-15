@@ -155,10 +155,10 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
           bytes.offset = currentValuePos;
           final var value = deserializeValue(db, bytes, type, entity);
           bytes.offset = headerCursor;
-          entity.rawField(fieldName, value, type);
+          entity.setPropertyInternal(fieldName, value, type);
         } else {
           // If pos us 0 the value is null just set it.
-          entity.rawField(fieldName, null, null);
+          entity.setPropertyInternal(fieldName, null, null);
         }
         if (++unmarshalledFields == iFields.length)
         // ALL REQUESTED FIELDS UNMARSHALLED: EXIT
@@ -279,7 +279,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         type = prop.getType();
       }
 
-      if (!entity.rawContainsField(fieldName)) {
+      if (!entity.rawContainsProperty(fieldName)) {
         if (fieldLength != 0) {
           var headerCursor = bytes.offset;
 
@@ -289,9 +289,9 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
             last = bytes.offset;
           }
           bytes.offset = headerCursor;
-          entity.rawField(fieldName, value, type);
+          entity.setPropertyInternal(fieldName, value, type);
         } else {
-          entity.rawField(fieldName, null, null);
+          entity.setPropertyInternal(fieldName, null, null);
         }
       }
 
@@ -1006,7 +1006,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         pointer = bytes.offset;
         if (value instanceof EntitySerializable) {
           var cur = ((EntitySerializable) value).toEntity(session);
-          cur.field(EntitySerializable.CLASS_NAME, value.getClass().getName());
+          cur.setProperty(EntitySerializable.CLASS_NAME, value.getClass().getName());
           serializeWithClassName(session, cur, bytes);
         } else {
           serializeWithClassName(session, (EntityImpl) value, bytes);
@@ -1140,8 +1140,8 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       DatabaseSessionInternal db, final BytesContainer bytes, final RecordElement owner) {
     Object value = new EmbeddedEntityImpl(db);
     deserializeWithClassName(db, (EntityImpl) value, bytes);
-    if (((EntityImpl) value).containsField(EntitySerializable.CLASS_NAME)) {
-      String className = ((EntityImpl) value).field(EntitySerializable.CLASS_NAME);
+    if (((EntityImpl) value).hasProperty(EntitySerializable.CLASS_NAME)) {
+      String className = ((EntityImpl) value).getProperty(EntitySerializable.CLASS_NAME);
       try {
         var clazz = Class.forName(className);
         var newValue = (EntitySerializable) clazz.newInstance();

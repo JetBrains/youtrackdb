@@ -55,7 +55,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 
 /**
  * Helper class to manage documents.
@@ -107,37 +106,7 @@ public class EntityHelper {
     }
   }
 
-  @SuppressWarnings("unchecked")
-  public static <RET> RET convertField(
-      @Nonnull DatabaseSessionInternal session, @Nonnull final EntityImpl entity,
-      @Nonnull final String fieldName,
-      @Nullable PropertyType type,
-      @Nullable PropertyType linkedType,
-      @Nullable Object value) {
-    if (value == null) {
-      return null;
-    }
 
-    if (type == null) {
-      type = PropertyType.getTypeByValue(value);
-    }
-
-    if (type == null) {
-      return (RET) value;
-    }
-
-    var immutableSchemaClass = entity.getImmutableSchemaClass(session);
-    var property =
-        immutableSchemaClass != null ? immutableSchemaClass.getProperty(fieldName) : null;
-    if (linkedType == null) {
-      linkedType = property != null ? property.getLinkedType() : null;
-    }
-
-    value = type.convert(value, linkedType,
-        property != null ? property.getLinkedClass() : null, session);
-
-    return (RET) value;
-  }
 
   public static <RET> RET getFieldValue(DatabaseSessionInternal db, Object value,
       final String iFieldName) {
@@ -247,13 +216,13 @@ public class EntityHelper {
           if (indexParts.size() == 1 && indexCondition.size() == 1 && indexRanges.size() == 1)
           // SINGLE VALUE
           {
-            value = ((EntityImpl) record).field(indexAsString);
+            value = ((EntityImpl) record).getProperty(indexAsString);
           } else if (indexParts.size() > 1) {
             // MULTI VALUE
             final var values = new Object[indexParts.size()];
             for (var i = 0; i < indexParts.size(); ++i) {
-              values[i] = ((EntityImpl) record).field(
-                  IOUtils.getStringContent(indexParts.get(i)));
+              final String iFieldName1 = IOUtils.getStringContent(indexParts.get(i));
+              values[i] = ((EntityImpl) record).getProperty(iFieldName1);
             }
             value = values;
           } else if (indexRanges.size() > 1) {
@@ -264,7 +233,7 @@ public class EntityHelper {
 
             final var entity = (EntityImpl) record;
 
-            final var fieldNames = entity.fieldNames();
+            final var fieldNames = entity.propertyNames();
             final var rangeFrom = from != null && !from.isEmpty() ? Integer.parseInt(from) : 0;
             final var rangeTo =
                 to != null && !to.isEmpty()
@@ -274,7 +243,7 @@ public class EntityHelper {
             final var values = new Object[rangeTo - rangeFrom + 1];
 
             for (var i = rangeFrom; i <= rangeTo; ++i) {
-              values[i - rangeFrom] = entity.field(fieldNames[i]);
+              values[i - rangeFrom] = entity.getProperty(fieldNames[i]);
             }
 
             value = values;
@@ -659,7 +628,7 @@ public class EntityHelper {
 
       if (rec instanceof EntityImpl entity) {
 
-        var fieldValue = entity.field(iConditionFieldName);
+        var fieldValue = entity.getProperty(iConditionFieldName);
 
         if (iConditionFieldValue == null) {
           return fieldValue == null ? entity : null;
@@ -774,7 +743,7 @@ public class EntityHelper {
           final var stream = ((RecordAbstract) current.getRecord(session)).toStream();
           return stream != null ? stream.length : 0;
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_FIELDS)) {
-          return ((EntityImpl) current.getRecord(session)).fieldNames();
+          return ((EntityImpl) current.getRecord(session)).propertyNames();
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_RAW)) {
           return new String(((RecordAbstract) current.getRecord(session)).toStream());
         }
@@ -1008,10 +977,10 @@ public class EntityHelper {
       return false;
     }
 
-    iCurrent.checkForFields();
-    iOther.checkForFields();
+    iCurrent.checkForProperties();
+    iOther.checkForProperties();
 
-    if (iCurrent.fields() != iOther.fields()) {
+    if (iCurrent.getPropertiesCount() != iOther.getPropertiesCount()) {
       return false;
     }
 

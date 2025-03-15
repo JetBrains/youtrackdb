@@ -1,5 +1,11 @@
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
@@ -11,11 +17,6 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import java.util.Map;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public class EntityImplTest extends DbTestBase {
@@ -27,9 +28,9 @@ public class EntityImplTest extends DbTestBase {
   public void testClearResetsFieldTypes() throws Exception {
     session.begin();
     var doc = (EntityImpl) session.newEntity();
-    doc.setFieldType("integer", PropertyType.INTEGER);
-    doc.setFieldType("string", PropertyType.STRING);
-    doc.setFieldType("binary", PropertyType.BINARY);
+    doc.setInt("integer", 1);
+    doc.setString("string", "val");
+    doc.setBinary("binary", new byte[0]);
 
     assertEquals(PropertyType.INTEGER, doc.getPropertyType("integer"));
     assertEquals(PropertyType.STRING, doc.getPropertyType("string"));
@@ -47,9 +48,9 @@ public class EntityImplTest extends DbTestBase {
   public void testResetResetsFieldTypes() throws Exception {
     session.begin();
     var doc = (EntityImpl) session.newEntity();
-    doc.setFieldType("integer", PropertyType.INTEGER);
-    doc.setFieldType("string", PropertyType.STRING);
-    doc.setFieldType("binary", PropertyType.BINARY);
+    doc.setInt("integer", 1);
+    doc.setString("string", "val");
+    doc.setBinary("binary", new byte[0]);
 
     assertEquals(PropertyType.INTEGER, doc.getPropertyType("integer"));
     assertEquals(PropertyType.STRING, doc.getPropertyType("string"));
@@ -67,9 +68,9 @@ public class EntityImplTest extends DbTestBase {
   public void testKeepFieldType() throws Exception {
     session.begin();
     var doc = (EntityImpl) session.newEntity();
-    doc.field("integer", 10, PropertyType.INTEGER);
-    doc.field("string", 20, PropertyType.STRING);
-    doc.field("binary", new byte[]{30}, PropertyType.BINARY);
+    doc.setProperty("integer", 10, PropertyType.INTEGER);
+    doc.setProperty("string", 20, PropertyType.STRING);
+    doc.setProperty("binary", new byte[]{30}, PropertyType.BINARY);
 
     assertEquals(PropertyType.INTEGER, doc.getPropertyType("integer"));
     assertEquals(PropertyType.STRING, doc.getPropertyType("string"));
@@ -81,10 +82,11 @@ public class EntityImplTest extends DbTestBase {
   public void testKeepFieldTypeSerialization() {
     session.begin();
     var doc = (EntityImpl) session.newEntity();
-    doc.field("integer", 10, PropertyType.INTEGER);
-    doc.field("link", new RecordId(1, 2), PropertyType.LINK);
-    doc.field("string", 20, PropertyType.STRING);
-    doc.field("binary", new byte[]{30}, PropertyType.BINARY);
+    doc.setProperty("integer", 10, PropertyType.INTEGER);
+    Object propertyValue = new RecordId(1, 2);
+    doc.setProperty("link", propertyValue, PropertyType.LINK);
+    doc.setProperty("string", 20, PropertyType.STRING);
+    doc.setProperty("binary", new byte[]{30}, PropertyType.BINARY);
 
     assertEquals(PropertyType.INTEGER, doc.getPropertyType("integer"));
     assertEquals(PropertyType.LINK, doc.getPropertyType("link"));
@@ -105,10 +107,10 @@ public class EntityImplTest extends DbTestBase {
   public void testKeepAutoFieldTypeSerialization() throws Exception {
     session.begin();
     var doc = (EntityImpl) session.newEntity();
-    doc.field("integer", 10);
-    doc.field("link", new RecordId(1, 2));
-    doc.field("string", "string");
-    doc.field("binary", new byte[]{30});
+    doc.setProperty("integer", 10);
+    doc.setProperty("link", new RecordId(1, 2));
+    doc.setProperty("string", "string");
+    doc.setProperty("binary", new byte[]{30});
 
     assertEquals(PropertyType.INTEGER, doc.getPropertyType("integer"));
     assertEquals(PropertyType.LINK, doc.getPropertyType("link"));
@@ -144,10 +146,10 @@ public class EntityImplTest extends DbTestBase {
       session.begin();
 
       var entity = (EntityImpl) session.newEntity(clazz);
-      entity.field("integer", 10);
-      entity.field("link", new RecordId(1, 2));
-      entity.field("string", "string");
-      entity.field("binary", new byte[]{30});
+      entity.setProperty("integer", 10);
+      entity.setProperty("link", new RecordId(1, 2));
+      entity.setProperty("string", "string");
+      entity.setProperty("binary", new byte[]{30});
 
       // the types are from the schema.
       assertEquals(PropertyType.INTEGER, entity.getPropertyType("integer"));
@@ -179,13 +181,13 @@ public class EntityImplTest extends DbTestBase {
   public void testChangeTypeOnValueSet() throws Exception {
     session.begin();
     var doc = (EntityImpl) session.newEntity();
-    doc.field("link", new RecordId(1, 2));
+    doc.setProperty("link", new RecordId(1, 2));
     var ser = DatabaseSessionAbstract.getDefaultSerializer();
     var bytes = ser.toStream(session, doc);
     doc = (EntityImpl) session.newEntity();
     ser.fromStream(session, bytes, doc, null);
     assertEquals(PropertyType.LINK, doc.getPropertyType("link"));
-    doc.field("link", new RidBag(session));
+    doc.setProperty("link", new RidBag(session));
     assertNotEquals(PropertyType.LINK, doc.getPropertyType("link"));
     session.rollback();
   }
@@ -206,16 +208,17 @@ public class EntityImplTest extends DbTestBase {
       property.setReadonly(true);
       db.begin();
       var doc = (EntityImpl) db.newEntity(classA);
-      doc.field("name", "My Name");
-      doc.field("property", "value1");
+      doc.setProperty("name", "My Name");
+      doc.setProperty("property", "value1");
 
-      doc.field("name", "My Name 2");
-      doc.field("property", "value2");
+      doc.setProperty("name", "My Name 2");
+      doc.setProperty("property", "value2");
       doc.undo(); // we decided undo everything
-      doc.field("name", "My Name 3"); // change something
+      // change something
+      doc.setProperty("name", "My Name 3");
 
-      doc.field("name", "My Name 4");
-      doc.field("property", "value4");
+      doc.setProperty("name", "My Name 4");
+      doc.setProperty("property", "value4");
       doc.undo("property"); // we decided undo readonly field
 
       db.commit();
@@ -246,45 +249,45 @@ public class EntityImplTest extends DbTestBase {
 
       session.begin();
       var doc = (EntityImpl) session.newEntity(classA);
-      doc.field("name", "My Name");
-      doc.field("property", "value1");
+      doc.setProperty("name", "My Name");
+      doc.setProperty("property", "value1");
 
       session.commit();
 
       session.begin();
       doc = session.bindToSession(doc);
-      assertEquals("My Name", doc.field("name"));
-      assertEquals("value1", doc.field("property"));
+      assertEquals("My Name", doc.getProperty("name"));
+      assertEquals("value1", doc.getProperty("property"));
       doc.undo();
-      assertEquals("My Name", doc.field("name"));
-      assertEquals("value1", doc.field("property"));
-      doc.field("name", "My Name 2");
-      doc.field("property", "value2");
+      assertEquals("My Name", doc.getProperty("name"));
+      assertEquals("value1", doc.getProperty("property"));
+      doc.setProperty("name", "My Name 2");
+      doc.setProperty("property", "value2");
       doc.undo();
-      doc.field("name", "My Name 3");
-      assertEquals("My Name 3", doc.field("name"));
-      assertEquals("value1", doc.field("property"));
+      doc.setProperty("name", "My Name 3");
+      assertEquals("My Name 3", doc.getProperty("name"));
+      assertEquals("value1", doc.getProperty("property"));
 
       session.commit();
 
       session.begin();
       doc = session.bindToSession(doc);
-      doc.field("name", "My Name 4");
-      doc.field("property", "value4");
+      doc.setProperty("name", "My Name 4");
+      doc.setProperty("property", "value4");
       doc.undo("property");
-      assertEquals("My Name 4", doc.field("name"));
-      assertEquals("value1", doc.field("property"));
+      assertEquals("My Name 4", doc.getProperty("name"));
+      assertEquals("value1", doc.getProperty("property"));
 
       session.commit();
 
       session.begin();
       doc = session.bindToSession(doc);
       doc.undo("property");
-      assertEquals("My Name 4", doc.field("name"));
-      assertEquals("value1", doc.field("property"));
+      assertEquals("My Name 4", doc.getProperty("name"));
+      assertEquals("value1", doc.getProperty("property"));
       doc.undo();
-      assertEquals("My Name 4", doc.field("name"));
-      assertEquals("value1", doc.field("property"));
+      assertEquals("My Name 4", doc.getProperty("name"));
+      assertEquals("value1", doc.getProperty("property"));
       session.commit();
     } finally {
       if (session != null) {
@@ -303,14 +306,14 @@ public class EntityImplTest extends DbTestBase {
     var dest = (EntityImpl) session.newEntity();
 
     var source = (EntityImpl) session.newEntity();
-    source.field("key", "value");
-    source.field("somenull", null);
+    source.setProperty("key", "value");
+    source.setProperty("somenull", null);
 
     dest.merge(source, true, false);
 
-    assertEquals("value", dest.field("key"));
+    assertEquals("value", dest.getProperty("key"));
 
-    assertTrue(dest.containsField("somenull"));
+    assertTrue(dest.hasProperty("somenull"));
     session.rollback();
   }
 
@@ -321,7 +324,7 @@ public class EntityImplTest extends DbTestBase {
       var doc = (EntityImpl) session.newEntity();
       var map = session.newEmbeddedMap();
       map.put(null, "dd");
-      doc.field("testMap", map);
+      doc.setProperty("testMap", map);
       doc.checkAllMultiValuesAreTrackedVersions();
     });
   }

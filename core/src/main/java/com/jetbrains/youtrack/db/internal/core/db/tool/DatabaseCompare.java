@@ -899,10 +899,11 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
   }
 
   private static void convertSchemaDoc(final EntityImpl entity) {
-    if (entity.field("classes") != null) {
-      entity.setFieldType("classes", PropertyType.EMBEDDEDSET);
-      for (var classDoc : entity.<Set<EntityImpl>>field("classes")) {
-        classDoc.setFieldType("properties", PropertyType.EMBEDDEDSET);
+    if (entity.getProperty("classes") != null) {
+      entity.setProperty("classes", entity.getProperty("classes"), PropertyType.EMBEDDEDSET);
+      for (var classDoc : entity.<Set<EntityImpl>>getProperty("classes")) {
+        classDoc.setProperty("properties", classDoc.getProperty("properties"),
+            PropertyType.EMBEDDEDSET);
       }
     }
   }

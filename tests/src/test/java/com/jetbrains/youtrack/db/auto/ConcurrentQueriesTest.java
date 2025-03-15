@@ -17,6 +17,7 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.common.concur.NeedRetryException;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.test.ConcurrentTestHelper;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicLong;
@@ -80,7 +81,8 @@ public class ConcurrentQueriesTest extends BaseDBTest {
 
     for (var i = 0; i < 1000; ++i) {
       session.begin();
-      session.newInstance("Concurrent").field("test", i);
+      EntityImpl entity = session.newInstance("Concurrent");
+      entity.setProperty("test", i);
 
       session.commit();
     }

@@ -1121,7 +1121,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     final byte[] stream;
     var name = connection.getData().getSerializationImpl();
     if (RecordInternal.getRecordType(db, iRecord) == EntityImpl.RECORD_TYPE) {
-      ((EntityImpl) iRecord).deserializeFields();
+      ((EntityImpl) iRecord).deserializeProperties();
       var ser = RecordSerializerFactory.instance().getFormat(name);
       stream = ser.toStream(db, iRecord);
     } else {

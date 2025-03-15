@@ -1,11 +1,12 @@
 package com.jetbrains.youtrack.db.internal.core.sql.method.misc;
 
+import static org.junit.Assert.assertEquals;
+
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.Set;
-import static org.junit.Assert.assertEquals;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -89,8 +90,8 @@ public class SQLMethodAsListTest extends DbTestBase {
     // EntityImpl in it.
     session.begin();
     var doc = ((EntityImpl) session.newEntity());
-    doc.field("f1", 1);
-    doc.field("f2", 2);
+    doc.setProperty("f1", 1);
+    doc.setProperty("f2", 2);
 
     var result = function.execute(null, null, null, doc, null);
 

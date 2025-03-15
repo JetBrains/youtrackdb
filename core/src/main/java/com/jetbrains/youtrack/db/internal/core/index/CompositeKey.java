@@ -216,14 +216,14 @@ public class CompositeKey
   public void fromDocument(EntityImpl entity) {
     entity.setLazyLoad(false);
 
-    final var fieldNames = entity.fieldNames();
+    final var fieldNames = entity.propertyNames();
 
     final SortedMap<Integer, Object> keyMap = new TreeMap<>();
 
     for (var fieldName : fieldNames) {
       if (fieldName.startsWith("key")) {
         final var keyIndex = fieldName.substring(3);
-        keyMap.put(Integer.valueOf(keyIndex), entity.field(fieldName));
+        keyMap.put(Integer.valueOf(keyIndex), entity.getProperty(fieldName));
       }
     }
 

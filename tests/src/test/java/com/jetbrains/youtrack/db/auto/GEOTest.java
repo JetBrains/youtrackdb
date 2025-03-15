@@ -80,8 +80,8 @@ public class GEOTest extends BaseDBTest {
     for (var i = 0; i < 10000; ++i) {
       point = ((EntityImpl) session.newEntity("MapPoint"));
 
-      point.field("x", (52.20472d + i / 100d));
-      point.field("y", (0.14056d + i / 100d));
+      point.setProperty("x", 52.20472d + i / 100d);
+      point.setProperty("y", 0.14056d + i / 100d);
 
       session.begin();
 

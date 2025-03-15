@@ -55,7 +55,7 @@ public class DbCopyTest extends BaseDBTest implements CommandOutputListener {
             for (var i = 0; i < 5; i++) {
               otherDB.begin();
               EntityImpl doc = otherDB.newInstance(className);
-              doc.field("num", 20 + i);
+              doc.setProperty("num", 20 + i);
 
               otherDB.commit();
               try {
@@ -76,7 +76,7 @@ public class DbCopyTest extends BaseDBTest implements CommandOutputListener {
     for (var i = 0; i < 20; i++) {
       session.begin();
       EntityImpl doc = session.newInstance(className);
-      doc.field("num", i);
+      doc.setProperty("num", i);
 
       session.commit();
       try {

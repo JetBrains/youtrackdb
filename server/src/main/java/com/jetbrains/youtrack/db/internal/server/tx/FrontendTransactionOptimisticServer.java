@@ -154,7 +154,7 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
         unmarshallRecord(record);
         if (record instanceof EntityImpl) {
           // Force conversion of value to class for trigger default values.
-          ((EntityImpl) record).autoConvertFieldsToClass(getDatabaseSession());
+          ((EntityImpl) record).autoConvertPropertiesToClass(getDatabaseSession());
         }
       }
       for (DBRecord record : updatedRecords.values()) {
@@ -172,7 +172,7 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
   private void mergeChanges(RecordOperationRequest operation, RecordAbstract record,
       byte recordType) {
     if (record instanceof EntityImpl entity) {
-      entity.deserializeFields();
+      entity.deserializeProperties();
       entity.clearTransactionTrackData();
 
       if (recordType == DocumentSerializerDelta.DELTA_RECORD_TYPE) {
@@ -192,7 +192,7 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
    */
   protected static void unmarshallRecord(final DBRecord iRecord) {
     if (iRecord instanceof EntityImpl) {
-      ((EntityImpl) iRecord).deserializeFields();
+      ((EntityImpl) iRecord).deserializeProperties();
     }
   }
 

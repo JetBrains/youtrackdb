@@ -48,9 +48,9 @@ public class LuceneInsertUpdateSingleDocumentNoTxTest extends LuceneBaseTest {
 
     var schema = session.getMetadata().getSchema();
     var doc = ((EntityImpl) session.newEntity("City"));
-    doc.field("name", "");
+    doc.setProperty("name", "");
     var doc1 = ((EntityImpl) session.newEntity("City"));
-    doc1.field("name", "");
+    doc1.setProperty("name", "");
 
     session.begin();
     doc = doc;
@@ -60,8 +60,8 @@ public class LuceneInsertUpdateSingleDocumentNoTxTest extends LuceneBaseTest {
 
     doc = session.load(doc.getIdentity());
     doc1 = session.load(doc1.getIdentity());
-    doc.field("name", "Rome");
-    doc1.field("name", "Rome");
+    doc.setProperty("name", "Rome");
+    doc1.setProperty("name", "Rome");
 
     session.commit();
 

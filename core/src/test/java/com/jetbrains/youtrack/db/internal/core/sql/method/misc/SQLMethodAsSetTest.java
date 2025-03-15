@@ -102,8 +102,8 @@ public class SQLMethodAsSetTest extends DbTestBase {
     // EntityImpl in it.
     session.begin();
     var doc = ((EntityImpl) session.newEntity());
-    doc.field("f1", 1);
-    doc.field("f2", 2);
+    doc.setProperty("f1", 1);
+    doc.setProperty("f2", 2);
 
     var result = function.execute(null, null, null, doc, null);
 

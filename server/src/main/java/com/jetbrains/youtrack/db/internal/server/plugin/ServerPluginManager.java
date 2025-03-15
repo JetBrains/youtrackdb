@@ -387,20 +387,20 @@ public class ServerPluginManager implements Service {
 
         final EntityImpl properties = new EntityImpl(null).updateFromJSON(pluginConfigFile);
 
-        if (properties.containsField("name"))
+        if (properties.hasProperty("name"))
         // OVERWRITE PLUGIN NAME
         {
-          pluginName = properties.field("name");
+          pluginName = properties.getProperty("name");
         }
 
-        final String pluginClass = properties.field("javaClass");
+        final String pluginClass = properties.getProperty("javaClass");
 
         final ServerPlugin pluginInstance;
         final Map<String, Object> parameters;
 
         if (pluginClass != null) {
           // CREATE PARAMETERS
-          parameters = properties.field("parameters");
+          parameters = properties.getProperty("parameters");
           final List<ServerParameterConfiguration> params =
               new ArrayList<ServerParameterConfiguration>();
           for (var paramName : parameters.keySet()) {
@@ -420,9 +420,9 @@ public class ServerPluginManager implements Service {
         currentPluginData =
             new ServerPluginInfo(
                 pluginName,
-                properties.field("version"),
-                properties.field("description"),
-                properties.field("web"),
+                properties.getProperty("version"),
+                properties.getProperty("description"),
+                properties.getProperty("web"),
                 pluginInstance,
                 parameters,
                 pluginFile.lastModified(),

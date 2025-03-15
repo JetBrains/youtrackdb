@@ -342,7 +342,7 @@ public abstract class HttpResponseAbstract implements HttpResponse {
                     var rec = ((Identifiable) r).getRecord(session);
                     if (rec instanceof EntityImpl entity) {
                       records.add(entity);
-                      Collections.addAll(colNames, entity.fieldNames());
+                      Collections.addAll(colNames, entity.propertyNames());
                     }
                   } catch (RecordNotFoundException rnf) {
                     // IGNORE IT

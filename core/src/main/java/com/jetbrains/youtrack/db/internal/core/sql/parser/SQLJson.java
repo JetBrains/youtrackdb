@@ -123,7 +123,11 @@ public class SQLJson extends SimpleNode {
           types = FieldTypesString.loadFieldTypes(value.toString());
           for (var entry : types.entrySet()) {
             var t = FieldTypesString.getOTypeFromChar(entry.getValue());
-            retDoc.setFieldType(entry.getKey(), t);
+            var propertyName = entry.getKey();
+            if (retDoc.hasProperty(propertyName) && retDoc.getPropertyType(propertyName) != t) {
+              retDoc.setProperty(propertyName, retDoc.getProperty(propertyName), t);
+            }
+
           }
         }
         continue;

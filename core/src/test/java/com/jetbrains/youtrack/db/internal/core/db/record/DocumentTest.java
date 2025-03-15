@@ -47,8 +47,8 @@ public class DocumentTest extends DbTestBase {
   public void testFromMapWithClass() {
     session.begin();
     final var doc = (EntityImpl) session.newEntity("OUser");
-    doc.field("name", "Jay");
-    doc.field("surname", "Miner");
+    doc.setProperty("name", "Jay");
+    doc.setProperty("surname", "Miner");
     var map = doc.toMap();
 
     Assert.assertEquals(4, map.size());
@@ -63,8 +63,8 @@ public class DocumentTest extends DbTestBase {
   public void testFromMapWithClassAndRid() {
     session.begin();
     final var doc = (EntityImpl) session.newEntity("V");
-    doc.field("name", "Jay");
-    doc.field("surname", "Miner");
+    doc.setProperty("name", "Jay");
+    doc.setProperty("surname", "Miner");
 
     session.commit();
 
@@ -84,10 +84,9 @@ public class DocumentTest extends DbTestBase {
     session.begin();
     var doc = (EntityImpl) session.newEntity();
 
-    doc.field("some", 3);
-    doc.setFieldType("some", PropertyType.STRING);
+    doc.setProperty("some", 3, PropertyType.STRING);
     Assert.assertEquals(PropertyType.STRING, doc.getPropertyType("some"));
-    Assert.assertEquals("3", doc.field("some"));
+    Assert.assertEquals("3", doc.getProperty("some"));
     session.rollback();
   }
 
@@ -96,7 +95,7 @@ public class DocumentTest extends DbTestBase {
     session.begin();
     var doc = (EntityImpl) session.newEntity();
 
-    doc.field("amount", 300);
+    doc.setProperty("amount", 300);
 
     var amountPlusVat = (Number) doc.eval("amount * 120 / 100");
 
@@ -109,7 +108,7 @@ public class DocumentTest extends DbTestBase {
     session.begin();
     var doc = (EntityImpl) session.newEntity();
 
-    doc.field("amount", 300);
+    doc.setProperty("amount", 300);
 
     var context = new BasicCommandContext();
     context.setVariable("vat", 20);

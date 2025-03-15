@@ -49,11 +49,11 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
     final var index =
         session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX_NAME);
 
-    ((EntityImpl) session.newEntity(CLASS_NAME)).field(FIELD_NAME, 1);
+    session.newEntity(CLASS_NAME).setProperty(FIELD_NAME, 1);
 
-    ((EntityImpl) session.newEntity(CLASS_NAME)).field(FIELD_NAME, 1);
+    session.newEntity(CLASS_NAME).setProperty(FIELD_NAME, 1);
 
-    ((EntityImpl) session.newEntity(CLASS_NAME)).field(FIELD_NAME, 2);
+    session.newEntity(CLASS_NAME).setProperty(FIELD_NAME, 2);
 
     session.commit();
 
@@ -67,7 +67,7 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
 
     session.begin();
 
-    ((EntityImpl) session.newEntity(CLASS_NAME)).field(FIELD_NAME, 2);
+    session.newEntity(CLASS_NAME).setProperty(FIELD_NAME, 2);
 
     Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
     try (var stream = index.getRids(session, 2)) {
@@ -95,11 +95,11 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
     final var index =
         session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX_NAME);
 
-    var docOne = ((EntityImpl) session.newEntity(CLASS_NAME)).field(FIELD_NAME, 1);
+    var docOne = ((EntityImpl) session.newEntity(CLASS_NAME)).setPropertyInChain(FIELD_NAME, 1);
 
-    var docTwo = ((EntityImpl) session.newEntity(CLASS_NAME)).field(FIELD_NAME, 1);
+    var docTwo = ((EntityImpl) session.newEntity(CLASS_NAME)).setPropertyInChain(FIELD_NAME, 1);
 
-    ((EntityImpl) session.newEntity(CLASS_NAME)).field(FIELD_NAME, 2);
+    session.newEntity(CLASS_NAME).setProperty(FIELD_NAME, 2);
 
     session.commit();
 
@@ -148,11 +148,11 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
     final var index =
         session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX_NAME);
 
-    var document = ((EntityImpl) session.newEntity(CLASS_NAME)).field(FIELD_NAME, 1);
+    var document = ((EntityImpl) session.newEntity(CLASS_NAME)).setPropertyInChain(FIELD_NAME, 1);
 
-    ((EntityImpl) session.newEntity(CLASS_NAME)).field(FIELD_NAME, 1);
+    session.newEntity(CLASS_NAME).setProperty(FIELD_NAME, 1);
 
-    ((EntityImpl) session.newEntity(CLASS_NAME)).field(FIELD_NAME, 2);
+    session.newEntity(CLASS_NAME).setProperty(FIELD_NAME, 2);
 
     session.commit();
 
@@ -199,14 +199,15 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
     final var index =
         session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX_NAME);
 
-    final var document = ((EntityImpl) session.newEntity(CLASS_NAME)).field(FIELD_NAME, 1);
+    final var document = ((EntityImpl) session.newEntity(CLASS_NAME)).setPropertyInChain(FIELD_NAME,
+        1);
 
     try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 1);
     }
 
-    document.field(FIELD_NAME, 0);
-    document.field(FIELD_NAME, 1);
+    document.setProperty(FIELD_NAME, 0);
+    document.setProperty(FIELD_NAME, 1);
 
     Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
     try (var stream = index.getRids(session, 1)) {
@@ -230,7 +231,7 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
     final var index =
         session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX_NAME);
 
-    ((EntityImpl) session.newEntity(CLASS_NAME)).field(FIELD_NAME, 1);
+    session.newEntity(CLASS_NAME).setProperty(FIELD_NAME, 1);
 
     Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
     try (var stream = index.getRids(session, 1)) {
@@ -239,7 +240,7 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    ((EntityImpl) session.newEntity(CLASS_NAME)).field(FIELD_NAME, 1);
+    session.newEntity(CLASS_NAME).setProperty(FIELD_NAME, 1);
 
     session.commit();
 
@@ -259,7 +260,8 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
     final var index =
         session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX_NAME);
 
-    final var document = ((EntityImpl) session.newEntity(CLASS_NAME)).field(FIELD_NAME, 1);
+    final var document = ((EntityImpl) session.newEntity(CLASS_NAME)).setPropertyInChain(FIELD_NAME,
+        1);
 
     document.delete();
 
@@ -286,11 +288,12 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
     final var index =
         session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX_NAME);
 
-    final var document = ((EntityImpl) session.newEntity(CLASS_NAME)).field(FIELD_NAME, 1);
+    final var document = ((EntityImpl) session.newEntity(CLASS_NAME)).setPropertyInChain(FIELD_NAME,
+        1);
 
-    document.removeField(FIELD_NAME);
+    document.removeProperty(FIELD_NAME);
 
-    document.field(FIELD_NAME, 1);
+    document.setProperty(FIELD_NAME, 1);
 
     try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 1);

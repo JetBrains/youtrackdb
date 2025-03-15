@@ -28,12 +28,12 @@ public class IndexConcurrentCommitTest extends BaseDBTest {
 
       // Insert two people in a transaction
       var person1 = ((EntityImpl) session.newEntity("Person"));
-      person1.field("name", "John Doe");
-      person1.field("ssn", "111-11-1111");
+      person1.setProperty("name", "John Doe");
+      person1.setProperty("ssn", "111-11-1111");
 
       var person2 = ((EntityImpl) session.newEntity("Person"));
-      person2.field("name", "Jane Doe");
-      person2.field("ssn", "222-22-2222");
+      person2.setProperty("name", "Jane Doe");
+      person2.setProperty("ssn", "222-22-2222");
 
       // Commit
       session.commit();
@@ -48,10 +48,10 @@ public class IndexConcurrentCommitTest extends BaseDBTest {
       session.begin();
 
       // Update the ssn for the second person
-      person2.field("ssn", "111-11-1111");
+      person2.setProperty("ssn", "111-11-1111");
 
       // Update the ssn for the first person
-      person1.field("ssn", "222-22-2222");
+      person1.setProperty("ssn", "222-22-2222");
 
       System.out.println("To be committed:");
       System.out.println(person1);

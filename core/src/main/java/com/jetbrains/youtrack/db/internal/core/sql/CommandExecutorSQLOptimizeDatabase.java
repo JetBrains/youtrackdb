@@ -123,14 +123,14 @@ public class CommandExecutorSQLOptimizeDatabase extends CommandExecutorSQLAbstra
         browsedEdges++;
 
         if (entity != null) {
-          if (entity.fields() == 2) {
+          if (entity.getPropertiesCount() == 2) {
             final RID edgeIdentity = entity.getIdentity();
 
-            final EntityImpl outV = entity.field("out");
-            final EntityImpl inV = entity.field("in");
+            final EntityImpl outV = entity.getProperty("out");
+            final EntityImpl inV = entity.getProperty("in");
 
             // OUTGOING
-            final var outField = outV.field("out_" + entity.getSchemaClassName());
+            final var outField = outV.getProperty("out_" + entity.getSchemaClassName());
             if (outField instanceof RidBag) {
               final var it = ((RidBag) outField).iterator();
               while (it.hasNext()) {
@@ -145,7 +145,7 @@ public class CommandExecutorSQLOptimizeDatabase extends CommandExecutorSQLAbstra
             }
 
             // INCOMING
-            final var inField = inV.field("in_" + entity.getSchemaClassName());
+            final var inField = inV.getProperty("in_" + entity.getSchemaClassName());
             if (outField instanceof RidBag) {
               final var it = ((RidBag) inField).iterator();
               while (it.hasNext()) {

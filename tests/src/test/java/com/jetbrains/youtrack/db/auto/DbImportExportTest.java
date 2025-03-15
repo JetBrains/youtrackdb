@@ -187,12 +187,12 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
 
           session.commit();
 
-          embeddedDocument.field("link", doc.getIdentity());
+          embeddedDocument.setProperty("link", doc.getIdentity());
           documents.add(embeddedDocument);
         }
 
         session.begin();
-        rootDocument.field("embeddedList", documents);
+        rootDocument.setProperty("embeddedList", documents);
 
         session.commit();
 
@@ -212,7 +212,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
         final Iterator<EntityImpl> classIterator = session.browseClass("RootClass");
         final var rootDocument = classIterator.next();
 
-        final List<EntityImpl> documents = rootDocument.field("embeddedList");
+        final List<EntityImpl> documents = rootDocument.getProperty("embeddedList");
         for (var i = 0; i < 10; i++) {
           final var embeddedDocument = documents.get(i);
 

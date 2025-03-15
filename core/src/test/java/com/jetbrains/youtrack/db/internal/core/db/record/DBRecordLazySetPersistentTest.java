@@ -21,7 +21,7 @@ public class DBRecordLazySetPersistentTest extends DbTestBase {
     session.begin();
     {
       var doc1 = (EntityImpl) session.newEntity();
-      doc1.field("linkset", session.newLinkSet());
+      doc1.setProperty("linkset", session.newLinkSet());
       var linkset = doc1.getLinkSet("linkset");
       var doc2 = (EntityImpl) session.newEntity();
 
@@ -37,7 +37,7 @@ public class DBRecordLazySetPersistentTest extends DbTestBase {
     {
       EntityImpl doc1 = session.load(orid1);
       assertNotNull(doc1);
-      Set<Identifiable> linkset = doc1.field("linkset");
+      Set<Identifiable> linkset = doc1.getProperty("linkset");
       assertNotNull(linkset);
       assertEquals(1, linkset.size());
 
@@ -62,7 +62,7 @@ public class DBRecordLazySetPersistentTest extends DbTestBase {
     session.begin();
     {
       var doc1 = (EntityImpl) session.newEntity();
-      doc1.field("linkset", session.newLinkSet());
+      doc1.setProperty("linkset", session.newLinkSet());
       var linkset = doc1.getLinkSet("linkset");
       var doc2 = (EntityImpl) session.newEntity();
 
@@ -78,7 +78,7 @@ public class DBRecordLazySetPersistentTest extends DbTestBase {
     {
       EntityImpl doc1 = session.load(orid1);
       assertNotNull(doc1);
-      Set<Identifiable> linkset = doc1.field("linkset");
+      Set<Identifiable> linkset = doc1.getProperty("linkset");
 
       assertNotNull(linkset);
       assertEquals(1, linkset.size());

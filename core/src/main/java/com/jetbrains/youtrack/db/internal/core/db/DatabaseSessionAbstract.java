@@ -1476,7 +1476,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     entity.setInternalStatus(RecordElement.STATUS.LOADED);
 
     currentTx.addRecordOperation(entity, RecordOperation.CREATED);
-
+    //init default property values, can not do that in constructor as it is not registerd in tx
+    entity.convertPropertiesToClassAndInitDefaultValues(entity.getImmutableSchemaClass(this));
     return entity;
   }
 

@@ -111,9 +111,10 @@ public class SQLCommandsTest extends BaseDBTest {
 
     Assert.assertTrue(result instanceof Identifiable);
     Assert.assertTrue(((Identifiable) result).getRecord(session) instanceof EntityImpl);
+    EntityImpl entity = session.bindToSession(
+        ((Identifiable) result).getRecord(session));
     Assert.assertTrue(
-        session.bindToSession((EntityImpl) ((Identifiable) result).getRecord(session))
-            .field("script"));
+        entity.getProperty("script"));
   }
 
   public void testClusterRename() {

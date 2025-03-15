@@ -50,7 +50,7 @@ public class RectangleShapeBuilder extends ShapeBuilder<Rectangle> {
   @Override
   public Rectangle fromDoc(EntityImpl document) {
     validate(document);
-    List<Number> coordinates = document.field(COORDINATES);
+    List<Number> coordinates = document.getProperty(COORDINATES);
 
     var topLeft =
         SPATIAL_CONTEXT.makePoint(
@@ -65,9 +65,7 @@ public class RectangleShapeBuilder extends ShapeBuilder<Rectangle> {
   @Override
   public EntityImpl toEntitty(final Rectangle shape) {
     var doc = new EntityImpl(null, NAME);
-    doc.field(
-        COORDINATES,
-        new ArrayList<Double>() {
+    doc.setProperty(COORDINATES, new ArrayList<Double>() {
           {
             add(shape.getMinX());
             add(shape.getMinY());

@@ -27,7 +27,8 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     session.getMetadata().getSchema().createClass("TestSubclass", testSuperclass);
 
     session.begin();
-    var toDelete = ((EntityImpl) session.newEntity("TestSubclass")).field("id", 1);
+    var toDelete = ((EntityImpl) session.newEntity("TestSubclass"));
+    toDelete.setProperty("id", 1);
 
     session.commit();
 
@@ -39,9 +40,9 @@ public class DatabaseDocumentTxTest extends DbTestBase {
 
     session.begin();
     try {
-      ((EntityImpl) session.newEntity("TestSuperclass")).field("id", 1);
+      session.newEntity("TestSuperclass").setProperty("id", 1);
 
-      ((EntityImpl) session.newEntity("TestSubclass")).field("id", 1);
+      session.newEntity("TestSubclass").setProperty("id", 1);
 
       // 2 SUB, 1 SUPER
 
@@ -78,7 +79,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
   public void testSaveInvalidRid() {
     session.begin();
     var doc = (EntityImpl) session.newEntity();
-    doc.field("test", new RecordId(-2, 10));
+    doc.setProperty("test", new RecordId(-2, 10));
     session.commit();
   }
 
@@ -162,7 +163,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
       var item = result.next().asEntity();
       EntityImpl meta = item.getProperty("meta");
       Assert.assertEquals("testDocFromJsonEmbedded_Class0", meta.getSchemaClassName());
-      Assert.assertEquals("0:0:0:0:0:0:0:1", meta.field("ip"));
+      Assert.assertEquals("0:0:0:0:0:0:0:1", meta.getProperty("ip"));
     }
     session.commit();
   }

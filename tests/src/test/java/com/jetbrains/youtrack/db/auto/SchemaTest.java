@@ -453,7 +453,8 @@ public class SchemaTest extends BaseDBTest {
 
       for (var i = 0; i < 6; ++i) {
         session.begin();
-        ((EntityImpl) session.newEntity("multipleclusters")).field("num", i);
+        EntityImpl entity = ((EntityImpl) session.newEntity("multipleclusters"));
+        entity.setProperty("num", i);
 
         session.commit();
       }
@@ -480,7 +481,8 @@ public class SchemaTest extends BaseDBTest {
 
       for (var i = 0; i < 2; ++i) {
         session.begin();
-        ((EntityImpl) session.newEntity("multipleclusters")).field("num", i);
+        EntityImpl entity = ((EntityImpl) session.newEntity("multipleclusters"));
+        entity.setProperty("num", i);
 
         session.commit();
       }
@@ -682,7 +684,7 @@ public class SchemaTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 1);
 
     var document = result.getFirst();
-    Assert.assertEquals(document.<Object>field("iteration"), i);
+    Assert.assertEquals(document.<Object>getProperty("iteration"), i);
     session.commit();
   }
 }

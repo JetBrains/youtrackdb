@@ -434,8 +434,8 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
     if (!updateEdge) {
       return;
     }
-    var currentOut = record.field("out");
-    var currentIn = record.field("in");
+    var currentOut = record.getProperty("out");
+    var currentIn = record.getProperty("in");
 
     var prevOut = record.getOriginalValue("out");
     var prevIn = record.getOriginalValue("in");
@@ -466,7 +466,7 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
       }
       var vertexFieldName = direction + "_" + edgeClassName;
       EntityImpl prevOutDoc = prevVertex.getRecord(db);
-      RidBag prevBag = prevOutDoc.field(vertexFieldName);
+      RidBag prevBag = prevOutDoc.getProperty(vertexFieldName);
 
       if (prevBag != null) {
         prevBag.remove(edge.getIdentity());
@@ -474,10 +474,10 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
       }
 
       EntityImpl currentVertexDoc = currentVertex.getRecord(db);
-      RidBag currentBag = currentVertexDoc.field(vertexFieldName);
+      RidBag currentBag = currentVertexDoc.getProperty(vertexFieldName);
       if (currentBag == null) {
         currentBag = new RidBag(db);
-        currentVertexDoc.field(vertexFieldName, currentBag);
+        currentVertexDoc.setProperty(vertexFieldName, currentBag);
       }
 
       currentBag.add(edge.getIdentity());
@@ -619,8 +619,8 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
         if (restricted.isSuperClassOf(
             result)) {
           for (var prop : restricted.properties()) {
-            fieldsToPreserve.field(prop.getName(),
-                record.field(prop.getName()));
+            final String iFieldName = prop.getName();
+            fieldsToPreserve.setProperty(iFieldName, record.getProperty(prop.getName()));
           }
         }
       }
@@ -631,15 +631,15 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
       }
       SchemaClass recordClass = result;
       if (recordClass != null && recordClass.isSubClassOf("V")) {
-        for (var fieldName : record.fieldNames()) {
+        for (var fieldName : record.propertyNames()) {
           if (fieldName.startsWith("in_") || fieldName.startsWith("out_")) {
-            fieldsToPreserve.field(fieldName, record.field(fieldName));
+            fieldsToPreserve.setProperty(fieldName, record.getProperty(fieldName));
           }
         }
       } else if (recordClass != null && recordClass.isSubClassOf("E")) {
-        for (var fieldName : record.fieldNames()) {
+        for (var fieldName : record.propertyNames()) {
           if (fieldName.equals("in") || fieldName.equals("out")) {
-            fieldsToPreserve.field(fieldName, record.field(fieldName));
+            fieldsToPreserve.setProperty(fieldName, record.getProperty(fieldName));
           }
         }
       }
@@ -676,7 +676,7 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
     // BIND VALUES TO INCREMENT
     if (!incrementEntries.isEmpty()) {
       for (var entry : incrementEntries) {
-        final Number prevValue = record.field(entry.getKey());
+        final Number prevValue = record.getProperty(entry.getKey());
 
         Number current;
         if (entry.getValue() instanceof SQLFilterItem) {
@@ -691,11 +691,12 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
         if (prevValue == null)
         // NO PREVIOUS VALUE: CONSIDER AS 0
         {
-          record.field(entry.getKey(), current);
+          record.setProperty(entry.getKey(), current);
         } else
         // COMPUTING INCREMENT
         {
-          record.field(entry.getKey(), PropertyType.increment(prevValue, current));
+          Object iPropertyValue = PropertyType.increment(prevValue, current);
+          record.setProperty(entry.getKey(), iPropertyValue);
         }
       }
       updated = true;
@@ -710,7 +711,7 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
     for (var entry : addEntries) {
       Collection coll = null;
       RidBag bag = null;
-      if (!record.containsField(entry.getKey())) {
+      if (!record.hasProperty(entry.getKey())) {
         // GET THE TYPE IF ANY
         var cls = record.getImmutableSchemaClass(session);
         if (cls != null) {
@@ -724,7 +725,7 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
             // there is no ridbag value already but property type is defined as LINKBAG
             bag = new RidBag(session);
             bag.setOwner(record);
-            record.field(entry.getKey(), bag);
+            record.setProperty(entry.getKey(), bag);
           }
         }
         if (coll == null && bag == null)
@@ -734,17 +735,17 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
         }
         if (coll != null) {
           // containField's condition above does NOT check subdocument's fields so
-          Collection<Object> currColl = record.field(entry.getKey());
+          Collection<Object> currColl = record.getProperty(entry.getKey());
           if (currColl == null) {
-            record.field(entry.getKey(), coll);
-            coll = record.field(entry.getKey());
+            record.setProperty(entry.getKey(), coll);
+            coll = record.getProperty(entry.getKey());
           } else {
             coll = currColl;
           }
         }
 
       } else {
-        fieldValue = record.field(entry.getKey());
+        fieldValue = record.getProperty(entry.getKey());
 
         if (fieldValue instanceof Collection<?>) {
           coll = (Collection<Object>) fieldValue;
@@ -782,7 +783,7 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
     if (!putEntries.isEmpty()) {
       // BIND VALUES TO PUT (AS MAP)
       for (var entry : putEntries) {
-        var fieldValue = record.field(entry.getKey());
+        var fieldValue = record.getProperty(entry.getKey());
 
         if (fieldValue == null) {
           SchemaImmutableClass result1 = null;
@@ -806,7 +807,8 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
             }
           }
           fieldValue = new HashMap<String, Object>();
-          record.field(entry.getKey(), fieldValue);
+          final String iFieldName = entry.getKey();
+          record.setProperty(iFieldName, fieldValue);
         }
 
         if (fieldValue instanceof Map<?, ?>) {
@@ -838,7 +840,8 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
           if (PropertyType.LINKMAP.equals(PropertyType.getTypeByValue(fieldValue))
               && !(value instanceof Identifiable)) {
             map = new TrackedMap(record, map, Object.class);
-            record.field(entry.getKey(), map, PropertyType.EMBEDDEDMAP);
+            String fieldName = entry.getKey();
+            record.setProperty(fieldName, map, PropertyType.EMBEDDEDMAP);
           }
           map.put(pair.getKey(), value);
           updated = true;
@@ -856,10 +859,10 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
         var value = extractValue(querySession, record, entry);
 
         if (value == EMPTY_VALUE) {
-          record.removeField(entry.getKey());
+          record.removeProperty(entry.getKey());
           updated = true;
         } else {
-          final var fieldValue = record.field(entry.getKey());
+          final var fieldValue = record.getProperty(entry.getKey());
 
           if (fieldValue instanceof Collection<?>) {
             updated = removeFromCollection(updated, value, (Collection<?>) fieldValue);

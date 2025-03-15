@@ -99,7 +99,7 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
             || SQLFilterItemFieldAny.FULL_NAME.equalsIgnoreCase(cfgField)) {
 
           // ADD ALL THE DOCUMENT FIELD
-          Collections.addAll(fields, targeEntity.fieldNames());
+          Collections.addAll(fields, targeEntity.propertyNames());
           break;
 
         } else {
@@ -178,7 +178,7 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
         context.setParent(command.getContext());
         fieldValue = ((SQLFilterItem) field).getValue(entity, null, context);
       } else {
-        fieldValue = entity.rawField(field.toString());
+        fieldValue = entity.getProperty(field.toString());
       }
 
       if (fieldValue != null) {

@@ -42,11 +42,11 @@ public class LuceneRangeTest extends BaseLuceneTest {
       session.begin();
       // from today back one day a time
       ((EntityImpl) session.newEntity("Person"))
-          .field("name", names.get(i))
-          .field("surname", "Reese")
+          .setPropertyInChain("name", names.get(i))
+          .setPropertyInChain("surname", "Reese")
           // from today back one day a time
-          .field("date", System.currentTimeMillis() - (i * 3600 * 24 * 1000))
-          .field("age", i);
+          .setPropertyInChain("date", System.currentTimeMillis() - (i * 3600 * 24 * 1000))
+          .setProperty("age", i);
       session.commit();
     }
   }

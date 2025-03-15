@@ -54,8 +54,8 @@ public class UpdateEdgePointersStep extends AbstractExecutionStep {
    * @param db
    */
   private static void handleUpdateEdge(EntityImpl record, DatabaseSessionInternal db) {
-    var currentOut = record.field("out");
-    var currentIn = record.field("in");
+    var currentOut = record.getProperty("out");
+    var currentIn = record.getProperty("in");
 
     var prevOut = record.getOriginalValue("out");
     var prevIn = record.getOriginalValue("in");

@@ -705,7 +705,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
         indexes.add(index.updateConfiguration(session));
       }
 
-      entity.field(CONFIG_INDEXES, indexes, PropertyType.EMBEDDEDSET);
+      entity.setProperty(CONFIG_INDEXES, indexes, PropertyType.EMBEDDEDSET);
       entity.setDirty();
 
       return entity;
@@ -779,7 +779,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
       final Map<String, Index> oldIndexes = new HashMap<>(indexes);
       clearMetadata(session);
 
-      final Collection<Map<String, ?>> indexEntities = entity.field(CONFIG_INDEXES);
+      final Collection<Map<String, ?>> indexEntities = entity.getProperty(CONFIG_INDEXES);
 
       if (indexEntities != null) {
         Index index;
@@ -842,7 +842,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
         }
 
         if (configUpdated) {
-          entity.field(CONFIG_INDEXES, indexEntities);
+          entity.setProperty(CONFIG_INDEXES, indexEntities);
           save(session);
         }
       }

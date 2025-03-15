@@ -28,7 +28,7 @@ public class LuceneNullTest extends LuceneBaseTest {
 
     session.begin();
     doc = session.bindToSession(doc);
-    doc.field("names", new String[]{"foo"});
+    doc.setProperty("names", new String[]{"foo"});
     session.commit();
 
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Test.names");
@@ -44,13 +44,13 @@ public class LuceneNullTest extends LuceneBaseTest {
     var doc = ((EntityImpl) session.newEntity("Test"));
 
     session.begin();
-    doc.field("names", new String[]{"foo"});
+    doc.setProperty("names", new String[]{"foo"});
     session.commit();
 
     session.begin();
 
     doc = session.bindToSession(doc);
-    doc.removeField("names");
+    doc.removeProperty("names");
 
     session.commit();
 

@@ -263,7 +263,9 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
             if (!(d instanceof Identifiable))
             // NON-DOCUMENT AS RESULT, COMES FROM EXPAND? CREATE A DOCUMENT AT THE FLY
             {
-              d = new EntityImpl(session).field("value", d);
+              var e = session.newEmbeddedEntity();
+              e.setProperty("value", d);
+              d = e;
             } else {
               d = ((Identifiable) d).getRecord(session);
             }

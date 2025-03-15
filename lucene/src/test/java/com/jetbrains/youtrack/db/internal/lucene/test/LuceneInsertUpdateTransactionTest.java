@@ -52,7 +52,7 @@ public class LuceneInsertUpdateTransactionTest extends BaseLuceneTest {
     Schema schema = session.getMetadata().getSchema();
     session.begin();
     var doc = ((EntityImpl) session.newEntity("City"));
-    doc.field("name", "Rome");
+    doc.setProperty("name", "Rome");
 
     var idx = session.getClassInternal("City").getClassIndex(session, "City.name");
     Assert.assertNotNull(idx);
@@ -70,7 +70,7 @@ public class LuceneInsertUpdateTransactionTest extends BaseLuceneTest {
     Assert.assertEquals(coll.size(), 0);
     session.begin();
     doc = ((EntityImpl) session.newEntity("City"));
-    doc.field("name", "Rome");
+    doc.setProperty("name", "Rome");
 
     var user = new SecurityUserImpl(session, "test", "test");
     user.save(session);

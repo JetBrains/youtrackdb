@@ -102,10 +102,10 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
       } else {
         value = deserializeValue(db, bytes, type, entity);
       }
-      if (entity.rawContainsField(fieldName)) {
+      if (entity.rawContainsProperty(fieldName)) {
         continue;
       }
-      entity.rawField(fieldName, value, type);
+      entity.setPropertyInternal(fieldName, value, type);
 
       for (var field : iFields) {
         if (field.equals(fieldName)) {
@@ -138,10 +138,10 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
       } else {
         value = deserializeValue(db, bytes, type, entity);
       }
-      if (entity.rawContainsField(fieldName)) {
+      if (entity.rawContainsProperty(fieldName)) {
         continue;
       }
-      entity.rawField(fieldName, value, type);
+      entity.setPropertyInternal(fieldName, value, type);
     }
 
     RecordInternal.clearSource(entity);
@@ -288,8 +288,8 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
       case EMBEDDED:
         value = new EmbeddedEntityImpl(session);
         deserialize(session, (EntityImpl) value, bytes);
-        if (((EntityImpl) value).containsField(EntitySerializable.CLASS_NAME)) {
-          String className = ((EntityImpl) value).field(EntitySerializable.CLASS_NAME);
+        if (((EntityImpl) value).hasProperty(EntitySerializable.CLASS_NAME)) {
+          String className = ((EntityImpl) value).getProperty(EntitySerializable.CLASS_NAME);
           try {
             var clazz = Class.forName(className);
             var newValue = (EntitySerializable) clazz.newInstance();
@@ -627,7 +627,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
       case EMBEDDED:
         if (value instanceof EntitySerializable) {
           var cur = ((EntitySerializable) value).toEntity(session);
-          cur.field(EntitySerializable.CLASS_NAME, value.getClass().getName());
+          cur.setProperty(EntitySerializable.CLASS_NAME, value.getClass().getName());
           serialize(session, cur, bytes);
         } else {
           serialize(session, (EntityImpl) value, bytes);

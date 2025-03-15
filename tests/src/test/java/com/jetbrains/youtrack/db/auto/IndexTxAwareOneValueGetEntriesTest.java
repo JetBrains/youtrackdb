@@ -56,9 +56,9 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
     session.begin();
     final var index = session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX);
 
-    ((EntityImpl) session.newEntity(CLASS_NAME)).field(PROPERTY_NAME, 1);
+    session.newEntity(CLASS_NAME).setProperty(PROPERTY_NAME, 1);
 
-    ((EntityImpl) session.newEntity(CLASS_NAME)).field(PROPERTY_NAME, 2);
+    session.newEntity(CLASS_NAME).setProperty(PROPERTY_NAME, 2);
 
     session.commit();
 
@@ -71,7 +71,7 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
 
     session.begin();
 
-    ((EntityImpl) session.newEntity(CLASS_NAME)).field(PROPERTY_NAME, 3);
+    session.newEntity(CLASS_NAME).setProperty(PROPERTY_NAME, 3);
 
     Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX));
     Set<Identifiable> resultTwo = new HashSet<>();
@@ -98,9 +98,10 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
     session.begin();
     final var index = session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX);
 
-    var document = ((EntityImpl) session.newEntity(CLASS_NAME)).field(PROPERTY_NAME, 1);
+    var document = ((EntityImpl) session.newEntity(CLASS_NAME)).setPropertyInChain(PROPERTY_NAME,
+        1);
 
-    ((EntityImpl) session.newEntity(CLASS_NAME)).field(PROPERTY_NAME, 2);
+    session.newEntity(CLASS_NAME).setProperty(PROPERTY_NAME, 2);
 
     session.commit();
 
@@ -140,9 +141,10 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
     session.begin();
     final var index = session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX);
 
-    var document = ((EntityImpl) session.newEntity(CLASS_NAME)).field(PROPERTY_NAME, 1);
+    var document = ((EntityImpl) session.newEntity(CLASS_NAME)).setPropertyInChain(PROPERTY_NAME,
+        1);
 
-    ((EntityImpl) session.newEntity(CLASS_NAME)).field(PROPERTY_NAME, 2);
+    session.newEntity(CLASS_NAME).setProperty(PROPERTY_NAME, 2);
 
     session.commit();
 
@@ -156,9 +158,9 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
     session.begin();
 
     document = session.bindToSession(document);
-    document.removeField(PROPERTY_NAME);
+    document.removeProperty(PROPERTY_NAME);
 
-    document.field(PROPERTY_NAME, 1);
+    document.setProperty(PROPERTY_NAME, 1);
 
     Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX));
     Set<Identifiable> resultTwo = new HashSet<>();
@@ -179,12 +181,13 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
 
     final var index = session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX);
 
-    var document = ((EntityImpl) session.newEntity(CLASS_NAME)).field(PROPERTY_NAME, 1);
+    var document = ((EntityImpl) session.newEntity(CLASS_NAME)).setPropertyInChain(PROPERTY_NAME,
+        1);
 
-    document.field(PROPERTY_NAME, 0);
-    document.field(PROPERTY_NAME, 1);
+    document.setProperty(PROPERTY_NAME, 0);
+    document.setProperty(PROPERTY_NAME, 1);
 
-    ((EntityImpl) session.newEntity(CLASS_NAME)).field(PROPERTY_NAME, 2);
+    session.newEntity(CLASS_NAME).setProperty(PROPERTY_NAME, 2);
 
     Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX));
     Set<Identifiable> result = new HashSet<>();
@@ -211,9 +214,9 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
 
     final var index = session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX);
 
-    ((EntityImpl) session.newEntity(CLASS_NAME)).field(PROPERTY_NAME, 1);
+    session.newEntity(CLASS_NAME).setProperty(PROPERTY_NAME, 1);
 
-    ((EntityImpl) session.newEntity(CLASS_NAME)).field(PROPERTY_NAME, 2);
+    session.newEntity(CLASS_NAME).setProperty(PROPERTY_NAME, 2);
 
     Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX));
     Set<Identifiable> result = new HashSet<>();
@@ -225,7 +228,7 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    ((EntityImpl) session.newEntity(CLASS_NAME)).field(PROPERTY_NAME, 3);
+    session.newEntity(CLASS_NAME).setProperty(PROPERTY_NAME, 3);
 
     session.commit();
 
@@ -244,9 +247,10 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
 
     final var index = session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX);
 
-    final var document = ((EntityImpl) session.newEntity(CLASS_NAME)).field(PROPERTY_NAME, 1);
+    final var document = ((EntityImpl) session.newEntity(CLASS_NAME)).setPropertyInChain(
+        PROPERTY_NAME, 1);
 
-    ((EntityImpl) session.newEntity(CLASS_NAME)).field(PROPERTY_NAME, 2);
+    session.newEntity(CLASS_NAME).setProperty(PROPERTY_NAME, 2);
 
     document.delete();
 
@@ -274,13 +278,14 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
 
     final var index = session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX);
 
-    var document = ((EntityImpl) session.newEntity(CLASS_NAME)).field(PROPERTY_NAME, 1);
+    var document = ((EntityImpl) session.newEntity(CLASS_NAME)).setPropertyInChain(PROPERTY_NAME,
+        1);
 
-    ((EntityImpl) session.newEntity(CLASS_NAME)).field(PROPERTY_NAME, 2);
+    session.newEntity(CLASS_NAME).setProperty(PROPERTY_NAME, 2);
 
-    document.removeField(PROPERTY_NAME);
+    document.removeProperty(PROPERTY_NAME);
 
-    document.field(PROPERTY_NAME, 1);
+    document.setProperty(PROPERTY_NAME, 1);
 
     Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX));
     Set<Identifiable> result = new HashSet<>();

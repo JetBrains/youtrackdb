@@ -82,7 +82,7 @@ public class LiveQueryTest extends BaseDBTest implements CommandOutputListener {
         session.query(new LiveQuery<EntityImpl>("live select from " + className1, listener));
     Assert.assertEquals(tokens.size(), 1);
     var tokenDoc = tokens.get(0);
-    int token = tokenDoc.field("token");
+    int token = tokenDoc.getProperty("token");
     Assert.assertNotNull(token);
 
     session.command("insert into " + className1 + " set name = 'foo', surname = 'bar'").close();
@@ -96,7 +96,7 @@ public class LiveQueryTest extends BaseDBTest implements CommandOutputListener {
     Assert.assertEquals(listener.ops.size(), 2);
     for (var doc : listener.ops) {
       Assert.assertEquals(doc.type, RecordOperation.CREATED);
-      Assert.assertEquals(((EntityImpl) doc.record).field("name"), "foo");
+      Assert.assertEquals(((EntityImpl) doc.record).getProperty("name"), "foo");
     }
     unLatch.await(1, TimeUnit.MINUTES);
     Assert.assertEquals(listener.unsubscribe, token);

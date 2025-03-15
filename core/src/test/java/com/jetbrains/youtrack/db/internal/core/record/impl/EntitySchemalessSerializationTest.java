@@ -1,5 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -14,9 +18,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.After;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
@@ -225,18 +226,18 @@ public class EntitySchemalessSerializationTest extends DbTestBase {
     var document = (EntityImpl) session.newEntity();
     var embedded = (EntityImpl) session.newEmbeddedEntity();
 
-    embedded.field("name", "test");
-    embedded.field("surname", "something");
-    document.field("embed", embedded, PropertyType.EMBEDDED);
+    embedded.setProperty("name", "test");
+    embedded.setProperty("surname", "something");
+    document.setProperty("embed", embedded, PropertyType.EMBEDDED);
 
     var res = serializer.toStream(session, document);
     var extr = (EntityImpl) serializer.fromStream(session, res, (EntityImpl) session.newEntity(),
         new String[]{});
-    assertEquals(document.fields(), extr.fields());
-    EntityImpl emb = extr.field("embed");
+    assertEquals(document.getPropertiesCount(), extr.getPropertiesCount());
+    EntityImpl emb = extr.getProperty("embed");
     assertNotNull(emb);
-    assertEquals(emb.<String>field("name"), embedded.field("name"));
-    assertEquals(emb.<String>field("surname"), embedded.field("surname"));
+    assertEquals(emb.<String>getProperty("name"), embedded.getProperty("name"));
+    assertEquals(emb.<String>getProperty("surname"), embedded.getProperty("surname"));
     session.rollback();
   }
 
@@ -246,8 +247,8 @@ public class EntitySchemalessSerializationTest extends DbTestBase {
     var entity = (EntityImpl) session.newEntity();
 
     var embeddedInMap = (EntityImpl) session.newEmbeddedEntity();
-    embeddedInMap.field("name", "test");
-    embeddedInMap.field("surname", "something");
+    embeddedInMap.setProperty("name", "test");
+    embeddedInMap.setProperty("surname", "something");
     Map<String, EntityImpl> map = entity.newEmbeddedMap("map");
     map.put("embedded", embeddedInMap);
 
@@ -258,8 +259,8 @@ public class EntitySchemalessSerializationTest extends DbTestBase {
     assertEquals(1, mapS.size());
     var emb = mapS.get("embedded");
     assertNotNull(emb);
-    assertEquals(emb.<String>getProperty("name"), embeddedInMap.field("name"));
-    assertEquals(emb.<String>getProperty("surname"), embeddedInMap.field("surname"));
+    assertEquals(emb.<String>getProperty("name"), embeddedInMap.getProperty("name"));
+    assertEquals(emb.<String>getProperty("surname"), embeddedInMap.getProperty("surname"));
     session.rollback();
   }
 
@@ -269,15 +270,15 @@ public class EntitySchemalessSerializationTest extends DbTestBase {
     var entity = (EntityImpl) session.newEntity();
 
     var embeddedInList = (EntityImpl) session.newEmbeddedEntity();
-    embeddedInList.field("name", "test");
-    embeddedInList.field("surname", "something");
+    embeddedInList.setProperty("name", "test");
+    embeddedInList.setProperty("surname", "something");
 
     List<EntityImpl> embeddedList = entity.newEmbeddedList("embeddedList");
     embeddedList.add(embeddedInList);
 
     var embeddedInSet = (EntityImpl) session.newEmbeddedEntity();
-    embeddedInSet.field("name", "test1");
-    embeddedInSet.field("surname", "something2");
+    embeddedInSet.setProperty("name", "test1");
+    embeddedInSet.setProperty("surname", "something2");
 
     Set<EntityImpl> embeddedSet = entity.newEmbeddedSet("embeddedSet");
     embeddedSet.add(embeddedInSet);
@@ -286,19 +287,19 @@ public class EntitySchemalessSerializationTest extends DbTestBase {
     var extr = (EntityImpl) serializer.fromStream(session, res, (EntityImpl) session.newEntity(),
         new String[]{});
 
-    List<Identifiable> ser = extr.field("embeddedList");
+    List<Identifiable> ser = extr.getProperty("embeddedList");
     assertEquals(1, ser.size());
     var inList = ser.getFirst().getEntity(session);
     assertNotNull(inList);
-    assertEquals(inList.<String>getProperty("name"), embeddedInList.field("name"));
-    assertEquals(inList.<String>getProperty("surname"), embeddedInList.field("surname"));
+    assertEquals(inList.<String>getProperty("name"), embeddedInList.getProperty("name"));
+    assertEquals(inList.<String>getProperty("surname"), embeddedInList.getProperty("surname"));
 
-    Set<Identifiable> setEmb = extr.field("embeddedSet");
+    Set<Identifiable> setEmb = extr.getProperty("embeddedSet");
     assertEquals(1, setEmb.size());
     var inSet = setEmb.iterator().next().getEntity(session);
     assertNotNull(inSet);
-    assertEquals(inSet.<String>getProperty("name"), embeddedInSet.field("name"));
-    assertEquals(inSet.<String>getProperty("surname"), embeddedInSet.field("surname"));
+    assertEquals(inSet.<String>getProperty("name"), embeddedInSet.getProperty("name"));
+    assertEquals(inSet.<String>getProperty("surname"), embeddedInSet.getProperty("surname"));
     session.rollback();
   }
 

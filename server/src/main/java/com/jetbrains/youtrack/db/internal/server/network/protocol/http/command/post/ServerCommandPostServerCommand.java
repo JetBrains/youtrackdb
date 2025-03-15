@@ -62,10 +62,10 @@ public class ServerCommandPostServerCommand extends ServerCommandAuthenticatedSe
         // JSON PAYLOAD
         final var entity = new EntityImpl(null);
         entity.updateFromJSON(iRequest.getContent());
-        text = entity.field("command");
-        params = entity.field("parameters");
+        text = entity.getProperty("command");
+        params = entity.getProperty("parameters");
 
-        if ("false".equalsIgnoreCase("" + entity.field("returnExecutionPlan"))) {
+        if ("false".equalsIgnoreCase("" + entity.getProperty("returnExecutionPlan"))) {
           returnExecutionPlan = false;
         }
 

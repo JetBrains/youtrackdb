@@ -1,14 +1,15 @@
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 /**
@@ -41,7 +42,7 @@ public class DocumentTrackingNestedCollectionsTest extends DbTestBase {
 
     session.begin();
     entity = session.load(orid);
-    objects = entity.field("objects");
+    objects = entity.getProperty("objects");
     subObjects = objects.iterator().next();
 
     assertFalse(subObjects.isEmpty());
@@ -54,7 +55,7 @@ public class DocumentTrackingNestedCollectionsTest extends DbTestBase {
     var document = (EntityImpl) session.newEntity();
     var objects = session.newEmbeddedSet();
 
-    document.field("objects", objects);
+    document.setProperty("objects", objects);
     var subObjects = session.newEmbeddedSet();
     objects.add(subObjects);
 
@@ -65,7 +66,7 @@ public class DocumentTrackingNestedCollectionsTest extends DbTestBase {
 
     session.begin();
     document = session.bindToSession(document);
-    objects = document.field("objects");
+    objects = document.getProperty("objects");
     subObjects = (Set) objects.iterator().next();
     subObjects.add("one");
 

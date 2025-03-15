@@ -308,9 +308,9 @@ public class StorageBackupMTStateTest {
       final var doc = ((EntityImpl) db.newEntity(className));
       docId = classCounter.getAndIncrement();
 
-      doc.field("id", docId);
-      doc.field("stringValue", "value");
-      doc.field("intValue", random.nextInt(1024));
+      doc.setProperty("id", docId);
+      doc.setProperty("stringValue", "value");
+      doc.setProperty("intValue", random.nextInt(1024));
 
       String linkedClassName;
       AtomicInteger linkedClassCounter = null;
@@ -349,7 +349,7 @@ public class StorageBackupMTStateTest {
         }
       }
 
-      doc.field("linkedDocuments", linkedDocuments);
+      doc.setProperty("linkedDocuments", linkedDocuments);
 
       if (docId % 10000 == 0) {
         System.out.println(docId + " documents of class " + className + " were inserted");

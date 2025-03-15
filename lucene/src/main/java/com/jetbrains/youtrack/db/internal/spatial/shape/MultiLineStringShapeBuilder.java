@@ -41,7 +41,7 @@ public class MultiLineStringShapeBuilder extends ComplexShapeBuilder<JtsGeometry
   @Override
   public JtsGeometry fromDoc(EntityImpl document) {
     validate(document);
-    List<List<List<Number>>> coordinates = document.field(COORDINATES);
+    List<List<List<Number>>> coordinates = document.getProperty(COORDINATES);
     var multiLine = new LineString[coordinates.size()];
     var j = 0;
     for (var coordinate : coordinates) {
@@ -76,7 +76,7 @@ public class MultiLineStringShapeBuilder extends ComplexShapeBuilder<JtsGeometry
       coordinates.add(coordinatesFromLineString(lineString));
     }
 
-    doc.field(COORDINATES, coordinates);
+    doc.setProperty(COORDINATES, coordinates);
     return doc;
   }
 
@@ -93,7 +93,7 @@ public class MultiLineStringShapeBuilder extends ComplexShapeBuilder<JtsGeometry
       coordinates.add(coordinatesFromLineStringZ(lineString));
     }
 
-    doc.field(COORDINATES, coordinates);
+    doc.setProperty(COORDINATES, coordinates);
     return doc;
   }
 

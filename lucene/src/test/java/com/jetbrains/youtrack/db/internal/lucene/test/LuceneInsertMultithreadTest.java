@@ -135,7 +135,7 @@ public class LuceneInsertMultithreadTest {
         for (var i = 0; i < cycle; i++) {
           var doc = ((EntityImpl) db.newEntity("City"));
 
-          doc.field("name", "Rome");
+          doc.setProperty("name", "Rome");
 
           db.begin();
           db.commit();

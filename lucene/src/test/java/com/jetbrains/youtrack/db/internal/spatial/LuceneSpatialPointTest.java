@@ -54,9 +54,9 @@ public class LuceneSpatialPointTest extends BaseSpatialLuceneTest {
     var london = newCity(session, "London", -0.1275, 51.507222);
 
     var rome1 = ((EntityImpl) session.newEntity("Place"));
-    rome1.field("name", "Rome");
-    rome1.field("latitude", 41.9);
-    rome1.field("longitude", 12.5);
+    rome1.setProperty("name", "Rome");
+    rome1.setProperty("latitude", 41.9);
+    rome1.setProperty("longitude", 12.5);
 
     session.begin();
     session.commit();
@@ -118,9 +118,7 @@ public class LuceneSpatialPointTest extends BaseSpatialLuceneTest {
   protected static EntityImpl newCity(DatabaseSession db, String name, final Double longitude,
       final Double latitude) {
     var location = ((EntityImpl) db.newEntity("OPoint"));
-    location.field(
-        "coordinates",
-        new ArrayList<Double>() {
+    location.setProperty("coordinates", new ArrayList<Double>() {
           {
             add(longitude);
             add(latitude);
@@ -128,8 +126,8 @@ public class LuceneSpatialPointTest extends BaseSpatialLuceneTest {
         });
 
     var city = ((EntityImpl) db.newEntity("City"));
-    city.field("name", name);
-    city.field("location", location);
+    city.setProperty("name", name);
+    city.setProperty("location", location);
     return city;
   }
 }

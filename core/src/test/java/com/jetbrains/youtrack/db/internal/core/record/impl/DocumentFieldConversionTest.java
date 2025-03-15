@@ -69,25 +69,25 @@ public class DocumentFieldConversionTest extends BaseMemoryInternalDatabase {
     var dateString = session.getStorage().getConfiguration().getDateTimeFormatInstance()
         .format(date);
     var doc = (EntityImpl) session.newEntity(clazz);
-    doc.field("date", dateString);
-    assertTrue(doc.field("date") instanceof Date);
-    assertEquals(date, doc.field("date"));
+    doc.setProperty("date", dateString);
+    assertTrue(doc.getProperty("date") instanceof Date);
+    assertEquals(date, doc.getProperty("date"));
 
-    doc.field("date", 20304);
-    assertTrue(doc.field("date") instanceof Date);
-    assertEquals(20304L, ((Date) doc.field("date")).getTime());
+    doc.setProperty("date", 20304);
+    assertTrue(doc.getProperty("date") instanceof Date);
+    assertEquals(20304L, ((Date) doc.getProperty("date")).getTime());
 
-    doc.field("date", 43432440f);
-    assertTrue(doc.field("date") instanceof Date);
-    assertEquals(43432440L, ((Date) doc.field("date")).getTime());
+    doc.setProperty("date", 43432440f);
+    assertTrue(doc.getProperty("date") instanceof Date);
+    assertEquals(43432440L, ((Date) doc.getProperty("date")).getTime());
 
-    doc.field("date", 43432444D);
-    assertTrue(doc.field("date") instanceof Date);
-    assertEquals(43432444L, ((Date) doc.field("date")).getTime());
+    doc.setProperty("date", 43432444D);
+    assertTrue(doc.getProperty("date") instanceof Date);
+    assertEquals(43432444L, ((Date) doc.getProperty("date")).getTime());
 
-    doc.field("date", 20304L);
-    assertTrue(doc.field("date") instanceof Date);
-    assertEquals(20304L, ((Date) doc.field("date")).getTime());
+    doc.setProperty("date", 20304L);
+    assertTrue(doc.getProperty("date") instanceof Date);
+    assertEquals(20304L, ((Date) doc.getProperty("date")).getTime());
     session.rollback();
   }
 
@@ -95,34 +95,34 @@ public class DocumentFieldConversionTest extends BaseMemoryInternalDatabase {
   public void testLiteralToSchemaConversionInteger() {
     session.begin();
     var doc = (EntityImpl) session.newEntity(clazz);
-    doc.field("integer", 2L);
-    assertTrue(doc.field("integer") instanceof Integer);
+    doc.setProperty("integer", 2L);
+    assertTrue(doc.getProperty("integer") instanceof Integer);
     //    assertEquals(2, doc.field("integer"));
 
-    assertThat(doc.<Integer>field("integer")).isEqualTo(2);
+    assertThat(doc.<Integer>getProperty("integer")).isEqualTo(2);
 
-    doc.field("integer", 3f);
-    assertTrue(doc.field("integer") instanceof Integer);
+    doc.setProperty("integer", 3f);
+    assertTrue(doc.getProperty("integer") instanceof Integer);
     //    assertEquals(3, doc.field("integer"));
 
-    assertThat(doc.<Integer>field("integer")).isEqualTo(3);
+    assertThat(doc.<Integer>getProperty("integer")).isEqualTo(3);
 
-    doc.field("integer", 4d);
-    assertTrue(doc.field("integer") instanceof Integer);
+    doc.setProperty("integer", 4d);
+    assertTrue(doc.getProperty("integer") instanceof Integer);
     //    assertEquals(4, doc.field("integer"));
 
-    assertThat(doc.<Integer>field("integer")).isEqualTo(4);
+    assertThat(doc.<Integer>getProperty("integer")).isEqualTo(4);
 
-    doc.field("integer", "5");
-    assertTrue(doc.field("integer") instanceof Integer);
+    doc.setProperty("integer", "5");
+    assertTrue(doc.getProperty("integer") instanceof Integer);
     //    assertEquals(5, doc.field("integer"));
-    assertThat(doc.<Integer>field("integer")).isEqualTo(5);
+    assertThat(doc.<Integer>getProperty("integer")).isEqualTo(5);
 
-    doc.field("integer", new BigDecimal("6"));
-    assertTrue(doc.field("integer") instanceof Integer);
+    doc.setProperty("integer", new BigDecimal("6"));
+    assertTrue(doc.getProperty("integer") instanceof Integer);
     //    assertEquals(6, doc.field("integer"));
 
-    assertThat(doc.<Integer>field("integer")).isEqualTo(6);
+    assertThat(doc.<Integer>getProperty("integer")).isEqualTo(6);
 
     session.rollback();
   }
@@ -132,29 +132,29 @@ public class DocumentFieldConversionTest extends BaseMemoryInternalDatabase {
     session.begin();
     var doc = (EntityImpl) session.newEntity(clazz);
 
-    doc.field("string", 1);
-    assertTrue(doc.field("string") instanceof String);
-    assertEquals("1", doc.field("string"));
+    doc.setProperty("string", 1);
+    assertTrue(doc.getProperty("string") instanceof String);
+    assertEquals("1", doc.getProperty("string"));
 
-    doc.field("string", 2L);
-    assertTrue(doc.field("string") instanceof String);
-    assertEquals("2", doc.field("string"));
+    doc.setProperty("string", 2L);
+    assertTrue(doc.getProperty("string") instanceof String);
+    assertEquals("2", doc.getProperty("string"));
 
-    doc.field("string", 3f);
-    assertTrue(doc.field("string") instanceof String);
-    assertEquals("3.0", doc.field("string"));
+    doc.setProperty("string", 3f);
+    assertTrue(doc.getProperty("string") instanceof String);
+    assertEquals("3.0", doc.getProperty("string"));
 
-    doc.field("string", 4d);
-    assertTrue(doc.field("string") instanceof String);
-    assertEquals("4.0", doc.field("string"));
+    doc.setProperty("string", 4d);
+    assertTrue(doc.getProperty("string") instanceof String);
+    assertEquals("4.0", doc.getProperty("string"));
 
-    doc.field("string", new BigDecimal("6"));
-    assertTrue(doc.field("string") instanceof String);
-    assertEquals("6", doc.field("string"));
+    doc.setProperty("string", new BigDecimal("6"));
+    assertTrue(doc.getProperty("string") instanceof String);
+    assertEquals("6", doc.getProperty("string"));
 
-    doc.field("string", true);
-    assertTrue(doc.field("string") instanceof String);
-    assertEquals("true", doc.field("string"));
+    doc.setProperty("string", true);
+    assertTrue(doc.getProperty("string") instanceof String);
+    assertEquals("true", doc.getProperty("string"));
     session.rollback();
   }
 
@@ -163,34 +163,34 @@ public class DocumentFieldConversionTest extends BaseMemoryInternalDatabase {
     session.begin();
     var doc = (EntityImpl) session.newEntity(clazz);
 
-    doc.field("float", 1);
-    assertTrue(doc.field("float") instanceof Float);
+    doc.setProperty("float", 1);
+    assertTrue(doc.getProperty("float") instanceof Float);
     //    assertEquals(1f, doc.field("float"));
 
-    assertThat(doc.<Float>field("float")).isEqualTo(1f);
+    assertThat(doc.<Float>getProperty("float")).isEqualTo(1f);
 
-    doc.field("float", 2L);
-    assertTrue(doc.field("float") instanceof Float);
+    doc.setProperty("float", 2L);
+    assertTrue(doc.getProperty("float") instanceof Float);
     //    assertEquals(2f, doc.field("float"));
 
-    assertThat(doc.<Float>field("float")).isEqualTo(2f);
+    assertThat(doc.<Float>getProperty("float")).isEqualTo(2f);
 
-    doc.field("float", "3");
-    assertTrue(doc.field("float") instanceof Float);
+    doc.setProperty("float", "3");
+    assertTrue(doc.getProperty("float") instanceof Float);
 
-    assertThat(doc.<Float>field("float")).isEqualTo(3f);
+    assertThat(doc.<Float>getProperty("float")).isEqualTo(3f);
 
-    doc.field("float", 4d);
-    assertTrue(doc.field("float") instanceof Float);
+    doc.setProperty("float", 4d);
+    assertTrue(doc.getProperty("float") instanceof Float);
     //    assertEquals(4f, doc.field("float"));
 
-    assertThat(doc.<Float>field("float")).isEqualTo(4f);
+    assertThat(doc.<Float>getProperty("float")).isEqualTo(4f);
 
-    doc.field("float", new BigDecimal("6"));
-    assertTrue(doc.field("float") instanceof Float);
+    doc.setProperty("float", new BigDecimal("6"));
+    assertTrue(doc.getProperty("float") instanceof Float);
     //    assertEquals(6f, doc.field("float"));
 
-    assertThat(doc.<Float>field("float")).isEqualTo(6f);
+    assertThat(doc.<Float>getProperty("float")).isEqualTo(6f);
 
     session.rollback();
   }
@@ -200,30 +200,30 @@ public class DocumentFieldConversionTest extends BaseMemoryInternalDatabase {
     session.begin();
     var doc = (EntityImpl) session.newEntity(clazz);
 
-    doc.field("double", 1);
-    assertTrue(doc.field("double") instanceof Double);
+    doc.setProperty("double", 1);
+    assertTrue(doc.getProperty("double") instanceof Double);
 
-    assertThat(doc.<Double>field("double")).isEqualTo(1d);
+    assertThat(doc.<Double>getProperty("double")).isEqualTo(1d);
 
-    doc.field("double", 2L);
-    assertTrue(doc.field("double") instanceof Double);
+    doc.setProperty("double", 2L);
+    assertTrue(doc.getProperty("double") instanceof Double);
 
-    assertThat(doc.<Double>field("double")).isEqualTo(2d);
+    assertThat(doc.<Double>getProperty("double")).isEqualTo(2d);
 
-    doc.field("double", "3");
-    assertTrue(doc.field("double") instanceof Double);
+    doc.setProperty("double", "3");
+    assertTrue(doc.getProperty("double") instanceof Double);
 
-    assertThat(doc.<Double>field("double")).isEqualTo(3d);
+    assertThat(doc.<Double>getProperty("double")).isEqualTo(3d);
 
-    doc.field("double", 4f);
-    assertTrue(doc.field("double") instanceof Double);
+    doc.setProperty("double", 4f);
+    assertTrue(doc.getProperty("double") instanceof Double);
 
-    assertThat(doc.<Double>field("double")).isEqualTo(4d);
+    assertThat(doc.<Double>getProperty("double")).isEqualTo(4d);
 
-    doc.field("double", new BigDecimal("6"));
-    assertTrue(doc.field("double") instanceof Double);
+    doc.setProperty("double", new BigDecimal("6"));
+    assertTrue(doc.getProperty("double") instanceof Double);
 
-    assertThat(doc.<Double>field("double")).isEqualTo(6d);
+    assertThat(doc.<Double>getProperty("double")).isEqualTo(6d);
 
     session.rollback();
   }
@@ -233,33 +233,33 @@ public class DocumentFieldConversionTest extends BaseMemoryInternalDatabase {
     session.begin();
     var doc = (EntityImpl) session.newEntity(clazz);
 
-    doc.field("long", 1);
-    assertTrue(doc.field("long") instanceof Long);
+    doc.setProperty("long", 1);
+    assertTrue(doc.getProperty("long") instanceof Long);
     //    assertEquals(1L, doc.field("long"));
 
-    assertThat(doc.<Long>field("long")).isEqualTo(1L);
+    assertThat(doc.<Long>getProperty("long")).isEqualTo(1L);
 
-    doc.field("long", 2f);
-    assertTrue(doc.field("long") instanceof Long);
+    doc.setProperty("long", 2f);
+    assertTrue(doc.getProperty("long") instanceof Long);
     //    assertEquals(2L, doc.field("long"));
 
-    assertThat(doc.<Long>field("long")).isEqualTo(2L);
+    assertThat(doc.<Long>getProperty("long")).isEqualTo(2L);
 
-    doc.field("long", "3");
-    assertTrue(doc.field("long") instanceof Long);
+    doc.setProperty("long", "3");
+    assertTrue(doc.getProperty("long") instanceof Long);
     //    assertEquals(3L, doc.field("long"));
 
-    assertThat(doc.<Long>field("long")).isEqualTo(3L);
+    assertThat(doc.<Long>getProperty("long")).isEqualTo(3L);
 
-    doc.field("long", 4d);
-    assertTrue(doc.field("long") instanceof Long);
+    doc.setProperty("long", 4d);
+    assertTrue(doc.getProperty("long") instanceof Long);
     //    assertEquals(4L, doc.field("long"));
 
-    assertThat(doc.<Long>field("long")).isEqualTo(4L);
+    assertThat(doc.<Long>getProperty("long")).isEqualTo(4L);
 
-    doc.field("long", new BigDecimal("6"));
-    assertTrue(doc.field("long") instanceof Long);
-    assertThat(doc.<Long>field("long")).isEqualTo(6L);
+    doc.setProperty("long", new BigDecimal("6"));
+    assertTrue(doc.getProperty("long") instanceof Long);
+    assertThat(doc.<Long>getProperty("long")).isEqualTo(6L);
 
     session.rollback();
   }
@@ -269,29 +269,29 @@ public class DocumentFieldConversionTest extends BaseMemoryInternalDatabase {
     session.begin();
     var doc = (EntityImpl) session.newEntity(clazz);
 
-    doc.field("boolean", 0);
-    assertTrue(doc.field("boolean") instanceof Boolean);
-    assertEquals(false, doc.field("boolean"));
+    doc.setProperty("boolean", 0);
+    assertTrue(doc.getProperty("boolean") instanceof Boolean);
+    assertEquals(false, doc.getProperty("boolean"));
 
-    doc.field("boolean", 1L);
-    assertTrue(doc.field("boolean") instanceof Boolean);
-    assertEquals(true, doc.field("boolean"));
+    doc.setProperty("boolean", 1L);
+    assertTrue(doc.getProperty("boolean") instanceof Boolean);
+    assertEquals(true, doc.getProperty("boolean"));
 
-    doc.field("boolean", 2f);
-    assertTrue(doc.field("boolean") instanceof Boolean);
-    assertEquals(true, doc.field("boolean"));
+    doc.setProperty("boolean", 2f);
+    assertTrue(doc.getProperty("boolean") instanceof Boolean);
+    assertEquals(true, doc.getProperty("boolean"));
 
-    doc.field("boolean", "true");
-    assertTrue(doc.field("boolean") instanceof Boolean);
-    assertEquals(true, doc.field("boolean"));
+    doc.setProperty("boolean", "true");
+    assertTrue(doc.getProperty("boolean") instanceof Boolean);
+    assertEquals(true, doc.getProperty("boolean"));
 
-    doc.field("boolean", 4d);
-    assertTrue(doc.field("boolean") instanceof Boolean);
-    assertEquals(true, doc.field("boolean"));
+    doc.setProperty("boolean", 4d);
+    assertTrue(doc.getProperty("boolean") instanceof Boolean);
+    assertEquals(true, doc.getProperty("boolean"));
 
-    doc.field("boolean", new BigDecimal("6"));
-    assertTrue(doc.field("boolean") instanceof Boolean);
-    assertEquals(true, doc.field("boolean"));
+    doc.setProperty("boolean", new BigDecimal("6"));
+    assertTrue(doc.getProperty("boolean") instanceof Boolean);
+    assertEquals(true, doc.getProperty("boolean"));
     session.rollback();
   }
 
@@ -300,29 +300,29 @@ public class DocumentFieldConversionTest extends BaseMemoryInternalDatabase {
     session.begin();
     var doc = (EntityImpl) session.newEntity(clazz);
 
-    doc.field("decimal", 0);
-    assertTrue(doc.field("decimal") instanceof BigDecimal);
-    assertEquals(BigDecimal.ZERO, doc.field("decimal"));
+    doc.setProperty("decimal", 0);
+    assertTrue(doc.getProperty("decimal") instanceof BigDecimal);
+    assertEquals(BigDecimal.ZERO, doc.getProperty("decimal"));
 
-    doc.field("decimal", 1L);
-    assertTrue(doc.field("decimal") instanceof BigDecimal);
-    assertEquals(BigDecimal.ONE, doc.field("decimal"));
+    doc.setProperty("decimal", 1L);
+    assertTrue(doc.getProperty("decimal") instanceof BigDecimal);
+    assertEquals(BigDecimal.ONE, doc.getProperty("decimal"));
 
-    doc.field("decimal", 2f);
-    assertTrue(doc.field("decimal") instanceof BigDecimal);
-    assertEquals(new BigDecimal("2.0"), doc.field("decimal"));
+    doc.setProperty("decimal", 2f);
+    assertTrue(doc.getProperty("decimal") instanceof BigDecimal);
+    assertEquals(new BigDecimal("2.0"), doc.getProperty("decimal"));
 
-    doc.field("decimal", "3");
-    assertTrue(doc.field("decimal") instanceof BigDecimal);
-    assertEquals(new BigDecimal("3"), doc.field("decimal"));
+    doc.setProperty("decimal", "3");
+    assertTrue(doc.getProperty("decimal") instanceof BigDecimal);
+    assertEquals(new BigDecimal("3"), doc.getProperty("decimal"));
 
-    doc.field("decimal", 4d);
-    assertTrue(doc.field("decimal") instanceof BigDecimal);
-    assertEquals(new BigDecimal("4.0"), doc.field("decimal"));
+    doc.setProperty("decimal", 4d);
+    assertTrue(doc.getProperty("decimal") instanceof BigDecimal);
+    assertEquals(new BigDecimal("4.0"), doc.getProperty("decimal"));
 
-    doc.field("boolean", new BigDecimal("6"));
-    assertTrue(doc.field("boolean") instanceof Boolean);
-    assertEquals(true, doc.field("boolean"));
+    doc.setProperty("boolean", new BigDecimal("6"));
+    assertTrue(doc.getProperty("boolean") instanceof Boolean);
+    assertEquals(true, doc.getProperty("boolean"));
     session.rollback();
   }
 
@@ -331,22 +331,22 @@ public class DocumentFieldConversionTest extends BaseMemoryInternalDatabase {
     session.begin();
     var doc = (EntityImpl) session.newEntity(clazz);
 
-    doc.field("float", 2, PropertyType.INTEGER);
-    assertTrue(doc.field("float") instanceof Float);
-    assertThat(doc.<Float>field("float")).isEqualTo(2f);
+    doc.setProperty("float", 2, PropertyType.INTEGER);
+    assertTrue(doc.getProperty("float") instanceof Float);
+    assertThat(doc.<Float>getProperty("float")).isEqualTo(2f);
 
-    doc.field("integer", 3f, PropertyType.FLOAT);
-    assertTrue(doc.field("integer") instanceof Integer);
-    assertThat(doc.<Integer>field("integer")).isEqualTo(3);
+    doc.setProperty("integer", 3f, PropertyType.FLOAT);
+    assertTrue(doc.getProperty("integer") instanceof Integer);
+    assertThat(doc.<Integer>getProperty("integer")).isEqualTo(3);
 
-    doc.field("double", 1L, PropertyType.LONG);
-    assertTrue(doc.field("double") instanceof Double);
-    assertThat(doc.<Double>field("double")).isEqualTo(1d);
+    doc.setProperty("double", 1L, PropertyType.LONG);
+    assertTrue(doc.getProperty("double") instanceof Double);
+    assertThat(doc.<Double>getProperty("double")).isEqualTo(1d);
 
-    doc.field("long", 1d, PropertyType.DOUBLE);
-    assertTrue(doc.field("long") instanceof Long);
+    doc.setProperty("long", 1d, PropertyType.DOUBLE);
+    assertTrue(doc.getProperty("long") instanceof Long);
 
-    assertThat(doc.<Long>field("long")).isEqualTo(1L);
+    assertThat(doc.<Long>getProperty("long")).isEqualTo(1L);
     session.rollback();
   }
 
@@ -355,42 +355,42 @@ public class DocumentFieldConversionTest extends BaseMemoryInternalDatabase {
     session.begin();
     var doc = (EntityImpl) session.newEntity();
 
-    doc.field("float", 1);
-    doc.field("integer", 3f);
-    doc.field("double", 2L);
-    doc.field("long", 2D);
-    doc.field("string", 25);
-    doc.field("boolean", "true");
-    doc.field("decimal", -1);
-    doc.field("date", 20304L);
+    doc.setProperty("float", 1);
+    doc.setProperty("integer", 3f);
+    doc.setProperty("double", 2L);
+    doc.setProperty("long", 2D);
+    doc.setProperty("string", 25);
+    doc.setProperty("boolean", "true");
+    doc.setProperty("decimal", -1);
+    doc.setProperty("date", 20304L);
 
     doc.setClass(clazz);
-    assertTrue(doc.field("float") instanceof Float);
+    assertTrue(doc.getProperty("float") instanceof Float);
     //    assertEquals(1f, doc.field("float"));
 
-    assertThat(doc.<Float>field("float")).isEqualTo(1f);
+    assertThat(doc.<Float>getProperty("float")).isEqualTo(1f);
 
-    assertTrue(doc.field("integer") instanceof Integer);
+    assertTrue(doc.getProperty("integer") instanceof Integer);
     //    assertEquals(3, doc.field("integer"));
 
-    assertThat(doc.<Integer>field("integer")).isEqualTo(3);
+    assertThat(doc.<Integer>getProperty("integer")).isEqualTo(3);
 
-    assertTrue(doc.field("long") instanceof Long);
+    assertTrue(doc.getProperty("long") instanceof Long);
     //    assertEquals(2L, doc.field("long"));
 
-    assertThat(doc.<Long>field("long")).isEqualTo(2L);
+    assertThat(doc.<Long>getProperty("long")).isEqualTo(2L);
 
-    assertTrue(doc.field("string") instanceof String);
-    assertEquals("25", doc.field("string"));
+    assertTrue(doc.getProperty("string") instanceof String);
+    assertEquals("25", doc.getProperty("string"));
 
-    assertTrue(doc.field("boolean") instanceof Boolean);
-    assertEquals(true, doc.field("boolean"));
+    assertTrue(doc.getProperty("boolean") instanceof Boolean);
+    assertEquals(true, doc.getProperty("boolean"));
 
-    assertTrue(doc.field("decimal") instanceof BigDecimal);
-    assertEquals(new BigDecimal(-1), doc.field("decimal"));
+    assertTrue(doc.getProperty("decimal") instanceof BigDecimal);
+    assertEquals(new BigDecimal(-1), doc.getProperty("decimal"));
 
-    assertTrue(doc.field("date") instanceof Date);
-    assertEquals(20304L, ((Date) doc.field("date")).getTime());
+    assertTrue(doc.getProperty("date") instanceof Date);
+    assertEquals(20304L, ((Date) doc.getProperty("date")).getTime());
     session.rollback();
   }
 }

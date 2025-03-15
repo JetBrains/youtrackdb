@@ -79,7 +79,7 @@ public class ServerCommandGetListDatabases extends ServerCommandAuthenticatedSer
           }
         });
 
-    result.field("databases", orderedStorages);
+    result.setProperty("databases", orderedStorages);
     iResponse.writeRecord(result);
 
     return false;

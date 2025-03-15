@@ -64,7 +64,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
         () -> {
           for (var i = 0; i < nodes; i++) {
             var doc = (EntityImpl) session.newEntity("IndexedVertex");
-            doc.field("uid", i);
+            doc.setProperty("uid", i);
 
           }
         });
@@ -291,7 +291,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
       Entity personId = session.load(item.getProperty("person"));
 
       EntityImpl person = personId.getRecord(session);
-      String name = person.field("name");
+      String name = person.getProperty("name");
       Assert.assertTrue(name.equals("n1") || name.equals("n2"));
     }
     qResult.close();
@@ -922,15 +922,23 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     // the manager of a person is the manager of the department that person belongs to.
     // if that department does not have a direct manager, climb up the hierarchy until you find one
     session.begin();
-    Assert.assertEquals("c", getManager("p10").field("name"));
-    Assert.assertEquals("c", getManager("p12").field("name"));
-    Assert.assertEquals("b", getManager("p6").field("name"));
-    Assert.assertEquals("b", getManager("p11").field("name"));
+    EntityImpl entity7 = getManager("p10");
+    Assert.assertEquals("c", entity7.getProperty("name"));
+    EntityImpl entity6 = getManager("p12");
+    Assert.assertEquals("c", entity6.getProperty("name"));
+    EntityImpl entity5 = getManager("p6");
+    Assert.assertEquals("b", entity5.getProperty("name"));
+    EntityImpl entity4 = getManager("p11");
+    Assert.assertEquals("b", entity4.getProperty("name"));
 
-    Assert.assertEquals("c", getManagerArrows("p10").field("name"));
-    Assert.assertEquals("c", getManagerArrows("p12").field("name"));
-    Assert.assertEquals("b", getManagerArrows("p6").field("name"));
-    Assert.assertEquals("b", getManagerArrows("p11").field("name"));
+    EntityImpl entity3 = getManagerArrows("p10");
+    Assert.assertEquals("c", entity3.getProperty("name"));
+    EntityImpl entity2 = getManagerArrows("p12");
+    Assert.assertEquals("c", entity2.getProperty("name"));
+    EntityImpl entity1 = getManagerArrows("p6");
+    Assert.assertEquals("b", entity1.getProperty("name"));
+    EntityImpl entity = getManagerArrows("p11");
+    Assert.assertEquals("b", entity.getProperty("name"));
     session.commit();
   }
 

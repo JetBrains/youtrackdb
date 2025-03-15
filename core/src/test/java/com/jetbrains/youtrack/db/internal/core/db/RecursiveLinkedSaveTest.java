@@ -17,17 +17,17 @@ public class RecursiveLinkedSaveTest extends DbTestBase {
     session.begin();
     var doc = (EntityImpl) session.newEntity("Test");
     var doc1 = (EntityImpl) session.newEntity("Test");
-    doc.field("link", doc1);
+    doc.setProperty("link", doc1);
     var doc2 = (EntityImpl) session.newEntity("Test");
-    doc1.field("link", doc2);
-    doc2.field("link", doc);
+    doc1.setProperty("link", doc2);
+    doc2.setProperty("link", doc);
     session.commit();
     session.begin();
     assertEquals(3, session.countClass("Test"));
     doc = session.load(doc.getIdentity());
-    doc1 = doc.field("link");
-    doc2 = doc1.field("link");
-    assertEquals(doc, doc2.field("link"));
+    doc1 = doc.getProperty("link");
+    doc2 = doc1.getProperty("link");
+    assertEquals(doc, doc2.getProperty("link"));
     session.commit();
   }
 }

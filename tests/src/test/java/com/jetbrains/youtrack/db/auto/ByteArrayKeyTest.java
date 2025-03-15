@@ -52,7 +52,7 @@ public class ByteArrayKeyTest extends BaseDBTest {
 
     session.begin();
     var doc1 = ((EntityImpl) session.newEntity("ByteArrayKeyTest"));
-    doc1.field("byteArrayKey", key1);
+    doc1.setProperty("byteArrayKey", key1);
 
     var key2 =
         new byte[]{
@@ -61,7 +61,7 @@ public class ByteArrayKeyTest extends BaseDBTest {
             0, 2
         };
     var doc2 = ((EntityImpl) session.newEntity("ByteArrayKeyTest"));
-    doc2.field("byteArrayKey", key2);
+    doc2.setProperty("byteArrayKey", key2);
 
     session.commit();
 
@@ -83,12 +83,12 @@ public class ByteArrayKeyTest extends BaseDBTest {
 
     session.begin();
     var doc1 = ((EntityImpl) session.newEntity("CompositeByteArrayKeyTest"));
-    doc1.field("byteArrayKey", key1);
-    doc1.field("intKey", 1);
+    doc1.setProperty("byteArrayKey", key1);
+    doc1.setProperty("intKey", 1);
 
     var doc2 = ((EntityImpl) session.newEntity("CompositeByteArrayKeyTest"));
-    doc2.field("byteArrayKey", key2);
-    doc2.field("intKey", 2);
+    doc2.setProperty("byteArrayKey", key2);
+    doc2.setProperty("intKey", 2);
 
     session.commit();
 
@@ -113,12 +113,12 @@ public class ByteArrayKeyTest extends BaseDBTest {
 
     session.begin();
     var doc1 = ((EntityImpl) session.newEntity("CompositeByteArrayKeyTest"));
-    doc1.field("byteArrayKey", key1);
-    doc1.field("intKey", 1);
+    doc1.setProperty("byteArrayKey", key1);
+    doc1.setProperty("intKey", 1);
 
     var doc2 = ((EntityImpl) session.newEntity("CompositeByteArrayKeyTest"));
-    doc2.field("byteArrayKey", key2);
-    doc2.field("intKey", 2);
+    doc2.setProperty("byteArrayKey", key2);
+    doc2.setProperty("intKey", 2);
 
     session.commit();
 

@@ -57,8 +57,8 @@ public class LuceneSpatialFunctionAsTextTest extends BaseSpatialLuceneTest {
 
   protected void createLocation(String name, EntityImpl geometry) {
     var doc = ((EntityImpl) session.newEntity("Location"));
-    doc.field("name", name);
-    doc.field("geometry", geometry);
+    doc.setProperty("name", name);
+    doc.setProperty("geometry", geometry);
 
     session.begin();
     session.commit();

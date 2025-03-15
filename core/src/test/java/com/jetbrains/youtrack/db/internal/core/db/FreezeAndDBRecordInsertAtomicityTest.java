@@ -100,8 +100,10 @@ public class FreezeAndDBRecordInsertAtomicityTest extends DbTestBase {
                         var val = i1;
                         session.executeInTx(
                             () ->
-                                session.newInstance("Person")
-                                    .field("name", "name-" + thread + "-" + val));
+                            {
+                              session.newInstance("Person")
+                                  .setProperty("name", "name-" + thread + "-" + val);
+                            });
                         break;
 
                       case 1:
@@ -112,7 +114,7 @@ public class FreezeAndDBRecordInsertAtomicityTest extends DbTestBase {
                           while (entityIterator.hasNext()) {
                             var entity = entityIterator.next();
                             try (var rids =
-                                index.getRids(session, entity.field("name"))) {
+                                index.getRids(session, entity.getProperty("name"))) {
                               assertEquals(entity.getIdentity(), rids.findFirst().orElse(null));
                             }
                           }

@@ -124,7 +124,7 @@ public class ClassIndexManager {
             if (dirtyFields.contains(field)) {
               origValues.add(iRecord.getOriginalValue(field));
             } else {
-              origValues.add(iRecord.field(field));
+              origValues.add(iRecord.getProperty(field));
             }
           }
         }
@@ -183,7 +183,7 @@ public class ClassIndexManager {
                 addPut(session, index, keyToAdd, iRecord.getIdentity());
               }
             } else {
-              @SuppressWarnings("rawtypes") final TrackedMultiValue fieldValue = iRecord.field(
+              @SuppressWarnings("rawtypes") final TrackedMultiValue fieldValue = iRecord.getProperty(
                   multiValueField);
               @SuppressWarnings("unchecked") final var restoredMultiValue =
                   fieldValue.returnOriginalState(session,
@@ -307,7 +307,7 @@ public class ClassIndexManager {
             if (dirtyFields.contains(field)) {
               origValues.add(iRecord.getOriginalValue(field));
             } else {
-              origValues.add(iRecord.field(field));
+              origValues.add(iRecord.getProperty(field));
             }
           }
         }
@@ -316,7 +316,7 @@ public class ClassIndexManager {
           final MultiValueChangeTimeLine<?, ?> multiValueChangeTimeLine =
               iRecord.getCollectionTimeLine(multiValueField);
           if (multiValueChangeTimeLine != null) {
-            @SuppressWarnings("rawtypes") final TrackedMultiValue fieldValue = iRecord.field(
+            @SuppressWarnings("rawtypes") final TrackedMultiValue fieldValue = iRecord.getProperty(
                 multiValueField);
             @SuppressWarnings("unchecked") final var restoredMultiValue =
                 fieldValue.returnOriginalState(session,
@@ -328,7 +328,8 @@ public class ClassIndexManager {
                 iRecord.getOriginalValue(multiValueField));
           } else {
             origValues.add(
-                indexDefinition.getMultiValueDefinitionIndex(), iRecord.field(multiValueField));
+                indexDefinition.getMultiValueDefinitionIndex(),
+                iRecord.getProperty(multiValueField));
           }
         }
 
@@ -375,7 +376,7 @@ public class ClassIndexManager {
 
       final Object origValue;
       if (multiValueChangeTimeLine != null) {
-        final TrackedMultiValue fieldValue = iRecord.field(indexField);
+        final TrackedMultiValue fieldValue = iRecord.getProperty(indexField);
         final var restoredMultiValue =
             fieldValue.returnOriginalState(session,
                 multiValueChangeTimeLine.getMultiValueChangeEvents());

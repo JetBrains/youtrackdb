@@ -261,7 +261,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
     try {
       EntityImpl lastDoc = ((Identifiable) object).getRecord(session);
       for (var i = 0; i < chain.getItemCount() - 1; i++) {
-        var nextDoc = lastDoc.field(chain.getItemName(i));
+        var nextDoc = lastDoc.getProperty(chain.getItemName(i));
         if (!(nextDoc instanceof Identifiable)) {
           return null;
         }

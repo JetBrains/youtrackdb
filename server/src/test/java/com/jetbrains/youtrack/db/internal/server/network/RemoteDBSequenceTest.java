@@ -32,9 +32,9 @@ public class RemoteDBSequenceTest extends BaseServerMemoryDatabase {
 
     database.begin();
     var doc = ((EntityImpl) db.newEntity("CV1"));
-    doc.field("testID", 1);
+    doc.setProperty("testID", 1);
     var doc1 = ((EntityImpl) db.newEntity("CV1"));
-    doc1.field("testID", 1);
-    assertNotEquals(doc1.field("uniqueID"), doc.field("uniqueID"));
+    doc1.setProperty("testID", 1);
+    assertNotEquals(doc1.getProperty("uniqueID"), doc.getProperty("uniqueID"));
   }
 }

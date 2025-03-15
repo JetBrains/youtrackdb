@@ -44,7 +44,7 @@ public class LuceneTransactionQueryTest extends BaseLuceneTest {
   public void testRollback() {
 
     var doc = ((EntityImpl) session.newEntity("c1"));
-    doc.field("p1", "abc");
+    doc.setProperty("p1", "abc");
     session.begin();
 
     var vertices = session.query("select from C1 where p1 lucene \"abc\" ");
@@ -61,7 +61,7 @@ public class LuceneTransactionQueryTest extends BaseLuceneTest {
     session.begin();
 
     var doc = ((EntityImpl) session.newEntity("c1"));
-    doc.field("p1", "abc");
+    doc.setProperty("p1", "abc");
 
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "C1.p1");
 
@@ -81,7 +81,7 @@ public class LuceneTransactionQueryTest extends BaseLuceneTest {
     Assert.assertEquals(1, index.size(session));
 
     doc = ((EntityImpl) session.newEntity("c1"));
-    doc.field("p1", "abc");
+    doc.setProperty("p1", "abc");
 
     session.delete(result.asRecord());
 
@@ -124,7 +124,7 @@ public class LuceneTransactionQueryTest extends BaseLuceneTest {
     Assert.assertEquals(0, index.size(session));
 
     var doc = ((EntityImpl) session.newEntity("c1"));
-    doc.field("p1", "update");
+    doc.setProperty("p1", "update");
 
     var vertices = session.query("select from C1 where p1 lucene \"update\" ");
 
@@ -197,17 +197,17 @@ public class LuceneTransactionQueryTest extends BaseLuceneTest {
     Assert.assertEquals(0, index.size(session));
 
     var doc = ((EntityImpl) session.newEntity("c1"));
-    doc.field("p1", "abc");
+    doc.setProperty("p1", "abc");
 
     var doc1 = ((EntityImpl) session.newEntity("c1"));
-    doc1.field("p1", "abc");
+    doc1.setProperty("p1", "abc");
 
     session.commit();
 
     session.begin();
 
     doc = session.bindToSession(doc);
-    doc.field("p1", "removed");
+    doc.setProperty("p1", "removed");
 
     var vertices = session.query("select from C1 where p1 lucene \"abc\"");
     Collection coll;

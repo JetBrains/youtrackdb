@@ -141,9 +141,9 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
     entries.put("text2", "Hello Bolzano how are you today?");
 
     final var doc = ((EntityImpl) session.newEntity(SONG_CLASS));
-    doc.field("description", "Capital", PropertyType.STRING);
-    doc.field("String" + PropertyType.EMBEDDEDMAP.getName(), entries, PropertyType.EMBEDDEDMAP,
-        PropertyType.STRING);
+    doc.setProperty("description", "Capital", PropertyType.STRING);
+    String fieldName = "String" + PropertyType.EMBEDDEDMAP.getName();
+    doc.setProperty(fieldName, entries, PropertyType.EMBEDDEDMAP, PropertyType.STRING);
     session.begin();
     session.commit();
   }

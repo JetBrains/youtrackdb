@@ -192,7 +192,7 @@ public class DbListenerTest extends BaseDBTest {
     var rec =
         session
             .newInstance()
-            .field("name", "Jay");
+            .setPropertyInChain("name", "Jay");
 
     session.commit();
 
@@ -200,7 +200,7 @@ public class DbListenerTest extends BaseDBTest {
 
     session.begin();
     rec = session.bindToSession(rec);
-    rec.field("surname", "Miner");
+    rec.setProperty("surname", "Miner");
 
     session.commit();
 

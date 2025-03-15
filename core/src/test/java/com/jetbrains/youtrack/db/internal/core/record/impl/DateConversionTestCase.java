@@ -54,18 +54,18 @@ public class DateConversionTestCase extends DbTestBase {
 
     session.begin();
     var document = (EntityImpl) session.newEntity();
-    document.field("date", dateToInsert, PropertyType.DATE);
+    document.setProperty("date", dateToInsert, PropertyType.DATE);
     var res = serializer.toStream(session, document);
     var extr = (EntityImpl) serializer.fromStream(session, res, (EntityImpl) session.newEntity(),
         new String[]{});
-    final var fields = extr.fieldNames();
+    final var fields = extr.propertyNames();
 
     assertNotNull(fields);
     assertEquals(1, fields.length);
     assertEquals("date", fields[0]);
 
-    Date old = document.field("date");
-    Date newDate = extr.field("date");
+    Date old = document.getProperty("date");
+    Date newDate = extr.getProperty("date");
     var cal = Calendar.getInstance();
     cal.setTime(old);
     var cal1 = Calendar.getInstance();

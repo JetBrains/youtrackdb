@@ -139,7 +139,7 @@ public class CheckIndexTool extends DatabaseTool {
     var vals = new Object[fields.size()];
     RID entityId = entity.getIdentity();
     for (var i = 0; i < vals.length; i++) {
-      vals[i] = entity.field(fields.get(i));
+      vals[i] = entity.getProperty(fields.get(i));
     }
 
     var indexKey = index.getDefinition().createValue(session, vals);

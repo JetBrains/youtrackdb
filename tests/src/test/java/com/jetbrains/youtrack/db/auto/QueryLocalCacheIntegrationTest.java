@@ -53,46 +53,46 @@ public class QueryLocalCacheIntegrationTest extends BaseDBTest {
     session.begin();
     var singleLinked = ((EntityImpl) session.newEntity());
     var doc = ((EntityImpl) session.newEntity("FetchClass"));
-    doc.field("name", "first");
+    doc.setProperty("name", "first");
     var doc1 = ((EntityImpl) session.newEntity("FetchClass"));
-    doc1.field("name", "second");
-    doc1.field("linked", singleLinked);
+    doc1.setProperty("name", "second");
+    doc1.setProperty("linked", singleLinked);
     var doc2 = ((EntityImpl) session.newEntity("FetchClass"));
-    doc2.field("name", "third");
+    doc2.setProperty("name", "third");
     List<EntityImpl> linkList = new ArrayList<>();
     linkList.add(doc);
     linkList.add(doc1);
-    doc2.field("linkList", linkList);
-    doc2.field("linked", singleLinked);
+    doc2.setProperty("linkList", linkList);
+    doc2.setProperty("linked", singleLinked);
     Set<EntityImpl> linkSet = new HashSet<>();
     linkSet.add(doc);
     linkSet.add(doc1);
-    doc2.field("linkSet", linkSet);
+    doc2.setProperty("linkSet", linkSet);
 
     var doc3 = ((EntityImpl) session.newEntity("FetchClass"));
-    doc3.field("name", "forth");
-    doc3.field("ref", doc2);
-    doc3.field("linkSet", linkSet);
-    doc3.field("linkList", linkList);
+    doc3.setProperty("name", "forth");
+    doc3.setProperty("ref", doc2);
+    doc3.setProperty("linkSet", linkSet);
+    doc3.setProperty("linkList", linkList);
 
     var doc4 = ((EntityImpl) session.newEntity("SecondFetchClass"));
-    doc4.field("name", "fifth");
-    doc4.field("surname", "test");
+    doc4.setProperty("name", "fifth");
+    doc4.setProperty("surname", "test");
 
     var doc5 = ((EntityImpl) session.newEntity("SecondFetchClass"));
-    doc5.field("name", "sixth");
-    doc5.field("surname", "test");
+    doc5.setProperty("name", "sixth");
+    doc5.setProperty("surname", "test");
 
     var doc6 = ((EntityImpl) session.newEntity("OutInFetchClass"));
     var out = new RidBag(session);
     out.add(doc2.getIdentity());
     out.add(doc3.getIdentity());
-    doc6.field("out_friend", out);
+    doc6.setProperty("out_friend", out);
     var in = new RidBag(session);
     in.add(doc4.getIdentity());
     in.add(doc5.getIdentity());
-    doc6.field("in_friend", in);
-    doc6.field("name", "myName");
+    doc6.setProperty("in_friend", in);
+    doc6.setProperty("name", "myName");
 
     session.commit();
   }

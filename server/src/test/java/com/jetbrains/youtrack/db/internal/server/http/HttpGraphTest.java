@@ -108,9 +108,13 @@ public class HttpGraphTest extends BaseHttpDatabaseTest {
     Assert.assertEquals(200, response.getCode());
 
     final var payload =
-        new EntityImpl(null).field("command", "select from E").field("mode", "graph").toJSON();
+        new EntityImpl(null);
+    payload.setProperty("command", "select from E");
+    payload.setProperty("mode", "graph");
+    var json = payload.toJSON();
+
     response =
-        post("command/" + getDatabaseName() + "/sql/").payload(payload, CONTENT.JSON).getResponse();
+        post("command/" + getDatabaseName() + "/sql/").payload(json, CONTENT.JSON).getResponse();
 
     var objectMapper = new ObjectMapper();
     var result = objectMapper.readTree(response.getEntity().getContent());

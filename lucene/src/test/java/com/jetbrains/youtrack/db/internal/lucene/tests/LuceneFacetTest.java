@@ -46,20 +46,20 @@ public class LuceneFacetTest extends LuceneBaseTest {
         .close();
 
     var doc = ((EntityImpl) session.newEntity("Item"));
-    doc.field("name", "Pioneer");
-    doc.field("category", "Electronic/HiFi");
+    doc.setProperty("name", "Pioneer");
+    doc.setProperty("category", "Electronic/HiFi");
 
     doc = ((EntityImpl) session.newEntity("Item"));
-    doc.field("name", "Hitachi");
-    doc.field("category", "Electronic/HiFi");
+    doc.setProperty("name", "Hitachi");
+    doc.setProperty("category", "Electronic/HiFi");
 
     doc = ((EntityImpl) session.newEntity("Item"));
-    doc.field("name", "Philips");
-    doc.field("category", "Electronic/HiFi");
+    doc.setProperty("name", "Philips");
+    doc.setProperty("category", "Electronic/HiFi");
 
     doc = ((EntityImpl) session.newEntity("Item"));
-    doc.field("name", "HP");
-    doc.field("category", "Electronic/Computer");
+    doc.setProperty("name", "HP");
+    doc.setProperty("category", "Electronic/Computer");
 
     session.commit();
   }
@@ -79,18 +79,18 @@ public class LuceneFacetTest extends LuceneBaseTest {
     Assert.assertEquals(1, facets.size());
 
     var facet = facets.getFirst();
-    Assert.assertEquals(1, facet.<Object>field("childCount"));
-    Assert.assertEquals(2, facet.<Object>field("value"));
-    Assert.assertEquals("category", facet.field("dim"));
+    Assert.assertEquals(1, facet.<Object>getProperty("childCount"));
+    Assert.assertEquals(2, facet.<Object>getProperty("value"));
+    Assert.assertEquals("category", facet.getProperty("dim"));
 
-    List<EntityImpl> labelsValues = facet.field("labelsValue");
+    List<EntityImpl> labelsValues = facet.getProperty("labelsValue");
 
     Assert.assertEquals(1, labelsValues.size());
 
     var labelValues = labelsValues.getFirst();
 
-    Assert.assertEquals(2, labelValues.<Object>field("value"));
-    Assert.assertEquals("Electronic", labelValues.field("label"));
+    Assert.assertEquals(2, labelValues.<Object>getProperty("value"));
+    Assert.assertEquals("Electronic", labelValues.getProperty("label"));
 
     resultSet =
         session
@@ -106,22 +106,22 @@ public class LuceneFacetTest extends LuceneBaseTest {
 
     facet = facets.getFirst();
 
-    Assert.assertEquals(2, facet.<Object>field("childCount"));
-    Assert.assertEquals(2, facet.<Object>field("value"));
-    Assert.assertEquals("category", facet.field("dim"));
+    Assert.assertEquals(2, facet.<Object>getProperty("childCount"));
+    Assert.assertEquals(2, facet.<Object>getProperty("value"));
+    Assert.assertEquals("category", facet.getProperty("dim"));
 
-    labelsValues = facet.field("labelsValue");
+    labelsValues = facet.getProperty("labelsValue");
 
     Assert.assertEquals(2, labelsValues.size());
 
     labelValues = labelsValues.getFirst();
 
-    Assert.assertEquals(1, labelValues.<Object>field("value"));
-    Assert.assertEquals("HiFi", labelValues.field("label"));
+    Assert.assertEquals(1, labelValues.<Object>getProperty("value"));
+    Assert.assertEquals("HiFi", labelValues.getProperty("label"));
 
     labelValues = labelsValues.get(1);
 
-    Assert.assertEquals(1, labelValues.<Object>field("value"));
-    Assert.assertEquals("Computer", labelValues.field("label"));
+    Assert.assertEquals(1, labelValues.<Object>getProperty("value"));
+    Assert.assertEquals("Computer", labelValues.getProperty("label"));
   }
 }

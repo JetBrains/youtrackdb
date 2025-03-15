@@ -47,12 +47,12 @@ public class RestricetedUserCleanUpTest extends DbTestBase {
 
     session.begin();
     doc = session.load(rid.getIdentity());
-    Assert.assertEquals(2, ((Set<?>) doc.field(SecurityShared.ALLOW_ALL_FIELD)).size());
-    Assert.assertEquals(2, ((Set<?>) doc.field(SecurityShared.ALLOW_UPDATE_FIELD)).size());
-    Assert.assertEquals(2, ((Set<?>) doc.field(SecurityShared.ALLOW_DELETE_FIELD)).size());
-    Assert.assertEquals(2, ((Set<?>) doc.field(SecurityShared.ALLOW_ALL_FIELD)).size());
+    Assert.assertEquals(2, ((Set<?>) doc.getProperty(SecurityShared.ALLOW_ALL_FIELD)).size());
+    Assert.assertEquals(2, ((Set<?>) doc.getProperty(SecurityShared.ALLOW_UPDATE_FIELD)).size());
+    Assert.assertEquals(2, ((Set<?>) doc.getProperty(SecurityShared.ALLOW_DELETE_FIELD)).size());
+    Assert.assertEquals(2, ((Set<?>) doc.getProperty(SecurityShared.ALLOW_ALL_FIELD)).size());
 
-    doc.field("abc", "abc");
+    doc.setProperty("abc", "abc");
 
     session.commit();
 

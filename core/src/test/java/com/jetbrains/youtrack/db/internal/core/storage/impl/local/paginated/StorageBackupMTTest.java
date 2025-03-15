@@ -286,11 +286,11 @@ public class StorageBackupMTTest {
               } else if (!ids.isEmpty() && i % 4 == 0) {
                 var id = ids.removeFirst();
                 final EntityImpl document = session.load(id);
-                document.field("data", data);
+                document.setProperty("data", data);
               } else {
                 final var document = ((EntityImpl) session.newEntity("BackupClass"));
-                document.field("num", num);
-                document.field("data", data);
+                document.setProperty("num", num);
+                document.setProperty("data", data);
 
                 RID id = document.getIdentity();
                 if (ids.size() < 100) {

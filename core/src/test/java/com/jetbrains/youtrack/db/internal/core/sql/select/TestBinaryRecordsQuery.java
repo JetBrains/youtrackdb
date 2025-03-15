@@ -1,10 +1,11 @@
 package com.jetbrains.youtrack.db.internal.core.sql.select;
 
+import static org.junit.Assert.assertEquals;
+
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
-import static org.junit.Assert.assertEquals;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -70,7 +71,7 @@ public class TestBinaryRecordsQuery extends DbTestBase {
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("RecordPointer");
-    doc.field("ref", session.bindToSession(rec));
+    doc.setProperty("ref", session.bindToSession(rec));
     session.commit();
 
     session.begin();
@@ -99,12 +100,12 @@ public class TestBinaryRecordsQuery extends DbTestBase {
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("RecordPointer");
-    doc.field("ref", session.bindToSession(rec));
+    doc.setProperty("ref", session.bindToSession(rec));
     session.commit();
 
     session.begin();
     var doc1 = (EntityImpl) session.newEntity("RecordPointer");
-    doc1.field("ref", session.bindToSession(rec1));
+    doc1.setProperty("ref", session.bindToSession(rec1));
     session.commit();
 
     session.begin();

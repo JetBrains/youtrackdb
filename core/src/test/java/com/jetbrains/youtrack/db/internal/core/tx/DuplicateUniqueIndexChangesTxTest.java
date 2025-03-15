@@ -55,11 +55,11 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     final var person3 = session.newInstance("Person");
 
     // change names to unique
-    person1.field("name", "Name1");
+    person1.setProperty("name", "Name1");
 
-    person2.field("name", "Name2");
+    person2.setProperty("name", "Name2");
 
-    person3.field("name", "Name3");
+    person3.setProperty("name", "Name3");
 
     // should not throw RecordDuplicatedException exception
     session.commit();
@@ -83,11 +83,11 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
   public void testDuplicateNullsOnUpdate() {
     session.begin();
     var person1 = session.newInstance("Person");
-    person1.field("name", "Name1");
+    person1.setProperty("name", "Name1");
     var person2 = session.newInstance("Person");
-    person2.field("name", "Name2");
+    person2.setProperty("name", "Name2");
     var person3 = session.newInstance("Person");
-    person3.field("name", "Name3");
+    person3.setProperty("name", "Name3");
     session.commit();
 
     // verify index state
@@ -102,23 +102,23 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     Assert.assertEquals(person3, fetchDocumentFromIndex("Name3"));
 
     // saved persons will have null name
-    person1.field("name", null);
+    person1.setProperty("name", null);
 
-    person2.field("name", null);
+    person2.setProperty("name", null);
 
-    person3.field("name", null);
+    person3.setProperty("name", null);
 
     // change names back to unique swapped
-    person1.field("name", "Name2");
+    person1.setProperty("name", "Name2");
 
-    person2.field("name", "Name1");
+    person2.setProperty("name", "Name1");
 
-    person3.field("name", "Name3");
+    person3.setProperty("name", "Name3");
 
     // and again
-    person1.field("name", "Name1");
+    person1.setProperty("name", "Name1");
 
-    person2.field("name", "Name2");
+    person2.setProperty("name", "Name2");
 
     // should not throw RecordDuplicatedException exception
     session.commit();
@@ -138,18 +138,18 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
 
     // saved persons will have same name
     final var person1 = session.newInstance("Person");
-    person1.field("name", "same");
+    person1.setProperty("name", "same");
     final var person2 = session.newInstance("Person");
-    person2.field("name", "same");
+    person2.setProperty("name", "same");
     final var person3 = session.newInstance("Person");
-    person3.field("name", "same");
+    person3.setProperty("name", "same");
 
     // change names to unique
-    person1.field("name", "Name1");
+    person1.setProperty("name", "Name1");
 
-    person2.field("name", "Name2");
+    person2.setProperty("name", "Name2");
 
-    person3.field("name", "Name3");
+    person3.setProperty("name", "Name3");
 
     // should not throw RecordDuplicatedException exception
     session.commit();
@@ -167,11 +167,11 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
   public void testDuplicateValuesOnUpdate() {
     session.begin();
     var person1 = session.newInstance("Person");
-    person1.field("name", "Name1");
+    person1.setProperty("name", "Name1");
     var person2 = session.newInstance("Person");
-    person2.field("name", "Name2");
+    person2.setProperty("name", "Name2");
     var person3 = session.newInstance("Person");
-    person3.field("name", "Name3");
+    person3.setProperty("name", "Name3");
     session.commit();
 
     // verify index state
@@ -185,18 +185,18 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     Assert.assertEquals(person3, fetchDocumentFromIndex("Name3"));
 
     // saved persons will have same name
-    person1.field("name", "same");
+    person1.setProperty("name", "same");
 
-    person2.field("name", "same");
+    person2.setProperty("name", "same");
 
-    person3.field("name", "same");
+    person3.setProperty("name", "same");
 
     // change names back to unique in reverse order
-    person3.field("name", "Name3");
+    person3.setProperty("name", "Name3");
 
-    person2.field("name", "Name2");
+    person2.setProperty("name", "Name2");
 
-    person1.field("name", "Name1");
+    person1.setProperty("name", "Name1");
 
     // should not throw RecordDuplicatedException exception
     session.commit();
@@ -221,16 +221,16 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
 
     // saved persons will have same name
     final var person1 = session.newInstance("Person");
-    person1.field("name", "same");
+    person1.setProperty("name", "same");
     final var person2 = session.newInstance("Person");
-    person2.field("name", "same");
+    person2.setProperty("name", "same");
     final var person3 = session.newInstance("Person");
-    person3.field("name", "same");
+    person3.setProperty("name", "same");
     final var person4 = session.newInstance("Person");
-    person4.field("name", "same");
+    person4.setProperty("name", "same");
 
     person1.delete();
-    person2.field("name", "Name2");
+    person2.setProperty("name", "Name2");
 
     person3.delete();
 
@@ -248,13 +248,13 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
   public void testDuplicateValuesOnUpdateDelete() {
     session.begin();
     var person1 = session.newInstance("Person");
-    person1.field("name", "Name1");
+    person1.setProperty("name", "Name1");
     var person2 = session.newInstance("Person");
-    person2.field("name", "Name2");
+    person2.setProperty("name", "Name2");
     var person3 = session.newInstance("Person");
-    person3.field("name", "Name3");
+    person3.setProperty("name", "Name3");
     var person4 = session.newInstance("Person");
-    person4.field("name", "Name4");
+    person4.setProperty("name", "Name4");
     session.commit();
 
     // verify index state
@@ -271,12 +271,12 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     Assert.assertEquals(person4, fetchDocumentFromIndex("Name4"));
 
     person1.delete();
-    person2.field("name", "same");
+    person2.setProperty("name", "same");
 
     person3.delete();
-    person4.field("name", "same");
+    person4.setProperty("name", "same");
 
-    person2.field("name", "Name2");
+    person2.setProperty("name", "Name2");
 
     // should not throw RecordDuplicatedException exception
     session.commit();
@@ -302,11 +302,11 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
   public void testDuplicateCreateThrows() {
     session.begin();
     var person1 = session.newInstance("Person");
-    person1.field("name", "Name1");
+    person1.setProperty("name", "Name1");
     var person2 = session.newInstance("Person");
     var person3 = session.newInstance("Person");
     var person4 = session.newInstance("Person");
-    person4.field("name", "Name1");
+    person4.setProperty("name", "Name1");
     //    Assert.assertThrows(RecordDuplicatedException.class, new Assert.ThrowingRunnable() {
     //      @Override
     //      public void run() throws Throwable {
@@ -320,13 +320,13 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
   public void testDuplicateUpdateThrows() {
     session.begin();
     var person1 = session.newInstance("Person");
-    person1.field("name", "Name1");
+    person1.setProperty("name", "Name1");
     var person2 = session.newInstance("Person");
-    person2.field("name", "Name2");
+    person2.setProperty("name", "Name2");
     var person3 = session.newInstance("Person");
-    person3.field("name", "Name3");
+    person3.setProperty("name", "Name3");
     var person4 = session.newInstance("Person");
-    person4.field("name", "Name4");
+    person4.setProperty("name", "Name4");
     session.commit();
 
     // verify index state
@@ -342,13 +342,13 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     Assert.assertEquals(person3, fetchDocumentFromIndex("Name3"));
     Assert.assertEquals(person4, fetchDocumentFromIndex("Name4"));
 
-    person1.field("name", "Name1");
+    person1.setProperty("name", "Name1");
 
-    person2.field("name", null);
+    person2.setProperty("name", null);
 
-    person3.field("name", "Name1");
+    person3.setProperty("name", "Name1");
 
-    person4.field("name", null);
+    person4.setProperty("name", null);
 
     session.commit();
   }

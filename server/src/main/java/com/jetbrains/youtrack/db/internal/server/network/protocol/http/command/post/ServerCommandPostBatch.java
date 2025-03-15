@@ -104,14 +104,14 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
       batch = new EntityImpl(null);
       batch.updateFromJSON(iRequest.getContent());
 
-      Boolean tx = batch.field("transaction");
+      Boolean tx = batch.getProperty("transaction");
       if (tx == null) {
         tx = false;
       }
 
       final Collection<Map<Object, Object>> operations;
       try {
-        operations = batch.field("operations");
+        operations = batch.getProperty("operations");
       } catch (Exception e) {
         throw new IllegalArgumentException(
             "Expected 'operations' field as a collection of objects", e);

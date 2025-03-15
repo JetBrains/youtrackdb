@@ -37,22 +37,20 @@ public class LuceneSpatialGeometryCollectionTest extends BaseSpatialLuceneTest {
   @Test
   public void testGeoCollectionOutsideTx() {
     var test1 = ((EntityImpl) session.newEntity("test"));
-    test1.field("name", "test1");
+    test1.setProperty("name", "test1");
     var geometry = ((EntityImpl) session.newEntity("OGeometryCollection"));
     var point = ((EntityImpl) session.newEntity("OPoint"));
-    point.field("coordinates", Arrays.asList(1.0, 2.0));
+    point.setProperty("coordinates", Arrays.asList(1.0, 2.0));
     var polygon = ((EntityImpl) session.newEntity("OPolygon"));
-    polygon.field(
-        "coordinates",
-        List.of(
+    polygon.setProperty("coordinates", List.of(
             Arrays.asList(
                 Arrays.asList(0.0, 0.0),
                 Arrays.asList(10.0, 0.0),
                 Arrays.asList(10.0, 10.0),
                 Arrays.asList(0.0, 10.0),
                 Arrays.asList(0.0, 0.0))));
-    geometry.field("geometries", Arrays.asList(point, polygon));
-    test1.field("geometry", geometry);
+    geometry.setProperty("geometries", Arrays.asList(point, polygon));
+    test1.setProperty("geometry", geometry);
 
     session.begin();
 
@@ -70,22 +68,20 @@ public class LuceneSpatialGeometryCollectionTest extends BaseSpatialLuceneTest {
     session.begin();
 
     var test1 = ((EntityImpl) session.newEntity("test"));
-    test1.field("name", "test1");
+    test1.setProperty("name", "test1");
     var geometry = ((EntityImpl) session.newEntity("OGeometryCollection"));
     var point = ((EntityImpl) session.newEntity("OPoint"));
-    point.field("coordinates", Arrays.asList(1.0, 2.0));
+    point.setProperty("coordinates", Arrays.asList(1.0, 2.0));
     var polygon = ((EntityImpl) session.newEntity("OPolygon"));
-    polygon.field(
-        "coordinates",
-        List.of(
+    polygon.setProperty("coordinates", List.of(
             Arrays.asList(
                 Arrays.asList(0.0, 0.0),
                 Arrays.asList(10.0, 0.0),
                 Arrays.asList(10.0, 10.0),
                 Arrays.asList(0.0, 10.0),
                 Arrays.asList(0.0, 0.0))));
-    geometry.field("geometries", Arrays.asList(point, polygon));
-    test1.field("geometry", geometry);
+    geometry.setProperty("geometries", Arrays.asList(point, polygon));
+    test1.setProperty("geometry", geometry);
 
     session.commit();
 

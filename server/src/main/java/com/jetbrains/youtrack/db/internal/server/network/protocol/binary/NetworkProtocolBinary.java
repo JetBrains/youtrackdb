@@ -819,7 +819,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
     var name = connection.getData().getSerializationImpl();
     if (RecordInternal.getRecordType(session, iRecord) == EntityImpl.RECORD_TYPE
         && (dbSerializerName == null || !dbSerializerName.equals(name))) {
-      ((EntityImpl) iRecord).deserializeFields();
+      ((EntityImpl) iRecord).deserializeProperties();
       var ser = RecordSerializerFactory.instance().getFormat(name);
       stream = ser.toStream(connection.getDatabaseSession(), iRecord);
     } else {

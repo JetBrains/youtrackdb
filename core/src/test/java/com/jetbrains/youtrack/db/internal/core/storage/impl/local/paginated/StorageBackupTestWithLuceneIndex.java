@@ -79,8 +79,8 @@ public class StorageBackupTestWithLuceneIndex {
 
     db.begin();
     final var document = ((EntityImpl) db.newEntity("BackupClass"));
-    document.field("num", 1);
-    document.field("name", "Storage");
+    document.setProperty("num", 1);
+    document.setProperty("name", "Storage");
 
     db.commit();
 
@@ -149,8 +149,8 @@ public class StorageBackupTestWithLuceneIndex {
 
     db.begin();
     var document = ((EntityImpl) db.newEntity("BackupClass"));
-    document.field("num", 1);
-    document.field("name", "Storage");
+    document.setProperty("num", 1);
+    document.setProperty("name", "Storage");
 
     db.commit();
 
@@ -158,8 +158,8 @@ public class StorageBackupTestWithLuceneIndex {
 
     db.begin();
     document = ((EntityImpl) db.newEntity("BackupClass"));
-    document.field("num", 1);
-    document.field("name", "Storage1");
+    document.setProperty("num", 1);
+    document.setProperty("name", "Storage1");
 
     db.commit();
 

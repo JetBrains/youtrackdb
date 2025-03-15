@@ -48,11 +48,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     for (var i = 0; i < 100; i++) {
       session.begin();
       var document = ((EntityImpl) session.newEntity("OrderByIndexReuse"));
-      document.field("firstProp", (101 - i) / 2);
-      document.field("secondProp", (101 - i) / 2);
+      document.setProperty("firstProp", (101 - i) / 2);
+      document.setProperty("secondProp", (101 - i) / 2);
 
-      document.field("thirdProp", "prop" + (101 - i));
-      document.field("prop4", "prop" + (101 - i));
+      document.setProperty("thirdProp", "prop" + (101 - i));
+      document.setProperty("prop4", "prop" + (101 - i));
 
       session.commit();
     }
@@ -65,16 +65,16 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("firstProp"), i / 2 + 6);
+      Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), i / 2 + 6);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -87,17 +87,17 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("secondProp"), i / 2 + 6);
-      Assert.assertEquals(document.field("thirdProp"), "prop" + (i + 12));
+      Assert.assertEquals((int) document.<Integer>getProperty("secondProp"), i / 2 + 6);
+      Assert.assertEquals(document.getProperty("thirdProp"), "prop" + (i + 12));
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
   }
 
@@ -110,17 +110,17 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("secondProp"), 50 - i / 2);
-      Assert.assertEquals(document.field("thirdProp"), "prop" + (101 - i));
+      Assert.assertEquals((int) document.<Integer>getProperty("secondProp"), 50 - i / 2);
+      Assert.assertEquals(document.getProperty("thirdProp"), "prop" + (101 - i));
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
   }
 
@@ -133,22 +133,22 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("secondProp"), i / 2 + 6);
+      Assert.assertEquals((int) document.<Integer>getProperty("secondProp"), i / 2 + 6);
       int thirdPropertyIndex;
       if (i % 2 == 0) {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2 + 1;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2 + 1;
       } else {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2;
       }
 
-      Assert.assertEquals(document.field("thirdProp"), "prop" + thirdPropertyIndex);
+      Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertFalse(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertFalse(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
+    Assert.assertFalse(explain.getProperty("indexIsUsedInOrderBy"));
   }
 
   public void testGreaterThanOrderByDescFirstProperty() {
@@ -159,16 +159,16 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("firstProp"), 50 - i / 2);
+      Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 50 - i / 2);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -180,16 +180,16 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("firstProp"), i / 2 + 5);
+      Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), i / 2 + 5);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -202,24 +202,24 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("secondProp"), i / 2 + 5);
+      Assert.assertEquals((int) document.<Integer>getProperty("secondProp"), i / 2 + 5);
       int thirdPropertyIndex;
       if (i % 2 == 0) {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2;
       } else {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2 + 1;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2 + 1;
       }
 
-      Assert.assertEquals(document.field("thirdProp"), "prop" + thirdPropertyIndex);
+      Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
   }
 
@@ -232,24 +232,24 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("secondProp"), 50 - i / 2);
+      Assert.assertEquals((int) document.<Integer>getProperty("secondProp"), 50 - i / 2);
       int thirdPropertyIndex;
       if (i % 2 == 0) {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2 + 1;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2 + 1;
       } else {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2;
       }
 
-      Assert.assertEquals(document.field("thirdProp"), "prop" + thirdPropertyIndex);
+      Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
   }
 
@@ -262,22 +262,22 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("secondProp"), i / 2 + 5);
+      Assert.assertEquals((int) document.<Integer>getProperty("secondProp"), i / 2 + 5);
       int thirdPropertyIndex;
       if (i % 2 == 0) {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2 + 1;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2 + 1;
       } else {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2;
       }
 
-      Assert.assertEquals(document.field("thirdProp"), "prop" + thirdPropertyIndex);
+      Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertFalse(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertFalse(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
+    Assert.assertFalse(explain.getProperty("indexIsUsedInOrderBy"));
   }
 
   public void testGTEOrderByDescFirstProperty() {
@@ -288,16 +288,16 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("firstProp"), 50 - i / 2);
+      Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 50 - i / 2);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -309,16 +309,16 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("firstProp"), i / 2 + 1);
+      Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), i / 2 + 1);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -331,25 +331,25 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("secondProp"), i / 2 + 1);
+      Assert.assertEquals((int) document.<Integer>getProperty("secondProp"), i / 2 + 1);
 
       int thirdPropertyIndex;
       if (i % 2 == 0) {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2;
       } else {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2 + 1;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2 + 1;
       }
 
-      Assert.assertEquals(document.field("thirdProp"), "prop" + thirdPropertyIndex);
+      Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
   }
 
@@ -362,25 +362,25 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("secondProp"), 4 - i / 2);
+      Assert.assertEquals((int) document.<Integer>getProperty("secondProp"), 4 - i / 2);
 
       int thirdPropertyIndex;
       if (i % 2 == 0) {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2 + 1;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2 + 1;
       } else {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2;
       }
 
-      Assert.assertEquals(document.field("thirdProp"), "prop" + thirdPropertyIndex);
+      Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
   }
 
@@ -393,23 +393,23 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("secondProp"), i / 2 + 1);
+      Assert.assertEquals((int) document.<Integer>getProperty("secondProp"), i / 2 + 1);
 
       int thirdPropertyIndex;
       if (i % 2 == 0) {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2 + 1;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2 + 1;
       } else {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2;
       }
 
-      Assert.assertEquals(document.field("thirdProp"), "prop" + thirdPropertyIndex);
+      Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertFalse(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertFalse(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
+    Assert.assertFalse(explain.getProperty("indexIsUsedInOrderBy"));
   }
 
   public void testLTOrderByDescFirstProperty() {
@@ -420,16 +420,16 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("firstProp"), 4 - i / 2);
+      Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 4 - i / 2);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -441,16 +441,16 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("firstProp"), i / 2 + 1);
+      Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), i / 2 + 1);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -463,25 +463,25 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("secondProp"), i / 2 + 1);
+      Assert.assertEquals((int) document.<Integer>getProperty("secondProp"), i / 2 + 1);
 
       int thirdPropertyIndex;
       if (i % 2 == 0) {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2;
       } else {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2 + 1;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2 + 1;
       }
 
-      Assert.assertEquals(document.field("thirdProp"), "prop" + thirdPropertyIndex);
+      Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
   }
 
@@ -494,25 +494,25 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("secondProp"), 5 - i / 2);
+      Assert.assertEquals((int) document.<Integer>getProperty("secondProp"), 5 - i / 2);
 
       int thirdPropertyIndex;
       if (i % 2 == 0) {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2 + 1;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2 + 1;
       } else {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2;
       }
 
-      Assert.assertEquals(document.field("thirdProp"), "prop" + thirdPropertyIndex);
+      Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
   }
 
@@ -525,23 +525,23 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("secondProp"), i / 2 + 1);
+      Assert.assertEquals((int) document.<Integer>getProperty("secondProp"), i / 2 + 1);
 
       int thirdPropertyIndex;
       if (i % 2 == 0) {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2 + 1;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2 + 1;
       } else {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2;
       }
 
-      Assert.assertEquals(document.field("thirdProp"), "prop" + thirdPropertyIndex);
+      Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertFalse(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertFalse(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
+    Assert.assertFalse(explain.getProperty("indexIsUsedInOrderBy"));
   }
 
   public void testLTEOrderByDescFirstProperty() {
@@ -552,16 +552,16 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("firstProp"), 5 - i / 2);
+      Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 5 - i / 2);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -573,16 +573,16 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("firstProp"), i / 2 + 5);
+      Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), i / 2 + 5);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -595,25 +595,25 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("secondProp"), i / 2 + 5);
+      Assert.assertEquals((int) document.<Integer>getProperty("secondProp"), i / 2 + 5);
 
       int thirdPropertyIndex;
       if (i % 2 == 0) {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2;
       } else {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2 + 1;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2 + 1;
       }
 
-      Assert.assertEquals(document.field("thirdProp"), "prop" + thirdPropertyIndex);
+      Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
   }
 
@@ -626,25 +626,25 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("secondProp"), 15 - i / 2);
+      Assert.assertEquals((int) document.<Integer>getProperty("secondProp"), 15 - i / 2);
 
       int thirdPropertyIndex;
       if (i % 2 == 0) {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2 + 1;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2 + 1;
       } else {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2;
       }
 
-      Assert.assertEquals(document.field("thirdProp"), "prop" + thirdPropertyIndex);
+      Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
   }
 
@@ -657,23 +657,23 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("secondProp"), i / 2 + 5);
+      Assert.assertEquals((int) document.<Integer>getProperty("secondProp"), i / 2 + 5);
 
       int thirdPropertyIndex;
       if (i % 2 == 0) {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2 + 1;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2 + 1;
       } else {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2;
       }
 
-      Assert.assertEquals(document.field("thirdProp"), "prop" + thirdPropertyIndex);
+      Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertFalse(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertFalse(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
+    Assert.assertFalse(explain.getProperty("indexIsUsedInOrderBy"));
   }
 
   public void testBetweenOrderByDescFirstProperty() {
@@ -685,16 +685,16 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("firstProp"), 15 - i / 2);
+      Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 15 - i / 2);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -707,21 +707,21 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 3);
 
     var document = result.get(0);
-    Assert.assertEquals((int) document.<Integer>field("firstProp"), 2);
+    Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 2);
 
     document = result.get(1);
-    Assert.assertEquals((int) document.<Integer>field("firstProp"), 2);
+    Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 2);
 
     document = result.get(2);
-    Assert.assertEquals((int) document.<Integer>field("firstProp"), 10);
+    Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 10);
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -734,21 +734,21 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 3);
 
     var document = result.get(0);
-    Assert.assertEquals((int) document.<Integer>field("firstProp"), 47);
+    Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 47);
 
     document = result.get(1);
-    Assert.assertEquals((int) document.<Integer>field("firstProp"), 47);
+    Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 47);
 
     document = result.get(2);
-    Assert.assertEquals((int) document.<Integer>field("firstProp"), 45);
+    Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 45);
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -761,17 +761,17 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("firstProp"), i / 2 + 6);
-      Assert.assertEquals(document.field("prop4"), "prop" + (i + 12));
+      Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), i / 2 + 6);
+      Assert.assertEquals(document.getProperty("prop4"), "prop" + (i + 12));
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertFalse(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -784,24 +784,24 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("firstProp"), 50 - i / 2);
+      Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 50 - i / 2);
       int property4Index;
       if (i % 2 == 0) {
-        property4Index = document.<Integer>field("firstProp") * 2;
+        property4Index = document.<Integer>getProperty("firstProp") * 2;
       } else {
-        property4Index = document.<Integer>field("firstProp") * 2 + 1;
+        property4Index = document.<Integer>getProperty("firstProp") * 2 + 1;
       }
 
-      Assert.assertEquals(document.field("prop4"), "prop" + property4Index);
+      Assert.assertEquals(document.getProperty("prop4"), "prop" + property4Index);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertFalse(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -814,25 +814,25 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("firstProp"), i / 2 + 5);
+      Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), i / 2 + 5);
 
       int property4Index;
       if (i % 2 == 0) {
-        property4Index = document.<Integer>field("firstProp") * 2;
+        property4Index = document.<Integer>getProperty("firstProp") * 2;
       } else {
-        property4Index = document.<Integer>field("firstProp") * 2 + 1;
+        property4Index = document.<Integer>getProperty("firstProp") * 2 + 1;
       }
 
-      Assert.assertEquals(document.field("prop4"), "prop" + property4Index);
+      Assert.assertEquals(document.getProperty("prop4"), "prop" + property4Index);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertFalse(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -845,25 +845,25 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("firstProp"), 50 - i / 2);
+      Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 50 - i / 2);
 
       int property4Index;
       if (i % 2 == 0) {
-        property4Index = document.<Integer>field("firstProp") * 2;
+        property4Index = document.<Integer>getProperty("firstProp") * 2;
       } else {
-        property4Index = document.<Integer>field("firstProp") * 2 + 1;
+        property4Index = document.<Integer>getProperty("firstProp") * 2 + 1;
       }
 
-      Assert.assertEquals(document.field("prop4"), "prop" + property4Index);
+      Assert.assertEquals(document.getProperty("prop4"), "prop" + property4Index);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertFalse(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -876,25 +876,25 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("firstProp"), i / 2 + 1);
+      Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), i / 2 + 1);
 
       int property4Index;
       if (i % 2 == 0) {
-        property4Index = document.<Integer>field("firstProp") * 2;
+        property4Index = document.<Integer>getProperty("firstProp") * 2;
       } else {
-        property4Index = document.<Integer>field("firstProp") * 2 + 1;
+        property4Index = document.<Integer>getProperty("firstProp") * 2 + 1;
       }
 
-      Assert.assertEquals(document.field("prop4"), "prop" + property4Index);
+      Assert.assertEquals(document.getProperty("prop4"), "prop" + property4Index);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertFalse(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -907,25 +907,25 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("firstProp"), 4 - i / 2);
+      Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 4 - i / 2);
 
       int property4Index;
       if (i % 2 == 0) {
-        property4Index = document.<Integer>field("firstProp") * 2;
+        property4Index = document.<Integer>getProperty("firstProp") * 2;
       } else {
-        property4Index = document.<Integer>field("firstProp") * 2 + 1;
+        property4Index = document.<Integer>getProperty("firstProp") * 2 + 1;
       }
 
-      Assert.assertEquals(document.field("prop4"), "prop" + property4Index);
+      Assert.assertEquals(document.getProperty("prop4"), "prop" + property4Index);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertFalse(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -938,25 +938,25 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("firstProp"), i / 2 + 1);
+      Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), i / 2 + 1);
 
       int property4Index;
       if (i % 2 == 0) {
-        property4Index = document.<Integer>field("firstProp") * 2;
+        property4Index = document.<Integer>getProperty("firstProp") * 2;
       } else {
-        property4Index = document.<Integer>field("firstProp") * 2 + 1;
+        property4Index = document.<Integer>getProperty("firstProp") * 2 + 1;
       }
 
-      Assert.assertEquals(document.field("prop4"), "prop" + property4Index);
+      Assert.assertEquals(document.getProperty("prop4"), "prop" + property4Index);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertFalse(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -969,25 +969,25 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("firstProp"), 5 - i / 2);
+      Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 5 - i / 2);
 
       int property4Index;
       if (i % 2 == 0) {
-        property4Index = document.<Integer>field("firstProp") * 2;
+        property4Index = document.<Integer>getProperty("firstProp") * 2;
       } else {
-        property4Index = document.<Integer>field("firstProp") * 2 + 1;
+        property4Index = document.<Integer>getProperty("firstProp") * 2 + 1;
       }
 
-      Assert.assertEquals(document.field("prop4"), "prop" + property4Index);
+      Assert.assertEquals(document.getProperty("prop4"), "prop" + property4Index);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertFalse(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -1000,25 +1000,25 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("firstProp"), i / 2 + 5);
+      Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), i / 2 + 5);
 
       int property4Index;
       if (i % 2 == 0) {
-        property4Index = document.<Integer>field("firstProp") * 2;
+        property4Index = document.<Integer>getProperty("firstProp") * 2;
       } else {
-        property4Index = document.<Integer>field("firstProp") * 2 + 1;
+        property4Index = document.<Integer>getProperty("firstProp") * 2 + 1;
       }
 
-      Assert.assertEquals(document.field("prop4"), "prop" + property4Index);
+      Assert.assertEquals(document.getProperty("prop4"), "prop" + property4Index);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertFalse(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -1031,25 +1031,25 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
       var document = result.get(i);
-      Assert.assertEquals((int) document.<Integer>field("firstProp"), 15 - i / 2);
+      Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 15 - i / 2);
 
       int property4Index;
       if (i % 2 == 0) {
-        property4Index = document.<Integer>field("firstProp") * 2;
+        property4Index = document.<Integer>getProperty("firstProp") * 2;
       } else {
-        property4Index = document.<Integer>field("firstProp") * 2 + 1;
+        property4Index = document.<Integer>getProperty("firstProp") * 2 + 1;
       }
 
-      Assert.assertEquals(document.field("prop4"), "prop" + property4Index);
+      Assert.assertEquals(document.getProperty("prop4"), "prop" + property4Index);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertFalse(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -1062,24 +1062,24 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 3);
 
     var document = result.get(0);
-    Assert.assertEquals((int) document.<Integer>field("firstProp"), 2);
-    Assert.assertEquals(document.field("prop4"), "prop4");
+    Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 2);
+    Assert.assertEquals(document.getProperty("prop4"), "prop4");
 
     document = result.get(1);
-    Assert.assertEquals((int) document.<Integer>field("firstProp"), 2);
-    Assert.assertEquals(document.field("prop4"), "prop5");
+    Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 2);
+    Assert.assertEquals(document.getProperty("prop4"), "prop5");
 
     document = result.get(2);
-    Assert.assertEquals((int) document.<Integer>field("firstProp"), 10);
-    Assert.assertEquals(document.field("prop4"), "prop20");
+    Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 10);
+    Assert.assertEquals(document.getProperty("prop4"), "prop20");
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertFalse(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -1092,24 +1092,24 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 3);
 
     var document = result.get(0);
-    Assert.assertEquals((int) document.<Integer>field("firstProp"), 47);
-    Assert.assertEquals(document.field("prop4"), "prop94");
+    Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 47);
+    Assert.assertEquals(document.getProperty("prop4"), "prop94");
 
     document = result.get(1);
-    Assert.assertEquals((int) document.<Integer>field("firstProp"), 47);
-    Assert.assertEquals(document.field("prop4"), "prop95");
+    Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 47);
+    Assert.assertEquals(document.getProperty("prop4"), "prop95");
 
     document = result.get(2);
-    Assert.assertEquals((int) document.<Integer>field("firstProp"), 45);
-    Assert.assertEquals(document.field("prop4"), "prop90");
+    Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 45);
+    Assert.assertEquals(document.getProperty("prop4"), "prop90");
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
 
-    Assert.assertFalse(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -1123,15 +1123,15 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     for (var i = 0; i < 4; i++) {
       final var document = result.get(i);
 
-      Assert.assertEquals(document.<Object>field("firstProp"), 6 + i / 2);
+      Assert.assertEquals(document.<Object>getProperty("firstProp"), 6 + i / 2);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -1145,15 +1145,15 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     for (var i = 0; i < 4; i++) {
       final var document = result.get(i);
 
-      Assert.assertEquals(document.<Object>field("firstProp"), 45 - i / 2);
+      Assert.assertEquals(document.<Object>getProperty("firstProp"), 45 - i / 2);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
   }
 
@@ -1168,24 +1168,24 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     for (var i = 0; i < 4; i++) {
       final var document = result.get(i);
 
-      Assert.assertEquals(document.<Object>field("secondProp"), 6 + i / 2);
+      Assert.assertEquals(document.<Object>getProperty("secondProp"), 6 + i / 2);
 
       int thirdPropertyIndex;
       if (i % 2 == 0) {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2;
       } else {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2 + 1;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2 + 1;
       }
 
-      Assert.assertEquals(document.field("thirdProp"), "prop" + thirdPropertyIndex);
+      Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
   }
 
@@ -1200,24 +1200,24 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     for (var i = 0; i < 4; i++) {
       final var document = result.get(i);
 
-      Assert.assertEquals(document.<Object>field("secondProp"), 45 - i / 2);
+      Assert.assertEquals(document.<Object>getProperty("secondProp"), 45 - i / 2);
 
       int thirdPropertyIndex;
       if (i % 2 == 0) {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2 + 1;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2 + 1;
       } else {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2;
       }
 
-      Assert.assertEquals(document.field("thirdProp"), "prop" + thirdPropertyIndex);
+      Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
-    Assert.assertTrue(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertTrue(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
+    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
     Assert.assertEquals(
-        explain.<Set>field("involvedIndexes").toArray(),
+        explain.<Set>getProperty("involvedIndexes").toArray(),
         new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
   }
 
@@ -1232,22 +1232,22 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     for (var i = 0; i < 4; i++) {
       final var document = result.get(i);
 
-      Assert.assertEquals(document.<Object>field("secondProp"), 6 + i / 2);
+      Assert.assertEquals(document.<Object>getProperty("secondProp"), 6 + i / 2);
 
       int thirdPropertyIndex;
       if (i % 2 == 0) {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2 + 1;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2 + 1;
       } else {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2;
       }
 
-      Assert.assertEquals(document.field("thirdProp"), "prop" + thirdPropertyIndex);
+      Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
-    Assert.assertFalse(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertFalse(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
+    Assert.assertFalse(explain.getProperty("indexIsUsedInOrderBy"));
   }
 
   public void testOrderBySecondThirdPropWithLimitDescAsc() {
@@ -1261,21 +1261,21 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     for (var i = 0; i < 4; i++) {
       final var document = result.get(i);
 
-      Assert.assertEquals(document.<Object>field("secondProp"), 45 - i / 2);
+      Assert.assertEquals(document.<Object>getProperty("secondProp"), 45 - i / 2);
 
       int thirdPropertyIndex;
       if (i % 2 == 0) {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2;
       } else {
-        thirdPropertyIndex = document.<Integer>field("secondProp") * 2 + 1;
+        thirdPropertyIndex = document.<Integer>getProperty("secondProp") * 2 + 1;
       }
 
-      Assert.assertEquals(document.field("thirdProp"), "prop" + thirdPropertyIndex);
+      Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
-    Assert.assertFalse(explain.<Boolean>field("fullySortedByIndex"));
-    Assert.assertFalse(explain.<Boolean>field("indexIsUsedInOrderBy"));
+    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
+    Assert.assertFalse(explain.getProperty("indexIsUsedInOrderBy"));
   }
 }

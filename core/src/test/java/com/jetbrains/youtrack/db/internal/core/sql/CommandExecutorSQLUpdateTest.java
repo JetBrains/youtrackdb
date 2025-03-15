@@ -234,8 +234,8 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
 
     session.executeInTx(() -> {
       var doc = (EntityImpl) session.newEntity("test");
-      doc.field("id", 1);
-      doc.field("boolean", false);
+      doc.setProperty("id", 1);
+      doc.setProperty("boolean", false);
       doc.getOrCreateEmbeddedList("integerList");
       doc.getOrCreateEmbeddedList("booleanList");
     });
@@ -279,8 +279,8 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
 
     session.executeInTx(() -> {
       final var test = (EntityImpl) session.newEntity("test");
-      test.field("id", "id1");
-      test.field("count", 20);
+      test.setProperty("id", "id1");
+      test.setProperty("count", 20);
 
       test.getOrCreateEmbeddedMap("map").put("nestedCount", 10);
     });
@@ -320,7 +320,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
 
     session.executeInTx(() -> {
       final var test = (EntityImpl) session.newEntity("test");
-      test.field("text", "initial value");
+      test.setProperty("text", "initial value");
     });
 
     final var queried =
@@ -349,7 +349,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
 
     session.executeInTx(() -> {
       final var test = (EntityImpl) session.newEntity("test");
-      test.field("text", "initial value");
+      test.setProperty("text", "initial value");
     });
 
     final var queried = session.computeInTx(() -> {
@@ -439,7 +439,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
 
     session.begin();
     var d = (EntityImpl) session.newEntity("Foo");
-    d.field("name", "foo");
+    d.setProperty("name", "foo");
 
     session.command("update Foo MERGE {\"a\":1}").close();
     session.command("update Foo CONTENT {\"a\":1}").close();
@@ -460,13 +460,13 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
 
     session.begin();
     var d = (EntityImpl) session.newEntity("Foo");
-    d.field("name", "foo");
+    d.setProperty("name", "foo");
 
     session.commit();
 
     session.begin();
     d = (EntityImpl) session.newEntity("Foo");
-    d.field("name", "bar");
+    d.setProperty("name", "bar");
 
     session.commit();
 

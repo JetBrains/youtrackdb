@@ -136,7 +136,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
         bytes.offset = valuePos;
         final var value = deserializeValue(session, bytes, type, entity);
         bytes.offset = headerCursor;
-        entity.field(fieldName, value, type);
+        entity.setProperty(fieldName, value, type);
       } else {
         entity.setPropertyInternal(fieldName, null);
       }
@@ -176,7 +176,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
         throw new DatabaseException(session, "property id not supported in network serialization");
       }
 
-      if (entity.rawContainsField(fieldName)) {
+      if (entity.rawContainsProperty(fieldName)) {
         continue;
       }
 
@@ -377,8 +377,8 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
       case EMBEDDED:
         value = new EmbeddedEntityImpl(session);
         deserialize(session, (EntityImpl) value, bytes);
-        if (((EntityImpl) value).containsField(EntitySerializable.CLASS_NAME)) {
-          String className = ((EntityImpl) value).field(EntitySerializable.CLASS_NAME);
+        if (((EntityImpl) value).hasProperty(EntitySerializable.CLASS_NAME)) {
+          String className = ((EntityImpl) value).getProperty(EntitySerializable.CLASS_NAME);
           try {
             var clazz = Class.forName(className);
             var newValue = (EntitySerializable) clazz.newInstance();
@@ -606,7 +606,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
         pointer = bytes.offset;
         if (value instanceof EntitySerializable) {
           var cur = ((EntitySerializable) value).toEntity(session);
-          cur.field(EntitySerializable.CLASS_NAME, value.getClass().getName());
+          cur.setProperty(EntitySerializable.CLASS_NAME, value.getClass().getName());
           serialize(session, cur, bytes);
         } else {
           serialize(session, (EntityImpl) value, bytes);

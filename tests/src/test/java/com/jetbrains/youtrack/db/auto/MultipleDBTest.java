@@ -142,7 +142,7 @@ public class MultipleDBTest extends BaseDBTest {
               for (var j = 0; j < operations_write; j++) {
 
                 var dummy = ((EntityImpl) db.newEntity("DummyObject"));
-                dummy.field("name", "name" + j);
+                dummy.setProperty("name", "name" + j);
 
                 db.begin();
                 dummy = dummy;

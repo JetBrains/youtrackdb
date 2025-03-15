@@ -122,7 +122,7 @@ public class LuceneAutomaticBackupRestoreTest {
     db.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
 
     var doc = ((EntityImpl) db.newEntity("City"));
-    doc.field("name", "Rome");
+    doc.setProperty("name", "Rome");
 
     db.begin();
     db.commit();
@@ -169,15 +169,15 @@ public class LuceneAutomaticBackupRestoreTest {
     var doc = ((EntityImpl) db.newEntity());
     doc.updateFromJSON(jsonConfig);
 
-    doc.field("enabled", true);
-    doc.field("targetFileName", "${DBNAME}.json");
+    doc.setProperty("enabled", true);
+    doc.setProperty("targetFileName", "${DBNAME}.json");
 
-    doc.field("targetDirectory", BACKUPDIR);
-    doc.field("mode", "EXPORT");
+    doc.setProperty("targetDirectory", BACKUPDIR);
+    doc.setProperty("mode", "EXPORT");
 
-    doc.field("dbInclude", new String[]{"OLuceneAutomaticBackupRestoreTest"});
+    doc.setProperty("dbInclude", new String[]{"OLuceneAutomaticBackupRestoreTest"});
 
-    doc.field(
+    doc.setPropertyInChain(
         "firstTime",
         new SimpleDateFormat("HH:mm:ss").format(new Date(System.currentTimeMillis() + 2000)));
 

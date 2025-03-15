@@ -63,7 +63,7 @@ public class RemoteProtocolCommandsTest extends BaseDBTest {
     var clazz = this.session.getMetadata().getSchema().createClass("RidCreationTestClass");
     var storage = (AbstractPaginatedStorage) this.session.getStorage();
     var doc = ((EntityImpl) session.newEntity("RidCreationTestClass"));
-    doc.field("test", "test");
+    doc.setProperty("test", "test");
     var bad = new RecordId(-1, -1);
     var res =
         storage.createRecord(bad, doc.toStream(), doc.getVersion(), EntityImpl.RECORD_TYPE, null);

@@ -168,8 +168,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
     session.begin();
     final var document = (EntityImpl) session.newEntity();
 
-    document.field("fOne", mapToTest);
-    document.field("fTwo", 10);
+    document.setProperty("fOne", mapToTest);
+    document.setProperty("fTwo", 10);
 
     final var result = propertyIndexByKey.getDocumentValueToIndex(session, document);
     Assert.assertTrue(result instanceof Collection);
@@ -187,8 +187,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
     session.begin();
     final var document = (EntityImpl) session.newEntity();
 
-    document.field("fOne", mapToTest);
-    document.field("fTwo", 10);
+    document.setProperty("fOne", mapToTest);
+    document.setProperty("fTwo", 10);
 
     final var result = propertyIndexByValue.getDocumentValueToIndex(session, document);
     Assert.assertTrue(result instanceof Collection);

@@ -88,13 +88,13 @@ public class IndexChangesQueryTest {
     db.begin();
 
     var doc1 = ((EntityImpl) db.newEntity(CLASS_NAME));
-    doc1.field(FIELD_NAME, 1);
+    doc1.setProperty(FIELD_NAME, 1);
 
     var doc2 = ((EntityImpl) db.newEntity(CLASS_NAME));
-    doc2.field(FIELD_NAME, 1);
+    doc2.setProperty(FIELD_NAME, 1);
 
     var doc3 = ((EntityImpl) db.newEntity(CLASS_NAME));
-    doc3.field(FIELD_NAME, 2);
+    doc3.setProperty(FIELD_NAME, 2);
 
     final var index =
         db.getMetadata().getIndexManagerInternal().getIndex(db, INDEX_NAME);
@@ -116,10 +116,10 @@ public class IndexChangesQueryTest {
     doc3.delete();
 
     doc3 = ((EntityImpl) db.newEntity(CLASS_NAME));
-    doc3.field(FIELD_NAME, 1);
+    doc3.setProperty(FIELD_NAME, 1);
 
     var doc = ((EntityImpl) db.newEntity(CLASS_NAME));
-    doc.field(FIELD_NAME, 2);
+    doc.setProperty(FIELD_NAME, 2);
 
     db.getTransactionInternal().preProcessRecordsAndExecuteCallCallbacks();
 

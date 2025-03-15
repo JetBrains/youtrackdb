@@ -47,7 +47,7 @@ public class TransactionAtomicTest extends BaseDBTest {
     db2.begin();
     var record1 = ((EntityImpl) db2.newEntity());
     record1
-        .field("value", "This is the first version");
+        .setProperty("value", "This is the first version");
 
     db2.commit();
 
@@ -56,19 +56,19 @@ public class TransactionAtomicTest extends BaseDBTest {
     db2.begin();
     EntityImpl record2 = db2.load(record1.getIdentity());
 
-    record2.field("value", "This is the second version");
+    record2.setProperty("value", "This is the second version");
 
     db2.commit();
 
     db2.begin();
     record2 = db2.bindToSession(record2);
-    record2.field("value", "This is the third version");
+    record2.setProperty("value", "This is the third version");
 
     db2.commit();
 
     db1.activateOnCurrentThread();
     record1 = db1.bindToSession(record1);
-    Assert.assertEquals(record1.field("value"), "This is the third version");
+    Assert.assertEquals(record1.getProperty("value"), "This is the third version");
     db1.close();
 
     db2.activateOnCurrentThread();
@@ -82,14 +82,14 @@ public class TransactionAtomicTest extends BaseDBTest {
 
     var doc = ((EntityImpl) session.newEntity("Account"));
     session.begin();
-    doc.field("version", 0);
+    doc.setProperty("version", 0);
 
     session.commit();
 
     session.begin();
     doc = session.bindToSession(doc);
     doc.setDirty();
-    doc.field("testmvcc", true);
+    doc.setProperty("testmvcc", true);
     RecordInternal.setVersion(doc, doc.getVersion() + 1);
     try {
 
@@ -106,7 +106,7 @@ public class TransactionAtomicTest extends BaseDBTest {
     var record1 = ((EntityImpl) session.newEntity());
 
     record1
-        .field("value", "This is the first version");
+        .setProperty("value", "This is the first version");
 
     session.commit();
 
@@ -175,14 +175,14 @@ public class TransactionAtomicTest extends BaseDBTest {
     try {
       session.begin();
 
-      var apple = ((EntityImpl) session.newEntity("Fruit")).field("name", "Apple")
-          .field("color", "Red");
-      var orange = ((EntityImpl) session.newEntity("Fruit")).field("name", "Orange")
-          .field("color", "Orange");
-      var banana = ((EntityImpl) session.newEntity("Fruit")).field("name", "Banana")
-          .field("color", "Yellow");
-      var kumquat = ((EntityImpl) session.newEntity("Fruit")).field("name", "Kumquat")
-          .field("color", "Orange");
+      var apple = ((EntityImpl) session.newEntity("Fruit")).setPropertyInChain("name", "Apple")
+          .setPropertyInChain("color", "Red");
+      var orange = ((EntityImpl) session.newEntity("Fruit")).setPropertyInChain("name", "Orange")
+          .setPropertyInChain("color", "Orange");
+      var banana = ((EntityImpl) session.newEntity("Fruit")).setPropertyInChain("name", "Banana")
+          .setPropertyInChain("color", "Yellow");
+      var kumquat = ((EntityImpl) session.newEntity("Fruit")).setPropertyInChain("name", "Kumquat")
+          .setPropertyInChain("color", "Orange");
 
       session.commit();
 

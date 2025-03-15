@@ -91,7 +91,7 @@ public class SQLOptimizeDatabaseStatement extends SQLSimpleExecStatement {
       browsedEdges++;
 
       if (entity != null) {
-        if (entity.fields() == 2) {
+        if (entity.getPropertiesCount() == 2) {
           final RID edgeIdentity = entity.getIdentity();
 
           final EntityImpl outV = entity.getPropertyInternal("out");

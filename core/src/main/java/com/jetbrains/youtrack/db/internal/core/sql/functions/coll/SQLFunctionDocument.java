@@ -59,7 +59,7 @@ public class SQLFunctionDocument extends SQLFunctionMultiValueAbstract<EntityImp
       } else if (iParams[0] instanceof Map<?, ?>)
       // INSERT EVERY SINGLE COLLECTION ITEM
       {
-        context.fields((Map<String, Object>) iParams[0]);
+        context.updateFromMap((Map<String, Object>) iParams[0]);
       } else {
         throw new IllegalArgumentException(
             "Map function: expected a map or pairs of parameters as key, value");
@@ -79,7 +79,7 @@ public class SQLFunctionDocument extends SQLFunctionMultiValueAbstract<EntityImp
             context = new EntityImpl(db);
           }
 
-          context.field(key, value);
+          context.setProperty(key, value);
         }
       }
     }

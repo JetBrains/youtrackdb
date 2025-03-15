@@ -77,12 +77,12 @@ public class DatabaseRepair extends DatabaseTool {
           if (rec instanceof EntityImpl entity) {
             var changed = false;
 
-            for (var fieldName : entity.fieldNames()) {
-              final var fieldValue = entity.rawField(fieldName);
+            for (var fieldName : entity.propertyNames()) {
+              final var fieldValue = entity.getProperty(fieldName);
 
               if (fieldValue instanceof Identifiable) {
                 if (fixLink(fieldValue, db)) {
-                  entity.field(fieldName, null);
+                  entity.setProperty(fieldName, null);
                   fixedLinks++;
                   changed = true;
                   if (verbose) {

@@ -38,7 +38,7 @@ public class BinaryTest extends BaseDBTest {
   public void testMixedCreateEmbedded() {
     session.begin();
     var doc = ((EntityImpl) session.newEntity());
-    doc.field("binary", "Binary data".getBytes());
+    doc.setProperty("binary", "Binary data".getBytes());
 
     session.commit();
 
@@ -70,7 +70,7 @@ public class BinaryTest extends BaseDBTest {
     session.begin();
 
     var doc = ((EntityImpl) session.newEntity());
-    doc.field("binary", new RecordBytes(session, "Binary data".getBytes()));
+    doc.setProperty("binary", new RecordBytes(session, "Binary data".getBytes()));
 
     session.commit();
 
@@ -81,6 +81,6 @@ public class BinaryTest extends BaseDBTest {
   public void testMixedReadExternal() {
     EntityImpl doc = rid.getRecord(session);
     Assert.assertEquals("Binary data",
-        new String(((RecordAbstract) doc.field("binary")).toStream()));
+        new String(((RecordAbstract) doc.getProperty("binary")).toStream()));
   }
 }

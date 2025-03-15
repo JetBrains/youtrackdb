@@ -1,5 +1,10 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
@@ -10,10 +15,6 @@ import java.math.BigDecimal;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
@@ -72,7 +73,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     session.executeInTx(
         () -> {
           var document = (EntityImpl) session.newEntity("Test3");
-          document.field("some", "String");
+          document.setProperty("some", "String");
         });
 
     oClass.createProperty("some", PropertyType.INTEGER);
@@ -187,12 +188,12 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
             () -> {
               var document = (EntityImpl) session.newEntity("Test10");
               // TODO add boolan and byte
-              document.field("test1", (short) 1);
-              document.field("test2", 1);
-              document.field("test3", 4L);
-              document.field("test4", 3.0f);
-              document.field("test5", 3.0D);
-              document.field("test6", 4);
+              document.setProperty("test1", (short) 1);
+              document.setProperty("test2", 1);
+              document.setProperty("test3", 4L);
+              document.setProperty("test4", 3.0f);
+              document.setProperty("test5", 3.0D);
+              document.setProperty("test6", 4);
               return document.getIdentity();
             });
 
@@ -206,17 +207,17 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     session.begin();
     EntityImpl doc1 = session.load(rid);
     assertEquals(PropertyType.INTEGER, doc1.getPropertyType("test1"));
-    assertTrue(doc1.field("test1") instanceof Integer);
+    assertTrue(doc1.getProperty("test1") instanceof Integer);
     assertEquals(PropertyType.LONG, doc1.getPropertyType("test2"));
-    assertTrue(doc1.field("test2") instanceof Long);
+    assertTrue(doc1.getProperty("test2") instanceof Long);
     assertEquals(PropertyType.DOUBLE, doc1.getPropertyType("test3"));
-    assertTrue(doc1.field("test3") instanceof Double);
+    assertTrue(doc1.getProperty("test3") instanceof Double);
     assertEquals(PropertyType.DOUBLE, doc1.getPropertyType("test4"));
-    assertTrue(doc1.field("test4") instanceof Double);
+    assertTrue(doc1.getProperty("test4") instanceof Double);
     assertEquals(PropertyType.DECIMAL, doc1.getPropertyType("test5"));
-    assertTrue(doc1.field("test5") instanceof BigDecimal);
+    assertTrue(doc1.getProperty("test5") instanceof BigDecimal);
     assertEquals(PropertyType.FLOAT, doc1.getPropertyType("test6"));
-    assertTrue(doc1.field("test6") instanceof Float);
+    assertTrue(doc1.getProperty("test6") instanceof Float);
     session.commit();
   }
 
@@ -350,12 +351,12 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
             () -> {
               var document = (EntityImpl) session.newEntity("Test19");
               // TODO add boolean and byte
-              document.field("test1", (short) 1);
-              document.field("test2", 1);
-              document.field("test3", 4L);
-              document.field("test4", 3.0f);
-              document.field("test5", 3.0D);
-              document.field("test6", 4);
+              document.setProperty("test1", (short) 1);
+              document.setProperty("test2", 1);
+              document.setProperty("test3", 4L);
+              document.setProperty("test4", 3.0f);
+              document.setProperty("test5", 3.0D);
+              document.setProperty("test6", 4);
               return document.getIdentity();
             });
 
@@ -369,17 +370,17 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     session.begin();
     EntityImpl doc1 = session.load(rid);
     assertEquals(PropertyType.INTEGER, doc1.getPropertyType("test1"));
-    assertTrue(doc1.field("test1") instanceof Integer);
+    assertTrue(doc1.getProperty("test1") instanceof Integer);
     assertEquals(PropertyType.LONG, doc1.getPropertyType("test2"));
-    assertTrue(doc1.field("test2") instanceof Long);
+    assertTrue(doc1.getProperty("test2") instanceof Long);
     assertEquals(PropertyType.DOUBLE, doc1.getPropertyType("test3"));
-    assertTrue(doc1.field("test3") instanceof Double);
+    assertTrue(doc1.getProperty("test3") instanceof Double);
     assertEquals(PropertyType.DOUBLE, doc1.getPropertyType("test4"));
-    assertTrue(doc1.field("test4") instanceof Double);
+    assertTrue(doc1.getProperty("test4") instanceof Double);
     assertEquals(PropertyType.DECIMAL, doc1.getPropertyType("test5"));
-    assertTrue(doc1.field("test5") instanceof BigDecimal);
+    assertTrue(doc1.getProperty("test5") instanceof BigDecimal);
     assertEquals(PropertyType.FLOAT, doc1.getPropertyType("test6"));
-    assertTrue(doc1.field("test6") instanceof Float);
+    assertTrue(doc1.getProperty("test6") instanceof Float);
     session.commit();
   }
 
@@ -400,12 +401,12 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
             () -> {
               var document = (EntityImpl) session.newEntity("Test20");
               // TODO add boolan and byte
-              document.field("test1", (short) 1);
-              document.field("test2", 1);
-              document.field("test3", 4L);
-              document.field("test4", 3.0f);
-              document.field("test5", 3.0D);
-              document.field("test6", 4);
+              document.setProperty("test1", (short) 1);
+              document.setProperty("test2", 1);
+              document.setProperty("test3", 4L);
+              document.setProperty("test4", 3.0f);
+              document.setProperty("test5", 3.0D);
+              document.setProperty("test6", 4);
               return document.getIdentity();
             });
 
@@ -419,17 +420,17 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     session.begin();
     EntityImpl doc1 = session.load(rid);
     assertEquals(PropertyType.SHORT, doc1.getPropertyType("test1a"));
-    assertTrue(doc1.field("test1a") instanceof Short);
+    assertTrue(doc1.getProperty("test1a") instanceof Short);
     assertEquals(PropertyType.INTEGER, doc1.getPropertyType("test2a"));
-    assertTrue(doc1.field("test2a") instanceof Integer);
+    assertTrue(doc1.getProperty("test2a") instanceof Integer);
     assertEquals(PropertyType.LONG, doc1.getPropertyType("test3a"));
-    assertTrue(doc1.field("test3a") instanceof Long);
+    assertTrue(doc1.getProperty("test3a") instanceof Long);
     assertEquals(PropertyType.FLOAT, doc1.getPropertyType("test4a"));
-    assertTrue(doc1.field("test4a") instanceof Float);
+    assertTrue(doc1.getProperty("test4a") instanceof Float);
     assertEquals(PropertyType.DOUBLE, doc1.getPropertyType("test5a"));
-    assertTrue(doc1.field("test5") instanceof Double);
+    assertTrue(doc1.getProperty("test5") instanceof Double);
     assertEquals(PropertyType.INTEGER, doc1.getPropertyType("test6a"));
-    assertTrue(doc1.field("test6a") instanceof Integer);
+    assertTrue(doc1.getProperty("test6a") instanceof Integer);
     session.commit();
   }
 

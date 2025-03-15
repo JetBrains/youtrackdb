@@ -108,7 +108,7 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
     assertEquals(result.size(), 1);
     assertTrue(
         Arrays.asList("Jane Smith", "James Bell", "Roger Connor", "William James")
-            .contains(result.get(0).field("name")));
+            .contains(result.get(0).getProperty("name")));
 
     assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 3);
   }
@@ -146,7 +146,7 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
         Arrays.asList("Jane Smith", "James Bell", "Roger Connor", "William James");
 
     for (var aResult : result) {
-      assertTrue(expectedNames.contains(aResult.field("name")));
+      assertTrue(expectedNames.contains(aResult.getProperty("name")));
     }
 
     assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 5);
@@ -180,7 +180,7 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
     assertEquals(result.size(), 1);
     assertTrue(
         Arrays.asList("John Smith", "James Bell", "William James")
-            .contains(result.get(0).field("name")));
+            .contains(result.get(0).getProperty("name")));
 
     assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 2);
   }
@@ -213,7 +213,7 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
     final var expectedNames =
         Arrays.asList("John Smith", "James Bell", "Roger Connor", "William James");
     for (var aResult : result) {
-      assertTrue(expectedNames.contains(aResult.field("name")));
+      assertTrue(expectedNames.contains(aResult.getProperty("name")));
     }
 
     assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 3);
@@ -248,7 +248,7 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
 
     final var expectedNames = Arrays.asList("PZ-08-2", "PZ-08-3");
     for (var aResult : result) {
-      assertTrue(expectedNames.contains(aResult.field("name")));
+      assertTrue(expectedNames.contains(aResult.getProperty("name")));
     }
 
     assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 2);
@@ -283,7 +283,7 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
 
     final var expectedNames = Arrays.asList("PZ-08-2", "PZ-08-3");
     for (var aResult : result) {
-      assertTrue(expectedNames.contains(aResult.field("name")));
+      assertTrue(expectedNames.contains(aResult.getProperty("name")));
     }
 
     assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 2);
@@ -305,7 +305,7 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
     assertEquals(result.size(), 2);
     final var expectedNames = Arrays.asList("William James", "James Bell");
     for (var aResult : result) {
-      assertTrue(expectedNames.contains(aResult.field("name")));
+      assertTrue(expectedNames.contains(aResult.getProperty("name")));
     }
 
     assertEquals(indexUsages(), oldIndexUsage + 2);
@@ -348,86 +348,83 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
   private void fillDataSet() {
     session.begin();
     EntityImpl curator1 = session.newInstance("lpirtCurator");
-    curator1.field("name", "Someone");
-    curator1.field("salary", 2000);
+    curator1.setProperty("name", "Someone");
+    curator1.setProperty("salary", 2000);
 
     final EntityImpl group1 = session.newInstance("lpirtGroup");
-    group1.field("name", "PZ-08-1");
-    group1.field("curator", curator1);
+    group1.setProperty("name", "PZ-08-1");
+    group1.setProperty("curator", curator1);
 
     final EntityImpl diploma1 = session.newInstance("lpirtDiploma");
-    diploma1.field("GPA", 3.);
-    diploma1.field("name", "diploma1");
-    diploma1.field(
-        "thesis",
+    diploma1.setProperty("GPA", 3.);
+    diploma1.setProperty("name", "diploma1");
+    diploma1.setProperty("thesis",
         "Researching and visiting universities before making a final decision is very beneficial"
             + " because you student be able to experience the campus, meet the professors, and"
             + " truly understand the traditions of the university.");
 
     final EntityImpl transcript = session.newInstance("lpirtTranscript");
-    transcript.field("id", "1");
+    transcript.setProperty("id", "1");
 
     final EntityImpl skill = session.newInstance("lpirtSkill");
-    skill.field("name", "math");
+    skill.setProperty("name", "math");
 
     final EntityImpl student1 = session.newInstance("lpirtStudent");
-    student1.field("name", "John Smith");
-    student1.field("group", group1);
-    student1.field("diploma", diploma1);
-    student1.field("transcript", transcript);
-    student1.field("skill", skill);
+    student1.setProperty("name", "John Smith");
+    student1.setProperty("group", group1);
+    student1.setProperty("diploma", diploma1);
+    student1.setProperty("transcript", transcript);
+    student1.setProperty("skill", skill);
 
     EntityImpl curator2 = session.newInstance("lpirtCurator");
-    curator2.field("name", "Someone else");
-    curator2.field("salary", 500);
+    curator2.setProperty("name", "Someone else");
+    curator2.setProperty("salary", 500);
 
     final EntityImpl group2 = session.newInstance("lpirtGroup");
-    group2.field("name", "PZ-08-2");
-    group2.field("curator", curator2);
+    group2.setProperty("name", "PZ-08-2");
+    group2.setProperty("curator", curator2);
 
     final EntityImpl diploma2 = session.newInstance("lpirtDiploma");
-    diploma2.field("GPA", 5.);
-    diploma2.field("name", "diploma2");
-    diploma2.field(
-        "thesis",
+    diploma2.setProperty("GPA", 5.);
+    diploma2.setProperty("name", "diploma2");
+    diploma2.setProperty("thesis",
         "While both Northerners and Southerners believed they fought against tyranny and"
             + " oppression, Northerners focused on the oppression of slaves while Southerners"
             + " defended their own right to self-government.");
 
     final EntityImpl student2 = session.newInstance("lpirtStudent");
-    student2.field("name", "Jane Smith");
-    student2.field("group", group2);
-    student2.field("diploma", diploma2);
+    student2.setProperty("name", "Jane Smith");
+    student2.setProperty("group", group2);
+    student2.setProperty("diploma", diploma2);
 
     EntityImpl curator3 = session.newInstance("lpirtCurator");
-    curator3.field("name", "Someone else");
-    curator3.field("salary", 600);
+    curator3.setProperty("name", "Someone else");
+    curator3.setProperty("salary", 600);
 
     final EntityImpl group3 = session.newInstance("lpirtGroup");
-    group3.field("name", "PZ-08-3");
-    group3.field("curator", curator3);
+    group3.setProperty("name", "PZ-08-3");
+    group3.setProperty("curator", curator3);
 
     final EntityImpl diploma3 = session.newInstance("lpirtDiploma");
-    diploma3.field("GPA", 4.);
-    diploma3.field("name", "diploma3");
-    diploma3.field(
-        "thesis",
+    diploma3.setProperty("GPA", 4.);
+    diploma3.setProperty("name", "diploma3");
+    diploma3.setProperty("thesis",
         "College student shouldn't have to take a required core curriculum, and many core "
             + "courses are graded too stiffly.");
 
     final EntityImpl student3 = session.newInstance("lpirtStudent");
-    student3.field("name", "James Bell");
-    student3.field("group", group3);
-    student3.field("diploma", diploma3);
+    student3.setProperty("name", "James Bell");
+    student3.setProperty("group", group3);
+    student3.setProperty("diploma", diploma3);
 
     final EntityImpl student4 = session.newInstance("lpirtStudent");
-    student4.field("name", "Roger Connor");
-    student4.field("group", group3);
+    student4.setProperty("name", "Roger Connor");
+    student4.setProperty("group", group3);
 
     final EntityImpl student5 = session.newInstance("lpirtStudent");
-    student5.field("name", "William James");
-    student5.field("group", group3);
-    student5.field("diploma", diploma3);
+    student5.setProperty("name", "William James");
+    student5.setProperty("group", group3);
+    student5.setProperty("diploma", diploma3);
 
     session.commit();
   }
@@ -519,7 +516,7 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
       final List<EntityImpl> docList, final String fieldName, final Object fieldValue) {
     var count = 0;
     for (final var docItem : docList) {
-      if (fieldValue.equals(docItem.field(fieldName))) {
+      if (fieldValue.equals(docItem.getProperty(fieldName))) {
         count++;
       }
     }

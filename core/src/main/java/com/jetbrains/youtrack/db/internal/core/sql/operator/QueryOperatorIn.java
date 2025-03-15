@@ -86,9 +86,9 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
         Set newInParams = new HashSet();
         for (var o : inParams) {
           if (o instanceof EntityImpl entity && entity.getIdentity().getClusterId() < -1) {
-            var fieldNames = entity.fieldNames();
+            var fieldNames = entity.propertyNames();
             if (fieldNames.length == 1) {
-              newInParams.add(entity.field(fieldNames[0]));
+              newInParams.add(entity.getProperty(fieldNames[0]));
             } else {
               newInParams.add(o);
             }

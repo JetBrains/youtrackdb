@@ -41,11 +41,11 @@ public class CollateTest extends BaseDBTest {
       var document = ((EntityImpl) session.newEntity("collateTest"));
 
       if (i % 2 == 0) {
-        document.field("csp", "VAL");
-        document.field("cip", "VAL");
+        document.setProperty("csp", "VAL");
+        document.setProperty("cip", "VAL");
       } else {
-        document.field("csp", "val");
-        document.field("cip", "val");
+        document.setProperty("csp", "val");
+        document.setProperty("cip", "val");
       }
 
       session.begin();
@@ -60,7 +60,7 @@ public class CollateTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
 
     for (var document : result) {
-      Assert.assertEquals(document.field("csp"), "VAL");
+      Assert.assertEquals(document.getProperty("csp"), "VAL");
     }
 
     //noinspection deprecation
@@ -70,7 +70,7 @@ public class CollateTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 10);
 
     for (var document : result) {
-      Assert.assertEquals((document.<String>field("cip")).toUpperCase(Locale.ENGLISH), "VAL");
+      Assert.assertEquals((document.<String>getProperty("cip")).toUpperCase(Locale.ENGLISH), "VAL");
     }
   }
 
@@ -82,14 +82,14 @@ public class CollateTest extends BaseDBTest {
     csp.setCollate(CaseInsensitiveCollate.NAME);
 
     var document = ((EntityImpl) session.newEntity("collateTestNotNull"));
-    document.field("bar", "baz");
+    document.setProperty("bar", "baz");
 
     session.begin();
 
     session.commit();
 
     document = ((EntityImpl) session.newEntity("collateTestNotNull"));
-    document.field("nobar", true);
+    document.setProperty("nobar", true);
 
     session.begin();
 
@@ -126,11 +126,11 @@ public class CollateTest extends BaseDBTest {
       var document = ((EntityImpl) session.newEntity("collateIndexTest"));
 
       if (i % 2 == 0) {
-        document.field("csp", "VAL");
-        document.field("cip", "VAL");
+        document.setProperty("csp", "VAL");
+        document.setProperty("cip", "VAL");
       } else {
-        document.field("csp", "val");
-        document.field("cip", "val");
+        document.setProperty("csp", "val");
+        document.setProperty("cip", "val");
       }
 
       session.begin();
@@ -144,12 +144,13 @@ public class CollateTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
 
     for (var document : result) {
-      Assert.assertEquals(document.field("csp"), "VAL");
+      Assert.assertEquals(document.getProperty("csp"), "VAL");
     }
 
     @SuppressWarnings("deprecation")
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-    Assert.assertTrue(explain.<Set<String>>field("involvedIndexes").contains("collateIndexCSP"));
+    Assert.assertTrue(
+        explain.<Set<String>>getProperty("involvedIndexes").contains("collateIndexCSP"));
 
     query = "select from collateIndexTest where cip = 'VaL'";
     //noinspection deprecation
@@ -157,12 +158,13 @@ public class CollateTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 10);
 
     for (var document : result) {
-      Assert.assertEquals((document.<String>field("cip")).toUpperCase(Locale.ENGLISH), "VAL");
+      Assert.assertEquals((document.<String>getProperty("cip")).toUpperCase(Locale.ENGLISH), "VAL");
     }
 
     //noinspection deprecation
     explain = session.command(new CommandSQL("explain " + query)).execute(session);
-    Assert.assertTrue(explain.<Set<String>>field("involvedIndexes").contains("collateIndexCIP"));
+    Assert.assertTrue(
+        explain.<Set<String>>getProperty("involvedIndexes").contains("collateIndexCIP"));
   }
 
   public void testIndexQueryCollateWasChanged() {
@@ -178,9 +180,9 @@ public class CollateTest extends BaseDBTest {
       var document = ((EntityImpl) session.newEntity("collateWasChangedIndexTest"));
 
       if (i % 2 == 0) {
-        document.field("cp", "VAL");
+        document.setProperty("cp", "VAL");
       } else {
-        document.field("cp", "val");
+        document.setProperty("cp", "val");
       }
 
       session.begin();
@@ -194,13 +196,13 @@ public class CollateTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
 
     for (var document : result) {
-      Assert.assertEquals(document.field("cp"), "VAL");
+      Assert.assertEquals(document.getProperty("cp"), "VAL");
     }
 
     @SuppressWarnings("deprecation")
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
     Assert.assertTrue(
-        explain.<Set<String>>field("involvedIndexes").contains("collateWasChangedIndex"));
+        explain.<Set<String>>getProperty("involvedIndexes").contains("collateWasChangedIndex"));
 
     cp = clazz.getProperty("cp");
     cp.setCollate(CaseInsensitiveCollate.NAME);
@@ -211,13 +213,13 @@ public class CollateTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 10);
 
     for (var document : result) {
-      Assert.assertEquals((document.<String>field("cp")).toUpperCase(Locale.ENGLISH), "VAL");
+      Assert.assertEquals((document.<String>getProperty("cp")).toUpperCase(Locale.ENGLISH), "VAL");
     }
 
     //noinspection deprecation
     explain = session.command(new CommandSQL("explain " + query)).execute(session);
     Assert.assertTrue(
-        explain.<Set<String>>field("involvedIndexes").contains("collateWasChangedIndex"));
+        explain.<Set<String>>getProperty("involvedIndexes").contains("collateWasChangedIndex"));
   }
 
   public void testCompositeIndexQueryCS() {
@@ -237,11 +239,11 @@ public class CollateTest extends BaseDBTest {
       var document = ((EntityImpl) session.newEntity("CompositeIndexQueryCSTest"));
 
       if (i % 2 == 0) {
-        document.field("csp", "VAL");
-        document.field("cip", "VAL");
+        document.setProperty("csp", "VAL");
+        document.setProperty("cip", "VAL");
       } else {
-        document.field("csp", "val");
-        document.field("cip", "val");
+        document.setProperty("csp", "val");
+        document.setProperty("cip", "val");
       }
 
       session.begin();
@@ -255,13 +257,13 @@ public class CollateTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
 
     for (var document : result) {
-      Assert.assertEquals(document.field("csp"), "VAL");
+      Assert.assertEquals(document.getProperty("csp"), "VAL");
     }
 
     @SuppressWarnings("deprecation")
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
     Assert.assertTrue(
-        explain.<Set<String>>field("involvedIndexes").contains("collateCompositeIndexCS"));
+        explain.<Set<String>>getProperty("involvedIndexes").contains("collateCompositeIndexCS"));
 
     query = "select from CompositeIndexQueryCSTest where csp = 'VAL' and cip = 'VaL'";
     //noinspection deprecation
@@ -269,14 +271,14 @@ public class CollateTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
 
     for (var document : result) {
-      Assert.assertEquals(document.field("csp"), "VAL");
-      Assert.assertEquals((document.<String>field("cip")).toUpperCase(Locale.ENGLISH), "VAL");
+      Assert.assertEquals(document.getProperty("csp"), "VAL");
+      Assert.assertEquals((document.<String>getProperty("cip")).toUpperCase(Locale.ENGLISH), "VAL");
     }
 
     //noinspection deprecation
     explain = session.command(new CommandSQL("explain " + query)).execute(session);
     Assert.assertTrue(
-        explain.<Set<String>>field("involvedIndexes").contains("collateCompositeIndexCS"));
+        explain.<Set<String>>getProperty("involvedIndexes").contains("collateCompositeIndexCS"));
 
     if (!session.getStorage().isRemote()) {
       final var indexManager = session.getMetadata().getIndexManagerInternal();
@@ -291,8 +293,8 @@ public class CollateTest extends BaseDBTest {
       Assert.assertEquals(value.size(), 5);
       for (var identifiable : value) {
         final EntityImpl record = identifiable.getRecord(session);
-        Assert.assertEquals(record.field("csp"), "VAL");
-        Assert.assertEquals((record.<String>field("cip")).toUpperCase(Locale.ENGLISH), "VAL");
+        Assert.assertEquals(record.getProperty("csp"), "VAL");
+        Assert.assertEquals((record.<String>getProperty("cip")).toUpperCase(Locale.ENGLISH), "VAL");
       }
     }
   }
@@ -312,11 +314,11 @@ public class CollateTest extends BaseDBTest {
     for (var i = 0; i < 10; i++) {
       var document = ((EntityImpl) session.newEntity("CompositeIndexQueryCollateWasChangedTest"));
       if (i % 2 == 0) {
-        document.field("csp", "VAL");
-        document.field("cip", "VAL");
+        document.setProperty("csp", "VAL");
+        document.setProperty("cip", "VAL");
       } else {
-        document.field("csp", "val");
-        document.field("cip", "val");
+        document.setProperty("csp", "val");
+        document.setProperty("cip", "val");
       }
 
       session.begin();
@@ -330,14 +332,13 @@ public class CollateTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
 
     for (var document : result) {
-      Assert.assertEquals(document.field("csp"), "VAL");
+      Assert.assertEquals(document.getProperty("csp"), "VAL");
     }
 
     @SuppressWarnings("deprecation")
     EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
     Assert.assertTrue(
-        explain
-            .<Set<String>>field("involvedIndexes")
+        explain.<Set<String>>getProperty("involvedIndexes")
             .contains("collateCompositeIndexCollateWasChanged"));
 
     csp = clazz.getProperty("csp");
@@ -349,14 +350,13 @@ public class CollateTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 10);
 
     for (var document : result) {
-      Assert.assertEquals(document.<String>field("csp").toUpperCase(Locale.ENGLISH), "VAL");
+      Assert.assertEquals(document.<String>getProperty("csp").toUpperCase(Locale.ENGLISH), "VAL");
     }
 
     //noinspection deprecation
     explain = session.command(new CommandSQL("explain " + query)).execute(session);
     Assert.assertTrue(
-        explain
-            .<Set<String>>field("involvedIndexes")
+        explain.<Set<String>>getProperty("involvedIndexes")
             .contains("collateCompositeIndexCollateWasChanged"));
   }
 
@@ -379,11 +379,11 @@ public class CollateTest extends BaseDBTest {
       var document = ((EntityImpl) session.newEntity("collateTestViaSQL"));
 
       if (i % 2 == 0) {
-        document.field("csp", "VAL");
-        document.field("cip", "VAL");
+        document.setProperty("csp", "VAL");
+        document.setProperty("cip", "VAL");
       } else {
-        document.field("csp", "val");
-        document.field("cip", "val");
+        document.setProperty("csp", "val");
+        document.setProperty("cip", "val");
       }
 
       session.begin();
@@ -398,7 +398,7 @@ public class CollateTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 5);
 
     for (var document : result) {
-      Assert.assertEquals(document.field("csp"), "VAL");
+      Assert.assertEquals(document.getProperty("csp"), "VAL");
     }
 
     //noinspection deprecation
@@ -408,7 +408,7 @@ public class CollateTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 10);
 
     for (var document : result) {
-      Assert.assertEquals((document.<String>field("cip")).toUpperCase(Locale.ENGLISH), "VAL");
+      Assert.assertEquals((document.<String>getProperty("cip")).toUpperCase(Locale.ENGLISH), "VAL");
     }
   }
 }

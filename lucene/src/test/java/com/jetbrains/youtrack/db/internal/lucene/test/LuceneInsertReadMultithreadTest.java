@@ -105,7 +105,7 @@ public class LuceneInsertReadMultithreadTest extends BaseLuceneTest {
       for (var i = 0; i < cycle; i++) {
         var doc = ((EntityImpl) db.newEntity("City"));
 
-        doc.field("name", "Rome");
+        doc.setProperty("name", "Rome");
 
         if (i % commitBuf == 0) {
           db.commit();

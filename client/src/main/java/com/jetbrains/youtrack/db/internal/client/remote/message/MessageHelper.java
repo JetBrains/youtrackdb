@@ -81,7 +81,7 @@ public class MessageHelper {
     }
     if (RecordInternal.getRecordType(session, iRecord) == EntityImpl.RECORD_TYPE
         && (dbSerializerName == null || !dbSerializerName.equals(serializer.toString()))) {
-      ((EntityImpl) iRecord).deserializeFields();
+      ((EntityImpl) iRecord).deserializeProperties();
       stream = serializer.toStream(session, iRecord);
     } else {
       stream = iRecord.toStream();

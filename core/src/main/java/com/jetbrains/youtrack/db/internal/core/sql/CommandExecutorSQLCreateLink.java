@@ -258,7 +258,7 @@ public class CommandExecutorSQLCreateLink extends CommandExecutorSQLAbstract {
       var entityIterator = session.browseClass(sourceClass);
       while (entityIterator.hasNext()) {
         var entity = entityIterator.next();
-        value = entity.field(sourceField);
+        value = entity.getProperty(sourceField);
 
         if (value != null) {
           if (value instanceof EntityImpl || value instanceof RID) {
@@ -298,7 +298,7 @@ public class CommandExecutorSQLCreateLink extends CommandExecutorSQLAbstract {
 
             if (target != null && inverse) {
               // INVERSE RELATIONSHIP
-              oldValue = target.field(linkName);
+              oldValue = target.getProperty(linkName);
 
               if (oldValue != null) {
                 if (!multipleRelationship) {
@@ -313,7 +313,7 @@ public class CommandExecutorSQLCreateLink extends CommandExecutorSQLAbstract {
                 } else {
                   // CREATE A NEW COLLECTION FOR BOTH
                   coll = new ArrayList<EntityImpl>(2);
-                  target.field(linkName, coll);
+                  target.setProperty(linkName, coll);
                   coll.add((EntityImpl) oldValue);
                 }
                 coll.add(entity);
@@ -334,12 +334,12 @@ public class CommandExecutorSQLCreateLink extends CommandExecutorSQLAbstract {
                   value = entity;
                 }
 
-                target.field(linkName, value);
+                target.setProperty(linkName, value);
               }
 
             } else {
               // SET THE REFERENCE
-              entity.field(linkName, value);
+              entity.setProperty(linkName, value);
 
             }
 

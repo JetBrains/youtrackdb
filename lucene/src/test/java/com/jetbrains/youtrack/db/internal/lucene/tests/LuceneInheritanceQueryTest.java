@@ -42,7 +42,7 @@ public class LuceneInheritanceQueryTest extends LuceneBaseTest {
   @Test
   public void testQuery() {
     var doc = ((EntityImpl) session.newEntity("C2"));
-    doc.field("name", "abc");
+    doc.setProperty("name", "abc");
 
     session.begin();
     session.commit();

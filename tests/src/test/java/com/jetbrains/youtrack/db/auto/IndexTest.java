@@ -510,9 +510,9 @@ public class IndexTest extends BaseDBTest {
       session.begin();
       final var whiz = ((EntityImpl) session.newEntity("Whiz"));
 
-      whiz.field("id", i);
-      whiz.field("text", "This is a test");
-      whiz.field("account", resultSet.getFirst().asEntityOrNull().getIdentity());
+      whiz.setProperty("id", i);
+      whiz.setProperty("text", "This is a test");
+      whiz.setPropertyInChain("account", resultSet.getFirst().asEntityOrNull().getIdentity());
 
       session.commit();
     }
@@ -532,7 +532,8 @@ public class IndexTest extends BaseDBTest {
     var whiz = session.newEntity("Whiz");
     whiz.setProperty("id", 100);
     whiz.setProperty("text", "This is a test!");
-    whiz.setProperty("account", ((EntityImpl) session.newEntity("Company")).field("id", 9999));
+    whiz.setProperty("account",
+        ((EntityImpl) session.newEntity("Company")).setPropertyInChain("id", 9999));
     session.commit();
 
     session.begin();
@@ -560,11 +561,11 @@ public class IndexTest extends BaseDBTest {
       }
       var testClassDocument = db.newInstance("TestClass");
       db.begin();
-      testClassDocument.field("name", "Test Class 1");
+      testClassDocument.setProperty("name", "Test Class 1");
       var testLinkClassDocument = ((EntityImpl) db.newEntity("TestLinkClass"));
-      testLinkClassDocument.field("testString", "Test Link Class 1");
-      testLinkClassDocument.field("testBoolean", true);
-      testClassDocument.field("testLink", testLinkClassDocument);
+      testLinkClassDocument.setProperty("testString", "Test Link Class 1");
+      testLinkClassDocument.setProperty("testBoolean", true);
+      testClassDocument.setProperty("testLink", testLinkClassDocument);
 
       db.commit();
       // THIS WILL THROW A java.lang.ClassCastException:
@@ -591,11 +592,11 @@ public class IndexTest extends BaseDBTest {
     try (var db = acquireSession()) {
       db.begin();
       var testClassDocument = db.newInstance("TestClass");
-      testClassDocument.field("name", "Test Class 2");
+      testClassDocument.setProperty("name", "Test Class 2");
       var testLinkClassDocument = ((EntityImpl) db.newEntity("TestLinkClass"));
-      testLinkClassDocument.field("testString", "Test Link Class 2");
-      testLinkClassDocument.field("testBoolean", true);
-      testClassDocument.field("testLink", testLinkClassDocument);
+      testLinkClassDocument.setProperty("testString", "Test Link Class 2");
+      testLinkClassDocument.setProperty("testBoolean", true);
+      testClassDocument.setProperty("testLink", testLinkClassDocument);
 
       db.commit();
 
@@ -652,8 +653,8 @@ public class IndexTest extends BaseDBTest {
         for (var i = 0; i < chunkSize; i++) {
           var d =
               ((EntityImpl) db.newEntity("MyFruit"))
-                  .field("name", "ABC" + pass + 'K' + i)
-                  .field("color", "FOO" + pass);
+                  .setPropertyInChain("name", "ABC" + pass + 'K' + i)
+                  .setPropertyInChain("color", "FOO" + pass);
 
           if (i < chunkSize / 2) {
             recordsToDelete.add(d);
@@ -710,7 +711,7 @@ public class IndexTest extends BaseDBTest {
 
       db.begin();
       doc = ((EntityImpl) db.newEntity("IndexTestTerm"));
-      doc.field("label", "42");
+      doc.setProperty("label", "42");
 
       db.commit();
 
@@ -746,7 +747,7 @@ public class IndexTest extends BaseDBTest {
 
     db.begin();
     var docOne = ((EntityImpl) db.newEntity("TransactionUniqueIndexTest"));
-    docOne.field("label", "A");
+    docOne.setProperty("label", "A");
 
     db.commit();
 
@@ -757,7 +758,7 @@ public class IndexTest extends BaseDBTest {
     db.begin();
     try {
       var docTwo = ((EntityImpl) db.newEntity("TransactionUniqueIndexTest"));
-      docTwo.field("label", "A");
+      docTwo.setProperty("label", "A");
 
       db.commit();
       Assert.fail();
@@ -792,10 +793,10 @@ public class IndexTest extends BaseDBTest {
     db.begin();
     try {
       var docOne = ((EntityImpl) db.newEntity("TransactionUniqueIndexTest"));
-      docOne.field("label", "B");
+      docOne.setProperty("label", "B");
 
       var docTwo = ((EntityImpl) db.newEntity("TransactionUniqueIndexTest"));
-      docTwo.field("label", "B");
+      docTwo.setProperty("label", "B");
 
       db.commit();
       Assert.fail();
@@ -820,7 +821,7 @@ public class IndexTest extends BaseDBTest {
 
     db.begin();
     var docOne = ((EntityImpl) db.newEntity("TransactionUniqueIndexWithDotTest"));
-    docOne.field("label", "A");
+    docOne.setProperty("label", "A");
 
     db.commit();
 
@@ -834,7 +835,7 @@ public class IndexTest extends BaseDBTest {
     db.begin();
     try {
       var docTwo = ((EntityImpl) db.newEntity("TransactionUniqueIndexWithDotTest"));
-      docTwo.field("label", "A");
+      docTwo.setProperty("label", "A");
 
       db.commit();
       Assert.fail();
@@ -874,10 +875,10 @@ public class IndexTest extends BaseDBTest {
     db.begin();
     try {
       var docOne = ((EntityImpl) db.newEntity("TransactionUniqueIndexWithDotTest"));
-      docOne.field("label", "B");
+      docOne.setProperty("label", "B");
 
       var docTwo = ((EntityImpl) db.newEntity("TransactionUniqueIndexWithDotTest"));
-      docTwo.field("label", "B");
+      docTwo.setProperty("label", "B");
 
       db.commit();
       Assert.fail();
@@ -938,10 +939,10 @@ public class IndexTest extends BaseDBTest {
 
       db.begin();
       var childClassDocument = db.newInstance("ChildTestClass");
-      childClassDocument.field("testParentProperty", 10L);
+      childClassDocument.setProperty("testParentProperty", 10L);
 
       var anotherChildClassDocument = db.newInstance("AnotherChildTestClass");
-      anotherChildClassDocument.field("testParentProperty", 11L);
+      anotherChildClassDocument.setProperty("testParentProperty", 11L);
 
       db.commit();
 
@@ -987,7 +988,7 @@ public class IndexTest extends BaseDBTest {
 
       session.begin();
       final var doc = ((EntityImpl) session.newEntity("IndexNotUniqueIndexKeySize"));
-      doc.field("value", key);
+      doc.setProperty("value", key);
 
       session.commit();
 
@@ -1015,7 +1016,7 @@ public class IndexTest extends BaseDBTest {
 
       session.begin();
       final var doc = ((EntityImpl) session.newEntity("IndexNotUniqueIndexSize"));
-      doc.field("value", key);
+      doc.setProperty("value", key);
 
       session.commit();
     }
@@ -1110,10 +1111,10 @@ public class IndexTest extends BaseDBTest {
 
     session.begin();
     var docOne = ((EntityImpl) session.newEntity("CompoundSQLIndexTest1"));
-    docOne.field("city", "Montreal");
+    docOne.setProperty("city", "Montreal");
 
     var docTwo = ((EntityImpl) session.newEntity("CompoundSQLIndexTest2"));
-    docTwo.field("address", docOne);
+    docTwo.setProperty("address", docOne);
 
     session.commit();
 
@@ -1140,8 +1141,8 @@ public class IndexTest extends BaseDBTest {
     for (var i = 0; i < 30; i++) {
       session.begin();
       final var document = ((EntityImpl) session.newEntity("IndexWithLimitAndOffsetClass"));
-      document.field("val", i / 10);
-      document.field("index", i);
+      document.setProperty("val", i / 10);
+      document.setProperty("index", i);
 
       session.commit();
     }
@@ -1173,11 +1174,11 @@ public class IndexTest extends BaseDBTest {
       session.begin();
       if (i % 5 == 0) {
         var document = ((EntityImpl) session.newEntity("NullIndexKeysSupport"));
-        document.field("nullField", null);
+        document.setProperty("nullField", null);
 
       } else {
         var document = ((EntityImpl) session.newEntity("NullIndexKeysSupport"));
-        document.field("nullField", "val" + i);
+        document.setProperty("nullField", "val" + i);
 
       }
       session.commit();
@@ -1200,7 +1201,7 @@ public class IndexTest extends BaseDBTest {
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
     Assert.assertTrue(
-        explain.<Set<String>>field("involvedIndexes").contains("NullIndexKeysSupportIndex"));
+        explain.<Set<String>>getProperty("involvedIndexes").contains("NullIndexKeysSupportIndex"));
   }
 
   public void testNullHashIndexKeysSupport() {
@@ -1220,11 +1221,11 @@ public class IndexTest extends BaseDBTest {
       session.begin();
       if (i % 5 == 0) {
         var document = ((EntityImpl) session.newEntity("NullHashIndexKeysSupport"));
-        document.field("nullField", null);
+        document.setProperty("nullField", null);
 
       } else {
         var document = ((EntityImpl) session.newEntity("NullHashIndexKeysSupport"));
-        document.field("nullField", "val" + i);
+        document.setProperty("nullField", "val" + i);
 
       }
       session.commit();
@@ -1236,7 +1237,8 @@ public class IndexTest extends BaseDBTest {
                 "select from NullHashIndexKeysSupport where nullField = 'val3'"));
     Assert.assertEquals(result.size(), 1);
 
-    Assert.assertEquals(result.getFirst().field("nullField"), "val3");
+    EntityImpl entity = result.getFirst();
+    Assert.assertEquals(entity.getProperty("nullField"), "val3");
 
     final var query = "select from NullHashIndexKeysSupport where nullField is null";
     result =
@@ -1246,13 +1248,14 @@ public class IndexTest extends BaseDBTest {
 
     Assert.assertEquals(result.size(), 4);
     for (var document : result) {
-      Assert.assertNull(document.field("nullField"));
+      Assert.assertNull(document.getProperty("nullField"));
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
     Assert.assertTrue(
-        explain.<Set<String>>field("involvedIndexes").contains("NullHashIndexKeysSupportIndex"));
+        explain.<Set<String>>getProperty("involvedIndexes")
+            .contains("NullHashIndexKeysSupportIndex"));
   }
 
   public void testNullIndexKeysSupportInTx() {
@@ -1274,11 +1277,11 @@ public class IndexTest extends BaseDBTest {
     for (var i = 0; i < 20; i++) {
       if (i % 5 == 0) {
         var document = ((EntityImpl) session.newEntity("NullIndexKeysSupportInTx"));
-        document.field("nullField", null);
+        document.setProperty("nullField", null);
 
       } else {
         var document = ((EntityImpl) session.newEntity("NullIndexKeysSupportInTx"));
-        document.field("nullField", "val" + i);
+        document.setProperty("nullField", "val" + i);
 
       }
     }
@@ -1291,7 +1294,8 @@ public class IndexTest extends BaseDBTest {
                 "select from NullIndexKeysSupportInTx where nullField = 'val3'"));
     Assert.assertEquals(result.size(), 1);
 
-    Assert.assertEquals(result.getFirst().field("nullField"), "val3");
+    EntityImpl entity = result.getFirst();
+    Assert.assertEquals(entity.getProperty("nullField"), "val3");
 
     final var query = "select from NullIndexKeysSupportInTx where nullField is null";
     result =
@@ -1301,13 +1305,14 @@ public class IndexTest extends BaseDBTest {
 
     Assert.assertEquals(result.size(), 4);
     for (var document : result) {
-      Assert.assertNull(document.field("nullField"));
+      Assert.assertNull(document.getProperty("nullField"));
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
     Assert.assertTrue(
-        explain.<Set<String>>field("involvedIndexes").contains("NullIndexKeysSupportInTxIndex"));
+        explain.<Set<String>>getProperty("involvedIndexes")
+            .contains("NullIndexKeysSupportInTxIndex"));
   }
 
   public void testNullIndexKeysSupportInMiddleTx() {
@@ -1333,11 +1338,11 @@ public class IndexTest extends BaseDBTest {
     for (var i = 0; i < 20; i++) {
       if (i % 5 == 0) {
         var document = ((EntityImpl) session.newEntity("NullIndexKeysSupportInMiddleTx"));
-        document.field("nullField", null);
+        document.setProperty("nullField", null);
 
       } else {
         var document = ((EntityImpl) session.newEntity("NullIndexKeysSupportInMiddleTx"));
-        document.field("nullField", "val" + i);
+        document.setProperty("nullField", "val" + i);
 
       }
     }
@@ -1348,7 +1353,8 @@ public class IndexTest extends BaseDBTest {
                 "select from NullIndexKeysSupportInMiddleTx where nullField = 'val3'"));
     Assert.assertEquals(result.size(), 1);
 
-    Assert.assertEquals(result.getFirst().field("nullField"), "val3");
+    EntityImpl entity = result.getFirst();
+    Assert.assertEquals(entity.getProperty("nullField"), "val3");
 
     final var query = "select from NullIndexKeysSupportInMiddleTx where nullField is null";
     result =
@@ -1358,14 +1364,13 @@ public class IndexTest extends BaseDBTest {
 
     Assert.assertEquals(result.size(), 4);
     for (var document : result) {
-      Assert.assertNull(document.field("nullField"));
+      Assert.assertNull(document.getProperty("nullField"));
     }
 
     final EntityImpl explain = session.command(new CommandSQL("explain " + query))
         .execute(session);
     Assert.assertTrue(
-        explain
-            .<Set<String>>field("involvedIndexes")
+        explain.<Set<String>>getProperty("involvedIndexes")
             .contains("NullIndexKeysSupportInMiddleTxIndex"));
 
     session.commit();
@@ -1385,10 +1390,10 @@ public class IndexTest extends BaseDBTest {
 
     session.begin();
     var docOne = ((EntityImpl) session.newEntity("TestCreateIndexAbstractClassChildOne"));
-    docOne.field("value", "val1");
+    docOne.setProperty("value", "val1");
 
     var docTwo = ((EntityImpl) session.newEntity("TestCreateIndexAbstractClassChildTwo"));
-    docTwo.field("value", "val2");
+    docTwo.setProperty("value", "val2");
 
     session.commit();
 
@@ -1442,7 +1447,7 @@ public class IndexTest extends BaseDBTest {
         session.begin();
         var document = ((EntityImpl) session.newEntity(
             "ValuesContainerIsRemovedIfIndexIsRemovedClass"));
-        document.field("val", "value" + i);
+        document.setProperty("val", "value" + i);
 
         session.commit();
       }
@@ -1540,10 +1545,10 @@ public class IndexTest extends BaseDBTest {
 
     session.begin();
     var document = ((EntityImpl) session.newEntity("EmptyNotUniqueIndexTest"));
-    document.field("prop", "keyOne");
+    document.setProperty("prop", "keyOne");
 
     document = ((EntityImpl) session.newEntity("EmptyNotUniqueIndexTest"));
-    document.field("prop", "keyTwo");
+    document.setProperty("prop", "keyTwo");
 
     session.commit();
 
@@ -1634,16 +1639,16 @@ public class IndexTest extends BaseDBTest {
 
     session.begin();
     var document = ((EntityImpl) session.newEntity("TestMultikeyWithoutField"));
-    document.field("state", (byte) 1);
+    document.setProperty("state", (byte) 1);
 
     Set<RID> users = new HashSet<>();
     users.add(rid1);
     users.add(rid2);
 
-    document.field("users", users);
-    document.field("time", 12L);
-    document.field("reg", 14L);
-    document.field("no", 12);
+    document.setProperty("users", users);
+    document.setProperty("time", 12L);
+    document.setProperty("reg", 14L);
+    document.setProperty("no", 12);
 
     session.commit();
 
@@ -1685,7 +1690,7 @@ public class IndexTest extends BaseDBTest {
     session.begin();
     document = session.load(rid);
 
-    users = document.field("users");
+    users = document.getProperty("users");
     users.remove(rid1);
 
     session.commit();
@@ -1710,7 +1715,7 @@ public class IndexTest extends BaseDBTest {
 
     session.begin();
     document = session.bindToSession(document);
-    users = document.field("users");
+    users = document.getProperty("users");
     users.remove(rid2);
     Assert.assertTrue(users.isEmpty());
 
@@ -1735,7 +1740,7 @@ public class IndexTest extends BaseDBTest {
 
     session.begin();
     document = session.load(rid);
-    users = document.field("users");
+    users = document.getProperty("users");
     users.add(rid3);
 
     session.commit();
@@ -1759,7 +1764,7 @@ public class IndexTest extends BaseDBTest {
 
     session.begin();
     document = session.bindToSession(document);
-    users = document.field("users");
+    users = document.getProperty("users");
     users.add(rid4);
 
     session.commit();
@@ -1797,7 +1802,7 @@ public class IndexTest extends BaseDBTest {
 
     session.begin();
     document = session.bindToSession(document);
-    document.removeField("users");
+    document.removeProperty("users");
 
     session.commit();
 
@@ -1853,16 +1858,16 @@ public class IndexTest extends BaseDBTest {
         new String[]{"state", "users", "time", "reg", "no"});
 
     var document = ((EntityImpl) session.newEntity("TestMultikeyWithoutFieldNoNullSupport"));
-    document.field("state", (byte) 1);
+    document.setProperty("state", (byte) 1);
 
     Set<RID> users = new HashSet<>();
     users.add(rid1);
     users.add(rid2);
 
-    document.field("users", users);
-    document.field("time", 12L);
-    document.field("reg", 14L);
-    document.field("no", 12);
+    document.setProperty("users", users);
+    document.setProperty("time", 12L);
+    document.setProperty("reg", 14L);
+    document.setProperty("no", 12);
 
     session.begin();
 
@@ -1904,7 +1909,7 @@ public class IndexTest extends BaseDBTest {
 
     session.begin();
     document = session.load(rid);
-    users = document.field("users");
+    users = document.getProperty("users");
     users.remove(rid1);
 
     session.commit();
@@ -1928,7 +1933,7 @@ public class IndexTest extends BaseDBTest {
     session.begin();
     document = session.load(rid);
 
-    users = document.field("users");
+    users = document.getProperty("users");
     users.remove(rid2);
     Assert.assertTrue(users.isEmpty());
 
@@ -1946,7 +1951,7 @@ public class IndexTest extends BaseDBTest {
     session.begin();
 
     document = session.load(rid);
-    users = document.field("users");
+    users = document.getProperty("users");
     users.add(rid3);
 
     session.commit();
@@ -1971,7 +1976,7 @@ public class IndexTest extends BaseDBTest {
     session.begin();
 
     document = session.bindToSession(document);
-    users = document.field("users");
+    users = document.getProperty("users");
     users.add(rid4);
 
     session.commit();
@@ -2009,7 +2014,7 @@ public class IndexTest extends BaseDBTest {
 
     session.begin();
     document = session.bindToSession(document);
-    document.removeField("users");
+    document.removeProperty("users");
 
     session.commit();
 
@@ -2031,10 +2036,10 @@ public class IndexTest extends BaseDBTest {
 
     session.begin();
     var docOne = ((EntityImpl) session.newEntity("NullValuesCountSBTreeUnique"));
-    docOne.field("field", 1);
+    docOne.setProperty("field", 1);
 
     var docTwo = ((EntityImpl) session.newEntity("NullValuesCountSBTreeUnique"));
-    docTwo.field("field", null);
+    docTwo.setProperty("field", null);
 
     session.commit();
 
@@ -2063,10 +2068,10 @@ public class IndexTest extends BaseDBTest {
 
     session.begin();
     var docOne = ((EntityImpl) session.newEntity("NullValuesCountSBTreeNotUniqueOne"));
-    docOne.field("field", 1);
+    docOne.setProperty("field", 1);
 
     var docTwo = ((EntityImpl) session.newEntity("NullValuesCountSBTreeNotUniqueOne"));
-    docTwo.field("field", null);
+    docTwo.setProperty("field", null);
 
     session.commit();
 
@@ -2095,10 +2100,10 @@ public class IndexTest extends BaseDBTest {
 
     session.begin();
     var docOne = ((EntityImpl) session.newEntity("NullValuesCountSBTreeNotUniqueTwo"));
-    docOne.field("field", null);
+    docOne.setProperty("field", null);
 
     var docTwo = ((EntityImpl) session.newEntity("NullValuesCountSBTreeNotUniqueTwo"));
-    docTwo.field("field", null);
+    docTwo.setProperty("field", null);
 
     session.commit();
 
@@ -2127,10 +2132,10 @@ public class IndexTest extends BaseDBTest {
 
     session.begin();
     var docOne = ((EntityImpl) session.newEntity("NullValuesCountHashUnique"));
-    docOne.field("field", 1);
+    docOne.setProperty("field", 1);
 
     var docTwo = ((EntityImpl) session.newEntity("NullValuesCountHashUnique"));
-    docTwo.field("field", null);
+    docTwo.setProperty("field", null);
 
     session.commit();
 
@@ -2159,10 +2164,10 @@ public class IndexTest extends BaseDBTest {
 
     session.begin();
     var docOne = ((EntityImpl) session.newEntity("NullValuesCountHashNotUniqueOne"));
-    docOne.field("field", 1);
+    docOne.setProperty("field", 1);
 
     var docTwo = ((EntityImpl) session.newEntity("NullValuesCountHashNotUniqueOne"));
-    docTwo.field("field", null);
+    docTwo.setProperty("field", null);
 
     session.commit();
 
@@ -2191,10 +2196,10 @@ public class IndexTest extends BaseDBTest {
 
     session.begin();
     var docOne = ((EntityImpl) session.newEntity("NullValuesCountHashNotUniqueTwo"));
-    docOne.field("field", null);
+    docOne.setProperty("field", null);
 
     var docTwo = ((EntityImpl) session.newEntity("NullValuesCountHashNotUniqueTwo"));
-    docTwo.field("field", null);
+    docTwo.setProperty("field", null);
 
     session.commit();
 

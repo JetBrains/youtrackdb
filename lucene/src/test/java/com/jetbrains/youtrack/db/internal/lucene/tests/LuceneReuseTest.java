@@ -30,10 +30,10 @@ public class LuceneReuseTest extends LuceneBaseTest {
     for (var i = 0; i < 10; i++) {
       session.begin();
       ((EntityImpl) session.newEntity("Reuse"))
-          .field("name", "John")
-          .field("date", new Date())
-          .field("surname", "Reese")
-          .field("age", i);
+          .setPropertyInChain("name", "John")
+          .setPropertyInChain("date", new Date())
+          .setPropertyInChain("surname", "Reese")
+          .setProperty("age", i);
       session.commit();
     }
 
@@ -68,20 +68,20 @@ public class LuceneReuseTest extends LuceneBaseTest {
     for (var i = 0; i < 10; i++) {
       session.begin();
       ((EntityImpl) session.newEntity("Reuse"))
-          .field("name", "John")
-          .field("date", new Date())
-          .field("surname", "Reese")
-          .field("age", i);
+          .setPropertyInChain("name", "John")
+          .setPropertyInChain("date", new Date())
+          .setPropertyInChain("surname", "Reese")
+          .setProperty("age", i);
       session.begin();
     }
 
     // additional record
     session.begin();
     ((EntityImpl) session.newEntity("Reuse"))
-        .field("name", "John")
-        .field("date", new Date())
-        .field("surname", "Franklin")
-        .field("age", 11);
+        .setPropertyInChain("name", "John")
+        .setPropertyInChain("date", new Date())
+        .setPropertyInChain("surname", "Franklin")
+        .setProperty("age", 11);
     session.commit();
 
     // exact query on name uses Reuse.conposite

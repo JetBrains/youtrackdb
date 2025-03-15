@@ -18,7 +18,7 @@ public class CheckIndexToolTest extends BaseMemoryInternalDatabase {
 
     session.begin();
     var doc = session.newInstance("Foo");
-    doc.field("name", "a");
+    doc.setProperty("name", "a");
 
     session.commit();
 
@@ -28,7 +28,7 @@ public class CheckIndexToolTest extends BaseMemoryInternalDatabase {
     for (var i = 0; i < N_RECORDS; i++) {
       session.begin();
       doc = session.newInstance("Foo");
-      doc.field("name", "x" + i);
+      doc.setProperty("name", "x" + i);
 
       session.commit();
     }

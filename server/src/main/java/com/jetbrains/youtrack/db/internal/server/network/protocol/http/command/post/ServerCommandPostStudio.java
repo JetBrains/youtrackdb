@@ -353,7 +353,7 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
 
       // BIND ALL CHANGED FIELDS
       for (var f : fields.entrySet()) {
-        entity.field(f.getKey(), f.getValue());
+        entity.setProperty(f.getKey(), f.getValue());
       }
 
       iResponse.send(

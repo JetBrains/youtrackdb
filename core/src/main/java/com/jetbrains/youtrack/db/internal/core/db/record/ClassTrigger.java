@@ -220,7 +220,7 @@ public class ClassTrigger {
                 EntityImpl funcEntity = session.load(new RecordId(fieldName));
                 func =
                     session.getMetadata().getFunctionLibrary()
-                        .getFunction(session, funcEntity.field("name"));
+                        .getFunction(session, funcEntity.getProperty("name"));
               } catch (RecordNotFoundException rnf) {
                 // ignore
               }
@@ -230,11 +230,11 @@ public class ClassTrigger {
           }
         }
       } else {
-        final var funcProp = entity.field(attr);
+        final var funcProp = entity.getProperty(attr);
         if (funcProp != null) {
           final String funcName;
           if (funcProp instanceof EntityImpl) {
-            funcName = ((EntityImpl) funcProp).field("name");
+            funcName = ((EntityImpl) funcProp).getProperty("name");
           } else {
             funcName = funcProp.toString();
           }

@@ -106,7 +106,7 @@ public class AutomaticBackupTest {
 
     db.createClass("TestBackup");
     db.begin();
-    ((EntityImpl) db.newEntity("TestBackup")).field("name", DBNAME);
+    db.newEntity("TestBackup").setProperty("name", DBNAME);
 
     db.commit();
   }
@@ -135,12 +135,12 @@ public class AutomaticBackupTest {
     var doc = ((EntityImpl) db.newEntity());
     doc.updateFromJSON(jsonConfig);
 
-    doc.field("enabled", true);
-    doc.field("targetFileName", "${DBNAME}.zip");
+    doc.setProperty("enabled", true);
+    doc.setProperty("targetFileName", "${DBNAME}.zip");
 
-    doc.field("dbInclude", new String[]{"testautobackup"});
+    doc.setProperty("dbInclude", new String[]{"testautobackup"});
 
-    doc.field(
+    doc.setPropertyInChain(
         "firstTime",
         new SimpleDateFormat("HH:mm:ss").format(new Date(System.currentTimeMillis() + 5000)));
 
@@ -184,12 +184,12 @@ public class AutomaticBackupTest {
     var doc = ((EntityImpl) db.newEntity());
     doc.updateFromJSON(jsonConfig);
 
-    doc.field("enabled", true);
-    doc.field("targetFileName", "${DBNAME}.zip");
+    doc.setProperty("enabled", true);
+    doc.setProperty("targetFileName", "${DBNAME}.zip");
 
-    doc.field("dbExclude", new String[]{"testautobackup"});
+    doc.setProperty("dbExclude", new String[]{"testautobackup"});
 
-    doc.field(
+    doc.setPropertyInChain(
         "firstTime",
         new SimpleDateFormat("HH:mm:ss").format(new Date(System.currentTimeMillis() + 2000)));
 
@@ -267,12 +267,12 @@ public class AutomaticBackupTest {
     var doc = ((EntityImpl) db.newEntity());
     doc.updateFromJSON(jsonConfig);
 
-    doc.field("enabled", false);
-    doc.field("targetFileName", "${DBNAME}.zip");
+    doc.setProperty("enabled", false);
+    doc.setProperty("targetFileName", "${DBNAME}.zip");
 
-    doc.field("dbExclude", new String[]{"testautobackup"});
+    doc.setProperty("dbExclude", new String[]{"testautobackup"});
 
-    doc.field(
+    doc.setPropertyInChain(
         "firstTime",
         new SimpleDateFormat("HH:mm:ss").format(new Date(System.currentTimeMillis() + 2000)));
 

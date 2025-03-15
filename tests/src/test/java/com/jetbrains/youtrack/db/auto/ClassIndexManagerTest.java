@@ -162,14 +162,14 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var docOne = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
     final var docTwo = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
 
-    docOne.field("prop1", "a");
+    docOne.setProperty("prop1", "a");
     session.begin();
 
     session.commit();
 
     var exceptionThrown = false;
     try {
-      docTwo.field("prop1", "a");
+      docTwo.setProperty("prop1", "a");
       session.begin();
 
       session.commit();
@@ -184,12 +184,12 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var docOne = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
     final var docTwo = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
 
-    docOne.field("prop1", "a");
+    docOne.setProperty("prop1", "a");
     session.begin();
 
     session.commit();
 
-    docTwo.field("prop1", null);
+    docTwo.setProperty("prop1", null);
     session.begin();
 
     session.commit();
@@ -200,9 +200,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var docTwo = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
 
     session.begin();
-    docOne.field("prop1", "a");
+    docOne.setProperty("prop1", "a");
 
-    docTwo.field("prop1", null);
+    docTwo.setProperty("prop1", null);
 
     session.commit();
   }
@@ -211,14 +211,14 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var docOne = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
     final var docTwo = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
 
-    docOne.field("prop0", "a");
+    docOne.setProperty("prop0", "a");
     session.begin();
 
     session.commit();
 
     var exceptionThrown = false;
     try {
-      docTwo.field("prop0", "a");
+      docTwo.setProperty("prop0", "a");
       session.begin();
 
       session.commit();
@@ -234,19 +234,19 @@ public class ClassIndexManagerTest extends BaseDBTest {
     var docTwo = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
 
     var exceptionThrown = false;
-    docOne.field("prop1", "a");
+    docOne.setProperty("prop1", "a");
 
     session.commit();
 
     session.begin();
-    docTwo.field("prop1", "b");
+    docTwo.setProperty("prop1", "b");
 
     session.commit();
 
     try {
       session.begin();
       docTwo = session.bindToSession(docTwo);
-      docTwo.field("prop1", "a");
+      docTwo.setProperty("prop1", "a");
 
       session.commit();
     } catch (RecordDuplicatedException e) {
@@ -260,18 +260,18 @@ public class ClassIndexManagerTest extends BaseDBTest {
     var docOne = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
     var docTwo = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
 
-    docOne.field("prop1", "a");
+    docOne.setProperty("prop1", "a");
 
     session.commit();
 
     session.begin();
-    docTwo.field("prop1", "b");
+    docTwo.setProperty("prop1", "b");
 
     session.commit();
 
     session.begin();
     docTwo = session.bindToSession(docTwo);
-    docTwo.field("prop1", null);
+    docTwo.setProperty("prop1", null);
 
     session.commit();
   }
@@ -281,24 +281,24 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var docTwo = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
 
     session.begin();
-    docOne.field("prop1", "a");
+    docOne.setProperty("prop1", "a");
 
-    docTwo.field("prop1", "b");
+    docTwo.setProperty("prop1", "b");
 
-    docTwo.field("prop1", null);
+    docTwo.setProperty("prop1", null);
 
     session.commit();
   }
 
   public void testPropertiesCheckNonUniqueIndexDubKeys() {
     final var docOne = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
-    docOne.field("prop2", 1);
+    docOne.setProperty("prop2", 1);
     session.begin();
 
     session.commit();
 
     final var docTwo = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
-    docTwo.field("prop2", 1);
+    docTwo.setProperty("prop2", 1);
     session.begin();
 
     session.commit();
@@ -329,10 +329,10 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
-    docOne.field("prop1", "a");
+    docOne.setProperty("prop1", "a");
 
     final var docTwo = ((EntityImpl) session.newEntity());
-    docTwo.field("prop1", "a");
+    docTwo.setProperty("prop1", "a");
 
     session.commit();
 
@@ -357,12 +357,12 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
-    docOne.field("prop1", "a");
+    docOne.setProperty("prop1", "a");
 
     final var docTwo = ((EntityImpl) session.newEntity());
-    docTwo.field("prop1", "b");
+    docTwo.setProperty("prop1", "b");
 
-    docOne.field("prop1", "a");
+    docOne.setProperty("prop1", "a");
 
     session.commit();
 
@@ -376,7 +376,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
   public void testDeleteDocumentWithoutClass() {
     final var docOne = ((EntityImpl) session.newEntity());
-    docOne.field("prop1", "a");
+    docOne.setProperty("prop1", "a");
 
     session.begin();
 
@@ -389,7 +389,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
   public void testDeleteModifiedDocumentWithoutClass() {
     var docOne = ((EntityImpl) session.newEntity());
-    docOne.field("prop1", "a");
+    docOne.setProperty("prop1", "a");
 
     session.begin();
 
@@ -397,7 +397,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     docOne = session.bindToSession(docOne);
-    docOne.field("prop1", "b");
+    docOne.setProperty("prop1", "b");
     docOne.delete();
     session.commit();
   }
@@ -405,7 +405,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
   public void testDocumentUpdateWithoutDirtyFields() {
     session.begin();
     var docOne = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
-    docOne.field("prop1", "a");
+    docOne.setProperty("prop1", "a");
 
     session.commit();
 
@@ -420,9 +420,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     checkEmbeddedDB();
 
     final var doc = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
-    doc.field("prop0", "x");
-    doc.field("prop1", "a");
-    doc.field("prop2", 1);
+    doc.setProperty("prop0", "x");
+    doc.setProperty("prop1", "a");
+    doc.setProperty("prop2", 1);
 
     session.begin();
 
@@ -464,9 +464,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
-    doc.field("prop0", "x");
-    doc.field("prop1", "a");
-    doc.field("prop2", 1);
+    doc.setProperty("prop0", "x");
+    doc.setProperty("prop1", "a");
+    doc.setProperty("prop2", 1);
 
     session.commit();
 
@@ -487,8 +487,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     doc = session.bindToSession(doc);
-    doc.removeField("prop2");
-    doc.removeField("prop0");
+    doc.removeProperty("prop2");
+    doc.removeProperty("prop0");
 
     session.commit();
 
@@ -503,9 +503,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
 
-    doc.field("prop0", "x");
-    doc.field("prop1", "a");
-    doc.field("prop2", 1);
+    doc.setProperty("prop0", "x");
+    doc.setProperty("prop1", "a");
+    doc.setProperty("prop2", 1);
 
     session.commit();
 
@@ -526,8 +526,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     doc = session.bindToSession(doc);
-    doc.field("prop2", null);
-    doc.field("prop0", null);
+    doc.setProperty("prop2", null);
+    doc.setProperty("prop0", null);
 
     session.commit();
 
@@ -541,9 +541,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
-    doc.field("prop0", "x");
-    doc.field("prop1", "a");
-    doc.field("prop2", 1);
+    doc.setProperty("prop0", "x");
+    doc.setProperty("prop1", "a");
+    doc.setProperty("prop2", 1);
 
     session.commit();
 
@@ -565,8 +565,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     doc = session.bindToSession(doc);
-    doc.field("prop2", 2);
-    doc.field("prop0", "y");
+    doc.setProperty("prop2", 2);
+    doc.setProperty("prop0", "y");
 
     session.commit();
 
@@ -593,8 +593,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
-    doc.field("prop1", "a");
-    doc.field("prop2", null);
+    doc.setProperty("prop1", "a");
+    doc.setProperty("prop2", null);
 
     session.commit();
 
@@ -612,7 +612,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     doc = session.bindToSession(doc);
-    doc.field("prop2", 2);
+    doc.setProperty("prop2", 2);
 
     session.commit();
 
@@ -648,7 +648,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     listProperty.add("value1");
     listProperty.add("value2");
 
-    doc.field("prop4", listProperty);
+    doc.setProperty("prop4", listProperty);
 
     session.commit();
 
@@ -662,7 +662,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     doc = session.bindToSession(doc);
-    List<String> trackedList = doc.field("prop4");
+    List<String> trackedList = doc.getProperty("prop4");
     trackedList.set(0, "value3");
 
     trackedList.add("value4");
@@ -706,7 +706,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     mapProperty.put("key1", "value1");
     mapProperty.put("key2", "value2");
 
-    doc.field("prop5", mapProperty);
+    doc.setProperty("prop5", mapProperty);
 
     session.commit();
 
@@ -720,7 +720,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     doc = session.bindToSession(doc);
-    Map<String, String> trackedMap = doc.field("prop5");
+    Map<String, String> trackedMap = doc.getProperty("prop5");
     trackedMap.put("key3", "value3");
     trackedMap.put("key4", "value4");
     trackedMap.remove("key1");
@@ -782,7 +782,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     setProperty.add("value1");
     setProperty.add("value2");
 
-    doc.field("prop6", setProperty);
+    doc.setProperty("prop6", setProperty);
 
     session.commit();
 
@@ -796,7 +796,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     doc = session.bindToSession(doc);
-    Set<String> trackedSet = doc.field("prop6");
+    Set<String> trackedSet = doc.getProperty("prop6");
 
     //noinspection OverwrittenKey
     trackedSet.add("value4");
@@ -834,7 +834,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     listProperty.add("value1");
     listProperty.add("value2");
 
-    doc.field("prop4", listProperty);
+    doc.setProperty("prop4", listProperty);
 
     session.commit();
 
@@ -848,7 +848,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     doc = session.bindToSession(doc);
-    List<String> trackedList = doc.field("prop4");
+    List<String> trackedList = doc.getProperty("prop4");
     trackedList.set(0, "value3");
 
     trackedList.add("value4");
@@ -873,7 +873,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     doc = session.bindToSession(doc);
-    trackedList = doc.field("prop4");
+    trackedList = doc.getProperty("prop4");
     trackedList.remove("value3");
     trackedList.remove("value4");
     trackedList.add("value8");
@@ -903,7 +903,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     mapProperty.put("key1", "value1");
     mapProperty.put("key2", "value2");
 
-    doc.field("prop5", mapProperty);
+    doc.setProperty("prop5", mapProperty);
 
     session.commit();
 
@@ -917,7 +917,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     doc = session.bindToSession(doc);
-    Map<String, String> trackedMap = doc.field("prop5");
+    Map<String, String> trackedMap = doc.getProperty("prop5");
     trackedMap.put("key3", "value3");
     trackedMap.put("key4", "value4");
     trackedMap.remove("key1");
@@ -965,7 +965,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     doc = session.bindToSession(doc);
-    trackedMap = doc.field("prop5");
+    trackedMap = doc.getProperty("prop5");
 
     trackedMap.remove("key1");
     trackedMap.remove("key3");
@@ -994,7 +994,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     setProperty.add("value1");
     setProperty.add("value2");
 
-    doc.field("prop6", setProperty);
+    doc.setProperty("prop6", setProperty);
 
     session.commit();
 
@@ -1008,7 +1008,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     doc = session.bindToSession(doc);
-    Set<String> trackedSet = doc.field("prop6");
+    Set<String> trackedSet = doc.getProperty("prop6");
 
     //noinspection OverwrittenKey
     trackedSet.add("value4");
@@ -1032,7 +1032,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     doc = session.bindToSession(doc);
-    trackedSet = doc.field("prop6");
+    trackedSet = doc.getProperty("prop6");
     trackedSet.remove("value1");
     trackedSet.add("value6");
 
@@ -1046,9 +1046,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     checkEmbeddedDB();
 
     final var doc = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
-    doc.field("prop0", "x");
-    doc.field("prop1", "a");
-    doc.field("prop2", 1);
+    doc.setProperty("prop0", "x");
+    doc.setProperty("prop1", "a");
+    doc.setProperty("prop2", 1);
 
     session.begin();
 
@@ -1079,9 +1079,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
-    doc.field("prop0", "x");
-    doc.field("prop1", "a");
-    doc.field("prop2", 1);
+    doc.setProperty("prop0", "x");
+    doc.setProperty("prop1", "a");
+    doc.setProperty("prop2", 1);
 
     session.commit();
 
@@ -1098,8 +1098,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     doc = session.bindToSession(doc);
-    doc.field("prop2", 2);
-    doc.field("prop0", "y");
+    doc.setProperty("prop2", 2);
+    doc.setProperty("prop0", "y");
 
     doc.delete();
     session.commit();
@@ -1114,8 +1114,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     final var doc = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
-    doc.field("prop1", "a");
-    doc.field("prop2", null);
+    doc.setProperty("prop1", "a");
+    doc.setProperty("prop2", null);
 
     session.commit();
 
@@ -1140,8 +1140,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
-    doc.field("prop1", "a");
-    doc.field("prop2", null);
+    doc.setProperty("prop1", "a");
+    doc.setProperty("prop2", null);
 
     session.commit();
 
@@ -1155,7 +1155,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     doc = session.bindToSession(doc);
-    doc.field("prop2", 2);
+    doc.setProperty("prop2", 2);
 
     doc.delete();
     session.commit();
@@ -1169,12 +1169,12 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestClassTwo"));
-    doc.field("prop1", "a");
+    doc.setProperty("prop1", "a");
 
     session.commit();
     session.begin();
     doc = session.bindToSession(doc);
-    doc.field("prop1", "b");
+    doc.setProperty("prop1", "b");
 
     session.commit();
 
@@ -1191,7 +1191,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
   public void testNoClassIndexesDelete() {
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestClassTwo"));
-    doc.field("prop1", "a");
+    doc.setProperty("prop1", "a");
 
     session.commit();
 
@@ -1206,8 +1206,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var doc = ((EntityImpl) session.newEntity(
         "classIndexManagerTestCompositeCollectionClass"));
 
-    doc.field("prop1", "test1");
-    doc.field("prop2", Arrays.asList(1, 2));
+    doc.setProperty("prop1", "test1");
+    doc.setProperty("prop2", Arrays.asList(1, 2));
 
     session.begin();
 
@@ -1243,8 +1243,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var doc = ((EntityImpl) session.newEntity(
         "classIndexManagerTestCompositeCollectionClass"));
 
-    doc.field("prop1", null);
-    doc.field("prop2", Arrays.asList(1, 2));
+    doc.setProperty("prop1", null);
+    doc.setProperty("prop2", Arrays.asList(1, 2));
 
     session.commit();
 
@@ -1266,8 +1266,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var doc = ((EntityImpl) session.newEntity(
         "classIndexManagerTestCompositeCollectionClass"));
 
-    doc.field("prop1", "test1");
-    doc.field("prop2", null);
+    doc.setProperty("prop1", "test1");
+    doc.setProperty("prop2", null);
 
     session.begin();
 
@@ -1291,8 +1291,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestCompositeCollectionClass"));
 
-    doc.field("prop1", "test1");
-    doc.field("prop2", Arrays.asList(1, 2));
+    doc.setProperty("prop1", "test1");
+    doc.setProperty("prop2", Arrays.asList(1, 2));
 
     session.commit();
 
@@ -1305,7 +1305,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
-    doc.field("prop1", "test2");
+    doc.setProperty("prop1", "test2");
 
     session.commit();
 
@@ -1333,8 +1333,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestCompositeCollectionClass"));
 
-    doc.field("prop1", "test1");
-    doc.field("prop2", Arrays.asList(1, 2));
+    doc.setProperty("prop1", "test1");
+    doc.setProperty("prop2", Arrays.asList(1, 2));
 
     session.commit();
 
@@ -1347,7 +1347,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
-    doc.field("prop2", Arrays.asList(1, 3));
+    doc.setProperty("prop2", Arrays.asList(1, 3));
 
     session.commit();
 
@@ -1375,8 +1375,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestCompositeCollectionClass"));
 
-    doc.field("prop1", "test1");
-    doc.field("prop2", Arrays.asList(1, 2));
+    doc.setProperty("prop1", "test1");
+    doc.setProperty("prop2", Arrays.asList(1, 2));
 
     session.commit();
 
@@ -1389,7 +1389,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
-    List<Integer> docList = doc.field("prop2");
+    List<Integer> docList = doc.getProperty("prop2");
     docList.add(3);
     docList.add(4);
     docList.add(5);
@@ -1430,8 +1430,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestCompositeCollectionClass"));
 
-    doc.field("prop1", "test1");
-    doc.field("prop2", Arrays.asList(1, 2));
+    doc.setProperty("prop1", "test1");
+    doc.setProperty("prop2", Arrays.asList(1, 2));
 
     session.commit();
 
@@ -1444,14 +1444,14 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
-    List<Integer> docList = doc.field("prop2");
+    List<Integer> docList = doc.getProperty("prop2");
     docList.add(3);
     docList.add(4);
     docList.add(5);
 
     docList.remove(0);
 
-    doc.field("prop1", "test2");
+    doc.setProperty("prop1", "test2");
 
     session.commit();
 
@@ -1487,8 +1487,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestCompositeCollectionClass"));
 
-    doc.field("prop1", "test1");
-    doc.field("prop2", Arrays.asList(1, 2));
+    doc.setProperty("prop1", "test1");
+    doc.setProperty("prop2", Arrays.asList(1, 2));
 
     session.commit();
 
@@ -1501,7 +1501,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
-    doc.field("prop1", null);
+    doc.setProperty("prop1", null);
 
     session.commit();
 
@@ -1520,8 +1520,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestCompositeCollectionClass"));
 
-    doc.field("prop1", "test1");
-    doc.field("prop2", Arrays.asList(1, 2));
+    doc.setProperty("prop1", "test1");
+    doc.setProperty("prop2", Arrays.asList(1, 2));
 
     session.commit();
 
@@ -1534,7 +1534,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
-    doc.field("prop2", null);
+    doc.setProperty("prop2", null);
 
     session.commit();
 
@@ -1553,8 +1553,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestCompositeCollectionClass"));
 
-    doc.field("prop1", "test1");
-    doc.field("prop2", Arrays.asList(1, 2));
+    doc.setProperty("prop1", "test1");
+    doc.setProperty("prop2", Arrays.asList(1, 2));
 
     session.commit();
 
@@ -1567,8 +1567,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    doc.field("prop2", null);
-    doc.field("prop1", null);
+    doc.setProperty("prop2", null);
+    doc.setProperty("prop1", null);
 
     session.commit();
 
@@ -1587,8 +1587,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestCompositeCollectionClass"));
 
-    doc.field("prop1", "test1");
-    doc.field("prop2", Arrays.asList(1, 2));
+    doc.setProperty("prop1", "test1");
+    doc.setProperty("prop2", Arrays.asList(1, 2));
 
     session.commit();
 
@@ -1601,14 +1601,14 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
-    List<Integer> docList = doc.field("prop2");
+    List<Integer> docList = doc.getProperty("prop2");
     docList.add(3);
     docList.add(4);
     docList.add(5);
 
     docList.remove(0);
 
-    doc.field("prop1", null);
+    doc.setProperty("prop1", null);
 
     session.commit();
 
@@ -1627,8 +1627,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestCompositeCollectionClass"));
 
-    doc.field("prop1", "test1");
-    doc.field("prop2", Arrays.asList(1, 2));
+    doc.setProperty("prop1", "test1");
+    doc.setProperty("prop2", Arrays.asList(1, 2));
 
     session.commit();
 
@@ -1641,7 +1641,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
-    doc.field("prop1", "test2");
+    doc.setProperty("prop1", "test2");
 
     doc.delete();
     session.commit();
@@ -1655,8 +1655,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestCompositeCollectionClass"));
 
-    doc.field("prop1", "test1");
-    doc.field("prop2", Arrays.asList(1, 2));
+    doc.setProperty("prop1", "test1");
+    doc.setProperty("prop2", Arrays.asList(1, 2));
 
     session.commit();
 
@@ -1669,7 +1669,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
-    doc.field("prop2", Arrays.asList(1, 3));
+    doc.setProperty("prop2", Arrays.asList(1, 3));
 
     doc.delete();
     session.commit();
@@ -1683,8 +1683,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestCompositeCollectionClass"));
 
-    doc.field("prop1", "test1");
-    doc.field("prop2", Arrays.asList(1, 2));
+    doc.setProperty("prop1", "test1");
+    doc.setProperty("prop2", Arrays.asList(1, 2));
 
     session.commit();
 
@@ -1697,7 +1697,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
-    List<Integer> docList = doc.field("prop2");
+    List<Integer> docList = doc.getProperty("prop2");
     docList.add(3);
     docList.add(4);
 
@@ -1715,8 +1715,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestCompositeCollectionClass"));
 
-    doc.field("prop1", "test1");
-    doc.field("prop2", Arrays.asList(1, 2));
+    doc.setProperty("prop1", "test1");
+    doc.setProperty("prop2", Arrays.asList(1, 2));
 
     session.commit();
 
@@ -1729,13 +1729,13 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    List<Integer> docList = doc.field("prop2");
+    List<Integer> docList = doc.getProperty("prop2");
     docList.add(3);
     docList.add(4);
 
     docList.remove(1);
 
-    doc.field("prop1", "test2");
+    doc.setProperty("prop1", "test2");
 
     doc.delete();
     session.commit();
@@ -1749,8 +1749,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestCompositeCollectionClass"));
 
-    doc.field("prop1", "test1");
-    doc.field("prop2", Arrays.asList(1, 2));
+    doc.setProperty("prop1", "test1");
+    doc.setProperty("prop2", Arrays.asList(1, 2));
 
     session.commit();
 
@@ -1763,8 +1763,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
-    doc.field("prop2", Arrays.asList(1, 3));
-    doc.field("prop1", "test2");
+    doc.setProperty("prop2", Arrays.asList(1, 3));
+    doc.setProperty("prop1", "test2");
 
     doc.delete();
     session.commit();
@@ -1778,8 +1778,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestCompositeCollectionClass"));
 
-    doc.field("prop1", "test1");
-    doc.field("prop2", Arrays.asList(1, 2));
+    doc.setProperty("prop1", "test1");
+    doc.setProperty("prop2", Arrays.asList(1, 2));
 
     session.commit();
 
@@ -1792,7 +1792,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    doc.field("prop1", null);
+    doc.setProperty("prop1", null);
 
     doc.delete();
     session.commit();
@@ -1806,8 +1806,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestCompositeCollectionClass"));
 
-    doc.field("prop1", "test1");
-    doc.field("prop2", Arrays.asList(1, 2));
+    doc.setProperty("prop1", "test1");
+    doc.setProperty("prop2", Arrays.asList(1, 2));
 
     session.commit();
 
@@ -1820,7 +1820,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     doc = session.bindToSession(doc);
-    doc.field("prop2", null);
+    doc.setProperty("prop2", null);
 
     doc.delete();
     session.commit();
@@ -1834,8 +1834,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestCompositeCollectionClass"));
 
-    doc.field("prop1", "test1");
-    doc.field("prop2", Arrays.asList(1, 2));
+    doc.setProperty("prop1", "test1");
+    doc.setProperty("prop2", Arrays.asList(1, 2));
 
     session.commit();
 
@@ -1848,8 +1848,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    doc.field("prop2", null);
-    doc.field("prop1", null);
+    doc.setProperty("prop2", null);
+    doc.setProperty("prop1", null);
 
     doc.delete();
     session.commit();
@@ -1863,8 +1863,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     var doc = ((EntityImpl) session.newEntity("classIndexManagerTestCompositeCollectionClass"));
 
-    doc.field("prop1", "test1");
-    doc.field("prop2", Arrays.asList(1, 2));
+    doc.setProperty("prop1", "test1");
+    doc.setProperty("prop2", Arrays.asList(1, 2));
 
     session.commit();
 
@@ -1877,13 +1877,13 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    List<Integer> docList = doc.field("prop2");
+    List<Integer> docList = doc.getProperty("prop2");
     docList.add(3);
     docList.add(4);
 
     docList.remove(1);
 
-    doc.field("prop1", null);
+    doc.setProperty("prop1", null);
 
     doc.delete();
     session.commit();
@@ -1895,16 +1895,16 @@ public class ClassIndexManagerTest extends BaseDBTest {
     checkEmbeddedDB();
 
     final var docOne = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
-    docOne.field("prop0", "doc1-prop0");
-    docOne.field("prop1", "doc1-prop1");
+    docOne.setProperty("prop0", "doc1-prop0");
+    docOne.setProperty("prop1", "doc1-prop1");
 
     session.begin();
 
     session.commit();
 
     final var docTwo = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
-    docTwo.field("prop0", "doc2-prop0");
-    docTwo.field("prop1", "doc2-prop1");
+    docTwo.setProperty("prop0", "doc2-prop0");
+    docTwo.setProperty("prop1", "doc2-prop1");
 
     session.begin();
 

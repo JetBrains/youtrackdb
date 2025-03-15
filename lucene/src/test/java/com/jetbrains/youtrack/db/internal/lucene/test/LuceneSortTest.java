@@ -564,7 +564,8 @@ public class LuceneSortTest extends BaseLuceneTest {
   public void shouldIndexVeryLongDescriptionWithWildCardConfig() throws Exception {
 
     session.begin();
-    ((EntityImpl) session.newEntity("Person")).field("description", DESCRIPTION);
+    EntityImpl entity = ((EntityImpl) session.newEntity("Person"));
+    entity.setProperty("description", DESCRIPTION);
     session.commit();
 
     session.command(
@@ -583,7 +584,8 @@ public class LuceneSortTest extends BaseLuceneTest {
   public void shouldIndexVeryLongDescriptionWithSingleField() throws Exception {
 
     session.begin();
-    ((EntityImpl) session.newEntity("Person")).field("description", DESCRIPTION);
+    EntityImpl entity = ((EntityImpl) session.newEntity("Person"));
+    entity.setProperty("description", DESCRIPTION);
     session.commit();
 
     session.command(

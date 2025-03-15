@@ -25,9 +25,9 @@ public class HookChangeValidationTest extends DbTestBase {
         new DocumentHookAbstract(session) {
           @Override
           public RESULT onRecordBeforeCreate(EntityImpl entity) {
-            entity.removeField("property1");
-            entity.removeField("property2");
-            entity.removeField("property3");
+            entity.removeProperty("property1");
+            entity.removeProperty("property2");
+            entity.removeProperty("property3");
             return RESULT.RECORD_CHANGED;
           }
 
@@ -39,9 +39,9 @@ public class HookChangeValidationTest extends DbTestBase {
         });
     session.begin();
     var doc = (EntityImpl) session.newEntity(classA);
-    doc.field("property1", "value1-create");
-    doc.field("property2", "value2-create");
-    doc.field("property3", "value3-create");
+    doc.setProperty("property1", "value1-create");
+    doc.setProperty("property2", "value2-create");
+    doc.setProperty("property3", "value3-create");
     try {
 
       session.commit();
@@ -68,9 +68,9 @@ public class HookChangeValidationTest extends DbTestBase {
 
           @Override
           public RESULT onRecordBeforeUpdate(EntityImpl entity) {
-            entity.removeField("property1");
-            entity.removeField("property2");
-            entity.removeField("property3");
+            entity.removeProperty("property1");
+            entity.removeProperty("property2");
+            entity.removeProperty("property3");
             return RESULT.RECORD_CHANGED;
           }
 
@@ -78,21 +78,21 @@ public class HookChangeValidationTest extends DbTestBase {
 
     session.begin();
     var doc = (EntityImpl) session.newEntity(classA);
-    doc.field("property1", "value1-create");
-    doc.field("property2", "value2-create");
-    doc.field("property3", "value3-create");
+    doc.setProperty("property1", "value1-create");
+    doc.setProperty("property2", "value2-create");
+    doc.setProperty("property3", "value3-create");
 
     session.commit();
 
     session.begin();
     try {
       doc = session.bindToSession(doc);
-      assertEquals("value1-create", doc.field("property1"));
-      assertEquals("value2-create", doc.field("property2"));
-      assertEquals("value3-create", doc.field("property3"));
+      assertEquals("value1-create", doc.getProperty("property1"));
+      assertEquals("value2-create", doc.getProperty("property2"));
+      assertEquals("value3-create", doc.getProperty("property3"));
 
-      doc.field("property1", "value1-update");
-      doc.field("property2", "value2-update");
+      doc.setProperty("property1", "value1-update");
+      doc.setProperty("property2", "value2-update");
 
       session.commit();
       Assert.fail("The document save should fail for validation exception");

@@ -161,7 +161,9 @@ public class ScriptDocumentDatabaseWrapper {
   }
 
   public EntityImpl save(final Map<String, Object> iObject) {
-    return new EntityImpl(session).fields(iObject);
+    var entity = session.newInstance();
+    entity.updateFromMap(iObject);
+    return entity;
   }
 
   public Entity save(final String iString) {

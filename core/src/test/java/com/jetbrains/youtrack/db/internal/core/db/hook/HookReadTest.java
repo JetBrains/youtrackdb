@@ -28,7 +28,7 @@ public class HookReadTest extends DbTestBase {
                 && !((EntityImpl) iRecord)
                 .getSchemaClassName()
                 .equalsIgnoreCase(SecurityPolicy.class.getSimpleName())) {
-              ((EntityImpl) iRecord).field("read", "test");
+              ((EntityImpl) iRecord).setProperty("read", "test");
             }
             return RESULT.RECORD_CHANGED;
           }

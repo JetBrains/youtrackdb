@@ -390,12 +390,12 @@ public class SQLInsertTest extends BaseDBTest {
     EntityImpl record = result.getRecord(session);
 
     record = session.bindToSession(record);
-    Assert.assertEquals(record.<Object>field("id"), 3232);
-    Assert.assertEquals(record.field("name"), "my name");
-    Map<String, String> map = record.field("map");
+    Assert.assertEquals(record.<Object>getProperty("id"), 3232);
+    Assert.assertEquals(record.getProperty("name"), "my name");
+    Map<String, String> map = record.getProperty("map");
     Assert.assertEquals(map.get("key"), "value");
-    Assert.assertEquals(record.field("dir"), "");
-    Assert.assertEquals(record.field("user"), new RecordId(3, positions.getFirst()));
+    Assert.assertEquals(record.getProperty("dir"), "");
+    Assert.assertEquals(record.getProperty("user"), new RecordId(3, positions.getFirst()));
   }
 
   @Test
@@ -418,7 +418,8 @@ public class SQLInsertTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 2);
     for (var r : result) {
       Assert.assertEquals(r.asEntityOrNull().getSchemaClassName(), "UserCopy");
-      Assert.assertNotEquals(((EntityImpl) r.asEntityOrNull()).field("name"), "admin");
+      EntityImpl entity = ((EntityImpl) r.asEntityOrNull());
+      Assert.assertNotEquals(entity.getProperty("name"), "admin");
     }
   }
 
@@ -473,12 +474,12 @@ public class SQLInsertTest extends BaseDBTest {
         Assert.assertEquals(res3.size(), 2);
         Assert.assertTrue(((List<?>) res3).getFirst() instanceof EntityImpl);
         final var res3doc = (EntityImpl) res3.getFirst();
-        Assert.assertTrue(res3doc.containsField("result"));
+        Assert.assertTrue(res3doc.hasProperty("result"));
         Assert.assertTrue(
-            "FFFF".equalsIgnoreCase(res3doc.field("result"))
-                || "Butch 1".equalsIgnoreCase(res3doc.field("result")));
-        Assert.assertTrue(res3doc.containsField("rid"));
-        Assert.assertTrue(res3doc.containsField("version"));
+            "FFFF".equalsIgnoreCase(res3doc.getProperty("result"))
+                || "Butch 1".equalsIgnoreCase(res3doc.getProperty("result")));
+        Assert.assertTrue(res3doc.hasProperty("rid"));
+        Assert.assertTrue(res3doc.hasProperty("version"));
       }
     }
 
@@ -501,8 +502,8 @@ public class SQLInsertTest extends BaseDBTest {
       try (var resSql3ResultSet = session.command(sql3)) {
         var res_sql3 = resSql3ResultSet.next().<Identifiable>getProperty("$var2");
         final EntityImpl sql3doc = res_sql3.getRecord(session);
-        Assert.assertEquals(sql3doc.<Object>field("Bingo"), 1);
-        Assert.assertEquals(sql3doc.field("Name"), "Bingo owner");
+        Assert.assertEquals(sql3doc.<Object>getProperty("Bingo"), 1);
+        Assert.assertEquals(sql3doc.getProperty("Name"), "Bingo owner");
       }
     }
   }

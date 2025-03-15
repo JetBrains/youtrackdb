@@ -24,14 +24,14 @@ public class ChainIndexFetchTest extends DbTestBase {
 
     session.begin();
     var doc = (EntityImpl) session.newEntity(linkedClass);
-    doc.field("id", "referred");
+    doc.setProperty("id", "referred");
     session.commit();
 
     session.begin();
 
     doc = session.bindToSession(doc);
     var doc1 = (EntityImpl) session.newEntity(baseClass);
-    doc1.field("ref", doc);
+    doc1.setProperty("ref", doc);
 
     session.commit();
 

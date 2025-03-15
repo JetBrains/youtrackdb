@@ -357,7 +357,7 @@ public class GraphRepair {
                 return;
               }
 
-              for (var fieldName : vertex.fieldNames()) {
+              for (var fieldName : vertex.propertyNames()) {
                 final var connection =
                     VertexInternal.getConnection(db,
                         db.getMetadata().getSchema(), Direction.BOTH, fieldName);
@@ -376,7 +376,7 @@ public class GraphRepair {
                         stats, true)) {
                       vertexCorrupted = true;
                       if (!checkOnly) {
-                        vertex.field(fieldName, null);
+                        vertex.setProperty(fieldName, null);
                       } else {
                         message(
                             outputListener,
@@ -538,7 +538,7 @@ public class GraphRepair {
                 getInverseConnectionFieldName(fieldName, useVertexFieldsForEdgeLabels);
 
             // CHECK THE VERTEX IS IN INVERSE EDGE CONTAINS
-            final var inverseEdgeContainer = record.field(inverseFieldName);
+            final var inverseEdgeContainer = record.getProperty(inverseFieldName);
             if (inverseEdgeContainer == null)
             // NULL CONTAINER
             {

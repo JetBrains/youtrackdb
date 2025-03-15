@@ -24,7 +24,7 @@ public class FindReferencesStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var linked = (EntityImpl) session.newEntity(name);
-    linked.field("foo", "bar");
+    linked.setProperty("foo", "bar");
 
     session.commit();
 
@@ -34,9 +34,9 @@ public class FindReferencesStatementExecutionTest extends DbTestBase {
       session.begin();
       linked = session.bindToSession(linked);
       var doc = (EntityImpl) session.newEntity(name2);
-      doc.field("counter", i);
+      doc.setProperty("counter", i);
       if (i % 2 == 0) {
-        doc.field("link", linked);
+        doc.setProperty("link", linked);
       }
 
       session.commit();

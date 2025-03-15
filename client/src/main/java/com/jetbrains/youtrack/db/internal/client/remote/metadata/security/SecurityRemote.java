@@ -98,10 +98,10 @@ public class SecurityRemote implements SecurityInternal {
   public Identifiable allowIdentity(
       DatabaseSession session, EntityImpl entity, String iAllowFieldName,
       Identifiable iId) {
-    Set<Identifiable> field = entity.field(iAllowFieldName);
+    Set<Identifiable> field = entity.getProperty(iAllowFieldName);
     if (field == null) {
       field = new TrackedSet<>(entity);
-      entity.field(iAllowFieldName, field);
+      entity.setProperty(iAllowFieldName, field);
     }
     field.add(iId);
 
@@ -140,7 +140,7 @@ public class SecurityRemote implements SecurityInternal {
   public Identifiable disallowIdentity(
       DatabaseSessionInternal session, EntityImpl entity, String iAllowFieldName,
       Identifiable iId) {
-    Set<Identifiable> field = entity.field(iAllowFieldName);
+    Set<Identifiable> field = entity.getProperty(iAllowFieldName);
     if (field != null) {
       field.remove(iId);
     }

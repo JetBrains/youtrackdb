@@ -266,7 +266,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
 
       if (toLoadFieldNames != null) {
         // EARLY FETCH ALL THE FIELDS THAT MATTERS
-        entity.deserializeFields(toLoadFieldNames.toArray(new String[]{}));
+        entity.deserializeProperties(toLoadFieldNames.toArray(new String[]{}));
         fieldNames = toLoadFieldNames;
       }
     }

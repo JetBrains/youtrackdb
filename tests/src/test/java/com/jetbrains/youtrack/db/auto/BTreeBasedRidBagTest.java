@@ -111,7 +111,7 @@ public class BTreeBasedRidBagTest extends RidBagTest {
 
     var docClusterOne = ((EntityImpl) session.newEntity());
     var ridBagClusterOne = new RidBag(session);
-    docClusterOne.field("ridBag", ridBagClusterOne);
+    docClusterOne.setProperty("ridBag", ridBagClusterOne);
 
     session.begin();
 
@@ -136,16 +136,16 @@ public class BTreeBasedRidBagTest extends RidBagTest {
   public void testIteratorOverAfterRemove() {
     session.begin();
     var scuti =
-        ((EntityImpl) session.newEntity())
-            .field("name", "UY Scuti");
+        ((EntityImpl) session.newEntity());
+    scuti.setProperty("name", "UY Scuti");
 
     var cygni =
-        ((EntityImpl) session.newEntity())
-            .field("name", "NML Cygni");
+        ((EntityImpl) session.newEntity());
+    cygni.setProperty("name", "NML Cygni");
 
     var scorpii =
-        ((EntityImpl) session.newEntity())
-            .field("name", "AH Scorpii");
+        ((EntityImpl) session.newEntity());
+    scorpii.setProperty("name", "AH Scorpii");
 
     session.commit();
 
@@ -161,7 +161,7 @@ public class BTreeBasedRidBagTest extends RidBagTest {
     bag.add(scorpii.getIdentity());
 
     var doc = ((EntityImpl) session.newEntity());
-    doc.field("ridBag", bag);
+    doc.setProperty("ridBag", bag);
 
     session.begin();
 
@@ -169,7 +169,7 @@ public class BTreeBasedRidBagTest extends RidBagTest {
 
     session.begin();
     doc = session.bindToSession(doc);
-    bag = doc.field("ridBag");
+    bag = doc.getProperty("ridBag");
     bag.remove(cygni.getIdentity());
 
     Set<EntityImpl> result = new HashSet<>();
@@ -203,7 +203,7 @@ public class BTreeBasedRidBagTest extends RidBagTest {
     bag.add(doc_3.getIdentity());
     bag.add(doc_4.getIdentity());
 
-    doc.field("ridBag", bag);
+    doc.setProperty("ridBag", bag);
 
     session.commit();
 
@@ -213,7 +213,7 @@ public class BTreeBasedRidBagTest extends RidBagTest {
 
     var doc_6 = ((EntityImpl) session.newEntity());
 
-    bag = doc.field("ridBag");
+    bag = doc.getProperty("ridBag");
     bag.add(doc_5.getIdentity());
     bag.add(doc_6.getIdentity());
 
@@ -221,7 +221,7 @@ public class BTreeBasedRidBagTest extends RidBagTest {
 
     session.begin();
     doc = session.bindToSession(doc);
-    bag = doc.field("ridBag");
+    bag = doc.getProperty("ridBag");
     Assert.assertEquals(bag.size(), 6);
 
     List<Identifiable> docs = new ArrayList<>();
@@ -255,7 +255,7 @@ public class BTreeBasedRidBagTest extends RidBagTest {
 
     var realDoc = ((EntityImpl) session.newEntity());
     var realDocRidBag = new RidBag(session);
-    realDoc.field("ridBag", realDocRidBag);
+    realDoc.setProperty("ridBag", realDocRidBag);
 
     for (var i = 0; i < 10; i++) {
       var docToAdd = ((EntityImpl) session.newEntity());
@@ -306,16 +306,16 @@ public class BTreeBasedRidBagTest extends RidBagTest {
     Assert.assertEquals(testRidBagFile.length(), testRidBagSize);
 
     realDoc = session.load(realDoc.getIdentity());
-    RidBag ridBag = realDoc.field("ridBag");
+    RidBag ridBag = realDoc.getProperty("ridBag");
     Assert.assertEquals(ridBag.size(), 10);
   }
 
   private EntityImpl crateTestDeleteDoc(EntityImpl realDoc) {
     var testDocument = ((EntityImpl) session.newEntity());
     var highLevelRidBag = new RidBag(session);
-    testDocument.field("ridBag", highLevelRidBag);
+    testDocument.setProperty("ridBag", highLevelRidBag);
     realDoc = session.bindToSession(realDoc);
-    testDocument.field("realDoc", realDoc);
+    testDocument.setProperty("realDoc", realDoc);
 
     session.begin();
 

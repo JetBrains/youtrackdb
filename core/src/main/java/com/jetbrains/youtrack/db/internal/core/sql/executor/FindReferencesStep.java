@@ -197,8 +197,8 @@ public class FindReferencesStep extends AbstractExecutionStep {
         && value.getRecord(db) instanceof EntityImpl) {
       // embedded document
       var entity = (EntityImpl) value.getEntity(db);
-      for (var fieldName : entity.fieldNames()) {
-        var fieldValue = entity.field(fieldName);
+      for (var fieldName : entity.propertyNames()) {
+        var fieldValue = entity.getProperty(fieldName);
         result.addAll(
             checkObject(db, iSourceRIDs, fieldValue, iRootObject, prefix + "." + fieldName));
       }

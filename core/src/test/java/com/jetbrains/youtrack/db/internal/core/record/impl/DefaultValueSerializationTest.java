@@ -25,8 +25,8 @@ public class DefaultValueSerializationTest extends DbTestBase {
     var doc1 = (EntityImpl) session.newEntity();
     RecordInternal.unsetDirty(doc1);
     doc1.fromStream(val);
-    doc1.deserializeFields();
-    Assert.assertEquals(doc.field("name").toString(), doc1.field("name").toString());
+    doc1.deserializeProperties();
+    Assert.assertEquals(doc.getProperty("name").toString(), doc1.getProperty("name").toString());
     session.rollback();
   }
 }

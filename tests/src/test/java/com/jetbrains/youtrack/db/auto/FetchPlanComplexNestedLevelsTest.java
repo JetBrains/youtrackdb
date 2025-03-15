@@ -87,7 +87,7 @@ public class FetchPlanComplexNestedLevelsTest extends BaseDBTest {
     final var parsed = ((EntityImpl) session.newEntity());
     parsed.updateFromJSON(json);
 
-    Assert.assertNotNull(parsed.rawField("out_FollowTest.in.out_FollowTest"));
+    Assert.assertNotNull(parsed.getProperty("out_FollowTest.in.out_FollowTest"));
   }
 
   @Test
@@ -104,7 +104,7 @@ public class FetchPlanComplexNestedLevelsTest extends BaseDBTest {
     final var parsed = ((EntityImpl) session.newEntity());
     parsed.updateFromJSON(json);
 
-    Assert.assertNotNull(parsed.rawField("out_FollowTest.in.out_FollowTest"));
+    Assert.assertNotNull(parsed.getProperty("out_FollowTest.in.out_FollowTest"));
   }
 
   @Test

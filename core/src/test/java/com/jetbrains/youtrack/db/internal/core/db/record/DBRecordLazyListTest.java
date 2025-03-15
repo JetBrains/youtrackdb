@@ -43,19 +43,23 @@ public class DBRecordLazyListTest {
     itemsProp.setLinkedClass(itemClass);
 
     db.begin();
-    var doc1 = ((EntityImpl) db.newEntity(itemClass)).field("name", "Doc1");
+    var doc1 = ((EntityImpl) db.newEntity(itemClass));
+    doc1.setProperty("name", "Doc1");
 
-    var doc2 = ((EntityImpl) db.newEntity(itemClass)).field("name", "Doc2");
+    var doc2 = ((EntityImpl) db.newEntity(itemClass));
+    doc2.setProperty("name", "Doc2");
 
-    var doc3 = ((EntityImpl) db.newEntity(itemClass)).field("name", "Doc3");
+    var doc3 = ((EntityImpl) db.newEntity(itemClass));
+    doc3.setProperty("name", "Doc3");
 
-    var mainDoc = ((EntityImpl) db.newEntity(mainClass)).field("name", "Main Doc");
+    var mainDoc = ((EntityImpl) db.newEntity(mainClass));
+    mainDoc.setProperty("name", "Main Doc");
     mainDoc.newLinkList("items").addAll(Arrays.asList(doc1, doc2, doc3));
     db.commit();
 
     db.begin();
     mainDoc = db.bindToSession(mainDoc);
-    Collection<EntityImpl> origItems = mainDoc.field("items");
+    Collection<EntityImpl> origItems = mainDoc.getProperty("items");
     var it = origItems.iterator();
     assertNotNull(it.next());
     assertNotNull(it.next());

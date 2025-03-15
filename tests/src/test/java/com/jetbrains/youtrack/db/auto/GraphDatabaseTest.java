@@ -274,16 +274,16 @@ public class GraphDatabaseTest extends BaseDBTest {
     vertex.setProperty("name", "vertexWithEmbedded");
 
     var doc = ((EntityImpl) session.newEntity());
-    doc.field("foo", "bar");
+    doc.setProperty("foo", "bar");
 
     vertex.setProperty("emb1", doc);
 
     var doc2 = ((EntityImpl) session.newEntity("V"));
-    doc2.field("foo", "bar1");
+    doc2.setProperty("foo", "bar1");
     vertex.setProperty("emb2", doc2, PropertyType.EMBEDDED);
 
     var doc3 = ((EntityImpl) session.newEntity("NonVertex"));
-    doc3.field("foo", "bar2");
+    doc3.setProperty("foo", "bar2");
     vertex.setProperty("emb3", doc3, PropertyType.EMBEDDED);
 
     var res1 = vertex.getProperty("emb1");

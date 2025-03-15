@@ -48,14 +48,14 @@ public class GeometryCollectionShapeBuilder extends ComplexShapeBuilder<ShapeCol
   @Override
   public ShapeCollection<Shape> fromMapGeoJson(Map<String, Object> geoJsonMap) {
     var doc = new EntityImpl(null, getName());
-    doc.field("geometries", geoJsonMap.get("geometries"));
+    doc.setProperty("geometries", geoJsonMap.get("geometries"));
     return fromDoc(doc);
   }
 
   @Override
   public ShapeCollection<Shape> fromDoc(EntityImpl doc) {
 
-    List<Object> geometries = doc.field("geometries");
+    List<Object> geometries = doc.getProperty("geometries");
 
     List<Shape> shapes = new ArrayList<Shape>();
 
@@ -96,7 +96,7 @@ public class GeometryCollectionShapeBuilder extends ComplexShapeBuilder<ShapeCol
     for (var s : shapes) {
       geometries.add(shapeFactory.toEntitty(s));
     }
-    doc.field("geometries", geometries);
+    doc.setProperty("geometries", geometries);
     return doc;
   }
 }

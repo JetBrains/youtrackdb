@@ -139,7 +139,7 @@ public class SQLMethodInclude extends AbstractSQLMethod {
         if (!fieldName.isEmpty() && fieldName.charAt(fieldName.length() - 1) == '*') {
           final var fieldPart = fieldName.substring(0, fieldName.length() - 1);
           final List<String> toInclude = new ArrayList<String>();
-          for (var f : entity.fieldNames()) {
+          for (var f : entity.propertyNames()) {
             if (f.startsWith(fieldPart)) {
               toInclude.add(f);
             }

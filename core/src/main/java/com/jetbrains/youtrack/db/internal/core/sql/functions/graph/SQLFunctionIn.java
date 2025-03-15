@@ -89,7 +89,10 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered {
           .getRids(session, key)) {
         result.add(
             stream
-                .map((edge) -> ((EntityImpl) edge.getRecord(session)).rawField("out"))
+                .map((edge) -> {
+                  EntityImpl entity = edge.getRecord(session);
+                  return entity.getProperty("out");
+                })
                 .collect(Collectors.toSet()));
       }
     }

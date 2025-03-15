@@ -389,7 +389,7 @@ public abstract class DBSequence {
   }
 
   public static SEQUENCE_TYPE getSequenceType(final EntityImpl entity) {
-    String sequenceTypeStr = entity.field(FIELD_TYPE);
+    String sequenceTypeStr = entity.getProperty(FIELD_TYPE);
     if (sequenceTypeStr != null) {
       return SEQUENCE_TYPE.valueOf(sequenceTypeStr);
     }

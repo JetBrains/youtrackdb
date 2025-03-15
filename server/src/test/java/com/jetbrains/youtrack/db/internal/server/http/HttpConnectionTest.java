@@ -100,7 +100,7 @@ public class HttpConnectionTest extends BaseHttpDatabaseTest {
 
       final EntityImpl serverStatus =
           new EntityImpl(null).updateFromJSON(getResponse().getEntity().getContent());
-      conns = serverStatus.field("connections");
+      conns = serverStatus.getProperty("connections");
 
       final var openConnections = conns.size();
 

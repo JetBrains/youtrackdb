@@ -56,7 +56,7 @@ public class LineStringShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
   public JtsGeometry fromDoc(EntityImpl document) {
 
     validate(document);
-    List<List<Number>> coordinates = document.field(COORDINATES);
+    List<List<Number>> coordinates = document.getProperty(COORDINATES);
 
     var coords = new Coordinate[coordinates.size()];
     var i = 0;
@@ -71,7 +71,7 @@ public class LineStringShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
   public EntityImpl toEntitty(JtsGeometry shape) {
     var doc = new EntityImpl(null, getName());
     var lineString = (LineString) shape.getGeom();
-    doc.field(COORDINATES, coordinatesFromLineString(lineString));
+    doc.setProperty(COORDINATES, coordinatesFromLineString(lineString));
     return doc;
   }
 
@@ -82,7 +82,7 @@ public class LineStringShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
     }
 
     var doc = new EntityImpl(null, getName() + "Z");
-    doc.field(COORDINATES, coordinatesFromLineStringZ(geometry));
+    doc.setProperty(COORDINATES, coordinatesFromLineStringZ(geometry));
     return doc;
   }
 

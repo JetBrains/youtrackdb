@@ -125,14 +125,14 @@ public abstract class CommandRequestTextAbstract extends CommandRequestAbstract
       buffer.set(!params.isEmpty());
       if (!params.isEmpty()) {
         final var param = (EntityImpl) session.newEmbeddedEntity();
-        param.field("parameters", params);
+        param.setProperty("parameters", params);
         buffer.set(param.toStream());
       }
 
       buffer.set(!compositeKeyParams.isEmpty());
       if (!compositeKeyParams.isEmpty()) {
         final var compositeKey = (EntityImpl) session.newEmbeddedEntity();
-        compositeKey.field("compositeKeyParams", compositeKeyParams);
+        compositeKey.setProperty("compositeKeyParams", compositeKeyParams);
         buffer.set(compositeKey.toStream());
       }
     }
@@ -156,7 +156,7 @@ public abstract class CommandRequestTextAbstract extends CommandRequestAbstract
         param.fromStream(paramBuffer);
       }
 
-      Map<Object, Object> params = param.field("params");
+      Map<Object, Object> params = param.getProperty("params");
       parameters = new HashMap<Object, Object>();
       if (params != null) {
         for (var p : params.entrySet()) {
@@ -174,7 +174,7 @@ public abstract class CommandRequestTextAbstract extends CommandRequestAbstract
           }
         }
       } else {
-        params = param.field("parameters");
+        params = param.getProperty("parameters");
         for (var p : params.entrySet()) {
           if (p.getKey() instanceof String && Character.isDigit(((String) p.getKey()).charAt(0))) {
             parameters.put(Integer.parseInt((String) p.getKey()), p.getValue());
@@ -195,7 +195,7 @@ public abstract class CommandRequestTextAbstract extends CommandRequestAbstract
         param.fromStream(paramBuffer);
       }
 
-      final Map<Object, Object> compositeKeyParams = param.field("compositeKeyParams");
+      final Map<Object, Object> compositeKeyParams = param.getProperty("compositeKeyParams");
 
       if (parameters == null) {
         parameters = new HashMap<Object, Object>();

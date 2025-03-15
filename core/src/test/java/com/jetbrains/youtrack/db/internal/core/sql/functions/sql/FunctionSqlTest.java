@@ -20,9 +20,9 @@ public class FunctionSqlTest extends DbTestBase {
 
     session.begin();
     var doc1 = ((EntityImpl) session.newEntity("Test"));
-    doc1.field("name", "Enrico");
+    doc1.setProperty("name", "Enrico");
     doc1 = ((EntityImpl) session.newEntity("Test"));
-    doc1.field("name", "Luca");
+    doc1.setProperty("name", "Luca");
     session.commit();
 
     session.begin();
@@ -53,9 +53,9 @@ public class FunctionSqlTest extends DbTestBase {
     session.getMetadata().getSchema().createClass("Test");
     session.begin();
     var doc1 = ((EntityImpl) session.newEntity("Test"));
-    doc1.field("name", "Enrico");
+    doc1.setProperty("name", "Enrico");
     doc1 = ((EntityImpl) session.newEntity("Test"));
-    doc1.field("name", "Luca");
+    doc1.setProperty("name", "Luca");
     session.commit();
 
     session.begin();

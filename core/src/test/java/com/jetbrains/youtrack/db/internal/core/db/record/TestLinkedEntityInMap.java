@@ -18,7 +18,7 @@ public class TestLinkedEntityInMap extends DbTestBase {
 
     session.begin();
     var jaimeDoc = (EntityImpl) session.newEntity("PersonTest");
-    jaimeDoc.field("name", "jaime");
+    jaimeDoc.setProperty("name", "jaime");
 
     session.commit();
 
@@ -34,7 +34,7 @@ public class TestLinkedEntityInMap extends DbTestBase {
 
     session.begin();
     tyrionDoc = session.bindToSession(tyrionDoc);
-    List<Entity> res = tyrionDoc.field("emergency_contact");
+    List<Entity> res = tyrionDoc.getProperty("emergency_contact");
     var doc = res.getFirst();
     Assert.assertTrue(doc.getLink("contact").isPersistent());
     session.commit();

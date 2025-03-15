@@ -171,11 +171,11 @@ public class SQLUpdateTest extends BaseDBTest {
       Assert.assertEquals(records, 1);
 
       EntityImpl loadedDoc = session.load(doc.getIdentity());
-      Assert.assertEquals(((List<?>) loadedDoc.field("addresses")).size(), 3);
+      Assert.assertEquals(((List<?>) loadedDoc.getProperty("addresses")).size(), 3);
       Assert.assertEquals(
-          ((Identifiable) ((List<?>) loadedDoc.field("addresses")).get(0)).getIdentity(),
+          ((Identifiable) ((List<?>) loadedDoc.getProperty("addresses")).get(0)).getIdentity(),
           positions.get(0));
-      loadedDoc.field("addresses", doc.getProperty("addresses"));
+      loadedDoc.setProperty("addresses", doc.getProperty("addresses"));
 
       session.bindToSession(loadedDoc);
       session.commit();
@@ -256,9 +256,9 @@ public class SQLUpdateTest extends BaseDBTest {
     session.createClass("Person");
     session.begin();
     var doc = ((EntityImpl) session.newEntity("Person"));
-    doc.field("name", "Raf");
-    doc.field("city", "Torino");
-    doc.field("gender", "fmale");
+    doc.setProperty("name", "Raf");
+    doc.setProperty("city", "Torino");
+    doc.setProperty("gender", "fmale");
 
     session.commit();
 
@@ -300,9 +300,9 @@ public class SQLUpdateTest extends BaseDBTest {
   public void updateWithReturn() {
     var doc = ((EntityImpl) session.newEntity("Data"));
     session.begin();
-    doc.field("name", "Pawel");
-    doc.field("city", "Wroclaw");
-    doc.field("really_big_field", "BIIIIIIIIIIIIIIIGGGGGGG!!!");
+    doc.setProperty("name", "Pawel");
+    doc.setProperty("city", "Wroclaw");
+    doc.setProperty("really_big_field", "BIIIIIIIIIIIIIIIGGGGGGG!!!");
 
     session.commit();
 
@@ -346,9 +346,9 @@ public class SQLUpdateTest extends BaseDBTest {
     var doc = ((EntityImpl) session.newEntity("Data"));
 
     session.begin();
-    doc.field("name", "Raf");
-    doc.field("city", "Torino");
-    doc.field("gender", "fmale");
+    doc.setProperty("name", "Raf");
+    doc.setProperty("city", "Torino");
+    doc.setProperty("gender", "fmale");
 
     session.commit();
 
@@ -489,7 +489,7 @@ public class SQLUpdateTest extends BaseDBTest {
     session.commit();
 
     document = session.bindToSession(document);
-    Assert.assertEquals(document.field("test"), "aaa ' bbb");
+    Assert.assertEquals(document.getProperty("test"), "aaa ' bbb");
 
     session.begin();
     session
@@ -501,8 +501,8 @@ public class SQLUpdateTest extends BaseDBTest {
     session.commit();
 
     document = session.bindToSession(document);
-    Assert.assertEquals(document.field("test"), "ccc ' eee");
-    Assert.assertEquals(document.field("test2"), "aaa ' bbb");
+    Assert.assertEquals(document.getProperty("test"), "ccc ' eee");
+    Assert.assertEquals(document.getProperty("test2"), "aaa ' bbb");
 
     session.begin();
     session
@@ -513,7 +513,7 @@ public class SQLUpdateTest extends BaseDBTest {
     session.commit();
 
     document = session.bindToSession(document);
-    Assert.assertEquals(document.field("test"), "aaa \n bbb");
+    Assert.assertEquals(document.getProperty("test"), "aaa \n bbb");
 
     session.begin();
     session
@@ -524,7 +524,7 @@ public class SQLUpdateTest extends BaseDBTest {
     session.commit();
 
     document = session.bindToSession(document);
-    Assert.assertEquals(document.field("test"), "aaa \r bbb");
+    Assert.assertEquals(document.getProperty("test"), "aaa \r bbb");
 
     session.begin();
     session
@@ -535,7 +535,7 @@ public class SQLUpdateTest extends BaseDBTest {
     session.commit();
 
     document = session.bindToSession(document);
-    Assert.assertEquals(document.field("test"), "aaa \b bbb");
+    Assert.assertEquals(document.getProperty("test"), "aaa \b bbb");
 
     session.begin();
     session
@@ -546,7 +546,7 @@ public class SQLUpdateTest extends BaseDBTest {
     session.commit();
 
     document = session.bindToSession(document);
-    Assert.assertEquals(document.field("test"), "aaa \t bbb");
+    Assert.assertEquals(document.getProperty("test"), "aaa \t bbb");
 
     session.begin();
     session
@@ -557,7 +557,7 @@ public class SQLUpdateTest extends BaseDBTest {
     session.commit();
 
     document = session.bindToSession(document);
-    Assert.assertEquals(document.field("test"), "aaa \f bbb");
+    Assert.assertEquals(document.getProperty("test"), "aaa \f bbb");
   }
 
   public void testUpdateVertexContent() {
@@ -710,8 +710,8 @@ public class SQLUpdateTest extends BaseDBTest {
 
     session.begin();
     v = session.bindToSession(v);
-    Assert.assertTrue(v.field("embmap") instanceof Map);
-    Assert.assertEquals(((Map) v.field("embmap")).size(), 2);
+    Assert.assertTrue(v.getProperty("embmap") instanceof Map);
+    Assert.assertEquals(((Map) v.getProperty("embmap")).size(), 2);
     session.rollback();
   }
 

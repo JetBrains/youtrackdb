@@ -1,5 +1,8 @@
 package com.jetbrains.youtrack.db.internal.core.db.tool;
 
+import static com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport.EXPORT_IMPORT_CLASS_NAME;
+import static com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport.EXPORT_IMPORT_INDEX_NAME;
+
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -9,8 +12,6 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import static com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport.EXPORT_IMPORT_CLASS_NAME;
-import static com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport.EXPORT_IMPORT_INDEX_NAME;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
@@ -40,21 +41,21 @@ public class TestImportRewriteLinks {
         cls.createIndex(EXPORT_IMPORT_INDEX_NAME, INDEX_TYPE.UNIQUE, "key");
 
         session.begin();
-        ((EntityImpl) session.newEntity(EXPORT_IMPORT_CLASS_NAME))
-            .field("key", new RecordId(10, 4).toString())
-            .field("value", new RecordId(10, 3).toString());
+        var e1 = ((EntityImpl) session.newEntity(EXPORT_IMPORT_CLASS_NAME));
+        e1.setProperty("key", new RecordId(10, 4).toString());
+        e1.setProperty("value", new RecordId(10, 3).toString());
 
-        ((EntityImpl) session.newEntity(EXPORT_IMPORT_CLASS_NAME))
-            .field("key", new RecordId(11, 1).toString())
-            .field("value", new RecordId(21, 1).toString());
+        var e2 = ((EntityImpl) session.newEntity(EXPORT_IMPORT_CLASS_NAME));
+        e2.setProperty("key", new RecordId(11, 1).toString());
+        e2.setProperty("value", new RecordId(21, 1).toString());
 
-        ((EntityImpl) session.newEntity(EXPORT_IMPORT_CLASS_NAME))
-            .field("key", new RecordId(31, 1).toString())
-            .field("value", new RecordId(41, 1).toString());
+        var e3 = ((EntityImpl) session.newEntity(EXPORT_IMPORT_CLASS_NAME));
+        e3.setProperty("key", new RecordId(31, 1).toString());
+        e3.setProperty("value", new RecordId(41, 1).toString());
 
-        ((EntityImpl) session.newEntity(EXPORT_IMPORT_CLASS_NAME))
-            .field("key", new RecordId(51, 1).toString())
-            .field("value", new RecordId(61, 1).toString());
+        var e4 = ((EntityImpl) session.newEntity(EXPORT_IMPORT_CLASS_NAME));
+        e4.setProperty("key", new RecordId(51, 1).toString());
+        e4.setProperty("value", new RecordId(61, 1).toString());
 
         session.commit();
 
@@ -64,11 +65,11 @@ public class TestImportRewriteLinks {
         var doc = (EntityImpl) session.newEntity();
 
         var emb = (EntityImpl) session.newEmbeddedEntity();
-        doc.field("emb", emb, PropertyType.EMBEDDED);
+        doc.setProperty("emb", emb, PropertyType.EMBEDDED);
         var emb1 = (EntityImpl) session.newEmbeddedEntity();
-        emb.field("emb1", emb1, PropertyType.EMBEDDED);
-        emb1.field("link", new RecordId(10, 4));
-        emb1.field("brokenLink", new RecordId(10, 5));
+        emb.setProperty("emb1", emb1, PropertyType.EMBEDDED);
+        emb1.setProperty("link", new RecordId(10, 4));
+        emb1.setProperty("brokenLink", new RecordId(10, 5));
 
         var linkList = session.newLinkList();
 
@@ -90,30 +91,30 @@ public class TestImportRewriteLinks {
         linkMap.put("key1", new RecordId(51, 1));
         linkMap.put("key2", new RecordId(51, 2));
 
-        emb1.field("linkList", linkList);
-        emb1.field("linkSet", linkSet);
-        emb1.field("linkMap", linkMap);
+        emb1.setProperty("linkList", linkList);
+        emb1.setProperty("linkSet", linkSet);
+        emb1.setProperty("linkMap", linkMap);
 
         DatabaseImport.doRewriteLinksInDocument(session, doc,
             brokenRids);
 
         Assert.assertEquals(new RecordId(10, 3), emb1.getLink("link"));
-        Assert.assertNull(emb1.field("brokenLink"));
+        Assert.assertNull(emb1.getProperty("brokenLink"));
 
         List<Identifiable> resLinkList = new ArrayList<>();
         resLinkList.add(new RecordId(21, 1));
 
-        Assert.assertEquals(emb1.field("linkList"), resLinkList);
+        Assert.assertEquals(emb1.getProperty("linkList"), resLinkList);
 
         Set<Identifiable> resLinkSet = new HashSet<>();
         resLinkSet.add(new RecordId(41, 1));
 
-        Assert.assertEquals(emb1.field("linkSet"), resLinkSet);
+        Assert.assertEquals(emb1.getProperty("linkSet"), resLinkSet);
 
         Map<String, Identifiable> resLinkMap = new HashMap<>();
         resLinkMap.put("key1", new RecordId(61, 1));
 
-        Assert.assertEquals(emb1.field("linkMap"), resLinkMap);
+        Assert.assertEquals(emb1.getProperty("linkMap"), resLinkMap);
         session.rollback();
       }
     }

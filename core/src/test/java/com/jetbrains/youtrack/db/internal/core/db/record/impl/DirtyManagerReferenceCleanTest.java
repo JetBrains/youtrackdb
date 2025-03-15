@@ -19,9 +19,9 @@ public class DirtyManagerReferenceCleanTest extends DbTestBase {
     var id = session.computeInTx(() -> {
       var doc = (EntityImpl) session.newEntity();
       var doc1 = (EntityImpl) session.newEntity();
-      doc1.field("aa", "aa");
-      doc.field("ref", doc1);
-      doc.field("bb");
+      doc1.setProperty("aa", "aa");
+      doc.setProperty("ref", doc1);
+      doc.getProperty("bb");
 
       return doc.getIdentity();
     });

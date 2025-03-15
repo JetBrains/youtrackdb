@@ -3,11 +3,9 @@ package com.jetbrains.youtrack.db.internal.core.sql.orderby;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Locale;
 import java.util.stream.Collectors;
 import org.junit.Ignore;
@@ -22,9 +20,12 @@ public class TestOrderBy extends DbTestBase {
     session.getMetadata().getSchema().createClass("test");
 
     session.begin();
-    var res1 = (DBRecord) ((EntityImpl) session.newEntity("test")).field("name", "Ähhhh");
-    var res2 = (DBRecord) ((EntityImpl) session.newEntity("test")).field("name", "Ahhhh");
-    var res3 = (DBRecord) ((EntityImpl) session.newEntity("test")).field("name", "Zebra");
+    var res1 = session.newEntity("test");
+    res1.setProperty("name", "Ähhhh");
+    var res2 = session.newEntity("test");
+    res2.setProperty("name", "Ahhhh");
+    var res3 = session.newEntity("test");
+    res3.setProperty("name", "Zebra");
     session.commit();
 
     session.begin();
@@ -48,12 +49,16 @@ public class TestOrderBy extends DbTestBase {
   public void testGermanOrderByIndex() {
     session.set(DatabaseSession.ATTRIBUTES.LOCALE_COUNTRY, Locale.GERMANY.getCountry());
     session.set(DatabaseSession.ATTRIBUTES.LOCALE_LANGUAGE, Locale.GERMANY.getLanguage());
+
     var clazz = session.getMetadata().getSchema().createClass("test");
     clazz.createProperty("name", PropertyType.STRING)
         .createIndex(INDEX_TYPE.NOTUNIQUE);
-    var res1 = (DBRecord) ((EntityImpl) session.newEntity("test")).field("name", "Ähhhh");
-    var res2 = (DBRecord) ((EntityImpl) session.newEntity("test")).field("name", "Ahhhh");
-    var res3 = (DBRecord) ((EntityImpl) session.newEntity("test")).field("name", "Zebra");
+    var res1 = session.newEntity("test");
+    res1.setProperty("name", "Ähhhh");
+    var res2 = session.newEntity("test");
+    res2.setProperty("name", "Ahhhh");
+    var res3 = session.newEntity("test");
+    res3.setProperty("name", "Zebra");
     var queryRes =
         session.query("select from test order by name").stream().collect(Collectors.toList());
     assertEquals(queryRes.get(0).getIdentity(), res2.getIdentity());

@@ -1037,9 +1037,9 @@ public class MatchStatementExecutionTest extends DbTestBase {
     EntityImpl friend1 = ((Identifiable) doc.getProperty("friend1")).getRecord(session);
     EntityImpl friend2 = ((Identifiable) doc.getProperty("friend2")).getRecord(session);
     EntityImpl friend3 = ((Identifiable) doc.getProperty("friend3")).getRecord(session);
-    assertEquals(0, friend1.<Object>field("uid"));
-    assertEquals(1, friend2.<Object>field("uid"));
-    assertEquals(2, friend3.<Object>field("uid"));
+    assertEquals(0, friend1.<Object>getProperty("uid"));
+    assertEquals(1, friend2.<Object>getProperty("uid"));
+    assertEquals(2, friend3.<Object>getProperty("uid"));
     session.commit();
   }
 
@@ -1061,9 +1061,9 @@ public class MatchStatementExecutionTest extends DbTestBase {
     EntityImpl friend1 = ((Identifiable) doc.getProperty("friend1")).getRecord(session);
     EntityImpl friend2 = ((Identifiable) doc.getProperty("friend2")).getRecord(session);
     EntityImpl friend3 = ((Identifiable) doc.getProperty("friend3")).getRecord(session);
-    assertEquals(0, friend1.<Object>field("uid"));
-    assertEquals(1, friend2.<Object>field("uid"));
-    assertEquals(2, friend3.<Object>field("uid"));
+    assertEquals(0, friend1.<Object>getProperty("uid"));
+    assertEquals(1, friend2.<Object>getProperty("uid"));
+    assertEquals(2, friend3.<Object>getProperty("uid"));
     session.commit();
   }
 
@@ -1085,9 +1085,9 @@ public class MatchStatementExecutionTest extends DbTestBase {
     EntityImpl friend1 = ((Identifiable) doc.getProperty("friend1")).getRecord(session);
     EntityImpl friend2 = ((Identifiable) doc.getProperty("friend2")).getRecord(session);
     EntityImpl friend3 = ((Identifiable) doc.getProperty("friend3")).getRecord(session);
-    assertEquals(0, friend1.<Object>field("uid"));
-    assertEquals(1, friend2.<Object>field("uid"));
-    assertEquals(2, friend3.<Object>field("uid"));
+    assertEquals(0, friend1.<Object>getProperty("uid"));
+    assertEquals(1, friend2.<Object>getProperty("uid"));
+    assertEquals(2, friend3.<Object>getProperty("uid"));
     session.commit();
   }
 

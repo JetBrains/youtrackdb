@@ -579,9 +579,9 @@ public class SQLHelper {
                 var rec = ((Identifiable) o).getRecord(session);
                 if (rec != null && rec instanceof EntityImpl entity) {
                   // CHECK FOR ONE FIELD ONLY
-                  if (entity.fields() == 1) {
-                    singleFieldName = entity.fieldNames()[0];
-                    tempColl.add(entity.field(singleFieldName));
+                  if (entity.getPropertiesCount() == 1) {
+                    singleFieldName = entity.propertyNames()[0];
+                    tempColl.add(entity.getProperty(singleFieldName));
                   } else {
                     // TRANSFORM IT IN EMBEDDED
                     entity.getIdentity().reset();
@@ -600,8 +600,7 @@ public class SQLHelper {
         }
       }
 
-      e.field(
-          fieldName,
+      e.setProperty(fieldName,
           resolveFieldValue(iContext.getDatabaseSession(), e, fieldName, fieldValue, iArguments,
               iContext));
     }

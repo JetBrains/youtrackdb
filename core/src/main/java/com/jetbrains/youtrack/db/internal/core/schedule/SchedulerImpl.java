@@ -29,6 +29,7 @@ import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.schedule.Scheduler.STATUS;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -187,18 +188,18 @@ public class SchedulerImpl {
   }
 
   public void initScheduleRecord(EntityImpl entity) {
-    String name = entity.field(ScheduledEvent.PROP_NAME);
+    String name = entity.getProperty(ScheduledEvent.PROP_NAME);
     final var event = getEvent(name);
     if (event != null && event.getIdentity().equals(entity.getIdentity())) {
       throw new DatabaseException(
           "Scheduled event with name '" + name + "' already exists in database");
     }
-    entity.field(ScheduledEvent.PROP_STATUS, Scheduler.STATUS.STOPPED.name());
+    entity.setProperty(ScheduledEvent.PROP_STATUS, STATUS.STOPPED.name());
   }
 
   public void preHandleUpdateScheduleInTx(DatabaseSessionInternal session, EntityImpl entity) {
     try {
-      final String schedulerName = entity.field(ScheduledEvent.PROP_NAME);
+      final String schedulerName = entity.getProperty(ScheduledEvent.PROP_NAME);
       var event = getEvent(schedulerName);
 
       if (event != null) {
@@ -244,7 +245,7 @@ public class SchedulerImpl {
       var rids = (Set<RID>) tx.getCustomData(RIDS_OF_EVENTS_TO_RESCHEDULE_KEY);
 
       if (rids != null && rids.contains(entity.getIdentity())) {
-        final String schedulerName = entity.field(ScheduledEvent.PROP_NAME);
+        final String schedulerName = entity.getProperty(ScheduledEvent.PROP_NAME);
         var event = getEvent(schedulerName);
 
         if (event != null) {

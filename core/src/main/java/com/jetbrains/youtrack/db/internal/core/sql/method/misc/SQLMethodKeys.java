@@ -47,7 +47,7 @@ public class SQLMethodKeys extends AbstractSQLMethod {
       return ((Map<?, ?>) ioResult).keySet();
     }
     if (ioResult instanceof EntityImpl) {
-      return Arrays.asList(((EntityImpl) ioResult).fieldNames());
+      return Arrays.asList(((EntityImpl) ioResult).propertyNames());
     }
     if (ioResult instanceof Result res) {
       return res.getPropertyNames();

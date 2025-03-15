@@ -70,8 +70,10 @@ public class EntityComparator implements Comparator<Identifiable> {
       final var fieldName = field.getKey();
       final var ordering = field.getValue();
 
-      fieldValue1 = ((EntityImpl) ind1.getRecord(db)).field(fieldName);
-      fieldValue2 = ((EntityImpl) ind2.getRecord(db)).field(fieldName);
+      EntityImpl entity1 = ind1.getRecord(db);
+      fieldValue1 = entity1.getProperty(fieldName);
+      EntityImpl entity = ind2.getRecord(db);
+      fieldValue2 = entity.getProperty(fieldName);
 
       if (fieldValue1 == null && fieldValue2 == null) {
         continue;

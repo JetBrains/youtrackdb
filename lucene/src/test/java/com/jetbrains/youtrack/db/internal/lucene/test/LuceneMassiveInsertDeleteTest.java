@@ -50,7 +50,7 @@ public class LuceneMassiveInsertDeleteTest extends BaseLuceneTest {
     var size = 1000;
     for (var i = 0; i < size; i++) {
       var city = ((EntityImpl) session.newEntity("City"));
-      city.field("name", "Rome " + i);
+      city.setProperty("name", "Rome " + i);
 
       session.begin();
       session.commit();

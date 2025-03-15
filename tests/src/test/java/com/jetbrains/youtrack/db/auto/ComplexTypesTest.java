@@ -46,9 +46,9 @@ public class ComplexTypesTest extends BaseDBTest {
   @Test
   public void testBigDecimal() {
     var newDoc = ((EntityImpl) session.newEntity());
-    newDoc.field("integer", new BigInteger("10"));
-    newDoc.field("decimal_integer", new BigDecimal(10));
-    newDoc.field("decimal_float", new BigDecimal("10.34"));
+    newDoc.setPropertyInChain("integer", new BigInteger("10"));
+    newDoc.setPropertyInChain("decimal_integer", new BigDecimal(10));
+    newDoc.setPropertyInChain("decimal_float", new BigDecimal("10.34"));
 
     session.begin();
     session.commit();
@@ -59,9 +59,9 @@ public class ComplexTypesTest extends BaseDBTest {
     session = acquireSession();
 
     EntityImpl loadedDoc = session.load(rid);
-    Assert.assertEquals(((Number) loadedDoc.field("integer")).intValue(), 10);
-    Assert.assertEquals(loadedDoc.field("decimal_integer"), new BigDecimal(10));
-    Assert.assertEquals(loadedDoc.field("decimal_float"), new BigDecimal("10.34"));
+    Assert.assertEquals(((Number) loadedDoc.getProperty("integer")).intValue(), 10);
+    Assert.assertEquals(loadedDoc.getProperty("decimal_integer"), new BigDecimal(10));
+    Assert.assertEquals(loadedDoc.getProperty("decimal_float"), new BigDecimal("10.34"));
   }
 
   @Test
@@ -69,9 +69,9 @@ public class ComplexTypesTest extends BaseDBTest {
     var newDoc = ((EntityImpl) session.newEntity());
 
     final var list = new ArrayList<EntityImpl>();
-    newDoc.field("embeddedList", list, PropertyType.EMBEDDEDLIST);
-    list.add(((EntityImpl) session.newEntity()).field("name", "Luca"));
-    list.add(((EntityImpl) session.newEntity("Account")).field("name", "Marcus"));
+    newDoc.setProperty("embeddedList", list, PropertyType.EMBEDDEDLIST);
+    list.add(((EntityImpl) session.newEntity()).setPropertyInChain("name", "Luca"));
+    list.add(((EntityImpl) session.newEntity("Account")).setPropertyInChain("name", "Marcus"));
 
     session.begin();
     session.commit();
@@ -82,16 +82,17 @@ public class ComplexTypesTest extends BaseDBTest {
     session = acquireSession();
 
     EntityImpl loadedDoc = session.load(rid);
-    Assert.assertTrue(loadedDoc.containsField("embeddedList"));
-    Assert.assertTrue(loadedDoc.field("embeddedList") instanceof List<?>);
+    Assert.assertTrue(loadedDoc.hasProperty("embeddedList"));
+    Assert.assertTrue(loadedDoc.getProperty("embeddedList") instanceof List<?>);
     Assert.assertTrue(
-        ((List<EntityImpl>) loadedDoc.field("embeddedList")).getFirst() instanceof EntityImpl);
+        ((List<EntityImpl>) loadedDoc.getProperty(
+            "embeddedList")).getFirst() instanceof EntityImpl);
 
-    var d = ((List<EntityImpl>) loadedDoc.field("embeddedList")).get(0);
-    Assert.assertEquals(d.field("name"), "Luca");
-    d = ((List<EntityImpl>) loadedDoc.field("embeddedList")).get(1);
+    var d = ((List<EntityImpl>) loadedDoc.getProperty("embeddedList")).get(0);
+    Assert.assertEquals(d.getProperty("name"), "Luca");
+    d = ((List<EntityImpl>) loadedDoc.getProperty("embeddedList")).get(1);
     Assert.assertEquals(d.getSchemaClassName(), "Account");
-    Assert.assertEquals(d.field("name"), "Marcus");
+    Assert.assertEquals(d.getProperty("name"), "Marcus");
   }
 
   @Test
@@ -99,15 +100,15 @@ public class ComplexTypesTest extends BaseDBTest {
     var newDoc = ((EntityImpl) session.newEntity());
 
     final var list = new ArrayList<EntityImpl>();
-    newDoc.field("linkedList", list, PropertyType.LINKLIST);
+    newDoc.setProperty("linkedList", list, PropertyType.LINKLIST);
     session.begin();
 
     var doc = ((EntityImpl) session.newEntity());
-    doc.field("name", "Luca");
+    doc.setProperty("name", "Luca");
 
     list.add(doc);
 
-    list.add(((EntityImpl) session.newEntity("Account")).field("name", "Marcus"));
+    list.add(((EntityImpl) session.newEntity("Account")).setPropertyInChain("name", "Marcus"));
 
     session.commit();
 
@@ -117,18 +118,19 @@ public class ComplexTypesTest extends BaseDBTest {
     session = acquireSession();
 
     EntityImpl loadedDoc = session.load(rid);
-    Assert.assertTrue(loadedDoc.containsField("linkedList"));
-    Assert.assertTrue(loadedDoc.field("linkedList") instanceof List<?>);
+    Assert.assertTrue(loadedDoc.hasProperty("linkedList"));
+    Assert.assertTrue(loadedDoc.getProperty("linkedList") instanceof List<?>);
     Assert.assertTrue(
-        ((List<Identifiable>) loadedDoc.field("linkedList")).getFirst() instanceof Identifiable);
+        ((List<Identifiable>) loadedDoc.getProperty(
+            "linkedList")).getFirst() instanceof Identifiable);
 
-    EntityImpl d = ((List<Identifiable>) loadedDoc.field("linkedList")).getFirst().getRecord(
+    EntityImpl d = ((List<Identifiable>) loadedDoc.getProperty("linkedList")).getFirst().getRecord(
         session);
     Assert.assertTrue(d.getIdentity().isValid());
-    Assert.assertEquals(d.field("name"), "Luca");
-    d = ((List<Identifiable>) loadedDoc.field("linkedList")).get(1).getRecord(session);
+    Assert.assertEquals(d.getProperty("name"), "Luca");
+    d = ((List<Identifiable>) loadedDoc.getProperty("linkedList")).get(1).getRecord(session);
     Assert.assertEquals(d.getSchemaClassName(), "Account");
-    Assert.assertEquals(d.field("name"), "Marcus");
+    Assert.assertEquals(d.getProperty("name"), "Marcus");
   }
 
   @Test
@@ -136,9 +138,9 @@ public class ComplexTypesTest extends BaseDBTest {
     var newDoc = ((EntityImpl) session.newEntity());
 
     final Set<EntityImpl> set = new HashSet<>();
-    newDoc.field("embeddedSet", set, PropertyType.EMBEDDEDSET);
-    set.add(((EntityImpl) session.newEntity()).field("name", "Luca"));
-    set.add(((EntityImpl) session.newEntity("Account")).field("name", "Marcus"));
+    newDoc.setProperty("embeddedSet", set, PropertyType.EMBEDDEDSET);
+    set.add(((EntityImpl) session.newEntity()).setPropertyInChain("name", "Luca"));
+    set.add(((EntityImpl) session.newEntity("Account")).setPropertyInChain("name", "Marcus"));
 
     session.begin();
     session.commit();
@@ -149,18 +151,18 @@ public class ComplexTypesTest extends BaseDBTest {
     session = acquireSession();
 
     EntityImpl loadedDoc = session.load(rid);
-    Assert.assertTrue(loadedDoc.containsField("embeddedSet"));
+    Assert.assertTrue(loadedDoc.hasProperty("embeddedSet"));
     Assert.assertNotNull(loadedDoc.getEmbeddedSet("embeddedSet"));
 
     final var it =
-        ((Collection<EntityImpl>) loadedDoc.field("embeddedSet")).iterator();
+        ((Collection<EntityImpl>) loadedDoc.getProperty("embeddedSet")).iterator();
 
     var tot = 0;
     while (it.hasNext()) {
       var d = it.next();
       Assert.assertTrue(d instanceof EntityImpl);
 
-      if (d.field("name").equals("Marcus")) {
+      if (d.getProperty("name").equals("Marcus")) {
         Assert.assertEquals(d.getSchemaClassName(), "Account");
       }
 
@@ -175,14 +177,14 @@ public class ComplexTypesTest extends BaseDBTest {
     var newDoc = ((EntityImpl) session.newEntity());
 
     final Set<EntityImpl> set = new HashSet<>();
-    newDoc.field("linkedSet", set, PropertyType.LINKSET);
+    newDoc.setProperty("linkedSet", set, PropertyType.LINKSET);
     session.begin();
     var doc = ((EntityImpl) session.newEntity());
-    doc.field("name", "Luca");
+    doc.setProperty("name", "Luca");
 
     set.add(doc);
 
-    set.add(((EntityImpl) session.newEntity("Account")).field("name", "Marcus"));
+    set.add(((EntityImpl) session.newEntity("Account")).setPropertyInChain("name", "Marcus"));
 
     session.commit();
 
@@ -192,11 +194,11 @@ public class ComplexTypesTest extends BaseDBTest {
     session = acquireSession();
 
     EntityImpl loadedDoc = session.load(rid);
-    Assert.assertTrue(loadedDoc.containsField("linkedSet"));
+    Assert.assertTrue(loadedDoc.hasProperty("linkedSet"));
     Assert.assertNotNull(loadedDoc.getLinkSet("linkedSet"));
 
     final var it =
-        ((Collection<Identifiable>) loadedDoc.field("linkedSet")).iterator();
+        ((Collection<Identifiable>) loadedDoc.getProperty("linkedSet")).iterator();
 
     var tot = 0;
     while (it.hasNext()) {
@@ -217,10 +219,11 @@ public class ComplexTypesTest extends BaseDBTest {
     var newDoc = ((EntityImpl) session.newEntity());
 
     final Map<String, EntityImpl> map = new HashMap<>();
-    newDoc.field("embeddedMap", map, PropertyType.EMBEDDEDMAP);
-    map.put("Luca", ((EntityImpl) session.newEntity()).field("name", "Luca"));
-    map.put("Marcus", ((EntityImpl) session.newEntity()).field("name", "Marcus"));
-    map.put("Cesare", ((EntityImpl) session.newEntity("Account")).field("name", "Cesare"));
+    newDoc.setProperty("embeddedMap", map, PropertyType.EMBEDDEDMAP);
+    map.put("Luca", ((EntityImpl) session.newEntity()).setPropertyInChain("name", "Luca"));
+    map.put("Marcus", ((EntityImpl) session.newEntity()).setPropertyInChain("name", "Marcus"));
+    map.put("Cesare",
+        ((EntityImpl) session.newEntity("Account")).setPropertyInChain("name", "Cesare"));
 
     session.begin();
     session.commit();
@@ -231,20 +234,20 @@ public class ComplexTypesTest extends BaseDBTest {
     session = acquireSession();
 
     EntityImpl loadedDoc = session.load(rid);
-    Assert.assertTrue(loadedDoc.containsField("embeddedMap"));
-    Assert.assertTrue(loadedDoc.field("embeddedMap") instanceof Map<?, ?>);
+    Assert.assertTrue(loadedDoc.hasProperty("embeddedMap"));
+    Assert.assertTrue(loadedDoc.getProperty("embeddedMap") instanceof Map<?, ?>);
     Assert.assertTrue(
-        ((Map<String, EntityImpl>) loadedDoc.field("embeddedMap")).values().iterator().next()
+        ((Map<String, EntityImpl>) loadedDoc.getProperty("embeddedMap")).values().iterator().next()
             instanceof EntityImpl);
 
-    var d = ((Map<String, EntityImpl>) loadedDoc.field("embeddedMap")).get("Luca");
-    Assert.assertEquals(d.field("name"), "Luca");
+    var d = ((Map<String, EntityImpl>) loadedDoc.getProperty("embeddedMap")).get("Luca");
+    Assert.assertEquals(d.getProperty("name"), "Luca");
 
-    d = ((Map<String, EntityImpl>) loadedDoc.field("embeddedMap")).get("Marcus");
-    Assert.assertEquals(d.field("name"), "Marcus");
+    d = ((Map<String, EntityImpl>) loadedDoc.getProperty("embeddedMap")).get("Marcus");
+    Assert.assertEquals(d.getProperty("name"), "Marcus");
 
-    d = ((Map<String, EntityImpl>) loadedDoc.field("embeddedMap")).get("Cesare");
-    Assert.assertEquals(d.field("name"), "Cesare");
+    d = ((Map<String, EntityImpl>) loadedDoc.getProperty("embeddedMap")).get("Cesare");
+    Assert.assertEquals(d.getProperty("name"), "Cesare");
     Assert.assertEquals(d.getSchemaClassName(), "Account");
   }
 
@@ -253,7 +256,7 @@ public class ComplexTypesTest extends BaseDBTest {
     var newDoc = ((EntityImpl) session.newEntity());
 
     final Map<String, EntityImpl> map = new HashMap<>();
-    newDoc.field("embeddedMap", map, PropertyType.EMBEDDEDMAP);
+    newDoc.setProperty("embeddedMap", map, PropertyType.EMBEDDEDMAP);
 
     session.begin();
     session.commit();
@@ -265,10 +268,10 @@ public class ComplexTypesTest extends BaseDBTest {
 
     EntityImpl loadedDoc = session.load(rid);
 
-    Assert.assertTrue(loadedDoc.containsField("embeddedMap"));
-    Assert.assertTrue(loadedDoc.field("embeddedMap") instanceof Map<?, ?>);
+    Assert.assertTrue(loadedDoc.hasProperty("embeddedMap"));
+    Assert.assertTrue(loadedDoc.getProperty("embeddedMap") instanceof Map<?, ?>);
 
-    final Map<String, EntityImpl> loadedMap = loadedDoc.field("embeddedMap");
+    final Map<String, EntityImpl> loadedMap = loadedDoc.getProperty("embeddedMap");
     Assert.assertEquals(loadedMap.size(), 0);
   }
 
@@ -277,19 +280,19 @@ public class ComplexTypesTest extends BaseDBTest {
     var newDoc = ((EntityImpl) session.newEntity());
 
     final Map<String, EntityImpl> map = new HashMap<>();
-    newDoc.field("linkedMap", map, PropertyType.LINKMAP);
+    newDoc.setProperty("linkedMap", map, PropertyType.LINKMAP);
     session.begin();
     var doc1 = ((EntityImpl) session.newEntity());
-    doc1.field("name", "Luca");
+    doc1.setProperty("name", "Luca");
 
     map.put("Luca", doc1);
     var doc2 = ((EntityImpl) session.newEntity());
-    doc2.field("name", "Marcus");
+    doc2.setProperty("name", "Marcus");
 
     map.put("Marcus", doc2);
 
     var doc3 = ((EntityImpl) session.newEntity("Account"));
-    doc3.field("name", "Cesare");
+    doc3.setProperty("name", "Cesare");
 
     map.put("Cesare", doc3);
 
@@ -302,20 +305,23 @@ public class ComplexTypesTest extends BaseDBTest {
 
     EntityImpl loadedDoc = session.load(rid);
     Assert.assertNotNull(loadedDoc.getLinkMap("linkedMap"));
-    Assert.assertTrue(loadedDoc.field("linkedMap") instanceof Map<?, ?>);
+    Assert.assertTrue(loadedDoc.getProperty("linkedMap") instanceof Map<?, ?>);
     Assert.assertTrue(
-        ((Map<String, Identifiable>) loadedDoc.field("linkedMap")).values().iterator().next()
+        ((Map<String, Identifiable>) loadedDoc.getProperty("linkedMap")).values().iterator().next()
             instanceof Identifiable);
 
     EntityImpl d =
-        ((Map<String, Identifiable>) loadedDoc.field("linkedMap")).get("Luca").getRecord(session);
-    Assert.assertEquals(d.field("name"), "Luca");
+        ((Map<String, Identifiable>) loadedDoc.getProperty("linkedMap")).get("Luca")
+            .getRecord(session);
+    Assert.assertEquals(d.getProperty("name"), "Luca");
 
-    d = ((Map<String, Identifiable>) loadedDoc.field("linkedMap")).get("Marcus").getRecord(session);
-    Assert.assertEquals(d.field("name"), "Marcus");
+    d = ((Map<String, Identifiable>) loadedDoc.getProperty("linkedMap")).get("Marcus")
+        .getRecord(session);
+    Assert.assertEquals(d.getProperty("name"), "Marcus");
 
-    d = ((Map<String, Identifiable>) loadedDoc.field("linkedMap")).get("Cesare").getRecord(session);
-    Assert.assertEquals(d.field("name"), "Cesare");
+    d = ((Map<String, Identifiable>) loadedDoc.getProperty("linkedMap")).get("Cesare")
+        .getRecord(session);
+    Assert.assertEquals(d.getProperty("name"), "Cesare");
     Assert.assertEquals(d.getSchemaClassName(), "Account");
   }
 }

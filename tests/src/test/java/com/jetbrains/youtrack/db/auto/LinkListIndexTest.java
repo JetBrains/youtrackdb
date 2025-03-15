@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.auto;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -70,9 +71,8 @@ public class LinkListIndexTest extends BaseDBTest {
     final var docTwo = ((EntityImpl) session.newEntity());
 
     final var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
-    document.field(
-        "linkCollection",
-        new ArrayList<>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+    document.setProperty("linkCollection",
+        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
@@ -107,9 +107,8 @@ public class LinkListIndexTest extends BaseDBTest {
     try {
       session.begin();
       final var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
-      document.field(
-          "linkCollection",
-          new ArrayList<>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+      document.setProperty("linkCollection",
+          new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
 
       session.commit();
     } catch (Exception e) {
@@ -146,13 +145,11 @@ public class LinkListIndexTest extends BaseDBTest {
 
     final var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
 
-    document.field(
-        "linkCollection",
-        new ArrayList<>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+    document.setProperty("linkCollection",
+        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
 
-    document.field(
-        "linkCollection",
-        new ArrayList<>(Arrays.asList(docOne.getIdentity(), docThree.getIdentity())));
+    document.setProperty("linkCollection",
+        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docThree.getIdentity())));
 
     session.commit();
 
@@ -184,18 +181,16 @@ public class LinkListIndexTest extends BaseDBTest {
     final var docThree = ((EntityImpl) session.newEntity());
 
     var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
-    document.field(
-        "linkCollection",
-        new ArrayList<>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+    document.setProperty("linkCollection",
+        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
     try {
       session.begin();
       document = session.bindToSession(document);
-      document.field(
-          "linkCollection",
-          new ArrayList<>(Arrays.asList(docOne.getIdentity(), docThree.getIdentity())));
+      document.setProperty("linkCollection",
+          new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docThree.getIdentity())));
 
       session.commit();
     } catch (Exception e) {
@@ -232,17 +227,15 @@ public class LinkListIndexTest extends BaseDBTest {
     final var docThree = ((EntityImpl) session.newEntity());
 
     var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
-    document.field(
-        "linkCollection",
-        new ArrayList<>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+    document.setProperty("linkCollection",
+        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
     session.begin();
     document = session.bindToSession(document);
-    document.field(
-        "linkCollection",
-        new ArrayList<>(Arrays.asList(docOne.getIdentity(), docThree.getIdentity())));
+    document.setProperty("linkCollection",
+        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docThree.getIdentity())));
 
     session.rollback();
 
@@ -274,9 +267,8 @@ public class LinkListIndexTest extends BaseDBTest {
     final var docThree = ((EntityImpl) session.newEntity());
 
     final var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
-    document.field(
-        "linkCollection",
-        new ArrayList<>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+    document.setProperty("linkCollection",
+        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
@@ -319,16 +311,15 @@ public class LinkListIndexTest extends BaseDBTest {
     final var docThree = ((EntityImpl) session.newEntity());
 
     final var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
-    document.field(
-        "linkCollection",
-        new ArrayList<>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+    document.setProperty("linkCollection",
+        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
     try {
       session.begin();
       EntityImpl loadedDocument = session.load(document.getIdentity());
-      loadedDocument.<List<Identifiable>>field("linkCollection").add(docThree.getIdentity());
+      loadedDocument.<List<Identifiable>>getProperty("linkCollection").add(docThree.getIdentity());
 
       session.commit();
     } catch (Exception e) {
@@ -365,15 +356,14 @@ public class LinkListIndexTest extends BaseDBTest {
     final var docThree = ((EntityImpl) session.newEntity());
 
     final var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
-    document.field(
-        "linkCollection",
-        new ArrayList<>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+    document.setProperty("linkCollection",
+        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
     session.begin();
     EntityImpl loadedDocument = session.load(document.getIdentity());
-    loadedDocument.<List<Identifiable>>field("linkCollection").add(docThree.getIdentity());
+    loadedDocument.<List<Identifiable>>getProperty("linkCollection").add(docThree.getIdentity());
 
     session.rollback();
 
@@ -403,16 +393,15 @@ public class LinkListIndexTest extends BaseDBTest {
     final var docTwo = ((EntityImpl) session.newEntity());
 
     final var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
-    document.field(
-        "linkCollection",
-        new ArrayList<>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+    document.setProperty("linkCollection",
+        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
     try {
       session.begin();
       EntityImpl loadedDocument = session.load(document.getIdentity());
-      loadedDocument.<List>field("linkCollection").remove(docTwo.getIdentity());
+      loadedDocument.<List>getProperty("linkCollection").remove(docTwo.getIdentity());
 
       session.commit();
     } catch (Exception e) {
@@ -445,15 +434,14 @@ public class LinkListIndexTest extends BaseDBTest {
     final var docTwo = ((EntityImpl) session.newEntity());
 
     final var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
-    document.field(
-        "linkCollection",
-        new ArrayList<>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+    document.setProperty("linkCollection",
+        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
     session.begin();
     EntityImpl loadedDocument = session.load(document.getIdentity());
-    loadedDocument.<List>field("linkCollection").remove(docTwo.getIdentity());
+    loadedDocument.<List>getProperty("linkCollection").remove(docTwo.getIdentity());
 
     session.rollback();
 
@@ -483,9 +471,8 @@ public class LinkListIndexTest extends BaseDBTest {
     final var docTwo = ((EntityImpl) session.newEntity());
 
     final var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
-    document.field(
-        "linkCollection",
-        new ArrayList<>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+    document.setProperty("linkCollection",
+        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
@@ -520,9 +507,8 @@ public class LinkListIndexTest extends BaseDBTest {
     final var docTwo = ((EntityImpl) session.newEntity());
 
     var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
-    document.field(
-        "linkCollection",
-        new ArrayList<>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+    document.setProperty("linkCollection",
+        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
@@ -545,9 +531,8 @@ public class LinkListIndexTest extends BaseDBTest {
     final var docTwo = ((EntityImpl) session.newEntity());
 
     var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
-    document.field(
-        "linkCollection",
-        new ArrayList<>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+    document.setProperty("linkCollection",
+        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
@@ -574,9 +559,8 @@ public class LinkListIndexTest extends BaseDBTest {
     final var docTwo = ((EntityImpl) session.newEntity());
 
     final var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
-    document.field(
-        "linkCollection",
-        new ArrayList<>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+    document.setProperty("linkCollection",
+        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
@@ -609,9 +593,8 @@ public class LinkListIndexTest extends BaseDBTest {
     final var docTwo = ((EntityImpl) session.newEntity());
 
     final var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
-    document.field(
-        "linkCollection",
-        new ArrayList<>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+    document.setProperty("linkCollection",
+        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 

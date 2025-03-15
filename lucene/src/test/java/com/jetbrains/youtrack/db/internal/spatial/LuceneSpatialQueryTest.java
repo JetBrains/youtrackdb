@@ -91,14 +91,14 @@ public class LuceneSpatialQueryTest extends BaseLuceneTest {
           while ((line = lnr.readLine()) != null) {
             var nextLine = line.split(",");
             var doc = ((EntityImpl) session.newEntity("Place"));
-            doc.field("name", nextLine[3]);
-            doc.field("country", nextLine[1]);
+            doc.setProperty("name", nextLine[3]);
+            doc.setProperty("country", nextLine[1]);
             try {
 
               Double lat = PropertyType.convert(session, nextLine[5], Double.class).doubleValue();
               Double lng = PropertyType.convert(session, nextLine[6], Double.class).doubleValue();
-              doc.field("latitude", lat);
-              doc.field("longitude", lng);
+              doc.setProperty("latitude", lat);
+              doc.setProperty("longitude", lng);
             } catch (Exception e) {
               continue;
             }

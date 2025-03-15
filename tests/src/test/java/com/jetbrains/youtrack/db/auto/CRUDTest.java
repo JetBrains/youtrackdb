@@ -40,7 +40,6 @@ import java.util.ConcurrentModificationException;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -510,16 +509,16 @@ public class CRUDTest extends BaseDBTest {
   }
 
   protected static void checkCollectionImplementations(EntityImpl doc) {
-    var collectionObj = doc.field("list");
+    var collectionObj = doc.getProperty("list");
     var validImplementation =
-        (collectionObj instanceof TrackedList<?>) || (doc.field("list") instanceof LinkList);
+        (collectionObj instanceof TrackedList<?>) || (doc.getProperty("list") instanceof LinkList);
     if (!validImplementation) {
       Assert.fail(
           "Document list implementation "
               + collectionObj.getClass().getName()
               + " not compatible with current Object Database loading management");
     }
-    collectionObj = doc.field("set");
+    collectionObj = doc.getProperty("set");
     validImplementation =
         collectionObj instanceof TrackedSet<?>;
     if (!validImplementation) {
@@ -528,7 +527,7 @@ public class CRUDTest extends BaseDBTest {
               + collectionObj.getClass().getName()
               + " not compatible with current Object Database management");
     }
-    collectionObj = doc.field("children");
+    collectionObj = doc.getProperty("children");
     validImplementation = collectionObj instanceof TrackedMap<?>;
     if (!validImplementation) {
       Assert.fail(
@@ -2085,13 +2084,13 @@ public class CRUDTest extends BaseDBTest {
     p.setProperty("name", "Dean Winchester");
 
     var testEmbeddedDocument = ((EntityImpl) session.newEntity());
-    testEmbeddedDocument.field("testEmbeddedField", "testEmbeddedValue");
+    testEmbeddedDocument.setProperty("testEmbeddedField", "testEmbeddedValue");
 
     p.setProperty("embeddedDocument", testEmbeddedDocument);
 
     session.begin();
     var testDocument = ((EntityImpl) session.newEntity());
-    testDocument.field("testField", "testValue");
+    testDocument.setProperty("testField", "testValue");
 
     session.commit();
 

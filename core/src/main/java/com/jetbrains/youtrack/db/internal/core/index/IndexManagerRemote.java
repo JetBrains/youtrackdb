@@ -498,7 +498,7 @@ public class IndexManagerRemote implements IndexManagerAbstract {
     try {
       clearMetadata();
 
-      final Collection<EntityImpl> idxs = entity.field(CONFIG_INDEXES);
+      final Collection<EntityImpl> idxs = entity.getProperty(CONFIG_INDEXES);
       if (idxs != null) {
         for (var d : idxs) {
           d.setLazyLoad(false);
@@ -511,7 +511,7 @@ public class IndexManagerRemote implements IndexManagerAbstract {
             var algorithm = newIndexMetadata.getAlgorithm();
             var clustersToIndex = newIndexMetadata.getClustersToIndex();
             var indexDefinition = newIndexMetadata.getIndexDefinition();
-            RID configMapId = d.field(IndexAbstract.CONFIG_MAP_RID);
+            RID configMapId = d.getProperty(IndexAbstract.CONFIG_MAP_RID);
 
             addIndexInternal(
                 new IndexRemote(

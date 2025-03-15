@@ -119,12 +119,12 @@ public class UniqueIndexTest extends DbTestBase {
 
     session.begin();
     var john = (EntityImpl) session.newEntity("User");
-    john.field("MailAddress", "john@doe.com");
+    john.setProperty("MailAddress", "john@doe.com");
     session.commit();
 
     session.begin();
     var jane = (EntityImpl) session.newEntity("User");
-    jane.field("MailAddress", "jane@doe.com");
+    jane.setProperty("MailAddress", "jane@doe.com");
     var id = jane;
 
     session.commit();
@@ -132,7 +132,7 @@ public class UniqueIndexTest extends DbTestBase {
     try {
       session.begin();
       EntityImpl toUp = session.load(id.getIdentity());
-      toUp.field("MailAddress", "john@doe.com");
+      toUp.setProperty("MailAddress", "john@doe.com");
       session.commit();
       Assert.fail("Expected record duplicate exception");
     } catch (RecordDuplicatedException ex) {
@@ -140,7 +140,7 @@ public class UniqueIndexTest extends DbTestBase {
     }
     session.begin();
     EntityImpl fromDb = session.load(id.getIdentity());
-    Assert.assertEquals(fromDb.field("MailAddress"), "jane@doe.com");
+    Assert.assertEquals(fromDb.getProperty("MailAddress"), "jane@doe.com");
     session.commit();
   }
 
@@ -153,7 +153,7 @@ public class UniqueIndexTest extends DbTestBase {
 
     session.begin();
     var jane = (EntityImpl) session.newEntity("User");
-    jane.field("MailAddress", "jane@doe.com");
+    jane.setProperty("MailAddress", "jane@doe.com");
 
     session.commit();
 
@@ -172,7 +172,7 @@ public class UniqueIndexTest extends DbTestBase {
     try {
       session.begin();
       var toUp = (EntityImpl) session.newEntity("User");
-      toUp.field("MailAddress", "john@doe.com");
+      toUp.setProperty("MailAddress", "john@doe.com");
 
       session.commit();
 

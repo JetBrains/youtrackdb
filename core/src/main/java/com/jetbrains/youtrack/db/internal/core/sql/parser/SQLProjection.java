@@ -140,7 +140,7 @@ public class SQLProjection extends SimpleNode {
       }
       if (item.isAll()) {
         if (inResult.isEntity()) {
-          ((EntityImpl) inResult.asEntity()).deserializeFields();
+          ((EntityImpl) inResult.asEntity()).deserializeProperties();
         }
         for (var alias : inResult.getPropertyNames()) {
           if (this.excludes.contains(alias)) {

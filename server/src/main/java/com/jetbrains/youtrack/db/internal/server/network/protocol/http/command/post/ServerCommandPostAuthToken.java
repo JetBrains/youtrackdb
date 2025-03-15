@@ -50,7 +50,8 @@ public class ServerCommandPostAuthToken extends ServerCommandAbstract {
     // Parameter names consistent with 4.3.2 (Access Token Request) of RFC 6749
     var content = iRequest.getUrlEncodedContent();
     if (content == null) {
-      var result = new EntityImpl(null).field("error", "missing_auth_data");
+      var result = new EntityImpl(null);
+      result.setProperty("error", "missing_auth_data");
       sendError(iRequest, iResponse, result);
       return false;
     }
@@ -88,15 +89,19 @@ public class ServerCommandPostAuthToken extends ServerCommandAbstract {
         }
 
         // 4.1.4 (Access Token Response) of RFC 6749
-        result = new EntityImpl(null).field("access_token", signedToken).field("expires_in", 3600);
+        result = new EntityImpl(null);
+        result.setProperty("access_token", signedToken);
+        result.setProperty("expires_in", 3600);
 
         iResponse.writeRecord(result, RESPONSE_FORMAT, null);
       } else {
-        result = new EntityImpl(null).field("error", "unsupported_grant_type");
+        result = new EntityImpl(null);
+        result.setProperty("error", "unsupported_grant_type");
         sendError(iRequest, iResponse, result);
       }
     } else {
-      result = new EntityImpl(null).field("error", "unsupported_grant_type");
+      result = new EntityImpl(null);
+      result.setProperty("error", "unsupported_grant_type");
       sendError(iRequest, iResponse, result);
     }
 

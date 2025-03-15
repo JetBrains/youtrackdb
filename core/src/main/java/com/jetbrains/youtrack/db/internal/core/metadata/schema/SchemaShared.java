@@ -127,7 +127,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     return null;
   }
 
-  public static Character checkFieldNameIfValid(String iName) {
+  public static Character checkPropertyNameIfValid(String iName) {
     if (iName == null) {
       throw new IllegalArgumentException("Name is null");
     }
@@ -471,7 +471,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     modificationCounter.increment();
     try {
       // READ CURRENT SCHEMA VERSION
-      final Integer schemaVersion = entity.field("schemaVersion");
+      final Integer schemaVersion = entity.getProperty("schemaVersion");
       if (schemaVersion == null) {
         LogManager.instance()
             .error(
@@ -492,7 +492,7 @@ public abstract class SchemaShared implements CloseableInStorage {
 
       properties.clear();
       propertiesByNameType.clear();
-      List<EntityImpl> globalProperties = entity.field("globalProperties");
+      List<EntityImpl> globalProperties = entity.getProperty("globalProperties");
       var hasGlobalProperties = false;
       if (globalProperties != null) {
         hasGlobalProperties = true;
@@ -509,9 +509,9 @@ public abstract class SchemaShared implements CloseableInStorage {
 
       final Map<String, SchemaClassImpl> newClasses = new HashMap<>();
 
-      Collection<EntityImpl> storedClasses = entity.field("classes");
+      Collection<EntityImpl> storedClasses = entity.getProperty("classes");
       for (var c : storedClasses) {
-        String name = c.field("name");
+        String name = c.getProperty("name");
 
         SchemaClassImpl cls;
         if (classes.containsKey(name.toLowerCase(Locale.ENGLISH))) {
@@ -536,8 +536,8 @@ public abstract class SchemaShared implements CloseableInStorage {
       SchemaClassImpl superClass;
 
       for (var c : storedClasses) {
-        superClassNames = c.field("superClasses");
-        legacySuperClassName = c.field("superClass");
+        superClassNames = c.getProperty("superClasses");
+        legacySuperClassName = c.getProperty("superClass");
         if (superClassNames == null) {
           superClassNames = new ArrayList<>();
         }
@@ -548,7 +548,7 @@ public abstract class SchemaShared implements CloseableInStorage {
         if (!superClassNames.isEmpty()) {
           // HAS A SUPER CLASS or CLASSES
           var cls =
-              classes.get(((String) c.field("name")).toLowerCase(Locale.ENGLISH));
+              classes.get(((String) c.getProperty("name")).toLowerCase(Locale.ENGLISH));
           superClasses = new ArrayList<>(superClassNames.size());
           for (var superClassName : superClassNames) {
 
@@ -571,7 +571,7 @@ public abstract class SchemaShared implements CloseableInStorage {
 
       // VIEWS
 
-      if (entity.containsField("blobClusters")) {
+      if (entity.hasProperty("blobClusters")) {
         blobClusters = new IntOpenHashSet(entity.getEmbeddedSet("blobClusters"));
       }
 
@@ -598,7 +598,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     lock.readLock().lock();
     try {
       EntityImpl entity = session.load(identity);
-      entity.field("schemaVersion", CURRENT_VERSION_NUMBER);
+      entity.setProperty("schemaVersion", CURRENT_VERSION_NUMBER);
 
       // This steps is needed because in classes there are duplicate due to aliases
       Set<SchemaClassImpl> realClases = new HashSet<>(classes.values());
@@ -607,7 +607,7 @@ public abstract class SchemaShared implements CloseableInStorage {
       for (var c : realClases) {
         classesEntities.add(c.toStream(session));
       }
-      entity.field("classes", classesEntities, PropertyType.EMBEDDEDSET);
+      entity.setProperty("classes", classesEntities, PropertyType.EMBEDDEDSET);
 
       List<Entity> globalProperties = session.newEmbeddedList();
       for (var globalProperty : properties) {
@@ -615,8 +615,9 @@ public abstract class SchemaShared implements CloseableInStorage {
           globalProperties.add(((GlobalPropertyImpl) globalProperty).toEntity(session));
         }
       }
-      entity.field("globalProperties", globalProperties, PropertyType.EMBEDDEDLIST);
-      entity.field("blobClusters", session.newEmbeddedSet(blobClusters), PropertyType.EMBEDDEDSET);
+      entity.setProperty("globalProperties", globalProperties, PropertyType.EMBEDDEDLIST);
+      Object propertyValue = session.newEmbeddedSet(blobClusters);
+      entity.setProperty("blobClusters", propertyValue, PropertyType.EMBEDDEDSET);
       return entity;
     } finally {
       lock.readLock().unlock();

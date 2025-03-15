@@ -54,7 +54,7 @@ public class LuceneInsertUpdateTest extends BaseLuceneTest {
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("City"));
-    doc.field("name", "Rome");
+    doc.setProperty("name", "Rome");
 
     session.commit();
 
@@ -68,9 +68,9 @@ public class LuceneInsertUpdateTest extends BaseLuceneTest {
 
     var next = (Identifiable) coll.iterator().next();
     doc = session.load(next.getIdentity());
-    Assert.assertEquals(doc.field("name"), "Rome");
+    Assert.assertEquals(doc.getProperty("name"), "Rome");
 
-    doc.field("name", "London");
+    doc.setProperty("name", "London");
 
     session.commit();
 
@@ -86,9 +86,9 @@ public class LuceneInsertUpdateTest extends BaseLuceneTest {
 
     next = (Identifiable) coll.iterator().next();
     doc = session.load(next.getIdentity());
-    Assert.assertEquals(doc.field("name"), "London");
+    Assert.assertEquals(doc.getProperty("name"), "London");
 
-    doc.field("name", "Berlin");
+    doc.setProperty("name", "Berlin");
 
     session.commit();
 

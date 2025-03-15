@@ -305,19 +305,19 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
 
         for (var i = 0; i < 10000; i++) {
           var docOne = ((EntityImpl) baseDB.newEntity(classOne));
-          docOne.field("intProp", random.nextInt());
+          docOne.setProperty("intProp", random.nextInt());
 
           var stringData = new byte[256];
           random.nextBytes(stringData);
           var stringProp = new String(stringData);
 
-          docOne.field("stringProp", stringProp);
+          docOne.setProperty("stringProp", stringProp);
 
           Set<String> stringSet = new HashSet<String>();
           for (var n = 0; n < 5; n++) {
             stringSet.add("str" + random.nextInt());
           }
-          docOne.field("stringSet", stringSet);
+          docOne.setProperty("stringSet", stringSet);
 
           saveDoc(docOne);
 
@@ -332,7 +332,7 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
               stringList.add("strnd" + random.nextInt());
             }
 
-            docTwo.field("stringList", stringList);
+            docTwo.setProperty("stringList", stringList);
             saveDoc(docTwo);
             testTwoList.add(docTwo.getIdentity());
           }
@@ -348,7 +348,7 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
               linkMap.put(docTwoRid.toString(), docTwoRid);
             }
 
-            docOne.field("linkMap", linkMap);
+            docOne.setProperty("linkMap", linkMap);
 
             saveDoc(docOne);
           }

@@ -78,7 +78,8 @@ public class CommandExecutorSQLLiveSelect extends CommandExecutorSQLSelect
       }
 
       var result = new EntityImpl(session);
-      result.field("token", token); // TODO change this name...?
+      // TODO change this name...?
+      result.setProperty("token", token);
 
       ((LegacyResultSet) getResult(session)).add(result);
       return getResult(session);

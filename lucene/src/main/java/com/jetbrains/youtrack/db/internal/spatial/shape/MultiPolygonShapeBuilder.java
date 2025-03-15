@@ -49,7 +49,7 @@ public class MultiPolygonShapeBuilder extends PolygonShapeBuilder {
   @Override
   public JtsGeometry fromDoc(EntityImpl document) {
     validate(document);
-    List<List<List<List<Number>>>> coordinates = document.field("coordinates");
+    List<List<List<List<Number>>>> coordinates = document.getProperty("coordinates");
 
     var polygons = new Polygon[coordinates.size()];
     var i = 0;
@@ -73,7 +73,7 @@ public class MultiPolygonShapeBuilder extends PolygonShapeBuilder {
       polyCoordinates.add(coordinatesFromPolygon((Polygon) geom));
     }
 
-    doc.field(COORDINATES, polyCoordinates);
+    doc.setProperty(COORDINATES, polyCoordinates);
     return doc;
   }
 }

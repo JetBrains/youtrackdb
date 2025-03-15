@@ -44,8 +44,8 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
 
     var document = ((EntityImpl) session.newEntity("Point"));
 
-    document.field("latitude", 42.2814837);
-    document.field("longitude", -83.7605452);
+    document.setProperty("latitude", 42.2814837);
+    document.setProperty("longitude", -83.7605452);
 
     session.begin();
     session.commit();
@@ -72,8 +72,8 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
 
     var document = ((EntityImpl) session.newEntity("Point"));
 
-    document.field("latitude", 42.2814837);
-    document.field("longitude", -83.7605452);
+    document.setProperty("latitude", 42.2814837);
+    document.setProperty("longitude", -83.7605452);
 
     session.begin();
     session.commit();
@@ -142,8 +142,8 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
 
     var document = ((EntityImpl) session.newEntity("Point"));
 
-    document.field("latitude", 42.2814837);
-    document.field("longitude", -83.7605452);
+    document.setProperty("latitude", 42.2814837);
+    document.setProperty("longitude", -83.7605452);
 
     session.commit();
 

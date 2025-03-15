@@ -39,7 +39,7 @@ public class MultiPointShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
   @Override
   public JtsGeometry fromDoc(EntityImpl document) {
     validate(document);
-    List<List<Number>> coordinates = document.field(COORDINATES);
+    List<List<Number>> coordinates = document.getProperty(COORDINATES);
     var coords = new Coordinate[coordinates.size()];
     var i = 0;
     for (var coordinate : coordinates) {
@@ -62,9 +62,7 @@ public class MultiPointShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
     final var geom = (MultiPoint) shape.getGeom();
 
     var doc = new EntityImpl(null, getName());
-    doc.field(
-        COORDINATES,
-        new ArrayList<List<Double>>() {
+    doc.setProperty(COORDINATES, new ArrayList<List<Double>>() {
           {
             var coordinates = geom.getCoordinates();
             for (var coordinate : coordinates) {
