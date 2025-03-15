@@ -270,9 +270,33 @@ public class SQLBaseExpression extends SQLMathExpression {
 
   @Override
   public Collate getCollate(Result currentRecord, CommandContext ctx) {
-    return identifier != null && modifier == null
-        ? identifier.getCollate(currentRecord, ctx)
-        : null;
+    if (identifier == null) {
+      return null;
+    }
+
+    if (modifier == null) {
+      return identifier.getCollate(currentRecord, ctx);
+    }
+
+    // at the moment we support collate only for chains of nested links: link1.link2.link3
+    // it won't work for more complex expressions, as, for instance, coalesce(link1, link2).link3
+    var record = identifier.execute(currentRecord, ctx);
+    var lastModifier = modifier;
+    var iterate = true;
+
+    while (iterate) {
+      if (lastModifier.suffix == null) {
+        return null;
+      }
+
+      if (lastModifier.next == null) {
+        iterate = false;
+      } else {
+        record = lastModifier.executeOneLevel(currentRecord, record, ctx);
+        lastModifier = lastModifier.next;
+      }
+    }
+    return (record instanceof Result result) ? lastModifier.suffix.getCollate(result, ctx) : null;
   }
 
   public boolean isEarlyCalculated(CommandContext ctx) {

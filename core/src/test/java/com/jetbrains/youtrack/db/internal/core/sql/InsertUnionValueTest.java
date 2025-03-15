@@ -1,11 +1,14 @@
 package com.jetbrains.youtrack.db.internal.core.sql;
 
-import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -51,11 +54,32 @@ public class InsertUnionValueTest {
                     update $example set metadata["something"] = $u;
                     update $example set metadata.something = $u;\
                     commit;\
-                  """)
+                  """
+          )
           .close();
-      var entries =
-          session.query("select expand(metadata.something) from example").stream().count();
-      assertEquals(2, entries);
+
+      var values =
+          session.query("select metadata.something from example").toList();
+      assertThat(values).hasSize(1);
+      assertThat(values.getFirst().<Map<?, ?>>getProperty("metadata.something"))
+          .isEqualTo(Map.of(
+              "aKey", "aValue",
+              "anotherKey", "anotherValue")
+          );
+
+      var expandedValues = session
+          .query("select expand(metadata.something) from example")
+          .stream()
+          .map(r -> r.<Map<?, ?>>getProperty("value"))
+          .collect(Collectors.toSet());
+
+      assertThat(expandedValues).isEqualTo(
+          Set.of(
+              Map.of("aKey", "aValue"),
+              Map.of("anotherKey", "anotherValue")
+          )
+      );
+
     }
   }
 }
