@@ -17,6 +17,8 @@ public interface EntityInternal extends Entity {
 
   void setPropertyInternal(String name, Object value, PropertyType type);
 
+  void setPropertyInternal(String name, Object value, PropertyType type, PropertyType linkedType);
+
   <RET> RET removePropertyInternal(String name);
 
   <RET> RET getPropertyInternal(String name);

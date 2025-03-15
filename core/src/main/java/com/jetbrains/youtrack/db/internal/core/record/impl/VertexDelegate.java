@@ -332,30 +332,56 @@ public final class VertexDelegate implements VertexInternal {
     return entity.newEmbeddedList(name, source);
   }
 
+  @Nonnull
   @Override
-  public <T> Set<T> newEmbeddedSet(@Nonnull String name, Set<T> source) {
+  public <T> List<T> newEmbeddedList(@Nonnull String name, List<T> source,
+      PropertyType linkedType) {
+    return List.of();
+  }
+
+  @Nonnull
+  @Override
+  public <T> Set<T> newEmbeddedSet(@Nonnull String name, @Nonnull Set<T> source) {
     VertexInternal.checkPropertyName(name);
     return entity.newEmbeddedSet(name, source);
   }
 
+  @Nonnull
+  @Override
+  public <T> Set<T> newEmbeddedSet(@Nonnull String name, Set<T> source,
+      @Nonnull PropertyType linkedType) {
+    return Set.of();
+  }
+
+  @Nonnull
   @Override
   public <T> Map<String, T> newEmbeddedMap(@Nonnull String name, Map<String, T> source) {
     VertexInternal.checkPropertyName(name);
     return entity.newEmbeddedMap(name, source);
   }
 
+  @Nonnull
+  @Override
+  public <T> Map<String, T> newEmbeddedMap(@Nonnull String name, Map<String, T> source,
+      @Nonnull PropertyType linkedType) {
+    return Map.of();
+  }
+
+  @Nonnull
   @Override
   public List<Identifiable> newLinkList(@Nonnull String name, List<Identifiable> source) {
     VertexInternal.checkPropertyName(name);
     return entity.newLinkList(name, source);
   }
 
+  @Nonnull
   @Override
   public Set<Identifiable> newLinkSet(@Nonnull String name, Set<Identifiable> source) {
     VertexInternal.checkPropertyName(name);
     return entity.newLinkSet(name, source);
   }
 
+  @Nonnull
   @Override
   public Map<String, Identifiable> newLinkMap(@Nonnull String name,
       Map<String, Identifiable> source) {
@@ -378,10 +404,23 @@ public final class VertexDelegate implements VertexInternal {
 
   @Nonnull
   @Override
+  public <T> List<T> getOrCreateEmbeddedList(@Nonnull String name,
+      @Nonnull PropertyType linkedType) {
+    return List.of();
+  }
+
+  @Nonnull
+  @Override
   public <T> List<T> newEmbeddedList(@Nonnull String name) {
     VertexInternal.checkPropertyName(name);
 
     return entity.newEmbeddedList(name);
+  }
+
+  @Nonnull
+  @Override
+  public <T> List<T> newEmbeddedList(@Nonnull String name, PropertyType linkedType) {
+    return List.of();
   }
 
   @Nonnull
@@ -449,10 +488,22 @@ public final class VertexDelegate implements VertexInternal {
 
   @Nonnull
   @Override
+  public <T> Set<T> getOrCreateEmbeddedSet(@Nonnull String name, @Nonnull PropertyType linkedType) {
+    return Set.of();
+  }
+
+  @Nonnull
+  @Override
   public <T> Set<T> newEmbeddedSet(@Nonnull String name) {
     VertexInternal.checkPropertyName(name);
 
     return entity.newEmbeddedSet(name);
+  }
+
+  @Nonnull
+  @Override
+  public <T> Set<T> newEmbeddedSet(@Nonnull String name, @Nonnull PropertyType linkedType) {
+    return Set.of();
   }
 
   @Override
@@ -464,10 +515,23 @@ public final class VertexDelegate implements VertexInternal {
 
   @Nonnull
   @Override
+  public <T> Map<String, T> getOrCreateEmbeddedMap(@Nonnull String name,
+      @Nonnull PropertyType linkedType) {
+    return Map.of();
+  }
+
+  @Nonnull
+  @Override
   public <T> Map<String, T> newEmbeddedMap(@Nonnull String name) {
     VertexInternal.checkPropertyName(name);
 
     return entity.newEmbeddedMap(name);
+  }
+
+  @Nonnull
+  @Override
+  public <T> Map<String, T> newEmbeddedMap(@Nonnull String name, @Nonnull PropertyType linkedType) {
+    return Map.of();
   }
 
   @Override
@@ -604,8 +668,22 @@ public final class VertexDelegate implements VertexInternal {
   }
 
   @Override
+  public void setProperty(@Nonnull String propertyName, @Nullable Object value,
+      @Nonnull PropertyType propertyType, @Nonnull PropertyType linkedType) {
+    VertexInternal.checkPropertyName(propertyName);
+
+    entity.setProperty(propertyName, value, propertyType, linkedType);
+  }
+
+  @Override
   public void setPropertyInternal(String name, Object value, PropertyType type) {
     entity.setPropertyInternal(name, value, type);
+  }
+
+  @Override
+  public void setPropertyInternal(String name, Object value, PropertyType type,
+      PropertyType linkedType) {
+    entity.setPropertyInternal(name, value, type, linkedType);
   }
 
   @Override

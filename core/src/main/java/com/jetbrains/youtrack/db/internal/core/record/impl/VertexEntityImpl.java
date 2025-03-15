@@ -23,15 +23,11 @@ public class VertexEntityImpl extends EntityImpl implements VertexInternal {
 
   @Override
   public @Nonnull Collection<String> getPropertyNames() {
-    checkForBinding();
-
     return VertexInternal.filterPropertyNames(super.getPropertyNames());
   }
 
   @Override
   public <RET> RET getProperty(@Nonnull String fieldName) {
-    checkForBinding();
-
     VertexInternal.checkPropertyName(fieldName);
 
     return super.getProperty(fieldName);
@@ -40,8 +36,6 @@ public class VertexEntityImpl extends EntityImpl implements VertexInternal {
   @Nullable
   @Override
   public RID getLink(@Nonnull String fieldName) {
-    checkForBinding();
-
     VertexInternal.checkPropertyName(fieldName);
 
     return super.getLink(fieldName);
@@ -49,8 +43,6 @@ public class VertexEntityImpl extends EntityImpl implements VertexInternal {
 
   @Override
   public void setProperty(@Nonnull String propertyName, @Nullable Object propertyValue) {
-    checkForBinding();
-
     VertexInternal.checkPropertyName(propertyName);
     super.setProperty(propertyName, propertyValue);
   }
@@ -58,16 +50,19 @@ public class VertexEntityImpl extends EntityImpl implements VertexInternal {
   @Override
   public void setProperty(@Nonnull String propertyName, Object propertyValue,
       @Nonnull PropertyType type) {
-    checkForBinding();
 
     VertexInternal.checkPropertyName(propertyName);
     super.setProperty(propertyName, propertyValue, type);
   }
 
+  public void setProperty(@Nonnull String propertyName, @Nullable Object value,
+      @Nonnull PropertyType propertyType, @Nonnull PropertyType linkedType) {
+    VertexInternal.checkPropertyName(propertyName);
+    super.setProperty(propertyName, value, propertyType, linkedType);
+  }
+
   @Override
   public <RET> RET removeProperty(@Nonnull String fieldName) {
-    checkForBinding();
-
     VertexInternal.checkPropertyName(fieldName);
     return super.removeProperty(fieldName);
   }

@@ -112,6 +112,7 @@ public class EntityHelper {
       @Nonnull DatabaseSessionInternal session, @Nonnull final EntityImpl entity,
       @Nonnull final String fieldName,
       @Nullable PropertyType type,
+      @Nullable PropertyType linkedType,
       @Nullable Object value) {
     if (value == null) {
       return null;
@@ -128,7 +129,11 @@ public class EntityHelper {
     var immutableSchemaClass = entity.getImmutableSchemaClass(session);
     var property =
         immutableSchemaClass != null ? immutableSchemaClass.getProperty(fieldName) : null;
-    value = type.convert(value, property != null ? property.getLinkedType() : null,
+    if (linkedType == null) {
+      linkedType = property != null ? property.getLinkedType() : null;
+    }
+
+    value = type.convert(value, linkedType,
         property != null ? property.getLinkedClass() : null, session);
 
     return (RET) value;

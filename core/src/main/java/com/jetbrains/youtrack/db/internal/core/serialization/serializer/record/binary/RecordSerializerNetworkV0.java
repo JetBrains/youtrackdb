@@ -138,7 +138,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
         bytes.offset = headerCursor;
         entity.field(fieldName, value, type);
       } else {
-        entity.field(fieldName, null, (PropertyType[]) null);
+        entity.setPropertyInternal(fieldName, null);
       }
 
       if (unmarshalledFields == iFields.length)

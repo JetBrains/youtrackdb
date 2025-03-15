@@ -120,10 +120,23 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
 
   @Nonnull
   @Override
+  public <T> List<T> getOrCreateEmbeddedList(@Nonnull String name,
+      @Nonnull PropertyType linkedType) {
+    return List.of();
+  }
+
+  @Nonnull
+  @Override
   public <T> List<T> newEmbeddedList(@Nonnull String name) {
     EdgeInternal.checkPropertyName(name);
 
     return entity.newEmbeddedList(name);
+  }
+
+  @Nonnull
+  @Override
+  public <T> List<T> newEmbeddedList(@Nonnull String name, PropertyType linkedType) {
+    return List.of();
   }
 
   @Nonnull
@@ -195,10 +208,22 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
 
   @Nonnull
   @Override
+  public <T> Set<T> getOrCreateEmbeddedSet(@Nonnull String name, @Nonnull PropertyType linkedType) {
+    return Set.of();
+  }
+
+  @Nonnull
+  @Override
   public <T> Set<T> newEmbeddedSet(@Nonnull String name) {
     EdgeInternal.checkPropertyName(name);
 
     return entity.newEmbeddedSet(name);
+  }
+
+  @Nonnull
+  @Override
+  public <T> Set<T> newEmbeddedSet(@Nonnull String name, @Nonnull PropertyType linkedType) {
+    return Set.of();
   }
 
   @Override
@@ -210,9 +235,22 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
 
   @Nonnull
   @Override
+  public <T> Map<String, T> getOrCreateEmbeddedMap(@Nonnull String name,
+      @Nonnull PropertyType linkedType) {
+    return Map.of();
+  }
+
+  @Nonnull
+  @Override
   public <T> Map<String, T> newEmbeddedMap(@Nonnull String name) {
     EdgeInternal.checkPropertyName(name);
     return entity.newEmbeddedMap(name);
+  }
+
+  @Nonnull
+  @Override
+  public <T> Map<String, T> newEmbeddedMap(@Nonnull String name, @Nonnull PropertyType linkedType) {
+    return Map.of();
   }
 
   @Override
@@ -270,6 +308,13 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
     EdgeInternal.checkPropertyName(propertyName);
 
     entity.setProperty(propertyName, value, fieldType);
+  }
+
+  @Override
+  public void setProperty(@Nonnull String propertyName, @Nullable Object value,
+      @Nonnull PropertyType propertyType, @Nonnull PropertyType linkedType) {
+    EdgeInternal.checkPropertyName(propertyName);
+    entity.setProperty(propertyName, value, propertyType, linkedType);
   }
 
   @Override
@@ -337,30 +382,56 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
     return entity.newEmbeddedList(name, source);
   }
 
+  @Nonnull
   @Override
-  public <T> Set<T> newEmbeddedSet(@Nonnull String name, Set<T> source) {
+  public <T> List<T> newEmbeddedList(@Nonnull String name, List<T> source,
+      PropertyType linkedType) {
+    return List.of();
+  }
+
+  @Nonnull
+  @Override
+  public <T> Set<T> newEmbeddedSet(@Nonnull String name, @Nonnull Set<T> source) {
     EdgeInternal.checkPropertyName(name);
     return entity.newEmbeddedSet(name, source);
   }
 
+  @Nonnull
+  @Override
+  public <T> Set<T> newEmbeddedSet(@Nonnull String name, Set<T> source,
+      @Nonnull PropertyType linkedType) {
+    return Set.of();
+  }
+
+  @Nonnull
   @Override
   public <T> Map<String, T> newEmbeddedMap(@Nonnull String name, Map<String, T> source) {
     EdgeInternal.checkPropertyName(name);
     return entity.newEmbeddedMap(name, source);
   }
 
+  @Nonnull
+  @Override
+  public <T> Map<String, T> newEmbeddedMap(@Nonnull String name, Map<String, T> source,
+      @Nonnull PropertyType linkedType) {
+    return Map.of();
+  }
+
+  @Nonnull
   @Override
   public List<Identifiable> newLinkList(@Nonnull String name, List<Identifiable> source) {
     EdgeInternal.checkPropertyName(name);
     return entity.newLinkList(name, source);
   }
 
+  @Nonnull
   @Override
   public Set<Identifiable> newLinkSet(@Nonnull String name, Set<Identifiable> source) {
     EdgeInternal.checkPropertyName(name);
     return entity.newLinkSet(name, source);
   }
 
+  @Nonnull
   @Override
   public Map<String, Identifiable> newLinkMap(@Nonnull String name,
       Map<String, Identifiable> source) {
@@ -371,6 +442,12 @@ public class StatefulEdgeImpl implements EdgeInternal, StatefulEdge, EntityInter
   @Override
   public void setPropertyInternal(String name, Object value, PropertyType type) {
     entity.setPropertyInternal(name, value, type);
+  }
+
+  @Override
+  public void setPropertyInternal(String name, Object value, PropertyType type,
+      PropertyType linkedType) {
+    entity.setPropertyInternal(name, value, type, linkedType);
   }
 
   @Override

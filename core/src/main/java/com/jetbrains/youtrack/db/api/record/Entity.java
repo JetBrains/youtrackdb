@@ -72,6 +72,9 @@ public interface Entity extends DBRecord, Result {
   void setProperty(@Nonnull String propertyName, @Nullable Object value,
       @Nonnull PropertyType propertyType);
 
+  void setProperty(@Nonnull String propertyName, @Nullable Object value,
+      @Nonnull PropertyType propertyType, @Nonnull PropertyType linkedType);
+
   default void setBoolean(@Nonnull String name, @Nullable Boolean value) {
     setProperty(name, value, PropertyType.BOOLEAN);
   }
@@ -159,7 +162,13 @@ public interface Entity extends DBRecord, Result {
   <T> List<T> newEmbeddedList(@Nonnull String name);
 
   @Nonnull
+  <T> List<T> newEmbeddedList(@Nonnull String name, PropertyType linkedType);
+
+  @Nonnull
   <T> List<T> newEmbeddedList(@Nonnull String name, List<T> source);
+
+  @Nonnull
+  <T> List<T> newEmbeddedList(@Nonnull String name, List<T> source, PropertyType linkedType);
 
   @Nonnull
   <T> List<T> newEmbeddedList(@Nonnull String name, T[] source);
@@ -188,36 +197,63 @@ public interface Entity extends DBRecord, Result {
   @Nonnull
   <T> Set<T> newEmbeddedSet(@Nonnull String name);
 
-  <T> Set<T> newEmbeddedSet(@Nonnull String name, Set<T> source);
+  @Nonnull
+  <T> Set<T> newEmbeddedSet(@Nonnull String name, @Nonnull PropertyType linkedType);
+
+  @Nonnull
+  <T> Set<T> newEmbeddedSet(@Nonnull String name, @Nonnull Set<T> source);
+
+  @Nonnull
+  <T> Set<T> newEmbeddedSet(@Nonnull String name, Set<T> source, @Nonnull PropertyType linkedType);
 
   @Nonnull
   <T> Map<String, T> newEmbeddedMap(@Nonnull String name);
 
+  @Nonnull
+  <T> Map<String, T> newEmbeddedMap(@Nonnull String name, @Nonnull PropertyType linkedType);
+
+  @Nonnull
   <T> Map<String, T> newEmbeddedMap(@Nonnull String name, Map<String, T> source);
+
+  @Nonnull
+  <T> Map<String, T> newEmbeddedMap(@Nonnull String name, Map<String, T> source,
+      @Nonnull PropertyType linkedType);
 
   @Nonnull
   List<Identifiable> newLinkList(@Nonnull String name);
 
+  @Nonnull
   List<Identifiable> newLinkList(@Nonnull String name, List<Identifiable> source);
 
   @Nonnull
   Set<Identifiable> newLinkSet(@Nonnull String name);
 
+  @Nonnull
   Set<Identifiable> newLinkSet(@Nonnull String name, Set<Identifiable> source);
 
   @Nonnull
   Map<String, Identifiable> newLinkMap(@Nonnull String name);
 
+  @Nonnull
   Map<String, Identifiable> newLinkMap(@Nonnull String name, Map<String, Identifiable> source);
 
   @Nonnull
   <T> List<T> getOrCreateEmbeddedList(@Nonnull String name);
 
   @Nonnull
+  <T> List<T> getOrCreateEmbeddedList(@Nonnull String name, @Nonnull PropertyType linkedType);
+
+  @Nonnull
   <T> Set<T> getOrCreateEmbeddedSet(@Nonnull String name);
 
   @Nonnull
+  <T> Set<T> getOrCreateEmbeddedSet(@Nonnull String name, @Nonnull PropertyType linkedType);
+
+  @Nonnull
   <T> Map<String, T> getOrCreateEmbeddedMap(@Nonnull String name);
+
+  @Nonnull
+  <T> Map<String, T> getOrCreateEmbeddedMap(@Nonnull String name, @Nonnull PropertyType linkedType);
 
   @Nonnull
   List<Identifiable> getOrCreateLinkList(@Nonnull String name);

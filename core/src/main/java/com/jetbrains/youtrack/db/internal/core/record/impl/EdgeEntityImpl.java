@@ -127,15 +127,11 @@ public class EdgeEntityImpl extends EntityImpl implements EdgeInternal, Stateful
 
   @Override
   public @Nonnull Collection<String> getPropertyNames() {
-    checkForBinding();
-
     return EdgeInternal.filterPropertyNames(super.getPropertyNames());
   }
 
   @Override
   public <RET> RET getProperty(@Nonnull String fieldName) {
-    checkForBinding();
-
     EdgeInternal.checkPropertyName(fieldName);
 
     return super.getProperty(fieldName);
@@ -144,8 +140,6 @@ public class EdgeEntityImpl extends EntityImpl implements EdgeInternal, Stateful
   @Nullable
   @Override
   public RID getLink(@Nonnull String fieldName) {
-    checkForBinding();
-
     EdgeInternal.checkPropertyName(fieldName);
 
     return super.getLink(fieldName);
@@ -153,7 +147,6 @@ public class EdgeEntityImpl extends EntityImpl implements EdgeInternal, Stateful
 
   @Override
   public void setProperty(@Nonnull String propertyName, @Nullable Object propertyValue) {
-    checkForBinding();
     EdgeInternal.checkPropertyName(propertyName);
 
     super.setProperty(propertyName, propertyValue);
@@ -162,7 +155,6 @@ public class EdgeEntityImpl extends EntityImpl implements EdgeInternal, Stateful
   @Override
   public void setProperty(@Nonnull String propertyName, Object propertyValue,
       @Nonnull PropertyType type) {
-    checkForBinding();
     EdgeInternal.checkPropertyName(propertyName);
 
     super.setProperty(propertyName, propertyValue, type);
@@ -170,7 +162,6 @@ public class EdgeEntityImpl extends EntityImpl implements EdgeInternal, Stateful
 
   @Override
   public @Nonnull <T> List<T> getOrCreateEmbeddedList(@Nonnull String name) {
-    checkForBinding();
     EdgeInternal.checkPropertyName(name);
 
     return super.getOrCreateEmbeddedList(name);
@@ -178,7 +169,6 @@ public class EdgeEntityImpl extends EntityImpl implements EdgeInternal, Stateful
 
   @Override
   public @Nonnull <T> Set<T> getOrCreateEmbeddedSet(@Nonnull String name) {
-    checkForBinding();
     EdgeInternal.checkPropertyName(name);
 
     return super.getOrCreateEmbeddedSet(name);
@@ -186,7 +176,6 @@ public class EdgeEntityImpl extends EntityImpl implements EdgeInternal, Stateful
 
   @Override
   public @Nonnull <T> Map<String, T> getOrCreateEmbeddedMap(@Nonnull String name) {
-    checkForBinding();
     EdgeInternal.checkPropertyName(name);
 
     return super.getOrCreateEmbeddedMap(name);
@@ -194,7 +183,6 @@ public class EdgeEntityImpl extends EntityImpl implements EdgeInternal, Stateful
 
   @Override
   public @Nonnull List<Identifiable> getOrCreateLinkList(@Nonnull String name) {
-    checkForBinding();
     EdgeInternal.checkPropertyName(name);
 
     return super.getOrCreateLinkList(name);
@@ -203,7 +191,6 @@ public class EdgeEntityImpl extends EntityImpl implements EdgeInternal, Stateful
   @Nonnull
   @Override
   public Set<Identifiable> getOrCreateLinkSet(@Nonnull String name) {
-    checkForBinding();
     EdgeInternal.checkPropertyName(name);
 
     return super.getOrCreateLinkSet(name);
@@ -212,7 +199,6 @@ public class EdgeEntityImpl extends EntityImpl implements EdgeInternal, Stateful
   @Nonnull
   @Override
   public Map<String, Identifiable> getOrCreateLinkMap(@Nonnull String name) {
-    checkForBinding();
     EdgeInternal.checkPropertyName(name);
 
     return super.getOrCreateLinkMap(name);
@@ -220,7 +206,6 @@ public class EdgeEntityImpl extends EntityImpl implements EdgeInternal, Stateful
 
   @Override
   public <RET> RET removeProperty(@Nonnull String fieldName) {
-    checkForBinding();
     EdgeInternal.checkPropertyName(fieldName);
 
     return super.removeProperty(fieldName);
