@@ -50,6 +50,11 @@ public class ExpandStep extends AbstractExecutionStep {
         return ExecutionStream.empty();
       }
       case Identifiable identifiable -> {
+
+        if (expandAlias != null) {
+          throw new CommandExecutionException(db,
+              "Cannot expand a record with a non-null alias: " + expandAlias);
+        }
         DBRecord rec;
         try {
           rec = identifiable.getRecord(db);

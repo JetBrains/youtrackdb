@@ -211,12 +211,8 @@ public class SQLProjection extends SimpleNode {
   }
 
   public String getExpandAlias() {
-    if (!isExpand()) {
-      final var alias = items.getFirst().getAlias();
-      return alias == null ? null : alias.getStringValue();
-    } else {
-      return null;
-    }
+    final var alias = isExpand() ? items.getFirst().getAlias() : null;
+    return alias == null ? null : alias.getStringValue();
   }
 
   public void validate() {
