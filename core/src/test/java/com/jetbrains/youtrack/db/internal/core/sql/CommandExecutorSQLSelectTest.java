@@ -412,12 +412,16 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   public void testUseIndexWithOr() {
     var idxUsagesBefore = indexUsages(session);
 
-    List<EntityImpl> qResult =
-        session.command(new CommandSQL("select * from foo where bar = 2 or name ='a' and bar >= 0"))
-            .execute(session);
+    session.executeInTx(() -> {
+      final var qResult =
+          session.command("select * from foo where bar = 2 or name ='a' and bar >= 0")
+              .stream()
+              .map(r -> r.asEntity())
+              .toList();
 
-    assertEquals(2, qResult.size());
-    assertEquals(indexUsages(session), idxUsagesBefore + 2);
+      assertEquals(2, qResult.size());
+      assertEquals(indexUsages(session), idxUsagesBefore + 2);
+    });
   }
 
   @Test
@@ -431,12 +435,16 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   public void testCompositeIndex() {
     var idxUsagesBefore = indexUsages(session);
 
-    List<EntityImpl> qResult =
-        session.command(new CommandSQL("select * from foo where comp = 'a' and osite = 1")).execute(
-            session);
+    session.executeInTx(() -> {
+      final var qResult =
+          session.command("select * from foo where comp = 'a' and osite = 1")
+              .stream()
+              .map(Result::asEntity)
+              .toList();
 
-    assertEquals(1, qResult.size());
-    assertEquals(indexUsages(session), idxUsagesBefore + 1);
+      assertEquals(1, qResult.size());
+      assertEquals(indexUsages(session), idxUsagesBefore + 1);
+    });
   }
 
   @Test
@@ -468,13 +476,16 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   public void testCompositeIndex2() {
     var idxUsagesBefore = indexUsages(session);
 
-    List<EntityImpl> qResult =
-        session.command(
-                new CommandSQL("select * from foo where (comp = 'a' and osite = 1) or name = 'a'"))
-            .execute(session);
+    session.executeInTx(() -> {
+      final var qResult =
+          session.command("select * from foo where (comp = 'a' and osite = 1) or name = 'a'")
+              .stream()
+              .map(Result::asEntity)
+              .toList();
 
-    assertEquals(2, qResult.size());
-    assertEquals(indexUsages(session), idxUsagesBefore + 2);
+      assertEquals(2, qResult.size());
+      assertEquals(indexUsages(session), idxUsagesBefore + 2);
+    });
   }
 
   @Test
