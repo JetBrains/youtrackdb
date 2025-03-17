@@ -7,7 +7,6 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.query.LegacyResultSet;
 import java.util.ArrayList;
@@ -153,7 +152,7 @@ public class SQLProjection extends SimpleNode {
           result.setProperty(alias, val);
         }
         if (inResult.isEntity()) {
-          var x = (EntityInternal) inResult.asEntity();
+          var x = (EntityImpl) inResult.asEntity();
           if (!this.excludes.contains("@rid")) {
             result.setProperty("@rid", x.getIdentity());
           }

@@ -57,7 +57,7 @@ public class GraphRecoveringTest {
     }
   }
 
-  private void init(DatabaseSession session) {
+  private static void init(DatabaseSession session) {
     session.createVertexClass("V1");
     session.createVertexClass("V2");
     session.createEdgeClass("E1");
@@ -155,7 +155,8 @@ public class GraphRecoveringTest {
                 .filter(Objects::nonNull)
                 .map(Entity::asVertex)
                 .toList()) {
-          for (var f : v.<EntityImpl>getRecord(session).propertyNames()) {
+          for (var f : v.<EntityImpl>getRecord(session).getPropertyNamesInternal(false,
+              true)) {
             if (f.startsWith(Vertex.DIRECTION_OUT_PREFIX)) {
               v.<EntityImpl>getRecord(session).removePropertyInternal(f);
             }

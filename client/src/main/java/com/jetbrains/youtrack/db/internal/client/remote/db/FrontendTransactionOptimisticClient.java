@@ -45,10 +45,6 @@ public class FrontendTransactionOptimisticClient extends FrontendTransactionOpti
     var createCount = -2; // Start from -2 because temporary rids start from -2
     var db = getDatabaseSession();
     for (var operation : operations) {
-      if (!operation.getOldId().equals(operation.getId())) {
-        generatedOriginalRecordIdMap.put(operation.getId().copy(), operation.getOldId());
-      }
-
       RecordAbstract record = null;
       var op = oldEntries.get(operation.getOldId());
       if (op != null) {

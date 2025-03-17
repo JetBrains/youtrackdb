@@ -28,6 +28,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Base64;
+import javax.annotation.Nonnull;
 
 public class RecordSerializerNetworkBase implements RecordSerializerNetwork {
 
@@ -58,17 +59,16 @@ public class RecordSerializerNetworkBase implements RecordSerializerNetwork {
   }
 
   @Override
-  public RecordAbstract fromStream(
-      DatabaseSessionInternal db, final byte[] iSource, RecordAbstract iRecord,
+  public void fromStream(
+      @Nonnull DatabaseSessionInternal session, final @Nonnull byte[] iSource,
+      @Nonnull RecordAbstract iRecord,
       final String[] iFields) {
-    if (iSource == null || iSource.length == 0) {
-      return iRecord;
+    if (iSource.length == 0) {
+      return;
     }
-    if (iRecord == null) {
-      iRecord = new EntityImpl(db);
-    } else if (iRecord instanceof Blob) {
+
+    if (iRecord instanceof Blob) {
       iRecord.fromStream(iSource);
-      return iRecord;
     }
 
     var container = new BytesContainer(iSource);
@@ -76,10 +76,10 @@ public class RecordSerializerNetworkBase implements RecordSerializerNetwork {
 
     try {
       if (iFields != null && iFields.length > 0) {
-        serializerByVersion[iSource[0]].deserializePartial(db, (EntityImpl) iRecord, container,
+        serializerByVersion[iSource[0]].deserializePartial(session, (EntityImpl) iRecord, container,
             iFields);
       } else {
-        serializerByVersion[iSource[0]].deserialize(db, (EntityImpl) iRecord, container);
+        serializerByVersion[iSource[0]].deserialize(session, (EntityImpl) iRecord, container);
       }
     } catch (RuntimeException e) {
       LogManager.instance()
@@ -90,11 +90,11 @@ public class RecordSerializerNetworkBase implements RecordSerializerNetwork {
               Base64.getEncoder().encodeToString(iSource));
       throw e;
     }
-    return iRecord;
   }
 
   @Override
-  public byte[] toStream(DatabaseSessionInternal db, RecordAbstract iSource) {
+  public byte[] toStream(@Nonnull DatabaseSessionInternal session,
+      @Nonnull RecordAbstract iSource) {
     if (iSource instanceof Blob) {
       return iSource.toStream();
     } else {
@@ -104,7 +104,7 @@ public class RecordSerializerNetworkBase implements RecordSerializerNetwork {
       var pos = container.alloc(1);
       container.bytes[pos] = CURRENT_RECORD_VERSION;
       // SERIALIZE RECORD
-      serializerByVersion[CURRENT_RECORD_VERSION].serialize(db, (EntityImpl) iSource,
+      serializerByVersion[CURRENT_RECORD_VERSION].serialize(session, (EntityImpl) iSource,
           container);
 
       return container.fitBytes();
@@ -137,14 +137,13 @@ public class RecordSerializerNetworkBase implements RecordSerializerNetwork {
   }
 
   @Override
-  public String[] getFieldNames(DatabaseSessionInternal session, EntityImpl reference,
-      byte[] iSource) {
-    if (iSource == null || iSource.length == 0) {
+  public String[] getFieldNames(@Nonnull DatabaseSessionInternal session, EntityImpl reference,
+      @Nonnull byte[] iSource) {
+    if (iSource.length == 0) {
       return new String[0];
     }
 
     final var container = new BytesContainer(iSource).skip(1);
-
     try {
       return serializerByVersion[iSource[0]].getFieldNames(session, reference, container, false);
     } catch (RuntimeException e) {

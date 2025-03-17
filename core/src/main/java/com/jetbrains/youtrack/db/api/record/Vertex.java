@@ -21,7 +21,7 @@ package com.jetbrains.youtrack.db.api.record;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import java.util.Collection;
+import java.util.List;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -55,7 +55,7 @@ public interface Vertex extends Entity {
    * @return all the names of defined properties
    */
   @Nonnull
-  Collection<String> getPropertyNames();
+  List<String> getPropertyNames();
 
   /**
    * Gets a property given its name. if the property name starts with {@link #DIRECTION_IN_PREFIX}
@@ -283,14 +283,6 @@ public interface Vertex extends Entity {
    * @see com.jetbrains.youtrack.db.api.DatabaseSession#createLightweightEdgeClass(String)
    */
   Edge addLightWeightEdge(Vertex to, SchemaClass label);
-
-  /**
-   * Moves the vertex to the specified class and cluster.
-   *
-   * @param className the name of the class to move the vertex to
-   * @return the new RecordID of the moved vertex
-   */
-  RID moveTo(final String className);
 
   /**
    * Removes all edges connected to the vertex in the given direction.

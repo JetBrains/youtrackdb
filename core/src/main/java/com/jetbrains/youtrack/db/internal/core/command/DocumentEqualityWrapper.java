@@ -27,7 +27,7 @@ public class DocumentEqualityWrapper {
   @Override
   public int hashCode() {
     var result = 0;
-    for (var fieldName : internal.propertyNames()) {
+    for (var fieldName : internal.getPropertyNames()) {
       result += fieldName.hashCode();
       var value = internal.getProperty(fieldName);
       if (value != null) {

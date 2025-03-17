@@ -270,8 +270,8 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
         .onClose(this::close);
   }
 
-  default List<Entity> toEntityList() {
-    return entityStream().toList();
+  default void forEachEntity(Consumer<? super Entity> action) {
+    entityStream().forEach(action);
   }
 
   /**
@@ -314,8 +314,8 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
         .onClose(this::close);
   }
 
-  default List<Vertex> toVertexList() {
-    return vertexStream().toList();
+  default void forEachVertex(Consumer<? super Vertex> action) {
+    vertexStream().forEach(action);
   }
 
   default Stream<RID> ridStream() {
@@ -402,8 +402,8 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
         .onClose(this::close);
   }
 
-  default List<StatefulEdge> toStatefulEdgeList() {
-    return statefulEdgeStream().toList();
+  default void forEachStatefulEdge(Consumer<? super StatefulEdge> action) {
+    statefulEdgeStream().forEach(action);
   }
 }
 

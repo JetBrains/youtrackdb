@@ -155,10 +155,10 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
           bytes.offset = currentValuePos;
           final var value = deserializeValue(db, bytes, type, entity);
           bytes.offset = headerCursor;
-          entity.setPropertyInternal(fieldName, value, type);
+          entity.setDeserializedPropertyInternal(fieldName, value, type);
         } else {
           // If pos us 0 the value is null just set it.
-          entity.setPropertyInternal(fieldName, null, null);
+          entity.setDeserializedPropertyInternal(fieldName, null, null);
         }
         if (++unmarshalledFields == iFields.length)
         // ALL REQUESTED FIELDS UNMARSHALLED: EXIT
@@ -289,9 +289,9 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
             last = bytes.offset;
           }
           bytes.offset = headerCursor;
-          entity.setPropertyInternal(fieldName, value, type);
+          entity.setDeserializedPropertyInternal(fieldName, value, type);
         } else {
-          entity.setPropertyInternal(fieldName, null, null);
+          entity.setDeserializedPropertyInternal(fieldName, null, null);
         }
       }
 
@@ -398,7 +398,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
 
       final PropertyType type;
       if (value != null) {
-        type = DocumentSerializerDelta.getFieldType(session, field.getValue());
+        type = DocumentSerializerDelta.getFieldType(field.getValue());
         if (type == null) {
           throw new SerializationException(session.getDatabaseName(),
               "Impossible serialize value of type "

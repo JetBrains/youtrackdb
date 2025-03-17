@@ -56,8 +56,8 @@ public class EntitySchemalessSerializationTest extends DbTestBase {
     entity.setLink("recordId", new RecordId(10, 10));
 
     var res = serializer.toStream(session, (EntityImpl) entity);
-    var extr = (Entity) serializer.fromStream(session, res, (EntityImpl) session.newEntity(),
-        new String[]{});
+    var extr = (EntityImpl) session.newEntity();
+    serializer.fromStream(session, res, extr, new String[]{});
 
     assertEquals(extr.getPropertyNames(), entity.getPropertyNames());
     assertEquals(extr.getString("name"), entity.getString("name"));
@@ -145,8 +145,8 @@ public class EntitySchemalessSerializationTest extends DbTestBase {
     entity.setEmbeddedList("listMixed", listMixed);
 
     var res = serializer.toStream(session, (EntityImpl) entity);
-    var extr = (Entity) serializer.fromStream(session, res, (EntityImpl) session.newEntity(),
-        new String[]{});
+    var extr = (EntityImpl) session.newEntity();
+    serializer.fromStream(session, res, extr, new String[]{});
 
     assertEquals(extr.getPropertyNames(), entity.getPropertyNames());
     assertEquals(extr.getEmbeddedList("listStrings"), entity.getEmbeddedList("listStrings"));
@@ -206,8 +206,9 @@ public class EntitySchemalessSerializationTest extends DbTestBase {
     entity.setEmbeddedMap("bytesMap", bytesMap);
 
     var res = serializer.toStream(session, (EntityImpl) entity);
-    var extr = (Entity) serializer.fromStream(session, res, (EntityImpl) session.newEntity(),
-        new String[]{});
+    var extr = (EntityImpl) session.newEntity();
+    serializer.fromStream(session, res, extr, new String[]{});
+
     assertEquals(extr.getPropertyNames(), entity.getPropertyNames());
     assertEquals(extr.getEmbeddedMap("mapString"), entity.getEmbeddedMap("mapString"));
     assertEquals(extr.getEmbeddedMap("mapLong"), entity.getEmbeddedMap("mapLong"));
@@ -231,8 +232,9 @@ public class EntitySchemalessSerializationTest extends DbTestBase {
     document.setProperty("embed", embedded, PropertyType.EMBEDDED);
 
     var res = serializer.toStream(session, document);
-    var extr = (EntityImpl) serializer.fromStream(session, res, (EntityImpl) session.newEntity(),
-        new String[]{});
+    var extr = (EntityImpl) session.newEntity();
+    serializer.fromStream(session, res, extr, new String[]{});
+
     assertEquals(document.getPropertiesCount(), extr.getPropertiesCount());
     EntityImpl emb = extr.getProperty("embed");
     assertNotNull(emb);
@@ -253,8 +255,9 @@ public class EntitySchemalessSerializationTest extends DbTestBase {
     map.put("embedded", embeddedInMap);
 
     var res = serializer.toStream(session, entity);
-    var extr = (EntityImpl) serializer.fromStream(session, res, (EntityImpl) session.newEntity(),
-        new String[]{});
+    var extr = (EntityImpl) session.newEntity();
+    serializer.fromStream(session, res, extr, new String[]{});
+
     Map<String, Entity> mapS = extr.getEmbeddedMap("map");
     assertEquals(1, mapS.size());
     var emb = mapS.get("embedded");
@@ -284,8 +287,9 @@ public class EntitySchemalessSerializationTest extends DbTestBase {
     embeddedSet.add(embeddedInSet);
 
     var res = serializer.toStream(session, entity);
-    var extr = (EntityImpl) serializer.fromStream(session, res, (EntityImpl) session.newEntity(),
-        new String[]{});
+    var extr = (EntityImpl) session.newEntity();
+    serializer.fromStream(session, res, extr, new String[]{});
+
 
     List<Identifiable> ser = extr.getProperty("embeddedList");
     assertEquals(1, ser.size());

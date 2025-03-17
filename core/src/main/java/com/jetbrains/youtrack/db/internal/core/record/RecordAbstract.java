@@ -51,13 +51,14 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   public static final String DEFAULT_FORMAT = "rid,version,class,type,keepTypes,markEmbeddedDocs";
 
+  @Nonnull
   protected final RecordId recordId;
   protected int recordVersion = 0;
 
   protected byte[] source;
   protected int size;
 
-  public RecordSerializer recordFormat;
+  public RecordSerializer recordSerializer;
   protected long dirty = 1;
   protected boolean contentChanged = true;
   protected STATUS status = STATUS.NOT_LOADED;
@@ -117,9 +118,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     size = 0;
 
     source = null;
-    if (recordId != null) {
-      recordId.reset();
-    }
+    recordId.reset();
 
     setDirty();
     return this;
@@ -129,7 +128,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     checkForBinding();
 
     if (source == null) {
-      source = recordFormat.toStream(session, this);
+      source = recordSerializer.toStream(session, this);
     }
 
     return source;
@@ -239,7 +238,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
     return RecordSerializerJackson
         .toString(getSession(), this, new StringWriter(1024),
-            format == null ? "" : format)
+            format)
         .toString();
   }
 
@@ -325,7 +324,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   @Override
   public int hashCode() {
-    return recordId != null ? recordId.hashCode() : 0;
+    return recordId.hashCode();
   }
 
   @Override
@@ -334,10 +333,11 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
       return true;
     }
 
+    if (session == null) {
+      return false;
+    }
+
     switch (obj) {
-      case null -> {
-        return false;
-      }
       case RecordAbstract recordAbstract -> {
         if (session != recordAbstract.getBoundedToSession()) {
           return false;
@@ -346,18 +346,13 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
             && recordVersion == recordAbstract.recordVersion;
       }
       case Identifiable identifiable -> {
-        if (session == null) {
-          return recordId.equals(identifiable.getIdentity());
-        } else {
-          var record = (RecordAbstract) identifiable.getRecord(session);
-          return recordId.equals(record.recordId) && recordVersion == record.recordVersion;
-        }
+        var record = (RecordAbstract) identifiable.getRecord(session);
+        return recordId.equals(record.recordId) && recordVersion == record.recordVersion;
       }
-      default -> {
+      case null, default -> {
+        return false;
       }
     }
-
-    return false;
   }
 
   public int compare(final Identifiable iFirst, final Identifiable iSecond) {
@@ -369,15 +364,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   }
 
   public int compareTo(@Nonnull final Identifiable iOther) {
-    if (recordId == null) {
-      return iOther.getIdentity() == null ? 0 : 1;
-    }
-
     return recordId.compareTo(iOther.getIdentity());
-  }
-
-  public STATUS getInternalStatus() {
-    return status;
   }
 
   @Override
@@ -390,7 +377,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   }
 
 
-  protected RecordAbstract fill(
+  public RecordAbstract fill(
       @Nonnull final RID rid, final int version, final byte[] buffer, boolean dirty) {
     assert assertIfAlreadyLoaded(rid);
     var session = getSession();

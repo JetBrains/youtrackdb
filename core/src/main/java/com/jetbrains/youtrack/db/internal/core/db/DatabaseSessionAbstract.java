@@ -83,15 +83,13 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImp
 import com.jetbrains.youtrack.db.internal.core.query.Query;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.RecordBytes;
-import com.jetbrains.youtrack.db.internal.core.record.impl.StatefulEdgeImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.StatefullEdgeEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.VertexInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
@@ -1038,8 +1036,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
         }
 
         afterReadOperations(record);
-        if (record instanceof EntityImpl) {
-          ((EntityImpl) record).checkClass(this);
+        if (record instanceof EntityImpl entity) {
+          entity.checkClass(this);
         }
 
         localCache.updateRecord(record, this);
@@ -1101,8 +1099,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
       RecordInternal.setRecordSerializer(record, serializer);
       RecordInternal.fill(record, rid, recordBuffer.version, recordBuffer.buffer, false);
 
-      if (record instanceof EntityImpl) {
-        ((EntityImpl) record).checkClass(this);
+      if (record instanceof EntityImpl entity) {
+        entity.checkClass(this);
       }
 
       if (beforeReadOperations(record)) {
@@ -1471,6 +1469,22 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   public EntityImpl newInstance(final String className) {
     assert assertIfNotActive();
 
+    var cls = getMetadata().getImmutableSchemaSnapshot().getClass(className);
+    if (cls == null) {
+      throw new IllegalArgumentException("Class " + className + " not found");
+    }
+
+    if (cls.isVertexType()) {
+      throw new IllegalArgumentException(
+          "The class " + cls.getName()
+              + " is a vertex type and cannot be used to create an entity, "
+              + "please use newVertex() method");
+    }
+    if (cls.isEdgeType()) {
+      throw new IllegalArgumentException(
+          "The class " + cls.getName() + " is an edge type and cannot be used to create an entity, "
+              + "please use newStatefulEdge() method");
+    }
     var entity = new EntityImpl(this, className);
     assignAndCheckCluster(entity, null);
     entity.setInternalStatus(RecordElement.STATUS.LOADED);
@@ -1539,19 +1553,47 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   public Vertex newVertex(final String className) {
     assert assertIfNotActive();
 
+    var cls = getMetadata().getImmutableSchemaSnapshot().getClass(className);
+    if (cls == null) {
+      throw new IllegalArgumentException("Class " + className + " not found");
+    }
+    if (!cls.isVertexType()) {
+      throw new IllegalArgumentException(
+          "The class " + cls.getName()
+              + " is not a vertex type and cannot be used to create a vertex, "
+              + "please use newInstance() method");
+    }
+
     checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, className);
     var vertex = new VertexEntityImpl(this, className);
     assignAndCheckCluster(vertex, null);
 
     currentTx.addRecordOperation(vertex, RecordOperation.CREATED);
+    vertex.convertPropertiesToClassAndInitDefaultValues(vertex.getImmutableSchemaClass(this));
 
     return vertex;
   }
 
-  private StatefulEdgeImpl newStatefulEdgeInternal(final String className) {
-    checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, className);
+  private StatefullEdgeEntityImpl newStatefulEdgeInternal(final String className) {
+    var cls = getMetadata().getImmutableSchemaSnapshot().getClass(className);
+    if (cls == null) {
+      throw new IllegalArgumentException("Class " + className + " not found");
+    }
+    if (!cls.isEdgeType()) {
+      throw new IllegalArgumentException(
+          "The class " + cls.getName()
+              + " is not an edge type and cannot be used to create a stateful edge, "
+              + "please use newInstance() method");
+    }
 
-    return new StatefulEdgeImpl(newInstance(className), this);
+    checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, className);
+    var edge = new StatefullEdgeEntityImpl(this, className);
+    assignAndCheckCluster(edge, null);
+
+    currentTx.addRecordOperation(edge, RecordOperation.CREATED);
+    edge.convertPropertiesToClassAndInitDefaultValues(edge.getImmutableSchemaClass(this));
+
+    return edge;
   }
 
   @Override
@@ -1632,19 +1674,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
           inVertex.getIdentity(), "The vertex " + inVertex.getIdentity() + " has been deleted");
     }
 
-    try {
-      outEntity = toVertex.getRecord(this);
-    } catch (RecordNotFoundException e) {
-      throw new IllegalArgumentException(
-          "source vertex is invalid (rid=" + toVertex.getIdentity() + ")");
-    }
-
-    try {
-      inEntity = inVertex.getRecord(this);
-    } catch (RecordNotFoundException e) {
-      throw new IllegalArgumentException(
-          "source vertex is invalid (rid=" + inVertex.getIdentity() + ")");
-    }
+    outEntity = (EntityImpl) toVertex;
+    inEntity = (EntityImpl) inVertex;
 
     Schema schema = getMetadata().getImmutableSchemaSnapshot();
     final var edgeType = schema.getClass(className);
@@ -1668,9 +1699,9 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
     if (createLightweightEdge) {
       var lightWeightEdge = newLightweightEdgeInternal(className, toVertex, inVertex);
-      VertexInternal.createLink(this, toVertex.getRecord(this), inVertex.getRecord(this),
+      VertexEntityImpl.createLink(this, toVertex.getRecord(this), inVertex.getRecord(this),
           outFieldName);
-      VertexInternal.createLink(this, inVertex.getRecord(this), toVertex.getRecord(this),
+      VertexEntityImpl.createLink(this, inVertex.getRecord(this), toVertex.getRecord(this),
           inFieldName);
       edge = lightWeightEdge;
     } else {
@@ -1680,11 +1711,11 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
       if (!outEntityModified) {
         // OUT-VERTEX ---> IN-VERTEX/EDGE
-        VertexInternal.createLink(this, outEntity, statefulEdge.getRecord(this), outFieldName);
+        VertexEntityImpl.createLink(this, outEntity, statefulEdge.getRecord(this), outFieldName);
       }
 
       // IN-VERTEX ---> OUT-VERTEX/EDGE
-      VertexInternal.createLink(this, inEntity, statefulEdge.getRecord(this), inFieldName);
+      VertexEntityImpl.createLink(this, inEntity, statefulEdge.getRecord(this), inFieldName);
       edge = statefulEdge;
     }
     // OK
@@ -2666,9 +2697,9 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   private void ensureEdgeConsistencyOnDeletion(@Nonnull EntityImpl entity,
       @Nonnull SchemaImmutableClass clazz) {
     if (clazz.isVertexType()) {
-      VertexInternal.deleteLinks(entity.asVertex());
+      VertexEntityImpl.deleteLinks(entity.asVertex());
     } else if (clazz.isEdgeType()) {
-      EdgeEntityImpl.deleteLinks(this, entity.asEdge());
+      StatefullEdgeEntityImpl.deleteLinks(this, entity.asEdge());
     }
   }
 }

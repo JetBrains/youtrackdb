@@ -1161,9 +1161,13 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.rollback();
     session.begin();
     doc = session.bindToSession(doc);
+    link1 = session.bindToSession(link1);
+    link2 = session.bindToSession(link2);
+
     serializerDelta.deserializeDelta(session, bytes, doc);
     assertFalse(doc.<List<Identifiable>>getProperty("linkList").contains(link1));
-    assertTrue(doc.<List<Identifiable>>getProperty("linkList").contains(link2));
+    assertTrue(
+        doc.<List<Identifiable>>getProperty("linkList").contains(link2));
     assertEquals(doc.<List<Identifiable>>getProperty("linkList").get(1), link2);
     assertTrue(doc.<Set<Identifiable>>getProperty("linkSet").contains(link2));
     assertFalse(doc.<Set<Identifiable>>getProperty("linkSet").contains(link1));

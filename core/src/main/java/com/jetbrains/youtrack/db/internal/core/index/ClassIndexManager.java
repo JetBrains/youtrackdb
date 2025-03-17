@@ -82,14 +82,8 @@ public class ClassIndexManager {
 
     final Collection<Index> indexes = cls.getRawIndexes();
     if (!indexes.isEmpty()) {
-      final Set<String> dirtyFields;
       var dirtyProperties = entity.getDirtyPropertiesBetweenCallbacksInternal(false, false);
-
-      if (dirtyProperties instanceof Set<String> dirtyFieldsSet) {
-        dirtyFields = dirtyFieldsSet;
-      } else {
-        dirtyFields = new HashSet<>(dirtyProperties);
-      }
+      var dirtyFields = new HashSet<>(dirtyProperties);
 
       if (!dirtyFields.isEmpty()) {
         for (final var index : indexes) {
@@ -455,14 +449,8 @@ public class ClassIndexManager {
     final Collection<Index> indexes = new ArrayList<>(cls.getRawIndexes());
 
     if (!indexes.isEmpty()) {
-      final Set<String> dirtyFields;
       var dirtyProperties = entity.getDirtyPropertiesBetweenCallbacksInternal(false, false);
-
-      if (dirtyProperties instanceof Set<String> dirtyFieldsSet) {
-        dirtyFields = dirtyFieldsSet;
-      } else {
-        dirtyFields = new HashSet<>(dirtyProperties);
-      }
+      var dirtyFields = new HashSet<>(dirtyProperties);
 
       if (!dirtyFields.isEmpty()) {
         // REMOVE INDEX OF ENTRIES FOR THE OLD VALUES

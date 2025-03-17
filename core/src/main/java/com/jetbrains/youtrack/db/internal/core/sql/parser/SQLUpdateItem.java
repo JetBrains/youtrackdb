@@ -19,8 +19,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.VertexInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Collection;
 import java.util.List;
@@ -149,7 +148,7 @@ public class SQLUpdateItem extends SimpleNode {
 
     SchemaProperty schemaProperty = null;
     if (result.isEntity()) {
-      var entity = (EntityInternal) result.asEntity();
+      var entity = (EntityImpl) result.asEntity();
       var cls = entity.getImmutableSchemaClass(session);
       schemaProperty = cls != null ? cls.getProperty(propertyName) : null;
     }
@@ -175,7 +174,7 @@ public class SQLUpdateItem extends SimpleNode {
     if (!entity.isEntity()) {
       return null;
     }
-    var oClass = ((EntityInternal) entity.asEntity()).getImmutableSchemaClass(session);
+    var oClass = ((EntityImpl) entity.asEntity()).getImmutableSchemaClass(session);
     if (oClass == null) {
       return null;
     }
@@ -209,7 +208,7 @@ public class SQLUpdateItem extends SimpleNode {
   private static SchemaClass calculateLinkedTypeForThisItem(ResultInternal result,
       DatabaseSessionInternal session) {
     if (result.isEntity()) {
-      var entity = (EntityInternal) result.asEntityOrNull();
+      var entity = (EntityImpl) result.asEntityOrNull();
 
       return entity.getImmutableSchemaClass(session);
     }
@@ -227,7 +226,7 @@ public class SQLUpdateItem extends SimpleNode {
         newValue = convertToPropertyType(res, attrName, newValue, ctx);
         var propertyName = attrName.getStringValue();
 
-        if (res.isVertex() && VertexInternal.isEdgeProperty(propertyName)) {
+        if (res.isVertex() && VertexEntityImpl.isEdgeProperty(propertyName)) {
           throw new IllegalStateException("Cannot update edges by assigning properties directly.");
         } else if (res.isEdge() && EdgeInternal.isEdgeConnectionProperty(propertyName)) {
           var edge = res.asEdge();
@@ -257,9 +256,9 @@ public class SQLUpdateItem extends SimpleNode {
 
           if (edge.isStateful()) {
             var statefulEdge = session.newStatefulEdge(fromVertex, toVertex, edge.getSchemaClass());
-            var entityImpl = (EntityImpl) statefulEdge.asEntity();
+            var EntityImpl = (EntityImpl) statefulEdge.asEntity();
 
-            entityImpl.movePropertiesFromOtherEntity((EntityImpl)
+            EntityImpl.movePropertiesFromOtherEntity((EntityImpl)
                 edge.asStatefulEdge().asEntity(), Edge.DIRECTION_IN, Edge.DIRECTION_OUT);
             res.setIdentifiable(statefulEdge);
           } else {
@@ -322,7 +321,7 @@ public class SQLUpdateItem extends SimpleNode {
       ResultInternal res, SQLIdentifier attrName, Object newValue, CommandContext ctx) {
 
     var session = ctx.getDatabaseSession();
-    var entity = (EntityInternal) res.asEntityOrNull();
+    var entity = (EntityImpl) res.asEntityOrNull();
     var optSchema = entity.getImmutableSchemaClass(session);
     if (optSchema == null) {
       return newValue;
@@ -395,7 +394,7 @@ public class SQLUpdateItem extends SimpleNode {
 
   private static Object convertToType(Object item, SchemaClass linkedClass, CommandContext ctx) {
     var session = ctx.getDatabaseSession();
-    if (item instanceof EntityInternal entity) {
+    if (item instanceof EntityImpl entity) {
       var currentType = entity.getImmutableSchemaClass(session);
       if (currentType == null || !currentType.isSubClassOf(linkedClass)) {
         var result = session.newEmbeddedEntity(linkedClass);

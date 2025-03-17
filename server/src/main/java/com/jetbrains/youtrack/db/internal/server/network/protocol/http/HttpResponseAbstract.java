@@ -31,7 +31,6 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.JSONWriter;
 import com.jetbrains.youtrack.db.internal.server.ClientConnection;
 import java.io.ByteArrayOutputStream;
@@ -323,7 +322,7 @@ public abstract class HttpResponseAbstract implements HttpResponse {
 
                 if (r instanceof Result result) {
                   if (result.isEntity()) {
-                    var entity = (EntityInternal) result.asEntityOrNull();
+                    var entity = (EntityImpl) result.asEntityOrNull();
                     var schema = entity.getImmutableSchemaClass(session);
 
                     if (schema != null) {

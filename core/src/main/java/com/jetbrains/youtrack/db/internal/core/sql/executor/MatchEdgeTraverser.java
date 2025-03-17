@@ -4,7 +4,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLRid;
@@ -264,13 +264,13 @@ public class MatchEdgeTraverser {
     }
 
     var session = context.getDatabaseSession();
-    EntityInternal entity = null;
-    if (origin instanceof EntityInternal entityImpl) {
-      entity = entityImpl;
+    EntityImpl entity = null;
+    if (origin instanceof EntityImpl EntityImpl) {
+      entity = EntityImpl;
     } else if (origin != null) {
       var record = origin.getRecord(session);
-      if (record instanceof EntityInternal entityImpl) {
-        entity = entityImpl;
+      if (record instanceof EntityImpl EntityImpl) {
+        entity = EntityImpl;
       }
     }
 

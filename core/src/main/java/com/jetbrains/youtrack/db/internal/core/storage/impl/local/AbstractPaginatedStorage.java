@@ -4982,7 +4982,7 @@ public abstract class AbstractPaginatedStorage
     }
 
     // RESET TRACKING
-    if (rec instanceof EntityImpl && ((EntityImpl) rec).isTrackingChanges()) {
+    if (rec instanceof EntityImpl) {
       ((EntityImpl) rec).clearTrackData();
       ((EntityImpl) rec).clearTransactionTrackData();
     }

@@ -2,7 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.record.impl;
 
 import com.jetbrains.youtrack.db.api.record.Edge;
 import java.util.ArrayList;
-import java.util.Collection;
+import java.util.List;
 
 public interface EdgeInternal extends Edge {
   static void checkPropertyName(String name) {
@@ -24,7 +24,7 @@ public interface EdgeInternal extends Edge {
     return name.equals(DIRECTION_OUT);
   }
 
-  static Collection<String> filterPropertyNames(Collection<String> propertyNames) {
+  static List<String> filterPropertyNames(List<String> propertyNames) {
     var propertiesToRemove = new ArrayList<String>();
 
     for (var propertyName : propertyNames) {

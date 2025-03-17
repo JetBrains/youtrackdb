@@ -22,12 +22,14 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandDocumentAbstract;
+import java.util.Map;
 
 public class ServerCommandPutDocument extends ServerCommandDocumentAbstract {
 
@@ -63,20 +65,24 @@ public class ServerCommandPutDocument extends ServerCommandDocumentAbstract {
           db.computeInTx(
               () -> {
                 var txRecordId = recordId;
-                final EntityImpl entity;
+                final Map<String, Object> content = RecordSerializerJackson.mapFromJson(
+                    iRequest.getContent());
+                final int recordVersion;
                 // UNMARSHALL DOCUMENT WITH REQUEST CONTENT
-                entity = new EntityImpl(db);
-                entity.updateFromJSON(iRequest.getContent());
-                entity.setTrackingChanges(false);
 
                 if (iRequest.getIfMatch() != null)
                 // USE THE IF-MATCH HTTP HEADER AS VERSION
                 {
-                  RecordInternal.setVersion(entity, Integer.parseInt(iRequest.getIfMatch()));
+                  recordVersion = Integer.parseInt(iRequest.getIfMatch());
+                } else {
+                  recordVersion = -1;
                 }
 
                 if (!txRecordId.isValid()) {
-                  txRecordId = entity.getIdentity();
+                  var rid = content.get(EntityHelper.ATTRIBUTE_RID);
+                  if (rid != null) {
+                    txRecordId = new RecordId(rid.toString());
+                  }
                 }
 
                 if (!txRecordId.isValid()) {
@@ -89,6 +95,12 @@ public class ServerCommandPutDocument extends ServerCommandDocumentAbstract {
                 } catch (RecordNotFoundException rnf) {
                   return null;
                 }
+                if (recordVersion >= 0 && recordVersion != currentEntity.getVersion()) {
+                  throw new RecordNotFoundException(
+                      db.getDatabaseName(), currentEntity.getIdentity(),
+                      "Record version mismatch, expected: "
+                          + recordVersion + ", found: " + currentEntity.getVersion());
+                }
 
                 var partialUpdateMode = false;
                 var mode = iRequest.getParameter("updateMode");
@@ -100,17 +112,13 @@ public class ServerCommandPutDocument extends ServerCommandDocumentAbstract {
                 if (mode != null && mode.equalsIgnoreCase("partial")) {
                   partialUpdateMode = true;
                 }
-
-                currentEntity.merge(entity, partialUpdateMode, false);
-                if (currentEntity.isDirty()) {
-                  if (entity.getVersion() > 0)
-                  // OVERWRITE THE VERSION
-                  {
-                    RecordInternal.setVersion(currentEntity, entity.getVersion());
+                if (!partialUpdateMode) {
+                  for (var propertyName : currentEntity.getPropertyNames()) {
+                    currentEntity.removeProperty(propertyName);
                   }
-
                 }
 
+                currentEntity.updateFromMap(content);
                 return currentEntity;
               });
 

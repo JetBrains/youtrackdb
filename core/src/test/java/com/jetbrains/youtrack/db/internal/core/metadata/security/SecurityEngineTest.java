@@ -75,7 +75,7 @@ public class SecurityEngineTest {
         SecurityEngine.getPredicateForSecurityResource(
             session, (SecurityShared) security, "database.class.Person", SecurityPolicy.Scope.READ);
 
-    Assert.assertEquals("name = 'admin'", pred.toString());
+    Assert.assertEquals("name = \"admin\"", pred.toString());
   }
 
   @Test
@@ -97,7 +97,7 @@ public class SecurityEngineTest {
         SecurityEngine.getPredicateForSecurityResource(
             session, (SecurityShared) security, "database.class.Person", SecurityPolicy.Scope.READ);
 
-    Assert.assertEquals("name = 'foo'", pred.toString());
+    Assert.assertEquals("name = \"foo\"", pred.toString());
   }
 
   @Test
@@ -121,7 +121,7 @@ public class SecurityEngineTest {
             session, (SecurityShared) security, "database.class.Employee",
             SecurityPolicy.Scope.READ);
 
-    Assert.assertEquals("name = 'foo'", pred.toString());
+    Assert.assertEquals("name = \"foo\"", pred.toString());
   }
 
   @Test
@@ -152,7 +152,7 @@ public class SecurityEngineTest {
             session, (SecurityShared) security, "database.class.Employee",
             SecurityPolicy.Scope.READ);
 
-    Assert.assertEquals("name = 'bar'", pred.toString());
+    Assert.assertEquals("name = \"bar\"", pred.toString());
   }
 
   @Test
@@ -183,7 +183,7 @@ public class SecurityEngineTest {
             session, (SecurityShared) security, "database.class.Employee",
             SecurityPolicy.Scope.READ);
 
-    Assert.assertEquals("name = 'admin'", pred.toString());
+    Assert.assertEquals("name = \"admin\"", pred.toString());
   }
 
   @Test
@@ -216,8 +216,8 @@ public class SecurityEngineTest {
             SecurityPolicy.Scope.READ);
 
     Assert.assertTrue(
-        "name = 'foo' AND surname = 'bar'".equals(pred.toString())
-            || "surname = 'bar' AND name = 'foo'".equals(pred.toString()));
+        "name = \"foo\" AND surname = \"bar\"".equals(pred.toString())
+            || "surname = \"bar\" AND name = \"foo\"".equals(pred.toString()));
   }
 
   @Test
@@ -258,8 +258,8 @@ public class SecurityEngineTest {
             session, (SecurityShared) security, "database.class.Person", SecurityPolicy.Scope.READ);
 
     Assert.assertTrue(
-        "name = 'foo' OR surname = 'bar'".equals(pred.toString())
-            || "surname = 'bar' OR name = 'foo'".equals(pred.toString()));
+        "name = \"foo\" OR surname = \"bar\"".equals(pred.toString())
+            || "surname = \"bar\" OR name = \"foo\"".equals(pred.toString()));
   }
 
   @Test

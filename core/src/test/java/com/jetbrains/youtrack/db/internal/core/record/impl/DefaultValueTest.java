@@ -226,9 +226,9 @@ public class DefaultValueTest extends DbTestBase {
     assertTrue(saved.getProperty("date") instanceof Date);
     assertNotNull(saved.getProperty("other"));
     var val = DateHelper.getDateTimeFormatInstance(session).format(doc.getProperty("date"));
-    var doc1 = (EntityImpl) session.newEntity("ClassA");
-    doc1.updateFromJSON("{\"@class\":\"ClassA\",\"date\":\"" + val + "\",\"other\":\"other1\"}");
-    saved.merge(doc1, true, true);
+    var entity1 = (EntityImpl) session.newEntity("ClassA");
+    entity1.updateFromJSON("{\"@class\":\"ClassA\",\"date\":\"" + val + "\",\"other\":\"other1\"}");
+    saved.updateFromResult(entity1);
     session.commit();
 
     session.begin();

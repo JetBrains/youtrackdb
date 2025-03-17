@@ -10,7 +10,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -80,7 +80,7 @@ public class UpdatableResult extends ResultInternal {
 
   @Nonnull
   @Override
-  public Collection<String> getPropertyNames() {
+  public List<String> getPropertyNames() {
     checkSession();
     return this.asEntity().getPropertyNames();
   }

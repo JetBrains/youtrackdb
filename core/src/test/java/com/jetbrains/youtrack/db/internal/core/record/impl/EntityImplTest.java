@@ -309,7 +309,7 @@ public class EntityImplTest extends DbTestBase {
     source.setProperty("key", "value");
     source.setProperty("somenull", null);
 
-    dest.merge(source, true, false);
+    dest.updateFromResult(source);
 
     assertEquals("value", dest.getProperty("key"));
 

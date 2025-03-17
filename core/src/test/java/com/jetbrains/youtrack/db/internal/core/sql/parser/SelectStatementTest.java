@@ -722,7 +722,7 @@ public class SelectStatementTest {
         (SQLSelectStatement) checkRightSyntax("select from V where name LUCENE 'foo'");
     stm.whereClause.getBaseExpression().translateLuceneOperator();
     Assert.assertTrue(
-        stm.whereClause.toString().contains("search_fields([\"name\"], 'foo') = true"));
+        stm.whereClause.toString().contains("search_fields([\"name\"], \"foo\") = true"));
     Assert.assertFalse(stm.whereClause.toString().contains("LUCENE"));
   }
 

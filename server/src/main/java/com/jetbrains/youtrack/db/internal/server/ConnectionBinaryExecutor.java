@@ -612,7 +612,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
           changedIds = collectionManager.changedIds(session);
         }
 
-        return new CommitResponse(serverTransaction.getGeneratedOriginalRecordIdMap(), changedIds);
+        return new CommitResponse(serverTransaction.getGeneratedOriginalRidsMap(), changedIds);
       } catch (final RuntimeException e) {
         if (serverTransaction.isActive()) {
           session.rollback(true);
@@ -1294,7 +1294,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
       }
 
       return new BeginTransactionResponse(
-          tx.getId(), serverTransaction.getGeneratedOriginalRecordIdMap());
+          tx.getId(), serverTransaction.getGeneratedOriginalRidsMap());
     }
 
     session.begin(new FrontendTransactionOptimisticServer(session, request.getTxId()));
@@ -1309,7 +1309,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     }
 
     return new BeginTransactionResponse(
-        tx.getId(), serverTransaction.getGeneratedOriginalRecordIdMap());
+        tx.getId(), serverTransaction.getGeneratedOriginalRidsMap());
   }
 
   @Override
@@ -1326,7 +1326,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     var serverTransaction =
         doExecuteBeginTransaction(request.getTxId(), session, recordOperations);
     return new BeginTransactionResponse(
-        tx.getId(), serverTransaction.getGeneratedOriginalRecordIdMap());
+        tx.getId(), serverTransaction.getGeneratedOriginalRidsMap());
   }
 
   private static FrontendTransactionOptimisticServer doExecuteBeginTransaction(
@@ -1376,7 +1376,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     }
 
     return new SendTransactionStateResponse(
-        tx.getId(), serverTransaction.getGeneratedOriginalRecordIdMap());
+        tx.getId(), serverTransaction.getGeneratedOriginalRidsMap());
   }
 
   @Override
@@ -1435,7 +1435,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
           changedIds = collectionManager.changedIds(session);
         }
 
-        return new Commit37Response(serverTransaction.getGeneratedOriginalRecordIdMap(),
+        return new Commit37Response(serverTransaction.getGeneratedOriginalRidsMap(),
             changedIds);
       } catch (final RuntimeException e) {
         if (serverTransaction.isActive()) {
@@ -1509,7 +1509,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
           changedIds = collectionManager.changedIds(session);
         }
 
-        return new Commit37Response(serverTransaction.getGeneratedOriginalRecordIdMap(),
+        return new Commit37Response(serverTransaction.getGeneratedOriginalRidsMap(),
             changedIds);
       } catch (final RuntimeException e) {
         if (serverTransaction.isActive()) {
@@ -1540,7 +1540,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
       throw new DatabaseException(session, "No Transaction Active");
     }
 
-    var tx = (FrontendTransactionOptimistic) session.getTransactionInternal();
+    var tx = (FrontendTransactionOptimisticServer) session.getTransactionInternal();
     if (tx.getId() != request.getTxId()) {
       throw new DatabaseException(session,
           "Invalid transaction id, expected " + tx.getId() + " but received " + request.getTxId());
@@ -1549,7 +1549,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     return new FetchTransactionResponse(session,
         tx.getId(),
         tx.getRecordOperationsInternal(),
-        tx.getGeneratedOriginalRecordIdMap());
+        tx.getGeneratedOriginalRidsMap());
   }
 
   @Override
@@ -1558,7 +1558,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     if (!session.getTransactionInternal().isActive()) {
       throw new DatabaseException(session, "No Transaction Active");
     }
-    var tx = (FrontendTransactionOptimistic) session.getTransactionInternal();
+    var tx = (FrontendTransactionOptimisticServer) session.getTransactionInternal();
     if (tx.getId() != request.getTxId()) {
       throw new DatabaseException(session,
           "Invalid transaction id, expected " + tx.getId() + " but received " + request.getTxId());
@@ -1568,7 +1568,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
         tx.getId(),
         tx.getRecordOperationsInternal(),
         Collections.emptyMap(),
-        tx.getGeneratedOriginalRecordIdMap(),
+        tx.getGeneratedOriginalRidsMap(),
         session);
   }
 

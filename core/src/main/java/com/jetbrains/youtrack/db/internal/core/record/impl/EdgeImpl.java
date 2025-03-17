@@ -86,7 +86,7 @@ public class EdgeImpl implements EdgeInternal {
   }
 
   public void delete() {
-    EdgeEntityImpl.deleteLinks(session, this);
+    StatefullEdgeEntityImpl.deleteLinks(session, this);
   }
 
   @Nonnull

@@ -15,6 +15,7 @@ import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement.STATUS;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
 import java.util.ArrayList;
 import java.util.List;
@@ -117,14 +118,18 @@ public class TransactionRidAllocationTest {
     second.activateOnCurrentThread();
     second.begin();
     var transactionOptimistic = (FrontendTransactionOptimistic) second.getTransactionInternal();
-    var serializer = second.getSerializer();
+
     for (var recordOperation : recordOperations) {
       var record = recordOperation.value.value;
-      var deserialized = serializer.fromStream(second, record, null, null);
+
+      var serializer = second.getSerializer();
+      var deserialized = new EntityImpl(second, "V");
+      serializer.fromStream(second, record, deserialized, null);
+
       deserialized.setIdentity(recordOperation.value.key.getIdentity());
       deserialized.setInternalStatus(STATUS.LOADED);
-      transactionOptimistic.addRecordOperation(deserialized,
-          recordOperation.key);
+
+      transactionOptimistic.addRecordOperation(deserialized, recordOperation.key);
     }
 
     ((AbstractPaginatedStorage) second.getStorage()).preallocateRids(transactionOptimistic);
@@ -189,7 +194,9 @@ public class TransactionRidAllocationTest {
     for (var recordOperation : recordOperations) {
       var record = recordOperation.value.value;
       var serializer = second.getSerializer();
-      var deserialized = serializer.fromStream(second, record, null, null);
+
+      var deserialized = new EntityImpl(second, "V");
+      serializer.fromStream(second, record, deserialized, null);
       deserialized.setIdentity(recordOperation.value.key.getIdentity());
       deserialized.setInternalStatus(STATUS.LOADED);
       transactionOptimistic.addRecordOperation(deserialized,

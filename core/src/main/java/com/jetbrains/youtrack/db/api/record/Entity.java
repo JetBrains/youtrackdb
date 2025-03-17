@@ -23,7 +23,6 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import java.math.BigDecimal;
-import java.util.Collection;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -53,6 +52,9 @@ public interface Entity extends DBRecord, Result {
    *                                  {@code #Vertex.DIRECTION_IN_PREFIX}.
    */
   <RET> RET getPropertyOnLoadValue(@Nonnull String name);
+
+  @Nullable
+  PropertyType getPropertyType(final String propertyName);
 
   /**
    * Sets a property value
@@ -317,9 +319,9 @@ public interface Entity extends DBRecord, Result {
   @Nonnull
   Map<String, Object> toMap(boolean includeMetadata);
 
-  Collection<String> getDirtyProperties();
+  List<String> getDirtyProperties();
 
-  Collection<String> getDirtyPropertiesBetweenCallbacks();
+  List<String> getDirtyPropertiesBetweenCallbacks();
 
   @Nonnull
   @Override
@@ -340,7 +342,6 @@ public interface Entity extends DBRecord, Result {
   @Nonnull
   @Override
   Vertex asVertex();
-
 
   @Nullable
   @Override

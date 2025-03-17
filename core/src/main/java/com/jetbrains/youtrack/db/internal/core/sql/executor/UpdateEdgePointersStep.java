@@ -10,7 +10,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.VertexInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Collection;
 
@@ -62,11 +62,11 @@ public class UpdateEdgePointersStep extends AbstractExecutionStep {
 
     if (currentOut instanceof Collection<?> col && col.size() == 1) {
       currentOut = col.iterator().next();
-      record.setPropertyInternal("out", currentOut);
+      record.setProperty("out", currentOut);
     }
     if (currentIn instanceof Collection<?> col && col.size() == 1) {
       currentIn = col.iterator().next();
-      record.setPropertyInternal("in", currentIn);
+      record.setProperty("in", currentIn);
     }
 
     validateOutInForEdge(db, currentOut, currentIn);
@@ -76,7 +76,7 @@ public class UpdateEdgePointersStep extends AbstractExecutionStep {
     var currentOutIdentifiable = (Identifiable) currentOut;
     var prevOutIdentifiable = (Identifiable) prevOut;
 
-    VertexInternal.changeVertexEdgePointers(db,
+    VertexEntityImpl.changeVertexEdgePointers(db,
         record,
         prevInIdentifiable,
         currentInIdentifiable,

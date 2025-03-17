@@ -63,7 +63,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.executeInTx(
         () -> {
           for (var i = 0; i < nodes; i++) {
-            var doc = (EntityImpl) session.newEntity("IndexedVertex");
+            var doc = (EntityImpl) session.newVertex("IndexedVertex");
             doc.setProperty("uid", i);
 
           }

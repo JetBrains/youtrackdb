@@ -274,7 +274,7 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
             String className = value.toString();
             ((EntityImpl) iRecord).fillClassIfNeed(className);
           } else {
-            record.setProperty(fieldName, value, type);
+            record.setDeserializedPropertyInternal(fieldName, value, type);
           }
         }
       } catch (Exception e) {

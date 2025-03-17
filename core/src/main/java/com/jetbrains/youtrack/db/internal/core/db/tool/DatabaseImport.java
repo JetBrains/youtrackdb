@@ -1586,12 +1586,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
 
     if (!entity.isDirty()) {
       // nothing changed
-      return;
     }
-
-    session.executeInTx(() -> {
-
-    });
   }
 
   protected static EntityImpl doRewriteLinksInDocument(

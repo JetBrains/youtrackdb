@@ -24,9 +24,9 @@ import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.internal.common.exception.SystemException;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.RecordBytes;
+import com.jetbrains.youtrack.db.internal.core.record.impl.StatefullEdgeEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl;
 
 /**
@@ -60,7 +60,7 @@ public class RecordFactoryManager {
             if (database.isClusterVertex(cluster)) {
               return new VertexEntityImpl(database, rid);
             } else if (database.isClusterEdge(cluster)) {
-              return new EdgeEntityImpl(database, rid);
+              return new StatefullEdgeEntityImpl(database, rid);
             }
           }
           return new EntityImpl(database, rid);

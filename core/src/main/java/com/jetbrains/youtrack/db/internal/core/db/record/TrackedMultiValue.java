@@ -27,6 +27,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.Iterator;
@@ -138,8 +139,8 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
       var x = iterator.next();
       if (x instanceof TrackedMultiValue<?, ?> trackedMultiValue) {
         trackedMultiValue.transactionClear();
-      } else if (x instanceof EntityImpl) {
-        if (((EntityImpl) x).isEmbedded()) {
+      } else if (x instanceof EntityImpl EntityImpl) {
+        if (EntityImpl.isEmbedded()) {
           ((EntityImpl) x).clearTransactionTrackData();
         }
       }

@@ -77,7 +77,13 @@ public class SQLBaseExpression extends SQLMathExpression {
     } else if (identifier != null) {
       identifier.toString(params, builder);
     } else if (string != null) {
-      builder.append(string);
+      if (string.length() > 1 && string.charAt(0) == '\''
+          && string.charAt(string.length() - 1) == '\'') {
+        // replace quotes
+        builder.append("\"").append(string, 1, string.length() - 1).append("\"");
+      } else {
+        builder.append(string);
+      }
     } else if (inputParam != null) {
       inputParam.toString(params, builder);
     }

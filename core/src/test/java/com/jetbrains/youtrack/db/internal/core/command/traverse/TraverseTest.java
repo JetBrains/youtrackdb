@@ -1,12 +1,11 @@
 package com.jetbrains.youtrack.db.internal.core.command.traverse;
 
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
+import java.util.HashSet;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -56,7 +55,7 @@ public class TraverseTest extends DbTestBase {
     session.begin();
     rootDocument = session.bindToSession(rootDocument);
     final var expectedResult =
-        Arrays.asList(
+        new HashSet<>(Arrays.asList(
             rootDocument,
             session.bindToSession(a),
             session.bindToSession(aa),
@@ -72,13 +71,13 @@ public class TraverseTest extends DbTestBase {
             session.bindToSession(c2b),
             session.bindToSession(c3),
             session.bindToSession(c3a),
-            session.bindToSession(c3b));
+            session.bindToSession(c3b)));
 
     traverse = new Traverse(session);
     traverse.target(rootDocument).fields("*");
-    final var results = traverse.execute(session);
+    final var results = new HashSet<>(traverse.execute(session));
 
-    compareTraverseResults(expectedResult, results);
+    Assert.assertEquals(expectedResult, results);
     session.commit();
   }
 
@@ -86,7 +85,6 @@ public class TraverseTest extends DbTestBase {
   public void testBreadthTraverse() throws Exception {
     EntityImpl rootDocument;
     Traverse traverse;
-
 
     session.begin();
     rootDocument = (EntityImpl) session.newEntity();
@@ -130,7 +128,7 @@ public class TraverseTest extends DbTestBase {
     traverse.setStrategy(Traverse.STRATEGY.BREADTH_FIRST);
 
     final var expectedResult =
-        Arrays.asList(
+        new HashSet<>(Arrays.asList(
             rootDocument,
             session.bindToSession(a),
             session.bindToSession(b),
@@ -146,21 +144,11 @@ public class TraverseTest extends DbTestBase {
             session.bindToSession(c2a),
             session.bindToSession(c2b),
             session.bindToSession(c3a),
-            session.bindToSession(c3b));
-    final var results = traverse.execute(session);
-    compareTraverseResults(expectedResult, results);
+            session.bindToSession(c3b)));
+    final var results = new HashSet<>(traverse.execute(session));
+    Assert.assertEquals(expectedResult, results);
     session.rollback();
   }
 
-  private void compareTraverseResults(List<EntityImpl> expectedResult,
-      List<Identifiable> results) {
-    var equality = results.size() == expectedResult.size();
-    for (var i = 0; i < expectedResult.size() && equality; i++) {
-      equality &= results.get(i).equals(expectedResult.get(i));
-    }
-    System.out.println("Expected: " + expectedResult);
-    System.out.println();
-    System.out.println("Actual:   " + results);
-    Assert.assertTrue(equality);
-  }
+
 }

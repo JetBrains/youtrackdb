@@ -59,8 +59,8 @@ public interface Index extends Comparable<Index> {
    * @param session
    * @param key     The key to search
    * @return The Record set if found, otherwise an empty Set
-   * @deprecated Use {@link Index#getRids(DatabaseSessionInternal, Object)} instead, but
-   * only as internal (not public) API.
+   * @deprecated Use {@link Index#getRids(DatabaseSessionInternal, Object)} instead, but only as
+   * internal (not public) API.
    */
   @Deprecated
   Object get(DatabaseSessionInternal session, Object key);
@@ -104,8 +104,8 @@ public interface Index extends Comparable<Index> {
 
   /**
    * @return number of entries in the index.
-   * @deprecated Use {@link Index#size(DatabaseSessionInternal)} instead. This API only for
-   * internal use !.
+   * @deprecated Use {@link Index#size(DatabaseSessionInternal)} instead. This API only for internal
+   * use !.
    */
   @Deprecated
   long getSize(DatabaseSessionInternal session);
@@ -257,9 +257,8 @@ public interface Index extends Comparable<Index> {
    * @param ascSortOrder Flag which determines whether data iterated by cursor should be in
    *                     ascending or descending order.
    * @return cursor which presents data associated with passed in keys.
-   * @deprecated Use
-   * {@link Index#streamEntries(DatabaseSessionInternal, Collection, boolean)} instead. This
-   * API only for internal use !
+   * @deprecated Use {@link Index#streamEntries(DatabaseSessionInternal, Collection, boolean)}
+   * instead. This API only for internal use !
    */
   @Deprecated
   IndexCursor iterateEntries(DatabaseSessionInternal session, Collection<?> keys,
@@ -277,8 +276,8 @@ public interface Index extends Comparable<Index> {
    *                      ascending or descending order.
    * @return Cursor which presents subset of index data between passed in keys.
    * @deprecated Use
-   * {@link Index#streamEntriesBetween(DatabaseSessionInternal, Object, boolean, Object,
-   * boolean, boolean)} instead. This API only * for internal use !
+   * {@link Index#streamEntriesBetween(DatabaseSessionInternal, Object, boolean, Object, boolean,
+   * boolean)} instead. This API only * for internal use !
    */
   @Deprecated
   IndexCursor iterateEntriesBetween(
@@ -297,8 +296,8 @@ public interface Index extends Comparable<Index> {
    * @return cursor which presents subset of data which associated with key which is greater than
    * passed in key.
    * @deprecated Use
-   * {@link Index#streamEntriesMajor(DatabaseSessionInternal, Object, boolean, boolean)}
-   * instead. This API only for internal use !
+   * {@link Index#streamEntriesMajor(DatabaseSessionInternal, Object, boolean, boolean)} instead.
+   * This API only for internal use !
    */
   @Deprecated
   IndexCursor iterateEntriesMajor(DatabaseSessionInternal session, Object fromKey,
@@ -316,8 +315,8 @@ public interface Index extends Comparable<Index> {
    * @return cursor which presents subset of data which associated with key which is less than
    * passed in key.
    * @deprecated Use
-   * {@link Index#streamEntriesMinor(DatabaseSessionInternal, Object, boolean, boolean)}
-   * instead. This API only for internal use !
+   * {@link Index#streamEntriesMinor(DatabaseSessionInternal, Object, boolean, boolean)} instead.
+   * This API only for internal use !
    */
   @Deprecated
   IndexCursor iterateEntriesMinor(DatabaseSessionInternal session, Object toKey,
@@ -492,7 +491,7 @@ public interface Index extends Comparable<Index> {
       return null;
     }
     if (idx.getDefinition().getFields().size() == 1) {
-      var indexProp = idx.getDefinition().getFields().get(0);
+      var indexProp = idx.getDefinition().getFields().getFirst();
       if (isLabelSecurityDefined(session, security, indexClass, indexProp)) {
         try {
           item = item.getRecord(session);
@@ -502,11 +501,10 @@ public interface Index extends Comparable<Index> {
         if (item == null) {
           return null;
         }
-        if (!(item instanceof EntityImpl)) {
+        if (!(item instanceof EntityImpl entity)) {
           return item;
         }
-        var access = ((EntityImpl) item).propertyAccess;
-        if (access != null && !access.isReadable(indexProp)) {
+        if (!entity.checkPropertyAccess(indexProp)) {
           return null;
         }
       }

@@ -122,7 +122,6 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
       }
     }
 
-
     if (preLoadedFieldsArray == null
         && preLoadedFields != null
         && !preLoadedFields.isEmpty()

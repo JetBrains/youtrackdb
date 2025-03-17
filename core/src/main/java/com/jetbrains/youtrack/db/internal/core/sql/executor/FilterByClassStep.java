@@ -7,7 +7,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIdentifier;
 
@@ -38,7 +38,7 @@ public class FilterByClassStep extends AbstractExecutionStep {
   private Result filterMap(Result result, CommandContext ctx) {
     if (result.isEntity()) {
       var session = ctx.getDatabaseSession();
-      var clazz = ((EntityInternal) result.asEntity()).getImmutableSchemaClass(session);
+      var clazz = ((EntityImpl) result.asEntity()).getImmutableSchemaClass(session);
       if (clazz != null && clazz.isSubClassOf(className)) {
         return result;
       }

@@ -3,7 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 
 /**
@@ -30,14 +30,14 @@ public class RemoveEdgePointersStep extends AbstractExecutionStep {
     for (var propName :
         propNames.stream().filter(x -> x.startsWith("in_") || x.startsWith("out_")).toList()) {
       var val = result.getProperty(propName);
-      if (val instanceof EntityInternal entity) {
+      if (val instanceof EntityImpl entity) {
         var schemaClass = entity.getImmutableSchemaClass(session);
         if (schemaClass != null && schemaClass.isSubClassOf("E")) {
           ((ResultInternal) result).removeProperty(propName);
         }
       } else if (val instanceof Iterable<?> iterable) {
         for (var o : iterable) {
-          if (o instanceof EntityInternal entity) {
+          if (o instanceof EntityImpl entity) {
             var schemaClass = entity.getImmutableSchemaClass(session);
             if (schemaClass != null && schemaClass.isSubClassOf("E")) {
               ((ResultInternal) result).removeProperty(propName);

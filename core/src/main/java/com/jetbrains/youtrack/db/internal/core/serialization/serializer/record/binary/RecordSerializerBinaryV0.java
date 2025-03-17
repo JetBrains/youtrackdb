@@ -181,9 +181,9 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
         bytes.offset = valuePos;
         final var value = deserializeValue(db, bytes, type, entity);
         bytes.offset = headerCursor;
-        entity.setPropertyInternal(fieldName, value, type);
+        entity.setDeserializedPropertyInternal(fieldName, value, type);
       } else {
-        entity.setPropertyInternal(fieldName, null, null);
+        entity.setDeserializedPropertyInternal(fieldName, null, null);
       }
 
       if (++unmarshalledFields == iFields.length)
@@ -324,9 +324,9 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
           last = bytes.offset;
         }
         bytes.offset = headerCursor;
-        entity.setPropertyInternal(fieldName, value, type);
+        entity.setDeserializedPropertyInternal(fieldName, value, type);
       } else {
-        entity.setPropertyInternal(fieldName, null, null);
+        entity.setDeserializedPropertyInternal(fieldName, null, null);
       }
     }
 

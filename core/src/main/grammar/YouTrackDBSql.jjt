@@ -361,8 +361,6 @@ TOKEN:
 	|
 	< FOREACH: ( "F" | "f" ) ( "O" | "o" ) ( "R" | "r" ) ( "E" | "e" ) ( "A" | "a" ) ( "C" | "c" ) ( "H" | "h" ) >
 	|
-	< MOVE: ( "m" | "M" ) ( "o" | "O" ) ( "v" | "V" ) ( "e" | "E" ) >
-	|
 	< DEPTH_ALIAS: ( "d" | "D" ) ( "e" | "E" ) ( "p" | "P" ) ( "t" | "T" ) ( "h" | "H" ) ( "a" | "A" ) ( "l" | "L" ) ( "i" | "I" ) ( "a" | "A" ) ( "s" | "S" )>
 	|
 	< PATH_ALIAS: ( "p" | "P" ) ( "a" | "A" ) ( "t" | "T" ) ( "h" | "H" ) ( "a" | "A" ) ( "l" | "L" ) ( "i" | "I" ) ( "a" | "A" ) ( "s" | "S" )>
@@ -898,8 +896,6 @@ SQLIdentifier Identifier():
     |
     token = <EXISTS>
     |
-    token = <MOVE>
-    |
     token = <DEPTH_ALIAS>
     |
     token = <PATH_ALIAS>
@@ -1104,8 +1100,6 @@ SQLStatement StatementInternal():
                 |
                 LOOKAHEAD(UpdateStatement())
                 result = UpdateStatement()
-                |
-                result = MoveVertexStatement()
                 |
                 LOOKAHEAD(ProfileStorageStatement())
                 result = ProfileStorageStatement()
@@ -1843,23 +1837,6 @@ SQLCreateVertexStatementNoTarget CreateVertexStatementNoTarget():
 	<VERTEX>
 	jjtThis.insertBody = InsertBody()
 ) {return jjtThis;}
-}
-
-SQLMoveVertexStatement MoveVertexStatement():
-{ SQLExpression lastSetExpr; }
-{
-  (
-     <MOVE> <VERTEX>
-     jjtThis.source = FromItem()
-     <TO>
-        (
-          <CLASS>
-          <COLON>
-          jjtThis.targetClass = Identifier()
-        )
-     [ jjtThis.updateOperations = UpdateOperations() ]
-     [ jjtThis.batch = Batch() ]
-  ){ return jjtThis; }
 }
 
 

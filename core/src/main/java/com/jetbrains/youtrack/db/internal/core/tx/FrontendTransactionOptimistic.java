@@ -54,6 +54,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -67,16 +68,23 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
 
   private static final AtomicLong txSerial = new AtomicLong();
 
-  protected final HashMap<RecordId, RecordId> generatedOriginalRecordIdMap = new HashMap<>();
-  protected final HashMap<RecordId, RecordOperation> recordOperations = new HashMap<>();
-
   private final TreeSet<RecordId> affectedRecordsSortedByRID = new TreeSet<>();
 
+  protected final HashMap<RecordId, RecordOperation> recordOperations = new HashMap<>();
+  private final IdentityHashMap<RecordId, RecordOperation> recordOperationsIdentityMap =
+      new IdentityHashMap<>();
+
   protected final HashMap<RecordId, RecordOperation> operationsBetweenCallbacks = new HashMap<>();
+  private final IdentityHashMap<RecordId, RecordOperation> operationsBetweenCallbacksIdentityMap =
+      new IdentityHashMap<>();
+
+  protected HashMap<RecordId, List<FrontendTransactionRecordIndexOperation>> recordIndexOperations =
+      new HashMap<>();
+  private final IdentityHashMap<RecordId, List<FrontendTransactionRecordIndexOperation>> recordIndexOperationsIdentityMap =
+      new IdentityHashMap<>();
 
   protected HashMap<String, FrontendTransactionIndexChanges> indexEntries = new HashMap<>();
-  protected HashMap<RID, List<FrontendTransactionRecordIndexOperation>> recordIndexOperations =
-      new HashMap<>();
+
 
   protected long id;
   protected int newRecordsPositionsGenerator = -2;
@@ -676,7 +684,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
           }
         }
 
-        entity.recordFormat = serializer;
+        entity.recordSerializer = serializer;
       }
 
       if (recordOperation.recordCallBackDirtyCounter != record.getDirtyCounter()) {
@@ -734,7 +742,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     session.beforeDeleteOperations(record, clusterName);
     try {
       session.afterDeleteOperations(record);
-      if (record instanceof EntityImpl && ((EntityImpl) record).isTrackingChanges()) {
+      if (record instanceof EntityImpl) {
         ((EntityImpl) record).clearTrackData();
       }
     } catch (Exception e) {
@@ -753,7 +761,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     session.beforeUpdateOperations(record, clusterName);
     try {
       session.afterUpdateOperations(record);
-      if (record instanceof EntityImpl && ((EntityImpl) record).isTrackingChanges()) {
+      if (record instanceof EntityImpl) {
         ((EntityImpl) record).clearTrackData();
       }
     } catch (Exception e) {
@@ -772,7 +780,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     session.beforeCreateOperations(record, clusterName);
     try {
       session.afterCreateOperations(record);
-      if (record instanceof EntityImpl && ((EntityImpl) record).isTrackingChanges()) {
+      if (record instanceof EntityImpl) {
         ((EntityImpl) record).clearTrackData();
       }
     } catch (Exception e) {
@@ -871,8 +879,6 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
 
     final var rec = getRecordEntry(oldRid);
     if (rec != null) {
-      generatedOriginalRecordIdMap.put(newRid.copy(), oldRid.copy());
-
       if (!rec.record.getIdentity().equals(newRid)) {
         final var recordId = rec.record.getIdentity();
         recordId.setClusterPosition(newRid.getClusterPosition());
@@ -1018,12 +1024,42 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
   public void onBeforeIdentityChange(Object source) {
     var rid = (RecordId) source;
     affectedRecordsSortedByRID.remove(rid);
+
+    var recordOperation = recordOperations.remove(rid);
+    if (recordOperation != null) {
+      recordOperationsIdentityMap.put(rid, recordOperation);
+    }
+
+    recordOperation = operationsBetweenCallbacks.remove(rid);
+    if (recordOperation != null) {
+      operationsBetweenCallbacksIdentityMap.put(rid, recordOperation);
+    }
+
+    var recordIndexOperation = recordIndexOperations.remove(rid);
+    if (recordIndexOperation != null) {
+      recordIndexOperationsIdentityMap.put(rid, recordIndexOperation);
+    }
   }
 
   @Override
   public void onAfterIdentityChange(Object source) {
     var rid = (RecordId) source;
     affectedRecordsSortedByRID.add(rid);
+
+    var recordOperation = recordOperationsIdentityMap.remove(rid);
+    if (recordOperation != null) {
+      recordOperations.put(rid, recordOperation);
+    }
+
+    recordOperation = operationsBetweenCallbacksIdentityMap.remove(rid);
+    if (recordOperation != null) {
+      operationsBetweenCallbacks.put(rid, recordOperation);
+    }
+
+    var recordIndexOperation = recordIndexOperationsIdentityMap.remove(rid);
+    if (recordIndexOperation != null) {
+      recordIndexOperations.put(rid, recordIndexOperation);
+    }
   }
 
   @Nullable
@@ -1180,23 +1216,9 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     return recordOperations.values();
   }
 
-  public RecordOperation getRecordEntry(RID ridPar) {
-    assert ridPar instanceof RecordId;
-
-    var rid = ridPar;
-    RecordOperation entry;
-    do {
-      entry = recordOperations.get(rid);
-      if (entry == null) {
-        rid = generatedOriginalRecordIdMap.get(rid);
-      }
-    } while (entry == null && rid != null && !rid.equals(ridPar));
-
-    return entry;
-  }
-
-  public Map<RecordId, RecordId> getGeneratedOriginalRecordIdMap() {
-    return generatedOriginalRecordIdMap;
+  public RecordOperation getRecordEntry(RID rid) {
+    assert rid instanceof RecordId;
+    return recordOperations.get(rid);
   }
 
   @Override

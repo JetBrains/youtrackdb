@@ -42,7 +42,7 @@ public class UpdateMergeStep extends AbstractExecutionStep {
   }
 
   private void handleMerge(EntityImpl record, CommandContext ctx) {
-    record.merge(json.toEntity(record, ctx), true, false);
+    record.updateFromJSON(json.toString());
   }
 
   @Override

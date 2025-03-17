@@ -23,20 +23,22 @@ package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import javax.annotation.Nonnull;
 
 public interface RecordSerializer {
 
-  RecordAbstract fromStream(DatabaseSessionInternal db, byte[] iSource,
-      RecordAbstract iRecord,
+  void fromStream(@Nonnull DatabaseSessionInternal session, @Nonnull byte[] iSource,
+      @Nonnull RecordAbstract iRecord,
       String[] iFields);
 
-  byte[] toStream(DatabaseSessionInternal db, RecordAbstract iSource);
+  byte[] toStream(@Nonnull DatabaseSessionInternal session, @Nonnull RecordAbstract iSource);
 
   int getCurrentVersion();
 
   int getMinSupportedVersion();
 
-  String[] getFieldNames(DatabaseSessionInternal db, EntityImpl reference, byte[] iSource);
+  String[] getFieldNames(@Nonnull DatabaseSessionInternal session, EntityImpl reference,
+      @Nonnull byte[] iSource);
 
   boolean getSupportBinaryEvaluate();
 

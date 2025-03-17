@@ -62,7 +62,7 @@ public class DocumentTest extends DbTestBase {
   @Test
   public void testFromMapWithClassAndRid() {
     session.begin();
-    final var doc = (EntityImpl) session.newEntity("V");
+    final var doc = (EntityImpl) session.newVertex();
     doc.setProperty("name", "Jay");
     doc.setProperty("surname", "Miner");
 

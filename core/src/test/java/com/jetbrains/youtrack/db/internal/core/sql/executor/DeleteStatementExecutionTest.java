@@ -20,7 +20,7 @@ public class DeleteStatementExecutionTest extends DbTestBase {
     session.getMetadata().getSchema().createClass(className);
     for (var i = 0; i < 10; i++) {
       session.begin();
-      EntityImpl doc = session.newInstance(className);
+      var doc = session.newInstance(className);
       doc.setProperty("name", "name" + i);
 
       session.commit();
@@ -70,7 +70,7 @@ public class DeleteStatementExecutionTest extends DbTestBase {
     session.getMetadata().getSchema().createClass(className, v);
     for (var i = 0; i < 10; i++) {
       session.begin();
-      var doc = session.newInstance(className);
+      var doc = session.newVertex(className);
       doc.setProperty("name", "name" + i);
       session.commit();
     }
@@ -94,8 +94,8 @@ public class DeleteStatementExecutionTest extends DbTestBase {
     session.getMetadata().getSchema().createClass(className, v);
     for (var i = 0; i < 10; i++) {
       session.begin();
-      EntityImpl doc = session.newInstance(className);
-      doc.setProperty("name", "name" + i);
+      var vertex = session.newVertex(className);
+      vertex.setProperty("name", "name" + i);
 
       session.commit();
     }

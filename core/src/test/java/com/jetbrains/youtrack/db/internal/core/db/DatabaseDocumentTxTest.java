@@ -342,7 +342,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     schema.createClass(className, 1, schema.getClass(SchemaClass.VERTEX_CLASS_NAME));
     session.begin();
 
-    var document = (EntityImpl) session.newEntity(className);
+    var document = (EntityImpl) session.newVertex(className);
 
     var reverseIterator =
         new RecordIteratorClass(session, className, true, false);

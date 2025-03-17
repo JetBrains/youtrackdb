@@ -12,6 +12,7 @@ import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyAccess;
 import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -71,7 +72,7 @@ public class SchemaPropertyAccessTest extends DbTestBase {
     assertArrayEquals(
         new String[]{"one value"},
         doc.getPropertyNames().stream().map(doc::getProperty).toArray());
-    assertEquals(new HashSet<>(List.of("name")), doc.getPropertyNames());
+    assertEquals(List.of("name"), doc.getPropertyNames());
     for (var propertyName : doc.getPropertyNames()) {
       assertEquals("name", propertyName);
     }
@@ -81,7 +82,7 @@ public class SchemaPropertyAccessTest extends DbTestBase {
     doc.propertyAccess = new PropertyAccess(toHide);
     assertArrayEquals(new String[]{}, doc.propertyNames());
     assertArrayEquals(new String[]{}, doc.propertyValues());
-    assertEquals(new HashSet<String>(), doc.getPropertyNames());
+    assertEquals(Collections.emptyList(), doc.getPropertyNames());
     for (var propertyName : doc.getPropertyNames()) {
       assertNotEquals("name", propertyName);
     }
@@ -97,7 +98,7 @@ public class SchemaPropertyAccessTest extends DbTestBase {
     assertArrayEquals(
         new String[]{"one value"},
         docPre.getPropertyNames().stream().map(docPre::getProperty).toArray());
-    assertEquals(new HashSet<>(List.of("name")), docPre.getPropertyNames());
+    assertEquals(List.of("name"), docPre.getPropertyNames());
     for (var propertyName : docPre.getPropertyNames()) {
       assertEquals("name", propertyName);
     }
@@ -111,7 +112,7 @@ public class SchemaPropertyAccessTest extends DbTestBase {
     assertArrayEquals(new String[]{}, doc.getPropertyNames().toArray());
     assertArrayEquals(
         new String[]{}, doc.getPropertyNames().stream().map(doc::getProperty).toArray());
-    assertEquals(new HashSet<String>(), doc.getPropertyNames());
+    assertEquals(Collections.emptyList(), doc.getPropertyNames());
 
     for (var propertyName : doc.getPropertyNames()) {
       assertNotEquals("name", propertyName);

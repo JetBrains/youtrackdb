@@ -83,8 +83,6 @@ public interface YouTrackDBSqlVisitor {
 
   Object visit(SQLCreateVertexStatementNoTarget node, Object data);
 
-  Object visit(SQLMoveVertexStatement node, Object data);
-
   Object visit(SQLCreateEdgeStatement node, Object data);
 
   Object visit(SQLInputParameter node, Object data);
@@ -391,4 +389,4 @@ public interface YouTrackDBSqlVisitor {
 
   Object visit(SQLDropDatabaseStatement node, Object data);
 }
-/* JavaCC - OriginalChecksum=2943ca18a09e7db0d96d2590c99cb7af (do not edit this line) */
+/* JavaCC - OriginalChecksum=f1bda052923b6ffb6ab8f9f4795f935c (do not edit this line) */

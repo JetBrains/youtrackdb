@@ -52,6 +52,10 @@ public interface RecordElement {
   RecordElement getOwner();
 
   default EntityImpl getOwnerEntity() {
+    if (this instanceof EntityImpl entity) {
+      return entity;
+    }
+
     var owner = getOwner();
 
     while (true) {
@@ -69,6 +73,10 @@ public interface RecordElement {
 
   @Nullable
   default DatabaseSessionInternal getSession() {
+    if (this instanceof EntityImpl entity) {
+      return (DatabaseSessionInternal) entity.getBoundedToSession();
+    }
+
     return getOwnerEntity().getSession();
   }
 

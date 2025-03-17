@@ -74,14 +74,14 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
   public Object getDocumentValueToIndex(
       DatabaseSessionInternal session, final EntityImpl entity) {
     if (PropertyType.LINK.equals(keyType)) {
-      final Identifiable identifiable = entity.getProperty(field);
+      final Identifiable identifiable = entity.getPropertyInternal(field);
       if (identifiable != null) {
         return createValue(session, identifiable.getIdentity());
       } else {
         return null;
       }
     }
-    return createValue(session, entity.<Object>getProperty(field));
+    return createValue(session, entity.<Object>getPropertyInternal(field));
   }
 
   @Override

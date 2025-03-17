@@ -55,9 +55,9 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
     session.begin();
 
     // saved persons will have null name
-    final EntityImpl person1 = session.newInstance("Person");
-    final EntityImpl person2 = session.newInstance("Person");
-    final EntityImpl person3 = session.newInstance("Person");
+    final var person1 = session.newInstance("Person");
+    final var person2 = session.newInstance("Person");
+    final var person3 = session.newInstance("Person");
 
     // change some names
     person3.setProperty("name", "Name3");
@@ -65,26 +65,30 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
     session.commit();
 
     // verify index state
-    assertRids(null, person1, person2);
-    assertRids("Name3", person3);
+    session.begin();
+    assertRids(null, session.bindToSession(person1), session.bindToSession(person2));
+    assertRids("Name3", session.bindToSession(person3));
+    session.commit();
   }
 
   @Test
   public void testDuplicateNullsOnUpdate() {
     session.begin();
-    EntityImpl person1 = session.newInstance("Person");
+    var person1 = session.newInstance("Person");
     person1.setProperty("name", "Name1");
-    EntityImpl person2 = session.newInstance("Person");
+    var person2 = session.newInstance("Person");
     person2.setProperty("name", "Name2");
-    EntityImpl person3 = session.newInstance("Person");
+    var person3 = session.newInstance("Person");
     person3.setProperty("name", "Name3");
     session.commit();
 
+    session.begin();
     // verify index state
     assertRids(null);
-    assertRids("Name1", person1);
-    assertRids("Name2", person2);
-    assertRids("Name3", person3);
+    assertRids("Name1", session.bindToSession(person1));
+    assertRids("Name2", session.bindToSession(person2));
+    assertRids("Name3", session.bindToSession(person3));
+    session.commit();
 
     session.begin();
 
@@ -131,11 +135,11 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
     session.begin();
 
     // saved persons will have same name
-    final EntityImpl person1 = session.newInstance("Person");
+    final var person1 = session.newInstance("Person");
     person1.setProperty("name", "same");
-    final EntityImpl person2 = session.newInstance("Person");
+    final var person2 = session.newInstance("Person");
     person2.setProperty("name", "same");
-    final EntityImpl person3 = session.newInstance("Person");
+    final var person3 = session.newInstance("Person");
     person3.setProperty("name", "same");
 
     // change some names
@@ -147,34 +151,36 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
 
     session.commit();
 
+    session.begin();
     // verify index state
-    assertRids("same", person1);
+    assertRids("same", session.bindToSession(person1));
     assertRids("Name1");
-    assertRids("Name2", person2, person3);
+    assertRids("Name2", session.bindToSession(person2), session.bindToSession(person3));
+    session.commit();
   }
 
   @Test
   public void testDuplicateValuesOnUpdate() {
     session.begin();
-    EntityImpl person1 = session.newInstance("Person");
+    var person1 = session.newInstance("Person");
     person1.setProperty("name", "Name1");
-    EntityImpl person2 = session.newInstance("Person");
+    var person2 = session.newInstance("Person");
     person2.setProperty("name", "Name2");
-    EntityImpl person3 = session.newInstance("Person");
+    var person3 = session.newInstance("Person");
     person3.setProperty("name", "Name3");
     session.commit();
+
+    session.begin();
+    person1 = session.bindToSession(person1);
+    person2 = session.bindToSession(person2);
+    person3 = session.bindToSession(person3);
+
 
     // verify index state
     assertRids(null);
     assertRids("Name1", person1);
     assertRids("Name2", person2);
     assertRids("Name3", person3);
-
-    session.begin();
-
-    person1 = session.bindToSession(person1);
-    person2 = session.bindToSession(person2);
-    person3 = session.bindToSession(person3);
 
     // saved persons will have same name
     person1.setProperty("name", "same");
@@ -210,13 +216,13 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
     session.begin();
 
     // saved persons will have same name
-    final EntityImpl person1 = session.newInstance("Person");
+    final var person1 = session.newInstance("Person");
     person1.setProperty("name", "same");
-    final EntityImpl person2 = session.newInstance("Person");
+    final var person2 = session.newInstance("Person");
     person2.setProperty("name", "same");
-    final EntityImpl person3 = session.newInstance("Person");
+    final var person3 = session.newInstance("Person");
     person3.setProperty("name", "same");
-    final EntityImpl person4 = session.newInstance("Person");
+    final var person4 = session.newInstance("Person");
     person4.setProperty("name", "same");
 
     person1.delete();
@@ -227,32 +233,28 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
 
     session.commit();
 
+    session.begin();
     // verify index state
     assertRids("Name1");
-    assertRids("Name2", person2, person4);
+    assertRids("Name2", session.bindToSession(person2), session.bindToSession(person4));
     assertRids("Name3");
     assertRids("Name4");
+    session.commit();
   }
 
   @Test
   public void testDuplicateValuesOnUpdateDelete() {
     session.begin();
-    EntityImpl person1 = session.newInstance("Person");
+    var person1 = session.newInstance("Person");
     person1.setProperty("name", "Name1");
-    EntityImpl person2 = session.newInstance("Person");
+    var person2 = session.newInstance("Person");
     person2.setProperty("name", "Name2");
-    EntityImpl person3 = session.newInstance("Person");
+    var person3 = session.newInstance("Person");
     person3.setProperty("name", "Name3");
 
-    EntityImpl person4 = session.newInstance("Person");
+    var person4 = session.newInstance("Person");
     person4.setProperty("name", "Name4");
     session.commit();
-
-    // verify index state
-    assertRids("Name1", person1);
-    assertRids("Name2", person2);
-    assertRids("Name3", person3);
-    assertRids("Name4", person4);
 
     session.begin();
 
@@ -260,6 +262,12 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
     person2 = session.bindToSession(person2);
     person3 = session.bindToSession(person3);
     person4 = session.bindToSession(person4);
+
+    // verify index state
+    assertRids("Name1", person1);
+    assertRids("Name2", person2);
+    assertRids("Name3", person3);
+    assertRids("Name4", person4);
 
     person1.delete();
     person2.setProperty("name", "same");
@@ -298,13 +306,12 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
   }
 
   @Test
-  @SuppressWarnings("unchecked")
   public void testManyManyUpdatesToTheSameKey() {
     final Set<Integer> unseen = new HashSet<Integer>();
 
     session.begin();
-    for (var i = 0; i < FrontendTransactionIndexChangesPerKey.SET_ADD_THRESHOLD * 2; ++i) {
-      EntityImpl pers = session.newInstance("Person");
+    for (var i = 0; i < FrontendTransactionIndexChangesPerKey.SET_ADD_THRESHOLD << 1; ++i) {
+      var pers = session.newInstance("Person");
       pers.setProperty("name", "Name");
       pers.setProperty("serial", i);
       unseen.add(i);
@@ -324,7 +331,6 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
     session.commit();
   }
 
-  @SuppressWarnings("unchecked")
   private void assertRids(String indexKey, Identifiable... rids) {
     final Set<RID> actualRids;
     try (var stream = index.getRids(session, indexKey)) {

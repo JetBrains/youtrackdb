@@ -30,7 +30,7 @@ import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.VertexInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.JSONWriter;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -154,8 +154,8 @@ public class HttpGraphResponse extends HttpResponseAbstract {
         json.writeAttribute(session, "@class", vertex.getSchemaClassName());
 
         // ADD ALL THE PROPERTIES
-        for (var field : ((VertexInternal) vertex).getPropertyNamesInternal(false, true)) {
-          final var v = ((VertexInternal) vertex).getPropertyInternal(field);
+        for (var field : ((EntityImpl) vertex).getPropertyNamesInternal(false, true)) {
+          final var v = ((EntityImpl) vertex).getPropertyInternal(field);
           if (v != null) {
             json.writeAttribute(session, field, v);
           }

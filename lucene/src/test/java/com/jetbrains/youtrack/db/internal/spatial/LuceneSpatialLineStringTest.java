@@ -49,22 +49,22 @@ public class LuceneSpatialLineStringTest extends BaseSpatialLuceneTest {
     var linestring1 = ((EntityImpl) session.newEntity("Place"));
     linestring1.setProperty("name", "LineString1");
     linestring1.setProperty("location", createLineString(
-            new ArrayList<List<Double>>() {
-              {
-                add(Arrays.asList(0d, 0d));
-                add(Arrays.asList(3d, 3d));
-              }
-            }));
+        new ArrayList<>() {
+          {
+            add(Arrays.asList(0d, 0d));
+            add(Arrays.asList(3d, 3d));
+          }
+        }));
 
     var linestring2 = ((EntityImpl) session.newEntity("Place"));
     linestring2.setProperty("name", "LineString2");
     linestring2.setProperty("location", createLineString(
-            new ArrayList<List<Double>>() {
-              {
-                add(Arrays.asList(0d, 1d));
-                add(Arrays.asList(0d, 5d));
-              }
-            }));
+        new ArrayList<>() {
+          {
+            add(Arrays.asList(0d, 1d));
+            add(Arrays.asList(0d, 5d));
+          }
+        }));
 
     session.begin();
     session.commit();
@@ -94,28 +94,28 @@ public class LuceneSpatialLineStringTest extends BaseSpatialLuceneTest {
     var query =
         "select * from Place where location && { 'shape' : { 'type' : 'OLineString' , 'coordinates'"
             + " : [[1,2],[4,6]]} } ";
-    var docs = session.query(query).toEntityList();
+    var entities = session.query(query).entityStream().toList();
 
-    Assert.assertEquals(1, docs.size());
+    Assert.assertEquals(1, entities.size());
 
     query = "select * from Place where location && 'LINESTRING(1 2, 4 6)' ";
-    docs = session.query(new SQLSynchQuery<EntityImpl>(query));
+    entities = session.query(new SQLSynchQuery<EntityImpl>(query));
 
-    Assert.assertEquals(1, docs.size());
+    Assert.assertEquals(1, entities.size());
 
     query = "select * from Place where location && ST_GeomFromText('LINESTRING(1 2, 4 6)') ";
-    docs = session.query(query).toEntityList();
+    entities = session.query(query).entityStream().toList();
 
-    Assert.assertEquals(1, docs.size());
+    Assert.assertEquals(1, entities.size());
 
     query =
         "select * from Place where location && 'POLYGON((-150.205078125"
             + " 61.40723633876356,-149.2657470703125 61.40723633876356,-149.2657470703125"
             + " 61.05562700886678,-150.205078125 61.05562700886678,-150.205078125"
             + " 61.40723633876356))' ";
-    docs = session.query(query).toEntityList();
+    entities = session.query(query).entityStream().toList();
 
-    Assert.assertEquals(1, docs.size());
+    Assert.assertEquals(1, entities.size());
   }
 
   @Ignore

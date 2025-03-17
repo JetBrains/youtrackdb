@@ -56,8 +56,8 @@ public class DateConversionTestCase extends DbTestBase {
     var document = (EntityImpl) session.newEntity();
     document.setProperty("date", dateToInsert, PropertyType.DATE);
     var res = serializer.toStream(session, document);
-    var extr = (EntityImpl) serializer.fromStream(session, res, (EntityImpl) session.newEntity(),
-        new String[]{});
+    var extr = (EntityImpl) session.newEntity();
+    serializer.fromStream(session, res, extr, new String[]{});
     final var fields = extr.propertyNames();
 
     assertNotNull(fields);

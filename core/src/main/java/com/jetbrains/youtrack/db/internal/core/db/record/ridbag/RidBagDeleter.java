@@ -1,6 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.db.record.ridbag;
-
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+
 
 /**
  *

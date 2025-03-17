@@ -10,7 +10,6 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.RecordBytes;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
@@ -90,7 +89,7 @@ public class SQLRecordAttribute extends SimpleNode {
       return identity;
     } else if (name.equalsIgnoreCase("@class")) {
       if (iCurrentResult.isEntity()) {
-        var schemaClass = ((EntityInternal) iCurrentResult.asEntity()).getImmutableSchemaClass(
+        var schemaClass = ((EntityImpl) iCurrentResult.asEntity()).getImmutableSchemaClass(
             session);
         if (schemaClass != null) {
           return schemaClass.getName();

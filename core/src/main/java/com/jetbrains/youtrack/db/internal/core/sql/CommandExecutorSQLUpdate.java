@@ -643,10 +643,7 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
           }
         }
       }
-      record.merge(fieldsToPreserve, false, false);
-      record.merge(content, true, false);
-
-      updated = true;
+      throw new UnsupportedOperationException();
     }
     return updated;
   }
@@ -655,8 +652,7 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
     var updated = false;
     if (merge != null) {
       // MERGE THE CONTENT
-      record.merge(merge, true, false);
-      updated = true;
+      throw new UnsupportedOperationException();
     }
     return updated;
   }

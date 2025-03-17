@@ -14,7 +14,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.metadata.Metadata;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.VertexInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.StorageRecoverEventListener;
 import java.util.Collection;
 import java.util.Iterator;
@@ -27,7 +27,7 @@ import java.util.Map;
  */
 public class GraphRepair {
 
-  private class RepairStats {
+  public static class RepairStats {
 
     private long scannedEdges = 0;
     private long removedEdges = 0;
@@ -123,7 +123,7 @@ public class GraphRepair {
 
             var skipEdges = 0L;
             if (options != null && options.get("-skipEdges") != null) {
-              skipEdges = Long.parseLong(options.get("-skipEdges").get(0));
+              skipEdges = Long.parseLong(options.get("-skipEdges").getFirst());
             }
 
             message(
@@ -190,23 +190,28 @@ public class GraphRepair {
                   outVertexMissing = true;
                 } else {
                   final var outFieldName =
-                      VertexInternal.getEdgeLinkFieldName(
+                      VertexEntityImpl.getEdgeLinkFieldName(
                           Direction.OUT, edge.getSchemaClassName(), useVertexFieldsForEdgeLabels);
 
                   final var outEdges = outVertex.getPropertyInternal(outFieldName);
-                  if (outEdges == null) {
-                    outVertexMissing = true;
-                  } else if (outEdges instanceof RidBag) {
-                    if (!((RidBag) outEdges).contains(edgeId)) {
-                      outVertexMissing = true;
+                  switch (outEdges) {
+                    case null -> outVertexMissing = true;
+                    case RidBag rids -> {
+                      if (!rids.contains(edgeId)) {
+                        outVertexMissing = true;
+                      }
                     }
-                  } else if (outEdges instanceof Collection) {
-                    if (!((Collection) outEdges).contains(edgeId)) {
-                      outVertexMissing = true;
+                    case Collection collection -> {
+                      if (!collection.contains(edgeId)) {
+                        outVertexMissing = true;
+                      }
                     }
-                  } else if (outEdges instanceof Identifiable) {
-                    if (((Identifiable) outEdges).getIdentity().equals(edgeId)) {
-                      outVertexMissing = true;
+                    case Identifiable identifiable -> {
+                      if (identifiable.getIdentity().equals(edgeId)) {
+                        outVertexMissing = true;
+                      }
+                    }
+                    default -> {
                     }
                   }
                 }
@@ -234,23 +239,28 @@ public class GraphRepair {
                   inVertexMissing = true;
                 } else {
                   final var inFieldName =
-                      VertexInternal.getEdgeLinkFieldName(
+                      VertexEntityImpl.getEdgeLinkFieldName(
                           Direction.IN, edge.getSchemaClassName(), useVertexFieldsForEdgeLabels);
 
                   final var inEdges = inVertex.getPropertyInternal(inFieldName);
-                  if (inEdges == null) {
-                    inVertexMissing = true;
-                  } else if (inEdges instanceof RidBag) {
-                    if (!((RidBag) inEdges).contains(edgeId)) {
-                      inVertexMissing = true;
+                  switch (inEdges) {
+                    case null -> inVertexMissing = true;
+                    case RidBag rids -> {
+                      if (!rids.contains(edgeId)) {
+                        inVertexMissing = true;
+                      }
                     }
-                  } else if (inEdges instanceof Collection) {
-                    if (!((Collection) inEdges).contains(edgeId)) {
-                      inVertexMissing = true;
+                    case Collection collection -> {
+                      if (!collection.contains(edgeId)) {
+                        inVertexMissing = true;
+                      }
                     }
-                  } else if (inEdges instanceof Identifiable) {
-                    if (((Identifiable) inEdges).getIdentity().equals(edgeId)) {
-                      inVertexMissing = true;
+                    case Identifiable identifiable -> {
+                      if (identifiable.getIdentity().equals(edgeId)) {
+                        inVertexMissing = true;
+                      }
+                    }
+                    default -> {
                     }
                   }
                 }
@@ -311,7 +321,7 @@ public class GraphRepair {
           () -> {
             var skipVertices = 0L;
             if (options != null && options.get("-skipVertices") != null) {
-              skipVertices = Long.parseLong(options.get("-skipVertices").get(0));
+              skipVertices = Long.parseLong(options.get("-skipVertices").getFirst());
             }
 
             message(outputListener, "Scanning " + countVertices + " vertices...\n");
@@ -357,9 +367,9 @@ public class GraphRepair {
                 return;
               }
 
-              for (var fieldName : vertex.propertyNames()) {
+              for (var fieldName : vertex.getPropertyNamesInternal(false, false)) {
                 final var connection =
-                    VertexInternal.getConnection(db,
+                    VertexEntityImpl.getConnection(db,
                         db.getMetadata().getSchema(), Direction.BOTH, fieldName);
                 if (connection == null) {
                   continue;
@@ -367,78 +377,82 @@ public class GraphRepair {
 
                 final var fieldValue = vertex.getPropertyInternal(fieldName);
                 if (fieldValue != null) {
-                  if (fieldValue instanceof Identifiable) {
-                    if (isEdgeBroken(db,
-                        vertex,
-                        fieldName,
-                        connection.getKey(),
-                        (Identifiable) fieldValue,
-                        stats, true)) {
-                      vertexCorrupted = true;
-                      if (!checkOnly) {
-                        vertex.setProperty(fieldName, null);
-                      } else {
-                        message(
-                            outputListener,
-                            "+ found corrupted vertex "
-                                + vertex
-                                + " the property "
-                                + fieldName
-                                + " could be removed\n");
-                      }
-                    }
-
-                  } else if (fieldValue instanceof Collection<?> coll) {
-
-                    for (var it = coll.iterator(); it.hasNext(); ) {
-                      final var o = it.next();
-
+                  switch (fieldValue) {
+                    case Identifiable identifiable -> {
                       if (isEdgeBroken(db,
-                          vertex, fieldName, connection.getKey(), (Identifiable) o,
-                          stats, true)) {
+                          vertex,
+                          fieldName,
+                          connection.getKey(),
+                          identifiable,
+                          stats)) {
                         vertexCorrupted = true;
                         if (!checkOnly) {
-                          it.remove();
+                          vertex.setProperty(fieldName, null);
                         } else {
                           message(
                               outputListener,
                               "+ found corrupted vertex "
                                   + vertex
-                                  + " the edge should be removed from property "
+                                  + " the property "
                                   + fieldName
-                                  + " (collection)\n");
+                                  + " could be removed\n");
                         }
                       }
                     }
+                    case Collection<?> coll -> {
 
-                  } else if (fieldValue instanceof RidBag ridbag) {
-                    // In case of ridbags force save for trigger eventual conversions
-                    if (ridbag.size() == 0) {
-                      vertex.removePropertyInternal(fieldName);
-                    } else if (!ridbag.isEmbedded()
-                        && ridbag.size()
-                        < GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD
-                        .getValueAsInteger()) {
-                      vertex.setDirty();
-                    }
-                    for (Iterator<?> it = ridbag.iterator(); it.hasNext(); ) {
-                      final var o = it.next();
-                      if (isEdgeBroken(db,
-                          vertex, fieldName, connection.getKey(), (Identifiable) o,
-                          stats, true)) {
-                        vertexCorrupted = true;
-                        if (!checkOnly) {
-                          it.remove();
-                        } else {
-                          message(
-                              outputListener,
-                              "+ found corrupted vertex "
-                                  + vertex
-                                  + " the edge should be removed from property "
-                                  + fieldName
-                                  + " (ridbag)\n");
+                      for (var it = coll.iterator(); it.hasNext(); ) {
+                        final var o = it.next();
+
+                        if (isEdgeBroken(db,
+                            vertex, fieldName, connection.getKey(), (Identifiable) o,
+                            stats)) {
+                          vertexCorrupted = true;
+                          if (!checkOnly) {
+                            it.remove();
+                          } else {
+                            message(
+                                outputListener,
+                                "+ found corrupted vertex "
+                                    + vertex
+                                    + " the edge should be removed from property "
+                                    + fieldName
+                                    + " (collection)\n");
+                          }
                         }
                       }
+                    }
+                    case RidBag ridbag -> {
+                      // In case of ridbags force save for trigger eventual conversions
+                      if (ridbag.isEmpty()) {
+                        vertex.removePropertyInternal(fieldName);
+                      } else if (!ridbag.isEmbedded()
+                          && ridbag.size()
+                          < GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD
+                          .getValueAsInteger()) {
+                        vertex.setDirty();
+                      }
+                      for (Iterator<?> it = ridbag.iterator(); it.hasNext(); ) {
+                        final var o = it.next();
+                        if (isEdgeBroken(db,
+                            vertex, fieldName, connection.getKey(), (Identifiable) o,
+                            stats)) {
+                          vertexCorrupted = true;
+                          if (!checkOnly) {
+                            it.remove();
+                          } else {
+                            message(
+                                outputListener,
+                                "+ found corrupted vertex "
+                                    + vertex
+                                    + " the edge should be removed from property "
+                                    + fieldName
+                                    + " (ridbag)\n");
+                          }
+                        }
+                      }
+                    }
+                    default -> {
                     }
                   }
                 }
@@ -451,9 +465,6 @@ public class GraphRepair {
                 }
 
                 message(outputListener, "+ repaired corrupted vertex " + vertex + "\n");
-                if (!checkOnly) {
-
-                }
               } else if (vertex.isDirty() && !checkOnly) {
                 message(outputListener, "+ optimized vertex " + vertex + "\n");
 
@@ -488,7 +499,7 @@ public class GraphRepair {
     return this;
   }
 
-  private void message(final CommandOutputListener outputListener, final String message) {
+  private static void message(final CommandOutputListener outputListener, final String message) {
     if (outputListener != null) {
       outputListener.onMessage(message);
     }
@@ -499,8 +510,7 @@ public class GraphRepair {
       final String fieldName,
       final Direction direction,
       final Identifiable edgeRID,
-      final RepairStats stats,
-      final boolean useVertexFieldsForEdgeLabels) {
+      final RepairStats stats) {
     onScannedLink(stats, edgeRID);
 
     var broken = false;
@@ -523,9 +533,7 @@ public class GraphRepair {
         broken = true;
       } else {
         SchemaImmutableClass immutableClass = null;
-        if (record != null) {
-          immutableClass = record.getImmutableSchemaClass(session);
-        }
+        immutableClass = record.getImmutableSchemaClass(session);
         if (immutableClass == null
             || (!immutableClass.isVertexType() && !immutableClass.isEdgeType()))
         // INVALID RECORD TYPE: NULL OR NOT GRAPH TYPE
@@ -535,7 +543,7 @@ public class GraphRepair {
           if (immutableClass.isVertexType()) {
             // VERTEX -> LIGHTWEIGHT EDGE
             final var inverseFieldName =
-                getInverseConnectionFieldName(fieldName, useVertexFieldsForEdgeLabels);
+                getInverseConnectionFieldName(fieldName, true);
 
             // CHECK THE VERTEX IS IN INVERSE EDGE CONTAINS
             final var inverseEdgeContainer = record.getProperty(inverseFieldName);
@@ -545,24 +553,29 @@ public class GraphRepair {
               broken = true;
             } else {
 
-              if (inverseEdgeContainer instanceof Identifiable) {
-                if (!inverseEdgeContainer.equals(vertex))
-                // NOT THE SAME
-                {
-                  broken = true;
+              switch (inverseEdgeContainer) {
+                case Identifiable identifiable -> {
+                  if (!inverseEdgeContainer.equals(vertex))
+                  // NOT THE SAME
+                  {
+                    broken = true;
+                  }
                 }
-              } else if (inverseEdgeContainer instanceof Collection<?>) {
-                if (!((Collection) inverseEdgeContainer).contains(vertex))
-                // NOT IN COLLECTION
-                {
-                  broken = true;
+                case Collection<?> objects -> {
+                  if (!((Collection<?>) inverseEdgeContainer).contains(vertex))
+                  // NOT IN COLLECTION
+                  {
+                    broken = true;
+                  }
                 }
-
-              } else if (inverseEdgeContainer instanceof RidBag) {
-                if (!((RidBag) inverseEdgeContainer).contains(vertex.getIdentity()))
-                // NOT IN RIDBAG
-                {
-                  broken = true;
+                case RidBag rids -> {
+                  if (!rids.contains(vertex.getIdentity()))
+                  // NOT IN RIDBAG
+                  {
+                    broken = true;
+                  }
+                }
+                default -> {
                 }
               }
             }

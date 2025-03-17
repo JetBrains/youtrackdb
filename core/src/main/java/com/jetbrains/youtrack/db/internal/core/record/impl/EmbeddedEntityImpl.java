@@ -21,7 +21,6 @@ public class EmbeddedEntityImpl extends EntityImpl {
     return true;
   }
 
-
   @Override
   public void setOwner(RecordElement iOwner) {
     checkForBinding();

@@ -136,9 +136,9 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
         bytes.offset = valuePos;
         final var value = deserializeValue(session, bytes, type, entity);
         bytes.offset = headerCursor;
-        entity.setProperty(fieldName, value, type);
+        entity.setDeserializedPropertyInternal(fieldName, value, type);
       } else {
-        entity.setPropertyInternal(fieldName, null);
+        entity.setDeserializedPropertyInternal(fieldName, null, null);
       }
 
       if (unmarshalledFields == iFields.length)
@@ -188,9 +188,9 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
           last = bytes.offset;
         }
         bytes.offset = headerCursor;
-        entity.setPropertyInternal(fieldName, value, type);
+        entity.setDeserializedPropertyInternal(fieldName, value, type);
       } else {
-        entity.setPropertyInternal(fieldName, null);
+        entity.setDeserializedPropertyInternal(fieldName, null, null);
       }
     }
 

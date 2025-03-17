@@ -4,7 +4,9 @@ import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
+import org.junit.Assert;
 import org.junit.Test;
 
 public class TestSerializationCompatibilityDBRecord extends DbTestBase {
@@ -20,7 +22,7 @@ public class TestSerializationCompatibilityDBRecord extends DbTestBase {
     session.commit();
 
     session.begin();
-    var entity = session.newEntity("Test");
+    var entity = session.newVertex("Test");
     var map = session.newLinkMap();
     map.put("some", stubEntity.getIdentity());
     entity.setLinkMap("map", map);
@@ -38,6 +40,8 @@ public class TestSerializationCompatibilityDBRecord extends DbTestBase {
 
     session.begin();
     EntityImpl record1 = session.load(id);
+
+    Assert.assertTrue(record1.getProperty("map") instanceof LinkMap);
     assertEquals(PropertyType.LINKMAP, record1.getPropertyType("map"));
     assertEquals("aa", record1.getString("some"));
     session.commit();

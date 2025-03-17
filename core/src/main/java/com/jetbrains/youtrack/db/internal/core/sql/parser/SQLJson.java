@@ -70,8 +70,11 @@ public class SQLJson extends SimpleNode {
       entity = (EntityImpl) session.newEmbeddedEntity();
     } else {
       var cls = session.getMetadata().getImmutableSchemaSnapshot().getClass(className);
+
       if (cls.isAbstract()) {
         entity = (EntityImpl) session.newEmbeddedEntity();
+      } else if (cls.isVertexType()) {
+        entity = (EntityImpl) session.newVertex(className);
       } else {
         entity = (EntityImpl) session.newEntity(className);
       }
@@ -99,19 +102,22 @@ public class SQLJson extends SimpleNode {
 
   private EntityImpl toEntity(Result source, CommandContext ctx, String className) {
     var session = ctx.getDatabaseSession();
-    EntityImpl retDoc;
+    EntityImpl entity;
     if (className == null) {
-      retDoc = (EntityImpl) session.newEmbeddedEntity();
+      entity = (EntityImpl) session.newEmbeddedEntity();
     } else {
       var cls = session.getMetadata().getImmutableSchemaSnapshot().getClass(className);
+
       if (cls.isAbstract()) {
-        retDoc = (EntityImpl) session.newEmbeddedEntity(cls);
+        entity = (EntityImpl) session.newEmbeddedEntity(cls);
+      } else if (cls.isVertexType()) {
+        entity = (EntityImpl) session.newVertex(className);
       } else {
-        retDoc = (EntityImpl) session.newEntity(className);
+        entity = (EntityImpl) session.newEntity(className);
       }
     }
 
-    var schemaClass = retDoc.getImmutableSchemaClass(session);
+    var schemaClass = entity.getImmutableSchemaClass(session);
 
     Map<String, Character> types = null;
     for (var item : items) {
@@ -124,8 +130,8 @@ public class SQLJson extends SimpleNode {
           for (var entry : types.entrySet()) {
             var t = FieldTypesString.getOTypeFromChar(entry.getValue());
             var propertyName = entry.getKey();
-            if (retDoc.hasProperty(propertyName) && retDoc.getPropertyType(propertyName) != t) {
-              retDoc.setProperty(propertyName, retDoc.getProperty(propertyName), t);
+            if (entity.hasProperty(propertyName) && entity.getPropertyType(propertyName) != t) {
+              entity.setProperty(propertyName, entity.getProperty(propertyName), t);
             }
 
           }
@@ -144,12 +150,12 @@ public class SQLJson extends SimpleNode {
       }
       if (charType != null) {
         var t = FieldTypesString.getOTypeFromChar(charType);
-        retDoc.setProperty(name, value, t);
+        entity.setProperty(name, value, t);
       } else {
-        retDoc.setProperty(name, value);
+        entity.setProperty(name, value);
       }
     }
-    return retDoc;
+    return entity;
   }
 
   /**

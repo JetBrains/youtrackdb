@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.api.record;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import java.util.Collection;
+import java.util.List;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -12,7 +12,7 @@ public interface StatefulEdge extends Edge, Entity {
    * @return all the names of defined properties
    */
   @Nonnull
-  Collection<String> getPropertyNames();
+  List<String> getPropertyNames();
 
   /**
    * Gets a property given its name. if the property name equals to {@link #DIRECTION_IN} or

@@ -49,7 +49,7 @@ public class TraverseRecordSetProcess extends TraverseAbstractProcess<Iterator<I
       if (rec instanceof EntityImpl entity) {
         if (!entity.getIdentity().isPersistent() && entity.getPropertiesCount() == 1) {
           // EXTRACT THE FIELD CONTEXT
-          var fieldvalue = entity.getProperty(entity.propertyNames()[0]);
+          var fieldvalue = entity.getProperty(entity.getPropertyNames().getFirst());
           if (fieldvalue instanceof Collection<?>) {
             command
                 .getContext()

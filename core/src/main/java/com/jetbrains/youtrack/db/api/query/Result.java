@@ -12,7 +12,6 @@ import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import java.math.BigDecimal;
-import java.util.Collection;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -394,7 +393,7 @@ public interface Result {
    * @return all the names of defined properties
    */
   @Nonnull
-  Collection<String> getPropertyNames();
+  List<String> getPropertyNames();
 
   int getPropertiesCount();
 

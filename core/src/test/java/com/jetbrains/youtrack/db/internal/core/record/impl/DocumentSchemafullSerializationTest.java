@@ -139,8 +139,8 @@ public abstract class DocumentSchemafullSerializationTest extends BaseMemoryInte
     document.setProperty(RECORDID_FIELD, new RecordId(10, 0));
 
     var res = serializer.toStream(session, document);
-    var extr = (EntityImpl) serializer.fromStream(session, res, (EntityImpl) session.newEntity(),
-        new String[]{});
+    var extr = (EntityImpl) session.newEntity();
+    serializer.fromStream(session, res, extr, new String[]{});
 
     assertEquals(extr.getPropertiesCount(), document.getPropertiesCount());
     assertEquals(extr.<Object>getProperty(STRING_FIELD), document.getProperty(STRING_FIELD));
@@ -228,8 +228,8 @@ public abstract class DocumentSchemafullSerializationTest extends BaseMemoryInte
     document.setProperty(LIST_MIXED, listMixed);
 
     var res = serializer.toStream(session, document);
-    var extr = (EntityImpl) serializer.fromStream(session, res, (EntityImpl) session.newEntity(),
-        new String[]{});
+    var extr = (EntityImpl) session.newEntity();
+    serializer.fromStream(session, res, extr, new String[]{});
 
     assertEquals(extr.getPropertiesCount(), document.getPropertiesCount());
     assertEquals(extr.<Object>getProperty(LIST_STRINGS), document.getProperty(LIST_STRINGS));
@@ -288,8 +288,9 @@ public abstract class DocumentSchemafullSerializationTest extends BaseMemoryInte
     document.setProperty(MAP_BYTES, bytesMap);
 
     var res = serializer.toStream(session, document);
-    var extr = (EntityImpl) serializer.fromStream(session, res, (EntityImpl) session.newEntity(),
-        new String[]{});
+    var extr = (EntityImpl) session.newEntity();
+    serializer.fromStream(session, res, extr, new String[]{});
+
     assertEquals(extr.getPropertiesCount(), document.getPropertiesCount());
     assertEquals(extr.<Object>getProperty(MAP_STRING), document.getProperty(MAP_STRING));
     assertEquals(extr.<Object>getProperty(MAP_LONG), document.getProperty(MAP_LONG));
@@ -311,8 +312,10 @@ public abstract class DocumentSchemafullSerializationTest extends BaseMemoryInte
     document.setProperty(EMBEDDED_FIELD, embedded);
 
     var res = serializer.toStream(session, document);
-    var extr = (EntityImpl) serializer.fromStream(session, res, (EntityImpl) session.newEntity(),
-        new String[]{});
+
+    var extr = (EntityImpl) session.newEntity();
+    serializer.fromStream(session, res, extr, new String[]{});
+
     assertEquals(document.getPropertiesCount(), extr.getPropertiesCount());
     EntityImpl emb = extr.getProperty(EMBEDDED_FIELD);
     assertNotNull(emb);
@@ -329,16 +332,17 @@ public abstract class DocumentSchemafullSerializationTest extends BaseMemoryInte
     document.setProperty(ANY_FIELD, false);
 
     var res = serializer.toStream(session, document);
-    var extr = (EntityImpl) serializer.fromStream(session, res, (EntityImpl) session.newEntity(),
-        new String[]{});
+    var extr = (EntityImpl) session.newEntity();
+    serializer.fromStream(session, res, extr, new String[]{});
+
     assertEquals(document.getPropertiesCount(), extr.getPropertiesCount());
     assertEquals(false, extr.getProperty(ANY_FIELD));
 
     extr.setProperty(ANY_FIELD, false);
 
     res = serializer.toStream(session, extr);
-    var extr2 = (EntityImpl) serializer.fromStream(session, res, (EntityImpl) session.newEntity(),
-        new String[]{});
+    var extr2 = (EntityImpl) session.newEntity();
+    serializer.fromStream(session, res, extr2, new String[]{});
     assertEquals(extr.getPropertiesCount(), extr2.getPropertiesCount());
     assertEquals(false, extr2.getProperty(ANY_FIELD));
     session.rollback();

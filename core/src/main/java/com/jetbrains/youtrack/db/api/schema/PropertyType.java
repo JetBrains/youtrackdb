@@ -40,7 +40,6 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.EntitySerializable;
 import com.jetbrains.youtrack.db.internal.core.serialization.SerializableStream;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
@@ -1499,13 +1498,13 @@ public enum PropertyType {
             convert(session,
                 result.getProperty(result.getPropertyNames().iterator().next()),
                 targetClass);
-        case Entity entity when ((EntityInternal) value).getPropertyNames().size() == 1
+        case Entity entity when ((EntityImpl) value).getPropertyNames().size() == 1
             && !Entity.class.isAssignableFrom(targetClass) ->
           // try to unbox Result with a single property, for subqueries
             convert(session,
                 entity
                     .getProperty(
-                        ((EntityInternal) value).getPropertyNamesInternal(false,
+                        ((EntityImpl) value).getPropertyNamesInternal(false,
                                 true).iterator()
                             .next()),
                 targetClass);

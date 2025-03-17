@@ -15,7 +15,6 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
@@ -484,7 +483,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
     if (identifier != null && currentResult != null) {
       var session = ctx.getDatabaseSession();
       if (currentResult.isEntity()) {
-        var record = (EntityInternal) currentResult.asEntity();
+        var record = (EntityImpl) currentResult.asEntity();
         var schemaClass = record.getImmutableSchemaClass(session);
         if (schemaClass != null) {
           var property = schemaClass.getProperty(identifier.getStringValue());

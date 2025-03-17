@@ -186,7 +186,7 @@ public class LiveQueryV2Test extends DbTestBase {
 
     var liveMatch = 2;
     var query =
-        session.query("select from OUSer where name = 'reader'").toEntityList();
+        session.query("select from OUSer where name = 'reader'").entityStream().toList();
 
     final Identifiable reader = query.getFirst().getIdentity();
     final var current = session.geCurrentUser().getIdentity();

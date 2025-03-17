@@ -38,7 +38,6 @@ import com.jetbrains.youtrack.db.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField;
@@ -282,9 +281,7 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
       } else if (content != null) {
         final var entity =
             className != null ? new EntityImpl(session, className) : new EntityImpl(session);
-        entity.merge(content, true, false);
-        saveRecord(entity);
-        return prepareReturnItem(session, entity);
+        throw new UnsupportedOperationException();
       } else if (subQuery != null) {
         subQuery.execute(session);
         if (queryResult != null) {
@@ -331,7 +328,7 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
     }
 
     if (rec instanceof Entity) {
-      var entity = (EntityInternal) rec;
+      var entity = (EntityImpl) rec;
 
       if (oldClass != null && oldClass.isSubClassOf("V")) {
         LogManager.instance()
@@ -357,7 +354,7 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
             } else if (edges instanceof Iterable) {
               for (var edge : (Iterable) edges) {
                 if (edge instanceof Identifiable identifiable) {
-                  var edgeRec = (EntityInternal) identifiable.getEntity(session);
+                  var edgeRec = (EntityImpl) identifiable.getEntity(session);
                   var schemaClass = edgeRec.getImmutableSchemaClass(session);
                   if (schemaClass != null
                       && schemaClass.isSubClassOf("E")) {

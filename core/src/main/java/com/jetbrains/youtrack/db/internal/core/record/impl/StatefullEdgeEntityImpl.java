@@ -10,7 +10,6 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -18,8 +17,13 @@ import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class EdgeEntityImpl extends EntityImpl implements EdgeInternal, StatefulEdge {
-  public EdgeEntityImpl(DatabaseSessionInternal database, RecordId rid) {
+public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal, StatefulEdge {
+
+  public StatefullEdgeEntityImpl(@Nonnull DatabaseSessionInternal session, String iClassName) {
+    super(session, iClassName);
+  }
+
+  public StatefullEdgeEntityImpl(DatabaseSessionInternal database, RecordId rid) {
     super(database, rid);
   }
 
@@ -126,7 +130,7 @@ public class EdgeEntityImpl extends EntityImpl implements EdgeInternal, Stateful
 
 
   @Override
-  public @Nonnull Collection<String> getPropertyNames() {
+  public @Nonnull List<String> getPropertyNames() {
     return EdgeInternal.filterPropertyNames(super.getPropertyNames());
   }
 
@@ -226,12 +230,12 @@ public class EdgeEntityImpl extends EntityImpl implements EdgeInternal, Stateful
   public static void deleteLinks(DatabaseSessionInternal db, Edge delegate) {
     var from = delegate.getFrom();
     if (from != null) {
-      VertexInternal.removeOutgoingEdge(db, from, delegate);
+      VertexEntityImpl.removeOutgoingEdge(db, from, delegate);
     }
 
     var to = delegate.getTo();
     if (to != null) {
-      VertexInternal.removeIncomingEdge(db, to, delegate);
+      VertexEntityImpl.removeIncomingEdge(db, to, delegate);
     }
   }
 }

@@ -26,7 +26,6 @@ import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
@@ -538,10 +537,10 @@ public class ResultInternal implements Result {
   }
 
 
-  public @Nonnull Collection<String> getPropertyNames() {
+  public @Nonnull List<String> getPropertyNames() {
     checkSession();
     if (content != null) {
-      return new HashSet<>(content.keySet());
+      return new ArrayList<>(content.keySet());
     }
 
     if (isEntity()) {

@@ -143,7 +143,7 @@ public class SQLDeleteEdgeTest extends BaseDBTest {
     session.commit();
 
     var result =
-        session.query("select from testToV").toEntityList();
+        session.query("select from testToV").entityStream().toList();
 
     session.begin();
     session

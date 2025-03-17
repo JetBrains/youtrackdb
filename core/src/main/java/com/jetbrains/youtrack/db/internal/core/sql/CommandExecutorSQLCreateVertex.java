@@ -27,8 +27,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.VertexInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionRuntime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -73,19 +72,14 @@ public class CommandExecutorSQLCreateVertex extends CommandExecutorSQLSetAware
           clusterName = parserRequiredWord(session.getDatabaseName(), false);
 
         } else if (temp.equals(KEYWORD_SET)) {
-          fields = new ArrayList<Pair<String, Object>>();
+          fields = new ArrayList<>();
           parseSetFields(session, clazz, fields);
 
         } else if (temp.equals(KEYWORD_CONTENT)) {
           parseContent(session);
 
-        } else if (className == null && temp.length() > 0) {
+        } else if (className == null && !temp.isEmpty()) {
           className = temp;
-          if (className == null)
-          // ASSIGN DEFAULT CLASS
-          {
-            className = "V";
-          }
 
           // GET/CHECK CLASS NAME
           clazz = (SchemaClassInternal) session.getMetadata().getImmutableSchemaSnapshot()
@@ -130,24 +124,24 @@ public class CommandExecutorSQLCreateVertex extends CommandExecutorSQLSetAware
     }
 
     // CREATE VERTEX DOES NOT HAVE TO BE IN TX
-    final var vertex = (VertexInternal) session.newVertex(clazz);
+    final var vertex = (VertexEntityImpl) session.newVertex(clazz);
     if (fields != null)
     // EVALUATE FIELDS
     {
       for (final var f : fields) {
         if (f.getValue() instanceof SQLFunctionRuntime) {
           f.setValue(
-              ((SQLFunctionRuntime) f.getValue()).getValue(vertex.getRecord(session), null,
+              ((SQLFunctionRuntime) f.getValue()).getValue(vertex, null,
                   context));
         }
       }
     }
 
-    SQLHelper.bindParameters(vertex.getRecord(session), fields, new CommandParameters(iArgs),
+    SQLHelper.bindParameters(vertex, fields, new CommandParameters(iArgs),
         context);
 
     if (content != null) {
-      ((EntityImpl) vertex.getRecord(session)).merge(content, true, false);
+      throw new UnsupportedOperationException();
     }
 
     return vertex.getRecord(session);

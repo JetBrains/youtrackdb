@@ -118,11 +118,11 @@ public class ResourceDerivedTest {
         "INSERT INTO OUser set name = 'tenant2', password = 'password', status = 'ACTIVE', roles ="
             + " (SELECT FROM ORole WHERE name = 'tenant2')");
 
-    db.command("INSERT INTO Customer_t1 set name='Amy'");
-    db.command("INSERT INTO Customer_t2 set name='Bob'");
+    db.command("create vertex Customer_t1 set name='Amy'");
+    db.command("create vertex Customer_t2 set name='Bob'");
 
-    db.command("INSERT INTO Customer_u1 set name='Fred'");
-    db.command("INSERT INTO Customer_u2 set name='George'");
+    db.command("create vertex Customer_u1 set name='Fred'");
+    db.command("create vertex Customer_u2 set name='George'");
     db.commit();
 
     db.close();

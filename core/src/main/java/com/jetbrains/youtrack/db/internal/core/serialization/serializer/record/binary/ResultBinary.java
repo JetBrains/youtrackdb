@@ -30,8 +30,7 @@ import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
-import java.util.Collection;
-import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -160,14 +159,14 @@ public class ResultBinary implements Result {
   }
 
   @Override
-  public @Nonnull Collection<String> getPropertyNames() {
+  public @Nonnull List<String> getPropertyNames() {
     assert session != null && session.assertIfNotActive();
 
     final var container = new BytesContainer(bytes);
     container.skip(offset);
     // TODO: use something more correct that new EntityImpl
     var fields = serializer.getFieldNames(session, new EntityImpl(session), container, id == null);
-    return new HashSet<>(Arrays.asList(fields));
+    return Arrays.asList(fields);
   }
 
   @Override

@@ -25,9 +25,12 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import javax.annotation.Nonnull;
 
 public class FrontendTransactionOptimisticServer extends FrontendTransactionOptimistic {
+
+  private final HashMap<RecordId, RecordId> generatedOriginalRecordIdMap = new HashMap<>();
 
   public FrontendTransactionOptimisticServer(DatabaseSessionInternal database, long txId) {
     super(database, txId);
@@ -73,6 +76,7 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
               RecordSerializerNetworkV37.INSTANCE.fromStream(getDatabaseSession(),
                   operation.getRecord(),
                   record);
+
               entry = new RecordOperation(record, RecordOperation.CREATED);
               RecordInternal.setVersion(record, 0);
             }
@@ -171,6 +175,8 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
 
   private void mergeChanges(RecordOperationRequest operation, RecordAbstract record,
       byte recordType) {
+    generatedOriginalRecordIdMap.clear();
+
     if (record instanceof EntityImpl entity) {
       entity.deserializeProperties();
       entity.clearTransactionTrackData();
@@ -179,10 +185,7 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
         var delta = DocumentSerializerDelta.instance();
         delta.deserializeDelta(getDatabaseSession(), operation.getRecord(), entity);
       } else {
-        var phantom = (EntityImpl) RecordSerializerNetworkV37.INSTANCE.fromStream(
-            getDatabaseSession(),
-            operation.getRecord(), null);
-        entity.movePropertiesFromOtherEntity(phantom);
+        throw new UnsupportedOperationException("Only delta serialization is supported");
       }
     }
   }
@@ -222,6 +225,7 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
           break;
       }
     }
+
     try {
       final var rid = record.getIdentity();
 
@@ -336,7 +340,7 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
         }
       }
       // RESET TRACKING
-      if (record instanceof EntityImpl && ((EntityImpl) record).isTrackingChanges()) {
+      if (record instanceof EntityImpl) {
         ((EntityImpl) record).clearTrackData();
       }
 
@@ -376,5 +380,9 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
           break;
       }
     }
+  }
+
+  public Map<RecordId, RecordId> getGeneratedOriginalRidsMap() {
+    return generatedOriginalRecordIdMap;
   }
 }

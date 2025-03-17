@@ -9,7 +9,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.metadata.Metadata;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.VertexInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.HashMap;
@@ -22,7 +22,7 @@ import java.util.Set;
  */
 public class BonsaiTreeRepair {
 
-  public void repairDatabaseRidbags(DatabaseSessionInternal db,
+  public static void repairDatabaseRidbags(DatabaseSessionInternal db,
       CommandOutputListener outputListener) {
     message(outputListener, "Repair of ridbags is started ...\n");
 
@@ -57,23 +57,15 @@ public class BonsaiTreeRepair {
             continue;
           }
           final var inVertexName =
-              VertexInternal.getEdgeLinkFieldName(Direction.IN, label, true);
+              VertexEntityImpl.getEdgeLinkFieldName(Direction.IN, label, true);
           final var outVertexName =
-              VertexInternal.getEdgeLinkFieldName(Direction.OUT, label, true);
+              VertexEntityImpl.getEdgeLinkFieldName(Direction.OUT, label, true);
 
           final EntityImpl inVertex = inId.getRecord(db);
           final EntityImpl outVertex = outId.getRecord(db);
 
-          var inVertexes = processedVertexes.get(inVertexName);
-          if (inVertexes == null) {
-            inVertexes = new HashSet<>();
-            processedVertexes.put(inVertexName, inVertexes);
-          }
-          var outVertexes = processedVertexes.get(outVertexName);
-          if (outVertexes == null) {
-            outVertexes = new HashSet<>();
-            processedVertexes.put(outVertexName, outVertexes);
-          }
+          var inVertexes = processedVertexes.computeIfAbsent(inVertexName, k -> new HashSet<>());
+          var outVertexes = processedVertexes.computeIfAbsent(outVertexName, k -> new HashSet<>());
 
           if (inVertex.getProperty(inVertexName) instanceof RidBag) {
             if (inVertexes.add(inVertex.getIdentity())) {
@@ -120,7 +112,7 @@ public class BonsaiTreeRepair {
     message(outputListener, "repair of ridbags is completed\n");
   }
 
-  private void message(CommandOutputListener outputListener, String message) {
+  private static void message(CommandOutputListener outputListener, String message) {
     if (outputListener != null) {
       outputListener.onMessage(message);
     }

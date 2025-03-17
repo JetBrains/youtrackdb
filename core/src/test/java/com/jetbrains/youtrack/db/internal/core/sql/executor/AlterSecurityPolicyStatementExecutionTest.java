@@ -22,7 +22,7 @@ public class AlterSecurityPolicyStatementExecutionTest extends DbTestBase {
     SecurityPolicy policy = security.getSecurityPolicy(session, "foo");
     Assert.assertNotNull(policy);
     Assert.assertNotNull("foo", policy.getName(session));
-    Assert.assertEquals("name = 'foo'", policy.getReadRule(session));
+    Assert.assertEquals("name = \"foo\"", policy.getReadRule(session));
     Assert.assertNull(policy.getCreateRule(session));
     Assert.assertNull(policy.getBeforeUpdateRule(session));
     Assert.assertNull(policy.getAfterUpdateRule(session));

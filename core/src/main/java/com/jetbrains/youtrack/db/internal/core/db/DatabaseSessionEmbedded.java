@@ -80,7 +80,7 @@ import com.jetbrains.youtrack.db.internal.core.query.live.YTLiveQueryMonitorEmbe
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.VertexInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.schedule.ScheduledEvent;
 import com.jetbrains.youtrack.db.internal.core.schedule.SchedulerImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
@@ -1113,9 +1113,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
           return true;
         }
 
-        var propertyAccess = new PropertyAccess(this, entity,
+        entity.propertyAccess = new PropertyAccess(this, entity,
             getSharedContext().getSecurity());
-        entity.propertyAccess = propertyAccess;
         entity.propertyEncryption = PropertyEncryptionNone.instance();
       }
     }
@@ -2100,7 +2099,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   private static List<String> filterVertexProperties(@Nonnull Collection<String> properties) {
     var result = new ArrayList<String>(properties.size());
     for (var property : properties) {
-      if (!VertexInternal.isConnectionToEdge(Direction.BOTH, property)) {
+      if (!VertexEntityImpl.isConnectionToEdge(Direction.BOTH, property)) {
         result.add(property);
       }
     }

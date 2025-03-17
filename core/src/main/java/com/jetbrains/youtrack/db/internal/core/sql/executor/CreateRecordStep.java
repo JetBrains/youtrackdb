@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
@@ -38,7 +39,18 @@ public class CreateRecordStep extends AbstractExecutionStep {
     var db = ctx.getDatabaseSession();
     final Entity entity;
     if (targetClass != null) {
-      entity = db.newEntity(targetClass);
+      var cls = db.getMetadata().getImmutableSchemaSnapshot().getClass(targetClass);
+      if (cls == null) {
+        throw new DatabaseException("Class " + targetClass + " not found");
+      }
+      if (cls.isVertexType()) {
+        entity = db.newVertex(targetClass);
+      } else if (cls.isEdgeType()) {
+        throw new DatabaseException(
+            "Class " + targetClass + " is an edge class please use create edge command.");
+      } else {
+        entity = db.newEntity(targetClass);
+      }
     } else {
       entity = db.newEntity();
     }

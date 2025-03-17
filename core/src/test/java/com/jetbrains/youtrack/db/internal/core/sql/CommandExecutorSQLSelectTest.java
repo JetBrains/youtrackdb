@@ -1384,10 +1384,10 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     session.executeInTx(() -> {
       final var r1 =
           session.query("select from OCommandExecutorSQLSelectTest_testCollate where name = 'FOO'")
-              .toEntityList();
+              .entityStream().toList();
       final var r2 =
           session.query("select from OCommandExecutorSQLSelectTest_testCollate where name = 'foo'")
-              .toEntityList();
+              .entityStream().toList();
 
       assertThat(r1.size()).isEqualTo(1);
       assertThat(r2.size()).isEqualTo(1);
@@ -1397,12 +1397,12 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
       final var r1 =
           session.query(
                   "select from OCommandExecutorSQLSelectTest_testCollate where categories = ['BAR']")
-              .toEntityList();
+              .entityStream().toList();
 
       final var r2 =
           session.query(
                   "select from OCommandExecutorSQLSelectTest_testCollate where categories = ['bar']")
-              .toEntityList();
+              .entityStream().toList();
 
       assertThat(r1.size()).isEqualTo(1);
       assertThat(r2.size()).isEqualTo(1);

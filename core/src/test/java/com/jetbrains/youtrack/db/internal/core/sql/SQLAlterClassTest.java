@@ -24,8 +24,6 @@ public class SQLAlterClassTest extends DbTestBase {
   public void testQuoted() {
     try {
       session.command("create class `Client-Type`").close();
-      session.command("alter class `Client-Type` add_cluster `client-type_usa`").close();
-
       session.begin();
       session.command("insert into `Client-Type` set foo = 'bar'").close();
       session.commit();

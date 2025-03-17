@@ -99,7 +99,7 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
             || SQLFilterItemFieldAny.FULL_NAME.equalsIgnoreCase(cfgField)) {
 
           // ADD ALL THE DOCUMENT FIELD
-          Collections.addAll(fields, targeEntity.propertyNames());
+          fields.addAll(targeEntity.getPropertyNames());
           break;
 
         } else {

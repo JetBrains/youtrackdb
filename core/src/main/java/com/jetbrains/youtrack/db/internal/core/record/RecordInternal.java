@@ -105,6 +105,6 @@ public class RecordInternal {
 
   public static void setRecordSerializer(final DBRecord record,
       final RecordSerializer serializer) {
-    ((RecordAbstract) record).recordFormat = serializer;
+    ((RecordAbstract) record).recordSerializer = serializer;
   }
 }

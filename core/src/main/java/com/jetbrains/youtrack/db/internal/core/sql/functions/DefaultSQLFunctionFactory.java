@@ -18,7 +18,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.functions;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.coll.SQLFunctionDifference;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.coll.SQLFunctionDistinct;
-import com.jetbrains.youtrack.db.internal.core.sql.functions.coll.SQLFunctionDocument;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.coll.SQLFunctionFirst;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.coll.SQLFunctionIntersect;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.coll.SQLFunctionLast;
@@ -89,7 +88,6 @@ public final class DefaultSQLFunctionFactory extends SQLFunctionFactoryTemplate 
     register(SQLFunctionSymmetricDifference.NAME, SQLFunctionSymmetricDifference.class);
     register(SQLFunctionDistance.NAME, new SQLFunctionDistance());
     register(SQLFunctionDistinct.NAME, SQLFunctionDistinct.class);
-    register(SQLFunctionDocument.NAME, SQLFunctionDocument.class);
     register(SQLFunctionEncode.NAME, new SQLFunctionEncode());
     register(SQLFunctionEval.NAME, SQLFunctionEval.class);
     register(SQLFunctionFirst.NAME, new SQLFunctionFirst());

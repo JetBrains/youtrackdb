@@ -4,6 +4,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -16,7 +17,6 @@ import com.jetbrains.youtrack.db.internal.core.index.IndexException;
 import com.jetbrains.youtrack.db.internal.core.index.Indexes;
 import com.jetbrains.youtrack.db.internal.core.index.SimpleKeyIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
@@ -83,7 +83,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
     var collatesList = calculateCollates(ctx);
     var engine =
         this.engine == null ? null : this.engine.getStringValue().toUpperCase(Locale.ENGLISH);
-    var metadataDoc = calculateMetadata(ctx);
+    var metadata = calculateMetadata(ctx);
 
     if (propertyList == null || propertyList.isEmpty()) {
       var factory = Indexes.getFactory(type.getStringValue(), engine);
@@ -102,7 +102,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
                     new SimpleKeyIndexDefinition(keyTypes, collatesList),
                     null,
                     null,
-                    metadataDoc != null ? metadataDoc.toMap() : null,
+                    metadata,
                     engine);
       } else if (keyTypes != null
           && keyTypes.length == 0
@@ -121,7 +121,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
                     keyDef,
                     null,
                     null,
-                    metadataDoc.toMap(),
+                    metadata,
                     engine);
 
       } else if (className == null && keyTypes == null || keyTypes.length == 0) {
@@ -143,7 +143,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
               "Impossible to create an index, property not found: " + name.getValue());
         }
         var fields = new String[]{split[1]};
-        idx = getoIndex(oClass, fields, engine, session, collatesList, metadataDoc);
+        idx = getoIndex(oClass, fields, engine, session, collatesList, metadata);
 
       } else {
         throw new DatabaseException(session,
@@ -154,7 +154,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
     } else {
       var fields = calculateProperties(ctx);
       var oClass = getIndexClass(ctx);
-      idx = getoIndex(oClass, fields, engine, session, collatesList, metadataDoc);
+      idx = getoIndex(oClass, fields, engine, session, collatesList, metadata);
     }
 
     if (idx != null) {
@@ -170,12 +170,12 @@ public class SQLCreateIndexStatement extends DDLStatement {
       String engine,
       DatabaseSessionInternal session,
       List<Collate> collatesList,
-      EntityImpl metadataDoc) {
+      Map<String, Object> metadata) {
     Index idx;
     if ((keyTypes == null || keyTypes.isEmpty()) && collatesList == null) {
       var indexName = name.getValue();
       oClass.createIndex(
-          indexName, type.getStringValue(), null, metadataDoc != null ? metadataDoc.toMap() : null,
+          indexName, type.getStringValue(), null, metadata,
           engine, fields);
       idx = session.getIndex(indexName);
     } else {
@@ -220,7 +220,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
                   idxDef,
                   oClass.getPolymorphicClusterIds(),
                   null,
-                  metadataDoc != null ? metadataDoc.toMap() : null,
+                  metadata,
                   engine);
     }
     return idx;
@@ -260,11 +260,11 @@ public class SQLCreateIndexStatement extends DDLStatement {
   /**
    * returns index metadata as an ODocuemnt (as expected by Index API)
    */
-  private EntityImpl calculateMetadata(CommandContext ctx) {
+  private Map<String, Object> calculateMetadata(CommandContext ctx) {
     if (metadata == null) {
       return null;
     }
-    return metadata.toEntity(null, ctx);
+    return metadata.toMap((Identifiable) null, ctx);
   }
 
   private PropertyType[] calculateKeyTypes(CommandContext ctx) {
@@ -273,7 +273,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
     }
     return keyTypes.stream()
         .map(x -> PropertyType.valueOf(x.getStringValue()))
-        .collect(Collectors.toList())
+        .toList()
         .toArray(new PropertyType[]{});
   }
 

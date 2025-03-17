@@ -24,8 +24,9 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
@@ -62,25 +63,27 @@ public class ServerCommandPatchDocument extends ServerCommandDocumentAbstract {
                 }
 
                 // UNMARSHALL DOCUMENT WITH REQUEST CONTENT
-                var entity = new EntityImpl(db);
-                entity.updateFromJSON(iRequest.getContent());
+                var content = RecordSerializerJackson.mapFromJson(iRequest.getContent());
+                final int recordVersion;
 
                 if (iRequest.getIfMatch() != null)
                 // USE THE IF-MATCH HTTP HEADER AS VERSION
                 {
-                  RecordInternal.setVersion(entity, Integer.parseInt(iRequest.getIfMatch()));
+                  recordVersion = Integer.parseInt(iRequest.getIfMatch());
+                } else {
+                  recordVersion = -1;
                 }
 
                 if (!recordId.isValid()) {
-                  recordId = entity.getIdentity();
-                } else {
-                  RecordInternal.setIdentity(entity, recordId);
+                  var rid = content.get(EntityHelper.ATTRIBUTE_RID);
+                  if (rid != null) {
+                    recordId = new RecordId(rid.toString());
+                  }
                 }
 
                 if (!recordId.isValid()) {
                   throw new IllegalArgumentException("Invalid Record ID in request: " + recordId);
                 }
-
                 final EntityImpl currentEntity;
 
                 try {
@@ -88,10 +91,16 @@ public class ServerCommandPatchDocument extends ServerCommandDocumentAbstract {
                 } catch (RecordNotFoundException rnf) {
                   return new RawPair<>(false, recordId);
                 }
+                if (recordVersion != -1
+                    && recordVersion != currentEntity.getVersion()) {
+                  throw new IllegalArgumentException(
+                      "Record with rid: " + recordId + " has version: "
+                          + currentEntity.getVersion()
+                          + " but the request has version: "
+                          + recordVersion);
+                }
 
-                var partialUpdateMode = true;
-                currentEntity.merge(entity, partialUpdateMode, false);
-                RecordInternal.setVersion(currentEntity, entity.getVersion());
+                currentEntity.updateFromMap(content);
 
                 return new RawPair<>(true, recordId);
               });

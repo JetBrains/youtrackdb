@@ -274,7 +274,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
 
   private static EntityImpl createIndexEntryAsEntity(
       DatabaseSessionInternal db, final Object iKey, final Identifiable iValue) {
-    final var entity = new EntityImpl(db).setOrdered(true);
+    final var entity = new EntityImpl(db);
     entity.setProperty("key", iKey);
     entity.setProperty("rid", iValue);
     RecordInternal.unsetDirty(entity);
@@ -2549,22 +2549,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
 
   private void fetchEntriesFromIndexStream(DatabaseSessionInternal db,
       final Stream<RawPair<Object, RID>> stream) {
-    final var iterator = stream.iterator();
-
-    while (iterator.hasNext()) {
-      final var entryRecord = iterator.next();
-      final var entity = new EntityImpl(db).setOrdered(true);
-      entity.setProperty("key", entryRecord.first);
-      entity.setProperty("rid", entryRecord.second);
-      RecordInternal.unsetDirty(entity);
-
-      applyGroupBy(entity, context);
-
-      if (!handleResult(entity, context)) {
-        // LIMIT REACHED
-        break;
-      }
-    }
+    throw new UnsupportedOperationException();
   }
 
   private boolean isRidOnlySort() {
@@ -2918,22 +2903,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
       return;
     }
 
-    final var rids = index.getRids(db, null);
-    BreakingForEach.forEach(
-        rids,
-        (rid, breaker) -> {
-          final var entity = new EntityImpl(db).setOrdered(true);
-          entity.setProperty("key", null);
-          entity.setProperty("rid", rid);
-          RecordInternal.unsetDirty(entity);
-
-          applyGroupBy(entity, context);
-
-          if (!handleResult(entity, context)) {
-            // LIMIT REACHED
-            breaker.stop();
-          }
-        });
+    throw new UnsupportedOperationException();
   }
 
   private boolean isIndexSizeQuery(DatabaseSession session) {
