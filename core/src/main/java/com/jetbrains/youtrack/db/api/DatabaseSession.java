@@ -831,7 +831,7 @@ public interface DatabaseSession extends AutoCloseable {
    * @param args  query parameters (named)
    * @return the query result set
    */
-  default ResultSet query(String query, Map<String, ?> args)
+  default ResultSet query(String query, Map args)
       throws CommandSQLParsingException, CommandExecutionException {
     throw new UnsupportedOperationException();
   }

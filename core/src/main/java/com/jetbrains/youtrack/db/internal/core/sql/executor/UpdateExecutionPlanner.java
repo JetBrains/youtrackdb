@@ -183,9 +183,6 @@ public class UpdateExecutionPlanner {
         switch (op.getType()) {
           case SQLUpdateOperations.TYPE_SET:
             plan.chain(new UpdateSetStep(op.getUpdateItems(), ctx, profilingEnabled));
-            if (updateEdge) {
-              plan.chain(new UpdateEdgePointersStep(ctx, profilingEnabled));
-            }
             break;
           case SQLUpdateOperations.TYPE_REMOVE:
             plan.chain(new UpdateRemoveStep(op.getUpdateRemoveItems(), ctx, profilingEnabled));
