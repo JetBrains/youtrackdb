@@ -5,13 +5,16 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Iterator;
+import java.util.Map;
 
 public class IteratorExecutionStream implements ExecutionStream {
 
   private final Iterator<?> iterator;
+  private final String alias;
 
-  public IteratorExecutionStream(Iterator<?> iter) {
+  public IteratorExecutionStream(Iterator<?> iter, String alias) {
     this.iterator = iter;
+    this.alias = alias == null ? "value" : alias;
   }
 
   @Override
@@ -30,9 +33,12 @@ public class IteratorExecutionStream implements ExecutionStream {
     var db = ctx.getDatabaseSession();
     if (val instanceof Identifiable) {
       result = new ResultInternal(db, (Identifiable) val);
+    } else if (val instanceof Map.Entry<?,?> entry) {
+      result = new ResultInternal(db);
+      result.setProperty(entry.getKey().toString(), entry.getValue());
     } else {
       result = new ResultInternal(db);
-      result.setProperty("value", val);
+      result.setProperty(alias, val);
     }
     return result;
   }

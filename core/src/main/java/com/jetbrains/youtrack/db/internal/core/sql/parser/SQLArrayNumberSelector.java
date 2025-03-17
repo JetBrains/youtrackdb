@@ -47,7 +47,7 @@ public class SQLArrayNumberSelector extends SimpleNode {
     }
   }
 
-  public Integer getValue(Identifiable iCurrentRecord, Object iResult, CommandContext ctx) {
+  public Integer getValue(Identifiable iCurrentRecord, CommandContext ctx) {
     Object result = null;
     if (inputValue != null) {
       result = inputValue.getValue(ctx.getInputParameters());
@@ -66,7 +66,7 @@ public class SQLArrayNumberSelector extends SimpleNode {
     return null;
   }
 
-  public Integer getValue(Result iCurrentRecord, Object iResult, CommandContext ctx) {
+  public Integer getValue(Result iCurrentRecord, CommandContext ctx) {
     Object result = null;
     if (inputValue != null) {
       result = inputValue.getValue(ctx.getInputParameters());

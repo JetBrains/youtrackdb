@@ -548,6 +548,7 @@ public class SelectExecutionPlanner {
     extractSubQueries(info);
     if (info.projection != null && info.projection.isExpand()) {
       info.expand = true;
+      info.expandAlias = info.projection.getExpandAlias();
       info.projection = info.projection.getExpandContent();
     }
     if (info.whereClause != null) {
@@ -1034,9 +1035,13 @@ public class SelectExecutionPlanner {
       QueryPlanningInfo info,
       CommandContext ctx,
       boolean profilingEnabled) {
+    final var targetItem = info.target.getItem();
+    if (targetItem.getModifier() != null) {
+      throw new CommandExecutionException(ctx.getDatabaseSession(), "Modifiers cannot be used with variables: " + targetItem);
+    }
     plan.chain(
         new FetchFromVariableStep(
-            info.target.getItem().getIdentifier().getStringValue(), ctx, profilingEnabled));
+            targetItem.getIdentifier().getStringValue(), ctx, profilingEnabled));
   }
 
   private static SQLAndBlock extractRidRanges(List<SQLAndBlock> flattenedWhereClause,
@@ -1313,7 +1318,7 @@ public class SelectExecutionPlanner {
       CommandContext ctx,
       boolean profilingEnabled) {
     if (info.expand) {
-      result.chain(new ExpandStep(ctx, profilingEnabled));
+      result.chain(new ExpandStep(ctx, profilingEnabled, info.expandAlias));
     }
   }
 

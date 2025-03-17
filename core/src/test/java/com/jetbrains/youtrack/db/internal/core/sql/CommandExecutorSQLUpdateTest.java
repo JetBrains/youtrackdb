@@ -390,19 +390,23 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     session.command("create class A").close();
     session.command("create class B").close();
 
-    session.begin();
-    session.command("insert into A set name = 'foo'").close();
-    session.command("insert into B set name = 'bar', a = (select from A)").close();
-    session.commit();
+    session.executeInTx(() -> {
+      session.command("insert into A set name = 'foo'").close();
+      session.command("insert into B set name = 'bar', a = (select from A)").close();
+      session.commit();
+    });
 
-    var script = "let $a = select from B;\n" + "update $a.a set name = 'baz';\n";
+    var script = """
+        let $a = select expand(a) from B;
+        update $a set name = 'baz';
+        """;
 
     session.begin();
-    session.command(new CommandScript(script)).execute(session);
+    session.execute("SQL", script).close();
     session.commit();
 
     try (var result = session.query("select from A")) {
-      assertEquals(result.next().getProperty("name"), "baz");
+      assertEquals("baz", result.next().getProperty("name"));
       assertFalse(result.hasNext());
     }
   }

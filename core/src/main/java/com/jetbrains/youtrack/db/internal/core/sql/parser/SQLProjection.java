@@ -201,7 +201,22 @@ public class SQLProjection extends SimpleNode {
   }
 
   public boolean isExpand() {
-    return items != null && items.size() == 1 && items.get(0).isExpand();
+    final var isExpand = items != null && items.stream().anyMatch(SQLProjectionItem::isExpand);
+    if (isExpand && items.size() > 1) {
+      throw new CommandSQLParsingException(
+          "Cannot execute a query with expand() together with other projections");
+    }
+
+    return isExpand;
+  }
+
+  public String getExpandAlias() {
+    if (!isExpand()) {
+      final var alias = items.getFirst().getAlias();
+      return alias == null ? null : alias.getStringValue();
+    } else {
+      return null;
+    }
   }
 
   public void validate() {
