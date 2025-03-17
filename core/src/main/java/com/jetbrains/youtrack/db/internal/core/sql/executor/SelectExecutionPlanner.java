@@ -2335,7 +2335,7 @@ public class SelectExecutionPlanner {
       subSteps.stream().forEach(x -> subPlan.chain(x));
       subclassPlans.add(subPlan);
     }
-    if (subclassPlans.size() > 0) {
+    if (!subclassPlans.isEmpty()) {
       plan.chain(new ParallelExecStep(subclassPlans, ctx, profilingEnabled));
       return true;
     }

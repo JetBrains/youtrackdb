@@ -20,6 +20,7 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
@@ -77,9 +78,11 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
   protected String name;
   protected String description;
   protected int[] clusterIds;
-  protected List<SchemaClassImpl> superClasses = new ArrayList<SchemaClassImpl>();
+  //TODO review question, "I've changed it to set, is there any reason to have an array here?"
+  protected final LinkedHashSet<SchemaClassImpl> superClasses = new LinkedHashSet<>();
   protected int[] polymorphicClusterIds;
-  protected List<SchemaClass> subclasses;
+  //TODO review question, "I've changed it to set, is there any reason to have an array here?"
+  protected Set<SchemaClass> subclasses = new HashSet<>();
   protected float overSize = 0f;
   protected String shortName;
   protected boolean strictMode = false; // @SINCE v1.0rc8
@@ -243,7 +246,8 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
   public SchemaClass getSuperClass() {
     acquireSchemaReadLock();
     try {
-      return superClasses.isEmpty() ? null : superClasses.get(0);
+      // todo can we drop it if it is deprecated or should we still support it?
+      return superClasses.isEmpty() ? null : superClasses.getFirst();
     } finally {
       releaseSchemaReadLock();
     }
@@ -269,7 +273,7 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
   public List<SchemaClass> getSuperClasses() {
     acquireSchemaReadLock();
     try {
-      return Collections.unmodifiableList(superClasses);
+      return Collections.unmodifiableList(superClasses.stream().toList());
     } finally {
       releaseSchemaReadLock();
     }
@@ -397,19 +401,20 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
 
     acquireSchemaReadLock();
     try {
-      final Collection<SchemaProperty> props = new ArrayList<SchemaProperty>();
-      properties(props);
-      return props;
+      return new ArrayList<>(properties());
     } finally {
       releaseSchemaReadLock();
     }
   }
 
-  private void properties(Collection<SchemaProperty> properties) {
-    properties.addAll(this.properties.values());
+  private List<SchemaProperty> properties() {
+    List<SchemaProperty> resultProperties = new ArrayList<>(
+        this.properties.values()
+    );
     for (SchemaClassImpl superClass : superClasses) {
-      superClass.properties(properties);
+      resultProperties.addAll(superClass.properties());
     }
+    return resultProperties;
   }
 
   public void getIndexedProperties(DatabaseSessionInternal session,
@@ -454,8 +459,11 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
         return p;
       }
 
-      for (int i = 0; i < superClasses.size() && p == null; i++) {
-        p = superClasses.get(i).getPropertyInternal(propertyName);
+      for (SchemaClassImpl schemaClass : superClasses) {
+        p = schemaClass.getPropertyInternal(propertyName);
+        if (p != null) {
+          return p;
+        }
       }
 
       return p;
@@ -528,7 +536,7 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
     acquireSchemaWriteLock(db);
     try {
       identity = entity.getIdentity();
-      subclasses = null;
+      subclasses.clear();
       superClasses.clear();
 
       name = entity.field("name");
@@ -593,10 +601,10 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
           // To lower case ?
           if (properties.containsKey(name)) {
             prop = (SchemaPropertyImpl) properties.get(name);
-            prop.fromStream(p);
+            prop.fromStream(db, p);
           } else {
             prop = createPropertyInstance();
-            prop.fromStream(p);
+            prop.fromStream(db, p);
           }
 
           newProperties.put(prop.getName(), prop);
@@ -605,9 +613,61 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
 
       properties.clear();
       properties.putAll(newProperties);
-      customFields = entity.field("customFields", PropertyType.EMBEDDEDMAP);
+      Map<String, String> persistedCustomFields = entity.field("customFields",
+          PropertyType.EMBEDDEDMAP);
+
+      if (persistedCustomFields != null) {
+        // customFields should be wrapped to hashmap to avoid issue with modification out of the bound of transaction
+        customFields = new HashMap<>(persistedCustomFields);
+      }
       clusterSelection =
           owner.getClusterSelectionFactory().getStrategy(entity.field("clusterSelection"));
+
+      // REBUILD THE INHERITANCE TREE
+      List<SchemaClass> superClasses;
+      SchemaClass superClass;
+
+      // we need to get subclasses from here to
+      Collection<String> superClassNames = entity.field("superClasses");
+      String legacySuperClassName = entity.field("superClass");
+      if (superClassNames == null) {
+        superClassNames = new ArrayList<>();
+      }
+
+      if (legacySuperClassName != null && !superClassNames.contains(legacySuperClassName)) {
+        superClassNames.add(legacySuperClassName);
+      }
+
+      if (!superClassNames.isEmpty()) {
+        // HAS A SUPER CLASS or CLASSES
+        superClasses = new ArrayList<>(superClassNames.size());
+        for (String superClassName : superClassNames) {
+
+          superClass = owner.getClass(db, SchemaShared.normalizeClassName(superClassName));
+
+          if (superClass == null) {
+            throw new ConfigurationException(
+                "Super class '"
+                    + superClassName
+                    + "' was declared in class '"
+                    + this.getName()
+                    + "' but was not found in schema. Remove the dependency or create the class"
+                    + " to continue.");
+          }
+          superClasses.add(superClass);
+        }
+        setSuperClassesInternal(db, superClasses);
+      }
+      Collection<String> storedSubclassesNames = entity.field("subClasses");
+      if (storedSubclassesNames != null && !storedSubclassesNames.isEmpty()) {
+        subclasses.clear();
+        for (String storedSubclassName : storedSubclassesNames) {
+          SchemaClassInternal subclass = owner.getClass(db,
+              SchemaShared.normalizeClassName(storedSubclassName));
+          subclasses.add(subclass);
+          addPolymorphicClusterIdsWithInheritance(db, (SchemaClassImpl) subclass);
+        }
+      }
     } finally {
       releaseSchemaWriteLock(db);
     }
@@ -649,12 +709,23 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
         entity.field("superClasses", null, PropertyType.EMBEDDEDLIST);
       } else {
         // Single super class is deprecated!
-        entity.field("superClass", superClasses.get(0).getName(), PropertyType.STRING);
+        entity.field("superClass", superClasses.getFirst().getName(), PropertyType.STRING);
         List<String> superClassesNames = new ArrayList<String>();
         for (SchemaClassImpl superClass : superClasses) {
           superClassesNames.add(superClass.getName());
         }
         entity.field("superClasses", superClassesNames, PropertyType.EMBEDDEDLIST);
+      }
+
+      if (!subclasses.isEmpty()) {
+        Collection<String> storedSubclassesNames = entity.field("subClasses");
+        List<String> subClassesNames = new ArrayList<>(subclasses.size());
+        for (SchemaClass subClass : subclasses) {
+          subClassesNames.add(subClass.getName());
+        }
+        entity.field("subClasses", subClassesNames, PropertyType.EMBEDDEDSET);
+      } else {
+        entity.field("subClasses", null, PropertyType.EMBEDDEDSET);
       }
 
       entity.field(
@@ -710,7 +781,11 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
     polymorphicClusterIds = set.toIntArray();
   }
 
-  public void renameProperty(final String iOldName, final String iNewName) {
+  public void renameProperty(
+      DatabaseSessionInternal db,
+      final String iOldName,
+      final String iNewName
+  ) {
     var p = properties.remove(iOldName);
     if (p != null) {
       properties.put(iNewName, p);
@@ -725,7 +800,7 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
   public Collection<SchemaClass> getSubclasses() {
     acquireSchemaReadLock();
     try {
-      if (subclasses == null || subclasses.size() == 0) {
+      if (subclasses.isEmpty()) {
         return Collections.emptyList();
       }
 
@@ -738,13 +813,10 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
   public Collection<SchemaClass> getAllSubclasses() {
     acquireSchemaReadLock();
     try {
-      final Set<SchemaClass> set = new HashSet<SchemaClass>();
-      if (subclasses != null) {
-        set.addAll(subclasses);
+      final Set<SchemaClass> set = new HashSet<>(subclasses);
 
-        for (SchemaClass c : subclasses) {
-          set.addAll(c.getAllSubclasses());
-        }
+      for (SchemaClass c : subclasses) {
+        set.addAll(c.getAllSubclasses());
       }
       return set;
     } finally {
@@ -765,15 +837,16 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
   @Override
   public Collection<SchemaClass> getAllSuperClasses() {
     Set<SchemaClass> ret = new HashSet<SchemaClass>();
-    getAllSuperClasses(ret);
+    ret.addAll(getAllSuperClassesInternal());
     return ret;
   }
 
-  private void getAllSuperClasses(Set<SchemaClass> set) {
-    set.addAll(superClasses);
+  private Set<SchemaClass> getAllSuperClassesInternal() {
+    Set<SchemaClass> ret = new HashSet<>(superClasses);
     for (SchemaClassImpl superClass : superClasses) {
-      superClass.getAllSuperClasses(set);
+      superClass.getAllSuperClasses();
     }
+    return ret;
   }
 
   public abstract SchemaClass removeBaseClassInternal(DatabaseSessionInternal session,
@@ -1686,15 +1759,13 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
       final SchemaClassImpl iBaseClass) {
     checkRecursion(iBaseClass);
 
-    if (subclasses == null) {
-      subclasses = new ArrayList<SchemaClass>();
-    }
-
     if (subclasses.contains(iBaseClass)) {
       return this;
     }
 
     subclasses.add(iBaseClass);
+    owner.markClassDirty(this);
+    owner.markClassDirty(iBaseClass);
     addPolymorphicClusterIdsWithInheritance(session, iBaseClass);
     return this;
   }
@@ -1897,43 +1968,48 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
   }
 
   public EntityImpl toNetworkStream() {
-    EntityImpl entity = new EntityImpl();
-    entity.setTrackingChanges(false);
-    entity.field("name", name);
-    entity.field("shortName", shortName);
-    entity.field("description", description);
-    entity.field("defaultClusterId", defaultClusterId);
-    entity.field("clusterIds", clusterIds);
-    entity.field("clusterSelection", clusterSelection.getName());
-    entity.field("overSize", overSize);
-    entity.field("strictMode", strictMode);
-    entity.field("abstract", abstractClass);
+    acquireSchemaReadLock();
+    try {
+      EntityImpl entity = new EntityImpl();
+      entity.setTrackingChanges(false);
+      entity.field("name", name);
+      entity.field("shortName", shortName);
+      entity.field("description", description);
+      entity.field("defaultClusterId", defaultClusterId);
+      entity.field("clusterIds", clusterIds);
+      entity.field("clusterSelection", clusterSelection.getName());
+      entity.field("overSize", overSize);
+      entity.field("strictMode", strictMode);
+      entity.field("abstract", abstractClass);
 
-    final Set<EntityImpl> props = new LinkedHashSet<EntityImpl>();
-    for (final SchemaProperty p : properties.values()) {
-      props.add(((SchemaPropertyImpl) p).toNetworkStream());
-    }
-    entity.field("properties", props, PropertyType.EMBEDDEDSET);
-
-    if (superClasses.isEmpty()) {
-      // Single super class is deprecated!
-      entity.field("superClass", null, PropertyType.STRING);
-      entity.field("superClasses", null, PropertyType.EMBEDDEDLIST);
-    } else {
-      // Single super class is deprecated!
-      entity.field("superClass", superClasses.get(0).getName(), PropertyType.STRING);
-      List<String> superClassesNames = new ArrayList<String>();
-      for (SchemaClassImpl superClass : superClasses) {
-        superClassesNames.add(superClass.getName());
+      final Set<EntityImpl> props = new LinkedHashSet<EntityImpl>();
+      for (final SchemaProperty p : properties.values()) {
+        props.add(((SchemaPropertyImpl) p).toNetworkStream());
       }
-      entity.field("superClasses", superClassesNames, PropertyType.EMBEDDEDLIST);
+      entity.field("properties", props, PropertyType.EMBEDDEDSET);
+
+      if (superClasses.isEmpty()) {
+        // Single super class is deprecated!
+        entity.field("superClass", null, PropertyType.STRING);
+        entity.field("superClasses", null, PropertyType.EMBEDDEDLIST);
+      } else {
+        // Single super class is deprecated!
+        entity.field("superClass", superClasses.getFirst().getName(), PropertyType.STRING);
+        List<String> superClassesNames = new ArrayList<String>();
+        for (SchemaClassImpl superClass : superClasses) {
+          superClassesNames.add(superClass.getName());
+        }
+        entity.field("superClasses", superClassesNames, PropertyType.EMBEDDEDLIST);
+      }
+
+      entity.field(
+          "customFields",
+          customFields != null && customFields.size() > 0 ? customFields : null,
+          PropertyType.EMBEDDEDMAP);
+
+      return entity;
+    } finally {
+      releaseSchemaReadLock();
     }
-
-    entity.field(
-        "customFields",
-        customFields != null && customFields.size() > 0 ? customFields : null,
-        PropertyType.EMBEDDEDMAP);
-
-    return entity;
   }
 }

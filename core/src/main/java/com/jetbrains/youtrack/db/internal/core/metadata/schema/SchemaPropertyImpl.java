@@ -44,6 +44,7 @@ import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -59,7 +60,6 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
   protected final SchemaClassImpl owner;
   protected PropertyType linkedType;
   protected SchemaClass linkedClass;
-  private transient String linkedClassName;
 
   protected String description;
   protected boolean mandatory;
@@ -260,9 +260,6 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
   public SchemaClass getLinkedClass(DatabaseSession session) {
     acquireSchemaReadLock();
     try {
-      if (this.linkedClass == null && linkedClassName != null) {
-        this.linkedClass = owner.owner.getClass((DatabaseSessionInternal) session, linkedClassName);
-      }
       return linkedClass;
     } finally {
       releaseSchemaReadLock();
@@ -628,44 +625,58 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
     }
   }
 
-  public void fromStream(EntityImpl entity) {
-    String name = entity.field("name");
-    PropertyType type = null;
-    if (entity.field("type") != null) {
-      type = PropertyType.getById(((Integer) entity.field("type")).byteValue());
-    }
-    Integer globalId = entity.field("globalId");
-    if (globalId != null) {
-      globalRef = owner.owner.getGlobalPropertyById(globalId);
-    } else {
-      if (type == null) {
-        type = PropertyType.ANY;
+  public void fromStream(DatabaseSessionInternal db, EntityImpl entity) {
+    acquireSchemaWriteLock(db);
+    try {
+      String name = entity.field("name");
+      PropertyType type = null;
+      if (entity.field("type") != null) {
+        type = PropertyType.getById(((Integer) entity.field("type")).byteValue());
       }
-      globalRef = owner.owner.findOrCreateGlobalProperty(name, type);
-    }
+      Integer globalId = entity.field("globalId");
+      if (globalId != null) {
+        globalRef = owner.owner.getGlobalPropertyById(globalId);
+      } else {
+        if (type == null) {
+          type = PropertyType.ANY;
+        }
+        globalRef = owner.owner.findOrCreateGlobalProperty(name, type);
+      }
 
-    mandatory = entity.containsField("mandatory") ? (Boolean) entity.field("mandatory") : false;
-    readonly = entity.containsField("readonly") ? (Boolean) entity.field("readonly") : false;
-    notNull = entity.containsField("notNull") ? (Boolean) entity.field("notNull") : false;
-    defaultValue = entity.containsField("defaultValue") ? entity.field("defaultValue") : null;
-    if (entity.containsField("collate")) {
-      collate = SQLEngine.getCollate(entity.field("collate"));
-    }
+      mandatory = entity.containsField("mandatory") ? (Boolean) entity.field("mandatory") : false;
+      readonly = entity.containsField("readonly") ? (Boolean) entity.field("readonly") : false;
+      notNull = entity.containsField("notNull") ? (Boolean) entity.field("notNull") : false;
+      defaultValue = entity.containsField("defaultValue") ? entity.field("defaultValue") : null;
+      if (entity.containsField("collate")) {
+        collate = SQLEngine.getCollate(entity.field("collate"));
+      }
 
-    min = entity.containsField("min") ? entity.field("min") : null;
-    max = entity.containsField("max") ? entity.field("max") : null;
-    regexp = entity.containsField("regexp") ? entity.field("regexp") : null;
-    linkedClassName = entity.containsField("linkedClass") ? entity.field("linkedClass") : null;
-    linkedType =
-        entity.field("linkedType") != null
-            ? PropertyType.getById(((Integer) entity.field("linkedType")).byteValue())
-            : null;
-    if (entity.containsField("customFields")) {
-      customFields = entity.field("customFields", PropertyType.EMBEDDEDMAP);
-    } else {
-      customFields = null;
+      min = entity.containsField("min") ? entity.field("min") : null;
+      max = entity.containsField("max") ? entity.field("max") : null;
+      regexp = entity.containsField("regexp") ? entity.field("regexp") : null;
+      String linkedClassName =
+          entity.containsField("linkedClass") ? entity.field("linkedClass") : null;
+      linkedClass = owner.owner.getClass(db, linkedClassName);
+      linkedType =
+          entity.field("linkedType") != null
+              ? PropertyType.getById(((Integer) entity.field("linkedType")).byteValue())
+              : null;
+      if (entity.containsField("customFields")) {
+        Map<? extends String, ? extends String> storedCustomFields = entity.field("customFields",
+            PropertyType.EMBEDDEDMAP);
+        // todo simplify this ifs
+        if (storedCustomFields != null) {
+          customFields = new HashMap<>(storedCustomFields);
+        } else {
+          customFields = null;
+        }
+      } else {
+        customFields = null;
+      }
+      description = entity.containsField("description") ? entity.field("description") : null;
+    } finally {
+      releaseSchemaWriteLock(db);
     }
-    description = entity.containsField("description") ? entity.field("description") : null;
   }
 
   @Override
@@ -695,38 +706,42 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
   }
 
   public EntityImpl toStream() {
-    EntityImpl entity = new EntityImpl();
-    entity.field("name", getName());
-    entity.field("type", getType().getId());
-    entity.field("globalId", globalRef.getId());
-    entity.field("mandatory", mandatory);
-    entity.field("readonly", readonly);
-    entity.field("notNull", notNull);
-    entity.field("defaultValue", defaultValue);
+    acquireSchemaReadLock();
+    try {
+      EntityImpl entity = new EntityImpl();
+      entity.field("name", getName());
+      entity.field("type", getType().getId());
+      entity.field("globalId", globalRef.getId());
+      entity.field("mandatory", mandatory);
+      entity.field("readonly", readonly);
+      entity.field("notNull", notNull);
+      entity.field("defaultValue", defaultValue);
 
-    entity.field("min", min);
-    entity.field("max", max);
-    if (regexp != null) {
-      entity.field("regexp", regexp);
-    } else {
-      entity.removeField("regexp");
-    }
-    if (linkedType != null) {
-      entity.field("linkedType", linkedType.getId());
-    }
-    if (this.linkedClass != null || linkedClassName != null) {
-      entity.field("linkedClass", linkedClass != null ? linkedClass.getName() : linkedClassName);
-    }
+      entity.field("min", min);
+      entity.field("max", max);
+      if (regexp != null) {
+        entity.field("regexp", regexp);
+      } else {
+        entity.removeField("regexp");
+      }
+      if (linkedType != null) {
+        entity.field("linkedType", linkedType.getId());
+      }
+      entity.field("linkedClass", linkedClass != null ? linkedClass.getName() : null,
+          PropertyType.STRING);
 
-    entity.field(
-        "customFields",
-        customFields != null && customFields.size() > 0 ? customFields : null,
-        PropertyType.EMBEDDEDMAP);
-    if (collate != null) {
-      entity.field("collate", collate.getName());
+      entity.field(
+          "customFields",
+          customFields != null && customFields.size() > 0 ? customFields : null,
+          PropertyType.EMBEDDEDMAP);
+      if (collate != null) {
+        entity.field("collate", collate.getName());
+      }
+      entity.field("description", description);
+      return entity;
+    } finally {
+      releaseSchemaReadLock();
     }
-    entity.field("description", description);
-    return entity;
   }
 
   public void acquireSchemaReadLock() {
@@ -754,26 +769,31 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
   }
 
   protected void checkForDateFormat(DatabaseSessionInternal session, final String iDateAsString) {
-    if (iDateAsString != null) {
-      if (globalRef.getType() == PropertyType.DATE) {
-        try {
-          DateHelper.getDateFormatInstance(session).parse(iDateAsString);
-        } catch (ParseException e) {
-          throw BaseException.wrapException(
-              new SchemaException(
-                  "Invalid date format while formatting date '" + iDateAsString + "'"),
-              e);
-        }
-      } else if (globalRef.getType() == PropertyType.DATETIME) {
-        try {
-          DateHelper.getDateTimeFormatInstance(session).parse(iDateAsString);
-        } catch (ParseException e) {
-          throw BaseException.wrapException(
-              new SchemaException(
-                  "Invalid datetime format while formatting date '" + iDateAsString + "'"),
-              e);
+    acquireSchemaReadLock();
+    try {
+      if (iDateAsString != null) {
+        if (globalRef.getType() == PropertyType.DATE) {
+          try {
+            DateHelper.getDateFormatInstance(session).parse(iDateAsString);
+          } catch (ParseException e) {
+            throw BaseException.wrapException(
+                new SchemaException(
+                    "Invalid date format while formatting date '" + iDateAsString + "'"),
+                e);
+          }
+        } else if (globalRef.getType() == PropertyType.DATETIME) {
+          try {
+            DateHelper.getDateTimeFormatInstance(session).parse(iDateAsString);
+          } catch (ParseException e) {
+            throw BaseException.wrapException(
+                new SchemaException(
+                    "Invalid datetime format while formatting date '" + iDateAsString + "'"),
+                e);
+          }
         }
       }
+    } finally {
+      releaseSchemaReadLock();
     }
   }
 
@@ -783,39 +803,43 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
   }
 
   public EntityImpl toNetworkStream() {
-    EntityImpl entity = new EntityImpl();
-    entity.setTrackingChanges(false);
-    entity.field("name", getName());
-    entity.field("type", getType().getId());
-    entity.field("globalId", globalRef.getId());
-    entity.field("mandatory", mandatory);
-    entity.field("readonly", readonly);
-    entity.field("notNull", notNull);
-    entity.field("defaultValue", defaultValue);
+    acquireSchemaReadLock();
+    try {
+      EntityImpl entity = new EntityImpl();
+      entity.setTrackingChanges(false);
+      entity.field("name", getName());
+      entity.field("type", getType().getId());
+      entity.field("globalId", globalRef.getId());
+      entity.field("mandatory", mandatory);
+      entity.field("readonly", readonly);
+      entity.field("notNull", notNull);
+      entity.field("defaultValue", defaultValue);
 
-    entity.field("min", min);
-    entity.field("max", max);
-    if (regexp != null) {
-      entity.field("regexp", regexp);
-    } else {
-      entity.removeField("regexp");
-    }
-    if (linkedType != null) {
-      entity.field("linkedType", linkedType.getId());
-    }
-    if (linkedClass != null || linkedClassName != null) {
-      entity.field("linkedClass", linkedClass != null ? linkedClass.getName() : linkedClassName);
-    }
+      entity.field("min", min);
+      entity.field("max", max);
+      if (regexp != null) {
+        entity.field("regexp", regexp);
+      } else {
+        entity.removeField("regexp");
+      }
+      if (linkedType != null) {
+        entity.field("linkedType", linkedType.getId());
+      }
+      entity.field("linkedClass", linkedClass != null ? linkedClass.getName() : null,
+          PropertyType.STRING);
 
-    entity.field(
-        "customFields",
-        customFields != null && customFields.size() > 0 ? customFields : null,
-        PropertyType.EMBEDDEDMAP);
-    if (collate != null) {
-      entity.field("collate", collate.getName());
-    }
-    entity.field("description", description);
+      entity.field(
+          "customFields",
+          customFields != null && customFields.size() > 0 ? customFields : null,
+          PropertyType.EMBEDDEDMAP);
+      if (collate != null) {
+        entity.field("collate", collate.getName());
+      }
+      entity.field("description", description);
 
-    return entity;
+      return entity;
+    } finally {
+      releaseSchemaReadLock();
+    }
   }
 }

@@ -172,7 +172,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     try {
       checkEmbedded();
 
-      if (subclasses == null) {
+      if (subclasses.isEmpty()) {
         return this;
       }
 
@@ -180,6 +180,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
         removePolymorphicClusterIds(session, (SchemaClassImpl) baseClass);
       }
       owner.markClassDirty(this);
+      owner.markClassDirty(baseClass);
 
       return this;
     } finally {

@@ -41,12 +41,10 @@ public class SchemaRemote extends SchemaShared {
     try {
       LazySchemaClass cls = classesRefs.get(normalizeClassName(iClassName));
       if (cls != null) {
-        if (cls.isLoaded()) {
-          return cls.getDelegate();
-        } else {
+        if (!cls.isLoaded()) {
           cls.load(database, createClassInstance(iClassName));
-          return cls.getDelegate();
         }
+        return cls.getDelegate();
       }
     } finally {
       releaseSchemaReadLock();
@@ -60,12 +58,10 @@ public class SchemaRemote extends SchemaShared {
     try {
       LazySchemaClass lazySchemaClass = classesRefs.get(normalizeClassName(iClassName));
       if (lazySchemaClass != null) {
-        if (lazySchemaClass.isLoaded()) {
-          return lazySchemaClass.getDelegate();
-        } else {
+        if (!lazySchemaClass.isLoaded()) {
           lazySchemaClass.load(database, createClassInstance(iClassName));
-          return lazySchemaClass.getDelegate();
         }
+        return lazySchemaClass.getDelegate();
       }
 
       cls = createClass(database, iClassName, clusterIds, superClasses);
@@ -106,7 +102,7 @@ public class SchemaRemote extends SchemaShared {
     acquireSchemaWriteLock(database);
     try {
 
-      final String key = className.toLowerCase(Locale.ENGLISH);
+      final String key = normalizeClassName(className);
       if (classesRefs.containsKey(key)) {
         throw new SchemaException("Class '" + className + "' already exists in current database");
       }

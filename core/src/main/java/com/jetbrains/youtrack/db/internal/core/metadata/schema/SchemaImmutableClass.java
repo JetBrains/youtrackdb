@@ -136,6 +136,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   public void init() {
     if (!inited) {
       initSuperClasses();
+      initBaseClasses();
 
       final Collection<SchemaProperty> allProperties = new ArrayList<SchemaProperty>();
       final Map<String, SchemaProperty> allPropsMap = new HashMap<String, SchemaProperty>(20);

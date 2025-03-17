@@ -95,12 +95,12 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
   protected void setNameInternal(DatabaseSessionInternal session, final String name) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
-    String oldName = this.globalRef.getName();
     acquireSchemaWriteLock(session);
+    String oldName = this.globalRef.getName();
     try {
       checkEmbedded(session);
 
-      owner.renameProperty(oldName, name);
+      owner.renameProperty(session, oldName, name);
       this.globalRef = owner.owner.findOrCreateGlobalProperty(name, this.globalRef.getType());
       owner.owner.markClassDirty(owner);
     } finally {
@@ -325,8 +325,8 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     try {
       checkEmbedded(session);
 
-      owner.owner.markClassDirty(owner);
       this.linkedClass = iLinkedClass;
+      owner.owner.markClassDirty(owner);
 
     } finally {
       releaseSchemaWriteLock(session);

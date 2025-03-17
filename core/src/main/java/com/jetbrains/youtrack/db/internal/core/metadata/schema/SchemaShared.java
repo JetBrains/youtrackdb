@@ -49,6 +49,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -237,7 +238,7 @@ public abstract class SchemaShared implements CloseableInStorage {
       if (!c.isLoaded()) {
         // todo maybe we don't need to eagerly fetch classes
         c.load(session, createClassInstance(
-            // it's not an issue to send class id as a name since it will be immediately replaced by fromStream method
+            // it's not an issue to set class id as a name since it will be immediately replaced by fromStream method
             c.getId().toString()));
       }
       if (c.getDelegate() instanceof SchemaClassImpl) {
@@ -434,7 +435,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     try {
       if (modificationCounter.intValue() == 1) {
         // if it is embedded storage modification of schema is done by internal methods otherwise it
-        // is done by sql commands and we need to reload local replica
+        // is done by sql commands, and we need to reload local replica
 
         if (iSave) {
           if (database.getStorage() instanceof AbstractPaginatedStorage) {
@@ -538,62 +539,35 @@ public abstract class SchemaShared implements CloseableInStorage {
       // REGISTER ALL THE CLASSES
       clustersToClasses.clear();
 
-      Map<String, RecordId> storedClassesRefs = entity.field("classesRefs");
-      Map<String, LazySchemaClass> lazyClassesRefs = new HashMap<>(storedClassesRefs.size());
+      Map<String, RecordId> storedClassesRefsUnsafe = entity.field("classesRefs");
+      Map<String, RecordId> storedClassesRefs = storedClassesRefsUnsafe == null
+          ? new HashMap<>()
+          : storedClassesRefsUnsafe;
+      // remove classes present in schema but absent in the db
+      Iterator<String> presentClassNamesIterator = classesRefs.keySet().iterator();
+      while (presentClassNamesIterator.hasNext()) {
+        String presentClassName = presentClassNamesIterator.next();
+        if (!storedClassesRefs.containsKey(presentClassName)) {
+          presentClassNamesIterator.remove();
+        }
+
+      }
       for (Entry<String, RecordId> entry : storedClassesRefs.entrySet()) {
+        if (classesRefs.containsKey(entry.getKey())) {
+          // skip already loaded classes
+          continue;
+        }
         LazySchemaClass lazySchemaClass = new LazySchemaClass(entry.getValue());
-        lazyClassesRefs.put(entry.getKey(), lazySchemaClass);
+        classesRefs.put(entry.getKey(), lazySchemaClass);
       }
-      classesRefs.clear();
-      classesRefs.putAll(lazyClassesRefs);
+
       for (LazySchemaClass lazySchemaClass : classesRefs.values()) {
-        lazySchemaClass.load(session, createClassInstance(lazySchemaClass.getId().toString()));
-        SchemaClassInternal cls = lazySchemaClass.getDelegate();
-        addClusterClassMap(cls);
-      }
-      // REBUILD THE INHERITANCE TREE
-      Collection<String> superClassNames;
-      String legacySuperClassName;
-      List<SchemaClass> superClasses;
-      SchemaClass superClass;
-
-      for (LazySchemaClass c : classesRefs.values()) {
-        EntityImpl classEntity = session.load(c.getId());
-        superClassNames = classEntity.field("superClasses");
-        legacySuperClassName = classEntity.field("superClass");
-        if (superClassNames == null) {
-          superClassNames = new ArrayList<String>();
-        }
-        //        else
-        //          superClassNames = new HashSet<String>(superClassNames);
-
-        if (legacySuperClassName != null && !superClassNames.contains(legacySuperClassName)) {
-          superClassNames.add(legacySuperClassName);
-        }
-
-        if (!superClassNames.isEmpty()) {
-          // HAS A SUPER CLASS or CLASSES
-          LazySchemaClass cls = classesRefs.get(normalizeClassName(classEntity.field("name")));
-          superClasses = new ArrayList<>(superClassNames.size());
-          for (String superClassName : superClassNames) {
-
-            superClass = getClass(session, normalizeClassName(superClassName));
-
-            if (superClass == null) {
-              throw new ConfigurationException(
-                  "Super class '"
-                      + superClassName
-                      + "' was declared in class '"
-                      + cls.getDelegate().getName()
-                      + "' but was not found in schema. Remove the dependency or create the class"
-                      + " to continue.");
-            }
-            superClasses.add(superClass);
-          }
-          ((SchemaClassImpl) cls.getDelegate()).setSuperClassesInternal(session, superClasses);
+        if (!lazySchemaClass.isLoaded()) {
+          lazySchemaClass.load(session, createClassInstance(lazySchemaClass.getId().toString()));
+          SchemaClassInternal cls = lazySchemaClass.getDelegate();
+          addClusterClassMap(cls);
         }
       }
-
       // VIEWS
 
       if (entity.containsField("blobClusters")) {
@@ -771,7 +745,10 @@ public abstract class SchemaShared implements CloseableInStorage {
   }
 
   public GlobalProperty createGlobalProperty(
-      final String name, final PropertyType type, final Integer id) {
+      final String name,
+      final PropertyType type,
+      final Integer id
+  ) {
     GlobalProperty global;
     if (id < properties.size() && (global = properties.get(id)) != null) {
       if (!global.getName().equals(name) || !global.getType().equals(type)) {
