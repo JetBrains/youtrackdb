@@ -17,10 +17,8 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import com.jetbrains.youtrack.db.internal.lucene.tests.LuceneBaseTest;
 import java.util.ArrayList;
-import java.util.List;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -58,7 +56,7 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
             + " 21.996535232496047,-160.1099395751953 21.94304553343818,-160.169677734375"
             + " 21.89399562866819,-160.21087646484375 21.844928843026818,-160.21018981933594"
             + " 21.787556698550834)' ";
-    List<EntityImpl> docs = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var docs = session.query(query).entityStream().toList();
     Assert.assertEquals(1, docs.size());
     Assert.assertEquals(3, idx.size(session));
     session.rollback();
@@ -68,7 +66,7 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
             + " 21.996535232496047,-160.1099395751953 21.94304553343818,-160.169677734375"
             + " 21.89399562866819,-160.21087646484375 21.844928843026818,-160.21018981933594"
             + " 21.787556698550834)' ";
-    docs = session.query(new SQLSynchQuery<EntityImpl>(query));
+    docs = session.query(query).entityStream().toList();
 
     session.begin();
     Assert.assertEquals(0, docs.size());
@@ -99,7 +97,7 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
             + " 21.996535232496047,-160.1099395751953 21.94304553343818,-160.169677734375"
             + " 21.89399562866819,-160.21087646484375 21.844928843026818,-160.21018981933594"
             + " 21.787556698550834)' ";
-    List<EntityImpl> docs = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var docs = session.query(query).entityStream().toList();
 
     session.begin();
     Assert.assertEquals(0, docs.size());
@@ -112,7 +110,7 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
             + " 21.996535232496047,-160.1099395751953 21.94304553343818,-160.169677734375"
             + " 21.89399562866819,-160.21087646484375 21.844928843026818,-160.21018981933594"
             + " 21.787556698550834)' ";
-    docs = session.query(new SQLSynchQuery<EntityImpl>(query));
+    docs = session.query(query).entityStream().toList();
     Assert.assertEquals(1, docs.size());
     Assert.assertEquals(1, idx.size(session));
 
@@ -123,7 +121,7 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
             + " 21.996535232496047,-160.1099395751953 21.94304553343818,-160.169677734375"
             + " 21.89399562866819,-160.21087646484375 21.844928843026818,-160.21018981933594"
             + " 21.787556698550834)' ";
-    docs = session.query(new SQLSynchQuery<EntityImpl>(query));
+    docs = session.query(query).entityStream().toList();
 
     session.begin();
     Assert.assertEquals(1, docs.size());
@@ -135,11 +133,11 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
       final Double latitude) {
     var location = ((EntityImpl) db.newEntity("OPoint"));
     location.setProperty("coordinates", new ArrayList<Double>() {
-          {
-            add(longitude);
-            add(latitude);
-          }
-        });
+      {
+        add(longitude);
+        add(latitude);
+      }
+    });
 
     var city = ((EntityImpl) db.newEntity("City"));
     city.setProperty("name", name);

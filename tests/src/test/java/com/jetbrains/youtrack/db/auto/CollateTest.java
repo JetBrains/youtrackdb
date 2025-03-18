@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.auto;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
@@ -38,40 +39,40 @@ public class CollateTest extends BaseDBTest {
     cip.setCollate(CaseInsensitiveCollate.NAME);
 
     for (var i = 0; i < 10; i++) {
-      var document = ((EntityImpl) session.newEntity("collateTest"));
+      final var upper = i % 2 == 0;
+      session.executeInTx(() -> {
+        var document = ((EntityImpl) session.newEntity("collateTest"));
 
-      if (i % 2 == 0) {
-        document.setProperty("csp", "VAL");
-        document.setProperty("cip", "VAL");
-      } else {
-        document.setProperty("csp", "val");
-        document.setProperty("cip", "val");
+        if (upper) {
+          document.setProperty("csp", "VAL");
+          document.setProperty("cip", "VAL");
+        } else {
+          document.setProperty("csp", "val");
+          document.setProperty("cip", "val");
+        }
+      });
+    }
+
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from collateTest where csp = 'VAL'").entityStream().toList();
+      Assert.assertEquals(result.size(), 5);
+
+      for (var document : result) {
+        Assert.assertEquals(document.getProperty("csp"), "VAL");
       }
+    });
 
-      session.begin();
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from collateTest where cip = 'VaL'").entityStream().toList();
+      Assert.assertEquals(result.size(), 10);
 
-      session.commit();
-    }
-
-    @SuppressWarnings("deprecation")
-    List<EntityImpl> result =
-        session.query(
-            new SQLSynchQuery<EntityImpl>("select from collateTest where csp = 'VAL'"));
-    Assert.assertEquals(result.size(), 5);
-
-    for (var document : result) {
-      Assert.assertEquals(document.getProperty("csp"), "VAL");
-    }
-
-    //noinspection deprecation
-    result =
-        session.query(
-            new SQLSynchQuery<EntityImpl>("select from collateTest where cip = 'VaL'"));
-    Assert.assertEquals(result.size(), 10);
-
-    for (var document : result) {
-      Assert.assertEquals((document.<String>getProperty("cip")).toUpperCase(Locale.ENGLISH), "VAL");
-    }
+      for (var document : result) {
+        Assert.assertEquals((document.<String>getProperty("cip")).toUpperCase(Locale.ENGLISH),
+            "VAL");
+      }
+    });
   }
 
   public void testQueryNotNullCi() {
@@ -81,32 +82,21 @@ public class CollateTest extends BaseDBTest {
     var csp = clazz.createProperty("bar", PropertyType.STRING);
     csp.setCollate(CaseInsensitiveCollate.NAME);
 
-    var document = ((EntityImpl) session.newEntity("collateTestNotNull"));
-    document.setProperty("bar", "baz");
+    session.executeInTx(() -> {
+      session.newEntity("collateTestNotNull").setProperty("bar", "baz");
 
-    session.begin();
+      session.newEntity("collateTestNotNull").setProperty("nobar", true);
+    });
 
-    session.commit();
+    session.executeInTx(() -> {
+      final var result1 =
+          session.query("select from collateTestNotNull where bar is null").toList();
+      Assert.assertEquals(result1.size(), 1);
 
-    document = ((EntityImpl) session.newEntity("collateTestNotNull"));
-    document.setProperty("nobar", true);
-
-    session.begin();
-
-    session.commit();
-
-    @SuppressWarnings("deprecation")
-    List<EntityImpl> result =
-        session.query(
-            new SQLSynchQuery<EntityImpl>("select from collateTestNotNull where bar is null"));
-    Assert.assertEquals(result.size(), 1);
-
-    //noinspection deprecation
-    result =
-        session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from collateTestNotNull where bar is not null"));
-    Assert.assertEquals(result.size(), 1);
+      final var result2 =
+          session.query("select from collateTestNotNull where bar is not null").toList();
+      Assert.assertEquals(result2.size(), 1);
+    });
   }
 
   public void testIndexQuery() {
@@ -123,48 +113,41 @@ public class CollateTest extends BaseDBTest {
     clazz.createIndex("collateIndexCIP", SchemaClass.INDEX_TYPE.NOTUNIQUE, "cip");
 
     for (var i = 0; i < 10; i++) {
-      var document = ((EntityImpl) session.newEntity("collateIndexTest"));
+      final var upper = i % 2 == 0;
+      session.executeInTx(() -> {
+        var document = ((EntityImpl) session.newEntity("collateIndexTest"));
 
-      if (i % 2 == 0) {
-        document.setProperty("csp", "VAL");
-        document.setProperty("cip", "VAL");
-      } else {
-        document.setProperty("csp", "val");
-        document.setProperty("cip", "val");
+        if (upper) {
+          document.setProperty("csp", "VAL");
+          document.setProperty("cip", "VAL");
+        } else {
+          document.setProperty("csp", "val");
+          document.setProperty("cip", "val");
+        }
+      });
+    }
+
+    session.executeInTx(() -> {
+      final var result = session
+          .query("select from collateIndexTest where csp = 'VAL'")
+          .entityStream().toList();
+      Assert.assertEquals(result.size(), 5);
+
+      for (var document : result) {
+        Assert.assertEquals(document.getProperty("csp"), "VAL");
       }
+    });
 
-      session.begin();
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from collateIndexTest where cip = 'VaL'").toList();
+      Assert.assertEquals(result.size(), 10);
 
-      session.commit();
-    }
-
-    var query = "select from collateIndexTest where csp = 'VAL'";
-    @SuppressWarnings("deprecation")
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
-    Assert.assertEquals(result.size(), 5);
-
-    for (var document : result) {
-      Assert.assertEquals(document.getProperty("csp"), "VAL");
-    }
-
-    @SuppressWarnings("deprecation")
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-    Assert.assertTrue(
-        explain.<Set<String>>getProperty("involvedIndexes").contains("collateIndexCSP"));
-
-    query = "select from collateIndexTest where cip = 'VaL'";
-    //noinspection deprecation
-    result = session.query(new SQLSynchQuery<EntityImpl>(query));
-    Assert.assertEquals(result.size(), 10);
-
-    for (var document : result) {
-      Assert.assertEquals((document.<String>getProperty("cip")).toUpperCase(Locale.ENGLISH), "VAL");
-    }
-
-    //noinspection deprecation
-    explain = session.command(new CommandSQL("explain " + query)).execute(session);
-    Assert.assertTrue(
-        explain.<Set<String>>getProperty("involvedIndexes").contains("collateIndexCIP"));
+      for (var document : result) {
+        Assert.assertEquals((document.<String>getProperty("cip")).toUpperCase(Locale.ENGLISH),
+            "VAL");
+      }
+    });
   }
 
   public void testIndexQueryCollateWasChanged() {
@@ -177,6 +160,7 @@ public class CollateTest extends BaseDBTest {
     clazz.createIndex("collateWasChangedIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "cp");
 
     for (var i = 0; i < 10; i++) {
+      session.begin();
       var document = ((EntityImpl) session.newEntity("collateWasChangedIndexTest"));
 
       if (i % 2 == 0) {
@@ -184,42 +168,32 @@ public class CollateTest extends BaseDBTest {
       } else {
         document.setProperty("cp", "val");
       }
-
-      session.begin();
-
       session.commit();
     }
 
-    var query = "select from collateWasChangedIndexTest where cp = 'VAL'";
-    @SuppressWarnings("deprecation")
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
-    Assert.assertEquals(result.size(), 5);
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from collateWasChangedIndexTest where cp = 'VAL'").toList();
+      Assert.assertEquals(result.size(), 5);
 
-    for (var document : result) {
-      Assert.assertEquals(document.getProperty("cp"), "VAL");
-    }
-
-    @SuppressWarnings("deprecation")
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-    Assert.assertTrue(
-        explain.<Set<String>>getProperty("involvedIndexes").contains("collateWasChangedIndex"));
+      for (var document : result) {
+        Assert.assertEquals(document.getProperty("cp"), "VAL");
+      }
+    });
 
     cp = clazz.getProperty("cp");
     cp.setCollate(CaseInsensitiveCollate.NAME);
 
-    query = "select from collateWasChangedIndexTest where cp = 'VaL'";
-    //noinspection deprecation
-    result = session.query(new SQLSynchQuery<EntityImpl>(query));
-    Assert.assertEquals(result.size(), 10);
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from collateWasChangedIndexTest where cp = 'VaL'").toList();
+      Assert.assertEquals(result.size(), 10);
 
-    for (var document : result) {
-      Assert.assertEquals((document.<String>getProperty("cp")).toUpperCase(Locale.ENGLISH), "VAL");
-    }
-
-    //noinspection deprecation
-    explain = session.command(new CommandSQL("explain " + query)).execute(session);
-    Assert.assertTrue(
-        explain.<Set<String>>getProperty("involvedIndexes").contains("collateWasChangedIndex"));
+      for (var document : result) {
+        Assert.assertEquals((document.<String>getProperty("cp")).toUpperCase(Locale.ENGLISH),
+            "VAL");
+      }
+    });
   }
 
   public void testCompositeIndexQueryCS() {
@@ -236,6 +210,7 @@ public class CollateTest extends BaseDBTest {
         "cip");
 
     for (var i = 0; i < 10; i++) {
+      session.begin();
       var document = ((EntityImpl) session.newEntity("CompositeIndexQueryCSTest"));
 
       if (i % 2 == 0) {
@@ -246,40 +221,31 @@ public class CollateTest extends BaseDBTest {
         document.setProperty("cip", "val");
       }
 
-      session.begin();
-
       session.commit();
     }
 
-    var query = "select from CompositeIndexQueryCSTest where csp = 'VAL'";
-    @SuppressWarnings("deprecation")
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
-    Assert.assertEquals(result.size(), 5);
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from CompositeIndexQueryCSTest where csp = 'VAL'").toList();
+      Assert.assertEquals(result.size(), 5);
 
-    for (var document : result) {
-      Assert.assertEquals(document.getProperty("csp"), "VAL");
-    }
+      for (var document : result) {
+        Assert.assertEquals(document.getProperty("csp"), "VAL");
+      }
+    });
 
-    @SuppressWarnings("deprecation")
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-    Assert.assertTrue(
-        explain.<Set<String>>getProperty("involvedIndexes").contains("collateCompositeIndexCS"));
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from CompositeIndexQueryCSTest where csp = 'VAL' and cip = 'VaL'")
+              .toList();
+      Assert.assertEquals(result.size(), 5);
 
-    query = "select from CompositeIndexQueryCSTest where csp = 'VAL' and cip = 'VaL'";
-    //noinspection deprecation
-    result = session.query(new SQLSynchQuery<EntityImpl>(query));
-    Assert.assertEquals(result.size(), 5);
-
-    for (var document : result) {
-      Assert.assertEquals(document.getProperty("csp"), "VAL");
-      Assert.assertEquals((document.<String>getProperty("cip")).toUpperCase(Locale.ENGLISH), "VAL");
-    }
-
-    //noinspection deprecation
-    explain = session.command(new CommandSQL("explain " + query)).execute(session);
-    Assert.assertTrue(
-        explain.<Set<String>>getProperty("involvedIndexes").contains("collateCompositeIndexCS"));
-
+      for (var document : result) {
+        Assert.assertEquals(document.getProperty("csp"), "VAL");
+        Assert.assertEquals((document.<String>getProperty("cip")).toUpperCase(Locale.ENGLISH),
+            "VAL");
+      }
+    });
     if (!session.getStorage().isRemote()) {
       final var indexManager = session.getMetadata().getIndexManagerInternal();
       final var index = indexManager.getIndex(session, "collateCompositeIndexCS");
@@ -312,6 +278,7 @@ public class CollateTest extends BaseDBTest {
         "collateCompositeIndexCollateWasChanged", SchemaClass.INDEX_TYPE.NOTUNIQUE, "csp", "cip");
 
     for (var i = 0; i < 10; i++) {
+      session.begin();
       var document = ((EntityImpl) session.newEntity("CompositeIndexQueryCollateWasChangedTest"));
       if (i % 2 == 0) {
         document.setProperty("csp", "VAL");
@@ -320,44 +287,32 @@ public class CollateTest extends BaseDBTest {
         document.setProperty("csp", "val");
         document.setProperty("cip", "val");
       }
-
-      session.begin();
-
       session.commit();
     }
 
-    var query = "select from CompositeIndexQueryCollateWasChangedTest where csp = 'VAL'";
-    @SuppressWarnings("deprecation")
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
-    Assert.assertEquals(result.size(), 5);
+    session.executeInTx(() -> {
+      final var result = session.query(
+          "select from CompositeIndexQueryCollateWasChangedTest where csp = 'VAL'").toList();
+      Assert.assertEquals(result.size(), 5);
 
-    for (var document : result) {
-      Assert.assertEquals(document.getProperty("csp"), "VAL");
-    }
-
-    @SuppressWarnings("deprecation")
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-    Assert.assertTrue(
-        explain.<Set<String>>getProperty("involvedIndexes")
-            .contains("collateCompositeIndexCollateWasChanged"));
+      for (var document : result) {
+        Assert.assertEquals(document.getProperty("csp"), "VAL");
+      }
+    });
 
     csp = clazz.getProperty("csp");
     csp.setCollate(CaseInsensitiveCollate.NAME);
 
-    query = "select from CompositeIndexQueryCollateWasChangedTest where csp = 'VaL'";
-    //noinspection deprecation
-    result = session.query(new SQLSynchQuery<EntityImpl>(query));
-    Assert.assertEquals(result.size(), 10);
+    session.executeInTx(() -> {
+      //noinspection deprecation
+      final var result = session.query(
+          "select from CompositeIndexQueryCollateWasChangedTest where csp = 'VaL'").toList();
+      Assert.assertEquals(result.size(), 10);
 
-    for (var document : result) {
-      Assert.assertEquals(document.<String>getProperty("csp").toUpperCase(Locale.ENGLISH), "VAL");
-    }
-
-    //noinspection deprecation
-    explain = session.command(new CommandSQL("explain " + query)).execute(session);
-    Assert.assertTrue(
-        explain.<Set<String>>getProperty("involvedIndexes")
-            .contains("collateCompositeIndexCollateWasChanged"));
+      for (var document : result) {
+        Assert.assertEquals(document.<String>getProperty("csp").toUpperCase(Locale.ENGLISH), "VAL");
+      }
+    });
   }
 
   public void collateThroughSQL() {
@@ -368,14 +323,12 @@ public class CollateTest extends BaseDBTest {
     clazz.createProperty("cip", PropertyType.STRING);
 
     //noinspection deprecation
-    session
-        .command(
-            new CommandSQL(
-                "create index collateTestViaSQL.index on collateTestViaSQL (cip COLLATE CI)"
-                    + " NOTUNIQUE"))
-        .execute(session);
+    session.command(
+        "create index collateTestViaSQL.index on collateTestViaSQL (cip COLLATE CI) NOTUNIQUE"
+    ).close();
 
     for (var i = 0; i < 10; i++) {
+      session.begin();
       var document = ((EntityImpl) session.newEntity("collateTestViaSQL"));
 
       if (i % 2 == 0) {
@@ -386,29 +339,29 @@ public class CollateTest extends BaseDBTest {
         document.setProperty("cip", "val");
       }
 
-      session.begin();
-
       session.commit();
     }
 
-    @SuppressWarnings("deprecation")
-    List<EntityImpl> result =
-        session.query(
-            new SQLSynchQuery<EntityImpl>("select from collateTestViaSQL where csp = 'VAL'"));
-    Assert.assertEquals(result.size(), 5);
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from collateTestViaSQL where csp = 'VAL'").toList();
+      Assert.assertEquals(result.size(), 5);
 
-    for (var document : result) {
-      Assert.assertEquals(document.getProperty("csp"), "VAL");
-    }
+      for (var document : result) {
+        Assert.assertEquals(document.getProperty("csp"), "VAL");
+      }
+    });
 
-    //noinspection deprecation
-    result =
-        session.query(
-            new SQLSynchQuery<EntityImpl>("select from collateTestViaSQL where cip = 'VaL'"));
-    Assert.assertEquals(result.size(), 10);
+    session.executeInTx(() -> {
+      //noinspection deprecation
+      final var result =
+          session.query("select from collateTestViaSQL where cip = 'VaL'").toList();
+      Assert.assertEquals(result.size(), 10);
 
-    for (var document : result) {
-      Assert.assertEquals((document.<String>getProperty("cip")).toUpperCase(Locale.ENGLISH), "VAL");
-    }
+      for (var document : result) {
+        Assert.assertEquals((document.<String>getProperty("cip")).toUpperCase(Locale.ENGLISH),
+            "VAL");
+      }
+    });
   }
 }

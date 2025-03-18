@@ -51,12 +51,12 @@ public class LuceneSpatialPolygonTest extends BaseSpatialLuceneTest {
   protected void queryPolygon() {
 
     var query = "select * from Place where location && 'POINT(13.383333 52.516667)'";
-    List<EntityImpl> docs = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var docs = session.query(query).entityStream().toList();
 
     Assert.assertEquals(docs.size(), 1);
 
     query = "select * from Place where location && 'POINT(12.5 41.9)'";
-    docs = session.query(new SQLSynchQuery<EntityImpl>(query));
+    docs = session.query(query).entityStream().toList();
 
     Assert.assertEquals(docs.size(), 0);
   }

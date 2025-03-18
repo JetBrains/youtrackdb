@@ -548,9 +548,9 @@ public class IndexTest extends BaseDBTest {
     try (var db = acquireSession()) {
       if (!db.getMetadata().getSchema().existsClass("TestClass")) {
         var testClass =
-            db.getMetadata().getSchema().createClass("TestClass", 1, (SchemaClass[]) null);
+            db.getMetadata().getSchema().createClass("TestClass", 1);
         var testLinkClass =
-            db.getMetadata().getSchema().createClass("TestLinkClass", 1, (SchemaClass[]) null);
+            db.getMetadata().getSchema().createClass("TestLinkClass", 1);
         testClass
             .createProperty("testLink", PropertyType.LINK, testLinkClass)
             .createIndex(INDEX_TYPE.NOTUNIQUE);
@@ -624,8 +624,7 @@ public class IndexTest extends BaseDBTest {
 
     try (var db = acquireSession()) {
       if (!db.getMetadata().getSchema().existsClass("MyFruit")) {
-        var fruitClass = db.getMetadata().getSchema()
-            .createClass("MyFruit", 1, (SchemaClass[]) null);
+        var fruitClass = db.getMetadata().getSchema().createClass("MyFruit", 1);
         fruitClass.createProperty("name", PropertyType.STRING);
         fruitClass.createProperty("color", PropertyType.STRING);
 
@@ -700,7 +699,7 @@ public class IndexTest extends BaseDBTest {
     try (var db = acquireSession()) {
       if (!db.getMetadata().getSchema().existsClass("IndexTestTerm")) {
         final var termClass =
-            db.getMetadata().getSchema().createClass("IndexTestTerm", 1, (SchemaClass[]) null);
+            db.getMetadata().getSchema().createClass("IndexTestTerm", 1);
         termClass.createProperty("label", PropertyType.STRING);
         termClass.createIndex(
             "idxTerm",
@@ -736,7 +735,7 @@ public class IndexTest extends BaseDBTest {
       final var termClass =
           db.getMetadata()
               .getSchema()
-              .createClass("TransactionUniqueIndexTest", 1, (SchemaClass[]) null);
+              .createClass("TransactionUniqueIndexTest", 1);
       termClass.createProperty("label", PropertyType.STRING);
       termClass.createIndex(
           "idxTransactionUniqueIndexTest",
@@ -777,7 +776,7 @@ public class IndexTest extends BaseDBTest {
       final var termClass =
           db.getMetadata()
               .getSchema()
-              .createClass("TransactionUniqueIndexTest", 1, (SchemaClass[]) null);
+              .createClass("TransactionUniqueIndexTest", 1);
 
       termClass.createProperty("label", PropertyType.STRING);
       termClass.createIndex(
@@ -815,7 +814,7 @@ public class IndexTest extends BaseDBTest {
       final var termClass =
           db.getMetadata()
               .getSchema()
-              .createClass("TransactionUniqueIndexWithDotTest", 1, (SchemaClass[]) null);
+              .createClass("TransactionUniqueIndexWithDotTest", 1);
       termClass.createProperty("label", PropertyType.STRING).createIndex(INDEX_TYPE.UNIQUE);
     }
 
@@ -861,7 +860,7 @@ public class IndexTest extends BaseDBTest {
       final var termClass =
           db.getMetadata()
               .getSchema()
-              .createClass("TransactionUniqueIndexWithDotTest", 1, (SchemaClass[]) null);
+              .createClass("TransactionUniqueIndexWithDotTest", 1);
       termClass.createProperty("label", PropertyType.STRING)
           .createIndex(INDEX_TYPE.UNIQUE);
     }
@@ -918,12 +917,11 @@ public class IndexTest extends BaseDBTest {
     try (var db = acquireSession()) {
       if (!db.getMetadata().getSchema().existsClass("BaseTestClass")) {
         var baseClass =
-            db.getMetadata().getSchema().createClass("BaseTestClass", 1, (SchemaClass[]) null);
+            db.getMetadata().getSchema().createClass("BaseTestClass", 1);
         var childClass =
-            db.getMetadata().getSchema().createClass("ChildTestClass", 1, (SchemaClass[]) null);
+            db.getMetadata().getSchema().createClass("ChildTestClass", 1);
         var anotherChildClass =
-            db.getMetadata().getSchema()
-                .createClass("AnotherChildTestClass", 1, (SchemaClass[]) null);
+            db.getMetadata().getSchema().createClass("AnotherChildTestClass", 1);
 
         if (!baseClass.isSuperClassOf(childClass)) {
           childClass.addSuperClass(baseClass);
@@ -1100,10 +1098,10 @@ public class IndexTest extends BaseDBTest {
   public void testIndexInCompositeQuery() {
     var classOne =
         session.getMetadata().getSchema()
-            .createClass("CompoundSQLIndexTest1", 1, (SchemaClass[]) null);
+            .createClass("CompoundSQLIndexTest1", 1);
     var classTwo =
         session.getMetadata().getSchema()
-            .createClass("CompoundSQLIndexTest2", 1, (SchemaClass[]) null);
+            .createClass("CompoundSQLIndexTest2", 1);
 
     classTwo.createProperty("address", PropertyType.LINK, classOne);
 
@@ -1129,7 +1127,7 @@ public class IndexTest extends BaseDBTest {
   public void testIndexWithLimitAndOffset() {
     final var schema = session.getSchema();
     final var indexWithLimitAndOffset =
-        schema.createClass("IndexWithLimitAndOffsetClass", 1, (SchemaClass[]) null);
+        schema.createClass("IndexWithLimitAndOffsetClass", 1);
     indexWithLimitAndOffset.createProperty("val", PropertyType.INTEGER);
     indexWithLimitAndOffset.createProperty("index", PropertyType.INTEGER);
 
@@ -1160,7 +1158,7 @@ public class IndexTest extends BaseDBTest {
 
   public void testNullIndexKeysSupport() {
     final var schema = session.getSchema();
-    final var clazz = schema.createClass("NullIndexKeysSupport", 1, (SchemaClass[]) null);
+    final var clazz = schema.createClass("NullIndexKeysSupport", 1);
     clazz.createProperty("nullField", PropertyType.STRING);
 
     var metadata = Map.<String, Object>of("ignoreNullValues", false);
@@ -1206,8 +1204,7 @@ public class IndexTest extends BaseDBTest {
 
   public void testNullHashIndexKeysSupport() {
     final var schema = session.getSchema();
-    final var clazz = schema.createClass("NullHashIndexKeysSupport", 1,
-        (SchemaClass[]) null);
+    final var clazz = schema.createClass("NullHashIndexKeysSupport", 1);
     clazz.createProperty("nullField", PropertyType.STRING);
 
     var metadata = Map.<String, Object>of("ignoreNullValues", false);
@@ -1260,8 +1257,7 @@ public class IndexTest extends BaseDBTest {
 
   public void testNullIndexKeysSupportInTx() {
     final Schema schema = session.getMetadata().getSchema();
-    final var clazz = schema.createClass("NullIndexKeysSupportInTx", 1,
-        (SchemaClass[]) null);
+    final var clazz = schema.createClass("NullIndexKeysSupportInTx", 1);
     clazz.createProperty("nullField", PropertyType.STRING);
 
     var metadata = Map.<String, Object>of("ignoreNullValues", false);
@@ -1321,8 +1317,7 @@ public class IndexTest extends BaseDBTest {
     }
 
     final var schema = session.getSchema();
-    final var clazz = schema.createClass("NullIndexKeysSupportInMiddleTx", 1,
-        (SchemaClass[]) null);
+    final var clazz = schema.createClass("NullIndexKeysSupportInMiddleTx", 1);
     clazz.createProperty("nullField", PropertyType.STRING);
 
     var metadata = Map.<String, Object>of("ignoreNullValues", false);
@@ -1432,8 +1427,7 @@ public class IndexTest extends BaseDBTest {
 
     final Schema schema = session.getMetadata().getSchema();
     var clazz =
-        schema.createClass("ValuesContainerIsRemovedIfIndexIsRemovedClass", 1,
-            (SchemaClass[]) null);
+        schema.createClass("ValuesContainerIsRemovedIfIndexIsRemovedClass", 1);
     clazz.createProperty("val", PropertyType.STRING);
 
     session
@@ -1536,7 +1530,7 @@ public class IndexTest extends BaseDBTest {
         session
             .getMetadata()
             .getSchema()
-            .createClass("EmptyNotUniqueIndexTest", 1, (SchemaClass[]) null);
+            .createClass("EmptyNotUniqueIndexTest", 1);
     emptyNotUniqueIndexClazz.createProperty("prop", PropertyType.STRING);
 
     emptyNotUniqueIndexClazz.createIndex(

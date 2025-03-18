@@ -99,7 +99,7 @@ public class LuceneSpatialLineStringTest extends BaseSpatialLuceneTest {
     Assert.assertEquals(1, entities.size());
 
     query = "select * from Place where location && 'LINESTRING(1 2, 4 6)' ";
-    entities = session.query(new SQLSynchQuery<EntityImpl>(query));
+    entities = session.query(query).entityStream().toList();
 
     Assert.assertEquals(1, entities.size());
 

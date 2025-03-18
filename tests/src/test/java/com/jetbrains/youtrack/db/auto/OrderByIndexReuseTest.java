@@ -31,7 +31,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
 
     final Schema schema = session.getMetadata().getSchema();
 
-    final var orderByIndexReuse = schema.createClass("OrderByIndexReuse", 1, null);
+    final var orderByIndexReuse = schema.createClass("OrderByIndexReuse", 1);
 
     orderByIndexReuse.createProperty("firstProp", PropertyType.INTEGER);
     orderByIndexReuse.createProperty("secondProp", PropertyType.INTEGER);
