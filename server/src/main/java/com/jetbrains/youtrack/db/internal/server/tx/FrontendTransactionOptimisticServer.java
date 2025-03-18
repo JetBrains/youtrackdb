@@ -1,19 +1,12 @@
 package com.jetbrains.youtrack.db.internal.server.tx;
 
-import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.internal.client.remote.message.tx.RecordOperationRequest;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.index.ClassIndexManager;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -23,13 +16,20 @@ import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
-import javax.annotation.Nonnull;
 
 public class FrontendTransactionOptimisticServer extends FrontendTransactionOptimistic {
+
   private final HashMap<RecordId, RecordId> generatedOriginalRecordIdMap = new HashMap<>();
+  private final IdentityHashMap<RecordId, RecordId> generatedOriginalRecordIdIdentityMap = new IdentityHashMap<>();
+
+  private final HashMap<RecordId, RecordOperation> operationsToSendOnClient = new HashMap<>();
+  private final IdentityHashMap<RecordId, RecordOperation> operationsToSendOnClientIdentityMap =
+      new IdentityHashMap<>();
+
+  private boolean mergeInProgress = false;
 
   public FrontendTransactionOptimisticServer(DatabaseSessionInternal database, long txId) {
     super(database, txId);
@@ -40,350 +40,189 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
       return;
     }
 
-    // SORT OPERATIONS BY TYPE TO BE SURE THAT CREATES ARE PROCESSED FIRST
-    operations.sort(Comparator.comparingInt(RecordOperationRequest::getType).reversed());
-
-    final HashMap<RID, RecordOperation> tempEntries = new LinkedHashMap<>();
-    final var createdRecords = new HashMap<RID, RecordOperation>();
-    final var updatedRecords = new HashMap<RecordId, RecordAbstract>();
-
+    mergeInProgress = true;
     try {
-      for (var operation : operations) {
-        final var recordStatus = operation.getType();
+      generatedOriginalRecordIdMap.clear();
+      operationsToSendOnClient.clear();
 
-        final var rid = (RecordId) operation.getId();
+      // SORT OPERATIONS BY TYPE TO BE SURE THAT CREATES ARE PROCESSED FIRST
+      operations.sort(Comparator.comparingInt(RecordOperationRequest::getType).reversed());
 
-        @Nonnull final RecordOperation entry;
-        switch (recordStatus) {
-          case RecordOperation.CREATED: {
-            var txEntry = getRecordEntry(rid);
+      var newRecords = new ArrayList<RecordAbstract>(operations.size());
 
-            if (txEntry != null) {
-              if (txEntry.type != RecordOperation.CREATED) {
-                throw new IllegalStateException(
-                    "Record " + rid + " was created on client side but updated on server side.");
-              }
-              entry = txEntry;
+      for (var recordOperation : operations) {
+        var txEntry = getRecordEntry(recordOperation.getId());
 
-              mergeChanges(operation, entry.record, operation.getRecordType());
-            } else {
+        if (txEntry != null) {
+          if (txEntry.type == RecordOperation.DELETED) {
+            throw new TransactionException(
+                session,
+                "Record " + recordOperation.getId() + " is already deleted in transaction");
+          }
+
+          if (recordOperation.getType() == RecordOperation.UPDATED
+              || recordOperation.getType() == RecordOperation.CREATED) {
+            mergeChanges(recordOperation, txEntry.record);
+            addRecordOperation(txEntry.record, recordOperation.getType());
+          } else {
+            // DELETED
+            throw new TransactionException(
+                session,
+                "Invalid operation type " + recordOperation.getType() + " for record "
+                    + recordOperation.getId());
+          }
+
+          if (txEntry.recordCallBackUpdateCounterOnAnotherSide
+              != recordOperation.getDirtyCounter()) {
+            throw new IllegalStateException("Client and server transactions are not synchronized "
+                + "client dirty counter is " + txEntry.recordCallBackUpdateCounterOnAnotherSide
+                + " and server dirty counter is " + recordOperation.getDirtyCounter());
+          }
+        } else {
+          switch (recordOperation.getType()) {
+            case RecordOperation.CREATED -> {
               var record =
                   YouTrackDBEnginesManager.instance()
                       .getRecordFactoryManager()
-                      .newInstance(operation.getRecordType(), rid, getDatabaseSession());
+                      .newInstance(recordOperation.getRecordType(),
+                          (RecordId) recordOperation.getId(),
+                          session);
+              RecordInternal.unsetDirty(record);
 
-              RecordSerializerNetworkV37.INSTANCE.fromStream(getDatabaseSession(),
-                  operation.getRecord(),
-                  record);
+              record.recordSerializer = RecordSerializerNetworkV37.INSTANCE;
 
-              entry = new RecordOperation(record, RecordOperation.CREATED);
-              RecordInternal.setVersion(record, 0);
+              record.fromStream(recordOperation.getRecord());
+
+              addRecordOperation(record, RecordOperation.CREATED);
+              newRecords.add(record);
             }
-            createdRecords.put(rid.copy(), entry);
+            case RecordOperation.UPDATED -> {
+              var record = loadRecordAndCheckVersion(recordOperation);
+              mergeChanges(recordOperation, record);
+              addRecordOperation(record, RecordOperation.UPDATED);
+            }
+            case RecordOperation.DELETED -> {
+              var record = loadRecordAndCheckVersion(recordOperation);
+              record.delete();
+            }
+            default -> {
+              throw new TransactionException(
+                  session,
+                  "Invalid operation type " + recordOperation.getType() + " for record "
+                      + recordOperation.getId());
+            }
           }
-          break;
-
-          case RecordOperation.UPDATED: {
-            var type = operation.getRecordType();
-
-            var txEntry = getRecordEntry(rid);
-            if (txEntry != null && txEntry.type == RecordOperation.DELETED) {
-              throw new IllegalStateException(
-                  "Record " + rid + " was updated on client side but deleted on server side.");
-            }
-
-            RecordAbstract updated;
-            if (txEntry == null) {
-              try {
-                updated = session.load(rid);
-              } catch (RecordNotFoundException e) {
-                throw new IllegalStateException(
-                    "Record " + rid + " was not found in database.");
-              }
-              txEntry = new RecordOperation(updated, RecordOperation.UPDATED);
-            } else {
-              updated = txEntry.record;
-            }
-
-            entry = txEntry;
-
-            mergeChanges(operation, updated, type);
-            updatedRecords.put(rid, updated);
-          }
-          break;
-          case RecordOperation.DELETED:
-            // LOAD RECORD TO BE SURE IT HASN'T BEEN DELETED BEFORE + PROVIDE CONTENT FOR ANY HOOK
-            var recordEntry = getRecordEntry(rid);
-            if (recordEntry != null && recordEntry.type == RecordOperation.DELETED) {
-              // ALREADY DELETED
-              continue;
-            }
-
-            RecordAbstract rec = rid.getRecord(session);
-            entry = new RecordOperation(rec, RecordOperation.DELETED);
-            var deleteVersion = operation.getVersion();
-            RecordInternal.setVersion(rec, deleteVersion);
-            break;
-          default:
-            throw new TransactionException(session, "Unrecognized tx command: " + recordStatus);
-        }
-
-        // PUT IN TEMPORARY LIST TO GET FETCHED AFTER ALL FOR CACHE
-        tempEntries.put(entry.record.getIdentity(), entry);
-      }
-
-      var txOperations = new ArrayList<RecordOperation>(tempEntries.size());
-      try {
-        for (var entry : tempEntries.entrySet()) {
-          var operation = entry.getValue();
-          txOperations.add(preAddRecord(operation.record, entry.getValue().type));
-        }
-
-        for (var operation : txOperations) {
-          postAddRecord(operation.record, operation.type, operation.callHooksOnServerTx);
-        }
-      } finally {
-        for (var operation : txOperations) {
-          finalizeAddRecord(operation.record, operation.type, operation.callHooksOnServerTx);
         }
       }
 
-      tempEntries.clear();
+      for (var record : newRecords) {
+        if (record.sourceIsParsedByProperties()) {
+          throw new TransactionException("Record " + record.getIdentity()
+              + " is early parsed by properties, that can lead to inconsistent state of link based properties");
+        }
 
-      newRecordsPositionsGenerator = (createdRecords.size() + 2) * -1;
-      // UNMARSHALL ALL THE RECORD AT THE END TO BE SURE ALL THE RECORD ARE LOADED IN LOCAL TX
-      for (var recordOperation : createdRecords.values()) {
-        var record = recordOperation.record;
-        unmarshallRecord(record);
-        if (record instanceof EntityImpl) {
-          // Force conversion of value to class for trigger default values.
-          ((EntityImpl) record).autoConvertPropertiesToClass(getDatabaseSession());
+        if (record instanceof EntityImpl entity) {
+          //deserialize properties using network serializer and update all links of new records to correct values
+          assert entity.recordSerializer == RecordSerializerNetworkV37.INSTANCE;
+
+          entity.checkForProperties();
+          assert record.sourceIsParsedByProperties();
+
+          //back to normal serializer for entity
+          entity.recordSerializer = session.getSerializer();
         }
       }
-      for (DBRecord record : updatedRecords.values()) {
-        unmarshallRecord(record);
-      }
-    } catch (Exception e) {
-      rollback();
-      throw BaseException.wrapException(
-          new SerializationException(session,
-              "Cannot read transaction record from the network. Transaction aborted"),
-          e, session);
+    } finally {
+      mergeInProgress = false;
     }
+
+    preProcessRecordsAndExecuteCallCallbacks();
   }
 
-  private void mergeChanges(RecordOperationRequest operation, RecordAbstract record,
-      byte recordType) {
-    generatedOriginalRecordIdMap.clear();
+  private RecordAbstract loadRecordAndCheckVersion(RecordOperationRequest recordOperation) {
+    var rid = recordOperation.getId();
+    var version = recordOperation.getVersion();
 
+    var record = (RecordAbstract) session.load(rid);
+    if (record.getVersion() != version) {
+      throw new ConcurrentModificationException(session.getDatabaseName(),
+          record.getIdentity(),
+          record.getVersion(), version, RecordOperation.DELETED);
+    }
+    return record;
+  }
+
+  @Override
+  public RecordOperation addRecordOperation(RecordAbstract record, byte status) {
+    var txEntry = super.addRecordOperation(record, status);
+
+    //this condition ensures that addRecordOperation is always called if record changes are needed to be sent
+    //to the client look EngineImpl#registerInTx
+    if (txEntry.recordCallBackDirtyCounter < txEntry.recordCallBackUpdateCounterOnAnotherSide) {
+      throw new IllegalStateException("Record " + record.getIdentity()
+          + " is registered in transaction with callback dirty counter "
+          + txEntry.recordCallBackDirtyCounter
+          + " and client dirty counter "
+          + txEntry.recordCallBackUpdateCounterOnAnotherSide
+          + " that will lead to inconsistent state");
+    }
+
+    if (!mergeInProgress
+        && txEntry.recordCallBackUpdateCounterOnAnotherSide < record.getDirtyCounter()) {
+      operationsToSendOnClient.put(record.getIdentity(), txEntry);
+    }
+
+    return txEntry;
+  }
+
+  private void mergeChanges(RecordOperationRequest operation, RecordAbstract record) {
     if (record instanceof EntityImpl entity) {
-      entity.deserializeProperties();
-      entity.clearTransactionTrackData();
-
-      if (recordType == DocumentSerializerDelta.DELTA_RECORD_TYPE) {
+      if (operation.getRecordType() == DocumentSerializerDelta.DELTA_RECORD_TYPE) {
         var delta = DocumentSerializerDelta.instance();
         delta.deserializeDelta(getDatabaseSession(), operation.getRecord(), entity);
       } else {
         throw new UnsupportedOperationException("Only delta serialization is supported");
       }
-    }
-  }
-
-  /**
-   * Unmarshalls collections. This prevent temporary RIDs remains stored as are.
-   */
-  protected static void unmarshallRecord(final DBRecord iRecord) {
-    if (iRecord instanceof EntityImpl) {
-      ((EntityImpl) iRecord).deserializeProperties();
-    }
-  }
-
-  private boolean checkCallHooks(RecordId id, byte type) {
-    var entry = recordOperations.get(id);
-    return entry == null || entry.type != type;
-  }
-
-  private RecordOperation preAddRecord(RecordAbstract record, final byte iStatus) {
-    changed = true;
-    checkTransactionValid();
-
-    var callHooks = checkCallHooks(record.getIdentity(), iStatus);
-    if (callHooks) {
-      switch (iStatus) {
-        case RecordOperation.CREATED: {
-          session.beforeCreateOperations(record, null);
-        }
-        break;
-        case RecordOperation.UPDATED: {
-          session.beforeUpdateOperations(record, null);
-        }
-        break;
-
-        case RecordOperation.DELETED:
-          session.beforeDeleteOperations(record, null);
-          break;
-      }
-    }
-
-    try {
-      final var rid = record.getIdentity();
-
-      if (!rid.isPersistent() && !rid.isTemporary()) {
-        var oldRid = rid.copy();
-        if (rid.getClusterPosition() == RecordId.CLUSTER_POS_INVALID) {
-          rid.setClusterPosition(newRecordsPositionsGenerator--);
-          generatedOriginalRecordIdMap.put(rid, oldRid);
-        }
-      }
-
-      var txEntry = getRecordEntry(rid);
-
-      if (txEntry == null) {
-        // NEW ENTRY: JUST REGISTER IT
-        var status = iStatus;
-        if (status == RecordOperation.UPDATED && record.getIdentity().isTemporary()) {
-          status = RecordOperation.CREATED;
-        }
-        txEntry = new RecordOperation(record, status);
-        recordOperations.put(rid.copy(), txEntry);
-      } else {
-        // that is important to keep links to rids of this record inside transaction to be updated
-        // after commit
-        RecordInternal.setIdentity(record, txEntry.record.getIdentity());
-        // UPDATE PREVIOUS STATUS
-        if (txEntry.record != record) {
-          throw new IllegalStateException(
-              "Record " + rid + " is already presented in transaction with another instance");
-        }
-
-        switch (txEntry.type) {
-          case RecordOperation.UPDATED:
-            if (iStatus == RecordOperation.DELETED) {
-              txEntry.type = RecordOperation.DELETED;
-            }
-            break;
-          case RecordOperation.DELETED:
-            break;
-          case RecordOperation.CREATED:
-            if (iStatus == RecordOperation.DELETED) {
-              recordOperations.remove(rid);
-              // txEntry.type = RecordOperation.DELETED;
-            }
-            break;
-        }
-      }
-
-      if (!rid.isPersistent() && !rid.isTemporary()) {
-        var oldRid = rid.copy();
-        if (rid.getClusterId() == RecordId.CLUSTER_ID_INVALID) {
-          var clusterId = session.assignAndCheckCluster(record);
-          rid.setClusterId(clusterId);
-
-          generatedOriginalRecordIdMap.put(rid, oldRid);
-        }
-      }
-
-      txEntry.callHooksOnServerTx = callHooks;
-      return txEntry;
-    } catch (Exception e) {
-      if (callHooks) {
-        switch (iStatus) {
-          case RecordOperation.CREATED:
-            session.callbackHooks(RecordHook.TYPE.CREATE_FAILED, record);
-            break;
-          case RecordOperation.UPDATED:
-            session.callbackHooks(RecordHook.TYPE.UPDATE_FAILED, record);
-            break;
-          case RecordOperation.DELETED:
-            session.callbackHooks(RecordHook.TYPE.DELETE_FAILED, record);
-            break;
-        }
-      }
-
-      throw BaseException.wrapException(
-          new DatabaseException(session, "Error on saving record " + record.getIdentity()), e,
-          session);
-    }
-  }
-
-  private void postAddRecord(RecordAbstract record, final byte iStatus, boolean callHooks) {
-    checkTransactionValid();
-    try {
-      if (callHooks) {
-        switch (iStatus) {
-          case RecordOperation.CREATED:
-            session.afterCreateOperations(record);
-            break;
-          case RecordOperation.UPDATED:
-            session.afterUpdateOperations(record);
-            break;
-          case RecordOperation.DELETED:
-            session.afterDeleteOperations(record);
-            break;
-        }
-      } else {
-        switch (iStatus) {
-          case RecordOperation.CREATED:
-            if (record instanceof EntityImpl) {
-              ClassIndexManager.checkIndexesAfterCreate((EntityImpl) record, getDatabaseSession());
-            }
-            break;
-          case RecordOperation.UPDATED:
-            if (record instanceof EntityImpl) {
-              ClassIndexManager.checkIndexesAfterUpdate((EntityImpl) record, getDatabaseSession());
-            }
-            break;
-          case RecordOperation.DELETED:
-            if (record instanceof EntityImpl) {
-              ClassIndexManager.checkIndexesAfterDelete((EntityImpl) record, getDatabaseSession());
-            }
-            break;
-        }
-      }
-      // RESET TRACKING
-      if (record instanceof EntityImpl) {
-        ((EntityImpl) record).clearTrackData();
-      }
-
-    } catch (Exception e) {
-      if (callHooks) {
-        switch (iStatus) {
-          case RecordOperation.CREATED:
-            session.callbackHooks(RecordHook.TYPE.CREATE_FAILED, record);
-            break;
-          case RecordOperation.UPDATED:
-            session.callbackHooks(RecordHook.TYPE.UPDATE_FAILED, record);
-            break;
-          case RecordOperation.DELETED:
-            session.callbackHooks(RecordHook.TYPE.DELETE_FAILED, record);
-            break;
-        }
-      }
-
-      throw BaseException.wrapException(
-          new DatabaseException(session, "Error on saving record " + record.getIdentity()), e,
-          session);
-    }
-  }
-
-  private void finalizeAddRecord(RecordAbstract record, final byte iStatus, boolean callHooks) {
-    checkTransactionValid();
-    if (callHooks) {
-      switch (iStatus) {
-        case RecordOperation.CREATED:
-          session.callbackHooks(RecordHook.TYPE.FINALIZE_CREATION, record);
-          break;
-        case RecordOperation.UPDATED:
-          session.callbackHooks(RecordHook.TYPE.FINALIZE_UPDATE, record);
-          break;
-        case RecordOperation.DELETED:
-          session.callbackHooks(RecordHook.TYPE.FINALIZE_DELETION, record);
-          break;
-      }
+    } else {
+      var serializer = RecordSerializerNetworkV37.INSTANCE;
+      serializer.fromStream(getDatabaseSession(), operation.getRecord(), record);
     }
   }
 
   public Map<RecordId, RecordId> getGeneratedOriginalRidsMap() {
     return generatedOriginalRecordIdMap;
+  }
+
+  @Override
+  public void onBeforeIdentityChange(Object source) {
+    super.onBeforeIdentityChange(source);
+
+    var rid = (RecordId) source;
+    var removed = operationsToSendOnClient.remove(source);
+
+    if (removed != null) {
+      operationsToSendOnClientIdentityMap.put(rid, removed);
+    }
+
+    generatedOriginalRecordIdIdentityMap.put(rid, rid.copy());
+  }
+
+  @Override
+  public void onAfterIdentityChange(Object source) {
+    super.onAfterIdentityChange(source);
+
+    var rid = (RecordId) source;
+    var removed = operationsToSendOnClientIdentityMap.remove(source);
+    if (removed != null) {
+      operationsToSendOnClient.put(rid, removed);
+    }
+
+    var originalRid = generatedOriginalRecordIdIdentityMap.remove(rid);
+    var removedRid = generatedOriginalRecordIdMap.put(rid.copy(), originalRid);
+
+    if (removedRid != null) {
+      throw new IllegalStateException("Record " + rid
+          + " is already registered in transaction with original id " + removedRid);
+    }
   }
 }
