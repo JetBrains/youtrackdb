@@ -39,7 +39,11 @@ public interface ExecutionStream {
   }
 
   static ExecutionStream iterator(Iterator<?> iterator) {
-    return new IteratorExecutionStream(iterator);
+    return iterator(iterator, null);
+  }
+
+  static ExecutionStream iterator(Iterator<?> iterator, String alias) {
+    return new IteratorExecutionStream(iterator, alias);
   }
 
   static ExecutionStream resultIterator(Iterator<Result> iterator) {

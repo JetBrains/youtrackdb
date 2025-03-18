@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import java.util.Map;
@@ -70,7 +71,7 @@ public class InsertUnionValueTest {
       var expandedValues = session
           .query("select expand(metadata.something) from example")
           .stream()
-          .map(r -> r.<Map<?, ?>>getProperty("value"))
+          .map(Result::toMap)
           .collect(Collectors.toSet());
 
       assertThat(expandedValues).isEqualTo(

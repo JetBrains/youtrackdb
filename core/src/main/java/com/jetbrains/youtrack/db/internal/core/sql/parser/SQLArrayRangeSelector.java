@@ -87,14 +87,14 @@ public class SQLArrayRangeSelector extends SimpleNode {
     }
     var lFrom = from;
     if (fromSelector != null) {
-      lFrom = fromSelector.getValue(iCurrentRecord, result, ctx);
+      lFrom = fromSelector.getValue(iCurrentRecord, ctx);
     }
     if (lFrom == null) {
       lFrom = 0;
     }
     var lTo = to;
     if (toSelector != null) {
-      lTo = toSelector.getValue(iCurrentRecord, result, ctx);
+      lTo = toSelector.getValue(iCurrentRecord, ctx);
     }
     if (included) {
       lTo++;
@@ -127,14 +127,14 @@ public class SQLArrayRangeSelector extends SimpleNode {
     }
     var lFrom = from;
     if (fromSelector != null) {
-      lFrom = fromSelector.getValue(iCurrentRecord, result, ctx);
+      lFrom = fromSelector.getValue(iCurrentRecord, ctx);
     }
     if (lFrom == null) {
       lFrom = 0;
     }
     var lTo = to;
     if (toSelector != null) {
-      lTo = toSelector.getValue(iCurrentRecord, result, ctx);
+      lTo = toSelector.getValue(iCurrentRecord, ctx);
     }
     if (included) {
       lTo++;
@@ -351,11 +351,11 @@ public class SQLArrayRangeSelector extends SimpleNode {
     }
     var from = this.from;
     if (fromSelector != null) {
-      from = fromSelector.getValue(originalRecord, null, ctx);
+      from = fromSelector.getValue(originalRecord, ctx);
     }
     var to = this.to;
     if (toSelector != null) {
-      to = toSelector.getValue(originalRecord, null, ctx);
+      to = toSelector.getValue(originalRecord, ctx);
     }
     if (from == null || to == null) {
       throw new CommandExecutionException(ctx.getDatabaseSession(),

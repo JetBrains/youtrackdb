@@ -17,8 +17,11 @@ import java.util.Map;
  */
 public class ExpandStep extends AbstractExecutionStep {
 
-  public ExpandStep(CommandContext ctx, boolean profilingEnabled) {
+  private final String expandAlias;
+
+  public ExpandStep(CommandContext ctx, boolean profilingEnabled, String expandAlias) {
     super(ctx, profilingEnabled);
+    this.expandAlias = expandAlias;
   }
 
   @Override
@@ -28,10 +31,10 @@ public class ExpandStep extends AbstractExecutionStep {
           "Cannot expand without a target");
     }
     var resultSet = prev.start(ctx);
-    return resultSet.flatMap(ExpandStep::nextResults);
+    return resultSet.flatMap(this::nextResults);
   }
 
-  private static ExecutionStream nextResults(Result nextAggregateItem, CommandContext ctx) {
+  private ExecutionStream nextResults(Result nextAggregateItem, CommandContext ctx) {
     if (nextAggregateItem.getPropertyNames().isEmpty()) {
       return ExecutionStream.empty();
     }
@@ -47,6 +50,11 @@ public class ExpandStep extends AbstractExecutionStep {
         return ExecutionStream.empty();
       }
       case Identifiable identifiable -> {
+
+        if (expandAlias != null) {
+          throw new CommandExecutionException(db,
+              "Cannot expand a record with a non-null alias: " + expandAlias);
+        }
         DBRecord rec;
         try {
           rec = identifiable.getRecord(db);
@@ -61,17 +69,17 @@ public class ExpandStep extends AbstractExecutionStep {
         return ExecutionStream.singleton(result);
       }
       case Iterator<?> iterator -> {
-        return ExecutionStream.iterator(iterator);
+        return ExecutionStream.iterator(iterator, expandAlias);
       }
       case Iterable<?> iterable -> {
-        return ExecutionStream.iterator(iterable.iterator());
+        return ExecutionStream.iterator(iterable.iterator(), expandAlias);
       }
       case Map<?, ?> map -> {
-        return ExecutionStream.iterator(
-            map.entrySet().stream()
-                .map(Map::ofEntries)
-                .iterator()
-        );
+        if (expandAlias != null) {
+          throw new CommandExecutionException(db,
+              "Cannot expand a map with a non-null alias: " + expandAlias);
+        }
+        return ExecutionStream.iterator(map.entrySet().iterator(), null);
       }
       default -> {
         return ExecutionStream.empty();

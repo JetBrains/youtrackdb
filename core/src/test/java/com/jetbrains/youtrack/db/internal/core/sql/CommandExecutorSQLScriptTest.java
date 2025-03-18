@@ -88,39 +88,47 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
   public void testSleep() {
     var begin = System.currentTimeMillis();
 
-    session.command(new CommandScript("sql", "sleep 500")).execute(session);
+    session.execute("sql", "sleep 500").close();
 
     Assert.assertTrue(System.currentTimeMillis() - begin >= 500);
   }
 
   @Test
   public void testConsoleLog() {
-    var script = "LET $a = 'log'\n" + "console.log 'This is a test of log for ${a}'";
-    session.command(new CommandScript("sql", script)).execute(session);
+    var script = """
+        LET $a = 'log';
+        console.log 'This is a test of log for ${a}';""";
+    session.execute("sql", script).close();
   }
 
   @Test
   public void testConsoleOutput() {
-    var script = "LET $a = 'output'\n" + "console.output 'This is a test of log for ${a}'";
-    session.command(new CommandScript("sql", script)).execute(session);
+    var script = """
+        LET $a = 'output';
+        console.output 'This is a test of log for ${a}';""";
+    session.execute("sql", script).close();
   }
 
   @Test
   public void testConsoleError() {
-    var script = "LET $a = 'error'\n" + "console.error 'This is a test of log for ${a}'";
-    session.command(new CommandScript("sql", script)).execute(session);
+    var script = """
+        LET $a = 'error';
+        console.error 'This is a test of log for ${a}';""";
+    session.execute("sql", script).close();
   }
 
   @Test
   public void testReturnObject() {
-    Collection<Object> result =
-        session.command(new CommandScript("sql", "return [{ a: 'b' }]")).execute(session);
+    final var result = session.execute("sql", "return [{ a: 'b' }, { c: 'd'}]");
+    result.close();
 
-    Assert.assertNotNull(result);
+    assertThat(result).isNotNull();
+    assertThat(result.hasNext()).isTrue();
+    final var value = ((Collection<Object>) result.next().getProperty("value"));
+    assertThat(result.hasNext()).isFalse();
+    result.close();
 
-    Assert.assertEquals(1, result.size());
-
-    Assert.assertTrue(result.iterator().next() instanceof Map);
+    Assert.assertTrue(value.iterator().next() instanceof Map);
   }
 
   @Test

@@ -21,6 +21,7 @@ public class QueryPlanningInfo {
   protected SQLTimeout timeout;
   protected boolean distinct = false;
   protected boolean expand = false;
+  protected String expandAlias = null;
 
   protected SQLProjection preAggregateProjection;
   protected SQLProjection aggregateProjection;
@@ -51,6 +52,7 @@ public class QueryPlanningInfo {
     var result = new QueryPlanningInfo();
     result.distinct = this.distinct;
     result.expand = this.expand;
+    result.expandAlias = this.expandAlias;
     result.preAggregateProjection = this.preAggregateProjection;
     result.aggregateProjection = this.aggregateProjection;
     result.projection = this.projection;

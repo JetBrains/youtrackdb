@@ -1822,24 +1822,22 @@ public class MatchStatementExecutionTest extends DbTestBase {
     // - baz depends on bar
     // - bar depends on far
     session.begin();
-    var query =
-        new SQLSynchQuery(
-            """
-                MATCH {
-                    class: testCircularDependency_Foo,
-                    as: foo
-                }.out('testCircularDependency_Foo_Far') {
-                    where: ($matched.baz IS NOT null),
-                    as: far
-                }, {
-                    as: foo
-                }.out('testCircularDependency_Foo_Bar') {
-                    where: ($matched.far IS NOT null),
-                    as: bar
-                }.out('testCircularDependency_Bar_Baz') {
-                    where: ($matched.bar IS NOT null),
-                    as: baz
-                } RETURN $matches""");
+    var query = """
+        MATCH {
+            class: testCircularDependency_Foo,
+            as: foo
+        }.out('testCircularDependency_Foo_Far') {
+            where: ($matched.baz IS NOT null),
+            as: far
+        }, {
+            as: foo
+        }.out('testCircularDependency_Foo_Bar') {
+            where: ($matched.far IS NOT null),
+            as: bar
+        }.out('testCircularDependency_Bar_Baz') {
+            where: ($matched.bar IS NOT null),
+            as: baz
+        } RETURN $matches""";
 
     try {
       session.query(query);
@@ -1870,16 +1868,14 @@ public class MatchStatementExecutionTest extends DbTestBase {
 
     session.begin();
     // "bar" in the following query declares a dependency on the alias "baz", which doesn't exist.
-    var query =
-        new SQLSynchQuery(
-            """
-                MATCH {
-                    class: testUndefinedAliasDependency_Foo,
-                    as: foo
-                }.out('testUndefinedAliasDependency_Foo_Bar') {
-                    where: ($matched.baz IS NOT null),
-                    as: bar
-                } RETURN $matches""");
+    var query = """
+        MATCH {
+            class: testUndefinedAliasDependency_Foo,
+            as: foo
+        }.out('testUndefinedAliasDependency_Foo_Bar') {
+            where: ($matched.baz IS NOT null),
+            as: bar
+        } RETURN $matches""";
 
     try {
       session.query(query);
