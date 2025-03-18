@@ -1,6 +1,8 @@
 package com.jetbrains.youtrack.db.api;
 
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
+import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.nio.file.Path;
 import java.util.List;
@@ -253,6 +255,46 @@ public interface YouTrackDB extends AutoCloseable {
    */
   void restore(String name, String user, String password, String path,
       YouTrackDBConfig config);
+
+  /**
+   * Subscribe a query as a live query for future create/update event with the referred conditions
+   *
+   * @param query    live query
+   * @param listener the listener that receive the query results
+   * @param args     the live query args
+   */
+  LiveQueryMonitor live(String databaseName, String user, String password, YouTrackDBConfig config,
+      String query, LiveQueryResultListener listener, Map<String, ?> args);
+
+  /**
+   * Subscribe a query as a live query for future create/update event with the referred conditions
+   *
+   * @param query    live query
+   * @param listener the listener that receive the query results
+   * @param args     the live query args
+   */
+  LiveQueryMonitor live(String databaseName, String user, String password,
+      String query, LiveQueryResultListener listener, Map<String, ?> args);
+
+  /**
+   * Subscribe a query as a live query for future create/update event with the referred conditions
+   *
+   * @param query    live query
+   * @param listener the listener that receive the query results
+   * @param args     the live query args
+   */
+  LiveQueryMonitor live(String databaseName, String user, String password, YouTrackDBConfig config,
+      String query, LiveQueryResultListener listener, Object... args);
+
+  /**
+   * Subscribe a query as a live query for future create/update event with the referred conditions
+   *
+   * @param query    live query
+   * @param listener the listener that receive the query results
+   * @param args     the live query args
+   */
+  LiveQueryMonitor live(String databaseName, String user, String password,
+      String query, LiveQueryResultListener listener, Object... args);
 
 
   ResultSet execute(String script, Map<String, Object> params);

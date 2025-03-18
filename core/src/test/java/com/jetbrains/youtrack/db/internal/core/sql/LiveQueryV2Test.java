@@ -37,7 +37,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nonnull;
 import org.junit.Assert;
-import org.junit.Ignore;
 import org.junit.Test;
 
 /**
@@ -84,7 +83,6 @@ public class LiveQueryV2Test extends DbTestBase {
   }
 
   @Test
-  @Ignore
   public void testLiveInsert() throws InterruptedException {
     session.getMetadata().getSchema().createClass("test");
     session.getMetadata().getSchema().createClass("test2");
@@ -119,20 +117,16 @@ public class LiveQueryV2Test extends DbTestBase {
   }
 
   @Test
-  @Ignore
-  public void testLiveInsertOnCluster() {
-    var clazz = session.getMetadata().getSchema().createClass("test");
-
-    var defaultCluster = clazz.getClusterIds()[0];
-    var clusterName = session.getStorage().getClusterNameById(defaultCluster);
+  public void testLiveInsertOnClass() {
+    session.getMetadata().getSchema().createClass("test");
 
     var listener =
         new MyLiveQueryListener(new CountDownLatch(1));
 
-    session.live(" select from cluster:" + clusterName, listener);
+    session.live(" select from test", listener);
 
     session.begin();
-    session.command("insert into cluster:" + clusterName + " set name = 'foo', surname = 'bar'");
+    session.command("insert into test set name = 'foo', surname = 'bar'");
     session.commit();
 
     try {
@@ -150,7 +144,6 @@ public class LiveQueryV2Test extends DbTestBase {
   }
 
   @Test
-  @Ignore
   public void testLiveWithWhereCondition() {
     session.getMetadata().getSchema().createClass("test");
 
@@ -178,7 +171,6 @@ public class LiveQueryV2Test extends DbTestBase {
   }
 
   @Test
-  @Ignore
   public void testRestrictedLiveInsert() throws ExecutionException, InterruptedException {
     Schema schema = session.getMetadata().getSchema();
     var oRestricted = schema.getClass("ORestricted");
@@ -262,7 +254,6 @@ public class LiveQueryV2Test extends DbTestBase {
   }
 
   @Test
-  @Ignore
   public void testLiveProjections() throws InterruptedException {
     session.getMetadata().getSchema().createClass("test");
     session.getMetadata().getSchema().createClass("test2");

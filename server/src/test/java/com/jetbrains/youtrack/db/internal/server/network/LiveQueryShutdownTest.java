@@ -44,13 +44,13 @@ public class LiveQueryShutdownTest {
   public void testShutDown() throws Exception {
     bootServer();
     final var end = new CountDownLatch(1);
-    try (var youTrackDbManager = YourTracks.remote("remote:localhost", "root", "root")) {
-      youTrackDbManager.createIfNotExists(LiveQueryShutdownTest.class.getSimpleName(),
+    try (var youTrackDd = YourTracks.remote("remote:localhost", "root", "root")) {
+      youTrackDd.createIfNotExists(LiveQueryShutdownTest.class.getSimpleName(),
           DatabaseType.MEMORY, "admin", "admin", "admin");
-      try (var db = youTrackDbManager.open(
+      try (var db = youTrackDd.open(
           LiveQueryShutdownTest.class.getSimpleName(), "admin", "admin")) {
         db.getSchema().createClass("Test");
-        db.live(
+        youTrackDd.live(LiveQueryShutdownTest.class.getSimpleName(), "admin", "admin",
             "live select from Test",
             new LiveQueryResultListener() {
 

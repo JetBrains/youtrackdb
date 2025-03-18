@@ -36,7 +36,6 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SystemDatabase;
 import com.jetbrains.youtrack.db.internal.core.db.record.ClassTrigger;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.index.NullOutputListener;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
@@ -179,11 +178,7 @@ public class SecurityShared implements SecurityInternal {
       final Identifiable iId) {
     return session.computeInTx(
         () -> {
-          Set<Identifiable> field = entity.getProperty(iAllowFieldName);
-          if (field == null) {
-            field = new TrackedSet<>(entity);
-            entity.setProperty(iAllowFieldName, field);
-          }
+          var field = entity.getOrCreateLinkSet(iAllowFieldName);
           field.add(iId);
 
           return iId;

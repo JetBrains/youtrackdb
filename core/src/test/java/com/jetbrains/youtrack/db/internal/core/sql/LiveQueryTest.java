@@ -42,7 +42,6 @@ import javax.annotation.Nonnull;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
 
 /**
@@ -120,7 +119,6 @@ public class LiveQueryTest {
   }
 
   @Test
-  @Ignore
   public void testLiveInsert() throws InterruptedException {
 
     session.getMetadata().getSchema().createClass("test");
@@ -154,7 +152,6 @@ public class LiveQueryTest {
   }
 
   @Test
-  @Ignore
   public void testRestrictedLiveInsert() throws ExecutionException, InterruptedException {
 
     Schema schema = session.getMetadata().getSchema();
@@ -177,11 +174,9 @@ public class LiveQueryTest {
             new Callable<Integer>() {
               @Override
               public Integer call() throws Exception {
-                var otherDb = odb.open("LiveQueryTest", "reader", "reader");
-
                 final var integer = new AtomicInteger(0);
                 try {
-                  otherDb.live(
+                  odb.live("LiveQueryTest", "reader", "reader",
                       "live select from test",
                       new LiveQueryResultListener() {
 

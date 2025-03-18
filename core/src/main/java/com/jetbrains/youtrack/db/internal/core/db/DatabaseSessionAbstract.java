@@ -284,9 +284,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     var poolConfig = configBuilder.fromContext(contextConfig).build();
 
     var userName = user.getName(this);
-    var userPassword = user.getPassword(this);
 
-    var pool = youTrackDb.openPool(getDatabaseName(), userName, userPassword, poolConfig);
+    var pool = youTrackDb.openPoolNoAuthenticate(getDatabaseName(), userName, poolConfig);
     var storage = getStorage();
     return storage.live(pool, query, listener, args);
   }
@@ -300,9 +299,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     var poolConfig = configBuilder.fromContext(contextConfig).build();
 
     var userName = user.getName(this);
-    var userPassword = user.getPassword(this);
 
-    var pool = youTrackDb.openPool(getDatabaseName(), userName, userPassword, poolConfig);
+    var pool = youTrackDb.openPoolNoAuthenticate(getDatabaseName(), userName, poolConfig);
     var storage = getStorage();
 
     return storage.live(pool, query, listener, args);

@@ -18,7 +18,6 @@ import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
@@ -182,53 +181,47 @@ public class LiveQueryRemoteTest {
     final var dataArrived = new CountDownLatch(1);
     var future =
         executorService.submit(
-            new Callable<Integer>() {
-              @Override
-              public Integer call() throws Exception {
-                var db =
-                    youTrackDB.open(LiveQueryRemoteTest.class.getSimpleName(), "reader", "reader");
+            () -> {
+              final var integer = new AtomicInteger(0);
+              youTrackDB.live(LiveQueryRemoteTest.class.getSimpleName(), "reader", "reader",
+                  "live select from test",
+                  new LiveQueryResultListener() {
 
-                final var integer = new AtomicInteger(0);
-                db.live(
-                    "live select from test",
-                    new LiveQueryResultListener() {
+                    @Override
+                    public void onCreate(@Nonnull DatabaseSessionInternal session,
+                        @Nonnull Result data) {
+                      integer.incrementAndGet();
+                      dataArrived.countDown();
+                    }
 
-                      @Override
-                      public void onCreate(@Nonnull DatabaseSessionInternal session,
-                          @Nonnull Result data) {
-                        integer.incrementAndGet();
-                        dataArrived.countDown();
-                      }
+                    @Override
+                    public void onUpdate(
+                        @Nonnull DatabaseSessionInternal session, @Nonnull Result before,
+                        @Nonnull Result after) {
+                      integer.incrementAndGet();
+                      dataArrived.countDown();
+                    }
 
-                      @Override
-                      public void onUpdate(
-                          @Nonnull DatabaseSessionInternal session, @Nonnull Result before,
-                          @Nonnull Result after) {
-                        integer.incrementAndGet();
-                        dataArrived.countDown();
-                      }
+                    @Override
+                    public void onDelete(@Nonnull DatabaseSessionInternal session,
+                        @Nonnull Result data) {
+                      integer.incrementAndGet();
+                      dataArrived.countDown();
+                    }
 
-                      @Override
-                      public void onDelete(@Nonnull DatabaseSessionInternal session,
-                          @Nonnull Result data) {
-                        integer.incrementAndGet();
-                        dataArrived.countDown();
-                      }
+                    @Override
+                    public void onError(@Nonnull DatabaseSession session,
+                        @Nonnull BaseException exception) {
+                    }
 
-                      @Override
-                      public void onError(@Nonnull DatabaseSession session,
-                          @Nonnull BaseException exception) {
-                      }
+                    @Override
+                    public void onEnd(@Nonnull DatabaseSession session) {
+                    }
+                  });
 
-                      @Override
-                      public void onEnd(@Nonnull DatabaseSession session) {
-                      }
-                    });
-
-                latch.countDown();
-                Assert.assertTrue(dataArrived.await(2, TimeUnit.MINUTES));
-                return integer.get();
-              }
+              latch.countDown();
+              Assert.assertTrue(dataArrived.await(2, TimeUnit.MINUTES));
+              return integer.get();
             });
 
     latch.await();

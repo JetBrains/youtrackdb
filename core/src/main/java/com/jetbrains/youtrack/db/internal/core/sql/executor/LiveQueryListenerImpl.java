@@ -134,37 +134,37 @@ public class LiveQueryListenerImpl implements LiveQueryListenerV2 {
   }
 
   @Override
-  public void onLiveResults(List<LiveQueryOp> iRecords) {
+  public void onLiveResults(List<LiveQueryOp> liveQueryOps) {
     try (var session = (DatabaseSessionInternal) pool.acquire()) {
 
-      for (var iRecord : iRecords) {
+      for (var queryOp : liveQueryOps) {
         ResultInternal record;
-        if (iRecord.type == RecordOperation.CREATED || iRecord.type == RecordOperation.UPDATED) {
-          record = copy(session, iRecord.after);
-          if (iRecord.type == RecordOperation.UPDATED) {
-            var before = copy(session, iRecord.before);
+        if (queryOp.type == RecordOperation.CREATED || queryOp.type == RecordOperation.UPDATED) {
+          record = copy(session, queryOp.after);
+          if (queryOp.type == RecordOperation.UPDATED) {
+            var before = copy(session, queryOp.before);
             record.setMetadata(BEFORE_METADATA_KEY, before);
           }
         } else {
-          record = copy(session, iRecord.before);
+          record = copy(session, queryOp.before);
           record.setMetadata(BEFORE_METADATA_KEY, record);
         }
 
         if (filter(session, record)) {
-          switch (iRecord.type) {
+          switch (queryOp.type) {
             case RecordOperation.DELETED:
               record.setMetadata(BEFORE_METADATA_KEY, null);
-              clientListener.onDelete(session, applyProjections(record, session));
+              clientListener.onDelete(session, applyProjections(record, session).detach());
               break;
             case RecordOperation.UPDATED:
               Result before =
                   applyProjections((ResultInternal) record.getMetadata(BEFORE_METADATA_KEY),
                       session);
               record.setMetadata(BEFORE_METADATA_KEY, null);
-              clientListener.onUpdate(session, before, applyProjections(record, session));
+              clientListener.onUpdate(session, before, applyProjections(record, session).detach());
               break;
             case RecordOperation.CREATED:
-              clientListener.onCreate(session, applyProjections(record, session));
+              clientListener.onCreate(session, applyProjections(record, session).detach());
               break;
           }
         }
@@ -227,6 +227,8 @@ public class LiveQueryListenerImpl implements LiveQueryListenerV2 {
       return true;
     }
     var ctx = new BasicCommandContext();
+    ctx.setDatabaseSession(session);
+
     ctx.setInputParameters(params);
     return where.matchesFilters(record, ctx);
   }

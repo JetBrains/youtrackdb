@@ -594,6 +594,23 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     return embedded;
   }
 
+  @Override
+  public DatabaseSessionInternal poolOpenNoAuthenticate(String name, String user,
+      DatabasePoolInternal pool) {
+    final DatabaseSessionEmbedded embedded;
+    synchronized (this) {
+      checkOpen();
+      var storage = getAndOpenStorage(name, pool.getConfig());
+      embedded = newPooledSessionInstance(pool, storage, getOrCreateSharedContext(storage));
+    }
+
+    embedded.rebuildIndexes();
+    embedded.internalOpen(user, "nopwd", false);
+    embedded.callOnOpenListeners();
+
+    return embedded;
+  }
+
   protected DatabaseSessionEmbedded newPooledSessionInstance(
       DatabasePoolInternal pool, AbstractPaginatedStorage storage, SharedContext sharedContext) {
     var embedded = new DatabaseSessionEmbeddedPooled(pool, storage);
@@ -945,6 +962,17 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     checkDatabaseName(name);
     checkOpen();
     var pool = new DatabasePoolImpl(this, name, user, password,
+        solveConfig((YouTrackDBConfigImpl) config));
+    pools.add(pool);
+    return pool;
+  }
+
+  @Override
+  public DatabasePoolInternal openPoolNoAuthenticate(String name, String user,
+      YouTrackDBConfig config) {
+    checkDatabaseName(name);
+    checkOpen();
+    var pool = new DatabasePoolImpl(this, name, user,
         solveConfig((YouTrackDBConfigImpl) config));
     pools.add(pool);
     return pool;

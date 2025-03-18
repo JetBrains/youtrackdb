@@ -29,8 +29,6 @@ import com.jetbrains.youtrack.db.api.exception.ModificationOperationProhibitedEx
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
-import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
-import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
@@ -941,25 +939,6 @@ public interface DatabaseSession extends AutoCloseable {
    * @return File name of the backup
    */
   String incrementalBackup(Path path);
-
-  /**
-   * Subscribe a query as a live query for future create/update event with the referred conditions
-   *
-   * @param query    live query
-   * @param listener the listener that receive the query results
-   * @param args     the live query args
-   */
-  LiveQueryMonitor live(String query, LiveQueryResultListener listener, Map<String, ?> args);
-
-  /**
-   * Subscribe a query as a live query for future create/update event with the referred conditions
-   *
-   * @param query    live query
-   * @param listener the listener that receive the query results
-   * @param args     the live query args
-   */
-  LiveQueryMonitor live(String query, LiveQueryResultListener listener, Object... args);
-
 
   /**
    * Returns a database attribute value

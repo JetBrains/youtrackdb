@@ -96,11 +96,12 @@ public class SQLRecordAttribute extends SimpleNode {
         }
       }
 
-      return null;
+      return iCurrentResult.getString(name);
     } else if (name.equalsIgnoreCase("@version")) {
       if (iCurrentResult.isRecord()) {
         return iCurrentResult.asRecord().getVersion();
       }
+      return iCurrentResult.getProperty(name);
     } else if (name.equals("@type")) {
       if (iCurrentResult.isRecord()) {
         var r = iCurrentResult.asRecord();
@@ -113,18 +114,22 @@ public class SQLRecordAttribute extends SimpleNode {
           return "unknown";
         }
       }
-      return null;
+      return iCurrentResult.getString(name);
     } else if (name.equals("@size")) {
       if (iCurrentResult.isRecord()) {
         return ((RecordAbstract) iCurrentResult.asRecord()).toStream().length;
       }
+      return iCurrentResult.getProperty(name);
     } else if (name.equals("@raw")) {
       if (iCurrentResult.isRecord()) {
         return ((RecordAbstract) iCurrentResult.asRecord()).toStream();
       }
-      return null;
+      return iCurrentResult.getProperty(name);
     } else if (name.equals("@rid")) {
-      return iCurrentResult.getIdentity();
+      if (iCurrentResult.isRecord()) {
+        return iCurrentResult.getIdentity();
+      }
+      return iCurrentResult.getProperty(name);
     }
 
     return null;

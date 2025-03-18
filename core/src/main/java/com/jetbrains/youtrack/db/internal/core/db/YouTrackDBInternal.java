@@ -237,6 +237,9 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
   DatabasePoolInternal openPool(String name, String user, String password,
       YouTrackDBConfig config);
 
+  DatabasePoolInternal openPoolNoAuthenticate(String name, String user,
+      YouTrackDBConfig config);
+
   DatabasePoolInternal cachedPool(String database, String user, String password);
 
   DatabasePoolInternal cachedPool(
@@ -247,6 +250,9 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
    */
   DatabaseSessionInternal poolOpen(
       String name, String user, String password, DatabasePoolInternal pool);
+
+  DatabaseSessionInternal poolOpenNoAuthenticate(
+      String name, String user, DatabasePoolInternal pool);
 
   void restore(
       String name,

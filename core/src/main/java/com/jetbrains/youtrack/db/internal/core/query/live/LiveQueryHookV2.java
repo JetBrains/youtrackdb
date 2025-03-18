@@ -44,6 +44,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class LiveQueryHookV2 {
 
@@ -54,17 +55,26 @@ public class LiveQueryHookV2 {
     public byte type;
     protected EntityImpl originalEntity;
 
-    LiveQueryOp(EntityImpl originalEntity, Result before, Result after, byte type) {
+    LiveQueryOp(EntityImpl originalEntity, @Nullable Result before, @Nullable Result after,
+        byte type) {
       this.originalEntity = originalEntity;
       this.type = type;
-      this.before = before;
-      this.after = after;
+      if (before != null) {
+        this.before = before.detach();
+      } else {
+        this.before = null;
+      }
+      if (after != null) {
+        this.after = after.detach();
+      } else {
+        this.after = null;
+      }
     }
   }
 
   public static class LiveQueryOps implements CloseableInStorage {
 
-    protected Map<DatabaseSession, List<LiveQueryOp>> pendingOps = new ConcurrentHashMap<>();
+    protected final Map<DatabaseSession, List<LiveQueryOp>> pendingOps = new ConcurrentHashMap<>();
     private LiveQueryQueueThreadV2 queueThread = new LiveQueryQueueThreadV2(this);
     private final Object threadLock = new Object();
 
@@ -214,11 +224,7 @@ public class LiveQueryHookV2 {
 
     var result = new LiveQueryOp(entity, before, after, iType);
     synchronized (ops.pendingOps) {
-      var list = ops.pendingOps.get(database);
-      if (list == null) {
-        list = new ArrayList<>();
-        ops.pendingOps.put(database, list);
-      }
+      var list = ops.pendingOps.computeIfAbsent(database, k -> new ArrayList<>());
       if (result.type == RecordOperation.UPDATED) {
         var prev = prevousUpdate(list, result.originalEntity);
         if (prev == null) {

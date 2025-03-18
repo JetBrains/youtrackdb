@@ -750,6 +750,18 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
   }
 
   @Override
+  public DatabasePoolInternal openPoolNoAuthenticate(String name, String user,
+      YouTrackDBConfig config) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public DatabaseSessionInternal poolOpenNoAuthenticate(String name, String user,
+      DatabasePoolInternal pool) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
   public YouTrackDBConfigImpl getConfiguration() {
     return configurations;
   }

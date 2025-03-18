@@ -25,6 +25,8 @@ import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
+import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
+import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Edge;
@@ -861,6 +863,25 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   default TransactionMeters transactionMeters() {
     return TransactionMeters.NOOP;
   }
+
+  /**
+   * Subscribe a query as a live query for future create/update event with the referred conditions
+   *
+   * @param query    live query
+   * @param listener the listener that receive the query results
+   * @param args     the live query args
+   */
+  LiveQueryMonitor live(String query, LiveQueryResultListener listener, Map<String, ?> args);
+
+  /**
+   * Subscribe a query as a live query for future create/update event with the referred conditions
+   *
+   * @param query    live query
+   * @param listener the listener that receive the query results
+   * @param args     the live query args
+   */
+  LiveQueryMonitor live(String query, LiveQueryResultListener listener, Object... args);
+
 
   @Nonnull
   RID refreshRid(@Nonnull RID rid);

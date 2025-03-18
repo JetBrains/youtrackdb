@@ -36,13 +36,13 @@ public class LiveQueryClientListener {
         for (var result : pushRequest.getEvents()) {
           switch (result.getEventType()) {
             case LiveQueryResult.CREATE_EVENT:
-              listener.onCreate(session, result.getCurrentValue());
+              listener.onCreate(session, result.getCurrentValue().detach());
               break;
             case LiveQueryResult.UPDATE_EVENT:
-              listener.onUpdate(session, result.getOldValue(), result.getCurrentValue());
+              listener.onUpdate(session, result.getOldValue(), result.getCurrentValue().detach());
               break;
             case LiveQueryResult.DELETE_EVENT:
-              listener.onDelete(session, result.getCurrentValue());
+              listener.onDelete(session, result.getCurrentValue().detach());
               break;
           }
         }

@@ -72,6 +72,40 @@ public class DatabasePoolImpl implements DatabasePoolInternal {
             });
   }
 
+  public DatabasePoolImpl(
+      YouTrackDBInternal factory,
+      String database,
+      String user,
+      YouTrackDBConfigImpl config) {
+
+    var max = config.getConfiguration().getValueAsInteger(DB_POOL_MAX);
+    var min = config.getConfiguration().getValueAsInteger(DB_POOL_MIN);
+    this.factory = factory;
+    this.config = config;
+    pool =
+        new ResourcePool(
+            min,
+            max,
+            new ResourcePoolListener<Void, DatabaseSessionInternal>() {
+              @Override
+              public DatabaseSessionInternal createNewResource(
+                  Void iKey, Object... iAdditionalArgs) {
+                return factory.poolOpenNoAuthenticate(database, user, DatabasePoolImpl.this);
+              }
+
+              @Override
+              public boolean reuseResource(
+                  Void iKey, Object[] iAdditionalArgs, DatabaseSessionInternal iValue) {
+                if (iValue.getStorage().isClosed(iValue)) {
+                  return false;
+                }
+                iValue.reuse();
+                return true;
+              }
+            });
+  }
+
+
   @Override
   public DatabaseSession acquire() throws AcquireTimeoutException {
     ResourcePool<Void, DatabaseSessionInternal> p;

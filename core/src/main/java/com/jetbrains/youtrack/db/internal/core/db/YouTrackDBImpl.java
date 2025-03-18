@@ -22,6 +22,8 @@ import com.jetbrains.youtrack.db.api.SessionPool;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
+import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.util.ArrayList;
 import java.util.List;
@@ -489,5 +491,42 @@ public class YouTrackDBImpl implements YouTrackDB {
   public ResultSet execute(String script, Object... params) {
     return internal.executeServerStatementPositionalParams(script, serverUser, serverPassword,
         params);
+  }
+
+  @Override
+  public LiveQueryMonitor live(String databaseName, String user, String password,
+      YouTrackDBConfig config, String query, LiveQueryResultListener listener,
+      Map<String, ?> args) {
+    var pool = internal.openPool(databaseName, user, password, config);
+
+    try (var session = (DatabaseSessionInternal) pool.acquire()) {
+      var storage = session.getStorage();
+      return storage.live(pool, query, listener, args);
+    }
+  }
+
+  @Override
+  public LiveQueryMonitor live(String databaseName, String user, String password, String query,
+      LiveQueryResultListener listener, Map<String, ?> args) {
+    return live(databaseName, user, password, YouTrackDBConfig.defaultConfig(), query, listener,
+        args);
+  }
+
+  @Override
+  public LiveQueryMonitor live(String databaseName, String user, String password,
+      YouTrackDBConfig config, String query, LiveQueryResultListener listener, Object... args) {
+    var pool = internal.openPool(databaseName, user, password, config);
+
+    try (var session = (DatabaseSessionInternal) pool.acquire()) {
+      var storage = session.getStorage();
+      return storage.live(pool, query, listener, args);
+    }
+  }
+
+  @Override
+  public LiveQueryMonitor live(String databaseName, String user, String password, String query,
+      LiveQueryResultListener listener, Object... args) {
+    return live(databaseName, user, password, YouTrackDBConfig.defaultConfig(), query, listener,
+        args);
   }
 }
