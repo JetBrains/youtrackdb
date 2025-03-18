@@ -1363,7 +1363,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
 
   private boolean isUsingRestrictedClasses(DatabaseSessionInternal db) {
     var restrictedClasses = false;
-    final var user = db.geCurrentUser();
+    final var user = db.getCurrentUser();
 
     if (parsedTarget.getTargetClasses() != null
         && user != null

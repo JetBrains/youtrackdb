@@ -136,8 +136,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     setup();
 
-    this.recordId.setClusterId(rid.getClusterId());
-    this.recordId.setClusterPosition(rid.getClusterPosition());
+    this.recordId.setClusterAndPosition(rid.getClusterId(), rid.getClusterPosition());
   }
 
   /**
@@ -1476,7 +1475,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
               String.format(
                   "Change of property '%s' is not allowed for user '%s'",
                   iRecord.getSchemaClassName() + "." + mapEntry.getKey(),
-                  session.geCurrentUser().getName(session)));
+                  session.getCurrentUser().getName(session)));
         }
       }
     }

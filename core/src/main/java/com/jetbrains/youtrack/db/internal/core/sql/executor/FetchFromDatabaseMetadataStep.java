@@ -30,7 +30,8 @@ public class FetchFromDatabaseMetadataStep extends AbstractExecutionStep {
     var result = new ResultInternal(db);
 
     result.setProperty("name", db.getDatabaseName());
-    result.setProperty("user", db.geCurrentUser() == null ? null : db.geCurrentUser().getName(db));
+    result.setProperty("user",
+        db.getCurrentUser() == null ? null : db.getCurrentUser().getName(db));
     result.setProperty(
         "dateFormat", String.valueOf(db.get(DatabaseSession.ATTRIBUTES.DATEFORMAT)));
     result.setProperty(

@@ -976,7 +976,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
               .getTokenHandler()
               .getSignedBinaryToken(
                   connection.getDatabaseSession(),
-                  connection.getDatabaseSession().geCurrentUser(),
+                  connection.getDatabaseSession().getCurrentUser(),
                   connection.getData());
       // TODO: do not use the parse split getSignedBinaryToken in two methods.
       server.getClientConnectionManager().connect(connection.getProtocol(), connection, token);
@@ -1047,7 +1047,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
         server
             .getTokenHandler()
             .getSignedBinaryToken(
-                connection.getDatabaseSession(), connection.getDatabaseSession().geCurrentUser(),
+                connection.getDatabaseSession(), connection.getDatabaseSession().getCurrentUser(),
                 connection.getData());
     // TODO: do not use the parse split getSignedBinaryToken in two methods.
     server.getClientConnectionManager().connect(connection.getProtocol(), connection, token);
@@ -1645,9 +1645,11 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     var listener =
         new ServerLiveQueryResultListener(protocol,
             connection.getDatabaseSession().getSharedContext());
-    var monitor =
-        connection.getDatabaseSession().live(request.getQuery(), listener, request.getParams());
+
+    var session = connection.getDatabaseSession();
+    var monitor = session.live(request.getQuery(), listener, request.getParams());
     listener.setMonitorId(monitor.getMonitorId());
+
     return new SubscribeLiveQueryResponse(monitor.getMonitorId());
   }
 }

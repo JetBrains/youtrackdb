@@ -143,7 +143,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       if (cls != null) {
 
         // CHECK THE USER HAS UPDATE PRIVILEGE AGAINST EXTENDING CLASS
-        final var user = database.geCurrentUser();
+        final var user = database.getCurrentUser();
         if (user != null) {
           user.allow(database, Rule.ResourceGeneric.CLASS, cls.getName(database),
               Role.PERMISSION_UPDATE);

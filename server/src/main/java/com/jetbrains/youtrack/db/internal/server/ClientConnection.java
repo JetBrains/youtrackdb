@@ -343,7 +343,7 @@ public class ClientConnection {
       session.activateOnCurrentThread();
       stats.lastDatabase = session.getDatabaseName();
       stats.lastUser =
-          session.geCurrentUser() != null ? session.geCurrentUser().getName(session) : null;
+          session.getCurrentUser() != null ? session.getCurrentUser().getName(session) : null;
       stats.activeQueries = getActiveQueries(session);
     } else {
       stats.lastDatabase = null;

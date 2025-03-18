@@ -166,7 +166,7 @@ public class LiveQueryTest {
 
     final Identifiable reader = query.next().getIdentity();
     query.close();
-    final var current = session.geCurrentUser().getIdentity();
+    final var current = session.getCurrentUser().getIdentity();
 
     var executorService = Executors.newSingleThreadExecutor();
 

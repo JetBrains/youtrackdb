@@ -22,7 +22,6 @@ package com.jetbrains.youtrack.db.internal.core.tx;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.session.RecordOperationType;
 import com.jetbrains.youtrack.db.api.session.Transaction;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -77,10 +76,6 @@ public interface FrontendTransaction extends Transaction {
   @Deprecated
   Iterable<? extends RecordOperation> getCurrentRecordEntries();
 
-  List<RecordOperation> getNewRecordEntriesByClass(SchemaClass iClass, boolean iPolymorphic);
-
-  List<RecordOperation> getNewRecordEntriesByClusterIds(int[] iIds);
-
   RecordOperation getRecordEntry(RID rid);
 
   List<String> getInvolvedIndexes();
@@ -97,8 +92,9 @@ public interface FrontendTransaction extends Transaction {
    *
    * @param oldRid Record identity before commit.
    * @param newRid Record identity after commit.
+   * @return
    */
-  void updateIdentityAfterCommit(final RecordId oldRid, final RecordId newRid);
+  boolean assertIdentityChangedAfterCommit(final RecordId oldRid, final RecordId newRid);
 
   int amountOfNestedTxs();
 

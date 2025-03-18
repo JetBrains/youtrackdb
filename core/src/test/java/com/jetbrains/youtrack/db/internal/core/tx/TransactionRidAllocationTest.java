@@ -179,8 +179,7 @@ public class TransactionRidAllocationTest {
     db.begin();
     var v = db.newVertex("V");
 
-    ((AbstractPaginatedStorage) db.getStorage())
-        .preallocateRids(db.getTransactionInternal());
+    ((AbstractPaginatedStorage) db.getStorage()).preallocateRids(db.getTransactionInternal());
     var transaction = db.getTransactionInternal();
     List<Triple<Byte, Identifiable, byte[]>> recordOperations = new ArrayList<>();
     for (var operation : transaction.getRecordOperationsInternal()) {
@@ -199,8 +198,7 @@ public class TransactionRidAllocationTest {
       serializer.fromStream(second, record, deserialized, null);
       deserialized.setIdentity(recordOperation.value.key.getIdentity());
       deserialized.setInternalStatus(STATUS.LOADED);
-      transactionOptimistic.addRecordOperation(deserialized,
-          recordOperation.key);
+      transactionOptimistic.addRecordOperation(deserialized, recordOperation.key);
     }
     ((AbstractPaginatedStorage) second.getStorage()).preallocateRids(transactionOptimistic);
   }

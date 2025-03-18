@@ -844,7 +844,7 @@ public class YouTrackDBServer {
     final DatabaseSessionInternal database;
     var serverAuth = false;
     database = databases.open(iDbUrl, user, password);
-    if (SecurityUser.SERVER_USER_TYPE.equals(database.geCurrentUser().getUserType())) {
+    if (SecurityUser.SERVER_USER_TYPE.equals(database.getCurrentUser().getUserType())) {
       serverAuth = true;
     }
     if (serverAuth && data != null) {

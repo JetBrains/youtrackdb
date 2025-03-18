@@ -35,7 +35,6 @@ import org.testng.annotations.Test;
 /**
  * only for remote usage (it requires registered LiveQuery plugin)
  */
-@Test(groups = "Query")
 public class LiveQueryTest extends BaseDBTest implements CommandOutputListener {
 
   private final CountDownLatch latch = new CountDownLatch(2);

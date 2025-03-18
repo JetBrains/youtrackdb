@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.ModificationOperationProhibitedException;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
 import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
+import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.client.NotSendRequestException;
 import com.jetbrains.youtrack.db.internal.client.binary.SocketChannelBinaryAsynchClient;
@@ -36,7 +37,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushReques
 import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CeilingPhysicalPositionsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseQueryRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CommandRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Commit38Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CountRecordsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CountRequest;
@@ -82,10 +82,10 @@ import com.jetbrains.youtrack.db.internal.common.thread.ThreadPoolExecutors;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.internal.core.command.CommandRequestAsynch;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
+import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SharedContext;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
@@ -100,7 +100,6 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordVersionHelper;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityManager;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
-import com.jetbrains.youtrack.db.internal.core.sql.query.LiveQuery;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrack.db.internal.core.storage.ReadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.storage.RecordCallback;
@@ -987,18 +986,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
    * Execute the command remotely and get the results back.
    */
   public Object command(DatabaseSessionInternal db, final CommandRequestText iCommand) {
-
-    final var live = iCommand instanceof LiveQuery;
-    final var asynch =
-        iCommand instanceof CommandRequestAsynch
-            && ((CommandRequestAsynch) iCommand).isAsynchronous();
-
-    var remoteDb = (DatabaseSessionRemote) db;
-    var request = new CommandRequest(remoteDb, asynch, iCommand, live);
-    var response =
-        networkOperation(remoteDb, request,
-            "Error on executing command: " + iCommand);
-    return response.getResult();
+    throw new UnsupportedOperationException();
   }
 
   public void stickToSession(DatabaseSessionRemote database) {
@@ -1269,7 +1257,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
 
     // two pass iteration, we update cluster ids, and then update positions
     for (var updatedPair : response.getUpdatedRids()) {
-      tx.updateIdentityAfterCommit(updatedPair.first(), updatedPair.second());
+      tx.assertIdentityChangedAfterCommit(updatedPair.first(), updatedPair.second());
     }
 
     updateCollectionsFromChanges(
@@ -2053,7 +2041,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     var response =
         networkOperationNoRetry(database, request, "Error on remote transaction begin");
     for (var entry : response.getUpdatedIds().entrySet()) {
-      transaction.updateIdentityAfterCommit(entry.getValue(), entry.getKey());
+      transaction.assertIdentityChangedAfterCommit(entry.getValue(), entry.getKey());
     }
 
     stickToSession(database);
@@ -2070,7 +2058,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
             "Error on remote transaction state send");
 
     for (var entry : response.getUpdatedIds().entrySet()) {
-      transaction.updateIdentityAfterCommit(entry.getValue(), entry.getKey());
+      transaction.assertIdentityChangedAfterCommit(entry.getValue(), entry.getKey());
     }
 
     stickToSession(database);
@@ -2357,5 +2345,23 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
   @Override
   public YouTrackDBInternal getContext() {
     return context;
+  }
+
+  @Override
+  public LiveQueryMonitor live(DatabasePoolInternal sessionPool, String query,
+      LiveQueryResultListener listener, Map<String, ?> args) {
+    try (var session = (DatabaseSessionRemote) sessionPool.acquire()) {
+      return liveQuery(
+          session, query, new LiveQueryClientListener(sessionPool, listener), args);
+    }
+  }
+
+  @Override
+  public LiveQueryMonitor live(DatabasePoolInternal sessionPool, String query,
+      LiveQueryResultListener listener, Object... args) {
+    try (var session = (DatabaseSessionRemote) sessionPool.acquire()) {
+      return liveQuery(
+          session, query, new LiveQueryClientListener(sessionPool, listener), args);
+    }
   }
 }

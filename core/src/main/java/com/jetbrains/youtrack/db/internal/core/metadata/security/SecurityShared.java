@@ -248,7 +248,7 @@ public class SecurityShared implements SecurityInternal {
       return false;
     }
 
-    final var currentUser = session.geCurrentUser();
+    final var currentUser = session.getCurrentUser();
     if (currentUser != null) {
       // CHECK IF CURRENT USER IS ENLISTED
       if (iAllowAll == null || !iAllowAll.contains(currentUser.getIdentity())) {
@@ -566,7 +566,7 @@ public class SecurityShared implements SecurityInternal {
       role.getPolicies(session).put(currentResource, policy);
       role.save(session);
 
-      if (session.geCurrentUser() != null && session.geCurrentUser()
+      if (session.getCurrentUser() != null && session.getCurrentUser()
           .hasRole(session, role.getName(session), true)) {
         session.reloadUser();
       }
@@ -1306,7 +1306,7 @@ public class SecurityShared implements SecurityInternal {
     if (skipRoleHasPredicateSecurityForClassUpdate) {
       return;
     }
-    var user = session.geCurrentUser();
+    var user = session.getCurrentUser();
     try {
       if (user != null) {
         session.setUser(null);
@@ -1404,7 +1404,7 @@ public class SecurityShared implements SecurityInternal {
   @Override
   public Set<String> getFilteredProperties(DatabaseSessionInternal session,
       EntityImpl entity) {
-    if (session.geCurrentUser() == null) {
+    if (session.getCurrentUser() == null) {
       return Collections.emptySet();
     }
     SchemaImmutableClass clazz = null;
@@ -1419,7 +1419,7 @@ public class SecurityShared implements SecurityInternal {
     }
 
     if (roleHasPredicateSecurityForClass != null) {
-      for (var role : session.geCurrentUser().getRoles()) {
+      for (var role : session.getCurrentUser().getRoles()) {
 
         var roleMap = roleHasPredicateSecurityForClass.get(role.getName(session));
         if (roleMap == null) {
@@ -1452,7 +1452,7 @@ public class SecurityShared implements SecurityInternal {
   public boolean isAllowedWrite(DatabaseSessionInternal session, EntityImpl entity,
       String propertyName) {
 
-    if (session.geCurrentUser() == null) {
+    if (session.getCurrentUser() == null) {
       // executeNoAuth
       return true;
     }
@@ -1466,7 +1466,7 @@ public class SecurityShared implements SecurityInternal {
     }
 
     if (roleHasPredicateSecurityForClass != null) {
-      for (var role : session.geCurrentUser().getRoles()) {
+      for (var role : session.getCurrentUser().getRoles()) {
         var roleMap = roleHasPredicateSecurityForClass.get(role.getName(session));
         if (roleMap == null) {
           return true; // TODO hierarchy...?
@@ -1526,7 +1526,7 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public boolean canCreate(DatabaseSessionInternal session, DBRecord record) {
-    if (session.geCurrentUser() == null) {
+    if (session.getCurrentUser() == null) {
       // executeNoAuth
       return true;
     }
@@ -1540,7 +1540,7 @@ public class SecurityShared implements SecurityInternal {
       }
 
       if (roleHasPredicateSecurityForClass != null) {
-        for (var role : session.geCurrentUser().getRoles()) {
+        for (var role : session.getCurrentUser().getRoles()) {
           var roleMap = roleHasPredicateSecurityForClass.get(
               role.getName(session));
           if (roleMap == null) {
@@ -1570,7 +1570,7 @@ public class SecurityShared implements SecurityInternal {
   @Override
   public boolean canRead(DatabaseSessionInternal session, DBRecord record) {
     // TODO what about server users?
-    if (session.geCurrentUser() == null) {
+    if (session.getCurrentUser() == null) {
       // executeNoAuth
       return true;
     }
@@ -1589,7 +1589,7 @@ public class SecurityShared implements SecurityInternal {
       }
 
       if (roleHasPredicateSecurityForClass != null) {
-        for (var role : session.geCurrentUser().getRoles()) {
+        for (var role : session.getCurrentUser().getRoles()) {
           var roleMap = roleHasPredicateSecurityForClass.get(
               role.getName(session));
           if (roleMap == null) {
@@ -1615,7 +1615,7 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public boolean canUpdate(DatabaseSessionInternal session, DBRecord record) {
-    if (session.geCurrentUser() == null) {
+    if (session.getCurrentUser() == null) {
       // executeNoAuth
       return true;
     }
@@ -1629,7 +1629,7 @@ public class SecurityShared implements SecurityInternal {
       }
 
       if (className != null && roleHasPredicateSecurityForClass != null) {
-        for (var role : session.geCurrentUser().getRoles()) {
+        for (var role : session.getCurrentUser().getRoles()) {
           var roleMap = roleHasPredicateSecurityForClass.get(
               role.getName(session));
           if (roleMap == null) {
@@ -1720,7 +1720,7 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public boolean canDelete(DatabaseSessionInternal session, DBRecord record) {
-    if (session.geCurrentUser() == null) {
+    if (session.getCurrentUser() == null) {
       // executeNoAuth
       return true;
     }
@@ -1734,7 +1734,7 @@ public class SecurityShared implements SecurityInternal {
       }
 
       if (roleHasPredicateSecurityForClass != null) {
-        for (var role : session.geCurrentUser().getRoles()) {
+        for (var role : session.getCurrentUser().getRoles()) {
           var roleMap = roleHasPredicateSecurityForClass.get(
               role.getName(session));
           if (roleMap == null) {
@@ -1762,7 +1762,7 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public boolean canExecute(DatabaseSessionInternal session, Function function) {
-    if (session.geCurrentUser() == null) {
+    if (session.getCurrentUser() == null) {
       // executeNoAuth
       return true;
     }
@@ -1805,7 +1805,7 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public boolean isReadRestrictedBySecurityPolicy(DatabaseSession session, String resource) {
-    if (session.geCurrentUser() == null) {
+    if (session.getCurrentUser() == null) {
       // executeNoAuth
       return false;
     }
@@ -1831,7 +1831,7 @@ public class SecurityShared implements SecurityInternal {
 
   protected void updateAllFilteredProperties(DatabaseSessionInternal session) {
     Set<SecurityResourceProperty> result;
-    if (session.geCurrentUser() == null) {
+    if (session.getCurrentUser() == null) {
       result = calculateAllFilteredProperties(session);
       synchronized (this) {
         filteredProperties = result;
@@ -1848,7 +1848,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   protected void updateAllFilteredPropertiesInternal(DatabaseSessionInternal session) {
-    var user = session.geCurrentUser();
+    var user = session.getCurrentUser();
     try {
       if (user != null) {
         session.setUser(null);
@@ -1905,11 +1905,11 @@ public class SecurityShared implements SecurityInternal {
 
   public boolean couldHaveActivePredicateSecurityRoles(DatabaseSession session,
       String className) {
-    if (session.geCurrentUser() == null) {
+    if (session.getCurrentUser() == null) {
       return false;
     }
     if (roleHasPredicateSecurityForClass != null) {
-      for (var role : session.geCurrentUser().getRoles()) {
+      for (var role : session.getCurrentUser().getRoles()) {
         var roleMap = roleHasPredicateSecurityForClass.get(role.getName(session));
         if (roleMap == null) {
           return false; // TODO hierarchy...?

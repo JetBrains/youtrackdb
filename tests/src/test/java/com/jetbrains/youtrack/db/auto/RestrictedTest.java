@@ -189,7 +189,7 @@ public class RestrictedTest extends BaseDBTest {
       EntityImpl adminRecord = session.load(this.adminRecordId);
       Set<Identifiable> allows = adminRecord.getProperty(SecurityShared.ALLOW_ALL_FIELD);
       allows.add(
-          session.getMetadata().getSecurity().getUser(session.geCurrentUser().getName(session))
+          session.getMetadata().getSecurity().getUser(session.getCurrentUser().getName(session))
               .getIdentity());
 
       session.commit();

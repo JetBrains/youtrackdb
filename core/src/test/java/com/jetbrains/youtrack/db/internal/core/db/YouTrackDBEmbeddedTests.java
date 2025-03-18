@@ -610,7 +610,7 @@ public class YouTrackDBEmbeddedTests {
           internal.execute(
               "testExecutor",
               "admin",
-              (session) -> !session.isClosed() || session.geCurrentUser() != null);
+              (session) -> !session.isClosed() || session.getCurrentUser() != null);
 
       assertTrue(result.get());
     }
@@ -626,7 +626,7 @@ public class YouTrackDBEmbeddedTests {
       var result =
           internal.executeNoAuthorizationAsync(
               "testExecutorNoAuthorization",
-              (session) -> !session.isClosed() || session.geCurrentUser() == null);
+              (session) -> !session.isClosed() || session.getCurrentUser() == null);
 
       assertTrue(result.get());
     }

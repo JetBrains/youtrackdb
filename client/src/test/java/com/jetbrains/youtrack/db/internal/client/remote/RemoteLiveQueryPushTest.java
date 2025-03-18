@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.client.remote.message.LiveQueryPushRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.live.LiveQueryResult;
+import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.io.IOException;
@@ -66,7 +67,10 @@ public class RemoteLiveQueryPushTest {
   private RemoteConnectionManager connectionManager;
 
   @Mock
-  private DatabaseSessionInternal database;
+  private DatabasePoolInternal pool;
+
+  @Mock
+  private DatabaseSessionInternal session;
 
   @Before
   public void before() throws IOException {
@@ -84,16 +88,16 @@ public class RemoteLiveQueryPushTest {
   @Test
   public void testLiveEvents() {
     var mock = new MockLiveListener();
-    storage.registerLiveListener(10, new LiveQueryClientListener(database, mock));
+    storage.registerLiveListener(10, new LiveQueryClientListener(pool, mock));
     List<LiveQueryResult> events = new ArrayList<>();
     events.add(
-        new LiveQueryResult(LiveQueryResult.CREATE_EVENT, new ResultInternal(database), null));
+        new LiveQueryResult(LiveQueryResult.CREATE_EVENT, new ResultInternal(session), null));
     events.add(
         new LiveQueryResult(
-            LiveQueryResult.UPDATE_EVENT, new ResultInternal(database),
-            new ResultInternal(database)));
+            LiveQueryResult.UPDATE_EVENT, new ResultInternal(session),
+            new ResultInternal(session)));
     events.add(
-        new LiveQueryResult(LiveQueryResult.DELETE_EVENT, new ResultInternal(database), null));
+        new LiveQueryResult(LiveQueryResult.DELETE_EVENT, new ResultInternal(session), null));
 
     var request =
         new LiveQueryPushRequest(10, LiveQueryPushRequest.END, events);

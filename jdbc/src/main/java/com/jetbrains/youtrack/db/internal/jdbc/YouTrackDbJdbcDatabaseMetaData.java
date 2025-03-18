@@ -64,7 +64,7 @@ public class YouTrackDbJdbcDatabaseMetaData implements DatabaseMetaData {
   }
 
   public String getUserName() throws SQLException {
-    return session.geCurrentUser().getName(session);
+    return session.getCurrentUser().getName(session);
   }
 
   public boolean isReadOnly() throws SQLException {

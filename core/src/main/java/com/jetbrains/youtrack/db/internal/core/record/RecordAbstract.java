@@ -386,8 +386,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
       throw new DatabaseException(session.getDatabaseName(), "Cannot call fill() on dirty records");
     }
 
-    recordId.setClusterId(rid.getClusterId());
-    recordId.setClusterPosition(rid.getClusterPosition());
+    recordId.setClusterAndPosition(rid.getClusterId(), rid.getClusterPosition());
 
     recordVersion = version;
     status = STATUS.LOADED;
@@ -429,17 +428,14 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   public final RecordAbstract setIdentity(final int clusterId, final long clusterPosition) {
     assert assertIfAlreadyLoaded(new RecordId(clusterId, clusterPosition));
 
-    recordId.setClusterId(clusterId);
-    recordId.setClusterPosition(clusterPosition);
-
+    recordId.setClusterAndPosition(clusterId, clusterPosition);
     return this;
   }
 
   public final RecordAbstract setIdentity(RID recordId) {
     assert assertIfAlreadyLoaded(recordId);
 
-    this.recordId.setClusterId(recordId.getClusterId());
-    this.recordId.setClusterPosition(recordId.getClusterPosition());
+    this.recordId.setClusterAndPosition(recordId.getClusterId(), recordId.getClusterPosition());
 
     return this;
   }

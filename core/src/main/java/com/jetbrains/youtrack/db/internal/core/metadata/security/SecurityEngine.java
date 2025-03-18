@@ -45,7 +45,7 @@ public class SecurityEngine {
       SecurityShared security,
       String resourceString,
       SecurityPolicy.Scope scope) {
-    var user = session.geCurrentUser();
+    var user = session.getCurrentUser();
     if (user == null) {
       return SQLBooleanExpression.FALSE;
     }
@@ -76,7 +76,7 @@ public class SecurityEngine {
     var function =
         session.getMetadata().getFunctionLibrary()
             .getFunction(session, resource.getFunctionName());
-    var roles = session.geCurrentUser().getRoles();
+    var roles = session.getCurrentUser().getRoles();
     if (roles == null || roles.size() == 0) {
       return null;
     }
@@ -110,7 +110,7 @@ public class SecurityEngine {
             .getImmutableSchemaSnapshot()
             .getClass(resource.getClassName());
     var propertyName = resource.getPropertyName();
-    var roles = session.geCurrentUser().getRoles();
+    var roles = session.getCurrentUser().getRoles();
     if (roles == null || roles.size() == 0) {
       return null;
     }
@@ -146,7 +146,7 @@ public class SecurityEngine {
     if (clazz == null) {
       return SQLBooleanExpression.TRUE;
     }
-    var roles = session.geCurrentUser().getRoles();
+    var roles = session.getCurrentUser().getRoles();
     if (roles == null || roles.size() == 0) {
       return null;
     }
@@ -406,7 +406,7 @@ public class SecurityEngine {
     try {
       // Create a new instance of EntityImpl with a user record id, this will lazy load the user data
       // at the first access with the same execution permission of the policy
-      var user = session.geCurrentUser().getIdentity();
+      var user = session.getCurrentUser().getIdentity();
       return session
           .getSharedContext()
           .getYouTrackDB()
@@ -436,7 +436,7 @@ public class SecurityEngine {
     try {
       // Create a new instance of EntityImpl with a user record id, this will lazy load the user data
       // at the first access with the same execution permission of the policy
-      final EntityImpl user = session.geCurrentUser().getIdentity()
+      final EntityImpl user = session.getCurrentUser().getIdentity()
           .getRecordSilently(session);
       return session
           .getSharedContext()

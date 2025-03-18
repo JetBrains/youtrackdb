@@ -643,7 +643,7 @@ public interface DatabaseSession extends AutoCloseable {
   /**
    * Returns the current user logged into the database.
    */
-  SecurityUser geCurrentUser();
+  SecurityUser getCurrentUser();
 
   /**
    * retrieves a class from the schema

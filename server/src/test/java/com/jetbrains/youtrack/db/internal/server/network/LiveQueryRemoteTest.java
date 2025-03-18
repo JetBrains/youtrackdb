@@ -174,7 +174,7 @@ public class LiveQueryRemoteTest {
     var query = db.query("select from OUSer where name = 'reader'");
 
     final Identifiable reader = query.next().getIdentity();
-    final var current = db.geCurrentUser().getIdentity();
+    final var current = db.getCurrentUser().getIdentity();
 
     var executorService = Executors.newSingleThreadExecutor();
 

@@ -45,7 +45,8 @@ public class ClientConnectionTest extends BaseMemoryInternalDatabase {
   public void testValidToken() throws IOException {
     var conn = new ClientConnection(1, protocol);
     TokenHandler handler = new TokenHandlerImpl(server.getContextConfiguration());
-    var tokenBytes = handler.getSignedBinaryToken(session, session.geCurrentUser(), conn.getData());
+    var tokenBytes = handler.getSignedBinaryToken(session, session.getCurrentUser(),
+        conn.getData());
 
     conn.validateSession(tokenBytes, handler, null);
     assertTrue(conn.getTokenBased());
@@ -60,7 +61,8 @@ public class ClientConnectionTest extends BaseMemoryInternalDatabase {
     GlobalConfiguration.NETWORK_TOKEN_EXPIRE_TIMEOUT.setValue(0);
     TokenHandler handler = new TokenHandlerImpl(server.getContextConfiguration());
     GlobalConfiguration.NETWORK_TOKEN_EXPIRE_TIMEOUT.setValue(sessionTimeout);
-    var tokenBytes = handler.getSignedBinaryToken(session, session.geCurrentUser(), conn.getData());
+    var tokenBytes = handler.getSignedBinaryToken(session, session.getCurrentUser(),
+        conn.getData());
     Thread.sleep(1);
     conn.validateSession(tokenBytes, handler, protocol);
   }
@@ -77,7 +79,8 @@ public class ClientConnectionTest extends BaseMemoryInternalDatabase {
   public void testAlreadyAuthenticatedOnConnection() throws IOException {
     var conn = new ClientConnection(1, protocol);
     TokenHandler handler = new TokenHandlerImpl(server.getContextConfiguration());
-    var tokenBytes = handler.getSignedBinaryToken(session, session.geCurrentUser(), conn.getData());
+    var tokenBytes = handler.getSignedBinaryToken(session, session.getCurrentUser(),
+        conn.getData());
     conn.validateSession(tokenBytes, handler, protocol);
     assertTrue(conn.getTokenBased());
     assertArrayEquals(tokenBytes, conn.getTokenBytes());
@@ -101,7 +104,8 @@ public class ClientConnectionTest extends BaseMemoryInternalDatabase {
   public void testAlreadyAuthenticatedButNotOnSpecificConnection() throws IOException {
     var conn = new ClientConnection(1, protocol);
     TokenHandler handler = new TokenHandlerImpl(server.getContextConfiguration());
-    var tokenBytes = handler.getSignedBinaryToken(session, session.geCurrentUser(), conn.getData());
+    var tokenBytes = handler.getSignedBinaryToken(session, session.getCurrentUser(),
+        conn.getData());
     conn.validateSession(tokenBytes, handler, protocol);
     assertTrue(conn.getTokenBased());
     assertArrayEquals(tokenBytes, conn.getTokenBytes());

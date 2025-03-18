@@ -150,7 +150,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   void setSerializer(RecordSerializer serializer);
 
-  int assignAndCheckCluster(DBRecord record, String clusterName);
+  int assignAndCheckCluster(DBRecord record);
 
   void reloadUser();
 

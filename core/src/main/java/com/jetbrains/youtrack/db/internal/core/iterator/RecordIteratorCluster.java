@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrack.db.internal.core.iterator;
 
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
@@ -150,7 +149,7 @@ public class RecordIteratorCluster<REC extends RecordAbstract> implements Iterat
 
     for (var clId : clusterIds) {
       if (session.getStorage().isSystemCluster(clId)) {
-        final var dbUser = session.geCurrentUser();
+        final var dbUser = session.getCurrentUser();
         if (dbUser == null
             || dbUser.allow(session, Rule.ResourceGeneric.SYSTEM_CLUSTERS, null,
             Role.PERMISSION_READ)

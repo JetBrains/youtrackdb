@@ -26,13 +26,10 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
-import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
-import com.jetbrains.youtrack.db.internal.client.remote.LiveQueryClientListener;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemote;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.client.remote.message.RemoteResultSet;
@@ -442,21 +439,6 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
     assert assertIfNotActive();
     checkAndSendTransaction();
     storage.fetchNextPage(this, rs);
-  }
-
-  @Override
-  public LiveQueryMonitor live(String query, LiveQueryResultListener listener, Object... args) {
-    assert assertIfNotActive();
-    return storage.liveQuery(
-        this, query, new LiveQueryClientListener(this.copy(), listener), args);
-  }
-
-  @Override
-  public LiveQueryMonitor live(
-      String query, LiveQueryResultListener listener, Map<String, ?> args) {
-    assert assertIfNotActive();
-    return storage.liveQuery(
-        this, query, new LiveQueryClientListener(this.copy(), listener), args);
   }
 
   @Override

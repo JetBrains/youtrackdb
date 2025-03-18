@@ -24,6 +24,7 @@ import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.FILE_DELE
 import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.FILE_DELETE_RETRY;
 import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.WARNING_DEFAULT_USERS;
 
+import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
@@ -113,6 +114,12 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
 
   protected final long maxWALSegmentSize;
   protected final long doubleWriteLogMaxSegSize;
+
+  private final ConcurrentLinkedHashMap<DatabasePoolInternal, SessionPoolImpl> cachedPools =
+      new ConcurrentLinkedHashMap.Builder<DatabasePoolInternal, SessionPoolImpl>()
+          .maximumWeightedCapacity(100)
+          .build();
+
 
   public YouTrackDBEmbedded(String directoryPath, YouTrackDBConfig configuration,
       YouTrackDBEnginesManager youTrack) {

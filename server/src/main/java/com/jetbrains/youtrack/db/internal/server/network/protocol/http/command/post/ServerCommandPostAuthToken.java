@@ -74,7 +74,7 @@ public class ServerCommandPostAuthToken extends ServerCommandAbstract {
         try (var db = server.openSession(iRequest.getDatabaseName(),
             username,
             password)) {
-          user = db.geCurrentUser();
+          user = db.getCurrentUser();
 
           if (user != null) {
             var tokenBytes = tokenHandler.getSignedWebToken(db, user);
@@ -118,8 +118,8 @@ public class ServerCommandPostAuthToken extends ServerCommandAbstract {
     try {
       db = server.openSession(iDatabaseName, username, password);
 
-      userRid = (db.geCurrentUser() == null ? "<server user>"
-          : db.geCurrentUser().getIdentity().toString());
+      userRid = (db.getCurrentUser() == null ? "<server user>"
+          : db.getCurrentUser().getIdentity().toString());
     } catch (SecurityAccessException e) {
       // WRONG USER/PASSWD
     } catch (LockException e) {

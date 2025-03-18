@@ -27,11 +27,9 @@ import com.jetbrains.youtrack.db.internal.core.command.script.CommandExecutorScr
 import com.jetbrains.youtrack.db.internal.core.command.script.CommandFunction;
 import com.jetbrains.youtrack.db.internal.core.command.script.CommandScript;
 import com.jetbrains.youtrack.db.internal.core.sql.CommandExecutorSQLDelegate;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandExecutorSQLLiveSelect;
 import com.jetbrains.youtrack.db.internal.core.sql.CommandExecutorSQLResultsetDelegate;
 import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;
 import com.jetbrains.youtrack.db.internal.core.sql.CommandSQLResultset;
-import com.jetbrains.youtrack.db.internal.core.sql.query.LiveQuery;
 import com.jetbrains.youtrack.db.internal.core.sql.query.SQLAsynchQuery;
 import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.util.HashMap;
@@ -58,7 +56,6 @@ public class CommandManager {
 
     registerExecutor(SQLAsynchQuery.class, CommandExecutorSQLDelegate.class);
     registerExecutor(SQLSynchQuery.class, CommandExecutorSQLDelegate.class);
-    registerExecutor(LiveQuery.class, CommandExecutorSQLLiveSelect.class);
     registerExecutor(CommandSQL.class, CommandExecutorSQLDelegate.class);
     registerExecutor(CommandSQLResultset.class, CommandExecutorSQLResultsetDelegate.class);
     registerExecutor(CommandScript.class, CommandExecutorScript.class);

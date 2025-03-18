@@ -107,7 +107,7 @@ public abstract class DatabasePoolBase extends Thread {
                           .open(session,
                               (String) iAdditionalArgs[0],
                               (String) iAdditionalArgs[1], new ContextConfiguration());
-                    } else if (!iValue.geCurrentUser()
+                    } else if (!iValue.getCurrentUser()
                         .checkPassword(session, (String) iAdditionalArgs[1])) {
                       throw new SecurityAccessException(
                           iValue.getDatabaseName(),

@@ -142,7 +142,7 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
   public void validationEmbeddedType() {
     session.begin();
     record = session.newInstance("Whiz");
-    record.setPropertyInChain("account", session.geCurrentUser());
+    record.setPropertyInChain("account", session.getCurrentUser());
 
     session.commit();
   }

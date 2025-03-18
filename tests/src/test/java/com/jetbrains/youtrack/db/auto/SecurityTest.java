@@ -188,7 +188,7 @@ public class SecurityTest extends BaseDBTest {
             session = createSessionInstance("writerChild", "writerChild");
 
             session.begin();
-            var user = session.geCurrentUser();
+            var user = session.getCurrentUser();
             Assert.assertTrue(user.hasRole(session, "writer", true));
             Assert.assertFalse(user.hasRole(session, "wrter", true));
             session.commit();

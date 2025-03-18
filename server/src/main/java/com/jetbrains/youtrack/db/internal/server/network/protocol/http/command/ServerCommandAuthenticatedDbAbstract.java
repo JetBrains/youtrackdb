@@ -218,8 +218,8 @@ public abstract class ServerCommandAuthenticatedDbAbstract extends ServerCommand
 
       // Set user rid after authentication
       iRequest.getData().currentUserId =
-          db.geCurrentUser() == null ? "<server user>"
-              : db.geCurrentUser().getIdentity().toString();
+          db.getCurrentUser() == null ? "<server user>"
+              : db.getCurrentUser().getIdentity().toString();
 
       // AUTHENTICATED: CREATE THE SESSION
       iRequest.setSessionId(
@@ -297,9 +297,9 @@ public abstract class ServerCommandAuthenticatedDbAbstract extends ServerCommand
     var localDatabase = server.openSession(iRequest.getDatabaseName(), iRequest.getBearerToken());
 
     var currentUserId = iRequest.getBearerToken().getToken().getUserId();
-    if (currentUserId != null && localDatabase.geCurrentUser() != null) {
+    if (currentUserId != null && localDatabase.getCurrentUser() != null) {
       if (!currentUserId.equals(
-          localDatabase.geCurrentUser().getIdentity().getIdentity())) {
+          localDatabase.getCurrentUser().getIdentity().getIdentity())) {
         EntityImpl userDoc = localDatabase.load(currentUserId);
         localDatabase.setUser(new SecurityUserImpl(localDatabase, userDoc));
       }
@@ -307,7 +307,8 @@ public abstract class ServerCommandAuthenticatedDbAbstract extends ServerCommand
 
     iRequest.getData().lastDatabase = localDatabase.getDatabaseName();
     iRequest.getData().lastUser =
-        localDatabase.geCurrentUser() != null ? localDatabase.geCurrentUser().getName(localDatabase)
+        localDatabase.getCurrentUser() != null ? localDatabase.getCurrentUser()
+            .getName(localDatabase)
             : null;
     return localDatabase.getDatabaseOwner();
   }
@@ -328,9 +329,9 @@ public abstract class ServerCommandAuthenticatedDbAbstract extends ServerCommand
 
     var currentUserId = iRequest.getData().currentUserId;
     if (currentUserId != null && !currentUserId.isEmpty()
-        && localDatabase.geCurrentUser() != null) {
+        && localDatabase.getCurrentUser() != null) {
       if (!currentUserId.equals(
-          localDatabase.geCurrentUser().getIdentity().toString())) {
+          localDatabase.getCurrentUser().getIdentity().toString())) {
         EntityImpl userDoc = localDatabase.load(new RecordId(currentUserId));
         localDatabase.setUser(new SecurityUserImpl(localDatabase, userDoc));
       }
@@ -338,7 +339,8 @@ public abstract class ServerCommandAuthenticatedDbAbstract extends ServerCommand
 
     iRequest.getData().lastDatabase = localDatabase.getDatabaseName();
     iRequest.getData().lastUser =
-        localDatabase.geCurrentUser() != null ? localDatabase.geCurrentUser().getName(localDatabase)
+        localDatabase.getCurrentUser() != null ? localDatabase.getCurrentUser()
+            .getName(localDatabase)
             : null;
     iRequest.getExecutor().setDatabase(localDatabase);
     return localDatabase.getDatabaseOwner();

@@ -323,6 +323,13 @@ public class RecordId implements RID, SerializableStream {
     this.clusterId = clusterId;
   }
 
+  public void setClusterAndPosition(int clusterId, long clusterPosition) {
+    checkClusterLimits(clusterId);
+
+    this.clusterId = clusterId;
+    this.clusterPosition = clusterPosition;
+  }
+
   public void setClusterPosition(long clusterPosition) {
     this.clusterPosition = clusterPosition;
   }

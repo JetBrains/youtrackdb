@@ -189,7 +189,7 @@ public class LiveQueryV2Test extends DbTestBase {
         session.query("select from OUSer where name = 'reader'").entityStream().toList();
 
     final Identifiable reader = query.getFirst().getIdentity();
-    final var current = session.geCurrentUser().getIdentity();
+    final var current = session.getCurrentUser().getIdentity();
 
     var executorService = Executors.newSingleThreadExecutor();
 

@@ -31,8 +31,6 @@ import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
 import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
-import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
-import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Direction;
@@ -75,8 +73,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.sequence.SequenceLibrary
 import com.jetbrains.youtrack.db.internal.core.metadata.sequence.SequenceLibraryProxy;
 import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryHook;
 import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryHookV2;
-import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryListenerV2;
-import com.jetbrains.youtrack.db.internal.core.query.live.YTLiveQueryMonitorEmbedded;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -87,7 +83,6 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.R
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.LiveQueryListenerImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLStatement;
@@ -533,8 +528,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     var storage = (Storage) getSharedContext().getStorage();
     storage.open(this, null, null, config.getConfiguration());
     String user;
-    if (geCurrentUser() != null) {
-      user = geCurrentUser().getName(this);
+    if (getCurrentUser() != null) {
+      user = getCurrentUser().getName(this);
     } else {
       user = null;
     }
@@ -816,29 +811,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     return config;
   }
 
-  @Override
-  public LiveQueryMonitor live(String query, LiveQueryResultListener listener, Object... args) {
-    checkOpenness();
-    assert assertIfNotActive();
 
-    LiveQueryListenerV2 queryListener = new LiveQueryListenerImpl(listener, query, this, args);
-    var dbCopy = this.copy();
-    this.activateOnCurrentThread();
-    return new YTLiveQueryMonitorEmbedded(queryListener.getToken(), dbCopy);
-  }
-
-  @Override
-  public LiveQueryMonitor live(
-      String query, LiveQueryResultListener listener, Map<String, ?> args) {
-    checkOpenness();
-    assert assertIfNotActive();
-
-    LiveQueryListenerV2 queryListener =
-        new LiveQueryListenerImpl(listener, query, this, (Map) args);
-    var dbCopy = this.copy();
-    this.activateOnCurrentThread();
-    return new YTLiveQueryMonitorEmbedded(queryListener.getToken(), dbCopy);
-  }
 
   @Override
   public void recycle(final DBRecord record) {
@@ -1316,7 +1289,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
               .debug(
                   this,
                   "User '%s' tried to access the reserved resource '%s.%s', operation '%s'",
-                  geCurrentUser(),
+                  getCurrentUser(),
                   resourceGeneric,
                   resourceSpecific,
                   iOperation);

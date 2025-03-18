@@ -51,6 +51,20 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
     fireAfterIdentityChange();
   }
 
+  @Override
+  public void setClusterAndPosition(int clusterId, long clusterPosition) {
+    if (clusterId == this.clusterId && clusterPosition == this.clusterPosition) {
+      return;
+    }
+
+    checkClusterLimits(clusterId);
+
+    fireBeforeIdentityChange();
+    this.clusterId = clusterId;
+    this.clusterPosition = clusterPosition;
+    fireAfterIdentityChange();
+  }
+
   public void addIdentityChangeListener(IdentityChangeListener identityChangeListeners) {
     if (!canChangeIdentity()) {
       return;
@@ -91,7 +105,7 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
 
   @Override
   public boolean canChangeIdentity() {
-    return !isValid();
+    return !isPersistent();
   }
 
   @Override

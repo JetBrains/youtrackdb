@@ -1,21 +1,24 @@
 package com.jetbrains.youtrack.db.internal.core.query.live;
 
 import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
+import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 
 public class YTLiveQueryMonitorEmbedded implements LiveQueryMonitor {
   private final int token;
-  private final DatabaseSessionInternal db;
+  private final DatabasePoolInternal pool;
 
-  public YTLiveQueryMonitorEmbedded(int token, DatabaseSessionInternal dbCopy) {
+  public YTLiveQueryMonitorEmbedded(int token, DatabasePoolInternal pool) {
     this.token = token;
-    this.db = dbCopy;
+    this.pool = pool;
   }
 
   @Override
   public void unSubscribe() {
-    db.activateOnCurrentThread();
-    LiveQueryHookV2.unsubscribe(token, db);
+    try (var session = pool.acquire()) {
+      LiveQueryHookV2.unsubscribe(token, (DatabaseSessionInternal) session);
+    }
+
   }
 
   @Override

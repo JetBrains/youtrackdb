@@ -20,21 +20,23 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.SessionPool;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import org.apache.commons.lang.ArrayUtils;
 
 
 public class YouTrackDBImpl implements YouTrackDB {
 
+  private static final Pattern URI_PATTERN = Pattern.compile("[,;]");
   private final ConcurrentLinkedHashMap<DatabasePoolInternal, SessionPoolImpl> cachedPools =
       new ConcurrentLinkedHashMap.Builder<DatabasePoolInternal, SessionPoolImpl>()
           .maximumWeightedCapacity(100)
-          .build(); // cache for links to database pools. Avoid create database pool wrapper each
-  // time when it is requested
+          .build();
 
   public YouTrackDBInternal internal;
   public String serverUser;
@@ -86,15 +88,7 @@ public class YouTrackDBImpl implements YouTrackDB {
    */
   public static YouTrackDB remote(
       String url, String serverUser, String serverPassword, YouTrackDBConfig config) {
-    var youTrackDB =
-        new YouTrackDBImpl(
-            YouTrackDBInternal.remote(url.substring(url.indexOf(':') + 1).split("[,;]"),
-                (YouTrackDBConfigImpl) config));
-
-    youTrackDB.serverUser = serverUser;
-    youTrackDB.serverPassword = serverPassword;
-
-    return youTrackDB;
+    return YourTracks.remote(url, serverUser, serverPassword, config);
   }
 
   /**
@@ -194,7 +188,7 @@ public class YouTrackDBImpl implements YouTrackDB {
       internal = YouTrackDBInternal.embedded(url.substring(url.indexOf(':') + 1), configuration);
     } else if ("remote".equals(what)) {
       internal =
-          YouTrackDBInternal.remote(url.substring(url.indexOf(':') + 1).split("[,;]"),
+          YouTrackDBInternal.remote(URI_PATTERN.split(url.substring(url.indexOf(':') + 1)),
               (YouTrackDBConfigImpl) configuration);
     } else {
       throw new IllegalArgumentException("Wrong url:`" + url + "`");
@@ -358,8 +352,8 @@ public class YouTrackDBImpl implements YouTrackDB {
         }
         queryString.append("? identified by ? role ").append(userCredentials[i * 3 + 2]);
 
-        result[i * 2] = userCredentials[i * 3];
-        result[i * 2 + 1] = userCredentials[i * 3 + 1];
+        result[(i << 1)] = userCredentials[i * 3];
+        result[(i << 1) + 1] = userCredentials[i * 3 + 1];
       }
 
       queryString.append(")");
@@ -445,7 +439,7 @@ public class YouTrackDBImpl implements YouTrackDB {
 
   @Override
   public SessionPool cachedPool(String database, String user, String password) {
-    return cachedPool(database, user, password, null);
+    return cachedPool(database, user, password, YouTrackDBConfig.defaultConfig());
   }
 
   /**

@@ -20,7 +20,7 @@ public class TokenHandlerImplTest extends BaseMemoryInternalDatabase {
   @Test
   public void testWebTokenCreationValidation()
       throws InvalidKeyException, NoSuchAlgorithmException, IOException {
-    var original = session.geCurrentUser();
+    var original = session.getCurrentUser();
     var handler = new TokenHandlerImpl("any key".getBytes(), 60, "HmacSHA256");
     var token = handler.getSignedWebToken(session, original);
 
@@ -95,7 +95,7 @@ public class TokenHandlerImplTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testTokenForge() throws InvalidKeyException, NoSuchAlgorithmException, IOException {
-    var original = session.geCurrentUser();
+    var original = session.getCurrentUser();
     var handler = new TokenHandlerImpl("any key".getBytes(), 60, "HmacSHA256");
 
     var token = handler.getSignedWebToken(session, original);
@@ -115,7 +115,7 @@ public class TokenHandlerImplTest extends BaseMemoryInternalDatabase {
   @Test
   public void testBinartTokenCreationValidation()
       throws InvalidKeyException, NoSuchAlgorithmException, IOException {
-    var original = session.geCurrentUser();
+    var original = session.getCurrentUser();
     var handler = new TokenHandlerImpl("any key".getBytes(), 60, "HmacSHA256");
     var data = new NetworkProtocolData();
     data.driverName = "aa";
@@ -140,7 +140,7 @@ public class TokenHandlerImplTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testTokenNotRenew() {
-    var original = session.geCurrentUser();
+    var original = session.getCurrentUser();
     var handler = new TokenHandlerImpl("any key".getBytes(), 60, "HmacSHA256");
     var data = new NetworkProtocolData();
     data.driverName = "aa";
@@ -158,7 +158,7 @@ public class TokenHandlerImplTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testTokenRenew() {
-    var original = session.geCurrentUser();
+    var original = session.getCurrentUser();
     var handler = new TokenHandlerImpl("any key".getBytes(), 60, "HmacSHA256");
     var data = new NetworkProtocolData();
     data.driverName = "aa";

@@ -83,10 +83,6 @@ public class LiveQueryHookV2 {
       pendingOps.clear();
     }
 
-    public LiveQueryQueueThreadV2 getQueueThread() {
-      return queueThread;
-    }
-
     public Map<Integer, LiveQueryListenerV2> getSubscribers() {
       return subscribers;
     }
@@ -121,17 +117,17 @@ public class LiveQueryHookV2 {
   }
 
   public static Integer subscribe(
-      Integer token, LiveQueryListenerV2 iListener, DatabaseSessionInternal db) {
-    if (Boolean.FALSE.equals(db.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
+      Integer token, LiveQueryListenerV2 iListener, DatabaseSessionInternal session) {
+    if (Boolean.FALSE.equals(session.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
       LogManager.instance()
           .warn(
-              db,
+              session,
               "Live query support is disabled impossible to subscribe a listener, set '%s' to true"
                   + " for enable the live query support",
               QUERY_LIVE_SUPPORT.getKey());
       return -1;
     }
-    var ops = getOpsReference(db);
+    var ops = getOpsReference(session);
     synchronized (ops.threadLock) {
       if (!ops.queueThread.isAlive()) {
         ops.queueThread = ops.queueThread.clone();

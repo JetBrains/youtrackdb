@@ -20,11 +20,14 @@
 package com.jetbrains.youtrack.db.internal.core.storage;
 
 import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
+import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
+import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
@@ -39,6 +42,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
 import javax.annotation.Nonnull;
@@ -51,6 +55,7 @@ import javax.annotation.Nullable;
  * @see DirectMemoryStorage
  */
 public interface Storage extends Backupable, StorageInfo {
+
   enum STATUS {
     CLOSED,
     OPEN,
@@ -226,9 +231,9 @@ public interface Storage extends Backupable, StorageInfo {
       throws UnsupportedOperationException;
 
   /**
-   * This method is called in {@link YouTrackDBEnginesManager#shutdown()} method. For most of the storages it means
-   * that storage will be merely closed, but sometimes additional operations are need to be taken in
-   * account.
+   * This method is called in {@link YouTrackDBEnginesManager#shutdown()} method. For most of the
+   * storages it means that storage will be merely closed, but sometimes additional operations are
+   * need to be taken in account.
    */
   void shutdown();
 
@@ -269,4 +274,12 @@ public interface Storage extends Backupable, StorageInfo {
   }
 
   YouTrackDBInternal getContext();
+
+  LiveQueryMonitor live(DatabasePoolInternal sessionPool, String query,
+      LiveQueryResultListener listener,
+      Map<String, ?> args);
+
+  LiveQueryMonitor live(DatabasePoolInternal sessionPool, String query,
+      LiveQueryResultListener listener,
+      Object... args);
 }

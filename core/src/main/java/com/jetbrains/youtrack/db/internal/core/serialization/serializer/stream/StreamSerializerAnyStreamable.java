@@ -29,7 +29,6 @@ import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.serialization.BinaryProtocol;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
 import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;
-import com.jetbrains.youtrack.db.internal.core.sql.query.LiveQuery;
 import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -109,33 +108,7 @@ public class StreamSerializerAnyStreamable {
    */
   public static byte[] toStream(DatabaseSessionInternal db, final CommandRequestText iObject)
       throws IOException {
-    if (iObject == null) {
-      return null;
-    }
-
-    // SERIALIZE THE CLASS NAME
-    final byte[] className;
-    switch (iObject) {
-      case LiveQuery<?> objects ->
-          className = iObject.getClass().getName().getBytes(StandardCharsets.UTF_8);
-      case SQLSynchQuery<?> objects -> className = QUERY_COMMAND_CLASS_ASBYTES;
-      case CommandSQL commandSQL -> className = SQL_COMMAND_CLASS_ASBYTES;
-      case CommandScript commandScript -> className = SCRIPT_COMMAND_CLASS_ASBYTES;
-      default -> {
-        className = iObject.getClass().getName().getBytes(StandardCharsets.UTF_8);
-      }
-    }
-    // SERIALIZE THE OBJECT CONTENT
-    var objectContent = iObject.toStream(db, (RecordSerializerNetwork) db.getSerializer());
-
-    var result = new byte[4 + className.length + objectContent.length];
-
-    // COPY THE CLASS NAME SIZE + CLASS NAME + OBJECT CONTENT
-    System.arraycopy(BinaryProtocol.int2bytes(className.length), 0, result, 0, 4);
-    System.arraycopy(className, 0, result, 4, className.length);
-    System.arraycopy(objectContent, 0, result, 4 + className.length, objectContent.length);
-
-    return result;
+    throw new UnsupportedOperationException();
   }
 
   public static String getName() {

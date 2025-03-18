@@ -215,7 +215,7 @@ public class ScriptDocumentDatabaseWrapper {
   }
 
   public SecurityUser getUser() {
-    return session.geCurrentUser();
+    return session.getCurrentUser();
   }
 
   public void setUser(SecurityUserImpl user) {

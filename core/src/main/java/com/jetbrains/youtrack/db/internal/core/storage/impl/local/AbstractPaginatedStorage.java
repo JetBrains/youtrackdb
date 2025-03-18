@@ -37,6 +37,8 @@ import com.jetbrains.youtrack.db.api.exception.ModificationOperationProhibitedEx
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.StorageDoesNotExistException;
 import com.jetbrains.youtrack.db.api.exception.StorageExistsException;
+import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
+import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -65,6 +67,7 @@ import com.jetbrains.youtrack.db.internal.core.config.StorageClusterConfiguratio
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfigurationUpdateListener;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
+import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
@@ -92,12 +95,14 @@ import com.jetbrains.youtrack.db.internal.core.index.engine.v1.CellBTreeMultiVal
 import com.jetbrains.youtrack.db.internal.core.index.engine.v1.CellBTreeSingleValueIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.query.QueryAbstract;
+import com.jetbrains.youtrack.db.internal.core.query.live.YTLiveQueryMonitorEmbedded;
 import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordVersionHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.impl.index.CompositeKeySerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.stream.StreamSerializerRID;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.LiveQueryListenerImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.IdentifiableStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrack.db.internal.core.storage.ReadRecordResult;
@@ -1855,14 +1860,14 @@ public abstract class AbstractPaginatedStorage
                 if (!rec.getIdentity().isPersistent()) {
                   if (rec.isDirty()) {
                     // This allocate a position for a new record
-                    final var rid = ((RecordId) rec.getIdentity()).copy();
+                    final var rid = ((RecordId) rec.getIdentity());
                     final var oldRID = rid.copy();
                     final var cluster = doGetAndCheckCluster(rid.getClusterId());
                     final var ppos =
                         cluster.allocatePosition(
                             RecordInternal.getRecordType(session, rec), atomicOperation);
                     rid.setClusterPosition(ppos.clusterPosition);
-                    clientTx.updateIdentityAfterCommit(oldRID, rid);
+                    assert clientTx.assertIdentityChangedAfterCommit(oldRID, rid);
                   }
                 } else {
                   // This allocate position starting from a valid rid, used in distributed for
@@ -2037,7 +2042,7 @@ public abstract class AbstractPaginatedStorage
                           + " commit");
                 }
               } else if (rec.isDirty() && !rec.getIdentity().isPersistent()) {
-                final var rid = ((RecordId) rec.getIdentity()).copy();
+                final var rid = ((RecordId) rec.getIdentity());
                 final var oldRID = rid.copy();
 
                 final var clusterOverride = clusterOverrides.get(recordOperation);
@@ -2050,7 +2055,6 @@ public abstract class AbstractPaginatedStorage
                     cluster.allocatePosition(
                         RecordInternal.getRecordType(transaction.getDatabaseSession(), rec),
                         atomicOperation);
-                rid.setClusterId(cluster.getId());
 
                 if (rid.getClusterPosition() > -1) {
                   // CREATE EMPTY RECORDS UNTIL THE POSITION IS REACHED. THIS IS THE CASE WHEN A
@@ -2067,12 +2071,13 @@ public abstract class AbstractPaginatedStorage
 
                   if (rid.getClusterPosition() != physicalPosition.clusterPosition) {
                     throw new ConcurrentCreateException(name,
-                        rid, new RecordId(rid.getClusterId(), physicalPosition.clusterPosition));
+                        rid, new RecordId(cluster.getId(), physicalPosition.clusterPosition));
                   }
                 }
                 positions.put(recordOperation, physicalPosition);
-                rid.setClusterPosition(physicalPosition.clusterPosition);
-                transaction.updateIdentityAfterCommit(oldRID, rid);
+
+                rid.setClusterAndPosition(cluster.getId(), physicalPosition.clusterPosition);
+                assert transaction.assertIdentityChangedAfterCommit(oldRID, rid);
               }
             }
             lockRidBags(clustersToLock);
@@ -5964,6 +5969,21 @@ public abstract class AbstractPaginatedStorage
             new ThreadInterruptedException("Interrupted wait for backup to finish"), e, name);
       }
     }
+  }
+
+  @Override
+  public LiveQueryMonitor live(DatabasePoolInternal sessionPool, String query,
+      LiveQueryResultListener listener, Map<String, ?> args) {
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    var queryListener = new LiveQueryListenerImpl(listener, query, sessionPool, (Map) args);
+    return new YTLiveQueryMonitorEmbedded(queryListener.getToken(), sessionPool);
+  }
+
+  @Override
+  public LiveQueryMonitor live(DatabasePoolInternal sessionPool, String query,
+      LiveQueryResultListener listener, Object... args) {
+    var queryListener = new LiveQueryListenerImpl(listener, query, sessionPool, args);
+    return new YTLiveQueryMonitorEmbedded(queryListener.getToken(), sessionPool);
   }
 
   protected void checkBackupRunning() {

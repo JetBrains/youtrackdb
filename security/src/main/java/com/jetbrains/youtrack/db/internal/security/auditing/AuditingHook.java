@@ -309,7 +309,7 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
         String name = entity.getProperty("name");
         var message = String.format("The password for user '%s' has been changed", name);
         log(session, AuditingOperation.CHANGED_PWD, session.getDatabaseName(),
-            session.geCurrentUser(), message);
+            session.getCurrentUser(), message);
       }
     }
     if (!onGlobalUpdate) {
@@ -385,7 +385,7 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
     }
 
     var entity =
-        createLogEntry(db, operation, db.getDatabaseName(), db.geCurrentUser(),
+        createLogEntry(db, operation, db.getDatabaseName(), db.getCurrentUser(),
             formatNote(iRecord, note));
     entity.put("record", iRecord.getIdentity());
     if (changes != null) {
@@ -485,7 +485,7 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
 
   protected void logClass(DatabaseSessionInternal db, final AuditingOperation operation,
       final String note) {
-    final var user = db.geCurrentUser();
+    final var user = db.getCurrentUser();
 
     var entity = createLogEntry(db, operation, db.getDatabaseName(), user, note);
     auditingQueue.offer(entity);

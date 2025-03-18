@@ -52,12 +52,12 @@ public class RestrictedAccessHook {
 
       Identifiable identity = null;
       if (identityType.equals("user")) {
-        final var user = database.geCurrentUser();
+        final var user = database.getCurrentUser();
         if (user != null) {
           identity = user.getIdentity();
         }
       } else if (identityType.equals("role")) {
-        final var roles = database.geCurrentUser().getRoles();
+        final var roles = database.getCurrentUser().getRoles();
         if (!roles.isEmpty()) {
           identity = roles.iterator().next().getIdentity();
         }
@@ -94,14 +94,14 @@ public class RestrictedAccessHook {
     }
     if (cls != null && cls.isRestricted()) {
 
-      if (database.geCurrentUser() == null) {
+      if (database.getCurrentUser() == null) {
         return true;
       }
 
-      if (database.geCurrentUser()
+      if (database.getCurrentUser()
           .isRuleDefined(database, Rule.ResourceGeneric.BYPASS_RESTRICTED, null)) {
         if (database
-            .geCurrentUser()
+            .getCurrentUser()
             .checkIfAllowed(database,
                 Rule.ResourceGeneric.BYPASS_RESTRICTED, null, Role.PERMISSION_READ)
             != null)

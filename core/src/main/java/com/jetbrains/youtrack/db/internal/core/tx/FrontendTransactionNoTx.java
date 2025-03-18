@@ -25,7 +25,6 @@ import com.jetbrains.youtrack.db.api.exception.NoTxRecordReadException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
@@ -161,15 +160,6 @@ public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
     return null;
   }
 
-  public List<RecordOperation> getNewRecordEntriesByClass(
-      final SchemaClass iClass, final boolean iPolymorphic) {
-    return Collections.emptyList();
-  }
-
-  public List<RecordOperation> getNewRecordEntriesByClusterIds(final int[] iIds) {
-    return Collections.emptyList();
-  }
-
   public void clearRecordEntries() {
     throw new UnsupportedOperationException("Operation not supported in no tx mode");
   }
@@ -228,7 +218,7 @@ public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
     return Collections.emptyList();
   }
 
-  public void updateIdentityAfterCommit(RecordId oldRid, RecordId newRid) {
+  public boolean assertIdentityChangedAfterCommit(RecordId oldRid, RecordId newRid) {
     throw new UnsupportedOperationException("Operation not supported in no tx mode");
   }
 

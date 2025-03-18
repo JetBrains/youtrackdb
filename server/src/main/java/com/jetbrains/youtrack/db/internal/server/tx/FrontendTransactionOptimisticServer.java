@@ -29,7 +29,6 @@ import java.util.Map;
 import javax.annotation.Nonnull;
 
 public class FrontendTransactionOptimisticServer extends FrontendTransactionOptimistic {
-
   private final HashMap<RecordId, RecordId> generatedOriginalRecordIdMap = new HashMap<>();
 
   public FrontendTransactionOptimisticServer(DatabaseSessionInternal database, long txId) {
@@ -277,7 +276,9 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
       if (!rid.isPersistent() && !rid.isTemporary()) {
         var oldRid = rid.copy();
         if (rid.getClusterId() == RecordId.CLUSTER_ID_INVALID) {
-          session.assignAndCheckCluster(record, null);
+          var clusterId = session.assignAndCheckCluster(record);
+          rid.setClusterId(clusterId);
+
           generatedOriginalRecordIdMap.put(rid, oldRid);
         }
       }

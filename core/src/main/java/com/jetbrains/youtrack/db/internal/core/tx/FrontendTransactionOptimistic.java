@@ -30,7 +30,6 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.RecordHook.TYPE;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
@@ -68,11 +67,10 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
 
   private static final AtomicLong txSerial = new AtomicLong();
 
-  private final TreeSet<RecordId> affectedRecordsSortedByRID = new TreeSet<>();
-
   protected final HashMap<RecordId, RecordOperation> recordOperations = new HashMap<>();
   private final IdentityHashMap<RecordId, RecordOperation> recordOperationsIdentityMap =
       new IdentityHashMap<>();
+  protected final TreeSet<RecordId> recordsInTransaction = new TreeSet<>();
 
   protected final HashMap<RecordId, RecordOperation> operationsBetweenCallbacks = new HashMap<>();
   private final IdentityHashMap<RecordId, RecordOperation> operationsBetweenCallbacksIdentityMap =
@@ -84,6 +82,8 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
       new IdentityHashMap<>();
 
   protected HashMap<String, FrontendTransactionIndexChanges> indexEntries = new HashMap<>();
+
+  private final HashMap<RecordId, RecordId> originalChangedRecordIdMap = new HashMap<>();
 
 
   protected long id;
@@ -192,80 +192,6 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     return null;
   }
 
-  /**
-   * Called by class iterator.
-   */
-  public List<RecordOperation> getNewRecordEntriesByClass(
-      final SchemaClass iClass, final boolean iPolymorphic) {
-    final List<RecordOperation> result = new ArrayList<>();
-
-    if (iClass == null)
-    // RETURN ALL THE RECORDS
-    {
-      for (var entry : recordOperations.values()) {
-        if (entry.type == RecordOperation.CREATED) {
-          result.add(entry);
-        }
-      }
-    } else {
-      // FILTER RECORDS BY CLASSNAME
-      for (var entry : recordOperations.values()) {
-        if (entry.type == RecordOperation.CREATED) {
-          if (entry.record != null) {
-            if (entry.record instanceof EntityImpl entity) {
-              if (iPolymorphic) {
-                var cls = entity.getImmutableSchemaClass(session);
-                if (iClass.isSuperClassOf(cls)) {
-                  result.add(entry);
-                }
-              } else {
-                if (iClass.getName()
-                    .equals(((EntityImpl) entry.record).getSchemaClassName())) {
-                  result.add(entry);
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-
-    return result;
-  }
-
-  /**
-   * Called by cluster iterator.
-   */
-  public List<RecordOperation> getNewRecordEntriesByClusterIds(final int[] iIds) {
-    final List<RecordOperation> result = new ArrayList<>();
-
-    if (iIds == null)
-    // RETURN ALL THE RECORDS
-    {
-      for (var entry : recordOperations.values()) {
-        if (entry.type == RecordOperation.CREATED) {
-          result.add(entry);
-        }
-      }
-    } else
-    // FILTER RECORDS BY ID
-    {
-      for (var entry : recordOperations.values()) {
-        for (var id : iIds) {
-          if (entry.record != null) {
-            if (entry.record.getIdentity().getClusterId() == id
-                && entry.type == RecordOperation.CREATED) {
-              result.add(entry);
-              break;
-            }
-          }
-        }
-      }
-    }
-
-    return result;
-  }
-
   public void clearIndexEntries() {
     indexEntries.clear();
     recordIndexOperations.clear();
@@ -328,7 +254,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
         }
 
         var transactionIndexOperations =
-            recordIndexOperations.get(value.getIdentity());
+            recordIndexOperations.get((RecordId) value.getIdentity());
 
         if (transactionIndexOperations == null) {
           transactionIndexOperations = new ArrayList<>();
@@ -496,11 +422,9 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
       var rid = record.getIdentity();
 
       if (rid.getClusterId() == RID.CLUSTER_ID_INVALID) {
-        throw new TransactionException(session, "Invalid cluster id : " + rid);
-      }
-      if (!rid.isValid()) {
-        var clusterName = session.getClusterNameById(record.getIdentity().getClusterId());
-        session.assignAndCheckCluster(record, clusterName);
+        var clusterId = session.assignAndCheckCluster(record);
+        rid.setClusterAndPosition(clusterId, newRecordsPositionsGenerator--);
+      } else if (!rid.isValid()) {
         rid.setClusterPosition(newRecordsPositionsGenerator--);
       }
 
@@ -519,8 +443,8 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
           txEntry = new RecordOperation(record, status);
           record.txEntry = txEntry;
 
-          recordOperations.put(txEntry.initialRecordId, txEntry);
-          affectedRecordsSortedByRID.add(record.getIdentity());
+          recordOperations.put(record.getIdentity(), txEntry);
+          recordsInTransaction.add(record.getIdentity());
 
           if (rid instanceof ChangeableIdentity changeableIdentity
               && changeableIdentity.canChangeIdentity()) {
@@ -572,7 +496,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
       assert txEntry.recordCallBackDirtyCounter <= record.getDirtyCounter();
       if (txEntry.recordCallBackDirtyCounter < record.getDirtyCounter()) {
         changed = true;
-        operationsBetweenCallbacks.put(txEntry.initialRecordId, txEntry);
+        operationsBetweenCallbacks.put(record.getIdentity(), txEntry);
       }
     } catch (Exception e) {
       rollback(true, 0);
@@ -621,7 +545,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     }
 
     var serializer = session.getSerializer();
-    List<RecordOperation> newDeletedRecords = null;
+    ArrayList<RecordId> newDeletedRecords = null;
     while (!operationsBetweenCallbacks.isEmpty()) {
       var operations = new ArrayList<>(operationsBetweenCallbacks.values());
       operations.sort((first, second) -> -Byte.compare(first.type, second.type));
@@ -634,20 +558,17 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
           if (newDeletedRecords == null) {
             newDeletedRecords = new ArrayList<>();
           }
-          newDeletedRecords.add(recordOperation);
+          newDeletedRecords.add(recordOperation.getRecordId());
         }
       }
     }
 
     if (newDeletedRecords != null) {
-      for (var recordOperation : newDeletedRecords) {
-        recordOperations.remove(recordOperation.initialRecordId);
+      for (var recordId : newDeletedRecords) {
+        recordOperations.remove(recordId);
+        recordsInTransaction.remove(recordId);
 
-        var rid = recordOperation.record.getIdentity();
-        var removed = affectedRecordsSortedByRID.remove(rid);
-        assert removed;
-
-        if (rid instanceof ChangeableIdentity changeableIdentity) {
+        if (recordId instanceof ChangeableIdentity changeableIdentity) {
           changeableIdentity.removeIdentityChangeListener(this);
         }
       }
@@ -773,8 +694,6 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
   }
 
   private void processRecordCreation(RecordOperation recordOperation, RecordAbstract record) {
-    session.assignAndCheckCluster(recordOperation.record, null);
-
     var clusterName = session.getClusterNameById(record.getIdentity().getClusterId());
     recordOperation.recordCallBackDirtyCounter = record.getDirtyCounter();
     session.beforeCreateOperations(record, clusterName);
@@ -822,6 +741,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
 
   private void clearUnfinishedChanges() {
     recordOperations.clear();
+    recordsInTransaction.clear();
     indexEntries.clear();
     recordIndexOperations.clear();
 
@@ -831,18 +751,12 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     userData.clear();
   }
 
-  public void updateIdentityAfterCommit(final RecordId oldRid, final RecordId newRid) {
+  public boolean assertIdentityChangedAfterCommit(final RecordId oldRid, final RecordId newRid) {
     if (oldRid.equals(newRid))
     // NO CHANGE, IGNORE IT
     {
-      return;
+      return true;
     }
-
-    // XXX: Identity update may mutate the index keys, so we have to identify and reinsert
-    // potentially affected index keys to keep
-    // the FrontendTransactionIndexChanges.changesPerKey in a consistent state.
-
-    final List<KeyChangesUpdateRecord> keyRecordsToReinsert = new ArrayList<>();
     final var database = getDatabaseSession();
     if (!database.isRemote()) {
       final var indexManager = database.getMetadata().getIndexManagerInternal();
@@ -859,44 +773,33 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
         }
 
         final var indexChanges = entry.getValue();
-        for (final var iterator =
-            indexChanges.changesPerKey.values().iterator();
-            iterator.hasNext(); ) {
-          final var keyChanges = iterator.next();
-          if (isIndexKeyMayDependOnRid(keyChanges.key, oldRid, fieldRidDependencies)) {
-            keyRecordsToReinsert.add(new KeyChangesUpdateRecord(keyChanges, indexChanges));
-            iterator.remove();
-
-            if (keyChanges.key instanceof ChangeableIdentity changeableIdentity) {
-              changeableIdentity.removeIdentityChangeListener(indexChanges);
-            }
-          }
+        for (final var keyChanges : indexChanges.changesPerKey.values()) {
+          assert !isIndexKeyMayDependOnRid(keyChanges.key, oldRid, fieldRidDependencies) :
+              "Index key " + keyChanges.key
+                  + " may depend on RID " + oldRid
+                  + ", but it was not updated during record update. Index: "
+                  + index.getName()
+                  + ", key: "
+                  + keyChanges.key;
         }
       }
     }
 
     // Update the identity.
-
     final var rec = getRecordEntry(oldRid);
-    if (rec != null) {
-      if (!rec.record.getIdentity().equals(newRid)) {
-        final var recordId = rec.record.getIdentity();
-        recordId.setClusterPosition(newRid.getClusterPosition());
-        recordId.setClusterId(newRid.getClusterId());
-      }
-    }
+    assert rec != null : "Record ID " + oldRid
+        + " was not found in the transaction, but it was expected to be found. Record : "
+        + oldRid;
+    if (!rec.record.getIdentity().equals(newRid)) {
+      final var recordId = rec.record.getIdentity();
 
-    // Reinsert the potentially affected index keys.
-
-    for (var record : keyRecordsToReinsert) {
-      record.indexChanges.changesPerKey.put(record.keyChanges.key, record.keyChanges);
+      assert false : "Record ID " + recordId
+          + " was not updated during record update, but it was expected to be updated. Record : "
+          + rec.record;
     }
 
     // Update the indexes.
-
-    var val = getRecordEntry(oldRid);
-    final var transactionIndexOperations =
-        recordIndexOperations.get(val != null ? val.getRecordId() : null);
+    final var transactionIndexOperations = recordIndexOperations.get(rec.getRecordId());
     if (transactionIndexOperations != null) {
       for (final var indexOperation : transactionIndexOperations) {
         var indexEntryChanges = indexEntries.get(indexOperation.index);
@@ -910,22 +813,28 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
           keyChanges = indexEntryChanges.changesPerKey.get(indexOperation.key);
         }
         if (keyChanges != null) {
-          updateChangesIdentity(oldRid, newRid, keyChanges);
+          assertChangesHaveOldIdentity(indexOperation.index, oldRid, keyChanges);
         }
       }
     }
+
+    return true;
   }
 
-  private static void updateChangesIdentity(
-      RID oldRid, RID newRid, FrontendTransactionIndexChangesPerKey changesPerKey) {
+  private static void assertChangesHaveOldIdentity(String indexName,
+      RID oldRid, FrontendTransactionIndexChangesPerKey changesPerKey) {
     if (changesPerKey == null) {
       return;
     }
 
     for (final var indexEntry : changesPerKey.getEntriesAsList()) {
-      if (indexEntry.getValue().getIdentity().equals(oldRid)) {
-        indexEntry.setValue(newRid);
-      }
+      assert !indexEntry.getValue().getIdentity().equals(oldRid) :
+          "Index entry " + indexEntry.getValue()
+              + " may depend on RID " + oldRid
+              + ", but it was not updated during record update. Index: "
+              + indexName
+              + ", key: "
+              + changesPerKey.key;
     }
   }
 
@@ -1023,11 +932,19 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
   @Override
   public void onBeforeIdentityChange(Object source) {
     var rid = (RecordId) source;
-    affectedRecordsSortedByRID.remove(rid);
 
     var recordOperation = recordOperations.remove(rid);
+
     if (recordOperation != null) {
       recordOperationsIdentityMap.put(rid, recordOperation);
+      var removed = originalChangedRecordIdMap.put(rid.copy(), rid);
+
+      if (removed != null) {
+        throw new IllegalStateException("RecordId " + rid
+            + " was already changed in the transaction. Old RID: " + removed);
+      }
+
+      recordsInTransaction.remove(rid);
     }
 
     recordOperation = operationsBetweenCallbacks.remove(rid);
@@ -1044,11 +961,11 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
   @Override
   public void onAfterIdentityChange(Object source) {
     var rid = (RecordId) source;
-    affectedRecordsSortedByRID.add(rid);
 
     var recordOperation = recordOperationsIdentityMap.remove(rid);
     if (recordOperation != null) {
       recordOperations.put(rid, recordOperation);
+      recordsInTransaction.add(rid);
     }
 
     recordOperation = operationsBetweenCallbacksIdentityMap.remove(rid);
@@ -1064,7 +981,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
 
   @Nullable
   public RecordId getFirstRid(int clusterId) {
-    var result = affectedRecordsSortedByRID.ceiling(new RecordId(clusterId, Long.MIN_VALUE));
+    var result = recordsInTransaction.ceiling(new RecordId(clusterId, Long.MIN_VALUE));
 
     if (result == null) {
       return null;
@@ -1084,7 +1001,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
 
   @Nullable
   public RecordId getLastRid(int clusterId) {
-    var result = affectedRecordsSortedByRID.floor(new RecordId(clusterId, Long.MAX_VALUE));
+    var result = recordsInTransaction.floor(new RecordId(clusterId, Long.MAX_VALUE));
 
     if (result == null) {
       return null;
@@ -1107,7 +1024,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     var clusterId = rid.getClusterId();
 
     while (true) {
-      var result = affectedRecordsSortedByRID.higher(rid);
+      var result = recordsInTransaction.higher(rid);
 
       if (result == null) {
         return null;
@@ -1130,7 +1047,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
   public RecordId getPreviousRidInCluster(@Nonnull RecordId rid) {
     var clusterId = rid.getClusterId();
     while (true) {
-      var result = affectedRecordsSortedByRID.lower(rid);
+      var result = recordsInTransaction.lower(rid);
 
       if (result == null) {
         return null;
@@ -1218,7 +1135,16 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
 
   public RecordOperation getRecordEntry(RID rid) {
     assert rid instanceof RecordId;
-    return recordOperations.get(rid);
+    var operation = recordOperations.get(rid);
+
+    if (operation == null) {
+      var changedRid = originalChangedRecordIdMap.get(rid);
+      if (changedRid != null) {
+        operation = recordOperations.get(changedRid);
+      }
+    }
+
+    return operation;
   }
 
   @Override

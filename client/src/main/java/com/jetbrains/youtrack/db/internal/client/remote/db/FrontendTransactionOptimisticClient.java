@@ -41,6 +41,7 @@ public class FrontendTransactionOptimisticClient extends FrontendTransactionOpti
 
     Map<RecordId, RecordOperation> oldEntries = new LinkedHashMap<>(this.recordOperations);
     this.recordOperations.clear();
+    this.recordsInTransaction.clear();
 
     var createCount = -2; // Start from -2 because temporary rids start from -2
     var db = getDatabaseSession();
@@ -77,8 +78,8 @@ public class FrontendTransactionOptimisticClient extends FrontendTransactionOpti
 
       var rid = record.getIdentity();
       var operationId = operation.getId();
-      rid.setClusterId(operationId.getClusterId());
-      rid.setClusterPosition(operationId.getClusterPosition());
+
+      rid.setClusterAndPosition(operationId.getClusterId(), operationId.getClusterPosition());
 
       RecordInternal.setVersion(record, operation.getVersion());
       RecordInternal.setContentChanged(record, operation.isContentChanged());
@@ -134,6 +135,7 @@ public class FrontendTransactionOptimisticClient extends FrontendTransactionOpti
             // NEW ENTRY: JUST REGISTER IT
             txEntry = new RecordOperation(iRecord, iStatus);
             recordOperations.put(rid.copy(), txEntry);
+            recordsInTransaction.add(rid);
           }
         } else {
           // UPDATE PREVIOUS STATUS
@@ -153,6 +155,7 @@ public class FrontendTransactionOptimisticClient extends FrontendTransactionOpti
             case RecordOperation.CREATED:
               if (iStatus == RecordOperation.DELETED) {
                 recordOperations.remove(rid);
+                recordsInTransaction.remove(rid);
               }
               break;
           }

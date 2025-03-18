@@ -253,8 +253,8 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
         json.endCollection();
       }
 
-      if (session.geCurrentUser() != null) {
-        json.writeAttribute(session, "currentUser", session.geCurrentUser().getName(session));
+      if (session.getCurrentUser() != null) {
+        json.writeAttribute(session, "currentUser", session.getCurrentUser().getName(session));
 
         // exportSecurityInfo(db, json);
       }

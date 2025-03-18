@@ -181,9 +181,9 @@ public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerA
       json.endCollection(1, true);
     }
 
-    if (session.geCurrentUser() != null) {
+    if (session.getCurrentUser() != null) {
       json.writeAttribute(session, 1, false, "currentUser",
-          session.geCurrentUser().getName(session));
+          session.getCurrentUser().getName(session));
     }
 
     json.beginCollection(session, 1, false, "users");

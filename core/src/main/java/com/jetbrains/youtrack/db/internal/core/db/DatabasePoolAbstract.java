@@ -248,7 +248,7 @@ public abstract class DatabasePoolAbstract extends AdaptiveLock
 
   public void release(final DatabaseSessionInternal iDatabase) {
     final var dbPooledName =
-        iDatabase.geCurrentUser().getName(iDatabase) + "@" + iDatabase.getURL();
+        iDatabase.getCurrentUser().getName(iDatabase) + "@" + iDatabase.getURL();
     final ReentrantResourcePool<String, DatabaseSession> pool;
     lock();
     try {

@@ -198,8 +198,8 @@ public abstract class CommandExecutorSQLAbstract extends CommandExecutorAbstract
 
   protected boolean checkClusterAccess(final DatabaseSessionInternal db,
       final String iClusterName) {
-    return db.geCurrentUser() == null
-        || db.geCurrentUser()
+    return db.getCurrentUser() == null
+        || db.getCurrentUser()
         .checkIfAllowed(db,
             Rule.ResourceGeneric.CLUSTER, iClusterName, getSecurityOperationType())
         != null;
@@ -207,9 +207,9 @@ public abstract class CommandExecutorSQLAbstract extends CommandExecutorAbstract
 
   protected void bindDefaultContextVariables(DatabaseSessionInternal db) {
     if (context != null) {
-      if (db != null && db.geCurrentUser() != null) {
+      if (db != null && db.getCurrentUser() != null) {
         context.setVariable(DEFAULT_PARAM_USER,
-            db.geCurrentUser().getIdentity());
+            db.getCurrentUser().getIdentity());
       }
     }
   }

@@ -23,6 +23,7 @@ package com.jetbrains.youtrack.db.internal.core.db;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.HighLevelException;
@@ -31,6 +32,8 @@ import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
+import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
+import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
@@ -271,6 +274,40 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     return iCommand.execute(this, iArgs);
   }
 
+  @Override
+  public LiveQueryMonitor live(String query, LiveQueryResultListener listener,
+      Map<String, ?> args) {
+    var youTrackDb = sharedContext.youtrackDB;
+
+    var configBuilder = YouTrackDBConfig.builder();
+    var contextConfig = getConfiguration();
+    var poolConfig = configBuilder.fromContext(contextConfig).build();
+
+    var userName = user.getName(this);
+    var userPassword = user.getPassword(this);
+
+    var pool = youTrackDb.openPool(getDatabaseName(), userName, userPassword, poolConfig);
+    var storage = getStorage();
+    return storage.live(pool, query, listener, args);
+  }
+
+  @Override
+  public LiveQueryMonitor live(String query, LiveQueryResultListener listener, Object... args) {
+    var youTrackDb = sharedContext.youtrackDB;
+
+    var configBuilder = YouTrackDBConfig.builder();
+    var contextConfig = getConfiguration();
+    var poolConfig = configBuilder.fromContext(contextConfig).build();
+
+    var userName = user.getName(this);
+    var userPassword = user.getPassword(this);
+
+    var pool = youTrackDb.openPool(getDatabaseName(), userName, userPassword, poolConfig);
+    var storage = getStorage();
+
+    return storage.live(pool, query, listener, args);
+  }
+
   /**
    * {@inheritDoc}
    */
@@ -364,7 +401,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   /**
    * {@inheritDoc}
    */
-  public SecurityUser geCurrentUser() {
+  public SecurityUser getCurrentUser() {
     assert assertIfNotActive();
     return user;
   }
@@ -1256,24 +1293,17 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     return previousRid;
   }
 
-  public int assignAndCheckCluster(DBRecord record, String clusterName) {
+  public int assignAndCheckCluster(DBRecord record) {
     assert assertIfNotActive();
 
     var rid = (RecordId) record.getIdentity();
-    // if provided a cluster name use it.
-    if (rid.getClusterId() <= RID.CLUSTER_POS_INVALID && clusterName != null) {
-      rid.setClusterId(getClusterIdByName(clusterName));
-      if (rid.getClusterId() == -1) {
-        throw new IllegalArgumentException("Cluster name '" + clusterName + "' is not configured");
-      }
-    }
-
     SchemaClassInternal schemaClass = null;
     // if cluster id is not set yet try to find it out
     if (rid.getClusterId() <= RID.CLUSTER_ID_INVALID
         && getStorageInfo().isAssigningClusterIds()) {
       if (record instanceof EntityImpl) {
         schemaClass = ((EntityImpl) record).getImmutableSchemaClass(this);
+
         if (schemaClass != null) {
           if (schemaClass.isAbstract()) {
             throw new SchemaException(getDatabaseName(),
@@ -1281,7 +1311,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
                     + schemaClass.getName()
                     + " and cannot be saved");
           }
-          rid.setClusterId(schemaClass.getClusterForNewInstance((EntityImpl) record));
+
+          return schemaClass.getClusterForNewInstance((EntityImpl) record);
         } else {
           throw new DatabaseException(getDatabaseName(),
               "Cannot save (1) entity " + record + ": no class or cluster defined");
@@ -1293,7 +1324,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
             throw new DatabaseException(getDatabaseName(),
                 "Cannot save blob (2) " + record + ": no cluster defined");
           } else {
-            rid.setClusterId(blobs[ThreadLocalRandom.current().nextInt(blobs.length)]);
+            return blobs[ThreadLocalRandom.current().nextInt(blobs.length)];
           }
 
         } else {
@@ -1327,15 +1358,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
     var clusterId = rid.getClusterId();
     if (clusterId < 0) {
-      if (schemaClass == null && clusterName != null) {
-        throw new DatabaseException(getDatabaseName(),
-            "Impossible to set cluster for record " + record
-                + " both cluster name and class are null");
-      }
-
       throw new DatabaseException(getDatabaseName(),
-          "Impossible to set cluster for record " + record + " class : " + schemaClass
-              + " cluster name : " + clusterName);
+          "Impossible to set cluster for record " + record + " class : " + schemaClass);
     }
 
     return clusterId;
@@ -1421,7 +1445,9 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
     var clusterId = getClusterIdByName(MetadataDefault.CLUSTER_INTERNAL_NAME);
     var rid = new ChangeableRecordId();
+
     rid.setClusterId(clusterId);
+
     var entity = new EntityImpl(this, rid);
     entity.setInternalStatus(RecordElement.STATUS.LOADED);
 
@@ -1437,7 +1463,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
     var blob = new RecordBytes(this, bytes);
     blob.setInternalStatus(RecordElement.STATUS.LOADED);
-    assignAndCheckCluster(blob, null);
 
     var tx = (FrontendTransactionOptimistic) currentTx;
     tx.addRecordOperation(blob, RecordOperation.CREATED);
@@ -1451,7 +1476,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
     var blob = new RecordBytes(this);
     blob.setInternalStatus(RecordElement.STATUS.LOADED);
-    assignAndCheckCluster(blob, null);
 
     var tx = (FrontendTransactionOptimistic) currentTx;
     tx.addRecordOperation(blob, RecordOperation.CREATED);
@@ -1486,7 +1510,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
               + "please use newStatefulEdge() method");
     }
     var entity = new EntityImpl(this, className);
-    assignAndCheckCluster(entity, null);
     entity.setInternalStatus(RecordElement.STATUS.LOADED);
 
     currentTx.addRecordOperation(entity, RecordOperation.CREATED);
@@ -1566,8 +1589,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
     checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, className);
     var vertex = new VertexEntityImpl(this, className);
-    assignAndCheckCluster(vertex, null);
-
     currentTx.addRecordOperation(vertex, RecordOperation.CREATED);
     vertex.convertPropertiesToClassAndInitDefaultValues(vertex.getImmutableSchemaClass(this));
 
@@ -1588,9 +1609,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
     checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, className);
     var edge = new StatefullEdgeEntityImpl(this, className);
-    assignAndCheckCluster(edge, null);
-
     currentTx.addRecordOperation(edge, RecordOperation.CREATED);
+
     edge.convertPropertiesToClassAndInitDefaultValues(edge.getImmutableSchemaClass(this));
 
     return edge;

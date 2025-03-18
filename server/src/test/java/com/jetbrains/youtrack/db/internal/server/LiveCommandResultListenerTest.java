@@ -68,7 +68,7 @@ public class LiveCommandResultListenerTest extends BaseMemoryInternalDatabase {
     connection = manager.connect(protocol);
     var tokenHandler = new TokenHandlerImpl(new ContextConfiguration());
     Mockito.when(server.getTokenHandler()).thenReturn(tokenHandler);
-    var token = tokenHandler.getSignedBinaryToken(session, session.geCurrentUser(),
+    var token = tokenHandler.getSignedBinaryToken(session, session.getCurrentUser(),
         connection.getData());
     connection = manager.connect(protocol, connection, token);
     connection.setSession(session);

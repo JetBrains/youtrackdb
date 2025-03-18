@@ -276,8 +276,8 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public int assignAndCheckCluster(DBRecord record, String clusterName) {
-    return internal.assignAndCheckCluster(record, clusterName);
+  public int assignAndCheckCluster(DBRecord record) {
+    return internal.assignAndCheckCluster(record);
   }
 
   @Override
@@ -436,6 +436,17 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   public String incrementalBackup(Path path) {
     checkOpenness();
     return internal.incrementalBackup(path);
+  }
+
+  @Override
+  public LiveQueryMonitor live(String query, LiveQueryResultListener listener,
+      Map<String, ?> args) {
+    return internal.live(query, listener, args);
+  }
+
+  @Override
+  public LiveQueryMonitor live(String query, LiveQueryResultListener listener, Object... args) {
+    return internal.live(query, listener, args);
   }
 
   @Override
@@ -656,9 +667,9 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public SecurityUser geCurrentUser() {
+  public SecurityUser getCurrentUser() {
     if (internal != null) {
-      return internal.geCurrentUser();
+      return internal.getCurrentUser();
     }
     return null;
   }
@@ -1391,19 +1402,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
       throws CommandExecutionException, CommandScriptException {
     checkOpenness();
     return internal.execute(language, script, args);
-  }
-
-  @Override
-  public LiveQueryMonitor live(String query, LiveQueryResultListener listener, Object... args) {
-    checkOpenness();
-    return internal.live(query, listener, args);
-  }
-
-  @Override
-  public LiveQueryMonitor live(
-      String query, LiveQueryResultListener listener, Map<String, ?> args) {
-    checkOpenness();
-    return internal.live(query, listener, args);
   }
 
   @Override
