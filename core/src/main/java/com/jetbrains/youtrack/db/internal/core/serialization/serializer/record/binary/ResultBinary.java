@@ -170,11 +170,6 @@ public class ResultBinary implements Result {
   }
 
   @Override
-  public int getPropertiesCount() {
-    throw new UnsupportedOperationException("Not supported yet.");
-  }
-
-  @Override
   public RID getIdentity() {
     assert session != null && session.assertIfNotActive();
     return id;

@@ -44,16 +44,16 @@ public class NestedInsertTest extends DbTestBase {
     session.begin();
     var result =
         session.command(
-            "insert into myClass set some ={\"@type\":\"d\",\"@class\":\"Linked\",\"name\":\"a"
+            "insert into myClass set some ={\"@class\":\"Linked\",\"name\":\"a"
                 + " name\"} return @this");
-    session.commit();
 
+    session.commit();
     session.begin();
     final EntityImpl res = ((Identifiable) result.next().getProperty("@this")).getRecord(session);
     final EntityImpl ln = res.getProperty("some");
     Assert.assertNotNull(ln);
     Assert.assertTrue(ln.getIdentity().isPersistent());
-    Assert.assertEquals(1, ln.getPropertiesCount());
+    Assert.assertEquals(2, ln.getPropertiesCount());
     Assert.assertEquals("a name", ln.getProperty("name"));
     session.commit();
   }

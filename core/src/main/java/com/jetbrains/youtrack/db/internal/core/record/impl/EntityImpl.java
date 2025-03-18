@@ -3019,7 +3019,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-  @Override
+
   public int getPropertiesCount() {
     checkForBinding();
     checkForProperties();

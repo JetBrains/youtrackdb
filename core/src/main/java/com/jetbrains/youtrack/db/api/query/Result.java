@@ -395,8 +395,6 @@ public interface Result {
   @Nonnull
   List<String> getPropertyNames();
 
-  int getPropertiesCount();
-
   @Nullable
   RID getIdentity();
 

@@ -550,20 +550,6 @@ public class ResultInternal implements Result {
     return Collections.emptyList();
   }
 
-  @Override
-  public int getPropertiesCount() {
-    checkSession();
-    if (content != null) {
-      return content.size();
-    }
-
-    if (isEntity()) {
-      return asEntity().getPropertiesCount();
-    }
-
-    return 0;
-  }
-
   public boolean hasProperty(@Nonnull String propName) {
     checkSession();
     if (isEntity() && asEntity().hasProperty(propName)) {
