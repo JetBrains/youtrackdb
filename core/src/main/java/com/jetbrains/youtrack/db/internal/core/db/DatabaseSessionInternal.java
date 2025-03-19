@@ -1184,6 +1184,11 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   void rollback() throws TransactionException;
 
   /**
+   * Close all active queries. This method is called upon transaction commit/rollback.
+   */
+  void closeActiveQueries();
+
+  /**
    * Executes an SQL query. The result set has to be closed after usage <br>
    * <br>
    * Sample usage:
@@ -1257,7 +1262,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   /**
    * Executes a generic (non-idempotent) command, ignoring the produced result. Works in the same
-   * way as {@link DatabaseSession#execute(String, Object...)}, but doesn't require closing the
+   * way as {@link DatabaseSessionInternal#execute(String, Object...)}, but doesn't require closing the
    * result set after usage. <br>
    * <br>
    * Sample usage:
@@ -1275,7 +1280,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   /**
    * Executes a generic (non-idempotent) command, ignoring the produced result. Works in the same
-   * way as {@link DatabaseSession#execute(String, Map)}, but doesn't require closing the result set
+   * way as {@link DatabaseSessionInternal#execute(String, Map)}, but doesn't require closing the result set
    * after usage. <br>
    * <br>
    * Sample usage:
@@ -1290,8 +1295,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
       throws CommandSQLParsingException, CommandExecutionException {
     execute(query, args).close();
   }
-
-
 
   /**
    * retrieves a class from the schema

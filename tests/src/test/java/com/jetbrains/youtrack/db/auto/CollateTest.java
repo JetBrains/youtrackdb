@@ -242,21 +242,23 @@ public class CollateTest extends BaseDBTest {
       }
     });
     if (!session.getStorage().isRemote()) {
-      final var indexManager = session.getMetadata().getIndexManagerInternal();
-      final var index = indexManager.getIndex(session, "collateCompositeIndexCS");
+      session.executeInTx(tx -> {
+        final var indexManager = session.getMetadata().getIndexManagerInternal();
+        final var index = indexManager.getIndex(session, "collateCompositeIndexCS");
 
-      final Collection<RID> value;
-      try (var stream = index
-          .getRids(session, new CompositeKey("VAL", "VaL"))) {
-        value = stream.toList();
-      }
+        final Collection<RID> value;
+        try (var stream = index.getRids(session, new CompositeKey("VAL", "VaL"))) {
+          value = stream.toList();
+        }
 
-      Assert.assertEquals(value.size(), 5);
-      for (var identifiable : value) {
-        final EntityImpl record = identifiable.getRecord(session);
-        Assert.assertEquals(record.getProperty("csp"), "VAL");
-        Assert.assertEquals((record.<String>getProperty("cip")).toUpperCase(Locale.ENGLISH), "VAL");
-      }
+        Assert.assertEquals(value.size(), 5);
+        for (var identifiable : value) {
+          final EntityImpl record = identifiable.getRecord(session);
+          Assert.assertEquals(record.getProperty("csp"), "VAL");
+          Assert.assertEquals((record.<String>getProperty("cip")).toUpperCase(Locale.ENGLISH),
+              "VAL");
+        }
+      });
     }
   }
 
@@ -317,10 +319,8 @@ public class CollateTest extends BaseDBTest {
     clazz.createProperty("csp", PropertyType.STRING);
     clazz.createProperty("cip", PropertyType.STRING);
 
-    //noinspection deprecation
-    session.execute(
-        "create index collateTestViaSQL.index on collateTestViaSQL (cip COLLATE CI) NOTUNIQUE"
-    ).close();
+    session.command(
+        "create index collateTestViaSQL.index on collateTestViaSQL (cip COLLATE CI) NOTUNIQUE");
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -337,7 +337,7 @@ public class CollateTest extends BaseDBTest {
       session.commit();
     }
 
-    session.executeInTx(transaction -> {
+    session.executeInTx(tx -> {
       final var result =
           session.query("select from collateTestViaSQL where csp = 'VAL'").toList();
       Assert.assertEquals(result.size(), 5);
@@ -347,8 +347,7 @@ public class CollateTest extends BaseDBTest {
       }
     });
 
-    session.executeInTx(transaction -> {
-      //noinspection deprecation
+    session.executeInTx(tx -> {
       final var result =
           session.query("select from collateTestViaSQL where cip = 'VaL'").toList();
       Assert.assertEquals(result.size(), 10);

@@ -35,7 +35,7 @@ import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionFactory;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
 import com.jetbrains.youtrack.db.internal.core.index.PropertyMapIndexDefinition;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -314,7 +314,7 @@ public class CommandExecutorSQLCreateIndex extends CommandExecutorSQLAbstract
                       + "' is absent in class definition.");
             }
           }
-          fieldTypeList = ((SchemaClassImpl) oClass).extractFieldTypes(session, fields);
+          fieldTypeList = ((SchemaClassInternal) oClass).extractFieldTypes(fields);
         } else {
           fieldTypeList = Arrays.asList(keyTypes);
         }

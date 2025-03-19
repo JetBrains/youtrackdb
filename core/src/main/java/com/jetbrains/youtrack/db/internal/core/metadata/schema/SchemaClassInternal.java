@@ -1,23 +1,30 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
+import static com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl.decodeClassName;
+
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
+import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionFactory;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Set;
 
 public interface SchemaClassInternal extends SchemaClass {
+
   ClusterSelectionStrategy getClusterSelection();
 
   int getClusterForNewInstance(final EntityImpl entity);
 
   Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session, String... fields);
 
-  Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session, final Collection<String> fields);
+  Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session,
+      final Collection<String> fields);
 
   SchemaProperty createProperty(
       final String iPropertyName,
@@ -47,7 +54,8 @@ public interface SchemaClassInternal extends SchemaClass {
 
   Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session, String... fields);
 
-  Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session, final Collection<String> fields);
+  Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
+      final Collection<String> fields);
 
   Set<Index> getClassIndexesInternal();
 
@@ -136,4 +144,19 @@ public interface SchemaClassInternal extends SchemaClass {
 
 
   DatabaseSession getBoundToSession();
+
+  default List<PropertyType> extractFieldTypes(final String[] fieldNames) {
+    final List<PropertyType> types = new ArrayList<>(fieldNames.length);
+
+    for (var fieldName : fieldNames) {
+      if (!fieldName.equals("@rid")) {
+        types.add(
+            getProperty(
+                decodeClassName(IndexDefinitionFactory.extractFieldName(fieldName))).getType());
+      } else {
+        types.add(PropertyType.LINK);
+      }
+    }
+    return types;
+  }
 }

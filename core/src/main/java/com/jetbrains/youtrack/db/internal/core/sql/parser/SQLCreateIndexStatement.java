@@ -16,7 +16,7 @@ import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionFactory;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
 import com.jetbrains.youtrack.db.internal.core.index.Indexes;
 import com.jetbrains.youtrack.db.internal.core.index.SimpleKeyIndexDefinition;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
@@ -193,7 +193,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
                     + "' is absent in class definition.");
           }
         }
-        fieldTypeList = ((SchemaClassImpl) oClass).extractFieldTypes(session, fields);
+        fieldTypeList = ((SchemaClassInternal) oClass).extractFieldTypes(fields);
       } else {
         fieldTypeList =
             keyTypes.stream()

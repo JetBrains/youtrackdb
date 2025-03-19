@@ -19,18 +19,13 @@
  */
 package com.jetbrains.youtrack.db.internal.core.iterator;
 
-import com.jetbrains.youtrack.db.api.exception.HighLevelException;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
-import java.util.Objects;
 import javax.annotation.Nonnull;
+import org.apache.commons.lang.ArrayUtils;
 
 /**
  * Iterator to browse multiple clusters forward and backward. Once browsed in a direction, the
@@ -58,6 +53,10 @@ public class RecordIteratorClusters<REC extends RecordAbstract> implements Itera
 
     clusterIds = iClusterIds.clone();
     Arrays.sort(clusterIds);
+
+    if (!forwardDirection) {
+      ArrayUtils.reverse(clusterIds);
+    }
 
     //noinspection unchecked
     clusterIterators = new RecordIteratorCluster[clusterIds.length];
