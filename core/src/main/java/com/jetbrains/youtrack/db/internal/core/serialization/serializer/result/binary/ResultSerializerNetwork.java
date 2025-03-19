@@ -560,7 +560,7 @@ public class ResultSerializerNetwork {
             : PropertyType.getTypeByValue(fieldValue);
     if (type == PropertyType.LINK
         && fieldValue instanceof EntityImpl
-        && !((EntityImpl) fieldValue).getIdentity().isValid()) {
+        && !((EntityImpl) fieldValue).getIdentity().isValidPosition()) {
       type = PropertyType.EMBEDDED;
     }
     return type;

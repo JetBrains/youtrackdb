@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
@@ -36,9 +35,6 @@ public class DBSequenceTest {
   @BeforeClass
   public static void beforeClass() {
     var builder = YouTrackDBConfig.builder();
-
-    builder.addGlobalConfigurationParameter(GlobalConfiguration.NON_TX_READS_WARNING_MODE,
-        "EXCEPTION");
     youTrackDB = YourTracks.embedded("./target/databases/" + DBSequenceTest.class.getSimpleName(),
         builder.build());
   }

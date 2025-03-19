@@ -15,14 +15,11 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
@@ -61,14 +58,6 @@ public class CRUDTest extends BaseDBTest {
   public CRUDTest(@Optional Boolean remote) {
     super(remote != null && remote);
   }
-
-  @Override
-  protected YouTrackDBConfig createConfig(YouTrackDBConfigBuilderImpl builder) {
-    builder.addGlobalConfigurationParameter(GlobalConfiguration.NON_TX_READS_WARNING_MODE,
-        "EXCEPTION");
-    return builder.build();
-  }
-
 
   @BeforeClass
   @Override
@@ -1291,7 +1280,7 @@ public class CRUDTest extends BaseDBTest {
               .<Map<String, Identifiable>>getProperty("children")
               .get("The Observer")
               .getIdentity())
-              .isValid());
+              .isValidPosition());
     }
     session.commit();
   }
@@ -1422,7 +1411,7 @@ public class CRUDTest extends BaseDBTest {
               .<Map<String, Identifiable>>getProperty("children")
               .get("The Observer")
               .getIdentity())
-              .isValid());
+              .isValidPosition());
     }
     session.commit();
   }
@@ -2141,7 +2130,7 @@ public class CRUDTest extends BaseDBTest {
         loaded.getEntity("embeddedDocument").getProperty("testEmbeddedField"),
         "testEmbeddedValue");
     Assert.assertFalse(
-        ((RecordId) loaded.getEntity("embeddedDocument").getIdentity()).isValid());
+        ((RecordId) loaded.getEntity("embeddedDocument").getIdentity()).isValidPosition());
 
     session.commit();
     session.close();

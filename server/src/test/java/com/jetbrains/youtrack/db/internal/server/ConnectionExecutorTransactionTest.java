@@ -7,22 +7,22 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransactionRequest;
+import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransaction38Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransactionResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.Commit37Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Commit37Response;
-import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransactionRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransactionResponse;
+import com.jetbrains.youtrack.db.internal.client.remote.message.Commit38Request;
+import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransaction38Request;
+import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransaction38Response;
 import com.jetbrains.youtrack.db.internal.client.remote.message.QueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.QueryResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.RebeginTransactionRequest;
+import com.jetbrains.youtrack.db.internal.client.remote.message.RebeginTransaction38Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.RollbackTransactionRequest;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkFactory;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.NetworkProtocolData;
@@ -84,12 +84,14 @@ public class ConnectionExecutorTransactionTest {
 
     List<RecordOperation> operations = new ArrayList<>();
     var rec = new EntityImpl(db);
-    RecordInternal.setIdentity(rec, new RecordId(3, -2));
+    final var iIdentity = new RecordId(3, -2);
+    final var rec1 = (RecordAbstract) rec;
+    rec1.setIdentity(iIdentity);
     operations.add(new RecordOperation(rec, RecordOperation.CREATED));
     assertFalse(db.getTransactionInternal().isActive());
 
     var request =
-        new BeginTransactionRequest(db, 10, true, true, operations);
+        new BeginTransaction38Request(db, 10, operations);
     var response = request.execute(executor);
     assertTrue(db.getTransactionInternal().isActive());
     assertTrue(response instanceof BeginTransactionResponse);
@@ -104,23 +106,24 @@ public class ConnectionExecutorTransactionTest {
 
     List<RecordOperation> operations = new ArrayList<>();
     var rec = new EntityImpl(db);
-    RecordInternal.setIdentity(rec, new RecordId(3, -2));
+    final var iIdentity = new RecordId(3, -2);
+    final var rec1 = (RecordAbstract) rec;
+    rec1.setIdentity(iIdentity);
     operations.add(new RecordOperation(rec, RecordOperation.CREATED));
 
     assertFalse(db.getTransactionInternal().isActive());
 
-    var request =
-        new BeginTransactionRequest(db, 10, true, true, operations);
+    var request = new BeginTransaction38Request(db, 10, operations);
     var response = request.execute(executor);
     assertTrue(db.getTransactionInternal().isActive());
     assertTrue(response instanceof BeginTransactionResponse);
 
-    var commit = new Commit37Request(db, 10, false, true, null);
+    var commit = new Commit38Request(db, 10, null);
     var commitResponse = commit.execute(executor);
     assertFalse(db.getTransactionInternal().isActive());
     assertTrue(commitResponse instanceof Commit37Response);
 
-    assertEquals(1, ((Commit37Response) commitResponse).getUpdatedRids().size());
+    assertEquals(1, ((Commit37Response) commitResponse).getOldToUpdatedRids().size());
   }
 
   @Test
@@ -130,13 +133,15 @@ public class ConnectionExecutorTransactionTest {
 
     List<RecordOperation> operations = new ArrayList<>();
     var rec = new EntityImpl(db);
-    RecordInternal.setIdentity(rec, new RecordId(3, -2));
+    final var iIdentity = new RecordId(3, -2);
+    final var rec1 = (RecordAbstract) rec;
+    rec1.setIdentity(iIdentity);
     rec.setInternalStatus(RecordElement.STATUS.LOADED);
     operations.add(new RecordOperation(rec, RecordOperation.CREATED));
     assertFalse(db.getTransactionInternal().isActive());
 
     var request =
-        new BeginTransactionRequest(db, 10, true, true, operations);
+        new BeginTransaction38Request(db, 10, operations);
     var response = request.execute(executor);
     assertTrue(db.getTransactionInternal().isActive());
     assertTrue(response instanceof BeginTransactionResponse);
@@ -145,12 +150,12 @@ public class ConnectionExecutorTransactionTest {
     record1.setInternalStatus(RecordElement.STATUS.LOADED);
     operations.add(new RecordOperation(record1, RecordOperation.CREATED));
 
-    var commit = new Commit37Request(db, 10, true, true, operations
+    var commit = new Commit38Request(db, 10, operations
     );
     var commitResponse = commit.execute(executor);
     assertFalse(db.getTransactionInternal().isActive());
     assertTrue(commitResponse instanceof Commit37Response);
-    assertEquals(2, ((Commit37Response) commitResponse).getUpdatedRids().size());
+    assertEquals(2, ((Commit37Response) commitResponse).getOldToUpdatedRids().size());
   }
 
   @Test
@@ -160,14 +165,16 @@ public class ConnectionExecutorTransactionTest {
 
     List<RecordOperation> operations = new ArrayList<>();
     var rec = new EntityImpl(db);
-    RecordInternal.setIdentity(rec, new RecordId(3, -2));
+    final var iIdentity = new RecordId(3, -2);
+    final var rec1 = (RecordAbstract) rec;
+    rec1.setIdentity(iIdentity);
     rec.setInternalStatus(RecordElement.STATUS.LOADED);
     operations.add(new RecordOperation(rec, RecordOperation.CREATED));
 
     assertFalse(db.getTransactionInternal().isActive());
 
     var request =
-        new BeginTransactionRequest(db, 10, true, true, operations);
+        new BeginTransaction38Request(db, 10, operations);
     var response = request.execute(executor);
     assertTrue(db.getTransactionInternal().isActive());
     assertTrue(response instanceof BeginTransactionResponse);
@@ -177,7 +184,7 @@ public class ConnectionExecutorTransactionTest {
     operations.add(new RecordOperation(record1, RecordOperation.CREATED));
 
     var rebegin =
-        new RebeginTransactionRequest(db, 10, true, operations, new HashMap<>());
+        new RebeginTransaction38Request(db, 10, operations);
     var rebeginResponse = rebegin.execute(executor);
     assertTrue(rebeginResponse instanceof BeginTransactionResponse);
     assertTrue(db.getTransactionInternal().isActive());
@@ -191,14 +198,16 @@ public class ConnectionExecutorTransactionTest {
 
     List<RecordOperation> operations = new ArrayList<>();
     var rec = new EntityImpl(db);
-    RecordInternal.setIdentity(rec, new RecordId(3, -2));
+    final var iIdentity = new RecordId(3, -2);
+    final var rec1 = (RecordAbstract) rec;
+    rec1.setIdentity(iIdentity);
     rec.setInternalStatus(RecordElement.STATUS.LOADED);
     operations.add(new RecordOperation(rec, RecordOperation.CREATED));
 
     assertFalse(db.getTransactionInternal().isActive());
 
     var request =
-        new BeginTransactionRequest(db, 10, true, true, operations);
+        new BeginTransaction38Request(db, 10, operations);
     var response = request.execute(executor);
     assertTrue(db.getTransactionInternal().isActive());
     assertTrue(response instanceof BeginTransactionResponse);
@@ -208,7 +217,7 @@ public class ConnectionExecutorTransactionTest {
     operations.add(new RecordOperation(record1, RecordOperation.CREATED));
 
     var rebegin =
-        new RebeginTransactionRequest(db, 10, true, operations, new HashMap<>());
+        new RebeginTransaction38Request(db, 10, operations);
     var rebeginResponse = rebegin.execute(executor);
     assertTrue(rebeginResponse instanceof BeginTransactionResponse);
     assertTrue(db.getTransactionInternal().isActive());
@@ -218,12 +227,11 @@ public class ConnectionExecutorTransactionTest {
     record2.setInternalStatus(RecordElement.STATUS.LOADED);
     operations.add(new RecordOperation(record2, RecordOperation.CREATED));
 
-    var commit = new Commit37Request(db, 10, true, true, operations
-    );
+    var commit = new Commit38Request(db, 10, operations);
     var commitResponse = commit.execute(executor);
     assertFalse(db.getTransactionInternal().isActive());
     assertTrue(commitResponse instanceof Commit37Response);
-    assertEquals(3, ((Commit37Response) commitResponse).getUpdatedRids().size());
+    assertEquals(3, ((Commit37Response) commitResponse).getOldToUpdatedRids().size());
   }
 
   @Test
@@ -237,7 +245,7 @@ public class ConnectionExecutorTransactionTest {
     assertFalse(db.getTransactionInternal().isActive());
 
     var request =
-        new BeginTransactionRequest(db, 10, true, true, operations);
+        new BeginTransaction38Request(db, 10, operations);
     var response = request.execute(executor);
     assertTrue(db.getTransactionInternal().isActive());
     assertTrue(response instanceof BeginTransactionResponse);
@@ -269,7 +277,7 @@ public class ConnectionExecutorTransactionTest {
     assertFalse(db.getTransactionInternal().isActive());
 
     var request =
-        new BeginTransactionRequest(db, 10, true, true, operations);
+        new BeginTransaction38Request(db, 10, operations);
     var response = request.execute(executor);
     assertTrue(db.getTransactionInternal().isActive());
     assertTrue(response instanceof BeginTransactionResponse);
@@ -285,12 +293,12 @@ public class ConnectionExecutorTransactionTest {
 
     assertTrue(queryResponse.isTxChanges());
 
-    var fetchRequest = new FetchTransactionRequest(10);
+    var fetchRequest = new FetchTransaction38Request(10);
 
     var response1 =
-        (FetchTransactionResponse) fetchRequest.execute(executor);
+        (FetchTransaction38Response) fetchRequest.execute(executor);
 
-    assertEquals(2, response1.getOperations().size());
+    assertEquals(2, response1.getRecordOperations().size());
   }
 
   @Test
@@ -303,7 +311,7 @@ public class ConnectionExecutorTransactionTest {
     assertFalse(db.getTransactionInternal().isActive());
 
     var request =
-        new BeginTransactionRequest(db, 10, true, true, operations);
+        new BeginTransaction38Request(db, 10, operations);
     var response = request.execute(executor);
     assertTrue(db.getTransactionInternal().isActive());
     assertTrue(response instanceof BeginTransactionResponse);
@@ -312,6 +320,7 @@ public class ConnectionExecutorTransactionTest {
     var resposne = rollback.execute(executor);
     assertFalse(db.getTransactionInternal().isActive());
   }
+
   @Test
   public void testBeginSQLInsertCommitTransaction() {
 
@@ -320,7 +329,7 @@ public class ConnectionExecutorTransactionTest {
     List<RecordOperation> operations = new ArrayList<>();
 
     var request =
-        new BeginTransactionRequest(db, 10, false, true, operations);
+        new BeginTransaction38Request(db, 10, operations);
     var response = request.execute(executor);
 
     assertTrue(db.getTransactionInternal().isActive());
@@ -336,22 +345,22 @@ public class ConnectionExecutorTransactionTest {
 
     assertTrue(results.getFirst().asEntity().getIdentity().isTemporary());
 
-    var commit = new Commit37Request(db, 10, false, true, null
-    );
+    var commit = new Commit38Request(db, 10, null);
     var commitResponse = commit.execute(executor);
     assertFalse(db.getTransactionInternal().isActive());
     assertTrue(commitResponse instanceof Commit37Response);
 
-    assertEquals(1, ((Commit37Response) commitResponse).getUpdatedRids().size());
+    assertEquals(1, ((Commit37Response) commitResponse).getOldToUpdatedRids().size());
 
     assertTrue(
-        ((Commit37Response) commitResponse).getUpdatedRids().getFirst().first().isTemporary());
+        ((Commit37Response) commitResponse).getOldToUpdatedRids().getFirst().getFirst()
+            .isTemporary());
 
     assertEquals(1, db.countClass("test"));
 
     var query = db.query("select from test where name = 'update'");
 
-    results = query.stream().collect(Collectors.toList());
+    results = query.stream().toList();
 
     assertEquals(1, results.size());
 

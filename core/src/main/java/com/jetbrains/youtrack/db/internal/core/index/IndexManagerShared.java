@@ -31,7 +31,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityResourceProperty;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
@@ -85,7 +85,8 @@ public class IndexManagerShared implements IndexManagerAbstract {
         // RELOAD IT
         EntityImpl entity = session.load(identity);
         fromStream(session, entity);
-        RecordInternal.unsetDirty(entity);
+        final var rec = (RecordAbstract) entity;
+        rec.unsetDirty();
         entity.unload();
       } finally {
         releaseExclusiveLock(session);

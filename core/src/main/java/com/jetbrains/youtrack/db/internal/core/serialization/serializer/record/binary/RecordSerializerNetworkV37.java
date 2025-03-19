@@ -45,7 +45,6 @@ import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityEntry;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -92,7 +91,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
 
     final var className = readString(bytes);
     if (!className.isEmpty()) {
-      entity.fillClassIfNeed(className);
+      entity.setClassNameWithoutPropertiesPostProcessing(className);
     }
 
     String fieldName;
@@ -129,9 +128,9 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
 
   public void deserialize(DatabaseSessionInternal db, final EntityImpl entity,
       final BytesContainer bytes) {
-    final var className = readString(bytes);
+    final var className = deserializeClassName(bytes);
     if (!className.isEmpty()) {
-      entity.fillClassIfNeed(className);
+      entity.setClassNameWithoutPropertiesPostProcessing(className);
     }
 
     String fieldName;
@@ -153,12 +152,21 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
       entity.setDeserializedPropertyInternal(fieldName, value, type);
     }
 
-    RecordInternal.clearSource(entity);
+    final var rec = (RecordAbstract) entity;
+    rec.clearSource();
+  }
+
+  private static String deserializeClassName(BytesContainer bytes) {
+    return readString(bytes);
+  }
+
+  public static String deserializeClassName(byte[] record) {
+    return readString(new BytesContainer(record));
   }
 
   public void serialize(DatabaseSessionInternal session, final EntityImpl entity,
       final BytesContainer bytes) {
-    RecordInternal.checkForBinding(entity);
+    entity.checkForBinding();
     serializeClass(session, entity, bytes);
     final var fields = fetchEntries(entity);
     VarIntSerializer.write(bytes, fields.size());
@@ -827,8 +835,10 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
   public void fromStream(DatabaseSessionInternal db, byte[] iSource,
       @Nonnull RecordAbstract record) {
     if (record instanceof Blob) {
-      RecordInternal.unsetDirty(record);
-      RecordInternal.fill(record, record.getIdentity(), record.getVersion(), iSource, true);
+      final var rec = record;
+      rec.unsetDirty();
+      final var rec1 = record;
+      rec1.fill(record.getIdentity(), record.getVersion(), iSource, true);
     }
 
     fromStream(db, iSource, record, null);
@@ -843,11 +853,12 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
     }
 
     if (record instanceof Blob) {
-      RecordInternal.unsetDirty(record);
+      final var rec = record;
+      rec.unsetDirty();
       record.fromStream(iSource);
     }
 
-    RecordInternal.setRecordSerializer(record, this);
+    record.recordSerializer = this;
     var container = new BytesContainer(iSource);
     try {
       if (iFields != null && iFields.length > 0) {

@@ -498,20 +498,18 @@ public class IndexManagerRemote implements IndexManagerAbstract {
     try {
       clearMetadata();
 
-      final Collection<EntityImpl> idxs = entity.getProperty(CONFIG_INDEXES);
+      final Collection<Map<String, Object>> idxs = entity.getProperty(CONFIG_INDEXES);
       if (idxs != null) {
-        for (var d : idxs) {
-          d.setLazyLoad(false);
+        for (var configMap : idxs) {
           try {
-            final var newIndexMetadata = IndexAbstract.loadMetadataFromMap(session,
-                d.toMap());
+            final var newIndexMetadata = IndexAbstract.loadMetadataFromMap(session, configMap);
 
             var type = newIndexMetadata.getType();
             var name = newIndexMetadata.getName();
             var algorithm = newIndexMetadata.getAlgorithm();
             var clustersToIndex = newIndexMetadata.getClustersToIndex();
             var indexDefinition = newIndexMetadata.getIndexDefinition();
-            RID configMapId = d.getProperty(IndexAbstract.CONFIG_MAP_RID);
+            var configMapId = (RID) configMap.get(IndexAbstract.CONFIG_MAP_RID);
 
             addIndexInternal(
                 new IndexRemote(
@@ -520,12 +518,12 @@ public class IndexManagerRemote implements IndexManagerAbstract {
                     algorithm,
                     configMapId,
                     indexDefinition,
-                    d,
+                    configMap,
                     clustersToIndex,
                     storage.getName()));
           } catch (Exception e) {
             LogManager.instance()
-                .error(this, "Error on loading of index by configuration: %s", e, d);
+                .error(this, "Error on loading of index by configuration: %s", e, configMap);
           }
         }
       }

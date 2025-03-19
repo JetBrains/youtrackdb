@@ -50,7 +50,7 @@ public class TransactionRidAllocationTest {
     ((AbstractPaginatedStorage) db.getStorage())
         .preallocateRids(db.getTransactionInternal());
     var generated = (RecordId) v.getIdentity();
-    assertTrue(generated.isValid());
+    assertTrue(generated.isValidPosition());
 
     var db1 = youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
@@ -75,7 +75,7 @@ public class TransactionRidAllocationTest {
         .preallocateRids(db.getTransactionInternal());
     var generated = v.getIdentity();
     ((AbstractPaginatedStorage) db.getStorage())
-        .commitPreAllocated((FrontendTransactionOptimistic) db.getTransactionInternal());
+        .commitPreAllocated((FrontendTransactionImpl) db.getTransactionInternal());
 
     var db1 = youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
@@ -117,7 +117,7 @@ public class TransactionRidAllocationTest {
 
     second.activateOnCurrentThread();
     second.begin();
-    var transactionOptimistic = (FrontendTransactionOptimistic) second.getTransactionInternal();
+    var transactionOptimistic = (FrontendTransactionImpl) second.getTransactionInternal();
 
     for (var recordOperation : recordOperations) {
       var record = recordOperation.value.value;
@@ -135,7 +135,7 @@ public class TransactionRidAllocationTest {
     ((AbstractPaginatedStorage) second.getStorage()).preallocateRids(transactionOptimistic);
     db.activateOnCurrentThread();
     ((AbstractPaginatedStorage) db.getStorage())
-        .commitPreAllocated((FrontendTransactionOptimistic) db.getTransactionInternal());
+        .commitPreAllocated((FrontendTransactionImpl) db.getTransactionInternal());
 
     var db1 = youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     db1.begin();
@@ -145,7 +145,7 @@ public class TransactionRidAllocationTest {
     db1.close();
     second.activateOnCurrentThread();
     ((AbstractPaginatedStorage) second.getStorage())
-        .commitPreAllocated((FrontendTransactionOptimistic) second.getTransactionInternal());
+        .commitPreAllocated((FrontendTransactionImpl) second.getTransactionInternal());
     second.close();
     var db2 = youTrackDB.open("secondTest", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     db2.begin();
@@ -189,7 +189,7 @@ public class TransactionRidAllocationTest {
 
     second.activateOnCurrentThread();
     second.begin();
-    var transactionOptimistic = (FrontendTransactionOptimistic) second.getTransactionInternal();
+    var transactionOptimistic = (FrontendTransactionImpl) second.getTransactionInternal();
     for (var recordOperation : recordOperations) {
       var record = recordOperation.value.value;
       var serializer = second.getSerializer();
@@ -223,7 +223,7 @@ public class TransactionRidAllocationTest {
       allocated.add(rec.getIdentity());
     }
     ((AbstractPaginatedStorage) db.getStorage())
-        .commitPreAllocated((FrontendTransactionOptimistic) db.getTransactionInternal());
+        .commitPreAllocated((FrontendTransactionImpl) db.getTransactionInternal());
 
     var db1 = youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     db1.begin();

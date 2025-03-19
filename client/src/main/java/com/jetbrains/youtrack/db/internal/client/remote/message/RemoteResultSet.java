@@ -8,7 +8,7 @@ import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.core.db.QueryDatabaseState;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionAbstract;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nullable;
@@ -82,7 +82,7 @@ public class RemoteResultSet implements ResultSet {
 
     if (internal.isRecord() && session != null && session.getActiveTransaction() != null) {
       DBRecord record = session.getTransactionInternal().getRecord(internal.getIdentity());
-      if (record != null && record != FrontendTransactionAbstract.DELETED_RECORD) {
+      if (record != null && record != FrontendTransactionImpl.DELETED_RECORD) {
         internal = new ResultInternal(session, record);
       }
     }
@@ -96,6 +96,13 @@ public class RemoteResultSet implements ResultSet {
       // CLOSES THE QUERY SERVER SIDE ONLY IF THERE IS ANOTHER PAGE. THE SERVER ALREADY
       // AUTOMATICALLY CLOSES THE QUERY AFTER SENDING THE LAST PAGE
       session.closeQuery(queryId);
+    }
+    if (session != null) {
+      var tx = session.getTransactionInternal();
+      //read only transactions are initiated only for queries and only if there is no active transaction
+      if (tx.isActive() && tx.isReadOnly()) {
+        tx.rollback();
+      }
     }
     this.session = null;
   }

@@ -21,7 +21,6 @@ import javax.annotation.Nullable;
 
 public interface Result {
   /**
-   * returns a property from the result
    *
    * @param name the property name
    * @return the property value. If the property value is a persistent record, it only returns the

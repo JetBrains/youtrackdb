@@ -78,7 +78,7 @@ public final class ReadRecordResponse implements BinaryResponse {
       }
 
       for (var d : recordsToSend) {
-        if (d.getIdentity().isValid()) {
+        if (d.getIdentity().isValidPosition()) {
           network.writeByte((byte) 2); // CLIENT CACHE
           // RECORD. IT ISN'T PART OF THE RESULT SET
           MessageHelper.writeRecord(session, network, d, serializer);

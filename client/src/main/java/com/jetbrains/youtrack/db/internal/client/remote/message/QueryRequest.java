@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
@@ -28,6 +27,7 @@ import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
@@ -47,7 +47,6 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
   private String statement;
   private byte operationType;
   private Map<String, Object> params;
-  private byte[] paramsBytes;
   private boolean namedParams;
 
   public QueryRequest(
@@ -60,6 +59,7 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
     this.language = language;
     this.statement = iCommand;
     params = StorageRemote.paramsArrayToParamsMap(positionalParams);
+
     namedParams = false;
     this.serializer = serializer;
     this.recordsPerPage = recordsPerPage;
@@ -67,8 +67,6 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
       this.recordsPerPage = 100;
     }
     this.operationType = operationType;
-
-    paramsBytes = serializer.serializeValue(session, params, PropertyType.EMBEDDEDMAP);
   }
 
   public QueryRequest(
@@ -82,8 +80,6 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
     this.statement = iCommand;
     this.params = namedParams;
 
-    paramsBytes = serializer.serializeValue(session,
-        params != null ? params : Collections.emptyMap(), PropertyType.EMBEDDEDMAP);
     this.namedParams = true;
     this.serializer = serializer;
     this.recordsPerPage = recordsPerPage;
@@ -106,8 +102,22 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
     // THIS IS FOR POSSIBLE FUTURE FETCH PLAN
     network.writeString(null);
 
-    // params
-    network.writeBytes(paramsBytes);
+    if (params != null) {
+      network.writeByte((byte) 1);
+
+      var result = new ResultInternal(databaseSession);
+      for (var entry : params.entrySet()) {
+        var key = entry.getKey();
+        var value = entry.getValue();
+
+        result.setProperty(key, value);
+      }
+
+      MessageHelper.writeResult(databaseSession, result, network, serializer);
+    } else {
+      network.writeByte((byte) 0);
+    }
+
     network.writeBoolean(namedParams);
   }
 
@@ -122,7 +132,11 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
     // THIS IS FOR POSSIBLE FUTURE FETCH PLAN
     channel.readString();
 
-    this.paramsBytes = channel.readBytes();
+    if (channel.readByte() == 1) {
+      this.params = MessageHelper.readResult(databaseSession, channel).toMap();
+    } else {
+      this.params = Collections.emptyMap();
+    }
     this.namedParams = channel.readBoolean();
     this.serializer = serializer;
   }
@@ -151,12 +165,7 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
     return statement;
   }
 
-  public Map<String, Object> getParams(DatabaseSessionInternal db) {
-    if (params == null && this.paramsBytes != null) {
-      //noinspection unchecked
-      this.params = (Map<String, Object>) serializer.deserializeValue(db, paramsBytes,
-          PropertyType.EMBEDDEDMAP);
-    }
+  public Map<String, Object> getParams() {
     return params;
   }
 
@@ -168,12 +177,12 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
     return namedParams;
   }
 
-  public Map getNamedParameters(DatabaseSessionInternal db) {
-    return getParams(db);
+  public Map getNamedParameters() {
+    return params;
   }
 
-  public Object[] getPositionalParameters(DatabaseSessionInternal db) {
-    var params = getParams(db);
+  public Object[] getPositionalParameters() {
+    var params = this.params;
     if (params == null) {
       return null;
     }

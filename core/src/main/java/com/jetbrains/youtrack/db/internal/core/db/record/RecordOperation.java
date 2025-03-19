@@ -35,9 +35,7 @@ public final class RecordOperation implements Comparable<RecordOperation> {
   public final RecordAbstract record;
 
   public long recordCallBackDirtyCounter;
-
-  // used in processing of server transactions
-  public boolean callHooksOnServerTx = false;
+  public long dirtyCounterOnClientSide;
 
   public RecordOperation(final RecordAbstract record, final byte status) {
     // CLONE RECORD AND CONTENT

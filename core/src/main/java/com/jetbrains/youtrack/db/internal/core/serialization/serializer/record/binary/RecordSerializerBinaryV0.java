@@ -65,7 +65,7 @@ import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyEncryption;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityEntry;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -104,7 +104,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
       final String[] iFields) {
     final var className = readString(bytes);
     if (!className.isEmpty()) {
-      entity.fillClassIfNeed(className);
+      entity.setClassNameWithoutPropertiesPostProcessing(className);
     }
 
     // TRANSFORMS FIELDS FOM STRINGS TO BYTE[]
@@ -284,7 +284,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
       final BytesContainer bytes) {
     final var className = readString(bytes);
     if (!className.isEmpty()) {
-      entity.fillClassIfNeed(className);
+      entity.setClassNameWithoutPropertiesPostProcessing(className);
     }
 
     var last = 0;
@@ -330,7 +330,8 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
       }
     }
 
-    RecordInternal.clearSource(entity);
+    final var rec = (RecordAbstract) entity;
+    rec.clearSource();
 
     if (last > bytes.offset) {
       bytes.offset = last;

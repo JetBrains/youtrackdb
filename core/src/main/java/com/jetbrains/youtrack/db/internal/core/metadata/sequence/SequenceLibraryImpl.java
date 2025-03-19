@@ -27,7 +27,7 @@ import com.jetbrains.youtrack.db.internal.core.exception.SequenceException;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.sequence.DBSequence.SEQUENCE_TYPE;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -149,7 +149,7 @@ public class SequenceLibraryImpl {
     onSequenceLibraryUpdate(session);
   }
 
-  public static void onAfterSequenceDropped(FrontendTransactionOptimistic currentTx,
+  public static void onAfterSequenceDropped(FrontendTransactionImpl currentTx,
       EntityImpl sequenceEntity) {
 
     @SuppressWarnings("unchecked")
@@ -166,7 +166,7 @@ public class SequenceLibraryImpl {
 
   public void onSequenceDropped(
       final DatabaseSessionInternal session, final RID rid) {
-    var currentTx = (FrontendTransactionOptimistic) session.getTransactionInternal();
+    var currentTx = (FrontendTransactionImpl) session.getTransactionInternal();
     @SuppressWarnings("unchecked")
     var droppedSequencesMap = (HashMap<RID, String>) currentTx.getCustomData(DROPPED_SEQUENCES_MAP);
     String sequenceName = null;

@@ -21,7 +21,6 @@ package com.jetbrains.youtrack.db.internal.core.metadata;
 
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SharedContext;
-import com.jetbrains.youtrack.db.internal.core.db.SharedContextEmbedded;
 import com.jetbrains.youtrack.db.internal.core.index.IndexManager;
 import com.jetbrains.youtrack.db.internal.core.index.IndexManagerAbstract;
 import com.jetbrains.youtrack.db.internal.core.index.IndexManagerProxy;
@@ -39,6 +38,7 @@ import com.jetbrains.youtrack.db.internal.core.schedule.SchedulerProxy;
 import java.io.IOException;
 
 public class MetadataDefault implements MetadataInternal {
+
   public static final String CLUSTER_INTERNAL_NAME = "internal";
   protected int schemaClusterId;
 
@@ -126,9 +126,7 @@ public class MetadataDefault implements MetadataInternal {
     schemaClusterId = database.getClusterIdByName(CLUSTER_INTERNAL_NAME);
 
     schema = new SchemaProxy(shared.getSchema(), database);
-    if (shared instanceof SharedContextEmbedded embedded) {
-      indexManager = new IndexManagerProxy(embedded.getIndexManager(), database);
-    }
+    indexManager = new IndexManagerProxy(shared.getIndexManager(), database);
 
     security = new SecurityProxy(shared.getSecurity(), database);
     functionLibrary = new FunctionLibraryProxy(shared.getFunctionLibrary(), database);

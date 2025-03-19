@@ -30,7 +30,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.schedule.Scheduler.STATUS;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -73,7 +73,7 @@ public class SchedulerImpl {
     return event;
   }
 
-  public static void onAfterEventDropped(FrontendTransactionOptimistic currentTx,
+  public static void onAfterEventDropped(FrontendTransactionImpl currentTx,
       EntityImpl eventEntity) {
     @SuppressWarnings("unchecked")
     var droppedSequencesMap = (HashMap<RID, String>) currentTx.getCustomData(DROPPED_EVENTS_MAP);
@@ -87,7 +87,7 @@ public class SchedulerImpl {
   }
 
   public void onEventDropped(DatabaseSessionInternal session, RID rid) {
-    var currentTx = (FrontendTransactionOptimistic) session.getTransactionInternal();
+    var currentTx = (FrontendTransactionImpl) session.getTransactionInternal();
 
     @SuppressWarnings("unchecked")
     var droppedSequencesMap = (HashMap<RID, String>) currentTx.getCustomData(DROPPED_EVENTS_MAP);

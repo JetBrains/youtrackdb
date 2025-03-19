@@ -72,7 +72,7 @@ public class RestrictedAccessHook {
                 + "'. Supported ones are: 'user', 'role'");
       }
 
-      if (identity != null && ((RecordId) identity.getIdentity()).isValid()) {
+      if (identity != null && ((RecordId) identity.getIdentity()).isValidPosition()) {
         for (var f : fields) {
           database.getSharedContext().getSecurity().allowIdentity(database, entity, f, identity);
         }

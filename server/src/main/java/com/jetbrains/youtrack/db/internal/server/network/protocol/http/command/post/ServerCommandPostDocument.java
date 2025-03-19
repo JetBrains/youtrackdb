@@ -20,7 +20,7 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.post;
 
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
@@ -44,7 +44,8 @@ public class ServerCommandPostDocument extends ServerCommandDocumentAbstract {
               () -> {
                 var entity = new EntityImpl(db);
                 entity.updateFromJSON(iRequest.getContent());
-                RecordInternal.setVersion(entity, 0);
+                final var rec = (RecordAbstract) entity;
+                rec.setVersion(0);
 
                 // ASSURE TO MAKE THE RECORD ID INVALID
                 entity.getIdentity().setClusterPosition(RID.CLUSTER_POS_INVALID);

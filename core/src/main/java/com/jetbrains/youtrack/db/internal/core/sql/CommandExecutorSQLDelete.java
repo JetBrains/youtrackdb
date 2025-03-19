@@ -330,7 +330,7 @@ public class CommandExecutorSQLDelete extends CommandExecutorSQLAbstract
         this.compiledFilter.evaluate(entity, entity, getContext()))) {
       return true;
     }
-    if (record.getIdentity().isValid()) {
+    if (record.getIdentity().isValidPosition()) {
       if (returning.equalsIgnoreCase("BEFORE")) {
         allDeletedRecords.add(record);
       }

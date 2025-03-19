@@ -101,7 +101,7 @@ public class ScheduledEvent extends IdentityWrapper {
   }
 
   @Override
-  protected void toEntity(@Nonnull DatabaseSessionInternal db, @Nonnull EntityImpl entity) {
+  protected void toEntity(@Nonnull DatabaseSessionInternal session, @Nonnull EntityImpl entity) {
     entity.setProperty(PROP_NAME, name);
     entity.setProperty(PROP_RULE, rule);
 

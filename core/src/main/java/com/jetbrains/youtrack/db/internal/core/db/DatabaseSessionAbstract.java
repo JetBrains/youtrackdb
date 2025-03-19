@@ -27,7 +27,6 @@ import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.HighLevelException;
-import com.jetbrains.youtrack.db.api.exception.OfflineClusterException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
@@ -85,7 +84,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityShared;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.query.Query;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EmbeddedEntityImpl;
@@ -102,9 +100,8 @@ import com.jetbrains.youtrack.db.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction.TXSTATUS;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionAbstract;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionNoTx;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
 import com.jetbrains.youtrack.db.internal.core.tx.RollbackException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -151,7 +148,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   protected final LocalRecordCache localCache = new LocalRecordCache();
   protected CurrentStorageComponentsFactory componentsFactory;
   protected boolean initialized = false;
-  protected FrontendTransactionAbstract currentTx;
+  protected FrontendTransaction currentTx;
 
   protected final RecordHook[][] hooksByScope =
       new RecordHook[RecordHook.SCOPE.values().length][];
@@ -519,6 +516,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
       return rid;
     }
 
+    checkTxActive();
     var record = currentTx.getRecordEntry(rid);
     if (record == null) {
       throw new RecordNotFoundException(this, rid);
@@ -548,6 +546,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
       }
     }
     try {
+      checkTxActive();
       currentTx.deleteRecord((RecordAbstract) record);
     } catch (BaseException e) {
       throw e;
@@ -1049,7 +1048,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
           getClusterNameById(rid.getClusterId()));
       // SEARCH IN LOCAL TX
       var record = getTransactionInternal().getRecord(rid);
-      if (record == FrontendTransactionAbstract.DELETED_RECORD) {
+      if (record == FrontendTransactionImpl.DELETED_RECORD) {
         // DELETED IN TX
         return createRecordNotFoundResult(rid, fetchPreviousRid, fetchNextRid,
             throwExceptionIfRecordNotFound);
@@ -1094,7 +1093,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
       loadedRecordsCount++;
 
       final RawBuffer recordBuffer;
-      if (!rid.isValid()) {
+      if (!rid.isValidPosition()) {
         recordBuffer = null;
       } else {
         try {
@@ -1124,15 +1123,16 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
           YouTrackDBEnginesManager.instance()
               .getRecordFactoryManager()
               .newInstance(recordBuffer.recordType, rid, this);
-      RecordInternal.unsetDirty(record);
+      final var rec = record;
+      rec.unsetDirty();
 
-      if (RecordInternal.getRecordType(this, record) != recordBuffer.recordType) {
+      if (record.getRecordType() != recordBuffer.recordType) {
         throw new DatabaseException(getDatabaseName(),
             "Record type is different from the one in the database");
       }
 
-      RecordInternal.setRecordSerializer(record, serializer);
-      RecordInternal.fill(record, rid, recordBuffer.version, recordBuffer.buffer, false);
+      record.recordSerializer = serializer;
+      record.fill(rid, recordBuffer.version, recordBuffer.buffer, false);
 
       if (record instanceof EntityImpl entity) {
         entity.checkClass(this);
@@ -1143,7 +1143,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
             throwExceptionIfRecordNotFound);
       }
 
-      RecordInternal.fromStream(record, recordBuffer.buffer);
+      record.fromStream(recordBuffer.buffer);
       afterReadOperations(record);
 
       localCache.updateRecord(record, this);
@@ -1184,7 +1184,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
       }
 
       return new LoadRecordResult(record, previousRid, nextRid);
-    } catch (OfflineClusterException | RecordNotFoundException t) {
+    } catch (RecordNotFoundException t) {
       throw t;
     } catch (Exception t) {
       if (rid.isTemporary()) {
@@ -1294,14 +1294,16 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   public int assignAndCheckCluster(DBRecord record) {
     assert assertIfNotActive();
 
+    if (!getStorageInfo().isAssigningClusterIds()) {
+      return RID.CLUSTER_ID_INVALID;
+    }
+
     var rid = (RecordId) record.getIdentity();
     SchemaClassInternal schemaClass = null;
     // if cluster id is not set yet try to find it out
-    if (rid.getClusterId() <= RID.CLUSTER_ID_INVALID
-        && getStorageInfo().isAssigningClusterIds()) {
-      if (record instanceof EntityImpl) {
-        schemaClass = ((EntityImpl) record).getImmutableSchemaClass(this);
-
+    if (rid.getClusterId() <= RID.CLUSTER_ID_INVALID) {
+      if (record instanceof EntityImpl entity) {
+        schemaClass = entity.getImmutableSchemaClass(this);
         if (schemaClass != null) {
           if (schemaClass.isAbstract()) {
             throw new SchemaException(getDatabaseName(),
@@ -1370,7 +1372,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
       return currentTx.begin();
     }
 
-    return begin(newTxInstance());
+    return begin(newTxInstance(FrontendTransactionImpl.generateTxId()));
   }
 
   public void beginReadOnly() {
@@ -1380,10 +1382,10 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
       return;
     }
 
-    begin(newReadOnlyTxInstance());
+    begin(newReadOnlyTxInstance(FrontendTransactionImpl.generateTxId()));
   }
 
-  public int begin(FrontendTransactionOptimistic transaction) {
+  public int begin(FrontendTransactionImpl transaction) {
     checkOpenness();
     assert assertIfNotActive();
 
@@ -1393,7 +1395,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     }
 
     if (currentTx.isActive()) {
-      if (currentTx instanceof FrontendTransactionOptimistic) {
+      if (currentTx instanceof FrontendTransactionImpl) {
         return currentTx.begin();
       }
     }
@@ -1412,14 +1414,14 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     return currentTx.begin();
   }
 
-  protected FrontendTransactionOptimistic newTxInstance() {
+  protected FrontendTransactionImpl newTxInstance(long txId) {
     assert assertIfNotActive();
-    return new FrontendTransactionOptimistic(this);
+    return new FrontendTransactionImpl(this);
   }
 
-  protected FrontendTransactionOptimistic newReadOnlyTxInstance() {
+  protected FrontendTransactionImpl newReadOnlyTxInstance(long txId) {
     assert assertIfNotActive();
-    return new FrontendTransactionOptimistic(this, true);
+    return new FrontendTransactionImpl(this, true);
   }
 
 
@@ -1449,7 +1451,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     var entity = new EntityImpl(this, rid);
     entity.setInternalStatus(RecordElement.STATUS.LOADED);
 
-    var tx = (FrontendTransactionOptimistic) currentTx;
+    var tx = (FrontendTransactionImpl) currentTx;
     tx.addRecordOperation(entity, RecordOperation.CREATED);
 
     return entity;
@@ -1462,7 +1464,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     var blob = new RecordBytes(this, bytes);
     blob.setInternalStatus(RecordElement.STATUS.LOADED);
 
-    var tx = (FrontendTransactionOptimistic) currentTx;
+    var tx = (FrontendTransactionImpl) currentTx;
     tx.addRecordOperation(blob, RecordOperation.CREATED);
 
     return blob;
@@ -1475,7 +1477,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     var blob = new RecordBytes(this);
     blob.setInternalStatus(RecordElement.STATUS.LOADED);
 
-    var tx = (FrontendTransactionOptimistic) currentTx;
+    var tx = (FrontendTransactionImpl) currentTx;
     tx.addRecordOperation(blob, RecordOperation.CREATED);
 
     return blob;
@@ -2710,6 +2712,12 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     }
 
     return null;
+  }
+
+  private void checkTxActive() {
+    if (currentTx == null || !currentTx.isActive()) {
+      throw new TransactionException(getDatabaseName(), "There is no active transaction");
+    }
   }
 
   private void ensureEdgeConsistencyOnDeletion(@Nonnull EntityImpl entity,

@@ -15,7 +15,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import java.util.Map;
 import org.junit.Test;
 
@@ -353,7 +353,8 @@ public class EntityImplTest extends DbTestBase {
     var bytes = new byte[]{0, 1, 2, 3, 4, 5};
     entity.setBinary("bytes", bytes);
     entity.clearTrackData();
-    RecordInternal.unsetDirty(entity);
+    final var rec = (RecordAbstract) entity;
+    rec.unsetDirty();
     assertFalse(entity.isDirty());
     assertNull(entity.getOriginalValue("bytes"));
     entity.setBinary("bytes", bytes.clone());

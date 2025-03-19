@@ -90,9 +90,9 @@ public class Role extends IdentityWrapper implements SecurityRole {
   }
 
   public Role(
-      DatabaseSessionInternal db, final String name, final Role parent,
+      DatabaseSessionInternal session, final String name, final Role parent,
       Map<String, SecurityPolicy> policies) {
-    super(db, CLASS_NAME);
+    super(session, CLASS_NAME);
 
     this.name = name;
     this.parent = parent;
@@ -101,7 +101,7 @@ public class Role extends IdentityWrapper implements SecurityRole {
       this.policies.putAll(policies);
     }
 
-    save(db);
+    save(session);
   }
 
   /**
@@ -155,7 +155,7 @@ public class Role extends IdentityWrapper implements SecurityRole {
   }
 
   @Override
-  protected void toEntity(@Nonnull DatabaseSessionInternal db, @Nonnull EntityImpl entity) {
+  protected void toEntity(@Nonnull DatabaseSessionInternal session, @Nonnull EntityImpl entity) {
     entity.setProperty(NAME, name);
     entity.setProperty(INHERITED_ROLE, parent != null ? parent.getIdentity() : null);
 

@@ -28,7 +28,8 @@ public class DefaultClusterTest {
 
       session.begin();
       final EntityImpl embedded = session.bindToSession(v).getProperty("embedded");
-      Assert.assertFalse("Found: " + embedded.getIdentity(), embedded.getIdentity().isValid());
+      Assert.assertFalse("Found: " + embedded.getIdentity(),
+          embedded.getIdentity().isValidPosition());
       session.commit();
     }
   }

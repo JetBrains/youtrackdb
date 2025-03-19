@@ -3,7 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.record.impl;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -23,7 +23,8 @@ public class DefaultValueSerializationTest extends DbTestBase {
 
     var val = doc.toStream();
     var doc1 = (EntityImpl) session.newEntity();
-    RecordInternal.unsetDirty(doc1);
+    final var rec = (RecordAbstract) doc1;
+    rec.unsetDirty();
     doc1.fromStream(val);
     doc1.deserializeProperties();
     Assert.assertEquals(doc.getProperty("name").toString(), doc1.getProperty("name").toString());

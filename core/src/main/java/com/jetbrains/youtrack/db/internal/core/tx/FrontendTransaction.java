@@ -117,8 +117,7 @@ public interface FrontendTransaction extends Transaction {
    *
    * @param rid the record RID.
    * @return the resolved record, or {@code null} if no record is found, or
-   * {@link FrontendTransactionAbstract#DELETED_RECORD} if the record was deleted in this
-   * transaction.
+   * {@link FrontendTransactionImpl#DELETED_RECORD} if the record was deleted in this transaction.
    */
   RecordAbstract getRecord(RID rid);
 
@@ -218,7 +217,7 @@ public interface FrontendTransaction extends Transaction {
 
   long getId();
 
-  void addRecordOperation(RecordAbstract record, byte status);
+  RecordOperation addRecordOperation(RecordAbstract record, byte status);
 
   @Nullable
   RecordId getFirstRid(int clusterId);
@@ -263,4 +262,6 @@ public interface FrontendTransaction extends Transaction {
   default int activeTxCount() {
     return amountOfNestedTxs();
   }
+
+  void internalRollback();
 }

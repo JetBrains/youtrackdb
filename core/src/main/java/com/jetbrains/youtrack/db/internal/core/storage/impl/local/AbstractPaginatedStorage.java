@@ -96,7 +96,7 @@ import com.jetbrains.youtrack.db.internal.core.index.engine.v1.CellBTreeSingleVa
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.query.QueryAbstract;
 import com.jetbrains.youtrack.db.internal.core.query.live.YTLiveQueryMonitorEmbedded;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.RecordVersionHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.impl.index.CompositeKeySerializer;
@@ -144,9 +144,9 @@ import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedRidBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManagerShared;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
@@ -1865,7 +1865,7 @@ public abstract class AbstractPaginatedStorage
                     final var cluster = doGetAndCheckCluster(rid.getClusterId());
                     final var ppos =
                         cluster.allocatePosition(
-                            RecordInternal.getRecordType(session, rec), atomicOperation);
+                            ((RecordAbstract) rec).getRecordType(), atomicOperation);
                     rid.setClusterPosition(ppos.clusterPosition);
                     assert clientTx.assertIdentityChangedAfterCommit(oldRID, rid);
                   }
@@ -1879,11 +1879,11 @@ public abstract class AbstractPaginatedStorage
                   if (recordStatus == RECORD_STATUS.NOT_EXISTENT) {
                     var ppos =
                         cluster.allocatePosition(
-                            RecordInternal.getRecordType(session, rec), atomicOperation);
+                            ((RecordAbstract) rec).getRecordType(), atomicOperation);
                     while (ppos.clusterPosition < rid.getClusterPosition()) {
                       ppos =
                           cluster.allocatePosition(
-                              RecordInternal.getRecordType(session, rec), atomicOperation);
+                              ((RecordAbstract) rec).getRecordType(), atomicOperation);
                     }
                     if (ppos.clusterPosition != rid.getClusterPosition()) {
                       throw new ConcurrentCreateException(session.getDatabaseName(),
@@ -1893,7 +1893,7 @@ public abstract class AbstractPaginatedStorage
                       || recordStatus == RECORD_STATUS.REMOVED) {
                     final var ppos =
                         cluster.allocatePosition(
-                            RecordInternal.getRecordType(session, rec), atomicOperation);
+                            ((RecordAbstract) rec).getRecordType(), atomicOperation);
                     throw new ConcurrentCreateException(session.getDatabaseName(),
                         rid, new RecordId(rid.getClusterId(), ppos.clusterPosition));
                   }
@@ -1920,11 +1920,10 @@ public abstract class AbstractPaginatedStorage
    * Traditional commit that support already temporary rid and already assigned rids
    *
    * @param clientTx the transaction to commit
-   * @return The list of operations applied by the transaction
    */
   @Override
-  public List<RecordOperation> commit(final FrontendTransactionOptimistic clientTx) {
-    return commit(clientTx, false);
+  public void commit(final FrontendTransactionImpl clientTx) {
+    commit(clientTx, false);
   }
 
   /**
@@ -1934,7 +1933,7 @@ public abstract class AbstractPaginatedStorage
    * @return The list of operations applied by the transaction
    */
   @SuppressWarnings("UnusedReturnValue")
-  public List<RecordOperation> commitPreAllocated(final FrontendTransactionOptimistic clientTx) {
+  public List<RecordOperation> commitPreAllocated(final FrontendTransactionImpl clientTx) {
     return commit(clientTx, true);
   }
 
@@ -1952,7 +1951,7 @@ public abstract class AbstractPaginatedStorage
    * @return The list of operations applied by the transaction
    */
   protected List<RecordOperation> commit(
-      final FrontendTransactionOptimistic transaction, final boolean allocated) {
+      final FrontendTransactionImpl transaction, final boolean allocated) {
     // XXX: At this moment, there are two implementations of the commit method. One for regular
     // client transactions and one for
     // implicit micro-transactions. The implementations are quite identical, but operate on slightly
@@ -2053,7 +2052,7 @@ public abstract class AbstractPaginatedStorage
 
                 var physicalPosition =
                     cluster.allocatePosition(
-                        RecordInternal.getRecordType(transaction.getDatabaseSession(), rec),
+                        ((RecordAbstract) rec).getRecordType(),
                         atomicOperation);
 
                 if (rid.getClusterPosition() > -1) {
@@ -2065,7 +2064,7 @@ public abstract class AbstractPaginatedStorage
                   while (rid.getClusterPosition() > physicalPosition.clusterPosition) {
                     physicalPosition =
                         cluster.allocatePosition(
-                            RecordInternal.getRecordType(transaction.getDatabaseSession(), rec),
+                            ((RecordAbstract) rec).getRecordType(),
                             atomicOperation);
                   }
 
@@ -4873,7 +4872,7 @@ public abstract class AbstractPaginatedStorage
   }
 
   private void commitEntry(
-      FrontendTransactionOptimistic transcation,
+      FrontendTransactionImpl transcation,
       final AtomicOperation atomicOperation,
       final RecordOperation txEntry,
       final PhysicalPosition allocated,
@@ -4910,7 +4909,7 @@ public abstract class AbstractPaginatedStorage
           }
           if (allocated != null) {
             final PhysicalPosition ppos;
-            final var recordType = RecordInternal.getRecordType(db, rec);
+            final var recordType = rec.getRecordType();
             ppos =
                 doCreateRecord(
                     atomicOperation,
@@ -4923,22 +4922,28 @@ public abstract class AbstractPaginatedStorage
                     allocated)
                     .getResult();
 
-            RecordInternal.setVersion(rec, ppos.recordVersion);
+            final var rec1 = rec;
+            rec1.setVersion(ppos.recordVersion);
           } else {
+            final var rec3 = rec;
             final var updateRes =
                 doUpdateRecord(
                     atomicOperation,
                     rid,
-                    RecordInternal.isContentChanged(rec),
+                    rec3.isContentChanged(),
                     stream,
                     -2,
-                    RecordInternal.getRecordType(db, rec),
+                    rec.getRecordType(),
                     null,
                     cluster);
-            RecordInternal.setVersion(rec, updateRes.getResult());
+            final int iVersion = updateRes.getResult();
+            final var rec1 = rec;
+            rec1.setVersion(iVersion);
             if (updateRes.getModifiedRecordContent() != null) {
-              RecordInternal.fill(
-                  rec, rid, updateRes.getResult(), updateRes.getModifiedRecordContent(), false);
+              final int iVersion1 = updateRes.getResult();
+              final byte[] iBuffer = updateRes.getModifiedRecordContent();
+              final var rec2 = rec;
+              rec2.fill(rid, iVersion1, iBuffer, false);
             }
           }
           break;
@@ -4954,20 +4959,25 @@ public abstract class AbstractPaginatedStorage
                 e, name);
           }
 
+          final var rec3 = rec;
           final var updateRes =
               doUpdateRecord(
                   atomicOperation,
                   rid,
-                  RecordInternal.isContentChanged(rec),
+                  rec3.isContentChanged(),
                   stream,
                   rec.getVersion(),
-                  RecordInternal.getRecordType(db, rec),
+                  rec.getRecordType(),
                   null,
                   cluster);
-          RecordInternal.setVersion(rec, updateRes.getResult());
+          final int iVersion = updateRes.getResult();
+          final var rec1 = rec;
+          rec1.setVersion(iVersion);
           if (updateRes.getModifiedRecordContent() != null) {
-            RecordInternal.fill(
-                rec, rid, updateRes.getResult(), updateRes.getModifiedRecordContent(), false);
+            final int iVersion1 = updateRes.getResult();
+            final byte[] iBuffer = updateRes.getModifiedRecordContent();
+            final var rec2 = rec;
+            rec2.fill(rid, iVersion1, iBuffer, false);
           }
 
           break;
@@ -4992,7 +5002,8 @@ public abstract class AbstractPaginatedStorage
       ((EntityImpl) rec).clearTransactionTrackData();
     }
 
-    RecordInternal.unsetDirty(rec);
+    final var rec1 = rec;
+    rec1.unsetDirty();
   }
 
   private void checkClusterSegmentIndexRange(final int iClusterId) {

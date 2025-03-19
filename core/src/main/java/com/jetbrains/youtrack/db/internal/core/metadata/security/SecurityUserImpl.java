@@ -58,8 +58,8 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
   private volatile STATUSES status;
   protected final Set<Role> roles = ConcurrentHashMap.newKeySet();
 
-  public SecurityUserImpl(DatabaseSessionInternal db, final String userName) {
-    super(db, CLASS_NAME);
+  public SecurityUserImpl(DatabaseSessionInternal session, final String userName) {
+    super(session, CLASS_NAME);
 
     this.name = userName;
     this.status = STATUSES.ACTIVE;
@@ -93,7 +93,7 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
   }
 
   @Override
-  protected void toEntity(@Nonnull DatabaseSessionInternal db, @Nonnull EntityImpl entity) {
+  protected void toEntity(@Nonnull DatabaseSessionInternal session, @Nonnull EntityImpl entity) {
     entity.setProperty(NAME_PROPERTY, name);
     entity.setProperty(PASSWORD_PROPERTY, password);
     entity.setProperty(STATUS_PROPERTY, status.name());

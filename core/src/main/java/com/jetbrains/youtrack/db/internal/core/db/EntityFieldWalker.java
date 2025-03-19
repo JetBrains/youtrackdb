@@ -58,7 +58,7 @@ public class EntityFieldWalker {
       DatabaseSessionInternal session, EntityImpl entity, EntityPropertiesVisitor fieldWalker) {
     final Set<EntityImpl> walked = Collections.newSetFromMap(new IdentityHashMap<>());
 
-    if (entity.getIdentity().isValid()) {
+    if (entity.getIdentity().isValidPosition()) {
       entity = session.bindToSession(entity);
     }
 

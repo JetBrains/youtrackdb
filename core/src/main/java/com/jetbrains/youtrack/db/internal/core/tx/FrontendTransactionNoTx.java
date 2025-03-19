@@ -19,13 +19,10 @@
  */
 package com.jetbrains.youtrack.db.internal.core.tx;
 
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.NoTxRecordReadException;
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
@@ -44,36 +41,18 @@ import javax.annotation.Nullable;
 /**
  * No operation transaction.
  */
-public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
+public class FrontendTransactionNoTx implements FrontendTransaction {
 
-  private static final String NON_TX_WARNING_READ_MESSAGE =
-      "Read operation performed in no tx mode. "
-          + "Such behavior can lead to inconsistent state of the database. "
-          + "Please consider using transaction or set "
-          + GlobalConfiguration.NON_TX_READS_WARNING_MODE.getKey()
-          + " configuration parameter to "
-          + NonTxReadMode.SILENT.name()
-          + " to avoid this warning, or to "
-          + NonTxReadMode.EXCEPTION.name()
-          + " to throw an exception for such cases.";
   private static final String NON_TX_EXCEPTION_READ_MESSAGE =
       "Read operation performed in no tx mode. "
           + "Such behavior can lead to inconsistent state of the database."
-          + " Please consider using transaction or set "
-          + GlobalConfiguration.NON_TX_READS_WARNING_MODE.getKey()
-          + " configuration parameter to "
-          + NonTxReadMode.SILENT.name()
-          + " to avoid this warning, or to "
-          + NonTxReadMode.WARN.name()
-          + " to show a warning for such cases.";
+          + " Please start transaction";
 
-  private final NonTxReadMode nonTxReadMode;
+  @Nonnull
+  private DatabaseSessionInternal session;
 
-  public FrontendTransactionNoTx(final DatabaseSessionInternal database) {
-    super(database);
-
-    this.nonTxReadMode = database.getNonTxReadMode();
-    assert this.nonTxReadMode != null;
+  public FrontendTransactionNoTx(DatabaseSessionInternal session) {
+    this.session = session;
   }
 
   public int begin() {
@@ -90,6 +69,11 @@ public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
   }
 
   @Override
+  public boolean isActive() {
+    return false;
+  }
+
+  @Override
   public void commit(boolean force) {
     throw new UnsupportedOperationException("Commit is not supported in no tx mode");
   }
@@ -99,37 +83,24 @@ public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
   }
 
   public @Nonnull LoadRecordResult loadRecord(final RID rid) {
-    checkNonTXReads();
-    if (rid.isNew()) {
-      throw new RecordNotFoundException(session, rid);
-    }
-
-    return session.executeReadRecord((RecordId) rid, false, false, true);
-  }
-
-  private void checkNonTXReads() {
-    if (nonTxReadMode == NonTxReadMode.WARN) {
-      LogManager.instance().warn(this, NON_TX_WARNING_READ_MESSAGE);
-    } else if (nonTxReadMode == NonTxReadMode.EXCEPTION) {
-      throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
-    }
+    throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
   }
 
   @Override
   public boolean exists(RID rid) {
-    checkNonTXReads();
-    if (rid.isNew()) {
-      return false;
-    }
+    throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
+  }
 
-    return session.executeExists(rid);
+  @Override
+  public TXSTATUS getStatus() {
+    return TXSTATUS.INVALID;
   }
 
   /**
    * Deletes the record.
    */
   public void deleteRecord(final RecordAbstract iRecord) {
-    throw new DatabaseException(session, "Cannot delete record in no tx mode");
+    throw new DatabaseException(session.getDatabaseName(), "Cannot delete record in no tx mode");
   }
 
   public Collection<RecordOperation> getCurrentRecordEntries() {
@@ -151,6 +122,11 @@ public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
   }
 
   @Override
+  public void setSession(DatabaseSessionInternal session) {
+    this.session = session;
+  }
+
+  @Override
   public void setMetadataHolder(FrontendTransacationMetadataHolder metadata) {
     throw new UnsupportedOperationException("SetMetadataHolder is not supported in no tx mode");
   }
@@ -165,9 +141,7 @@ public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
   }
 
   public RecordAbstract getRecord(final RID rid) {
-    checkNonTXReads();
-
-    return null;
+    throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
   }
 
   public RecordOperation getRecordEntry(final RID rid) {
@@ -233,36 +207,37 @@ public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
   }
 
   @Override
-  public void addRecordOperation(RecordAbstract record, byte status) {
+  public DatabaseSessionInternal getDatabaseSession() {
+    return session;
+  }
+
+  @Override
+  public RecordOperation addRecordOperation(RecordAbstract record, byte status) {
     throw new UnsupportedOperationException("Can not modify record outside transaction");
   }
 
   @Nullable
   @Override
   public RecordId getFirstRid(int clusterId) {
-    checkNonTXReads();
-    return null;
+    throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
   }
 
   @Nullable
   @Override
   public RecordId getLastRid(int clusterId) {
-    checkNonTXReads();
-    return null;
+    throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
   }
 
   @Nullable
   @Override
   public RecordId getNextRidInCluster(@Nonnull RecordId rid) {
-    checkNonTXReads();
-    return null;
+    throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
   }
 
   @Nullable
   @Override
   public RecordId getPreviousRidInCluster(@Nonnull RecordId rid) {
-    checkNonTXReads();
-    return null;
+    throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
   }
 
   @Override
@@ -271,17 +246,11 @@ public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
   }
 
   @Override
-  public FrontendTransactionIndexChanges getIndexChangesInternal(String indexName) {
-    return null;
-  }
-
-  @Override
   public void internalRollback() {
   }
 
-  public enum NonTxReadMode {
-    WARN,
-    EXCEPTION,
-    SILENT
+  @Override
+  public FrontendTransactionIndexChanges getIndexChangesInternal(String indexName) {
+    return null;
   }
 }

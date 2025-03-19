@@ -364,7 +364,7 @@ public class DocumentFieldConversionTest extends BaseMemoryInternalDatabase {
     doc.setProperty("decimal", -1);
     doc.setProperty("date", 20304L);
 
-    doc.setClass(clazz);
+    doc.setClassNameIfExists(clazz.getName());
     assertTrue(doc.getProperty("float") instanceof Float);
     //    assertEquals(1f, doc.field("float"));
 

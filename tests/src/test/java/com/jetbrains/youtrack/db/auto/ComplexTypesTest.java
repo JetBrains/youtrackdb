@@ -126,7 +126,7 @@ public class ComplexTypesTest extends BaseDBTest {
 
     EntityImpl d = ((List<Identifiable>) loadedDoc.getProperty("linkedList")).getFirst().getRecord(
         session);
-    Assert.assertTrue(d.getIdentity().isValid());
+    Assert.assertTrue(d.getIdentity().isValidPosition());
     Assert.assertEquals(d.getProperty("name"), "Luca");
     d = ((List<Identifiable>) loadedDoc.getProperty("linkedList")).get(1).getRecord(session);
     Assert.assertEquals(d.getSchemaClassName(), "Account");

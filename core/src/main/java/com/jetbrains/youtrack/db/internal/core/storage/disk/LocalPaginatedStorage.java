@@ -77,7 +77,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManagerShared;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.DataInputStream;
@@ -1981,7 +1981,7 @@ public class LocalPaginatedStorage extends AbstractPaginatedStorage {
   }
 
   @Override
-  public List<RecordOperation> commit(FrontendTransactionOptimistic clientTx, boolean allocated) {
+  public List<RecordOperation> commit(FrontendTransactionImpl clientTx, boolean allocated) {
     var operations = super.commit(clientTx, allocated);
     listeners.forEach((l) -> l.onCommit(operations));
     return operations;

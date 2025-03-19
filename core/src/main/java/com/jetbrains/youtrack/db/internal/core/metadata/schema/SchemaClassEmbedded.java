@@ -14,9 +14,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 
-/**
- *
- */
 public class SchemaClassEmbedded extends SchemaClassImpl {
 
   protected SchemaClassEmbedded(SchemaShared iOwner, String iName) {

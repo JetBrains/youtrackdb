@@ -18,7 +18,6 @@ package com.jetbrains.youtrack.db.auto;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.util.List;
@@ -104,7 +103,7 @@ public class GEOTest extends BaseDBTest {
 
     for (var d : result) {
       Assert.assertEquals(d.getSchemaClassName(), "MapPoint");
-      Assert.assertEquals(RecordInternal.getRecordType(session, d), EntityImpl.RECORD_TYPE);
+      Assert.assertEquals(d.getRecordType(), EntityImpl.RECORD_TYPE);
     }
   }
 

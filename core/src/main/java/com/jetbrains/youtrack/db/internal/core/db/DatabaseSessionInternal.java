@@ -64,8 +64,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionNoTx;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.enterprise.EnterpriseEndpoint;
 import java.util.Collection;
 import java.util.Iterator;
@@ -148,7 +147,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    */
   int addBlobCluster(String iClusterName, Object... iParameters);
 
-  int begin(FrontendTransactionOptimistic tx);
+  int begin(FrontendTransactionImpl tx);
 
   void setSerializer(RecordSerializer serializer);
 
@@ -250,7 +249,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   /**
    * Executed the commit on the storage hiding away storage concepts from the transaction
    */
-  void internalCommit(@Nonnull FrontendTransactionOptimistic transaction);
+  void internalCommit(@Nonnull FrontendTransactionImpl transaction);
 
   boolean isClusterVertex(int cluster);
 
@@ -285,8 +284,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   long truncateClass(String name, boolean polimorfic);
 
   long truncateClusterInternal(String name);
-
-  FrontendTransactionNoTx.NonTxReadMode getNonTxReadMode();
 
   /**
    * Browses all the records of the specified cluster.

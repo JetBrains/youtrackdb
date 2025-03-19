@@ -131,7 +131,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
       final Identifiable singleValue) {
     final var rid = (RecordId) singleValue.getIdentity();
 
-    if (!rid.isValid()) {
+    if (!rid.isValidPosition()) {
       if (singleValue instanceof DBRecord) {
         // EARLY SAVE IT
       } else {

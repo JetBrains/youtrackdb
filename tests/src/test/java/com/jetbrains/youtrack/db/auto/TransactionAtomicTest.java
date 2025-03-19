@@ -22,7 +22,7 @@ import com.jetbrains.youtrack.db.api.exception.TransactionException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.session.SessionListener;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;
 import java.io.IOException;
@@ -90,7 +90,8 @@ public class TransactionAtomicTest extends BaseDBTest {
     doc = session.bindToSession(doc);
     doc.setDirty();
     doc.setProperty("testmvcc", true);
-    RecordInternal.setVersion(doc, doc.getVersion() + 1);
+    final var rec = (RecordAbstract) doc;
+    rec.setVersion(doc.getVersion() + 1);
     try {
 
       session.commit();

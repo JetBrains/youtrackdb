@@ -200,7 +200,7 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
       Assert.assertNotNull(r.getProperty("rid"));
 
       final RecordId rid = r.getProperty("rid");
-      Assert.assertTrue(rid.isValid());
+      Assert.assertTrue(rid.isValidPosition());
     }
   }
 

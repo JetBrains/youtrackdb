@@ -28,7 +28,7 @@ import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
@@ -754,11 +754,15 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                   if (buffer1.recordType == EntityImpl.RECORD_TYPE) {
                     // ENTITY: TRY TO INSTANTIATE AND COMPARE
 
-                    RecordInternal.unsetDirty(entity1);
-                    RecordInternal.fromStream(entity1, buffer1.buffer);
+                    final var rec1 = (RecordAbstract) entity1;
+                    rec1.unsetDirty();
+                    final var rec3 = (RecordAbstract) entity1;
+                    rec3.fromStream(buffer1.buffer);
 
-                    RecordInternal.unsetDirty(entity2);
-                    RecordInternal.fromStream(entity2, buffer2.buffer);
+                    final var rec = (RecordAbstract) entity2;
+                    rec.unsetDirty();
+                    final var rec2 = (RecordAbstract) entity2;
+                    rec2.fromStream(buffer2.buffer);
 
                     if (rid1.toString().equals(configuration1.getSchemaRecordId())
                         && rid1.toString().equals(configuration2.getSchemaRecordId())) {

@@ -101,7 +101,7 @@ public class JournaledTxStreamingTest {
       var server = ServerMain.create(false);
       server.startup(
           RemoteDBRunner.class.getResourceAsStream(
-              "/com/jetbrains/youtrack/db/internal/core/db/journaled-tx-streaming-test-server-config.xml"
+              "/com/jetbrains/youtrack/db/internal/server/journaled-tx-streaming-test-server-config.xml"
           )
       );
       server.activate();

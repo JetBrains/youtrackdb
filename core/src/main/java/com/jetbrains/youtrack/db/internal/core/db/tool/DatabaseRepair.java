@@ -154,7 +154,7 @@ public class DatabaseRepair extends DatabaseTool {
         return true;
       }
 
-      if (((RecordId) id).isValid()) {
+      if (((RecordId) id).isValidPosition()) {
         if (id.isPersistent()) {
           try {
             ((Identifiable) fieldValue).getRecord(db);

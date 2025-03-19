@@ -7,7 +7,7 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.util.Date;
 import org.junit.Test;
@@ -28,7 +28,8 @@ public class DefaultValueTest extends DbTestBase {
 
     var val = doc.toStream();
     var doc1 = (EntityImpl) session.newEntity();
-    RecordInternal.unsetDirty(doc1);
+    final var rec = (RecordAbstract) doc1;
+    rec.unsetDirty();
     doc1.fromStream(val);
     doc1.deserializeProperties();
     assertEquals(doc.getProperty("name"), (String) doc1.getProperty("name"));

@@ -84,7 +84,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
       // JUST THE REFERENCE
       rid = (RecordId) iLinked;
 
-      assert ((RecordId) rid.getIdentity()).isValid() || session.isRemote()
+      assert ((RecordId) rid.getIdentity()).isValidPosition() || session.isRemote()
           : "Impossible to serialize invalid link " + rid.getIdentity();
       resultRid = rid;
     } else {
@@ -104,7 +104,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
       var iLinkedRecord = ((Identifiable) iLinked).getRecord(session);
       rid = (RecordId) iLinkedRecord.getIdentity();
 
-      assert ((RecordId) rid.getIdentity()).isValid() || session.isRemote()
+      assert ((RecordId) rid.getIdentity()).isValidPosition() || session.isRemote()
           : "Impossible to serialize invalid link " + rid.getIdentity();
 
       if (iParentRecord != null) {
@@ -116,7 +116,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
       }
     }
 
-    if (rid.isValid()) {
+    if (rid.isValidPosition()) {
       buffer.append(rid.toString());
     }
 
@@ -378,7 +378,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
                   + iValue);
         }
 
-        if (!((RecordId) ((Identifiable) iValue).getIdentity()).isValid()
+        if (!((RecordId) ((Identifiable) iValue).getIdentity()).isValidPosition()
             && iValue instanceof EntityImpl
             && ((EntityImpl) iValue).isEmbedded()) {
           // WRONG: IT'S EMBEDDED!
@@ -580,7 +580,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
           iOutput.append(StringSerializerHelper.ENTRY_SEPARATOR);
 
           if (o.getValue() instanceof EntityImpl
-              && ((EntityImpl) o.getValue()).getIdentity().isValid()) {
+              && ((EntityImpl) o.getValue()).getIdentity().isValidPosition()) {
             fieldTypeToString(db, iOutput, PropertyType.LINK, o.getValue());
           } else if (o.getValue() instanceof DBRecord
               || o.getValue() instanceof EntitySerializable) {
@@ -691,7 +691,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
           if (iLinkedClass != null) {
             var entity = new EntityImpl(session);
             objectToAdd = fromString(session, item, entity, null);
-            entity.fillClassIfNeed(iLinkedClass.getName());
+            entity.setClassNameWithoutPropertiesPostProcessing(iLinkedClass.getName());
           } else
           // EMBEDDED OBJECT
           {
@@ -772,7 +772,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         if (iLinkedType == null)
         // AUTO-DETERMINE LINKED TYPE
         {
-          if (((RecordId) id.getIdentity()).isValid()) {
+          if (((RecordId) id.getIdentity()).isValidPosition()) {
             linkedType = PropertyType.LINK;
           } else {
             linkedType = PropertyType.EMBEDDED;
@@ -787,7 +787,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
           }
 
           assert linkedType == PropertyType.EMBEDDED
-              || ((RecordId) id.getIdentity()).isValid()
+              || ((RecordId) id.getIdentity()).isValidPosition()
               || session.isRemote()
               : "Impossible to serialize invalid link " + id.getIdentity();
 

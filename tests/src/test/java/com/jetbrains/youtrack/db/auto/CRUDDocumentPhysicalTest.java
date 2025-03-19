@@ -22,7 +22,6 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.util.ArrayList;
@@ -707,7 +706,8 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     doc.setProperty("name", "modified");
     var oldVersion = doc.getVersion();
 
-    RecordInternal.setVersion(doc, -2);
+    final var rec = (RecordAbstract) doc;
+    rec.setVersion(-2);
 
     session.commit();
 

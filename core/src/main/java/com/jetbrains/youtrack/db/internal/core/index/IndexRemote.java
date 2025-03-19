@@ -61,7 +61,7 @@ public class IndexRemote implements Index {
       final String algorithm,
       final RID iRid,
       final IndexDefinition iIndexDefinition,
-      final EntityImpl iConfiguration,
+      final Map<String, Object> iConfiguration,
       final Set<String> clustersToIndex,
       String database) {
     this.name = iName;
@@ -69,15 +69,10 @@ public class IndexRemote implements Index {
     this.algorithm = algorithm;
     this.rid = iRid;
     this.indexDefinition = iIndexDefinition;
-    this.configuration = iConfiguration.toMap();
+    this.configuration = iConfiguration;
 
-    var metadata = iConfiguration.<EntityImpl>getProperty("metadata").toMap();
-
-    metadata.remove("@rid");
-    metadata.remove("@class");
-    metadata.remove("@type");
-    metadata.remove("@version");
-
+    @SuppressWarnings("unchecked")
+    var metadata = (Map<String, Object>) iConfiguration.get("metadata");
     this.metadata = Collections.unmodifiableMap(metadata);
 
     this.clustersToIndex = new HashSet<>(clustersToIndex);
@@ -366,7 +361,7 @@ public class IndexRemote implements Index {
       return false;
     }
 
-    final IndexRemote that = (IndexRemote) o;
+    final var that = (IndexRemote) o;
 
     return name.equals(that.name);
   }

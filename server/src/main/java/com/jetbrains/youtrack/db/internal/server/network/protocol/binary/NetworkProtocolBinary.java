@@ -45,7 +45,6 @@ import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
@@ -464,8 +463,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
 
       if (handshakeInfo != null) {
         if (connection == null) {
-          throw new TokenSecurityException(connection.getDatabaseSession(),
-              "missing session and token");
+          throw new TokenSecurityException("missing session and token");
         }
         connection.acquire();
         connection.validateSession(tokenBytes, server.getTokenHandler(), this);
@@ -817,7 +815,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
 
     var dbSerializerName = session.getSerializer().toString();
     var name = connection.getData().getSerializationImpl();
-    if (RecordInternal.getRecordType(session, iRecord) == EntityImpl.RECORD_TYPE
+    if (iRecord.getRecordType() == EntityImpl.RECORD_TYPE
         && (dbSerializerName == null || !dbSerializerName.equals(name))) {
       ((EntityImpl) iRecord).deserializeProperties();
       var ser = RecordSerializerFactory.instance().getFormat(name);
@@ -834,7 +832,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
       throws IOException {
     var session = connection.getDatabaseSession();
     channel.writeShort((short) 0);
-    channel.writeByte(RecordInternal.getRecordType(session, iRecord));
+    channel.writeByte(iRecord.getRecordType());
     channel.writeRID(iRecord.getIdentity());
     channel.writeVersion(iRecord.getVersion());
     try {

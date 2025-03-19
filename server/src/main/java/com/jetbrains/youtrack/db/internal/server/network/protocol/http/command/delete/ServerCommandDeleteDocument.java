@@ -22,7 +22,7 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
@@ -47,7 +47,7 @@ public class ServerCommandDeleteDocument extends ServerCommandDocumentAbstract {
       final var rid = parametersPos > -1 ? urlParts[2].substring(0, parametersPos) : urlParts[2];
       final var recordId = new RecordId(rid);
 
-      if (!recordId.isValid()) {
+      if (!recordId.isValidPosition()) {
         throw new IllegalArgumentException("Invalid Record ID in request: " + urlParts[2]);
       }
 
@@ -64,11 +64,14 @@ public class ServerCommandDeleteDocument extends ServerCommandDocumentAbstract {
               if (iRequest.getIfMatch() != null)
               // USE THE IF-MATCH HTTP HEADER AS VERSION
               {
-                RecordInternal.setVersion(entity, Integer.parseInt(iRequest.getIfMatch()));
+                final int iVersion = Integer.parseInt(iRequest.getIfMatch());
+                final var rec = (RecordAbstract) entity;
+                rec.setVersion(iVersion);
               } else
               // IGNORE THE VERSION
               {
-                RecordInternal.setVersion(entity, -1);
+                final var rec = (RecordAbstract) entity;
+                rec.setVersion(-1);
               }
             }
 

@@ -2,7 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.db.record;
 
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent.ChangeType;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -19,7 +19,8 @@ public class TrackedMapTest extends DbTestBase {
     final var doc = (EntityImpl) session.newEntity();
 
     final var map = new TrackedMap<String>(doc);
-    RecordInternal.unsetDirty(doc);
+    final var rec = (RecordAbstract) doc;
+    rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
     map.enableTracking(doc);
 
@@ -40,12 +41,14 @@ public class TrackedMapTest extends DbTestBase {
     final var doc = (EntityImpl) session.newEntity();
 
     final var map = new TrackedMap<String>(doc);
-    RecordInternal.unsetDirty(doc);
+    final var rec1 = (RecordAbstract) doc;
+    rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
     map.put("key1", "value1");
 
-    RecordInternal.unsetDirty(doc);
+    final var rec = (RecordAbstract) doc;
+    rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
     map.disableTracking(doc);
     map.enableTracking(doc);
@@ -66,12 +69,14 @@ public class TrackedMapTest extends DbTestBase {
     final var doc = (EntityImpl) session.newEntity();
 
     final var map = new TrackedMap<String>(doc);
-    RecordInternal.unsetDirty(doc);
+    final var rec1 = (RecordAbstract) doc;
+    rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
     map.put("key1", "value1");
 
-    RecordInternal.unsetDirty(doc);
+    final var rec = (RecordAbstract) doc;
+    rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
     map.disableTracking(doc);
     map.enableTracking(doc);
@@ -88,12 +93,14 @@ public class TrackedMapTest extends DbTestBase {
     final var doc = (EntityImpl) session.newEntity();
 
     final var map = new TrackedMap<String>(doc);
-    RecordInternal.unsetDirty(doc);
+    final var rec1 = (RecordAbstract) doc;
+    rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
     map.put("key1", "value1");
 
-    RecordInternal.unsetDirty(doc);
+    final var rec = (RecordAbstract) doc;
+    rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
     map.disableTracking(doc);
     map.enableTracking(doc);
@@ -112,7 +119,8 @@ public class TrackedMapTest extends DbTestBase {
 
     final var map = new TrackedMap<String>(doc);
 
-    RecordInternal.unsetDirty(doc);
+    final var rec = (RecordAbstract) doc;
+    rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
     map.enableTracking(doc);
 
@@ -132,7 +140,8 @@ public class TrackedMapTest extends DbTestBase {
 
     map.put("key1", "value1");
 
-    RecordInternal.unsetDirty(doc);
+    final var rec = (RecordAbstract) doc;
+    rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
     map.disableTracking(doc);
     map.enableTracking(doc);
@@ -156,7 +165,8 @@ public class TrackedMapTest extends DbTestBase {
 
     map.put("key1", "value1");
 
-    RecordInternal.unsetDirty(doc);
+    final var rec = (RecordAbstract) doc;
+    rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
     map.disableTracking(doc);
     map.enableTracking(doc);
@@ -179,7 +189,8 @@ public class TrackedMapTest extends DbTestBase {
     trackedMap.put("key2", "value2");
     trackedMap.put("key3", "value3");
 
-    RecordInternal.unsetDirty(doc);
+    final var rec = (RecordAbstract) doc;
+    rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
     final List<MultiValueChangeEvent<Object, String>> firedEvents = new ArrayList<>();
@@ -214,7 +225,8 @@ public class TrackedMapTest extends DbTestBase {
     trackedMap.put("key2", "value2");
     trackedMap.put("key3", "value3");
 
-    RecordInternal.unsetDirty(doc);
+    final var rec = (RecordAbstract) doc;
+    rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
     trackedMap.clear();

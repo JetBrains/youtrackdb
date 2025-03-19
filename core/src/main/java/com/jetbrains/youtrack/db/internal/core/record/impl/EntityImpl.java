@@ -22,7 +22,6 @@ package com.jetbrains.youtrack.db.internal.core.record.impl;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
 import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.query.Result;
@@ -152,7 +151,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     status = STATUS.LOADED;
     assert session.assertIfNotActive();
     setup();
-    setClassName(iClassName);
+    setClassNameWithoutPropertiesPostProcessing(iClassName);
 
     var cls = getImmutableSchemaClass(session);
     if (cls != null) {
@@ -174,6 +173,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     throw new IllegalStateException("Entity is not a vertex");
+  }
+
+  @Override
+  public boolean sourceIsParsedByProperties() {
+    return super.sourceIsParsedByProperties() || properties != null && !properties.isEmpty();
   }
 
   @Nullable
@@ -1896,7 +1900,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
               + propertyValue);
     } else {
       if (propertyValue instanceof Identifiable embedded) {
-        if (((RecordId) embedded.getIdentity()).isValid()) {
+        if (((RecordId) embedded.getIdentity()).isValidPosition()) {
           throw new ValidationException(session.getDatabaseName(),
               "The property '"
                   + p.getFullName()
@@ -2045,7 +2049,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       if (isEmbedded()) {
         map.put(EntityHelper.ATTRIBUTE_EMBEDDED, true);
       } else {
-        if (recordId.isValid()) {
+        if (recordId.isValidPosition()) {
           map.put(EntityHelper.ATTRIBUTE_RID, recordId.copy());
         }
       }
@@ -2710,7 +2714,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       result.setProperty(EntityHelper.ATTRIBUTE_CLASS, className);
     }
     if (!isEmbedded()) {
-      if (recordId.isValid()) {
+      if (recordId.isValidPosition()) {
         result.setProperty(EntityHelper.ATTRIBUTE_RID, recordId.copy());
       }
       result.setProperty(EntityHelper.ATTRIBUTE_VERSION, recordVersion);
@@ -2766,6 +2770,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
         ownerEntity.setDirty();
       }
     }
+  }
+
+  public void setDirty(long counter) {
+    super.setDirty();
   }
 
   @Override
@@ -3190,7 +3198,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return className;
   }
 
-  private void setClassName(@Nullable final String className) {
+  public void setClassNameWithoutPropertiesPostProcessing(@Nullable final String className) {
     immutableClazz = null;
     immutableSchemaVersion = -1;
 
@@ -3201,17 +3209,28 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     var metadata = session.getMetadata();
-    this.immutableClazz =
-        (SchemaImmutableClass) metadata.getImmutableSchemaSnapshot().getClass(className);
-    SchemaClass clazz;
+
+    var schemaSnapshot = metadata.getImmutableSchemaSnapshot();
+    this.immutableClazz = (SchemaImmutableClass) schemaSnapshot.getClass(className);
+
     if (this.immutableClazz != null) {
-      clazz = this.immutableClazz;
+      this.immutableSchemaVersion = schemaSnapshot.getVersion();
+      this.schema = schemaSnapshot;
     } else {
-      clazz = metadata.getSchema().getOrCreateClass(className);
+      metadata.getSchema().getOrCreateClass(className);
+      schemaSnapshot = metadata.getImmutableSchemaSnapshot();
+
+      this.immutableClazz = (SchemaImmutableClass) schemaSnapshot.getClass(className);
+      this.immutableSchemaVersion = schemaSnapshot.getVersion();
+      this.schema = schemaSnapshot;
     }
-    if (clazz != null) {
-      this.className = clazz.getName();
+
+    if (this.immutableClazz == null) {
+      throw new DatabaseException(session,
+          "Class '" + className + "' not found in the database");
     }
+
+    this.className = this.immutableClazz.getName();
   }
 
 
@@ -3271,7 +3290,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     try {
       final var buffer = new StringBuilder(128);
-      checkForProperties();
 
       if (!session.isClosed()) {
         final var clsName = getSchemaClassName();
@@ -3280,51 +3298,53 @@ public class EntityImpl extends RecordAbstract implements Entity {
         }
       }
 
-      if (recordId.isValid()) {
+      if (recordId.isValidPosition()) {
         buffer.append(recordId);
       }
 
       var first = true;
-      for (var propertyName : calculatePropertyNames(false, true)) {
-        buffer.append(first ? '{' : ',');
-        buffer.append(propertyName);
-        buffer.append(':');
-        var propertyValue = getPropertyInternal(propertyName);
-        if (propertyValue == null) {
-          buffer.append("null");
-        } else {
-          if (propertyValue instanceof Collection<?>
-              || propertyValue instanceof Map<?, ?>
-              || propertyValue.getClass().isArray()) {
-            buffer.append('[');
-            buffer.append(MultiValue.getSize(propertyValue));
-            buffer.append(']');
+      if (sourceIsParsedByProperties()) {
+        for (var propertyName : calculatePropertyNames(false, true)) {
+          buffer.append(first ? '{' : ',');
+          buffer.append(propertyName);
+          buffer.append(':');
+          var propertyValue = getPropertyInternal(propertyName);
+          if (propertyValue == null) {
+            buffer.append("null");
           } else {
-            if (propertyValue instanceof RecordAbstract record) {
-              if (record.getIdentity().isValid()) {
-                record.getIdentity().toString(buffer);
-              } else {
-                if (record instanceof EntityImpl) {
-                  buffer.append(((EntityImpl) record).toString(inspected));
-                } else {
-                  buffer.append(record);
-                }
-              }
+            if (propertyValue instanceof Collection<?>
+                || propertyValue instanceof Map<?, ?>
+                || propertyValue.getClass().isArray()) {
+              buffer.append('[');
+              buffer.append(MultiValue.getSize(propertyValue));
+              buffer.append(']');
             } else {
-              buffer.append(propertyValue);
+              if (propertyValue instanceof RecordAbstract record) {
+                if (record.getIdentity().isValidPosition()) {
+                  record.getIdentity().toString(buffer);
+                } else {
+                  if (record instanceof EntityImpl) {
+                    buffer.append(((EntityImpl) record).toString(inspected));
+                  } else {
+                    buffer.append(record);
+                  }
+                }
+              } else {
+                buffer.append(propertyValue);
+              }
             }
           }
-        }
 
-        if (first) {
-          first = false;
+          if (first) {
+            first = false;
+          }
+        }
+        if (!first) {
+          buffer.append('}');
         }
       }
-      if (!first) {
-        buffer.append('}');
-      }
 
-      if (recordId.isValid()) {
+      if (recordId.isValidPosition()) {
         buffer.append(" v");
         buffer.append(recordVersion);
       }
@@ -3428,7 +3448,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Override
-  protected void clearSource() {
+  public void clearSource() {
     super.clearSource();
     schema = null;
   }
@@ -3458,17 +3478,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
     return prop;
   }
-
-  public void fillClassIfNeed(final String iClassName) {
-    checkForBinding();
-
-    if (this.className == null) {
-      immutableClazz = null;
-      immutableSchemaVersion = -1;
-      className = iClassName;
-    }
-  }
-
 
   public SchemaImmutableClass getImmutableSchemaClass(
       @Nonnull DatabaseSessionInternal session) {
@@ -3711,31 +3720,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-  void setClass(final SchemaClass iClass) {
-    checkForBinding();
-
-    if (iClass != null && iClass.isAbstract()) {
-      throw new SchemaException(session.getDatabaseName(),
-          "Cannot create a entity of the abstract class '" + iClass + "'");
-    }
-
-    if (recordId.isPersistent()) {
-      throw new UnsupportedOperationException("Cannot change class of persistent record");
-    }
-
-    if (iClass == null) {
-      className = null;
-    } else {
-      className = iClass.getName();
-    }
-
-    immutableClazz = null;
-    immutableSchemaVersion = -1;
-    if (iClass != null) {
-      convertPropertiesToClassAndInitDefaultValues(iClass);
-    }
-  }
-
   public Set<Entry<String, EntityEntry>> getRawEntries() {
     checkForBinding();
 
@@ -3770,14 +3754,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   private void fetchClassName(DatabaseSessionInternal session) {
-    if (!session.isClosed()) {
-      if (recordId.getClusterId() >= 0) {
-        final Schema schema = session.getMetadata().getImmutableSchemaSnapshot();
-        if (schema != null) {
-          var clazz = schema.getClassByClusterId(recordId.getClusterId());
-          if (clazz != null) {
-            className = clazz.getName();
-          }
+    if (recordId.getClusterId() >= 0) {
+      final Schema schema = session.getMetadata().getImmutableSchemaSnapshot();
+      if (schema != null) {
+        var clazz = schema.getClassByClusterId(recordId.getClusterId());
+        if (clazz != null) {
+          className = clazz.getName();
         }
       }
     }

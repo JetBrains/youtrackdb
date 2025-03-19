@@ -538,7 +538,7 @@ public class IndexTest extends BaseDBTest {
 
     session.begin();
     whiz = session.bindToSession(whiz);
-    Assert.assertTrue(((EntityImpl) whiz.getProperty("account")).getIdentity().isValid());
+    Assert.assertTrue(((EntityImpl) whiz.getProperty("account")).getIdentity().isValidPosition());
     ((EntityImpl) whiz.getProperty("account")).delete();
     whiz.delete();
     session.commit();

@@ -8,7 +8,6 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.RecordBytes;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
@@ -105,7 +104,8 @@ public class SQLRecordAttribute extends SimpleNode {
     } else if (name.equals("@type")) {
       if (iCurrentResult.isRecord()) {
         var r = iCurrentResult.asRecord();
-        var recordType = RecordInternal.getRecordType(ctx.getDatabaseSession(), r);
+        ctx.getDatabaseSession();
+        var recordType = ((RecordAbstract) r).getRecordType();
         if (recordType == EntityImpl.RECORD_TYPE) {
           return "document";
         } else if (recordType == RecordBytes.RECORD_TYPE) {

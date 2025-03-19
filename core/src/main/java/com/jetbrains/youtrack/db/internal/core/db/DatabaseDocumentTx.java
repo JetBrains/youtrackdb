@@ -57,8 +57,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionNoTx.NonTxReadMode;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.core.util.URLHelper;
 import java.nio.file.Path;
 import java.util.Collection;
@@ -271,7 +270,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public int begin(FrontendTransactionOptimistic tx) {
+  public int begin(FrontendTransactionImpl tx) {
     throw new UnsupportedOperationException();
   }
 
@@ -1411,7 +1410,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void internalCommit(@Nonnull FrontendTransactionOptimistic transaction) {
+  public void internalCommit(@Nonnull FrontendTransactionImpl transaction) {
     internal.internalCommit(transaction);
   }
 
@@ -1521,11 +1520,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   @Override
   public long truncateClusterInternal(String name) {
     return internal.truncateClusterInternal(name);
-  }
-
-  @Override
-  public NonTxReadMode getNonTxReadMode() {
-    return internal.getNonTxReadMode();
   }
 
   @Override

@@ -1066,7 +1066,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
         var executed = item.execute(mapDoc, ctx);
         // Force Embedded Document
         if (executed instanceof EntityImpl && !((EntityImpl) executed).getIdentity()
-            .isValid()) {
+            .isValidPosition()) {
           result.setProperty(returnAlias.getStringValue(), executed);
         } else {
           result.setProperty(returnAlias.getStringValue(), executed);

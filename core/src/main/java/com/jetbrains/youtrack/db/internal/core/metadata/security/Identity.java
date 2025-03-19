@@ -11,8 +11,8 @@ public abstract class Identity extends IdentityWrapper {
 
   public static final String CLASS_NAME = "OIdentity";
 
-  public Identity(DatabaseSessionInternal db, String iClassName) {
-    super(db, iClassName);
+  public Identity(DatabaseSessionInternal session, String iClassName) {
+    super(session, iClassName);
   }
 
   public Identity(DatabaseSessionInternal db,

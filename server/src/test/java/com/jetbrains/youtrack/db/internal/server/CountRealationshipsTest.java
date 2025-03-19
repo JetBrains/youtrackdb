@@ -39,15 +39,16 @@ public class CountRealationshipsTest {
 
   @Test
   public void test() throws Exception {
-    var g =
+    var session =
         youTrackDB.open(CountRealationshipsTest.class.getSimpleName(), "admin", "admin");
-    g.begin();
-    var vertex1 = g.newVertex("V");
-    var vertex2 = g.newVertex("V");
-    g.commit();
+    session.begin();
+    var vertex1 = session.newVertex("V");
+    var vertex2 = session.newVertex("V");
+    session.commit();
 
-    vertex1 = g.load(vertex1.getIdentity());
-    vertex2 = g.load(vertex2.getIdentity());
+    session.begin();
+    vertex1 = session.load(vertex1.getIdentity());
+    vertex2 = session.load(vertex2.getIdentity());
 
     int version = vertex1.getProperty("@version");
     assertEquals(0, countEdges(vertex1, Direction.OUT));
@@ -59,10 +60,8 @@ public class CountRealationshipsTest {
      * output: Version: 1 vertex1 out: 0 vertex2 in: 0
      */
 
-    g.begin();
-
-    vertex2 = g.load(vertex2.getIdentity());
-    vertex1 = g.load(vertex1.getIdentity());
+    vertex2 = session.load(vertex2.getIdentity());
+    vertex1 = session.load(vertex1.getIdentity());
 
     vertex1.addStateFulEdge(vertex2);
 
@@ -77,10 +76,11 @@ public class CountRealationshipsTest {
      * output: Pre-commit: Version: 1 vertex1 out: 1 vertex2 in: 1
      */
 
-    g.commit();
+    session.commit();
 
-    vertex1 = g.load(vertex1.getIdentity());
-    vertex2 = g.load(vertex2.getIdentity());
+    session.begin();
+    vertex1 = session.load(vertex1.getIdentity());
+    vertex2 = session.load(vertex2.getIdentity());
 
     version = vertex1.getProperty("@version");
     assertEquals(1, countEdges(vertex1, Direction.OUT));
@@ -93,11 +93,13 @@ public class CountRealationshipsTest {
      * output: Post-commit: Version: 2 vertex1 out: 0 <- INCORRECT vertex2 in: 0 <- INCORRECT
      */
 
-    g.close();
+    session.commit();
+    session.close();
 
-    g = youTrackDB.open(CountRealationshipsTest.class.getSimpleName(), "admin", "admin");
-    vertex1 = g.load(vertex1.getIdentity());
-    vertex2 = g.load(vertex2.getIdentity());
+    session = youTrackDB.open(CountRealationshipsTest.class.getSimpleName(), "admin", "admin");
+    session.begin();
+    vertex1 = session.load(vertex1.getIdentity());
+    vertex2 = session.load(vertex2.getIdentity());
 
     version = vertex1.getProperty("@version");
     assertEquals(1, countEdges(vertex1, Direction.OUT));
@@ -109,6 +111,7 @@ public class CountRealationshipsTest {
     /*
      * output: Reload in new transaction: Version: 2 vertex1 out: 1 vertex2 in: 1
      */
+    session.commit();
   }
 
   private int countEdges(Vertex v, Direction dir) throws Exception {

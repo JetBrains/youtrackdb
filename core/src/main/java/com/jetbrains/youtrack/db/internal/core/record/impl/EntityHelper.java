@@ -34,9 +34,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExportException;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerStringAbstract;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
@@ -738,7 +736,7 @@ public class EntityHelper {
           return YouTrackDBEnginesManager.instance()
               .getRecordFactoryManager()
               .getRecordTypeName(
-                  RecordInternal.getRecordType(session, current.getRecord(session)));
+                  current.<RecordAbstract>getRecord(session).getRecordType());
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_SIZE)) {
           final var stream = ((RecordAbstract) current.getRecord(session)).toStream();
           return stream != null ? stream.length : 0;
@@ -972,7 +970,7 @@ public class EntityHelper {
     }
 
     if (iCheckAlsoIdentity
-        && iCurrent.getIdentity().isValid()
+        && iCurrent.getIdentity().isValidPosition()
         && !iCurrent.getIdentity().equals(iOther.getIdentity())) {
       return false;
     }

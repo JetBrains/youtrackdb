@@ -66,7 +66,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityShared;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
@@ -277,7 +276,8 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
     final var entity = new EntityImpl(db);
     entity.setProperty("key", iKey);
     entity.setProperty("rid", iValue);
-    RecordInternal.unsetDirty(entity);
+    final var rec = (RecordAbstract) entity;
+    rec.unsetDirty();
     return entity;
   }
 
@@ -589,7 +589,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
         return true;
       }
 
-      if (identity.isValid()) {
+      if (identity.isValidPosition()) {
         uniqueResult.put(identity, identity);
       }
     }
@@ -624,7 +624,8 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
     {
       return true;
     }
-    if (RecordInternal.getRecordType(iContext.getDatabaseSession(), record)
+    iContext.getDatabaseSession();
+    if (record.getRecordType()
         != EntityImpl.RECORD_TYPE
         && checkSkipBlob())
     // SKIP binary records in case of projection.
@@ -863,7 +864,9 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
       entity = iRecord.getRecord(iContext.getDatabaseSession());
     }
     if (unwindFields.size() == 0) {
-      RecordInternal.setIdentity(entity, new RecordId(-2, getTemporaryRIDCounter(iContext)));
+      final RecordId iIdentity = new RecordId(-2, getTemporaryRIDCounter(iContext));
+      final var rec = (RecordAbstract) entity;
+      rec.setIdentity(iIdentity);
       result.add(entity);
     } else {
       var firstField = unwindFields.get(0);

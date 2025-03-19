@@ -235,7 +235,7 @@ public class CommandExecutorSQLDeleteVertex extends CommandExecutorSQLAbstract
    */
   public boolean result(@Nonnull DatabaseSessionInternal session, final Object iRecord) {
     final var id = (Identifiable) iRecord;
-    if (((RecordId) id.getIdentity()).isValid()) {
+    if (((RecordId) id.getIdentity()).isValidPosition()) {
       final EntityImpl record = id.getRecord(session);
       final var v = toVertex(session, record);
       if (v != null) {

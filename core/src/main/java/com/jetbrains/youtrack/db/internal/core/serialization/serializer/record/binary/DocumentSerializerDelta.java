@@ -157,7 +157,7 @@ public class DocumentSerializerDelta {
       final BytesContainer bytes) {
     final var className = readString(bytes);
     if (!className.isEmpty()) {
-      entity.fillClassIfNeed(className);
+      entity.setClassNameWithoutPropertiesPostProcessing(className);
     }
 
     String fieldName;
@@ -187,7 +187,7 @@ public class DocumentSerializerDelta {
       EntityImpl toFill) {
     final var className = readString(bytes);
     if (!className.isEmpty() && toFill != null) {
-      toFill.fillClassIfNeed(className);
+      toFill.setClassNameWithoutPropertiesPostProcessing(className);
     }
     var count = VarIntSerializer.readAsLong(bytes);
     while (count-- > 0) {

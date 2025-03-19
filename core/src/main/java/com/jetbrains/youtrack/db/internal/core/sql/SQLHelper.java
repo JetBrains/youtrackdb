@@ -481,7 +481,7 @@ public class SQLHelper {
     }
 
     if (iFieldValue instanceof EntityImpl && !((EntityImpl) iFieldValue).getIdentity()
-        .isValid())
+        .isValidPosition())
     // EMBEDDED entity
     {
       ((EntityImpl) iFieldValue).setOwner(entity);

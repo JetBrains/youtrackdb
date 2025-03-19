@@ -54,7 +54,7 @@ public class ServerCommandPutDocument extends ServerCommandDocumentAbstract {
             parametersPos > -1 ? urlParts[2].substring(0, parametersPos) : urlParts[2];
         recordId = new RecordId(rid);
 
-        if (!recordId.isValid()) {
+        if (!recordId.isValidPosition()) {
           throw new IllegalArgumentException("Invalid Record ID in request: " + recordId);
         }
       } else {
@@ -78,14 +78,14 @@ public class ServerCommandPutDocument extends ServerCommandDocumentAbstract {
                   recordVersion = -1;
                 }
 
-                if (!txRecordId.isValid()) {
+                if (!txRecordId.isValidPosition()) {
                   var rid = content.get(EntityHelper.ATTRIBUTE_RID);
                   if (rid != null) {
                     txRecordId = new RecordId(rid.toString());
                   }
                 }
 
-                if (!txRecordId.isValid()) {
+                if (!txRecordId.isValidPosition()) {
                   throw new IllegalArgumentException("Invalid Record ID in request: " + txRecordId);
                 }
 

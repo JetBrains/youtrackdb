@@ -44,7 +44,7 @@
   <test name="Tx">
     <classes>
       <class name="com.jetbrains.youtrack.db.auto.TransactionAtomicTest"/>
-      <class name="com.jetbrains.youtrack.db.auto.FrontendTransactionOptimisticTest"/>
+      <class name="com.jetbrains.youtrack.db.auto.FrontendTransactionImplTest"/>
       <class name="com.jetbrains.youtrack.db.auto.TransactionConsistencyTest"/>
     </classes>
   </test>

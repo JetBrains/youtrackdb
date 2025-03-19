@@ -30,7 +30,7 @@ import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Locale;
@@ -92,7 +92,7 @@ public class FunctionLibraryImpl {
     }
   }
 
-  public static void onAfterFunctionDropped(FrontendTransactionOptimistic currentTx,
+  public static void onAfterFunctionDropped(FrontendTransactionImpl currentTx,
       EntityImpl functionEntity) {
     @SuppressWarnings("unchecked")
     var droppedSequencesMap = (HashMap<RID, String>) currentTx.getCustomData(DROPPED_FUNCTIONS_MAP);
@@ -107,7 +107,7 @@ public class FunctionLibraryImpl {
 
 
   public void onFunctionDropped(@Nonnull DatabaseSessionInternal session, @Nonnull RID rid) {
-    var currentTx = (FrontendTransactionOptimistic) session.getTransactionInternal();
+    var currentTx = (FrontendTransactionImpl) session.getTransactionInternal();
 
     @SuppressWarnings("unchecked")
     var droppedSequencesMap = (HashMap<RID, String>) currentTx.getCustomData(DROPPED_FUNCTIONS_MAP);
