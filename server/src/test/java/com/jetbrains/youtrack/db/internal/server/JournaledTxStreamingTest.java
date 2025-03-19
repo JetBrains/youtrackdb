@@ -68,7 +68,7 @@ public class JournaledTxStreamingTest {
 
     ctx = new YouTrackDBImpl("remote:localhost:3500", "root", "root",
         YouTrackDBConfig.defaultConfig());
-    ctx.execute("create database " + JournaledTxStreamingTest.class.getSimpleName() + " plocal ")
+    ctx.execute("create database " + JournaledTxStreamingTest.class.getSimpleName() + " disk ")
         .close();
 
     db =

@@ -25,7 +25,7 @@ public class LuceneCreateIndexIntegrationTest {
         YouTrackDBConfig.defaultConfig());
 
     remote.execute(
-        "create database LuceneCreateIndexIntegrationTest plocal users(admin identified by 'admin'"
+        "create database LuceneCreateIndexIntegrationTest disk users(admin identified by 'admin'"
             + " role admin) ");
     final var session =
         remote.open("LuceneCreateIndexIntegrationTest", "admin", "admin");

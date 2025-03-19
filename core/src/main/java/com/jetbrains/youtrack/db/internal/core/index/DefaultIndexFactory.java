@@ -133,7 +133,7 @@ public class DefaultIndexFactory implements IndexFactory {
 
     switch (storageType) {
       case "memory":
-      case "plocal":
+      case "disk":
         var realStorage = (AbstractPaginatedStorage) storage;
         switch (data.getAlgorithm()) {
           case SBTREE_ALGORITHM:

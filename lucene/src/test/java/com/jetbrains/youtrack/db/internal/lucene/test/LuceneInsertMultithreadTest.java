@@ -55,7 +55,7 @@ public class LuceneInsertMultithreadTest {
     String storageType;
     if ("ci".equals(config) || "release".equals(config)) {
       storageType = EngineLocalPaginated.NAME;
-      databaseType = DatabaseType.PLOCAL;
+      databaseType = DatabaseType.DISK;
     } else {
       storageType = EngineMemory.NAME;
       databaseType = DatabaseType.MEMORY;

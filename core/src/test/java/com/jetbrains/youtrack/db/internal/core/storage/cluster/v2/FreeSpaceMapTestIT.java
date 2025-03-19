@@ -5,7 +5,6 @@ import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrack.db.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.base.DurablePage;
@@ -42,10 +41,10 @@ public class FreeSpaceMapTestIT {
 
     dbName = "freeSpaceMapTest";
 
-    youTrackDB = new YouTrackDBImpl("plocal:" + buildDirectory,
+    youTrackDB = new YouTrackDBImpl("disk:" + buildDirectory,
         YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
-        "create database " + dbName + " plocal users ( admin identified by 'admin' role admin)");
+        "create database " + dbName + " disk users ( admin identified by 'admin' role admin)");
 
     final var databaseDocumentTx =
         (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");

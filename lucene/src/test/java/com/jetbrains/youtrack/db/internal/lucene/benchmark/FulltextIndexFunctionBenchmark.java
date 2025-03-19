@@ -71,7 +71,7 @@ public class FulltextIndexFunctionBenchmark {
         System.getProperty("youtrackdb.test.env", DatabaseType.MEMORY.name().toLowerCase());
     var path = DbTestBase.embeddedDBUrl(getClass());
     if ("ci".equals(config) || "release".equals(config)) {
-      type = DatabaseType.PLOCAL;
+      type = DatabaseType.DISK;
     } else {
       type = DatabaseType.MEMORY;
     }
@@ -82,7 +82,7 @@ public class FulltextIndexFunctionBenchmark {
     }
 
     context.execute(
-        "create database " + name + " plocal users ( admin identified by 'admin' role admin)");
+        "create database " + name + " disk users ( admin identified by 'admin' role admin)");
 
     db = (DatabaseSessionInternal) context.open(name, "admin", "admin");
   }

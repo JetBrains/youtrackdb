@@ -54,7 +54,7 @@ public class StorageTestIT {
     youTrackDB.execute(
         "create database "
             + StorageTestIT.class.getSimpleName()
-            + " plocal users ( admin identified by 'admin' role admin)");
+            + " disk users ( admin identified by 'admin' role admin)");
 
     var session =
         (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
@@ -120,7 +120,7 @@ public class StorageTestIT {
     youTrackDB.execute(
         "create database "
             + StorageTestIT.class.getSimpleName()
-            + " plocal users ( admin identified by 'admin' role admin)");
+            + " disk users ( admin identified by 'admin' role admin)");
 
     var db =
         (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
@@ -183,7 +183,7 @@ public class StorageTestIT {
     youTrackDB.execute(
         "create database "
             + StorageTestIT.class.getSimpleName()
-            + " plocal users ( admin identified by 'admin' role admin)");
+            + " disk users ( admin identified by 'admin' role admin)");
 
     var db =
         (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
@@ -246,7 +246,7 @@ public class StorageTestIT {
     youTrackDB.execute(
         "create database "
             + StorageTestIT.class.getSimpleName()
-            + " plocal users ( admin identified by 'admin' role admin)");
+            + " disk users ( admin identified by 'admin' role admin)");
 
     var db =
         (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
@@ -306,7 +306,7 @@ public class StorageTestIT {
     youTrackDB.execute(
         "create database "
             + StorageTestIT.class.getSimpleName()
-            + " plocal users ( admin identified by 'admin' role admin)");
+            + " disk users ( admin identified by 'admin' role admin)");
 
     final var session =
         youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin", "admin");

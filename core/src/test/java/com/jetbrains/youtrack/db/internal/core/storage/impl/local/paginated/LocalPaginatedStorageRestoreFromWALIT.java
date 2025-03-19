@@ -84,7 +84,7 @@ public class LocalPaginatedStorageRestoreFromWALIT {
   public void beforeMethod() {
     baseDocumentTx =
         new DatabaseDocumentTx(
-            "plocal:" + buildDir.getAbsolutePath() + "/baseLocalPaginatedStorageRestoreFromWAL");
+            "disk:" + buildDir.getAbsolutePath() + "/baseLocalPaginatedStorageRestoreFromWAL");
     if (baseDocumentTx.exists()) {
       baseDocumentTx.open("admin", "admin");
       baseDocumentTx.drop();
@@ -124,17 +124,17 @@ public class LocalPaginatedStorageRestoreFromWALIT {
 
     testDocumentTx =
         new DatabaseDocumentTx(
-            "plocal:" + buildDir.getAbsolutePath() + "/testLocalPaginatedStorageRestoreFromWAL");
+            "disk:" + buildDir.getAbsolutePath() + "/testLocalPaginatedStorageRestoreFromWAL");
     testDocumentTx.open("admin", "admin");
     testDocumentTx.close();
 
     testDocumentTx =
         new DatabaseDocumentTx(
-            "plocal:" + buildDir.getAbsolutePath() + "/testLocalPaginatedStorageRestoreFromWAL");
+            "disk:" + buildDir.getAbsolutePath() + "/testLocalPaginatedStorageRestoreFromWAL");
     testDocumentTx.open("admin", "admin");
     baseDocumentTx =
         new DatabaseDocumentTx(
-            "plocal:" + buildDir.getAbsolutePath() + "/baseLocalPaginatedStorageRestoreFromWAL");
+            "disk:" + buildDir.getAbsolutePath() + "/baseLocalPaginatedStorageRestoreFromWAL");
     baseDocumentTx.open("admin", "admin");
     var databaseCompare =
         new DatabaseCompare(testDocumentTx, baseDocumentTx, System.out::println);
@@ -146,7 +146,7 @@ public class LocalPaginatedStorageRestoreFromWALIT {
   }
 
   private void copyDataFromTestWithoutClose() throws Exception {
-    final var testStoragePath = baseDocumentTx.getURL().substring("plocal:".length());
+    final var testStoragePath = baseDocumentTx.getURL().substring("disk:".length());
     final var copyTo =
         buildDir.getAbsolutePath() + File.separator + "testLocalPaginatedStorageRestoreFromWAL";
     FileUtils.deleteRecursively(new File(copyTo));

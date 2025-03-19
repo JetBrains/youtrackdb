@@ -66,8 +66,8 @@ public class AutomaticBackupTest {
         new File(System.getProperty("buildDirectory", ".")).getAbsolutePath();
 
     BACKUPDIR = new File(buildDirectory, "backup").getAbsolutePath();
-    URL = "plocal:" + buildDirectory + File.separator + DBNAME;
-    URL2 = "plocal:" + buildDirectory + File.separator + DBNAME2;
+    URL = "disk:" + buildDirectory + File.separator + DBNAME;
+    URL2 = "disk:" + buildDirectory + File.separator + DBNAME2;
 
     FileUtils.deleteRecursively(new File(BACKUPDIR));
 
@@ -101,7 +101,7 @@ public class AutomaticBackupTest {
     }
     server
         .getContext()
-        .execute("create database ? plocal users (admin identified by 'admin' role admin)", DBNAME);
+        .execute("create database ? disk users (admin identified by 'admin' role admin)", DBNAME);
     db = server.getDatabases().openNoAuthorization(DBNAME);
 
     db.createClass("TestBackup");
@@ -161,7 +161,7 @@ public class AutomaticBackupTest {
     server
         .getContext()
         .execute(
-            "create database ? plocal users (admin identified by 'admin' role admin)", DBNAME2);
+            "create database ? disk users (admin identified by 'admin' role admin)", DBNAME2);
     var database2 = server.getDatabases().openNoAuthorization(DBNAME2);
 
     // database2.restore(new FileInputStream(BACKUPDIR + "/testautobackup.zip"), null, null, null);
@@ -360,7 +360,7 @@ public class AutomaticBackupTest {
     server
         .getContext()
         .execute(
-            "create database ? plocal users (admin identified by 'admin' role admin)", DBNAME3);
+            "create database ? disk users (admin identified by 'admin' role admin)", DBNAME3);
 
     var database2 = server.getDatabases().openNoAuthorization(DBNAME3);
 

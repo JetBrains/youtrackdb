@@ -18,7 +18,7 @@ public class BinaryTokenSerializerTest {
 
   private final BinaryTokenSerializer ser =
       new BinaryTokenSerializer(
-          new String[]{"plocal", "memory"},
+          new String[]{"disk", "memory"},
           new String[]{"key"},
           new String[]{"HmacSHA256"},
           new String[]{"YouTrackDB"});
@@ -28,7 +28,7 @@ public class BinaryTokenSerializerTest {
     var token = new BinaryToken();
     var payload = new BinaryTokenPayloadImpl();
     payload.setDatabase("test");
-    payload.setDatabaseType("plocal");
+    payload.setDatabaseType("disk");
     payload.setUserRid(new RecordId(43, 234));
     var header = new YouTrackDBJwtHeader();
     header.setKeyId("key");
@@ -47,7 +47,7 @@ public class BinaryTokenSerializerTest {
     var tok = ser.deserialize(input);
 
     assertEquals("test", token.getDatabaseName());
-    assertEquals("plocal", token.getDatabaseType());
+    assertEquals("disk", token.getDatabaseType());
     var id = token.getUserId();
     assertEquals(43, id.getClusterId());
     assertEquals(20L, tok.getExpiry());
@@ -67,7 +67,7 @@ public class BinaryTokenSerializerTest {
     var token = new BinaryToken();
     var payload = new BinaryTokenPayloadImpl();
     payload.setDatabase("test");
-    payload.setDatabaseType("plocal");
+    payload.setDatabaseType("disk");
     payload.setUserRid(new RecordId(43, 234));
     var header = new YouTrackDBJwtHeader();
     header.setKeyId("key");
@@ -88,7 +88,7 @@ public class BinaryTokenSerializerTest {
     var tok = ser.deserialize(input);
 
     assertEquals("test", token.getDatabaseName());
-    assertEquals("plocal", token.getDatabaseType());
+    assertEquals("disk", token.getDatabaseType());
     var id = token.getUserId();
     assertEquals(43, id.getClusterId());
     assertEquals(20L, tok.getExpiry());

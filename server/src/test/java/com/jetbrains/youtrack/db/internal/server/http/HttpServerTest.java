@@ -36,7 +36,7 @@ public class HttpServerTest extends BaseHttpDatabaseTest {
         setUserName("root")
             .setUserPassword("root")
             .post("servercommand")
-            .payload("{\"command\":\"create database " + dbName + " plocal\" }", CONTENT.JSON)
+            .payload("{\"command\":\"create database " + dbName + " disk\" }", CONTENT.JSON)
             .getResponse();
     Assert.assertEquals(res.getReasonPhrase(), 200, res.getCode());
 

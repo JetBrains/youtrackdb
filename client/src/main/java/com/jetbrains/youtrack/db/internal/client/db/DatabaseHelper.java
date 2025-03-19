@@ -37,7 +37,7 @@ public class DatabaseHelper {
   @Deprecated
   public static void createDatabase(DatabaseSession database, final String url)
       throws IOException {
-    createDatabase(database, url, "server", "plocal");
+    createDatabase(database, url, "server", "disk");
   }
 
   @Deprecated
@@ -123,7 +123,7 @@ public class DatabaseHelper {
   public static void freezeDatabase(final DatabaseSession database) throws IOException {
     if (database.getURL().startsWith("remote")) {
       final var serverAdmin = new ServerAdmin(database.getURL());
-      serverAdmin.connect("root", getServerRootPassword()).freezeDatabase("plocal");
+      serverAdmin.connect("root", getServerRootPassword()).freezeDatabase("disk");
       serverAdmin.close();
     } else {
       database.freeze();
@@ -134,7 +134,7 @@ public class DatabaseHelper {
   public static void releaseDatabase(final DatabaseSession database) throws IOException {
     if (database.getURL().startsWith("remote")) {
       final var serverAdmin = new ServerAdmin(database.getURL());
-      serverAdmin.connect("root", getServerRootPassword()).releaseDatabase("plocal");
+      serverAdmin.connect("root", getServerRootPassword()).releaseDatabase("disk");
       serverAdmin.close();
     } else {
       database.release();

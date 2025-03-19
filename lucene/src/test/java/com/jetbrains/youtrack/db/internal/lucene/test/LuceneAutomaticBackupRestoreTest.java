@@ -101,7 +101,7 @@ public class LuceneAutomaticBackupRestoreTest {
 
     youTrackDB = server.getContext();
 
-    URL = "plocal:" + path + File.separator + DBNAME;
+    URL = "disk:" + path + File.separator + DBNAME;
 
     BACKUPDIR = tempFolder.getCanonicalPath() + File.separator + "backups";
 
@@ -113,7 +113,7 @@ public class LuceneAutomaticBackupRestoreTest {
     dropIfExists();
 
     youTrackDB.execute(
-        "create database ? plocal users(admin identified by 'admin' role admin) ", DBNAME);
+        "create database ? disk users(admin identified by 'admin' role admin) ", DBNAME);
 
     db = (DatabaseSessionInternal) youTrackDB.open(DBNAME, "admin", "admin");
 
@@ -235,7 +235,7 @@ public class LuceneAutomaticBackupRestoreTest {
 
   private DatabaseSessionInternal createAndOpen() {
     youTrackDB.execute(
-        "create database ? plocal users(admin identified by 'admin' role admin) ", DBNAME);
+        "create database ? disk users(admin identified by 'admin' role admin) ", DBNAME);
     return open();
   }
 

@@ -26,7 +26,7 @@ import org.junit.Test;
 
 public class BTreeRidBagConcurrencySingleBasedRidBagTestIT {
 
-  public static final String URL = "plocal:target/testdb/BTreeRidBagConcurrencySingleBasedRidBagTestIT";
+  public static final String URL = "disk:target/testdb/BTreeRidBagConcurrencySingleBasedRidBagTestIT";
   private final AtomicInteger positionCounter = new AtomicInteger();
   private final ConcurrentSkipListSet<RID> ridTree = new ConcurrentSkipListSet<>();
   private final CountDownLatch latch = new CountDownLatch(1);

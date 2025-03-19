@@ -24,7 +24,7 @@ public class SecurityEngineTest {
   public static void beforeClass() {
     youTrackDB =
         new YouTrackDBImpl(
-            "plocal:./target/securityEngineTest",
+            "disk:./target/securityEngineTest",
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
                 .build());

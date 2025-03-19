@@ -41,7 +41,7 @@ public class YouTrackDBEmbeddedTests {
   @Test
   public void testCompatibleUrl() {
     try (YouTrackDB youTrackDb = new YouTrackDBImpl(
-        "plocal:" + DbTestBase.getBaseDirectoryPath(getClass()) + "compatibleUrl",
+        "disk:" + DbTestBase.getBaseDirectoryPath(getClass()) + "compatibleUrl",
         YouTrackDBConfig.defaultConfig())) {
     }
     try (YouTrackDB youTrackDb = new YouTrackDBImpl(
@@ -145,7 +145,7 @@ public class YouTrackDBEmbeddedTests {
     YouTrackDB youTrackDb = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()) + "listTest2",
         YouTrackDBConfig.defaultConfig());
     assertEquals(0, youTrackDb.list().size());
-    youTrackDb.create("testListDatabase", DatabaseType.PLOCAL);
+    youTrackDb.create("testListDatabase", DatabaseType.DISK);
     var databases = youTrackDb.list();
     assertEquals(1, databases.size());
     assertTrue(databases.contains("testListDatabase"));
@@ -256,7 +256,7 @@ public class YouTrackDBEmbeddedTests {
     final YouTrackDB youTrackDb =
         CreateDatabaseUtil.createDatabase(
             "some", DbTestBase.embeddedDBUrl(getClass()) + "poolTest",
-            CreateDatabaseUtil.TYPE_PLOCAL);
+            CreateDatabaseUtil.TYPE_DISK);
     youTrackDb.close();
 
     final SessionPool pool =
@@ -306,7 +306,7 @@ public class YouTrackDBEmbeddedTests {
         DbTestBase.getBaseDirectoryPath(getClass()) + "testClosePool",
         YouTrackDBConfig.defaultConfig())) {
       if (!youTrackDB.exists("test")) {
-        youTrackDB.create("test", DatabaseType.PLOCAL, "admin",
+        youTrackDB.create("test", DatabaseType.DISK, "admin",
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD, "admin");
       }
     }
@@ -547,7 +547,7 @@ public class YouTrackDBEmbeddedTests {
     try (final var youTrackDB =
         CreateDatabaseUtil.createDatabase(
             "testCreateForceCloseOpen", DbTestBase.embeddedDBUrl(getClass()),
-            CreateDatabaseUtil.TYPE_PLOCAL)) {
+            CreateDatabaseUtil.TYPE_DISK)) {
       youTrackDB.internal.forceDatabaseClose("test");
       var db1 =
           youTrackDB.open(
@@ -574,7 +574,7 @@ public class YouTrackDBEmbeddedTests {
         "create database "
             + "test"
             + " "
-            + "plocal"
+            + "disk"
             + " users ( admin identified by '"
             + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
             + "' role admin)");
@@ -687,7 +687,7 @@ public class YouTrackDBEmbeddedTests {
     final YouTrackDB youTrackDb =
         CreateDatabaseUtil.createDatabase(
             "testPersistentUUID", DbTestBase.embeddedDBUrl(getClass()),
-            CreateDatabaseUtil.TYPE_PLOCAL);
+            CreateDatabaseUtil.TYPE_DISK);
     final var session =
         youTrackDb.open("testPersistentUUID", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     var uuid =
@@ -717,7 +717,7 @@ public class YouTrackDBEmbeddedTests {
     var dbName = "testCreateDatabaseViaSQL";
     var youTrackDb = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
         YouTrackDBConfig.defaultConfig());
-    try (var result = youTrackDb.execute("create database " + dbName + " plocal")) {
+    try (var result = youTrackDb.execute("create database " + dbName + " disk")) {
       Assert.assertTrue(result.hasNext());
       var item = result.next();
       Assert.assertEquals(true, item.getProperty("created"));

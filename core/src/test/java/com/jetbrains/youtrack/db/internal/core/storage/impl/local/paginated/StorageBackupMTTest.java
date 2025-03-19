@@ -60,7 +60,7 @@ public class StorageBackupMTTest {
       youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
           YouTrackDBConfig.defaultConfig());
       youTrackDB.execute(
-          "create database `" + dbName + "` plocal users(admin identified by 'admin' role admin)");
+          "create database `" + dbName + "` disk users(admin identified by 'admin' role admin)");
 
       var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
@@ -170,7 +170,7 @@ public class StorageBackupMTTest {
     try {
       youTrackDB = YourTracks.embedded(testDirectory, config);
       youTrackDB.execute(
-          "create database `" + dbName + "` plocal users(admin identified by 'admin' role admin)");
+          "create database `" + dbName + "` disk users(admin identified by 'admin' role admin)");
       var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
       final Schema schema = db.getMetadata().getSchema();

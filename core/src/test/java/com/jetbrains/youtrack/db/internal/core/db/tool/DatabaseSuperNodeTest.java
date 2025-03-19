@@ -45,7 +45,7 @@ public class DatabaseSuperNodeTest {
           "memory:target/import_" + DatabaseSuperNodeTest.class.getSimpleName();
       youTrackDB =
           CreateDatabaseUtil.createDatabase(
-              databaseName + "_reImport", importDbUrl, CreateDatabaseUtil.TYPE_PLOCAL);
+              databaseName + "_reImport", importDbUrl, CreateDatabaseUtil.TYPE_DISK);
       try {
         testImportDatabase(numberEdge, databaseName, youTrackDB, output, importStats);
       } finally {

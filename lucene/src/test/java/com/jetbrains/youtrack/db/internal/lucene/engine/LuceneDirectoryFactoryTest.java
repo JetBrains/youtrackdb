@@ -17,7 +17,6 @@ import java.io.File;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.MMapDirectory;
 import org.apache.lucene.store.NIOFSDirectory;
 import org.apache.lucene.store.RAMDirectory;
@@ -52,7 +51,7 @@ public class LuceneDirectoryFactoryTest extends BaseLuceneTest {
       ctx.execute(
           "create database "
               + databaseName
-              + " plocal users (admin identified by 'adminpwd' role admin)");
+              + " disk users (admin identified by 'adminpwd' role admin)");
       var db =
           (DatabaseSessionInternal) ctx.open(databaseName, "admin", "adminpwd");
       var directory = fc.createDirectory(db.getStorage(), "index.name", meta).getDirectory();
@@ -74,7 +73,7 @@ public class LuceneDirectoryFactoryTest extends BaseLuceneTest {
       ctx.execute(
           "create database "
               + databaseName
-              + " plocal users (admin identified by 'adminpwd' role admin)");
+              + " disk users (admin identified by 'adminpwd' role admin)");
       var db =
           (DatabaseSessionInternal) ctx.open(databaseName, "admin", "adminpwd");
       var directory = fc.createDirectory(db.getStorage(), "index.name", meta).getDirectory();
@@ -95,7 +94,7 @@ public class LuceneDirectoryFactoryTest extends BaseLuceneTest {
       ctx.execute(
           "create database "
               + databaseName
-              + " plocal users (admin identified by 'adminpwd' role admin)");
+              + " disk users (admin identified by 'adminpwd' role admin)");
       var db =
           (DatabaseSessionInternal) ctx.open(databaseName, "admin", "adminpwd");
       var directory = fc.createDirectory(db.getStorage(), "index.name", meta).getDirectory();

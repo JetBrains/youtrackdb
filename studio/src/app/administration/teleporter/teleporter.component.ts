@@ -1,4 +1,4 @@
-import {Component, NgZone, AfterViewChecked, EventEmitter, Output, ViewChild} from '@angular/core';
+import {AfterViewChecked, Component, EventEmitter, NgZone, Output, ViewChild} from '@angular/core';
 import {ModalComponent} from 'ng2-bs3-modal/ng2-bs3-modal';
 
 import * as $ from "jquery"
@@ -73,7 +73,7 @@ class TeleporterComponent implements AfterViewChecked {
 
     this.popoversEnabled = false;
 
-    this.protocols = ["plocal", "memory"];
+    this.protocols = ["disk", "memory"];
     this.strategies = ["naive", "naive-aggregate"];
     this.nameResolvers = ["original", "java"];
     this.logLevels = ["NO","DEBUG","INFO","WARNING","ERROR"];
@@ -92,7 +92,7 @@ class TeleporterComponent implements AfterViewChecked {
       "jurl": "",
       "username": "",
       "password": "",
-      "protocol": "plocal",
+      "protocol": "disk",
       "outDBName": "",
       "outDbUrl": "",
       "strategy": "naive",
@@ -128,7 +128,7 @@ class TeleporterComponent implements AfterViewChecked {
       username: "The username to access the source database.",
       password: "The password to access the source database.",
       protocol: "The protocol to use during the migration in order to connect to OrientDB:<br>" +
-      "<li><b>plocal</b>: the dabase will run locally in the same JVM of your application.</li>" +
+        "<li><b>disk</b>: the dabase will run locally in the same JVM of your application.</li>" +
       "<li><b>remote</b>: the database will be accessed via TCP/IP connection.</li>",
       outDBName: "The name for the destination OrientDB graph database.",
       strategy: "Strategy adopted during the importing phase.<br> " +

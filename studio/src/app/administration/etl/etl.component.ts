@@ -93,8 +93,8 @@ class EtlComponent implements OnDestroy {
 
     this.configName = "";
 
-    this.protocols = ["plocal", "memory"];
-    this.connectionProtocol = "plocal";
+    this.protocols = ["disk", "memory"];
+    this.connectionProtocol = "disk";
 
     // todo: levelName2levelNumber map
     this.level2levelCode = {
@@ -688,7 +688,7 @@ class EtlComponent implements OnDestroy {
       },
       loader: {
         connectionProtocol: "The protocol to use during the migration in order to connect to OrientDB:<br>" +
-        "<li><b>plocal</b>: the dabase will run locally in the same JVM of your application.</li>" +
+          "<li><b>disk</b>: the dabase will run locally in the same JVM of your application.</li>" +
         "<li><b>remote</b>: the database will be accessed via TCP/IP connection.</li>",
         dbURL: "Defines the database URL",
         dbUser: "Defines the user name",

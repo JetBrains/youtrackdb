@@ -3,7 +3,6 @@ package com.jetbrains.youtrack.db.internal.core;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
-import com.jetbrains.youtrack.db.internal.core.util.DatabaseURLConnection;
 import com.jetbrains.youtrack.db.internal.core.util.URLHelper;
 import java.io.File;
 import org.junit.Test;
@@ -15,8 +14,8 @@ public class URLHelperTest {
 
   @Test
   public void testSimpleUrl() {
-    var parsed = URLHelper.parse("plocal:/path/test/to");
-    assertEquals("plocal", parsed.getType());
+    var parsed = URLHelper.parse("disk:/path/test/to");
+    assertEquals("disk", parsed.getType());
     assertEquals(parsed.getPath(), new File("/path/test").getAbsolutePath());
     assertEquals("to", parsed.getDbName());
 
@@ -33,7 +32,7 @@ public class URLHelperTest {
 
   @Test
   public void testSimpleNewUrl() {
-    var parsed = URLHelper.parseNew("plocal:/path/test/to");
+    var parsed = URLHelper.parseNew("disk:/path/test/to");
     assertEquals("embedded", parsed.getType());
     assertEquals(parsed.getPath(), new File("/path/test").getAbsolutePath());
     assertEquals("to", parsed.getDbName());

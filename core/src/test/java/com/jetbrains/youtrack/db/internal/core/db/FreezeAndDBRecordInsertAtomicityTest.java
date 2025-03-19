@@ -54,7 +54,7 @@ public class FreezeAndDBRecordInsertAtomicityTest extends DbTestBase {
 
   @Override
   protected DatabaseType calculateDbType() {
-    return DatabaseType.PLOCAL;
+    return DatabaseType.DISK;
   }
 
   @Before

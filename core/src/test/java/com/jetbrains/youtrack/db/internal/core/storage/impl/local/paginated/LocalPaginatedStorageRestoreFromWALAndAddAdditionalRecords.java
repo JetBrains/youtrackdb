@@ -74,7 +74,7 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
 
     baseDocumentTx =
         new DatabaseDocumentTx(
-            "plocal:"
+            "disk:"
                 + buildDir.getAbsolutePath()
                 + "/baseLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords");
     if (baseDocumentTx.exists()) {
@@ -127,7 +127,7 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
 
     testDocumentTx =
         new DatabaseDocumentTx(
-            "plocal:"
+            "disk:"
                 + buildDir.getAbsolutePath()
                 + "/testLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords");
     testDocumentTx.open("admin", "admin");
@@ -159,7 +159,7 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
   }
 
   private void copyDataFromTestWithoutClose() throws Exception {
-    final var testStoragePath = Paths.get(baseDocumentTx.getURL().substring("plocal:".length()));
+    final var testStoragePath = Paths.get(baseDocumentTx.getURL().substring("disk:".length()));
     var buildPath = Paths.get(buildDir.toURI());
 
     final var copyTo =

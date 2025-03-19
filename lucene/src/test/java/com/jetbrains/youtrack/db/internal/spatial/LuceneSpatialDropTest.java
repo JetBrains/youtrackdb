@@ -33,7 +33,7 @@ public class LuceneSpatialDropTest {
     // clean up the data from the previous runs
     FileUtils.deleteRecursively(new File(dbPath));
     youTrackDB = YourTracks.embedded(dbPath);
-    youTrackDB.createIfNotExists(dbName, DatabaseType.PLOCAL,
+    youTrackDB.createIfNotExists(dbName, DatabaseType.DISK,
         "admin", "adminpwd", "admin");
 
     try (var db = youTrackDB.open(dbName, "admin", "adminpwd")) {

@@ -51,9 +51,9 @@ public class CellBTreeMultiValueV2TestIT {
     FileUtils.deleteRecursively(dbDirectory);
 
     final var config = YouTrackDBConfig.builder().build();
-    youTrackDB = new YouTrackDBImpl("plocal:" + buildDirectory, config);
+    youTrackDB = new YouTrackDBImpl("disk:" + buildDirectory, config);
     youTrackDB.execute(
-        "create database " + DB_NAME + " plocal users ( admin identified by 'admin' role admin)");
+        "create database " + DB_NAME + " disk users ( admin identified by 'admin' role admin)");
 
     try (var databaseDocumentTx = youTrackDB.open(DB_NAME, "admin", "admin")) {
       storage =

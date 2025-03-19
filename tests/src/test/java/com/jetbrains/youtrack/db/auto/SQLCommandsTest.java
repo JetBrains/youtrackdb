@@ -136,7 +136,7 @@ public class SQLCommandsTest extends BaseDBTest {
     Assert.assertTrue(names.contains("testClusterRename42".toLowerCase(Locale.ENGLISH)));
     Assert.assertFalse(names.contains("testClusterRename".toLowerCase(Locale.ENGLISH)));
 
-    if (!remoteDB && databaseType.equals(DatabaseType.PLOCAL)) {
+    if (!remoteDB && databaseType.equals(DatabaseType.DISK)) {
       var storagePath = session.getStorage().getConfiguration().getDirectory();
 
       final var wowCache =

@@ -45,7 +45,7 @@ public abstract class BaseTest<T extends DatabaseSessionInternal> {
     var config = System.getProperty("youtrackdb.test.env");
 
     if ("ci".equals(config) || "release".equals(config)) {
-      databaseType = DatabaseType.PLOCAL;
+      databaseType = DatabaseType.DISK;
     }
 
     if (databaseType == null) {

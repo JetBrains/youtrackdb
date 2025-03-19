@@ -1,6 +1,5 @@
 package com.jetbrains.youtrack.db.security;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
@@ -22,7 +21,7 @@ public class SystemUsersTest {
 
     YouTrackDB youTrackDB =
         new YouTrackDBImpl(
-            "plocal:target/" + SystemUsersTest.class.getSimpleName(),
+            "disk:target/" + SystemUsersTest.class.getSimpleName(),
             YouTrackDBConfig.defaultConfig());
 
     try {

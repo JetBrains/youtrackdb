@@ -23,7 +23,7 @@ public class SchemaClassSecurityTest {
   public static void beforeClass() {
     youTrackDB =
         new YouTrackDBImpl(
-            "plocal:.",
+            "disk:.",
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
                 .build());

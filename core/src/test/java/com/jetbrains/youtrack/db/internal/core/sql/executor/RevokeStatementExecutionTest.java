@@ -24,7 +24,7 @@ public class RevokeStatementExecutionTest {
 
   @BeforeClass
   public static void beforeClass() {
-    youTrackDB = new YouTrackDBImpl("plocal:.", YouTrackDBConfig.defaultConfig());
+    youTrackDB = new YouTrackDBImpl("disk:.", YouTrackDBConfig.defaultConfig());
   }
 
   @AfterClass

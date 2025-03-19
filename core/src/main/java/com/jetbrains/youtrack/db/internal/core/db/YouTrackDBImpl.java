@@ -146,7 +146,7 @@ public class YouTrackDBImpl implements YouTrackDB {
    * <pre>
    * <code>
    * YouTrackDB youTrackDB = new YouTrackDB("remote:localhost","root","root");
-   * youTrackDB.create("test",DatabaseType.PLOCAL);
+   * youTrackDB.create("test",DatabaseType.DISK);
    * ODatabaseDocument session = youTrackDB.open("test","admin","admin");
    * //...
    * session.close();
@@ -186,7 +186,7 @@ public class YouTrackDBImpl implements YouTrackDB {
     } else {
       what = url;
     }
-    if ("embedded".equals(what) || "memory".equals(what) || "plocal".equals(what)) {
+    if ("embedded".equals(what) || "memory".equals(what) || "disk".equals(what)) {
       internal = YouTrackDBInternal.embedded(url.substring(url.indexOf(':') + 1), configuration);
     } else if ("remote".equals(what)) {
       internal =
@@ -239,7 +239,7 @@ public class YouTrackDBImpl implements YouTrackDB {
    * use {@link #create(String, DatabaseType, String...)}
    *
    * @param database database name
-   * @param type     can be plocal or memory
+   * @param type     can be disk or memory
    * @see #create(String, DatabaseType, String...)
    */
   @Override
@@ -255,7 +255,7 @@ public class YouTrackDBImpl implements YouTrackDB {
    *
    * <p>For example:
    *
-   * <p>{@code youTrackDB.create("test", DatabaseType.PLOCAL, "user1", "password1", "admin",
+   * <p>{@code youTrackDB.create("test", DatabaseType.DISK, "user1", "password1", "admin",
    * "user2", "password2", "reader"); }
    *
    * <p>The predefined roles are:
@@ -267,7 +267,7 @@ public class YouTrackDBImpl implements YouTrackDB {
    * </ul>
    *
    * @param database        database name
-   * @param type            can be plocal or memory
+   * @param type            can be disk or memory
    * @param userCredentials user names, passwords and roles provided as a sequence of triple
    *                        strings
    */
@@ -283,7 +283,7 @@ public class YouTrackDBImpl implements YouTrackDB {
    * please use {@link #create(String, DatabaseType, String...)}
    *
    * @param database database name
-   * @param type     can be plocal or memory
+   * @param type     can be disk or memory
    * @param config   custom configuration for current database
    */
   @Override
@@ -296,7 +296,7 @@ public class YouTrackDBImpl implements YouTrackDB {
    * during creation please use {@link #createIfNotExists(String, DatabaseType, String...)}
    *
    * @param database database name
-   * @param type     can be plocal or memory
+   * @param type     can be disk or memory
    * @return true if the database has been created, false if already exists
    */
   @Override
@@ -321,11 +321,11 @@ public class YouTrackDBImpl implements YouTrackDB {
    *
    * <p>For example:
    *
-   * <p>{@code youTrackDB.createIfNotExists("test", DatabaseType.PLOCAL, "user1", "password1",
+   * <p>{@code youTrackDB.createIfNotExists("test", DatabaseType.DISK, "user1", "password1",
    * "admin", "user2", "password2", "reader"); }
    *
    * @param database        database name
-   * @param type            can be plocal or memory
+   * @param type            can be disk or memory
    * @param userCredentials user names, passwords and roles provided as a sequence of triple
    *                        strings
    */
@@ -371,7 +371,7 @@ public class YouTrackDBImpl implements YouTrackDB {
    * creation please use {@link #createIfNotExists(String, DatabaseType, String...)}
    *
    * @param database database name
-   * @param type     can be plocal or memory
+   * @param type     can be disk or memory
    * @param config   custom configuration for current database
    * @return true if the database has been created, false if already exists
    */

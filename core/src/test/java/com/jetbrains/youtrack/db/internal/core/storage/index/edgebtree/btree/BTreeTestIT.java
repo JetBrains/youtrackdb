@@ -63,14 +63,14 @@ public class BTreeTestIT {
 
     FileUtils.deleteRecursively(new File(buildDirectory));
 
-    youTrackDB = new YouTrackDBImpl("plocal:" + buildDirectory, YouTrackDBConfig.defaultConfig());
+    youTrackDB = new YouTrackDBImpl("disk:" + buildDirectory, YouTrackDBConfig.defaultConfig());
 
     if (youTrackDB.exists(DB_NAME)) {
       youTrackDB.drop(DB_NAME);
     }
 
     youTrackDB.execute(
-        "create database " + DB_NAME + " plocal users ( admin identified by 'admin' role admin)");
+        "create database " + DB_NAME + " disk users ( admin identified by 'admin' role admin)");
 
     var databaseSession = youTrackDB.open(DB_NAME, "admin", "admin");
     storage = (AbstractPaginatedStorage) ((DatabaseSessionInternal) databaseSession).getStorage();

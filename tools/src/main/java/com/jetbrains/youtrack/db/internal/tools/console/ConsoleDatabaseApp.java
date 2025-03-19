@@ -295,7 +295,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
           name = "storage-type",
           optional = true,
           description =
-              "The type of the storage: 'plocal' for disk-based databases and 'memory' for"
+              "The type of the storage: 'disk' for disk-based databases and 'memory' for"
                   + " in-memory database")
       String storageType,
       @ConsoleParameter(
@@ -331,7 +331,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     if (storageType != null) {
       type = DatabaseType.valueOf(storageType.toUpperCase());
     } else {
-      type = urlConnection.getDbType().orElse(DatabaseType.PLOCAL);
+      type = urlConnection.getDbType().orElse(DatabaseType.DISK);
     }
 
     message("\nCreating database [" + databaseURL + "] using the storage type [" + type + "]...");
@@ -884,7 +884,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
 
     if (currentDatabaseSession.isRemote()) {
       if (storageType == null) {
-        storageType = "plocal";
+        storageType = "disk";
       }
 
       new ServerAdmin(currentDatabaseSession.getURL())
@@ -914,7 +914,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
 
     if (currentDatabaseSession.isRemote()) {
       if (storageType == null) {
-        storageType = "plocal";
+        storageType = "disk";
       }
 
       new ServerAdmin(currentDatabaseSession.getURL())
@@ -1379,7 +1379,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     final var dbName = currentDatabaseSession.getDatabaseName();
     currentDatabaseSession.close();
     if (storageType != null
-        && !"plocal".equalsIgnoreCase(storageType)
+        && !"disk".equalsIgnoreCase(storageType)
         && !"local".equalsIgnoreCase(storageType)
         && !"memory".equalsIgnoreCase(storageType)) {
       message("\n\nInvalid storage type for db: '" + storageType + "'");
@@ -2137,8 +2137,8 @@ public class ConsoleDatabaseApp extends ConsoleApplication
           .run();
     }
 
-    if (!currentDatabaseSession.getURL().startsWith("plocal")) {
-      message("\n fix-bonsai can be run only on plocal connection \n");
+    if (!currentDatabaseSession.getURL().startsWith("disk")) {
+      message("\n fix-bonsai can be run only on disk connection \n");
       return;
     }
 
@@ -2146,7 +2146,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     final var fix_bonsai = iOptions == null || iOptions.contains("--fix-bonsai");
     if (fix_ridbags || fix_bonsai || force_embedded) {
       var repairer = new BonsaiTreeRepair();
-      repairer.repairDatabaseRidbags(currentDatabaseSession, this);
+      BonsaiTreeRepair.repairDatabaseRidbags(currentDatabaseSession, this);
     }
   }
 

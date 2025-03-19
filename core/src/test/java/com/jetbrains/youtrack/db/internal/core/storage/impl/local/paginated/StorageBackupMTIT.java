@@ -49,7 +49,7 @@ public class StorageBackupMTIT {
       youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
           YouTrackDBConfig.defaultConfig());
       youTrackDB.execute(
-          "create database " + dbName + " plocal users ( admin identified by 'admin' role admin)");
+          "create database " + dbName + " disk users ( admin identified by 'admin' role admin)");
 
       var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
@@ -155,7 +155,7 @@ public class StorageBackupMTIT {
 
       youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
       youTrackDB.execute(
-          "create database " + dbName + " plocal users ( admin identified by 'admin' role admin)");
+          "create database " + dbName + " disk users ( admin identified by 'admin' role admin)");
 
       var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 

@@ -1,8 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.db.tool;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
-import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -22,7 +20,7 @@ public class DatabaseImportTest {
     var databaseName = "export";
     final var exportDbPath = "target/export_" + DatabaseImportTest.class.getSimpleName();
     var youTrackDB = YourTracks.embedded(exportDbPath, YouTrackDBConfig.defaultConfig());
-    youTrackDB.createIfNotExists(databaseName, DatabaseType.PLOCAL, "admin", "admin", "admin");
+    youTrackDB.createIfNotExists(databaseName, DatabaseType.DISK, "admin", "admin", "admin");
 
     final var output = new ByteArrayOutputStream();
     try (final var db = youTrackDB.open(databaseName, "admin", "admin")) {
@@ -41,7 +39,7 @@ public class DatabaseImportTest {
     youTrackDB = YourTracks.embedded(importDbPath, YouTrackDBConfig.defaultConfig());
     databaseName = "import";
 
-    youTrackDB.createIfNotExists(databaseName, DatabaseType.PLOCAL, "admin", "admin", "admin");
+    youTrackDB.createIfNotExists(databaseName, DatabaseType.DISK, "admin", "admin", "admin");
     try (var db = (DatabaseSessionInternal) youTrackDB.open(databaseName, "admin",
         "admin")) {
       final var importer =

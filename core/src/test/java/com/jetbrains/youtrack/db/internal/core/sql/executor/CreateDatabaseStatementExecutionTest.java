@@ -1,14 +1,11 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.YouTrackDB;
-import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import org.junit.Assert;
 import org.junit.Test;
@@ -32,7 +29,7 @@ public class CreateDatabaseStatementExecutionTest {
         youTrackDb.execute(
             "create database "
                 + dbName
-                + " plocal"
+                + " disk"
                 + " users ( admin identified by '"
                 + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
                 + "' role admin)")) {
@@ -61,7 +58,7 @@ public class CreateDatabaseStatementExecutionTest {
         youTrackDb.execute(
             "create database "
                 + dbName
-                + " plocal {'config':{'security.createDefaultUsers': false}}")) {
+                + " disk {'config':{'security.createDefaultUsers': false}}")) {
       Assert.assertTrue(result.hasNext());
       var item = result.next();
       Assert.assertEquals(true, item.getProperty("created"));

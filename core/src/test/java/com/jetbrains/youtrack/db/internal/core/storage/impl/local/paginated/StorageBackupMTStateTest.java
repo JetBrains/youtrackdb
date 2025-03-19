@@ -79,7 +79,7 @@ public class StorageBackupMTStateTest {
       Assert.assertTrue(backupDir.mkdirs());
     }
 
-    dbURL = "plocal:" + dbDirectory;
+    dbURL = "disk:" + dbDirectory;
 
     System.out.println("Create database");
     DatabaseSessionInternal databaseDocumentTx = new DatabaseDocumentTx(dbURL);
@@ -159,7 +159,7 @@ public class StorageBackupMTStateTest {
 
     System.out.println("Create backup database");
     final DatabaseSessionInternal backedUpDb =
-        new DatabaseDocumentTx("plocal:" + backedUpDbDirectory);
+        new DatabaseDocumentTx("disk:" + backedUpDbDirectory);
     backedUpDb.create(backupDir.getAbsolutePath());
 
     final var backupStorage = backedUpDb.getStorage();

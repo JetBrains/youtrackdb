@@ -165,7 +165,7 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
    * @param user     the username of a user allowed to create a database, in case of remote is a
    *                 server user for embedded it can be left empty
    * @param password the password relative to the user
-   * @param type     can be plocal or memory
+   * @param type     can be disk or memory
    */
   void create(String name, String user, String password, DatabaseType type);
 
@@ -178,7 +178,7 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
    * @param password the password relative to the user
    * @param config   database specific configuration that override the factory global settings where
    *                 needed.
-   * @param type     can be plocal or memory
+   * @param type     can be disk or memory
    */
   void create(String name, String user, String password, DatabaseType type,
       YouTrackDBConfig config);

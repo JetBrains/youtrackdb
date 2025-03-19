@@ -95,7 +95,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
         YourTracks.embedded(
             testPath + File.separator + IMPORT_DB_PATH, YouTrackDBConfig.defaultConfig())) {
       youTrackDBImport.createIfNotExists(
-          IMPORT_DB_NAME, DatabaseType.PLOCAL, "admin", "admin", "admin");
+          IMPORT_DB_NAME, DatabaseType.DISK, "admin", "admin", "admin");
       try (var importDB = youTrackDBImport.open(IMPORT_DB_NAME, "admin", "admin")) {
         final var dbImport =
             new DatabaseImport(
@@ -149,7 +149,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
     try (final YouTrackDB youTrackDB = new YouTrackDBImpl(
         "embedded:" + localTesPath.getPath(),
         config)) {
-      youTrackDB.create("original", DatabaseType.PLOCAL);
+      youTrackDB.create("original", DatabaseType.DISK);
 
       try (final var session = (DatabaseSessionInternal) youTrackDB.open(
           "original", "admin", "admin")) {
@@ -202,7 +202,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
         databaseExport.exportDatabase();
       }
 
-      youTrackDB.create("imported", DatabaseType.PLOCAL);
+      youTrackDB.create("imported", DatabaseType.DISK);
       try (final var session =
           (DatabaseSessionInternal) youTrackDB.open("imported", "admin", "admin")) {
         final var databaseImport =

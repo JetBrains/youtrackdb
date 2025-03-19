@@ -51,7 +51,7 @@ public class RemoteTransactionHookTest extends DbTestBase {
         System.getProperty("youtrackdb.test.env", DatabaseType.MEMORY.name().toLowerCase());
 
     if ("ci".equals(testConfig) || "release".equals(testConfig)) {
-      dbType = DatabaseType.PLOCAL;
+      dbType = DatabaseType.DISK;
     } else {
       dbType = DatabaseType.MEMORY;
     }

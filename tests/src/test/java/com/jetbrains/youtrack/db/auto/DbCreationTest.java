@@ -78,7 +78,7 @@ public class DbCreationTest {
       youTrackDB.drop(DB_NAME);
     }
 
-    youTrackDB.create(DB_NAME, DatabaseType.PLOCAL, "admin", "admin", "admin");
+    youTrackDB.create(DB_NAME, DatabaseType.DISK, "admin", "admin", "admin");
   }
 
   @Test(dependsOnMethods = {"testDbCreationDefault"})
@@ -114,7 +114,7 @@ public class DbCreationTest {
       url = "remote:localhost";
     } else {
       final var buildDirectory = System.getProperty("buildDirectory", ".");
-      url = "plocal:" + buildDirectory + "/test-db";
+      url = "disk:" + buildDirectory + "/test-db";
     }
     return url;
   }
@@ -161,7 +161,7 @@ public class DbCreationTest {
       odb.drop("sub");
     }
 
-    odb.create("sub", DatabaseType.PLOCAL, "admin", "admin", "admin");
+    odb.create("sub", DatabaseType.DISK, "admin", "admin", "admin");
     var db = odb.open("sub", "admin", "admin");
     db.close();
 
@@ -182,7 +182,7 @@ public class DbCreationTest {
       odb.drop("sub");
     }
 
-    odb.create("sub", DatabaseType.PLOCAL, "admin", "admin", "admin");
+    odb.create("sub", DatabaseType.DISK, "admin", "admin", "admin");
     var db = odb.cachedPool("sub", "admin", "admin");
     db.close();
 
@@ -211,7 +211,7 @@ public class DbCreationTest {
         // ignore
       }
 
-      youTrackDB.create(dbName, DatabaseType.PLOCAL, "admin", "admin", "admin");
+      youTrackDB.create(dbName, DatabaseType.DISK, "admin", "admin", "admin");
       Assert.assertTrue(youTrackDB.exists(dbName));
 
       youTrackDB.open(dbName, "admin", "admin").close();
@@ -226,10 +226,10 @@ public class DbCreationTest {
   }
 
   public void testDbIsNotRemovedOnSecondTry() {
-    youTrackDB.create(DB_NAME + "Remove", DatabaseType.PLOCAL, "admin", "admin", "admin");
+    youTrackDB.create(DB_NAME + "Remove", DatabaseType.DISK, "admin", "admin", "admin");
 
     try {
-      youTrackDB.create(DB_NAME + "Remove", DatabaseType.PLOCAL, "admin", "admin", "admin");
+      youTrackDB.create(DB_NAME + "Remove", DatabaseType.DISK, "admin", "admin", "admin");
       Assert.fail();
     } catch (CoreException e) {
       // ignore all is correct

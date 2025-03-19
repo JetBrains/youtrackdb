@@ -46,7 +46,7 @@ import java.util.List;
  */
 public class EngineLocalPaginated extends EngineAbstract {
 
-  public static final String NAME = "plocal";
+  public static final String NAME = "disk";
 
   private volatile ReadCache readCache;
 

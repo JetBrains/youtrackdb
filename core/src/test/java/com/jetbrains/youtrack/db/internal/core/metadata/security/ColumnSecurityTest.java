@@ -30,7 +30,7 @@ public class ColumnSecurityTest {
   public static void beforeClass() {
     context =
         new YouTrackDBImpl(
-            "plocal:.",
+            "disk:.",
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
                 .build());

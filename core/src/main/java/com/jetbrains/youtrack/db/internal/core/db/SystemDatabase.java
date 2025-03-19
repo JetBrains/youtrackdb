@@ -92,7 +92,7 @@ public class SystemDatabase {
               .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
               .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_MINIMUM_CLUSTERS, 1)
               .build();
-      var type = DatabaseType.PLOCAL;
+      var type = DatabaseType.DISK;
       if (context.isMemoryOnly()) {
         type = DatabaseType.MEMORY;
       }

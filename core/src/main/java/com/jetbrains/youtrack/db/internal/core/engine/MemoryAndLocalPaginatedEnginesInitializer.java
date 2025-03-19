@@ -19,17 +19,17 @@
 
 package com.jetbrains.youtrack.db.internal.core.engine;
 
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.jnr.Native;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.Memory;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.ReadCache;
 import java.util.Locale;
 
 /**
- * Manages common initialization logic for memory and plocal engines. These engines are tight
+ * Manages common initialization logic for memory and disk engines. These engines are tight
  * together through dependency to {@link ByteBufferPool}, which is hard to reconfigure if
  * initialization logic is separate.
  */
@@ -44,7 +44,7 @@ public class MemoryAndLocalPaginatedEnginesInitializer {
   private boolean initialized = false;
 
   /**
-   * Initializes common parts of memory and plocal engines if not initialized yet. Does nothing if
+   * Initializes common parts of memory and disk engines if not initialized yet. Does nothing if
    * engines already initialized.
    */
   public void initialize() {

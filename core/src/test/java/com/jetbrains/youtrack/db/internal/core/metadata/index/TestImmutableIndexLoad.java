@@ -22,7 +22,7 @@ public class TestImmutableIndexLoad {
         CreateDatabaseUtil.createDatabase(
             TestImmutableIndexLoad.class.getSimpleName(),
             DbTestBase.embeddedDBUrl(getClass()),
-            CreateDatabaseUtil.TYPE_PLOCAL);
+            CreateDatabaseUtil.TYPE_DISK);
     var db =
         youTrackDB.open(
             TestImmutableIndexLoad.class.getSimpleName(),

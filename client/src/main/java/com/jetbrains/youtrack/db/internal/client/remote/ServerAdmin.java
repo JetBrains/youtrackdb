@@ -196,7 +196,7 @@ public class ServerAdmin {
     checkConnected();
     DatabaseType storageMode;
     if (iStorageMode == null) {
-      storageMode = DatabaseType.PLOCAL;
+      storageMode = DatabaseType.DISK;
     } else {
       storageMode = DatabaseType.valueOf(iStorageMode.toUpperCase());
     }
@@ -226,7 +226,7 @@ public class ServerAdmin {
    * Checks if a database exists in the remote server.
    *
    * @param iDatabaseName The database name
-   * @param storageType   Storage type between "plocal" or "memory".
+   * @param storageType   Storage type between "disk" or "memory".
    * @return true if exists, otherwise false
    * @throws IOException
    */
@@ -239,7 +239,7 @@ public class ServerAdmin {
   /**
    * Checks if a database exists in the remote server.
    *
-   * @param storageType Storage type between "plocal" or "memory".
+   * @param storageType Storage type between "disk" or "memory".
    * @return true if exists, otherwise false
    * @throws IOException
    */
@@ -251,7 +251,7 @@ public class ServerAdmin {
   /**
    * Deprecated. Use dropDatabase() instead.
    *
-   * @param storageType Storage type between "plocal" or "memory".
+   * @param storageType Storage type between "disk" or "memory".
    * @return The instance itself. Useful to execute method in chain
    * @throws IOException
    * @see #dropDatabase(String)
@@ -265,7 +265,7 @@ public class ServerAdmin {
    * Drops a database from a remote server instance.
    *
    * @param iDatabaseName The database name
-   * @param storageType   Storage type between "plocal" or "memory".
+   * @param storageType   Storage type between "disk" or "memory".
    * @return The instance itself. Useful to execute method in chain
    * @throws IOException
    */
@@ -279,7 +279,7 @@ public class ServerAdmin {
   /**
    * Drops a database from a remote server instance.
    *
-   * @param storageType Storage type between "plocal" or "memory".
+   * @param storageType Storage type between "disk" or "memory".
    * @return The instance itself. Useful to execute method in chain
    * @throws IOException
    */
@@ -290,7 +290,7 @@ public class ServerAdmin {
   /**
    * Freezes the database by locking it in exclusive mode.
    *
-   * @param storageType Storage type between "plocal" or "memory".
+   * @param storageType Storage type between "disk" or "memory".
    * @return
    * @throws IOException
    * @see #releaseDatabase(String)
@@ -304,7 +304,7 @@ public class ServerAdmin {
   /**
    * Releases a frozen database.
    *
-   * @param storageType Storage type between "plocal" or "memory".
+   * @param storageType Storage type between "disk" or "memory".
    * @return
    * @throws IOException
    * @see #freezeDatabase(String)

@@ -41,15 +41,15 @@ public class RemoteProtocolCommandsTest extends BaseDBTest {
     try {
       final var random = new Random();
 
-      final var plocalDatabaseName = "plocalTestListDatabasesMemoryDB" + random.nextInt();
-      admin.createDatabase(plocalDatabaseName, "graph", "plocal");
+      final var diskDatabaseName = "diskTestListDatabasesMemoryDB" + random.nextInt();
+      admin.createDatabase(diskDatabaseName, "graph", "disk");
 
       final var memoryDatabaseName = "memoryTestListDatabasesMemoryDB" + random.nextInt();
       admin.createDatabase(memoryDatabaseName, "graph", "memory");
 
       final var list = admin.listDatabases();
 
-      Assert.assertTrue(list.containsKey(plocalDatabaseName), "Check plocal db is in list");
+      Assert.assertTrue(list.containsKey(diskDatabaseName), "Check disk db is in list");
       Assert.assertTrue(list.containsKey(memoryDatabaseName), "Check memory db is in list");
     } finally {
       admin.close();

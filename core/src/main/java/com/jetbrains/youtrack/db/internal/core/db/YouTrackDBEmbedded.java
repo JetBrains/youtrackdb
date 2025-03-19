@@ -127,7 +127,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     this.youTrack = youTrack;
     youTrack.onEmbeddedFactoryInit(this);
     memory = youTrack.getEngine("memory");
-    disk = youTrack.getEngine("plocal");
+    disk = youTrack.getEngine("disk");
     directoryPath = directoryPath.trim();
 
     if (!directoryPath.isEmpty()) {
@@ -295,7 +295,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
   private synchronized void checkAndCloseStorages(long delay) {
     Set<String> toClose = new HashSet<>();
     for (var storage : storages.values()) {
-      if (storage.getType().equalsIgnoreCase(DatabaseType.PLOCAL.name())
+      if (storage.getType().equalsIgnoreCase(DatabaseType.DISK.name())
           && storage.getSessionsCount() == 0) {
         var currentTime = System.currentTimeMillis();
         if (currentTime > storage.getLastCloseTime() + delay) {

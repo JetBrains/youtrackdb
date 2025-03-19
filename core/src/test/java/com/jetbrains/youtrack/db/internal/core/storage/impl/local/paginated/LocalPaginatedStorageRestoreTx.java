@@ -77,7 +77,7 @@ public class LocalPaginatedStorageRestoreTx {
 
     baseDocumentTx =
         new DatabaseDocumentTx(
-            "plocal:" + buildDir.getAbsolutePath() + "/baseLocalPaginatedStorageRestoreFromTx");
+            "disk:" + buildDir.getAbsolutePath() + "/baseLocalPaginatedStorageRestoreFromTx");
     if (baseDocumentTx.exists()) {
       baseDocumentTx.open("admin", "admin");
       baseDocumentTx.drop();
@@ -120,7 +120,7 @@ public class LocalPaginatedStorageRestoreTx {
 
     testDocumentTx =
         new DatabaseDocumentTx(
-            "plocal:" + buildDir.getAbsolutePath() + "/testLocalPaginatedStorageRestoreFromTx");
+            "disk:" + buildDir.getAbsolutePath() + "/testLocalPaginatedStorageRestoreFromTx");
     testDocumentTx.open("admin", "admin");
     testDocumentTx.close();
 
@@ -140,7 +140,7 @@ public class LocalPaginatedStorageRestoreTx {
   }
 
   private void copyDataFromTestWithoutClose() throws Exception {
-    final var testStoragePath = baseDocumentTx.getURL().substring("plocal:".length());
+    final var testStoragePath = baseDocumentTx.getURL().substring("disk:".length());
     final var copyTo =
         buildDir.getAbsolutePath() + File.separator + "testLocalPaginatedStorageRestoreFromTx";
 

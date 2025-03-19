@@ -17,12 +17,12 @@ import java.util.Map;
  * <pre>
  * <code>
  * try(var youTrackDB = YourTracks.remote("localhost","root","root") {
- *  youTrackDB.createIfNotExists("test",DatabaseType.PLOCAL, "superuser", "password", "admin",
+ *  youTrackDB.createIfNotExists("test",DatabaseType.DISK, "superuser", "password", "admin",
  *  "writer" , "password2", "writer");
- *  try(ODatabaseDocument session = youTrackDB.open("test","superuser","password")) {
+ *  try(var session = youTrackDB.open("test","superuser","password")) {
  *     session.createClass("MyClass");
  *   }
- *  try(ODatabaseDocument session = youTrackDB.open("test","writer","password2")) {
+ *  try(var session = youTrackDB.open("test","writer","password2")) {
  *     //...
  *  }
  * }
@@ -34,13 +34,13 @@ import java.util.Map;
  * <pre>
  * <code>
  * try(YouTrackDB youTrackDB = YourTracks.embedded("./databases/")) {
- *  youTrackDB.createIfNotExists("test",DatabaseType.PLOCAL, "superuser", "password", "admin",
+ *  youTrackDB.createIfNotExists("test",DatabaseType.DISK, "superuser", "password", "admin",
  *  "writer" , "password2", "writer");
- *   try(ODatabaseDocument session = youTrackDB.open("test","superuser","password")) {
+ *   try(var session = youTrackDB.open("test","superuser","password")) {
  *     session.createClass("MyClass");
  *   }
  *
- *   try(ODatabaseDocument session = youTrackDB.open("test","writer","password2")) {
+ *   try(var session = youTrackDB.open("test","writer","password2")) {
  *     //...
  *   }
  * }
@@ -53,7 +53,7 @@ import java.util.Map;
  * <code>
  * tru(YouTrackDB youTrackDB = ...) {
  *  if(!youTrackDB.exists("one")) {
- *     youTrackDB.create("one",DatabaseType.PLOCAL, "superuser", "password", "admin", "writer,
+ *     youTrackDB.create("one",DatabaseType.DISK, "superuser", "password", "admin", "writer,
  *     "password2", "writer");
  *  }
  *  if(youTrackDB.exists("two")) {
@@ -65,13 +65,8 @@ import java.util.Map;
  * }
  * </code>
  * </pre>
- *
- * <p>
- *
- * <p>
  */
 public interface YouTrackDB extends AutoCloseable {
-
   /**
    * Open a database
    *
@@ -99,7 +94,7 @@ public interface YouTrackDB extends AutoCloseable {
    * use {@link #create(String, DatabaseType, String...)}
    *
    * @param database database name
-   * @param type     can be plocal or memory
+   * @param type     can be disk or memory
    * @see #create(String, DatabaseType, String...)
    */
   void create(String database, DatabaseType type);
@@ -112,7 +107,7 @@ public interface YouTrackDB extends AutoCloseable {
    *
    * <p>For example:
    *
-   * <p>{@code youTrackDB.create("test", DatabaseType.PLOCAL, "user1", "password1", "admin",
+   * <p>{@code youTrackDB.create("test", DatabaseType.DISK, "user1", "password1", "admin",
    * "user2", "password2", "reader"); }
    *
    * <p>The predefined roles are:
@@ -124,7 +119,7 @@ public interface YouTrackDB extends AutoCloseable {
    * </ul>
    *
    * @param database        database name
-   * @param type            can be plocal or memory
+   * @param type            can be disk or memory
    * @param userCredentials user names, passwords and roles provided as a sequence of triple
    *                        strings
    */
@@ -135,7 +130,7 @@ public interface YouTrackDB extends AutoCloseable {
    * please use {@link #create(String, DatabaseType, String...)}
    *
    * @param database database name
-   * @param type     can be plocal or memory
+   * @param type     can be disk or memory
    * @param config   custom configuration for current database
    */
   void create(String database, DatabaseType type, YouTrackDBConfig config);
@@ -145,7 +140,7 @@ public interface YouTrackDB extends AutoCloseable {
    * during creation please use {@link #createIfNotExists(String, DatabaseType, String...)}
    *
    * @param database database name
-   * @param type     can be plocal or memory
+   * @param type     can be disk or memory
    * @return true if the database has been created, false if already exists
    */
   boolean createIfNotExists(String database, DatabaseType type);
@@ -168,11 +163,11 @@ public interface YouTrackDB extends AutoCloseable {
    *
    * <p>For example:
    *
-   * <p>{@code youTrackDB.createIfNotExists("test", DatabaseType.PLOCAL, "user1", "password1",
+   * <p>{@code youTrackDB.createIfNotExists("test", DatabaseType.DISK, "user1", "password1",
    * "admin", "user2", "password2", "reader"); }
    *
    * @param database        database name
-   * @param type            can be plocal or memory
+   * @param type            can be disk or memory
    * @param userCredentials user names, passwords and roles provided as a sequence of triple
    *                        strings
    */
@@ -183,7 +178,7 @@ public interface YouTrackDB extends AutoCloseable {
    * creation please use {@link #createIfNotExists(String, DatabaseType, String...)}
    *
    * @param database database name
-   * @param type     can be plocal or memory
+   * @param type     can be disk or memory
    * @param config   custom configuration for current database
    * @return true if the database has been created, false if already exists
    */

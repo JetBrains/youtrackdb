@@ -46,9 +46,9 @@ public class CellBTreeSingleValueV3TestIT {
     FileUtils.deleteRecursively(dbDirectory);
 
     final var config = YouTrackDBConfig.builder().build();
-    youTrackDB = new YouTrackDBImpl("plocal:" + buildDirectory, config);
+    youTrackDB = new YouTrackDBImpl("disk:" + buildDirectory, config);
     youTrackDB.execute(
-        "create database " + dbName + " plocal users ( admin identified by 'admin' role admin)");
+        "create database " + dbName + " disk users ( admin identified by 'admin' role admin)");
 
     AbstractPaginatedStorage storage;
     try (var databaseDocumentTx = youTrackDB.open(dbName, "admin", "admin")) {

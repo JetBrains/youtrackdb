@@ -62,7 +62,7 @@ public class TokenHandlerImpl implements TokenHandler {
     sessionInMills = sessionLength * 1000 * 60;
     this.binarySerializer =
         new BinaryTokenSerializer(
-            new String[]{"plocal", "memory"},
+            new String[]{"disk", "memory"},
             this.sign.getKeys(),
             new String[]{this.sign.getAlgorithm()},
             new String[]{"YouTrackDB", "node"});

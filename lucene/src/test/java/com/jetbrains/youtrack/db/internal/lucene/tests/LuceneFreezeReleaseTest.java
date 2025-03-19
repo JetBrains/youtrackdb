@@ -18,7 +18,7 @@ public class LuceneFreezeReleaseTest extends LuceneBaseTest {
   public void setUp() throws Exception {
 
     dropDatabase();
-    createDatabase(DatabaseType.PLOCAL);
+    createDatabase(DatabaseType.DISK);
   }
 
   @Test

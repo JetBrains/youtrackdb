@@ -256,7 +256,7 @@ public class YouTrackDBRemoteTest {
   public void testCreateDatabaseViaSQL() {
     var dbName = "testCreateDatabaseViaSQL";
 
-    try (var result = factory.execute("create database " + dbName + " plocal")) {
+    try (var result = factory.execute("create database " + dbName + " disk")) {
       Assert.assertTrue(result.hasNext());
       var item = result.next();
       Assert.assertEquals(true, item.getProperty("created"));

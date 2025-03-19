@@ -10,7 +10,7 @@ public class HookOnIndexedMapTest {
 
   @Test
   public void test() {
-    YouTrackDB youTrackDb = new YouTrackDBImpl("plocal:.", "root", "root",
+    YouTrackDB youTrackDb = new YouTrackDBImpl("disk:.", "root", "root",
         YouTrackDBConfig.defaultConfig());
 
     youTrackDb.execute(

@@ -35,7 +35,7 @@ public class StorageEncryptionTestIT {
     try (final YouTrackDB youTrackDB =
         new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), youTrackDBConfig)) {
       youTrackDB.execute(
-          "create database encryption plocal users ( admin identified by 'admin' role admin)");
+          "create database encryption disk users ( admin identified by 'admin' role admin)");
       try (var session = (DatabaseSessionInternal) youTrackDB.open("encryption", "admin",
           "admin")) {
         final Schema schema = session.getMetadata().getSchema();
@@ -172,7 +172,7 @@ public class StorageEncryptionTestIT {
               .build();
 
       youTrackDB.execute(
-          "create database encryption plocal users ( admin identified by 'admin' role admin)");
+          "create database encryption disk users ( admin identified by 'admin' role admin)");
     }
     try (final YouTrackDB youTrackDB =
         new YouTrackDBImpl(

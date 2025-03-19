@@ -797,7 +797,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     if (memory != null && !memory.isRunning()) {
       memory.startup();
     }
-    var disc = engines.get("plocal");
+    var disc = engines.get("disk");
     if (disc != null && !disc.isRunning()) {
       disc.startup();
     }
@@ -811,7 +811,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       if (memory != null && memory.isRunning()) {
         memory.shutdown();
       }
-      var disc = engines.get("plocal");
+      var disc = engines.get("disk");
       if (disc != null && disc.isRunning()) {
         disc.shutdown();
       }

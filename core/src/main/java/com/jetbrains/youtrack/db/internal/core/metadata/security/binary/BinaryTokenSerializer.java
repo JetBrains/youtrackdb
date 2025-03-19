@@ -47,7 +47,7 @@ public class BinaryTokenSerializer implements TokenMetaInfo {
 
   public BinaryTokenSerializer() {
     this(
-        new String[]{"plocal", "memory"},
+        new String[]{"disk", "memory"},
         new String[]{"dafault"},
         new String[]{"HmacSHA256"},
         new String[]{"YouTrackDB", "node"});

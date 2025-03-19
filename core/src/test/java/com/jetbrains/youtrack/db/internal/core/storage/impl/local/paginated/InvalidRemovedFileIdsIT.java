@@ -35,9 +35,9 @@ public class InvalidRemovedFileIdsIT {
             .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_MINIMUM_CLUSTERS, 1)
             .build();
 
-    YouTrackDB youTrackDB = new YouTrackDBImpl("plocal:" + buildDirectory, config);
+    YouTrackDB youTrackDB = new YouTrackDBImpl("disk:" + buildDirectory, config);
     youTrackDB.execute(
-        "create database " + dbName + " plocal users ( admin identified by 'admin' role admin)");
+        "create database " + dbName + " disk users ( admin identified by 'admin' role admin)");
     var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
     var storage = db.getStorage();
@@ -76,7 +76,7 @@ public class InvalidRemovedFileIdsIT {
 
     fileMap.close();
 
-    youTrackDB = new YouTrackDBImpl("plocal:" + buildDirectory, config);
+    youTrackDB = new YouTrackDBImpl("disk:" + buildDirectory, config);
     db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
     final Schema schema = db.getMetadata().getSchema();

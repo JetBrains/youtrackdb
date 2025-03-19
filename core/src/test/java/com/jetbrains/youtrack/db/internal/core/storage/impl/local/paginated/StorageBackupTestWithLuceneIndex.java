@@ -31,7 +31,7 @@ public class StorageBackupTestWithLuceneIndex {
     dbDirectory =
         buildDirectory + File.separator + StorageBackupTestWithLuceneIndex.class.getSimpleName();
     FileUtils.deleteRecursively(new File(dbDirectory));
-    db = new DatabaseDocumentTx("plocal:" + dbDirectory);
+    db = new DatabaseDocumentTx("disk:" + dbDirectory);
     db.create();
 
     backedUpDbDirectory =
@@ -51,7 +51,7 @@ public class StorageBackupTestWithLuceneIndex {
     }
 
     final DatabaseSessionInternal backedUpDb =
-        new DatabaseDocumentTx("plocal:" + backedUpDbDirectory);
+        new DatabaseDocumentTx("disk:" + backedUpDbDirectory);
     if (backedUpDb.exists()) {
       if (backedUpDb.isClosed()) {
         backedUpDb.open("admin", "admin");
@@ -100,7 +100,7 @@ public class StorageBackupTestWithLuceneIndex {
     FileUtils.deleteRecursively(new File(backedUpDbDirectory));
 
     final DatabaseSessionInternal backedUpDb =
-        new DatabaseDocumentTx("plocal:" + backedUpDbDirectory);
+        new DatabaseDocumentTx("disk:" + backedUpDbDirectory);
     backedUpDb.create(backupDir.getAbsolutePath());
 
     final var backupStorage = backedUpDb.getStorage();
@@ -178,7 +178,7 @@ public class StorageBackupTestWithLuceneIndex {
     FileUtils.deleteRecursively(new File(backedUpDbDirectory));
 
     final DatabaseSessionInternal backedUpDb =
-        new DatabaseDocumentTx("plocal:" + backedUpDbDirectory);
+        new DatabaseDocumentTx("disk:" + backedUpDbDirectory);
     backedUpDb.create(backupDir.getAbsolutePath());
 
     final var backupStorage = backedUpDb.getStorage();

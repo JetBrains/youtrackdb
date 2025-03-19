@@ -1407,7 +1407,7 @@ public final class PaginatedClusterV2 extends PaginatedCluster {
 
   @Override
   public String toString() {
-    return "plocal cluster: " + getName();
+    return "disk cluster: " + getName();
   }
 
   @Override

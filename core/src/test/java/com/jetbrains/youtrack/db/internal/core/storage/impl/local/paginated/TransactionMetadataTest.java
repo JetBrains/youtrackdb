@@ -32,7 +32,7 @@ public class TransactionMetadataTest {
     youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
         YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
-        "create database `" + DB_NAME + "` plocal users(admin identified by 'admin' role admin)");
+        "create database `" + DB_NAME + "` disk users(admin identified by 'admin' role admin)");
     db = (DatabaseSessionInternal) youTrackDB.open(DB_NAME, "admin", "admin");
   }
 
@@ -52,7 +52,7 @@ public class TransactionMetadataTest {
             DB_NAME + "_re",
             null,
             null,
-            DatabaseType.PLOCAL,
+            DatabaseType.DISK,
             "target/backup_metadata",
             YouTrackDBConfig.defaultConfig());
     var db1 = youTrackDB.open(DB_NAME + "_re", "admin", "admin");

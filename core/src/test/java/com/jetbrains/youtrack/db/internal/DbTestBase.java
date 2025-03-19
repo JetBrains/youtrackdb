@@ -98,7 +98,7 @@ public class DbTestBase {
         System.getProperty("youtrackdb.test.env", DatabaseType.MEMORY.name().toLowerCase());
 
     if ("ci".equals(testConfig) || "release".equals(testConfig)) {
-      return DatabaseType.PLOCAL;
+      return DatabaseType.DISK;
     }
 
     return DatabaseType.MEMORY;

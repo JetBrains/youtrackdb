@@ -877,7 +877,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
       int bufferSize)
       throws IOException {
     throw new UnsupportedOperationException(
-        "backup is not supported against remote storage. Open the database with plocal or use the"
+        "backup is not supported against remote storage. Open the database with disk or use the"
             + " incremental backup in the Enterprise Edition");
   }
 
@@ -888,7 +888,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
       final CommandOutputListener iListener)
       throws IOException {
     throw new UnsupportedOperationException(
-        "restore is not supported against remote storage. Open the database with plocal or use"
+        "restore is not supported against remote storage. Open the database with disk or use"
             + " Enterprise Edition");
   }
 

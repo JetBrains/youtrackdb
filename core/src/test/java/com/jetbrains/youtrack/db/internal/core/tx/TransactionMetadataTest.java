@@ -26,7 +26,7 @@ public class TransactionMetadataTest {
     youTrackDB =
         CreateDatabaseUtil.createDatabase(
             DB_NAME, DbTestBase.embeddedDBUrl(getClass()),
-            CreateDatabaseUtil.TYPE_PLOCAL);
+            CreateDatabaseUtil.TYPE_DISK);
     db =
         (DatabaseSessionInternal)
             youTrackDB.open(DB_NAME, "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);

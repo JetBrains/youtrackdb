@@ -35,7 +35,7 @@ public class StorageBackupTest {
 
     var youTrackDB = YourTracks.embedded(testDirectory, YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
-        "create database `" + dbName + "` plocal users(admin identified by 'admin' role admin)");
+        "create database `" + dbName + "` disk users(admin identified by 'admin' role admin)");
 
     var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
@@ -114,7 +114,7 @@ public class StorageBackupTest {
 
     final var dbName = StorageBackupTest.class.getSimpleName();
     youTrackDB.execute(
-        "create database `" + dbName + "` plocal users(admin identified by 'admin' role admin)");
+        "create database `" + dbName + "` disk users(admin identified by 'admin' role admin)");
 
     var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
@@ -215,7 +215,7 @@ public class StorageBackupTest {
 
     final var dbName = StorageBackupTest.class.getSimpleName();
     youTrackDB.execute(
-        "create database `" + dbName + "` plocal users(admin identified by 'admin' role admin)");
+        "create database `" + dbName + "` disk users(admin identified by 'admin' role admin)");
 
     var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 

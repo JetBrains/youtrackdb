@@ -1,8 +1,8 @@
 package com.jetbrains.youtrack.db.internal.core.util;
 
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
+import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import java.io.File;
 import java.util.Optional;
 
@@ -29,13 +29,13 @@ public class URLHelper {
     var databaseReference = url.substring(typeIndex + 1);
     var type = url.substring(0, typeIndex);
 
-    if (!"remote".equals(type) && !"plocal".equals(type) && !"memory".equals(type)) {
+    if (!"remote".equals(type) && !"disk".equals(type) && !"memory".equals(type)) {
       throw new ConfigurationException(
           "Error on opening database: the engine '"
               + type
               + "' was not found. URL was: "
               + url
-              + ". Registered engines are: [\"memory\",\"remote\",\"plocal\"]");
+              + ". Registered engines are: [\"memory\",\"remote\",\"disk\"]");
     }
 
     var index = databaseReference.lastIndexOf('/');
@@ -49,7 +49,7 @@ public class URLHelper {
       path = "./";
       dbName = databaseReference;
     }
-    if ("plocal".equals(type) || "memory".equals(type)) {
+    if ("disk".equals(type) || "memory".equals(type)) {
       baseUrl = new File(path).getAbsolutePath();
     } else {
       baseUrl = path;
@@ -80,10 +80,10 @@ public class URLHelper {
     var databaseReference = url.substring(typeIndex + 1);
     var type = url.substring(0, typeIndex);
     Optional<DatabaseType> dbType = Optional.empty();
-    if ("plocal".equals(type) || "memory".equals(type)) {
+    if ("disk".equals(type) || "memory".equals(type)) {
       switch (type) {
-        case "plocal":
-          dbType = Optional.of(DatabaseType.PLOCAL);
+        case "disk":
+          dbType = Optional.of(DatabaseType.DISK);
           break;
         case "memory":
           dbType = Optional.of(DatabaseType.MEMORY);
@@ -115,7 +115,7 @@ public class URLHelper {
       }
       if (!path.isEmpty()) {
         baseUrl = new File(path).getAbsolutePath();
-        dbType = Optional.of(DatabaseType.PLOCAL);
+        dbType = Optional.of(DatabaseType.DISK);
       } else {
         baseUrl = path;
       }
