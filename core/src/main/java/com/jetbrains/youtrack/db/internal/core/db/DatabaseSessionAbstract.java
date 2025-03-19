@@ -1960,6 +1960,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   protected void beforeCommitOperations() {
     assert assertIfNotActive();
+    closeActiveQueries();
     for (var listener : browseListeners()) {
       try {
         listener.onBeforeTxCommit(this);
@@ -2005,6 +2006,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   protected void beforeRollbackOperations() {
     assert assertIfNotActive();
+    closeActiveQueries();
     for (var listener : browseListeners()) {
       try {
         listener.onBeforeTxRollback(this);
