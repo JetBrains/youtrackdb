@@ -40,7 +40,7 @@ public interface DBRecord extends Identifiable {
    *
    * @param session The session to check
    * @return <code>true</code> if record is bound to the passed in session.
-   * @see com.jetbrains.youtrack.db.api.session.Transaction#bindToSession(Identifiable)
+   * @see com.jetbrains.youtrack.db.api.transaction.Transaction#bindToSession(Identifiable)
    */
   boolean isNotBound(@Nonnull DatabaseSession session);
 
@@ -115,7 +115,7 @@ public interface DBRecord extends Identifiable {
 
   /**
    * Checks if the record exists in the database. It adheres the same rules
-   * {@link com.jetbrains.youtrack.db.api.session.Transaction#exists(RID)}.
+   * {@link com.jetbrains.youtrack.db.api.transaction.Transaction#exists(RID)}.
    *
    * @return true if the record exists, otherwise false
    */

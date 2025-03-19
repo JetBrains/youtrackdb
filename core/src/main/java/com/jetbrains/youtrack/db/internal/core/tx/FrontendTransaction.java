@@ -22,8 +22,8 @@ package com.jetbrains.youtrack.db.internal.core.tx;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.session.RecordOperationType;
-import com.jetbrains.youtrack.db.api.session.Transaction;
+import com.jetbrains.youtrack.db.api.transaction.RecordOperationType;
+import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
@@ -237,17 +237,17 @@ public interface FrontendTransaction extends Transaction {
   }
 
   @Override
-  default Stream<com.jetbrains.youtrack.db.api.session.RecordOperation> getRecordOperations() {
+  default Stream<com.jetbrains.youtrack.db.api.transaction.RecordOperation> getRecordOperations() {
     return getRecordOperationsInternal().stream().map(recordOperation ->
         switch (recordOperation.type) {
           case RecordOperation.CREATED ->
-              new com.jetbrains.youtrack.db.api.session.RecordOperation(recordOperation.record,
+              new com.jetbrains.youtrack.db.api.transaction.RecordOperation(recordOperation.record,
                   RecordOperationType.CREATED);
           case RecordOperation.UPDATED ->
-              new com.jetbrains.youtrack.db.api.session.RecordOperation(recordOperation.record,
+              new com.jetbrains.youtrack.db.api.transaction.RecordOperation(recordOperation.record,
                   RecordOperationType.UPDATED);
           case RecordOperation.DELETED ->
-              new com.jetbrains.youtrack.db.api.session.RecordOperation(recordOperation.record,
+              new com.jetbrains.youtrack.db.api.transaction.RecordOperation(recordOperation.record,
                   RecordOperationType.DELETED);
           default -> throw new IllegalStateException("Unexpected value: " + recordOperation.type);
         });

@@ -1,4 +1,4 @@
-package com.jetbrains.youtrack.db.api.session;
+package com.jetbrains.youtrack.db.api.transaction;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;

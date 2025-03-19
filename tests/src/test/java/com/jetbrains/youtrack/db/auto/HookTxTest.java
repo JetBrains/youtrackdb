@@ -15,7 +15,6 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RecordHookAbstract;
@@ -56,7 +55,7 @@ public class HookTxTest extends BaseDBTest {
 
     @Override
     @Test(enabled = false)
-    public void onRecordAfterCreate(DatabaseSession session, DBRecord iRecord) {
+    public void onRecordAfterCreate(DBRecord iRecord) {
       if (iRecord instanceof EntityImpl
           && ((EntityImpl) iRecord).getSchemaClassName() != null
           && ((EntityImpl) iRecord).getSchemaClassName().equals("Profile")) {
@@ -76,7 +75,7 @@ public class HookTxTest extends BaseDBTest {
 
     @Override
     @Test(enabled = false)
-    public void onRecordAfterRead(DatabaseSession session, DBRecord iRecord) {
+    public void onRecordAfterRead(DBRecord iRecord) {
       if (iRecord instanceof EntityImpl
           && ((EntityImpl) iRecord).getSchemaClassName() != null
           && ((EntityImpl) iRecord).getSchemaClassName().equals("Profile")) {
@@ -97,7 +96,7 @@ public class HookTxTest extends BaseDBTest {
 
     @Override
     @Test(enabled = false)
-    public void onRecordAfterUpdate(DatabaseSession session, DBRecord iRecord) {
+    public void onRecordAfterUpdate(DBRecord iRecord) {
       if (iRecord instanceof EntityImpl
           && ((EntityImpl) iRecord).getSchemaClassName() != null
           && ((EntityImpl) iRecord).getSchemaClassName().equals("Profile")) {
@@ -118,7 +117,7 @@ public class HookTxTest extends BaseDBTest {
 
     @Override
     @Test(enabled = false)
-    public void onRecordAfterDelete(DatabaseSession session, DBRecord iRecord) {
+    public void onRecordAfterDelete(DBRecord iRecord) {
       if (iRecord instanceof EntityImpl
           && ((EntityImpl) iRecord).getSchemaClassName() != null
           && ((EntityImpl) iRecord).getSchemaClassName().equals("Profile")) {

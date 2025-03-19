@@ -14,13 +14,13 @@
 package com.jetbrains.youtrack.db.internal.security.auditing;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.SessionListener;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RecordHookAbstract;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.session.SessionListener;
-import com.jetbrains.youtrack.db.api.session.Transaction;
+import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.common.parser.VariableParser;
 import com.jetbrains.youtrack.db.internal.common.parser.VariableParserListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -266,26 +266,27 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
   }
 
   @Override
-  public void onRecordAfterCreate(DatabaseSession session, final DBRecord iRecord) {
+  public void onRecordAfterCreate(final DBRecord iRecord) {
     if (!onGlobalCreate) {
       return;
     }
 
-    log(session, AuditingOperation.CREATED, iRecord);
+    log(iRecord.getBoundedToSession(), AuditingOperation.CREATED, iRecord);
   }
 
   @Override
-  public void onRecordAfterRead(DatabaseSession session, final DBRecord iRecord) {
+  public void onRecordAfterRead(final DBRecord iRecord) {
     if (!onGlobalRead) {
       return;
     }
 
-    log(session, AuditingOperation.LOADED, iRecord);
+    log(iRecord.getBoundedToSession(), AuditingOperation.LOADED, iRecord);
   }
 
   @Override
-  public void onRecordAfterUpdate(DatabaseSession session, final DBRecord iRecord) {
+  public void onRecordAfterUpdate(final DBRecord iRecord) {
 
+    var session = iRecord.getBoundedToSession();
     if (iRecord instanceof EntityImpl entity) {
       SchemaImmutableClass clazz = null;
       clazz = entity.getImmutableSchemaClass((DatabaseSessionInternal) session);
@@ -307,12 +308,12 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
   }
 
   @Override
-  public void onRecordAfterDelete(DatabaseSession session, final DBRecord iRecord) {
+  public void onRecordAfterDelete(final DBRecord iRecord) {
     if (!onGlobalDelete) {
       return;
     }
 
-    log(session, AuditingOperation.DELETED, iRecord);
+    log(iRecord.getBoundedToSession(), AuditingOperation.DELETED, iRecord);
   }
 
   protected void log(DatabaseSession db, final AuditingOperation operation,

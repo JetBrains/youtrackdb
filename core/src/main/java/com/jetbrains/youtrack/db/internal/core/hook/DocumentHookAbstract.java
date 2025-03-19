@@ -162,7 +162,7 @@ public abstract class DocumentHookAbstract implements RecordHook {
   }
 
   @Override
-  public RESULT onTrigger(@Nonnull DatabaseSession session, @Nonnull final TYPE iType,
+  public RESULT onTrigger(@Nonnull final TYPE iType,
       @Nonnull final DBRecord iRecord) {
     if (this.session.getStatus() != STATUS.OPEN) {
       return RESULT.RECORD_NOT_CHANGED;

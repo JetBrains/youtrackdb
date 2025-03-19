@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrack.db.api.record;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import javax.annotation.Nonnull;
 
 /**
@@ -122,7 +121,7 @@ public interface RecordHook {
 
   void onUnregister();
 
-  RESULT onTrigger(@Nonnull DatabaseSession session, @Nonnull TYPE iType,
+  RESULT onTrigger(@Nonnull TYPE iType,
       @Nonnull DBRecord iRecord);
 
   /**
@@ -131,8 +130,8 @@ public interface RecordHook {
    * the number of useless invocations of this hook.
    *
    * <p>Limiting the hook to proper scopes may give huge performance boost, especially if the
-   * hook's {@link #onTrigger(DatabaseSession, TYPE, DBRecord)} dispatcher implementation is heavy.
-   * In extreme cases, you may override the {@link #onTrigger(DatabaseSession, TYPE, DBRecord)} to
+   * hook's {@link #onTrigger(TYPE, DBRecord)} dispatcher implementation is heavy.
+   * In extreme cases, you may override the {@link #onTrigger(TYPE, DBRecord)} to
    * act directly on event's {@link RecordHook.TYPE} and exit early, scopes are just a more handy
    * alternative to this.
    *

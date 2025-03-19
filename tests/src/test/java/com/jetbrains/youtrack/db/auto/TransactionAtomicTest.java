@@ -15,13 +15,13 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
+import com.jetbrains.youtrack.db.api.SessionListener;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrack.db.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.session.SessionListener;
-import com.jetbrains.youtrack.db.api.session.Transaction;
+import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;

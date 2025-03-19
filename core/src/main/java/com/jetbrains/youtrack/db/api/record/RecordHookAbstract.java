@@ -20,7 +20,6 @@
 package com.jetbrains.youtrack.db.api.record;
 
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import javax.annotation.Nonnull;
 
 /**
@@ -52,7 +51,7 @@ public abstract class RecordHookAbstract implements RecordHook {
    *
    * @param iRecord The iRecord just created
    */
-  public void onRecordAfterCreate(DatabaseSession session, final DBRecord iRecord) {
+  public void onRecordAfterCreate(final DBRecord iRecord) {
   }
 
   public void onRecordCreateFailed(final DBRecord iRecord) {
@@ -71,7 +70,7 @@ public abstract class RecordHookAbstract implements RecordHook {
    *
    * @param iRecord The iRecord just read
    */
-  public void onRecordAfterRead(DatabaseSession session, final DBRecord iRecord) {
+  public void onRecordAfterRead(final DBRecord iRecord) {
   }
 
   public void onRecordReadFailed(final DBRecord iRecord) {
@@ -93,7 +92,7 @@ public abstract class RecordHookAbstract implements RecordHook {
    *
    * @param iRecord The iRecord just updated
    */
-  public void onRecordAfterUpdate(DatabaseSession session, final DBRecord iRecord) {
+  public void onRecordAfterUpdate(final DBRecord iRecord) {
   }
 
   public void onRecordUpdateFailed(final DBRecord iRecord) {
@@ -115,7 +114,7 @@ public abstract class RecordHookAbstract implements RecordHook {
    *
    * @param iRecord The iRecord just deleted
    */
-  public void onRecordAfterDelete(DatabaseSession session, final DBRecord iRecord) {
+  public void onRecordAfterDelete(final DBRecord iRecord) {
   }
 
   public void onRecordDeleteFailed(final DBRecord iRecord) {
@@ -130,14 +129,14 @@ public abstract class RecordHookAbstract implements RecordHook {
   public void onRecordFinalizeDeletion(final DBRecord record) {
   }
 
-  public RESULT onTrigger(@Nonnull DatabaseSession session, @Nonnull final TYPE iType,
+  public RESULT onTrigger(@Nonnull final TYPE iType,
       @Nonnull final DBRecord record) {
     switch (iType) {
       case BEFORE_CREATE:
         return onRecordBeforeCreate(record);
 
       case AFTER_CREATE:
-        onRecordAfterCreate(session, record);
+        onRecordAfterCreate(record);
         break;
 
       case CREATE_FAILED:
@@ -149,7 +148,7 @@ public abstract class RecordHookAbstract implements RecordHook {
         break;
 
       case AFTER_READ:
-        onRecordAfterRead(session, record);
+        onRecordAfterRead(record);
         break;
 
       case READ_FAILED:
@@ -160,7 +159,7 @@ public abstract class RecordHookAbstract implements RecordHook {
         return onRecordBeforeUpdate(record);
 
       case AFTER_UPDATE:
-        onRecordAfterUpdate(session, record);
+        onRecordAfterUpdate(record);
         break;
 
       case UPDATE_FAILED:
@@ -171,7 +170,7 @@ public abstract class RecordHookAbstract implements RecordHook {
         return onRecordBeforeDelete(record);
 
       case AFTER_DELETE:
-        onRecordAfterDelete(session, record);
+        onRecordAfterDelete(record);
         break;
 
       case DELETE_FAILED:

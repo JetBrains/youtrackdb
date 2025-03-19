@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.api.config;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession.ATTRIBUTES;
-import com.jetbrains.youtrack.db.api.session.SessionListener;
+import com.jetbrains.youtrack.db.api.SessionListener;
 import java.util.Map;
 
 public interface YouTrackDBConfigBuilder {

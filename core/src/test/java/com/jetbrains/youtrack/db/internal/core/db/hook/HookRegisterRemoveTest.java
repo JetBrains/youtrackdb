@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.core.db.hook;
 
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
@@ -23,7 +22,7 @@ public class HookRegisterRemoveTest extends DbTestBase {
           }
 
           @Override
-          public RESULT onTrigger(@Nonnull DatabaseSession session, @Nonnull TYPE iType,
+          public RESULT onTrigger(@Nonnull TYPE iType,
               @Nonnull DBRecord iRecord) {
             integer.incrementAndGet();
             return null;

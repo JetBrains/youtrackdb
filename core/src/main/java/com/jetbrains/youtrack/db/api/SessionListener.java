@@ -17,11 +17,11 @@
  *
  *
  */
-package com.jetbrains.youtrack.db.api.session;
+package com.jetbrains.youtrack.db.api;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.api.transaction.Transaction;
 
 /**
  * Listener Interface for all the events of the session instances.
