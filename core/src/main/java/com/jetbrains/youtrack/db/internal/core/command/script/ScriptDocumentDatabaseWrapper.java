@@ -68,14 +68,6 @@ public class ScriptDocumentDatabaseWrapper {
     }
   }
 
-  public Identifiable[] query(final SQLQuery iQuery, final Object... iParameters) {
-    final List<Identifiable> res = session.query(iQuery, Arrays.asList(iParameters));
-    if (res == null) {
-      return CommonConst.EMPTY_IDENTIFIABLE_ARRAY;
-    }
-    return res.toArray(new Identifiable[0]);
-  }
-
   /**
    * To maintain the compatibility with JS API.
    */

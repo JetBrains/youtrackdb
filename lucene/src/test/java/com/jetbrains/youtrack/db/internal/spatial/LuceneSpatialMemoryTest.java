@@ -50,11 +50,10 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
     session.begin();
     session.commit();
 
-    var query =
-        session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "SELECT FROM Point WHERE [latitude, longitude] WITHIN"
-                    + " [[42.26531323615103,-83.71986351411135],[42.29239784478525,-83.7662120858887]]"));
+    var query = session.query(
+        "SELECT FROM Point WHERE [latitude, longitude] WITHIN"
+            + " [[42.26531323615103,-83.71986351411135],[42.29239784478525,-83.7662120858887]]"
+    ).toList();
 
     Assert.assertEquals(1, query.size());
   }
@@ -78,11 +77,10 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
     session.begin();
     session.commit();
 
-    var query =
-        session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "SELECT FROM Point WHERE [latitude, longitude] WITHIN"
-                    + " [[42.26531323615103,-83.71986351411135],[42.29239784478525,-83.7662120858887]]"));
+    var query = session.query(
+        "SELECT FROM Point WHERE [latitude, longitude] WITHIN"
+            + " [[42.26531323615103,-83.71986351411135],[42.29239784478525,-83.7662120858887]]"
+    ).toList();
 
     Assert.assertEquals(1, query.size());
 
@@ -120,11 +118,10 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
     Assert.assertEquals(1, coll.size());
     session.rollback();
 
-    query =
-        session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "SELECT FROM Point WHERE [latitude, longitude] WITHIN"
-                    + " [[42.26531323615103,-83.71986351411135],[42.29239784478525,-83.7662120858887]]"));
+    query = session.query(
+        "SELECT FROM Point WHERE [latitude, longitude] WITHIN"
+            + " [[42.26531323615103,-83.71986351411135],[42.29239784478525,-83.7662120858887]]"
+    ).toList();
 
     Assert.assertEquals(0, query.size());
   }
@@ -147,11 +144,10 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
 
     session.commit();
 
-    var query =
-        session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "SELECT FROM Point WHERE [latitude, longitude] WITHIN"
-                    + " [[42.26531323615103,-83.71986351411135],[42.29239784478525,-83.7662120858887]]"));
+    var query = session.query(
+        "SELECT FROM Point WHERE [latitude, longitude] WITHIN"
+            + " [[42.26531323615103,-83.71986351411135],[42.29239784478525,-83.7662120858887]]"
+    ).toList();
 
     Assert.assertEquals(1, query.size());
 
@@ -193,11 +189,10 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
     document = session.bindToSession(document);
     session.delete(document);
 
-    query =
-        session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "SELECT FROM Point WHERE [latitude, longitude] WITHIN"
-                    + " [[42.26531323615103,-83.71986351411135],[42.29239784478525,-83.7662120858887]]"));
+    query = session.query(
+        "SELECT FROM Point WHERE [latitude, longitude] WITHIN"
+            + " [[42.26531323615103,-83.71986351411135],[42.29239784478525,-83.7662120858887]]"
+    ).toList();
 
     Assert.assertEquals(0, query.size());
 
@@ -209,11 +204,10 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
 
     session.rollback();
 
-    query =
-        session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "SELECT FROM Point WHERE [latitude, longitude] WITHIN"
-                    + " [[42.26531323615103,-83.71986351411135],[42.29239784478525,-83.7662120858887]]"));
+    query = session.query(
+        "SELECT FROM Point WHERE [latitude, longitude] WITHIN"
+            + " [[42.26531323615103,-83.71986351411135],[42.29239784478525,-83.7662120858887]]"
+    ).toList();
 
     Assert.assertEquals(1, query.size());
 

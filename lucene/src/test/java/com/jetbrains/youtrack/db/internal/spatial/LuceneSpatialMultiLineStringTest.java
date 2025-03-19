@@ -13,6 +13,7 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial;
 
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -247,7 +248,7 @@ public class LuceneSpatialMultiLineStringTest extends BaseSpatialLuceneTest {
 
   protected void testQueryMultiLineString() {
     var query = "select * from Place where location && 'POINT(-157.9159477 21.3433168)' ";
-    List<EntityImpl> docs = session.query(new SQLSynchQuery<EntityImpl>(query));
+    final var docs = session.query(query).entityStream().toList();
 
     Assert.assertEquals(docs.size(), 1);
   }

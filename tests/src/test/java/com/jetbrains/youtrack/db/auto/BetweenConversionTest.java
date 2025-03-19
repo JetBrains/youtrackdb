@@ -4,12 +4,9 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Optional;
@@ -24,7 +21,7 @@ public class BetweenConversionTest extends BaseDBTest {
 
   @Parameters(value = "remote")
   public BetweenConversionTest(@Optional Boolean remote) {
-    super(remote);
+    super(remote != null && remote);
   }
 
   @BeforeClass
@@ -37,10 +34,11 @@ public class BetweenConversionTest extends BaseDBTest {
     clazz.createProperty("a", PropertyType.INTEGER);
     clazz.createProperty("ai", PropertyType.INTEGER);
 
-    clazz.createIndex("BetweenConversionTestIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE,
-        "ai");
+    clazz.createIndex("BetweenConversionTestIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "ai");
 
     for (var i = 0; i < 10; i++) {
+
+      session.begin();
       var document = ((EntityImpl) session.newEntity("BetweenConversionTest"));
       document.setProperty("a", i);
       document.setProperty("ai", i);
@@ -56,451 +54,379 @@ public class BetweenConversionTest extends BaseDBTest {
 
       document.setProperty("d", ed);
 
-      session.begin();
-
       session.commit();
     }
   }
 
   public void testBetweenRightLeftIncluded() {
-    final var query = "select from BetweenConversionTest where a >= 1 and a <= 3";
-    final List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from BetweenConversionTest where a >= 1 and a <= 3").toList();
 
-    Assert.assertEquals(result.size(), 3);
-    List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3));
+      Assert.assertEquals(result.size(), 3);
+      List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3));
 
-    for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
-    }
+      for (var document : result) {
+        Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
+      }
 
-    Assert.assertTrue(values.isEmpty());
-
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-
-    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
+      Assert.assertTrue(values.isEmpty());
+    });
   }
 
   public void testBetweenRightLeftIncludedReverseOrder() {
-    final var query = "select from BetweenConversionTest where a <= 3 and a >= 1";
-    final List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from BetweenConversionTest where a <= 3 and a >= 1").toList();
 
-    Assert.assertEquals(result.size(), 3);
-    List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3));
+      Assert.assertEquals(result.size(), 3);
+      List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3));
 
-    for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
-    }
+      for (var document : result) {
+        Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
+      }
 
-    Assert.assertTrue(values.isEmpty());
-
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-
-    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
+      Assert.assertTrue(values.isEmpty());
+    });
   }
 
   public void testBetweenRightIncluded() {
-    final var query = "select from BetweenConversionTest where a > 1 and a <= 3";
-    final List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from BetweenConversionTest where a > 1 and a <= 3").toList();
 
-    Assert.assertEquals(result.size(), 2);
-    List<Integer> values = new ArrayList<Integer>(Arrays.asList(2, 3));
+      Assert.assertEquals(result.size(), 2);
+      List<Integer> values = new ArrayList<Integer>(Arrays.asList(2, 3));
 
-    for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
-    }
+      for (var document : result) {
+        Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
+      }
 
-    Assert.assertTrue(values.isEmpty());
-
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-
-    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
+      Assert.assertTrue(values.isEmpty());
+    });
   }
 
   public void testBetweenRightIncludedReverse() {
-    final var query = "select from BetweenConversionTest where a <= 3 and a > 1";
-    final List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from BetweenConversionTest where a <= 3 and a > 1").toList();
 
-    Assert.assertEquals(result.size(), 2);
-    List<Integer> values = new ArrayList<Integer>(Arrays.asList(2, 3));
+      Assert.assertEquals(result.size(), 2);
+      List<Integer> values = new ArrayList<Integer>(Arrays.asList(2, 3));
 
-    for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
-    }
+      for (var document : result) {
+        Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
+      }
 
-    Assert.assertTrue(values.isEmpty());
-
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-
-    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
+      Assert.assertTrue(values.isEmpty());
+    });
   }
 
   public void testBetweenLeftIncluded() {
-    final var query = "select from BetweenConversionTest where a >= 1 and a < 3";
-    final List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from BetweenConversionTest where a >= 1 and a < 3").toList();
 
-    Assert.assertEquals(result.size(), 2);
-    List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2));
+      Assert.assertEquals(result.size(), 2);
+      List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2));
 
-    for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
-    }
+      for (var document : result) {
+        Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
+      }
 
-    Assert.assertTrue(values.isEmpty());
-
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-
-    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
+      Assert.assertTrue(values.isEmpty());
+    });
   }
 
   public void testBetweenLeftIncludedReverseOrder() {
-    final var query = "select from BetweenConversionTest where  a < 3 and a >= 1";
-    final List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from BetweenConversionTest where  a < 3 and a >= 1").toList();
 
-    Assert.assertEquals(result.size(), 2);
-    List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2));
+      Assert.assertEquals(result.size(), 2);
+      List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2));
 
-    for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
-    }
+      for (var document : result) {
+        Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
+      }
 
-    Assert.assertTrue(values.isEmpty());
-
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-
-    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
+      Assert.assertTrue(values.isEmpty());
+    });
   }
 
   public void testBetween() {
-    final var query = "select from BetweenConversionTest where a > 1 and a < 3";
-    final List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from BetweenConversionTest where a > 1 and a < 3").toList();
 
-    Assert.assertEquals(result.size(), 1);
-    List<Integer> values = new ArrayList<Integer>(List.of(2));
+      Assert.assertEquals(result.size(), 1);
+      List<Integer> values = new ArrayList<Integer>(List.of(2));
 
-    for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
-    }
+      for (var document : result) {
+        Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
+      }
 
-    Assert.assertTrue(values.isEmpty());
-
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-
-    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
+      Assert.assertTrue(values.isEmpty());
+    });
   }
 
   public void testBetweenRightLeftIncludedIndex() {
-    final var query = "select from BetweenConversionTest where ai >= 1 and ai <= 3";
-    final List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from BetweenConversionTest where ai >= 1 and ai <= 3").toList();
 
-    Assert.assertEquals(result.size(), 3);
-    List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3));
+      Assert.assertEquals(result.size(), 3);
+      List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3));
 
-    for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
-    }
+      for (var document : result) {
+        Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
+      }
 
-    Assert.assertTrue(values.isEmpty());
-
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-
-    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
-    Assert.assertTrue(
-        ((Set<String>) explain.getProperty("involvedIndexes")).contains(
-            "BetweenConversionTestIndex"));
+      Assert.assertTrue(values.isEmpty());
+    });
   }
 
   public void testBetweenRightLeftIncludedReverseOrderIndex() {
-    final var query = "select from BetweenConversionTest where ai <= 3 and ai >= 1";
-    final List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from BetweenConversionTest where ai <= 3 and ai >= 1").toList();
 
-    Assert.assertEquals(result.size(), 3);
-    List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3));
+      Assert.assertEquals(result.size(), 3);
+      List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3));
 
-    for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
-    }
+      for (var document : result) {
+        Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
+      }
 
-    Assert.assertTrue(values.isEmpty());
-
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-
-    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
-    Assert.assertTrue(
-        ((Set<String>) explain.getProperty("involvedIndexes")).contains(
-            "BetweenConversionTestIndex"));
+      Assert.assertTrue(values.isEmpty());
+    });
   }
 
   public void testBetweenRightIncludedIndex() {
-    final var query = "select from BetweenConversionTest where ai > 1 and ai <= 3";
-    final List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from BetweenConversionTest where ai > 1 and ai <= 3").toList();
 
-    Assert.assertEquals(result.size(), 2);
-    List<Integer> values = new ArrayList<Integer>(Arrays.asList(2, 3));
+      Assert.assertEquals(result.size(), 2);
+      List<Integer> values = new ArrayList<Integer>(Arrays.asList(2, 3));
 
-    for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
-    }
+      for (var document : result) {
+        Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
+      }
 
-    Assert.assertTrue(values.isEmpty());
-
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-
-    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
-    Assert.assertTrue(
-        ((Set<String>) explain.getProperty("involvedIndexes")).contains(
-            "BetweenConversionTestIndex"));
+      Assert.assertTrue(values.isEmpty());
+    });
   }
 
   public void testBetweenRightIncludedReverseOrderIndex() {
-    final var query = "select from BetweenConversionTest where ai <= 3 and ai > 1";
-    final List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from BetweenConversionTest where ai <= 3 and ai > 1").toList();
 
-    Assert.assertEquals(result.size(), 2);
-    List<Integer> values = new ArrayList<Integer>(Arrays.asList(2, 3));
+      Assert.assertEquals(result.size(), 2);
+      List<Integer> values = new ArrayList<Integer>(Arrays.asList(2, 3));
 
-    for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
-    }
+      for (var document : result) {
+        Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
+      }
 
-    Assert.assertTrue(values.isEmpty());
-
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-
-    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
-    Assert.assertTrue(
-        ((Set<String>) explain.getProperty("involvedIndexes")).contains(
-            "BetweenConversionTestIndex"));
+      Assert.assertTrue(values.isEmpty());
+    });
   }
 
   public void testBetweenLeftIncludedIndex() {
-    final var query = "select from BetweenConversionTest where ai >= 1 and ai < 3";
-    final List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from BetweenConversionTest where ai >= 1 and ai < 3").toList();
 
-    Assert.assertEquals(result.size(), 2);
-    List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2));
+      Assert.assertEquals(result.size(), 2);
+      List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2));
 
-    for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
-    }
+      for (var document : result) {
+        Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
+      }
 
-    Assert.assertTrue(values.isEmpty());
-
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-
-    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
-    Assert.assertTrue(
-        ((Set<String>) explain.getProperty("involvedIndexes")).contains(
-            "BetweenConversionTestIndex"));
+      Assert.assertTrue(values.isEmpty());
+    });
   }
 
   public void testBetweenLeftIncludedReverseOrderIndex() {
-    final var query = "select from BetweenConversionTest where  ai < 3 and ai >= 1";
-    final List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from BetweenConversionTest where  ai < 3 and ai >= 1").toList();
 
-    Assert.assertEquals(result.size(), 2);
-    List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2));
+      Assert.assertEquals(result.size(), 2);
+      List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2));
 
-    for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
-    }
+      for (var document : result) {
+        Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
+      }
 
-    Assert.assertTrue(values.isEmpty());
-
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-
-    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
-    Assert.assertTrue(
-        ((Set<String>) explain.getProperty("involvedIndexes")).contains(
-            "BetweenConversionTestIndex"));
+      Assert.assertTrue(values.isEmpty());
+    });
   }
 
   public void testBetweenIndex() {
-    final var query = "select from BetweenConversionTest where ai > 1 and ai < 3";
-    final List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from BetweenConversionTest where ai > 1 and ai < 3").toList();
 
-    Assert.assertEquals(result.size(), 1);
-    List<Integer> values = new ArrayList<Integer>(List.of(2));
+      Assert.assertEquals(result.size(), 1);
+      List<Integer> values = new ArrayList<Integer>(List.of(2));
 
-    for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
-    }
+      for (var document : result) {
+        Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
+      }
 
-    Assert.assertTrue(values.isEmpty());
-
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-
-    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
-    Assert.assertTrue(
-        ((Set<String>) explain.getProperty("involvedIndexes")).contains(
-            "BetweenConversionTestIndex"));
+      Assert.assertTrue(values.isEmpty());
+    });
   }
 
   public void testBetweenRightLeftIncludedDeepQuery() {
-    final var query =
-        "select from BetweenConversionTest where (vl = 'v1' and (vl <> 'v3' and (vl <> 'v2' and ((a"
-            + " >= 1 and a <= 7) and vl = 'v1'))) and vl <> 'v4')";
-    final List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    session.executeInTx(() -> {
+      final var result = session.query(
+          "select from BetweenConversionTest where (vl = 'v1' and (vl <> 'v3' and (vl <> 'v2' and ((a"
+              + " >= 1 and a <= 7) and vl = 'v1'))) and vl <> 'v4')"
+      ).toList();
 
-    Assert.assertEquals(result.size(), 4);
-    List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3, 4));
+      Assert.assertEquals(result.size(), 4);
+      List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3, 4));
 
-    for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
-    }
+      for (var document : result) {
+        Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
+      }
 
-    Assert.assertTrue(values.isEmpty());
-
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-
-    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
+      Assert.assertTrue(values.isEmpty());
+    });
   }
 
   public void testBetweenRightLeftIncludedDeepQueryIndex() {
-    final var query =
-        "select from BetweenConversionTest where (vl = 'v1' and (vl <> 'v3' and (vl <> 'v2' and"
-            + " ((ai >= 1 and ai <= 7) and vl = 'v1'))) and vl <> 'v4')";
-    final List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    session.executeInTx(() -> {
+      final var result = session.query(
+          "select from BetweenConversionTest where (vl = 'v1' and (vl <> 'v3' and (vl <> 'v2' and"
+              + " ((ai >= 1 and ai <= 7) and vl = 'v1'))) and vl <> 'v4')"
+      ).toList();
 
-    Assert.assertEquals(result.size(), 4);
-    List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3, 4));
+      Assert.assertEquals(result.size(), 4);
+      List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3, 4));
 
-    for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
-    }
+      for (var document : result) {
+        Assert.assertTrue(values.remove((Integer) document.getProperty("ai")));
+      }
 
-    Assert.assertTrue(values.isEmpty());
-
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-
-    Assert.assertEquals(explain.<Object>getProperty("rangeQueryConvertedInBetween"), 1);
-    Assert.assertTrue(
-        ((Set<String>) explain.getProperty("involvedIndexes")).contains(
-            "BetweenConversionTestIndex"));
+      Assert.assertTrue(values.isEmpty());
+    });
   }
 
   public void testBetweenRightLeftIncludedDifferentFields() {
-    final var query = "select from BetweenConversionTest where a >= 1 and ai <= 3";
-    final List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from BetweenConversionTest where a >= 1 and ai <= 3").toList();
 
-    Assert.assertEquals(result.size(), 3);
-    List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3));
+      Assert.assertEquals(result.size(), 3);
+      List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3));
 
-    for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
-    }
+      for (var document : result) {
+        Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
+      }
 
-    Assert.assertTrue(values.isEmpty());
-
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-
-    Assert.assertNull(explain.getProperty("rangeQueryConvertedInBetween"));
+      Assert.assertTrue(values.isEmpty());
+    });
   }
 
   public void testBetweenNotRangeQueryRight() {
-    final var query = "select from BetweenConversionTest where a >= 1 and a = 3";
-    final List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from BetweenConversionTest where a >= 1 and a = 3").toList();
 
-    Assert.assertEquals(result.size(), 1);
-    List<Integer> values = new ArrayList<Integer>(List.of(3));
+      Assert.assertEquals(result.size(), 1);
+      List<Integer> values = new ArrayList<Integer>(List.of(3));
 
-    for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
-    }
+      for (var document : result) {
+        Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
+      }
 
-    Assert.assertTrue(values.isEmpty());
-
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-
-    Assert.assertNull(explain.getProperty("rangeQueryConvertedInBetween"));
+      Assert.assertTrue(values.isEmpty());
+    });
   }
 
   public void testBetweenNotRangeQueryLeft() {
-    final var query = "select from BetweenConversionTest where a = 1 and a <= 3";
-    final List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from BetweenConversionTest where a = 1 and a <= 3").toList();
 
-    Assert.assertEquals(result.size(), 1);
-    List<Integer> values = new ArrayList<Integer>(List.of(1));
+      Assert.assertEquals(result.size(), 1);
+      List<Integer> values = new ArrayList<Integer>(List.of(1));
 
-    for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
-    }
+      for (var document : result) {
+        Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
+      }
 
-    Assert.assertTrue(values.isEmpty());
-
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-
-    Assert.assertNull(explain.getProperty("rangeQueryConvertedInBetween"));
+      Assert.assertTrue(values.isEmpty());
+    });
   }
 
   public void testBetweenRightLeftIncludedBothFieldsLeft() {
-    final var query = "select from BetweenConversionTest where a >= ai and a <= 3";
-    final List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from BetweenConversionTest where a >= ai and a <= 3").toList();
 
-    Assert.assertEquals(result.size(), 4);
-    List<Integer> values = new ArrayList<Integer>(Arrays.asList(0, 1, 2, 3));
+      Assert.assertEquals(result.size(), 4);
+      List<Integer> values = new ArrayList<Integer>(Arrays.asList(0, 1, 2, 3));
 
-    for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
-    }
+      for (var document : result) {
+        Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
+      }
 
-    Assert.assertTrue(values.isEmpty());
-
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-
-    Assert.assertNull(explain.getProperty("rangeQueryConvertedInBetween"));
+      Assert.assertTrue(values.isEmpty());
+    });
   }
 
   public void testBetweenRightLeftIncludedBothFieldsRight() {
-    final var query = "select from BetweenConversionTest where a >= 1 and a <= ai";
-    final List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from BetweenConversionTest where a >= 1 and a <= ai").toList();
 
-    Assert.assertEquals(result.size(), 9);
-    List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9));
+      Assert.assertEquals(result.size(), 9);
+      List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9));
 
-    for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
-    }
+      for (var document : result) {
+        Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
+      }
 
-    Assert.assertTrue(values.isEmpty());
-
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-
-    Assert.assertNull(explain.getProperty("rangeQueryConvertedInBetween"));
+      Assert.assertTrue(values.isEmpty());
+    });
   }
 
   public void testBetweenRightLeftIncludedFieldChainLeft() {
-    final var query = "select from BetweenConversionTest where d.a >= 1 and a <= 3";
-    final List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from BetweenConversionTest where d.a >= 1 and a <= 3").toList();
 
-    Assert.assertEquals(result.size(), 3);
-    List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3));
+      Assert.assertEquals(result.size(), 3);
+      List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3));
 
-    for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
-    }
+      for (var document : result) {
+        Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
+      }
 
-    Assert.assertTrue(values.isEmpty());
-
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-
-    Assert.assertNull(explain.getProperty("rangeQueryConvertedInBetween"));
+      Assert.assertTrue(values.isEmpty());
+    });
   }
 
   public void testBetweenRightLeftIncludedFieldChainRight() {
-    final var query = "select from BetweenConversionTest where a >= 1 and d.a <= 3";
-    final List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    session.executeInTx(() -> {
+      final var result =
+          session.query("select from BetweenConversionTest where a >= 1 and d.a <= 3").toList();
 
-    Assert.assertEquals(result.size(), 3);
-    List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3));
+      Assert.assertEquals(result.size(), 3);
+      List<Integer> values = new ArrayList<Integer>(Arrays.asList(1, 2, 3));
 
-    for (var document : result) {
-      Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
-    }
+      for (var document : result) {
+        Assert.assertTrue(values.remove((Integer) document.getProperty("a")));
+      }
 
-    Assert.assertTrue(values.isEmpty());
-
-    EntityImpl explain = session.command(new CommandSQL("explain " + query)).execute(session);
-
-    Assert.assertNull(explain.getProperty("rangeQueryConvertedInBetween"));
+      Assert.assertTrue(values.isEmpty());
+    });
   }
 }
