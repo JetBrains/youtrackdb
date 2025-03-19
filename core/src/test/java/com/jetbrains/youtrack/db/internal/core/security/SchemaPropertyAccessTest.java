@@ -10,7 +10,7 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyAccess;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collections;
 import java.util.HashSet;
@@ -46,7 +46,8 @@ public class SchemaPropertyAccessTest extends DbTestBase {
     var doc = (EntityImpl) session.newEntity();
     doc.setProperty("name", "one value");
     var doc1 = (EntityImpl) session.newEntity();
-    RecordInternal.unsetDirty(doc1);
+    final var rec = (RecordAbstract) doc1;
+    rec.unsetDirty();
     doc1.fromStream(doc.toStream());
     assertEquals("one value", doc1.getProperty("name"));
     assertEquals("one value", doc1.getProperty("name"));
@@ -106,7 +107,8 @@ public class SchemaPropertyAccessTest extends DbTestBase {
     Set<String> toHide = new HashSet<>();
     toHide.add("name");
     var doc = (EntityImpl) session.newEntity();
-    RecordInternal.unsetDirty(doc);
+    final var rec = (RecordAbstract) doc;
+    rec.unsetDirty();
     doc.fromStream(docPre.toStream());
     doc.propertyAccess = new PropertyAccess(toHide);
     assertArrayEquals(new String[]{}, doc.getPropertyNames().toArray());

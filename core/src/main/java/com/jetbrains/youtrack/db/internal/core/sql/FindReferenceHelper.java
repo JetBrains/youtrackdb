@@ -158,7 +158,7 @@ public class FindReferenceHelper {
       final DBRecord iRootObject) {
     if (iSourceRIDs.contains(value.getIdentity())) {
       map.get(value.getIdentity()).add(iRootObject.getIdentity());
-    } else if (!((RecordId) value.getIdentity()).isValid()
+    } else if (!((RecordId) value.getIdentity()).isValidPosition()
         && value.getRecord(db) instanceof EntityImpl) {
       // embedded entity
       EntityImpl entity = value.getRecord(db);

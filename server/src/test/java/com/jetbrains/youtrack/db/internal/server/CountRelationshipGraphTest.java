@@ -7,7 +7,6 @@ import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
-import java.util.Iterator;
 import org.junit.Test;
 
 public class CountRelationshipGraphTest extends AbstractRemoteTest {
@@ -108,12 +107,10 @@ public class CountRelationshipGraphTest extends AbstractRemoteTest {
      */
   }
 
-  private int countEdges(Vertex v, Direction dir) throws Exception {
+  private static int countEdges(Vertex v, Direction dir) throws Exception {
     var c = 0;
-    Iterator it = v.getEdges(dir).iterator();
-    while (it.hasNext()) {
+    for (var edge : v.getEdges(dir)) {
       c++;
-      it.next();
     }
     return c;
   }

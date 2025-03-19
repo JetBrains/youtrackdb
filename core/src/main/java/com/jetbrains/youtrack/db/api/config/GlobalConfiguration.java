@@ -1416,15 +1416,6 @@ public enum GlobalConfiguration {
       Boolean.class,
       false),
 
-  NON_TX_READS_WARNING_MODE(
-      "tx.nonTxReadsWarningMode",
-      "Defines behaviour of DB in case of non-transactional reads. Possible values : WARN(warning"
-          + " is printed), EXCEPTION(exception is thrown), SILENT(such reads are silently"
-          + " processed). EXCEPTION is default value. In future versions EXCEPTION will be the only"
-          + " possible option.",
-      String.class,
-      "EXCEPTION"),
-
   TX_BATCH_SIZE(
       "tx.batchSize",
       "Size of the single batch by default in case of call to the"

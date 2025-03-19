@@ -24,14 +24,11 @@ import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.AddClusterRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransaction38Request;
-import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransactionRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CeilingPhysicalPositionsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseQueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CommandRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.Commit37Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Commit38Request;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CommitRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Connect37Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ConnectRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CountRecordsRequest;
@@ -41,7 +38,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.DropClusterReque
 import com.jetbrains.youtrack.db.internal.client.remote.message.DropDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ExistsDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransaction38Request;
-import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransactionRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FloorPhysicalPositionsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FreezeDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.GetGlobalConfigurationRequest;
@@ -59,7 +55,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.QueryNextPageReq
 import com.jetbrains.youtrack.db.internal.client.remote.message.QueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReadRecordRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.RebeginTransaction38Request;
-import com.jetbrains.youtrack.db.internal.client.remote.message.RebeginTransactionRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.RecordExistsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReleaseDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReloadRequest;
@@ -136,7 +131,6 @@ public class NetworkBinaryProtocolFactory {
       case ChannelBinaryProtocol.REQUEST_QUERY -> new QueryRequest();
       case ChannelBinaryProtocol.REQUEST_CLOSE_QUERY -> new CloseQueryRequest();
       case ChannelBinaryProtocol.REQUEST_QUERY_NEXT_PAGE -> new QueryNextPageRequest();
-      case ChannelBinaryProtocol.REQUEST_TX_COMMIT -> new CommitRequest();
       case ChannelBinaryProtocol.REQUEST_CONFIG_GET -> new GetGlobalConfigurationRequest();
       case ChannelBinaryProtocol.REQUEST_CONFIG_SET -> new SetGlobalConfigurationRequest();
       case ChannelBinaryProtocol.REQUEST_CONFIG_LIST -> new ListGlobalConfigurationsRequest();
@@ -160,10 +154,6 @@ public class NetworkBinaryProtocolFactory {
     return switch (requestType) {
       case ChannelBinaryProtocol.SUBSCRIBE_PUSH -> new SubscribeRequest();
       case ChannelBinaryProtocol.UNSUBSCRIBE_PUSH -> new UnsubscribeRequest();
-      case ChannelBinaryProtocol.REQUEST_TX_FETCH -> new FetchTransactionRequest();
-      case ChannelBinaryProtocol.REQUEST_TX_REBEGIN -> new RebeginTransactionRequest();
-      case ChannelBinaryProtocol.REQUEST_TX_BEGIN -> new BeginTransactionRequest();
-      case ChannelBinaryProtocol.REQUEST_TX_COMMIT -> new Commit37Request();
       case ChannelBinaryProtocol.REQUEST_TX_ROLLBACK -> new RollbackTransactionRequest();
       case ChannelBinaryProtocol.REQUEST_DB_OPEN -> new Open37Request();
       case ChannelBinaryProtocol.REQUEST_CONNECT -> new Connect37Request();

@@ -2,9 +2,7 @@ package com.jetbrains.youtrack.db.internal.client.remote.message;
 
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
-import java.util.Map;
 
 /**
  *
@@ -13,10 +11,8 @@ public class RebeginTransaction38Request extends BeginTransaction38Request {
 
   public RebeginTransaction38Request(
       DatabaseSessionInternal session, long txId,
-      boolean usingLong,
-      Iterable<RecordOperation> operations,
-      Map<String, FrontendTransactionIndexChanges> changes) {
-    super(session, txId, true, usingLong, operations, changes);
+      Iterable<RecordOperation> operations) {
+    super(session, txId, operations);
   }
 
   public RebeginTransaction38Request() {

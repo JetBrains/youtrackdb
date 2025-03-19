@@ -16,12 +16,9 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RecordHookAbstract;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.testng.Assert;
 import org.testng.annotations.Optional;
@@ -135,14 +132,6 @@ public class HookTxTest extends BaseDBTest {
   public HookTxTest(@Optional Boolean remote) {
     super(remote != null ? remote : false);
   }
-
-  @Override
-  protected YouTrackDBConfig createConfig(YouTrackDBConfigBuilderImpl builder) {
-    builder.addGlobalConfigurationParameter(GlobalConfiguration.NON_TX_READS_WARNING_MODE,
-        "EXCEPTION");
-    return builder.build();
-  }
-
 
   @Test
   public void testRegisterHook() {

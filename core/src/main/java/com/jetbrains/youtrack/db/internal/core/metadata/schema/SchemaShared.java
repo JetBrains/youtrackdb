@@ -659,7 +659,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     lock.writeLock().lock();
     try {
       identity = new RecordId(session.getStorageInfo().getConfiguration().getSchemaRecordId());
-      if (!identity.isValid()) {
+      if (!identity.isValidPosition()) {
         throw new SchemaNotCreatedException(session.getDatabaseName(),
             "Schema is not created and cannot be loaded");
       }

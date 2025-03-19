@@ -102,7 +102,7 @@ public class RecordId implements RID, SerializableStream {
     clusterPosition = CLUSTER_POS_INVALID;
   }
 
-  public boolean isValid() {
+  public boolean isValidPosition() {
     return clusterPosition != CLUSTER_POS_INVALID;
   }
 
@@ -294,7 +294,7 @@ public class RecordId implements RID, SerializableStream {
 
   @Nonnull
   public <T extends DBRecord> T getRecord(@Nonnull DatabaseSession session) {
-    if (!isValid()) {
+    if (!isValidPosition()) {
       throw new RecordNotFoundException(session.getDatabaseName(), this);
     }
 

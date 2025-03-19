@@ -77,7 +77,7 @@ public class DepthFirstTraverseStep extends AbstractTraverseStep {
     TraverseResult res = null;
     if (item instanceof TraverseResult) {
       res = (TraverseResult) item;
-    } else if (item.isEntity() && ((RecordId) item.getIdentity()).isValid()) {
+    } else if (item.isEntity() && ((RecordId) item.getIdentity()).isValidPosition()) {
       res = new TraverseResult(db, item.asEntity());
       res.depth = 0;
     } else if (item.getPropertyNames().size() == 1) {

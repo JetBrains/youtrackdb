@@ -523,7 +523,7 @@ public abstract class IndexOneValue extends IndexAbstract {
       final Identifiable value) {
     final var rid = (RecordId) value.getIdentity();
 
-    if (!rid.isValid()) {
+    if (!rid.isValidPosition()) {
       if (value instanceof DBRecord) {
         // EARLY SAVE IT
       } else {

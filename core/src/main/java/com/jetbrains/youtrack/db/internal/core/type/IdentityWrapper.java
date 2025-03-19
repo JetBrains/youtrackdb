@@ -54,12 +54,12 @@ public abstract class IdentityWrapper implements Identifiable {
 
   @Override
   public int compareTo(@Nonnull Identifiable o) {
-    return 0;
+    return rid.compareTo(o.getIdentity());
   }
 
   @Override
   public int compare(Identifiable o1, Identifiable o2) {
-    return 0;
+    return o1.compareTo(o2);
   }
 
   @Nonnull

@@ -6,7 +6,6 @@ import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.client.remote.CollectionNetworkSerializer;
-import com.jetbrains.youtrack.db.internal.client.remote.message.tx.RecordOperationRequest;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
@@ -15,7 +14,6 @@ import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37;
@@ -24,6 +22,7 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.result.b
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.tx.NetworkRecordOperation;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
@@ -57,7 +56,7 @@ public class MessageHelper {
       RecordSerializer serializer)
       throws IOException {
     channel.writeShort((short) 0);
-    channel.writeByte(RecordInternal.getRecordType(session, iRecord));
+    channel.writeByte(iRecord.getRecordType());
     channel.writeRID(iRecord.getIdentity());
     channel.writeVersion(iRecord.getVersion());
     try {
@@ -79,7 +78,7 @@ public class MessageHelper {
     if (session != null) {
       dbSerializerName = session.getSerializer().toString();
     }
-    if (RecordInternal.getRecordType(session, iRecord) == EntityImpl.RECORD_TYPE
+    if (iRecord.getRecordType() == EntityImpl.RECORD_TYPE
         && (dbSerializerName == null || !dbSerializerName.equals(serializer.toString()))) {
       ((EntityImpl) iRecord).deserializeProperties();
       stream = serializer.toStream(session, iRecord);
@@ -185,10 +184,11 @@ public class MessageHelper {
   }
 
   public static void writeTransactionEntry(
-      final DataOutput iNetwork, final RecordOperationRequest txEntry) throws IOException {
+      final DataOutput iNetwork, final NetworkRecordOperation txEntry) throws IOException {
     iNetwork.writeByte(txEntry.getType());
     iNetwork.writeInt(txEntry.getId().getClusterId());
     iNetwork.writeLong(txEntry.getId().getClusterPosition());
+    iNetwork.writeLong(txEntry.getDirtyCounter());
     iNetwork.writeByte(txEntry.getRecordType());
 
     switch (txEntry.getType()) {
@@ -214,11 +214,11 @@ public class MessageHelper {
 
   static void writeTransactionEntry(
       final ChannelDataOutput iNetwork,
-      final RecordOperationRequest txEntry,
-      RecordSerializer serializer)
+      final NetworkRecordOperation txEntry)
       throws IOException {
     iNetwork.writeByte(txEntry.getType());
     iNetwork.writeRID(txEntry.getId());
+    iNetwork.writeLong(txEntry.getDirtyCounter());
     iNetwork.writeByte(txEntry.getRecordType());
 
     switch (txEntry.getType()) {
@@ -238,13 +238,14 @@ public class MessageHelper {
     }
   }
 
-  public static RecordOperationRequest readTransactionEntry(final DataInput iNetwork)
+  public static NetworkRecordOperation readTransactionEntry(final DataInput iNetwork)
       throws IOException {
-    var result = new RecordOperationRequest();
+    var result = new NetworkRecordOperation();
     result.setType(iNetwork.readByte());
     var clusterId = iNetwork.readInt();
     var clusterPosition = iNetwork.readLong();
     result.setId(new RecordId(clusterId, clusterPosition));
+    result.setDirtyCounter(iNetwork.readLong());
     result.setRecordType(iNetwork.readByte());
 
     switch (result.getType()) {
@@ -271,11 +272,12 @@ public class MessageHelper {
     return result;
   }
 
-  static RecordOperationRequest readTransactionEntry(
-      ChannelDataInput channel, RecordSerializer ser) throws IOException {
-    var entry = new RecordOperationRequest();
+  static NetworkRecordOperation readTransactionEntry(
+      ChannelDataInput channel) throws IOException {
+    var entry = new NetworkRecordOperation();
     entry.setType(channel.readByte());
     entry.setId(channel.readRID());
+    entry.setDirtyCounter(channel.readLong());
     entry.setRecordType(channel.readByte());
     switch (entry.getType()) {
       case RecordOperation.CREATED:
@@ -306,8 +308,7 @@ public class MessageHelper {
     if (classId == ChannelBinaryProtocol.RECORD_RID) {
       return network.readRID();
     } else {
-      final var record = readRecordFromBytes(session, network, serializer);
-      return record;
+      return readRecordFromBytes(session, network, serializer);
     }
   }
 
@@ -323,9 +324,11 @@ public class MessageHelper {
         YouTrackDBEnginesManager.instance()
             .getRecordFactoryManager()
             .newInstance(rec, rid, session);
-    RecordInternal.setVersion(record, version);
+    final var rec2 = record;
+    rec2.setVersion(version);
     serializer.fromStream(session, content, record, null);
-    RecordInternal.unsetDirty(record);
+    final var rec1 = record;
+    rec1.unsetDirty();
 
     return record;
   }

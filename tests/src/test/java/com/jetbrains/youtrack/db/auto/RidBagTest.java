@@ -9,7 +9,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
@@ -540,7 +540,8 @@ public abstract class RidBagTest extends BaseDBTest {
     Assert.assertTrue(entity.isDirty());
 
     var expectCME = false;
-    if (RecordInternal.isContentChanged(entity)) {
+    final var rec = (RecordAbstract) entity;
+    if (rec.isContentChanged()) {
       assertEmbedded(true);
       expectCME = true;
     } else {

@@ -3,14 +3,11 @@ package com.jetbrains.youtrack.db.internal.client.binary;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.AddClusterRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransaction38Request;
-import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransactionRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CeilingPhysicalPositionsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseQueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CommandRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.Commit37Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Commit38Request;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CommitRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Connect37Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ConnectRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CountRecordsRequest;
@@ -20,7 +17,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.DropClusterReque
 import com.jetbrains.youtrack.db.internal.client.remote.message.DropDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ExistsDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransaction38Request;
-import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransactionRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FloorPhysicalPositionsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FreezeDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.GetGlobalConfigurationRequest;
@@ -107,8 +103,6 @@ public interface BinaryRequestExecutor {
 
   BinaryResponse executeCommand(CommandRequest request);
 
-  BinaryResponse executeCommit(CommitRequest request);
-
   BinaryResponse executeGetGlobalConfiguration(GetGlobalConfigurationRequest request);
 
   BinaryResponse executeListGlobalConfigurations(ListGlobalConfigurationsRequest request);
@@ -152,13 +146,8 @@ public interface BinaryRequestExecutor {
 
   BinaryResponse executeQueryNextPage(QueryNextPageRequest request);
 
-  BinaryResponse executeBeginTransaction(BeginTransactionRequest request);
 
   BinaryResponse executeSendTransactionState(SendTransactionStateRequest request);
-
-  BinaryResponse executeCommit37(Commit37Request request);
-
-  BinaryResponse executeFetchTransaction(FetchTransactionRequest request);
 
   BinaryResponse executeRollback(RollbackTransactionRequest request);
 
@@ -182,7 +171,7 @@ public interface BinaryRequestExecutor {
 
   BinaryResponse executeSubscribeSequences(SubscribeSequencesRequest request);
 
-  BinaryResponse executeBeginTransaction38(BeginTransaction38Request request);
+  BinaryResponse executeBeginTransaction(BeginTransaction38Request request);
 
   BinaryResponse executeCommit38(Commit38Request request);
 

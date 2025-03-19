@@ -20,6 +20,8 @@
 
 package com.jetbrains.youtrack.db.internal.core.storage.ridbag;
 
+import static com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl.DELETED_RECORD;
+
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
@@ -44,8 +46,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RidB
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RidBagUpdateSerializationOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.EdgeBTree;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.RidBagBucketPointer;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionAbstract;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.HashSet;
@@ -179,7 +180,7 @@ public class BTreeBasedRidBag implements RidBagDelegate {
     }
 
     rid = refreshNonPersistentRid(rid);
-    if (((RecordId) rid.getIdentity()).isValid()) {
+    if (((RecordId) rid.getIdentity()).isValidPosition()) {
       var counter = changes.get(rid);
       if (counter == null) {
         changes.put(rid, new DiffChange(1));
@@ -338,7 +339,7 @@ public class BTreeBasedRidBag implements RidBagDelegate {
       if (session.getTransactionInternal().isActive()) {
         if (!key.getIdentity().isPersistent()) {
           var record = session.getTransactionInternal().getRecord(key.getIdentity());
-          if (record != null && record != FrontendTransactionAbstract.DELETED_RECORD) {
+          if (record != null && record != DELETED_RECORD) {
             changes.remove(key);
             changes.put(record.getIdentity(), change.getValue());
           }
@@ -362,7 +363,7 @@ public class BTreeBasedRidBag implements RidBagDelegate {
     final RecordSerializationContext context;
 
     var tx = session.getTransactionInternal();
-    if (!(tx instanceof FrontendTransactionOptimistic)) {
+    if (!(tx instanceof FrontendTransactionImpl)) {
       throw new DatabaseException(session.getDatabaseName(),
           "Changes are not supported outside of transactions");
     }

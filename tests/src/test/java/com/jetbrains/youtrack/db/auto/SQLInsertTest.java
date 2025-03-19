@@ -452,7 +452,7 @@ public class SQLInsertTest extends BaseDBTest {
         session.command("INSERT INTO Actor2 SET FirstName=\"Butch 1\" RETURN @rid")) {
       var res1 = resultSet1.next().getProperty("@rid");
       Assert.assertTrue(res1 instanceof RecordId);
-      Assert.assertTrue(((RecordId) ((Identifiable) res1).getIdentity()).isValid());
+      Assert.assertTrue(((RecordId) ((Identifiable) res1).getIdentity()).isValidPosition());
       // Create many records and return @rid
       try (var resultSet2 =
           session.command(

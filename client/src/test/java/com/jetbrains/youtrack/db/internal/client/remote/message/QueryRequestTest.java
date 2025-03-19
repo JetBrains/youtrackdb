@@ -34,8 +34,8 @@ public class QueryRequestTest extends DbTestBase {
     Assert.assertEquals(request.getCommand(), other.getCommand());
 
     Assert.assertFalse(other.isNamedParams());
-    Assert.assertArrayEquals(request.getPositionalParameters(session),
-        other.getPositionalParameters(session));
+    Assert.assertArrayEquals(request.getPositionalParameters(),
+        other.getPositionalParameters());
 
     Assert.assertEquals(request.getOperationType(), other.getOperationType());
     Assert.assertEquals(request.getRecordsPerPage(), other.getRecordsPerPage());
@@ -64,7 +64,7 @@ public class QueryRequestTest extends DbTestBase {
 
     Assert.assertEquals(request.getCommand(), other.getCommand());
     Assert.assertTrue(other.isNamedParams());
-    Assert.assertEquals(request.getNamedParameters(session), other.getNamedParameters(session));
+    Assert.assertEquals(request.getNamedParameters(), other.getNamedParameters());
     Assert.assertEquals(request.getOperationType(), other.getOperationType());
     Assert.assertEquals(request.getRecordsPerPage(), other.getRecordsPerPage());
   }
@@ -90,7 +90,7 @@ public class QueryRequestTest extends DbTestBase {
 
     Assert.assertEquals(request.getCommand(), other.getCommand());
     Assert.assertTrue(other.isNamedParams());
-    Assert.assertEquals(request.getNamedParameters(session), other.getNamedParameters(session));
+    Assert.assertEquals(request.getNamedParameters(), other.getNamedParameters());
     Assert.assertEquals(request.getOperationType(), other.getOperationType());
     Assert.assertEquals(request.getRecordsPerPage(), other.getRecordsPerPage());
   }

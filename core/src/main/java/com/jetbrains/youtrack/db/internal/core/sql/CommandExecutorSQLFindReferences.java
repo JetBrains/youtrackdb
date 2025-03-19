@@ -71,7 +71,7 @@ public class CommandExecutorSQLFindReferences extends CommandExecutorSQLEarlyRes
       } else {
         try {
           final var rid = new RecordId(target);
-          if (!rid.isValid()) {
+          if (!rid.isValidPosition()) {
             throwParsingException(session.getDatabaseName(),
                 "Record ID " + target + " is not valid");
           }

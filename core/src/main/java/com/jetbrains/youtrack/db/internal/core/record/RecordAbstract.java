@@ -35,7 +35,7 @@ import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.serialization.SerializableStream;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -109,6 +109,10 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     setDirty();
   }
 
+  public boolean sourceIsParsedByProperties() {
+    return status == STATUS.LOADED && source == null;
+  }
+
   /**
    * Resets the record to be reused. The record is fresh like just created.
    */
@@ -168,6 +172,13 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     }
   }
 
+  public void setDirty(long counter) {
+    assert session != null && session.assertIfNotActive() : createNotBoundToSessionMessage();
+    checkForBinding();
+
+    this.dirty = counter;
+  }
+
   @Override
   public void setDirtyNoChanged() {
     checkForBinding();
@@ -185,13 +196,17 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     dirty++;
 
     assert txEntry == null || dirty >= txEntry.recordCallBackDirtyCounter + 1;
+    assert txEntry == null || dirty >= txEntry.dirtyCounterOnClientSide + 1;
+
     assert txEntry == null || txEntry.record == this;
 
     //either record is not registered in transaction or callbacks were called on previous version of record
-    if (txEntry == null || dirty == txEntry.recordCallBackDirtyCounter + 1) {
+    //or record changes are not sent to client side for remote storage
+    if (txEntry == null || dirty == txEntry.recordCallBackDirtyCounter + 1
+        || dirty == txEntry.dirtyCounterOnClientSide + 1) {
       if (!isEmbedded()) {
         var tx = session.getTransactionInternal();
-        var optimistic = (FrontendTransactionOptimistic) tx;
+        var optimistic = (FrontendTransactionImpl) tx;
 
         optimistic.addRecordOperation(this, RecordOperation.UPDATED);
       }
@@ -254,7 +269,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   @Override
   public String toString() {
-    return (recordId.isValid() ? recordId : "")
+    return (recordId.isValidPosition() ? recordId : "")
         + (source != null ? Arrays.toString(source) : "[]")
         + " v"
         + recordVersion;
@@ -454,7 +469,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     }
 
     if (status == STATUS.NOT_LOADED) {
-      if (!recordId.isValid()) {
+      if (!recordId.isValidPosition()) {
         return;
       }
 
@@ -477,17 +492,17 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
         + ".bindToSession(record) before using it.";
   }
 
-  protected boolean isContentChanged() {
+  public boolean isContentChanged() {
     return contentChanged;
   }
 
-  protected void setContentChanged(boolean contentChanged) {
+  public void setContentChanged(boolean contentChanged) {
     checkForBinding();
 
     this.contentChanged = contentChanged;
   }
 
-  protected void clearSource() {
+  public void clearSource() {
     this.source = null;
   }
 

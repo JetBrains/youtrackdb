@@ -31,7 +31,6 @@ import com.jetbrains.youtrack.db.internal.core.fetch.remote.RemoteFetchListener;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryHook;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.query.LiveResultListener;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
@@ -153,7 +152,7 @@ public class LiveCommandResultListener extends AbstractCommandResultListener
           out.writeByte('r');
           out.writeByte(iOp.type);
           out.writeInt(iToken);
-          out.writeByte(RecordInternal.getRecordType(db, iOp.record));
+          out.writeByte(iOp.record.getRecordType());
           writeVersion(out, iOp.record.getVersion());
           writeRID(out, iOp.record.getIdentity());
           writeBytes(out, NetworkProtocolBinary.getRecordBytes(connection, iOp.record));

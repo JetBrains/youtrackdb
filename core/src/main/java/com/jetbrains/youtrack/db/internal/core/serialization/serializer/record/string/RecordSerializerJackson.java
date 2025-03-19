@@ -49,7 +49,6 @@ import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -112,7 +111,7 @@ public class RecordSerializerJackson {
     try (var jsonParser = JSON_FACTORY.createParser(source)) {
       return recordFromJson(session, record, jsonParser);
     } catch (Exception e) {
-      if (record != null && record.getIdentity().isValid()) {
+      if (record != null && record.getIdentity().isValidPosition()) {
         throw BaseException.wrapException(
             new SerializationException(session,
                 "Error on unmarshalling JSON content for record " + record.getIdentity()),
@@ -191,7 +190,8 @@ public class RecordSerializerJackson {
         }
       }
 
-      RecordInternal.unsetDirty(record);
+      final var rec = record;
+      rec.unsetDirty();
     }
 
     if (record.getRecordType() != recordMetaData.recordType) {
@@ -413,13 +413,11 @@ public class RecordSerializerJackson {
             record.fromStream(CommonConst.EMPTY_BYTE_ARRAY);
           } else if (record instanceof Blob) {
             // BYTES
-            RecordInternal.unsetDirty(record);
-            RecordInternal.fill(
-                record,
-                record.getIdentity(),
-                record.getVersion(),
-                jsonParser.getBinaryValue(),
-                true);
+            final var rec = record;
+            rec.unsetDirty();
+            final byte[] iBuffer = jsonParser.getBinaryValue();
+            final var rec1 = record;
+            rec1.fill(record.getIdentity(), record.getVersion(), iBuffer, true);
           } else {
             throw new SerializationException(session,
                 "Unsupported type of record : " + record.getClass().getName());

@@ -15,7 +15,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkBase;
@@ -777,7 +777,7 @@ public class DocumentSchemalessBinarySerializationTest extends DbTestBase {
     extr.unsetDirty();
     extr.fromStream(res);
 
-    RecordInternal.setRecordSerializer(extr, serializer);
+    extr.recordSerializer = serializer;
 
     assertEquals(document.getProperty("name"), extr.<Object>getProperty("name"));
     assertEquals(document.<Object>getProperty("age"), extr.getProperty("age"));

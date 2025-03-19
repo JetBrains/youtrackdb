@@ -18,8 +18,9 @@ package com.jetbrains.youtrack.db.auto;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.tx.RollbackException;
 import java.io.IOException;
@@ -34,10 +35,10 @@ import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
-public class FrontendTransactionOptimisticTest extends BaseDBTest {
+public class FrontendTransactionImplTest extends BaseDBTest {
 
   @Parameters(value = "remote")
-  public FrontendTransactionOptimisticTest(@Optional Boolean remote) {
+  public FrontendTransactionImplTest(@Optional Boolean remote) {
     super(remote != null && remote);
   }
 
@@ -92,21 +93,17 @@ public class FrontendTransactionOptimisticTest extends BaseDBTest {
       record1 = session.load(record1.getIdentity());
 
       Blob record2 = session2.load(record1.getIdentity());
-      RecordInternal.fill(
-          record2,
-          record2.getIdentity(),
-          record2.getVersion(),
-          "This is the second version".getBytes(),
-          true);
+      final RID iRid1 = record2.getIdentity();
+      final int iVersion1 = record2.getVersion();
+      final var rec1 = (RecordAbstract) record2;
+      rec1.fill(iRid1, iVersion1, "This is the second version".getBytes(), true);
       session2.begin();
       session2.commit();
 
-      RecordInternal.fill(
-          record1,
-          record1.getIdentity(),
-          record1.getVersion(),
-          "This is the third version".getBytes(),
-          true);
+      final RID iRid = record1.getIdentity();
+      final int iVersion = record1.getVersion();
+      final var rec = (RecordAbstract) record1;
+      rec.fill(iRid, iVersion, "This is the third version".getBytes(), true);
 
       session.commit();
 
@@ -140,8 +137,9 @@ public class FrontendTransactionOptimisticTest extends BaseDBTest {
       // RE-READ THE RECORD
       record = session.load(record.getIdentity());
       var v1 = record.getVersion();
-      RecordInternal.fill(
-          record, record.getIdentity(), v1, "This is the second version".getBytes(), true);
+      final RID iRid = record.getIdentity();
+      final var rec = (RecordAbstract) record;
+      rec.fill(iRid, v1, "This is the second version".getBytes(), true);
       session.commit();
 
       record = session.bindToSession(record);
@@ -168,8 +166,9 @@ public class FrontendTransactionOptimisticTest extends BaseDBTest {
       // RE-READ THE RECORD
       record1 = session.load(record1.getIdentity());
       var v1 = record1.getVersion();
-      RecordInternal.fill(
-          record1, record1.getIdentity(), v1, "This is the second version".getBytes(), true);
+      final RID iRid = record1.getIdentity();
+      final var rec = (RecordAbstract) record1;
+      rec.fill(iRid, v1, "This is the second version".getBytes(), true);
 
       session.commit();
 

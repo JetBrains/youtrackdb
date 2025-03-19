@@ -92,7 +92,8 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
     pos = iContent.indexOf(StringSerializerHelper.CLASS_SEPARATOR);
     if (pos > -1 && (pos < posFirstValue || posFirstValue == -1)) {
       if ((record.getIdentity().getClusterId() < 0 || session == null)) {
-        ((EntityImpl) iRecord).fillClassIfNeed(iContent.substring(0, pos));
+        ((EntityImpl) iRecord).setClassNameWithoutPropertiesPostProcessing(
+            iContent.substring(0, pos));
       }
       iContent = iContent.substring(pos + 1);
     } else {
@@ -272,7 +273,7 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
                   fieldValue);
           if ("@class".equals(fieldName)) {
             String className = value.toString();
-            ((EntityImpl) iRecord).fillClassIfNeed(className);
+            ((EntityImpl) iRecord).setClassNameWithoutPropertiesPostProcessing(className);
           } else {
             record.setDeserializedPropertyInternal(fieldName, value, type);
           }

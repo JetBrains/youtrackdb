@@ -19,9 +19,6 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
 import java.io.IOException;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
@@ -33,13 +30,6 @@ public class AlterDatabaseTest extends BaseDBTest {
   @Parameters(value = "remote")
   public AlterDatabaseTest(@Optional Boolean remote) {
     super(remote != null && remote);
-  }
-
-  @Override
-  protected YouTrackDBConfig createConfig(YouTrackDBConfigBuilderImpl builder) {
-    builder.addGlobalConfigurationParameter(GlobalConfiguration.NON_TX_READS_WARNING_MODE,
-        "EXCEPTION");
-    return builder.build();
   }
 
   public void alterDateFormatOk() throws IOException {

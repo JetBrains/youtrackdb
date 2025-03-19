@@ -365,7 +365,7 @@ public class CommandExecutorSQLDeleteEdge extends CommandExecutorSQLSetAware
       }
     }
 
-    if (((RecordId) id.getIdentity()).isValid()) {
+    if (((RecordId) id.getIdentity()).isValidPosition()) {
 
       final var e = toEdge(session, id);
 

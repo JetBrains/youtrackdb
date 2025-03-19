@@ -92,10 +92,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.FreezableStorageComponent;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionAbstract;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionNoTx;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionNoTx.NonTxReadMode;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.nio.file.Path;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -120,7 +117,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   private YouTrackDBConfigImpl config;
   private final Storage storage; // todo: make this final when "removeStorage" is removed
 
-  private FrontendTransactionNoTx.NonTxReadMode nonTxReadMode;
 
   private final Stopwatch freezeDurationMetric;
   private final Stopwatch releaseDurationMetric;
@@ -132,32 +128,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
 
     try {
       status = STATUS.CLOSED;
-
-      try {
-        var cfg = storage.getConfiguration();
-        if (cfg != null) {
-          var ctx = cfg.getContextConfiguration();
-          if (ctx != null) {
-            nonTxReadMode =
-                FrontendTransactionNoTx.NonTxReadMode.valueOf(
-                    ctx.getValueAsString(GlobalConfiguration.NON_TX_READS_WARNING_MODE));
-          } else {
-            nonTxReadMode = NonTxReadMode.WARN;
-          }
-        } else {
-          nonTxReadMode = NonTxReadMode.WARN;
-        }
-      } catch (Exception e) {
-        LogManager.instance()
-            .warn(
-                this,
-                "Invalid value for %s, using %s",
-                e,
-                GlobalConfiguration.NON_TX_READS_WARNING_MODE.getKey(),
-                NonTxReadMode.WARN);
-        nonTxReadMode = NonTxReadMode.WARN;
-      }
-
       // OVERWRITE THE URL
       url = storage.getURL();
       this.storage = storage;
@@ -812,7 +782,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
 
-
   @Override
   public void recycle(final DBRecord record) {
     throw new UnsupportedOperationException();
@@ -1028,13 +997,13 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
         if (clazz.isTriggered()) {
           ClassTrigger.onRecordAfterDelete(entity, this);
         } else if (clazz.isSequence()) {
-          SequenceLibraryImpl.onAfterSequenceDropped((FrontendTransactionOptimistic) this.currentTx,
+          SequenceLibraryImpl.onAfterSequenceDropped((FrontendTransactionImpl) this.currentTx,
               entity);
         } else if (clazz.isFunction()) {
-          FunctionLibraryImpl.onAfterFunctionDropped((FrontendTransactionOptimistic) this.currentTx,
+          FunctionLibraryImpl.onAfterFunctionDropped((FrontendTransactionImpl) this.currentTx,
               entity);
         } else if (clazz.isScheduler()) {
-          SchedulerImpl.onAfterEventDropped((FrontendTransactionOptimistic) this.currentTx, entity);
+          SchedulerImpl.onAfterEventDropped((FrontendTransactionImpl) this.currentTx, entity);
         }
       }
     }
@@ -1241,7 +1210,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
           getClusterNameById(rid.getClusterId()));
 
       DBRecord record = getTransactionInternal().getRecord(rid);
-      if (record == FrontendTransactionAbstract.DELETED_RECORD) {
+      if (record == FrontendTransactionImpl.DELETED_RECORD) {
         // DELETED IN TX
         return false;
       }
@@ -1692,7 +1661,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   @Override
-  public void internalCommit(@Nonnull FrontendTransactionOptimistic transaction) {
+  public void internalCommit(@Nonnull FrontendTransactionImpl transaction) {
     assert assertIfNotActive();
     this.storage.commit(transaction);
   }
@@ -1824,11 +1793,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     });
 
     return count[0];
-  }
-
-  @Override
-  public NonTxReadMode getNonTxReadMode() {
-    return nonTxReadMode;
   }
 
   @Override

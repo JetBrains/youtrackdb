@@ -42,8 +42,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPo
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ChangeSerializationHelper;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.RidBagBucketPointer;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionAbstract;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
@@ -254,7 +253,7 @@ public class HelperClasses {
     var type = PropertyType.getTypeByValue(fieldValue);
     if (type == PropertyType.LINK
         && fieldValue instanceof EntityImpl
-        && !((EntityImpl) fieldValue).getIdentity().isValid()) {
+        && !((EntityImpl) fieldValue).getIdentity().isValidPosition()) {
       type = PropertyType.EMBEDDED;
     }
     return type;
@@ -385,7 +384,7 @@ public class HelperClasses {
             && !itemValue.getIdentity().isPersistent()) {
           itemValue = session.getTransactionInternal().getRecord(itemValue.getIdentity());
         }
-        if (itemValue == null || itemValue == FrontendTransactionAbstract.DELETED_RECORD) {
+        if (itemValue == null || itemValue == FrontendTransactionImpl.DELETED_RECORD) {
           entries[i] = null;
           // Decrease size, nulls are ignored
           size--;
@@ -413,7 +412,7 @@ public class HelperClasses {
 
     final RecordSerializationContext context;
     var tx = session.getTransactionInternal();
-    if (!(tx instanceof FrontendTransactionOptimistic optimisticTx)) {
+    if (!(tx instanceof FrontendTransactionImpl optimisticTx)) {
       throw new DatabaseException(session.getDatabaseName(),
           "Transaction is not active. Changes are not allowed");
     }

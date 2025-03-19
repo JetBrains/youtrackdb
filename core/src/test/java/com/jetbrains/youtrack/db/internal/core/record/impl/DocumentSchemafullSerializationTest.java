@@ -10,7 +10,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.BaseMemoryInternalDatabase;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionAbstract;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
 import java.util.Date;
@@ -356,7 +356,8 @@ public abstract class DocumentSchemafullSerializationTest extends BaseMemoryInte
 
     var res = serializer.toStream(session, document);
     var extr = (EntityImpl) session.newEntity();
-    RecordInternal.unsetDirty(extr);
+    final var rec = (RecordAbstract) extr;
+    rec.unsetDirty();
     extr.fromStream(res);
     assertEquals(PropertyType.STRING, extr.getPropertyType("name"));
     session.rollback();

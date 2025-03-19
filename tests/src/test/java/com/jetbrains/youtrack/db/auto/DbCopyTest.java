@@ -15,10 +15,7 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.IOException;
 import org.testng.Assert;
@@ -32,13 +29,6 @@ public class DbCopyTest extends BaseDBTest implements CommandOutputListener {
   @Parameters(value = {"remote"})
   public DbCopyTest(@Optional Boolean remote) {
     super(remote != null && remote);
-  }
-
-  @Override
-  protected YouTrackDBConfig createConfig(YouTrackDBConfigBuilderImpl builder) {
-    builder.addGlobalConfigurationParameter(GlobalConfiguration.NON_TX_READS_WARNING_MODE,
-        "EXCEPTION");
-    return builder.build();
   }
 
   @Test

@@ -23,7 +23,6 @@ package com.jetbrains.youtrack.db.internal.core.cache;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import java.util.function.BiConsumer;
 
 /**
@@ -35,7 +34,8 @@ public class RecordCacheWeakRefs extends
 
   private static final BiConsumer<RID, RecordAbstract> UNLOAD_RECORDS_CONSUMER =
       (rid, record) -> {
-        RecordInternal.unsetDirty(record);
+        final var rec = record;
+        rec.unsetDirty();
         record.unload();
       };
 

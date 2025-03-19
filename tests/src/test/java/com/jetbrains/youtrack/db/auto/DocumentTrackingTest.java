@@ -8,7 +8,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeTimeLin
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -928,7 +928,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     final List<String> trackedList = document.getProperty("embeddedlist");
     trackedList.add("value2");
 
-    RecordInternal.unsetDirty(document);
+    final var rec = (RecordAbstract) document;
+    rec.unsetDirty();
     document.unload();
 
     Assert.assertFalse(document.isDirty());
@@ -955,7 +956,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     final List<String> trackedList = document.getProperty("embeddedlist");
     trackedList.add("value2");
 
-    RecordInternal.unsetDirty(document);
+    final var rec = (RecordAbstract) document;
+    rec.unsetDirty();
 
     Assert.assertFalse(document.isDirty());
     session.rollback();

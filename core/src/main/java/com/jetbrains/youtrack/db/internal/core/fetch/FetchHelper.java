@@ -747,7 +747,7 @@ public class FetchHelper {
         if (r instanceof EntityImpl d) {
           // GO RECURSIVELY
           final var fieldDepthLevel = parsedRecords.getInt(d.getIdentity());
-          if (!d.getIdentity().isValid()
+          if (!d.getIdentity().isValidPosition()
               || (fieldDepthLevel > -1 && fieldDepthLevel == iLevelFromRoot)) {
             removeParsedFromMap(parsedRecords, d);
             iContext.onBeforeDocument(db, iRootRecord, d, key.toString(), iUserObject);
@@ -800,7 +800,7 @@ public class FetchHelper {
       for (final var entity : linked) {
         // GO RECURSIVELY
         final var fieldDepthLevel = parsedRecords.getInt(entity.getIdentity());
-        if (!entity.getIdentity().isValid()
+        if (!entity.getIdentity().isValidPosition()
             || (fieldDepthLevel > -1 && fieldDepthLevel == iLevelFromRoot)) {
           removeParsedFromMap(parsedRecords, entity);
           context.onBeforeDocument(db, rootRecord, entity, fieldName, iUserObject);
@@ -963,7 +963,7 @@ public class FetchHelper {
       final FetchListener iListener,
       final FetchContext iContext,
       final FormatSettings settings) {
-    if (fieldValue instanceof RID && !((RecordId) fieldValue).isValid()) {
+    if (fieldValue instanceof RID && !((RecordId) fieldValue).isValidPosition()) {
       // RID NULL: TREAT AS "NULL" VALUE
       iContext.onBeforeStandardField(fieldValue, fieldName, iRootRecord, null);
       iListener.parseLinked(db, iRootRecord, fieldValue, iUserObject, fieldName, iContext);
@@ -972,7 +972,7 @@ public class FetchHelper {
     }
 
     final var fieldDepthLevel = parsedRecords.getInt(fieldValue.getIdentity());
-    if (!((RecordId) fieldValue.getIdentity()).isValid()
+    if (!((RecordId) fieldValue.getIdentity()).isValidPosition()
         || (fieldDepthLevel > -1 && fieldDepthLevel == iLevelFromRoot)) {
       removeParsedFromMap(parsedRecords, fieldValue);
       final EntityImpl linked = fieldValue.getRecord(db);

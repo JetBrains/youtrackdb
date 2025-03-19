@@ -193,7 +193,7 @@ public class FindReferencesStep extends AbstractExecutionStep {
     List<String> result = new ArrayList<>();
     if (iSourceRIDs.contains(value.getIdentity())) {
       result.add(prefix);
-    } else if (!((RecordId) value.getIdentity()).isValid()
+    } else if (!((RecordId) value.getIdentity()).isValidPosition()
         && value.getRecord(db) instanceof EntityImpl) {
       // embedded document
       var entity = (EntityImpl) value.getEntity(db);

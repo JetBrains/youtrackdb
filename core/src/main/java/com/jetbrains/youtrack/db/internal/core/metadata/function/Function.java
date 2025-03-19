@@ -57,8 +57,8 @@ public class Function extends IdentityWrapper {
   /**
    * Creates a new function.
    */
-  public Function(DatabaseSessionInternal db) {
-    super(db, CLASS_NAME);
+  public Function(DatabaseSessionInternal session) {
+    super(session, CLASS_NAME);
     this.language = "SQL";
   }
 
@@ -94,7 +94,7 @@ public class Function extends IdentityWrapper {
   }
 
   @Override
-  protected void toEntity(@Nonnull DatabaseSessionInternal db, @Nonnull EntityImpl entity) {
+  protected void toEntity(@Nonnull DatabaseSessionInternal session, @Nonnull EntityImpl entity) {
     entity.setProperty(NAME_PROPERTY, name);
     entity.setProperty(CODE_PROPERTY, code);
     entity.setProperty(LANGUAGE_PROPERTY, language);

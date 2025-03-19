@@ -50,7 +50,7 @@ public class LocalRecordCache extends AbstractRecordCache {
     var rid = record.getIdentity();
     if (rid.getClusterId() != excludedCluster
         && !rid.isTemporary()
-        && rid.isValid()
+        && rid.isValidPosition()
         && !record.isDirty()
         && !RecordVersionHelper.isTombstone(record.getVersion())) {
       var loadedRecord = underlying.get(rid);

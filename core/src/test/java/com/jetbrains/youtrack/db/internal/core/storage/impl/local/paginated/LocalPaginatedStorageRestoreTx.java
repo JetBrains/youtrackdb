@@ -9,7 +9,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.BufferedInputStream;
 import java.io.File;
@@ -340,7 +340,9 @@ public class LocalPaginatedStorageRestoreTx {
 
             if (!secondDocs.isEmpty() && (random.nextDouble() <= 0.2)) {
               var conflictDocTwo = ((EntityImpl) db.newEntity());
-              RecordInternal.setIdentity(conflictDocTwo, new RecordId(secondDocs.get(0)));
+              final RecordId iIdentity = new RecordId(secondDocs.get(0));
+              final var rec = (RecordAbstract) conflictDocTwo;
+              rec.setIdentity(iIdentity);
               conflictDocTwo.setDirty();
 
             }

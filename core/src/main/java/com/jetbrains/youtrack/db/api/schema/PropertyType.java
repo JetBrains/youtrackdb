@@ -734,7 +734,7 @@ public enum PropertyType {
       if (value instanceof Entity entity && entity.isEmbedded()) {
         return false;
       }
-      if (value instanceof RecordId rid && !rid.isValid()) {
+      if (value instanceof RecordId rid && !rid.isValidPosition()) {
         return false;
       }
 
@@ -747,7 +747,7 @@ public enum PropertyType {
         return false;
       }
 
-      if (value instanceof RecordId rid && !rid.isValid()) {
+      if (value instanceof RecordId rid && !rid.isValidPosition()) {
         return false;
       }
 

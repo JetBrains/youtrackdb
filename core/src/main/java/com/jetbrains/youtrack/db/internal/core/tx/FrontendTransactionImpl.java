@@ -43,8 +43,8 @@ import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.RecordBytes;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
@@ -52,6 +52,7 @@ import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChange
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
@@ -62,10 +63,21 @@ import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class FrontendTransactionOptimistic extends FrontendTransactionAbstract implements
-    IdentityChangeListener {
+public class FrontendTransactionImpl implements
+    IdentityChangeListener, FrontendTransaction {
+
+  /**
+   * Indicates the record deleted in a transaction.
+   *
+   * @see #getRecord(RID)
+   */
+  public static final RecordAbstract DELETED_RECORD = new RecordBytes(null);
 
   private static final AtomicLong txSerial = new AtomicLong();
+
+  @Nonnull
+  protected DatabaseSessionInternal session;
+  protected TXSTATUS status = TXSTATUS.INVALID;
 
   protected final HashMap<RecordId, RecordOperation> recordOperations = new HashMap<>();
   private final IdentityHashMap<RecordId, RecordOperation> recordOperationsIdentityMap =
@@ -83,8 +95,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
 
   protected HashMap<String, FrontendTransactionIndexChanges> indexEntries = new HashMap<>();
 
-  private final HashMap<RecordId, RecordId> originalChangedRecordIdMap = new HashMap<>();
-
+  protected final HashMap<RecordId, RecordId> originalChangedRecordIdMap = new HashMap<>();
 
   protected long id;
   protected int newRecordsPositionsGenerator = -2;
@@ -95,24 +106,30 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
   @Nullable
   private List<byte[]> serializedOperations;
 
-  protected boolean changed = true;
-  private boolean isAlreadyStartedOnServer = false;
   protected int txStartCounter;
-  private boolean sentToServer = false;
+  protected boolean sentToServer = false;
   private final boolean readOnly;
 
-  public FrontendTransactionOptimistic(final DatabaseSessionInternal iDatabase) {
+  public FrontendTransactionImpl(final DatabaseSessionInternal iDatabase) {
     this(iDatabase, false);
   }
 
-  public FrontendTransactionOptimistic(final DatabaseSessionInternal iDatabase, boolean readOnly) {
-    super(iDatabase);
+  public FrontendTransactionImpl(final DatabaseSessionInternal session, boolean readOnly) {
+    this.session = session;
     this.id = txSerial.incrementAndGet();
     this.readOnly = readOnly;
   }
 
-  protected FrontendTransactionOptimistic(final DatabaseSessionInternal iDatabase, long id) {
-    super(iDatabase);
+  public FrontendTransactionImpl(final DatabaseSessionInternal session, long txId,
+      boolean readOnly) {
+    this.session = session;
+    this.id = txId;
+    this.readOnly = readOnly;
+  }
+
+
+  protected FrontendTransactionImpl(final DatabaseSessionInternal session, long id) {
+    this.session = session;
     this.id = id;
     readOnly = false;
   }
@@ -183,7 +200,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     final var e = getRecordEntry(rid);
     if (e != null) {
       if (e.type == RecordOperation.DELETED) {
-        return FrontendTransactionAbstract.DELETED_RECORD;
+        return DELETED_RECORD;
       } else {
         assert e.record.getSession() == session;
         return e.record;
@@ -213,9 +230,10 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
   }
 
   public FrontendTransactionIndexChanges getIndexChangesInternal(final String indexName) {
-    if (getDatabaseSession().isRemote()) {
+    if (session.isRemote()) {
       return null;
     }
+
     return getIndexChanges(indexName);
   }
 
@@ -229,7 +247,6 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     // index changes are tracked on server in case of client-server deployment
     assert session.getStorage() instanceof AbstractPaginatedStorage;
 
-    changed = true;
     try {
       var indexEntry = indexEntries.get(iIndexName);
       if (indexEntry == null) {
@@ -305,7 +322,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
   private void invalidateChangesInCache() {
     for (final var v : recordOperations.values()) {
       final var rec = v.record;
-      RecordInternal.unsetDirty(rec);
+      rec.unsetDirty();
       rec.unload();
     }
 
@@ -330,7 +347,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
 
     if (session.isRemote()) {
       final var storage = session.getStorage();
-      ((StorageProxy) storage).rollback(FrontendTransactionOptimistic.this);
+      ((StorageProxy) storage).rollback(FrontendTransactionImpl.this);
     }
 
     internalRollback();
@@ -341,7 +358,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     checkTransactionValid();
 
     final DBRecord txRecord = getRecord(rid);
-    if (txRecord == FrontendTransactionAbstract.DELETED_RECORD) {
+    if (txRecord == DELETED_RECORD) {
       return false;
     }
 
@@ -357,7 +374,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     checkTransactionValid();
 
     final var txRecord = getRecord(rid);
-    if (txRecord == FrontendTransactionAbstract.DELETED_RECORD) {
+    if (txRecord == DELETED_RECORD) {
       // DELETED IN TX
       throw new RecordNotFoundException(session, rid);
     }
@@ -398,11 +415,12 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     status = iStatus;
   }
 
-  public void addRecordOperation(RecordAbstract record, byte status) {
+  public RecordOperation addRecordOperation(RecordAbstract record, byte status) {
     if (readOnly) {
       throw new DatabaseException(session, "Transaction is read-only");
     }
 
+    RecordOperation txEntry;
     try {
       if (record.isUnloaded()) {
         throw new DatabaseException(session,
@@ -424,11 +442,11 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
       if (rid.getClusterId() == RID.CLUSTER_ID_INVALID) {
         var clusterId = session.assignAndCheckCluster(record);
         rid.setClusterAndPosition(clusterId, newRecordsPositionsGenerator--);
-      } else if (!rid.isValid()) {
+      } else if (!rid.isValidPosition()) {
         rid.setClusterPosition(newRecordsPositionsGenerator--);
       }
 
-      var txEntry = getRecordEntry(rid);
+      txEntry = getRecordEntry(rid);
       try {
         if (txEntry == null) {
           if (rid.isTemporary() && status == RecordOperation.UPDATED) {
@@ -450,8 +468,6 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
               && changeableIdentity.canChangeIdentity()) {
             changeableIdentity.addIdentityChangeListener(this);
           }
-
-          changed = true;
         } else {
           if (txEntry.record != record) {
             throw new TransactionException(session,
@@ -467,7 +483,6 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
             case RecordOperation.UPDATED:
               if (status == RecordOperation.DELETED) {
                 txEntry.type = RecordOperation.DELETED;
-                changed = true;
               } else if (status == RecordOperation.CREATED) {
                 throw new IllegalStateException(
                     "Invalid operation, record can not be created as it is already updated");
@@ -479,7 +494,6 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
             case RecordOperation.CREATED:
               if (status == RecordOperation.DELETED) {
                 txEntry.type = RecordOperation.DELETED;
-                changed = true;
               } else if (status == RecordOperation.CREATED) {
                 throw new IllegalStateException(
                     "Invalid operation, record can not be created as it is already created");
@@ -495,13 +509,14 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
 
       assert txEntry.recordCallBackDirtyCounter <= record.getDirtyCounter();
       if (txEntry.recordCallBackDirtyCounter < record.getDirtyCounter()) {
-        changed = true;
         operationsBetweenCallbacks.put(record.getIdentity(), txEntry);
       }
     } catch (Exception e) {
       rollback(true, 0);
       throw e;
     }
+
+    return txEntry;
   }
 
   private void doCommit() {
@@ -521,7 +536,6 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
         session.transactionMeters()
             .writeTransactions()
             .record();
-
         try {
           session.afterCommitOperations();
         } catch (Exception e) {
@@ -548,7 +562,9 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     ArrayList<RecordId> newDeletedRecords = null;
     while (!operationsBetweenCallbacks.isEmpty()) {
       var operations = new ArrayList<>(operationsBetweenCallbacks.values());
-      operations.sort((first, second) -> -Byte.compare(first.type, second.type));
+      operations.sort(
+          Comparator.<RecordOperation>comparingInt(recordOperation -> recordOperation.type)
+              .reversed());
       operationsBetweenCallbacks.clear();
 
       for (var recordOperation : operations) {
@@ -710,11 +726,6 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     }
   }
 
-  public void resetChangesTracking() {
-    isAlreadyStartedOnServer = true;
-    changed = false;
-  }
-
   @Override
   public void close() {
     final var dbCache = session.getLocalCache();
@@ -726,7 +737,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
           entity.clearTransactionTrackData();
         }
 
-        RecordInternal.unsetDirty(record);
+        record.unsetDirty();
         record.unload();
       }
     }
@@ -757,7 +768,7 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     {
       return true;
     }
-    final var database = getDatabaseSession();
+    final var database = session;
     if (!database.isRemote()) {
       final var indexManager = database.getMetadata().getIndexManagerInternal();
       for (var entry : indexEntries.entrySet()) {
@@ -1098,18 +1109,6 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     }
   }
 
-  public boolean isChanged() {
-    return changed;
-  }
-
-  public boolean isStartedOnServer() {
-    return isAlreadyStartedOnServer;
-  }
-
-  public void setSentToServer(boolean sentToServer) {
-    this.sentToServer = sentToServer;
-  }
-
   public long getId() {
     return id;
   }
@@ -1180,7 +1179,30 @@ public class FrontendTransactionOptimistic extends FrontendTransactionAbstract i
     return txStartCounter;
   }
 
+  public boolean isActive() {
+    return status != TXSTATUS.INVALID
+        && status != TXSTATUS.COMPLETED
+        && status != TXSTATUS.ROLLED_BACK;
+  }
+
+  public TXSTATUS getStatus() {
+    return status;
+  }
+
+  @Nonnull
+  public final DatabaseSessionInternal getDatabaseSession() {
+    return session;
+  }
+
+  public void setSession(@Nonnull DatabaseSessionInternal session) {
+    this.session = session;
+  }
+
   private boolean isWriteTransaction() {
     return !recordOperations.isEmpty() || !indexEntries.isEmpty();
+  }
+
+  public static long generateTxId() {
+    return txSerial.incrementAndGet();
   }
 }

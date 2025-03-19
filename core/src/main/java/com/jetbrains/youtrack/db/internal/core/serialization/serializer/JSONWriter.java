@@ -92,7 +92,7 @@ public class JSONWriter {
       }
 
     } else if (iValue instanceof Identifiable linked) {
-      if (((RecordId) linked.getIdentity()).isValid()) {
+      if (((RecordId) linked.getIdentity()).isValidPosition()) {
         buffer.append('\"');
         ((RecordId) linked.getIdentity()).toString(buffer);
         buffer.append('\"');

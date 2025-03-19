@@ -1,29 +1,29 @@
-package com.jetbrains.youtrack.db.internal.server.tx;
+package com.jetbrains.youtrack.db.internal.core.tx;
 
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
-import com.jetbrains.youtrack.db.internal.client.remote.message.tx.RecordOperationRequest;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.DocumentSerializerDelta;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nonnull;
 
-public class FrontendTransactionOptimisticServer extends FrontendTransactionOptimistic {
+public class FrontendClientServerTransaction extends FrontendTransactionImpl {
 
-  private final HashMap<RecordId, RecordId> generatedOriginalRecordIdMap = new HashMap<>();
-  private final IdentityHashMap<RecordId, RecordId> generatedOriginalRecordIdIdentityMap = new IdentityHashMap<>();
+  private final LinkedHashMap<RecordId, RecordId> updatedToOldRecordIdMap = new LinkedHashMap<>();
+  private final IdentityHashMap<RecordId, RecordId> updatedToOldRecordIdIdentityMap = new IdentityHashMap<>();
 
   private final HashMap<RecordId, RecordOperation> operationsToSendOnClient = new HashMap<>();
   private final IdentityHashMap<RecordId, RecordOperation> operationsToSendOnClientIdentityMap =
@@ -31,24 +31,28 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
 
   private boolean mergeInProgress = false;
 
-  public FrontendTransactionOptimisticServer(DatabaseSessionInternal database, long txId) {
+  public FrontendClientServerTransaction(DatabaseSessionInternal database, long txId) {
     super(database, txId);
+    sentToServer = session.isRemote();
   }
 
-  public void mergeReceivedTransaction(List<RecordOperationRequest> operations) {
-    if (operations == null) {
-      return;
-    }
+  public FrontendClientServerTransaction(DatabaseSessionInternal database, long txId,
+      boolean readOnly) {
+    super(database, txId, readOnly);
+    sentToServer = session.isRemote();
+  }
+
+  public void mergeReceivedTransaction(@Nonnull List<NetworkRecordOperation> operations) {
+    updatedToOldRecordIdMap.clear();
+    operationsToSendOnClient.clear();
 
     mergeInProgress = true;
     try {
-      generatedOriginalRecordIdMap.clear();
-      operationsToSendOnClient.clear();
-
       // SORT OPERATIONS BY TYPE TO BE SURE THAT CREATES ARE PROCESSED FIRST
-      operations.sort(Comparator.comparingInt(RecordOperationRequest::getType).reversed());
+      operations.sort(Comparator.comparingInt(NetworkRecordOperation::getType).reversed());
 
-      var newRecords = new ArrayList<RecordAbstract>(operations.size());
+      var newRecordsWithNetworkOperations = new ArrayList<RawPair<RecordAbstract, NetworkRecordOperation>>(
+          operations.size());
 
       for (var recordOperation : operations) {
         var txEntry = getRecordEntry(recordOperation.getId());
@@ -63,6 +67,8 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
           if (recordOperation.getType() == RecordOperation.UPDATED
               || recordOperation.getType() == RecordOperation.CREATED) {
             mergeChanges(recordOperation, txEntry.record);
+
+            syncDirtyCounter(recordOperation, txEntry);
             addRecordOperation(txEntry.record, recordOperation.getType());
           } else {
             // DELETED
@@ -70,13 +76,6 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
                 session,
                 "Invalid operation type " + recordOperation.getType() + " for record "
                     + recordOperation.getId());
-          }
-
-          if (txEntry.recordCallBackUpdateCounterOnAnotherSide
-              != recordOperation.getDirtyCounter()) {
-            throw new IllegalStateException("Client and server transactions are not synchronized "
-                + "client dirty counter is " + txEntry.recordCallBackUpdateCounterOnAnotherSide
-                + " and server dirty counter is " + recordOperation.getDirtyCounter());
           }
         } else {
           switch (recordOperation.getType()) {
@@ -87,23 +86,36 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
                       .newInstance(recordOperation.getRecordType(),
                           (RecordId) recordOperation.getId(),
                           session);
-              RecordInternal.unsetDirty(record);
-
+              record.unsetDirty();
               record.recordSerializer = RecordSerializerNetworkV37.INSTANCE;
-
               record.fromStream(recordOperation.getRecord());
 
+              if (recordOperation.getRecordType() == EntityImpl.RECORD_TYPE) {
+                ((EntityImpl) record).setClassNameWithoutPropertiesPostProcessing(
+                    RecordSerializerNetworkV37.deserializeClassName(recordOperation.getRecord()));
+              }
+
+              var oldRid = record.getIdentity().copy();
               addRecordOperation(record, RecordOperation.CREATED);
-              newRecords.add(record);
+              newRecordsWithNetworkOperations.add(new RawPair<>(record, recordOperation));
+
+              assert !oldRid.equals(record.getIdentity());
+              updatedToOldRecordIdMap.put(record.getIdentity().copy(), oldRid);
+              originalChangedRecordIdMap.put(oldRid, record.getIdentity());
             }
             case RecordOperation.UPDATED -> {
               var record = loadRecordAndCheckVersion(recordOperation);
               mergeChanges(recordOperation, record);
-              addRecordOperation(record, RecordOperation.UPDATED);
+
+              syncDirtyCounter(recordOperation, record.txEntry);
+
             }
             case RecordOperation.DELETED -> {
               var record = loadRecordAndCheckVersion(recordOperation);
               record.delete();
+
+              var txOperation = getRecordEntry(record.getIdentity());
+              syncDirtyCounter(recordOperation, txOperation);
             }
             default -> {
               throw new TransactionException(
@@ -115,22 +127,22 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
         }
       }
 
-      for (var record : newRecords) {
+      for (var recordWithNetworkOperationPair : newRecordsWithNetworkOperations) {
+        var record = recordWithNetworkOperationPair.first;
         if (record.sourceIsParsedByProperties()) {
           throw new TransactionException("Record " + record.getIdentity()
               + " is early parsed by properties, that can lead to inconsistent state of link based properties");
         }
 
+        assert record.recordSerializer == RecordSerializerNetworkV37.INSTANCE;
         if (record instanceof EntityImpl entity) {
           //deserialize properties using network serializer and update all links of new records to correct values
-          assert entity.recordSerializer == RecordSerializerNetworkV37.INSTANCE;
-
           entity.checkForProperties();
-          assert record.sourceIsParsedByProperties();
-
-          //back to normal serializer for entity
-          entity.recordSerializer = session.getSerializer();
         }
+
+        //back to normal serializer for entity
+        record.recordSerializer = session.getSerializer();
+        syncDirtyCounter(recordWithNetworkOperationPair.second, record.txEntry);
       }
     } finally {
       mergeInProgress = false;
@@ -139,7 +151,19 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
     preProcessRecordsAndExecuteCallCallbacks();
   }
 
-  private RecordAbstract loadRecordAndCheckVersion(RecordOperationRequest recordOperation) {
+  private static void syncDirtyCounter(NetworkRecordOperation recordOperation,
+      RecordOperation txEntry) {
+    if (txEntry.dirtyCounterOnClientSide
+        >= recordOperation.getDirtyCounter()) {
+      throw new IllegalStateException("Client and server transactions are not synchronized "
+          + "client dirty counter is " + txEntry.dirtyCounterOnClientSide
+          + " and server dirty counter is " + recordOperation.getDirtyCounter());
+    }
+    txEntry.record.setDirty(recordOperation.getDirtyCounter());
+    txEntry.dirtyCounterOnClientSide = recordOperation.getDirtyCounter();
+  }
+
+  private RecordAbstract loadRecordAndCheckVersion(NetworkRecordOperation recordOperation) {
     var rid = recordOperation.getId();
     var version = recordOperation.getVersion();
 
@@ -155,27 +179,15 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
   @Override
   public RecordOperation addRecordOperation(RecordAbstract record, byte status) {
     var txEntry = super.addRecordOperation(record, status);
-
-    //this condition ensures that addRecordOperation is always called if record changes are needed to be sent
-    //to the client look EngineImpl#registerInTx
-    if (txEntry.recordCallBackDirtyCounter < txEntry.recordCallBackUpdateCounterOnAnotherSide) {
-      throw new IllegalStateException("Record " + record.getIdentity()
-          + " is registered in transaction with callback dirty counter "
-          + txEntry.recordCallBackDirtyCounter
-          + " and client dirty counter "
-          + txEntry.recordCallBackUpdateCounterOnAnotherSide
-          + " that will lead to inconsistent state");
-    }
-
     if (!mergeInProgress
-        && txEntry.recordCallBackUpdateCounterOnAnotherSide < record.getDirtyCounter()) {
+        && txEntry.dirtyCounterOnClientSide < record.getDirtyCounter()) {
       operationsToSendOnClient.put(record.getIdentity(), txEntry);
     }
 
     return txEntry;
   }
 
-  private void mergeChanges(RecordOperationRequest operation, RecordAbstract record) {
+  private void mergeChanges(NetworkRecordOperation operation, RecordAbstract record) {
     if (record instanceof EntityImpl entity) {
       if (operation.getRecordType() == DocumentSerializerDelta.DELTA_RECORD_TYPE) {
         var delta = DocumentSerializerDelta.instance();
@@ -189,8 +201,12 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
     }
   }
 
-  public Map<RecordId, RecordId> getGeneratedOriginalRidsMap() {
-    return generatedOriginalRecordIdMap;
+  public Map<RecordId, RecordId> getUpdateToOldRecordIdMap() {
+    return updatedToOldRecordIdMap;
+  }
+
+  public List<RecordOperation> getOperationsToSendOnClient() {
+    return new ArrayList<>(operationsToSendOnClient.values());
   }
 
   @Override
@@ -204,7 +220,7 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
       operationsToSendOnClientIdentityMap.put(rid, removed);
     }
 
-    generatedOriginalRecordIdIdentityMap.put(rid, rid.copy());
+    updatedToOldRecordIdIdentityMap.put(rid, rid.copy());
   }
 
   @Override
@@ -217,8 +233,8 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
       operationsToSendOnClient.put(rid, removed);
     }
 
-    var originalRid = generatedOriginalRecordIdIdentityMap.remove(rid);
-    var removedRid = generatedOriginalRecordIdMap.put(rid.copy(), originalRid);
+    var originalRid = updatedToOldRecordIdIdentityMap.remove(rid);
+    var removedRid = updatedToOldRecordIdMap.put(rid.copy(), originalRid);
 
     if (removedRid != null) {
       throw new IllegalStateException("Record " + rid
@@ -226,3 +242,4 @@ public class FrontendTransactionOptimisticServer extends FrontendTransactionOpti
     }
   }
 }
+

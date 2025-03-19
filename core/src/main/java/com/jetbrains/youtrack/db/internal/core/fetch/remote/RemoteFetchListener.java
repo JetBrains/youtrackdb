@@ -78,7 +78,7 @@ public abstract class RemoteFetchListener implements FetchListener {
       EntityImpl iLinked,
       FetchContext iContext)
       throws FetchException {
-    if (iLinked.getIdentity().isValid()) {
+    if (iLinked.getIdentity().isValidPosition()) {
       sendRecord(iLinked);
       return true;
     }
@@ -92,7 +92,7 @@ public abstract class RemoteFetchListener implements FetchListener {
       EntityImpl iLinked,
       FetchContext iContext)
       throws FetchException {
-    if (iLinked.getIdentity().isValid()) {
+    if (iLinked.getIdentity().isValidPosition()) {
       sendRecord(iLinked);
       return true;
     }

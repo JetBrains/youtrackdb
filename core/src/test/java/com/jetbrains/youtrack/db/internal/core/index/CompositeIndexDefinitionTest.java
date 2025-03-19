@@ -8,7 +8,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import java.util.ArrayList;
@@ -764,7 +764,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyType.INTEGER));
 
     final var doc = (EntityImpl) session.newEntity();
-    RecordInternal.unsetDirty(doc);
+    final var rec = (RecordAbstract) doc;
+    rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
     final var trackedList = new TrackedList<String>(doc);
@@ -846,7 +847,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyType.INTEGER));
 
     final var doc = (EntityImpl) session.newEntity();
-    RecordInternal.unsetDirty(doc);
+    final var rec = (RecordAbstract) doc;
+    rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
     final var trackedList = new TrackedList<String>(doc);
@@ -935,7 +937,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
 
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
-    RecordInternal.unsetDirty(doc);
+    final var rec = (RecordAbstract) doc;
+    rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
     final var trackedSet = new TrackedSet<String>(doc);
@@ -979,7 +982,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
 
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
-    RecordInternal.unsetDirty(doc);
+    final var rec = (RecordAbstract) doc;
+    rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
     final var trackedMap = new TrackedSet<String>(doc);
@@ -1028,7 +1032,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
 
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
-    RecordInternal.unsetDirty(doc);
+    final var rec = (RecordAbstract) doc;
+    rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
     final var trackedMap = new TrackedMap<String>(doc);
@@ -1073,7 +1078,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
 
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
-    RecordInternal.unsetDirty(doc);
+    final var rec = (RecordAbstract) doc;
+    rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
     final var trackedMap = new TrackedMap<String>(doc);

@@ -6,12 +6,10 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.exception.OfflineClusterException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
@@ -19,7 +17,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.AddClusterRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.AddClusterResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransaction38Request;
-import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransactionRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransactionResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryProtocolHelper;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CeilingPhysicalPositionsRequest;
@@ -29,11 +26,8 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.CloseQueryRespon
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CommandRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CommandResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.Commit37Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Commit37Response;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Commit38Request;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CommitRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CommitResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Connect37Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ConnectRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ConnectResponse;
@@ -51,8 +45,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.ExistsDatabaseRe
 import com.jetbrains.youtrack.db.internal.client.remote.message.ExistsDatabaseResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransaction38Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransaction38Response;
-import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransactionRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransactionResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FloorPhysicalPositionsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FloorPhysicalPositionsResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FreezeDatabaseRequest;
@@ -132,7 +124,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.UnsubscribLiveQu
 import com.jetbrains.youtrack.db.internal.client.remote.message.UnsubscribeLiveQueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.UnsubscribeRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.UnsubscribeResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.tx.RecordOperationRequest;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.ByteSerializer;
@@ -149,17 +140,16 @@ import com.jetbrains.youtrack.db.internal.core.fetch.remote.RemoteFetchContext;
 import com.jetbrains.youtrack.db.internal.core.fetch.remote.RemoteFetchListener;
 import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryHookV2;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
 import com.jetbrains.youtrack.db.internal.core.sql.query.SQLAsynchQuery;
 import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
-import com.jetbrains.youtrack.db.internal.core.storage.config.ClusterBasedStorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.TreeInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendClientServerTransaction;
+import com.jetbrains.youtrack.db.internal.core.tx.NetworkRecordOperation;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.AbstractCommandResultListener;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.AsyncCommandResultListener;
@@ -167,14 +157,11 @@ import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.Handsha
 import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.LiveCommandResultListener;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.NetworkProtocolBinary;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.SyncCommandResultListener;
-import com.jetbrains.youtrack.db.internal.server.tx.FrontendTransactionOptimisticServer;
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -375,55 +362,39 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     final var rid = request.getRid();
     final var fetchPlanString = request.getFetchPlan();
     var ignoreCache = false;
-    ignoreCache = request.isIgnoreCache();
-
-    var loadTombstones = false;
-    loadTombstones = request.isLoadTumbstone();
     ReadRecordResponse response;
-    if (rid.getClusterId() == 0 && rid.getClusterPosition() == 0) {
-      // @COMPATIBILITY 0.9.25
-      // SEND THE DB CONFIGURATION INSTEAD SINCE IT WAS ON RECORD 0:0
-      FetchHelper.checkFetchPlanValid(fetchPlanString);
 
-      final var record =
-          ((ClusterBasedStorageConfiguration)
-              connection.getDatabaseSession().getStorageInfo().getConfiguration())
-              .toStream(connection.getData().protocolVersion, StandardCharsets.UTF_8);
+    try {
+      var db = connection.getDatabaseSession();
+      final RecordAbstract record = db.load(rid);
+      assert !record.isUnloaded();
+      var bytes = getRecordBytes(connection, record);
+      final Set<RecordAbstract> recordsToSend = new HashSet<>();
+      if (!fetchPlanString.isEmpty()) {
+        // BUILD THE SERVER SIDE RECORD TO ACCES TO THE FETCH
+        // PLAN
+        if (record instanceof EntityImpl entity) {
+          final var fetchPlan = FetchHelper.buildFetchPlan(fetchPlanString);
 
-      response = new ReadRecordResponse(Blob.RECORD_TYPE, 0, record, new HashSet<>());
-
-    } else {
-      try {
-        var db = connection.getDatabaseSession();
-        final RecordAbstract record = db.load(rid);
-        assert !record.isUnloaded();
-        var bytes = getRecordBytes(connection, record);
-        final Set<RecordAbstract> recordsToSend = new HashSet<>();
-        if (!fetchPlanString.isEmpty()) {
-          // BUILD THE SERVER SIDE RECORD TO ACCES TO THE FETCH
-          // PLAN
-          if (record instanceof EntityImpl entity) {
-            final var fetchPlan = FetchHelper.buildFetchPlan(fetchPlanString);
-
-            final FetchListener listener =
-                new RemoteFetchListener() {
-                  @Override
-                  protected void sendRecord(RecordAbstract iLinked) {
-                    recordsToSend.add(iLinked);
-                  }
-                };
-            final FetchContext context = new RemoteFetchContext();
-            FetchHelper.fetch(db, entity, entity, fetchPlan, listener, context, "");
-          }
+          final FetchListener listener =
+              new RemoteFetchListener() {
+                @Override
+                protected void sendRecord(RecordAbstract iLinked) {
+                  recordsToSend.add(iLinked);
+                }
+              };
+          final FetchContext context = new RemoteFetchContext();
+          FetchHelper.fetch(db, entity, entity, fetchPlan, listener, context, "");
         }
-        response =
-            new ReadRecordResponse(
-                RecordInternal.getRecordType(db, record), record.getVersion(), bytes,
-                recordsToSend);
-      } catch (RecordNotFoundException e) {
-        response = new ReadRecordResponse((byte) 0, 0, null, null);
       }
+      response =
+          new ReadRecordResponse(
+              record.getRecordType(), record.getVersion(), bytes,
+              recordsToSend);
+    } catch (RecordNotFoundException e) {
+      response = new ReadRecordResponse((byte) 0, 0, null, null);
     }
+
     return response;
   }
 
@@ -566,73 +537,6 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
               params);
     }
     return response;
-  }
-
-  @Override
-  public BinaryResponse executeCommit(final CommitRequest request) {
-    var recordOperations = request.getOperations();
-    var session = connection.getDatabaseSession();
-    var tx = session.getTransactionInternal();
-
-    if (!tx.isActive()) {
-      throw new DatabaseException(session, "There is no active transaction on server.");
-    }
-    if (tx.getId() != request.getTxId()) {
-      throw new DatabaseException(session,
-          "Invalid transaction id, expected " + tx.getId() + " but received " + request.getTxId());
-    }
-
-    if (!(tx instanceof FrontendTransactionOptimisticServer serverTransaction)) {
-      throw new DatabaseException(session,
-          "Invalid transaction type,"
-              + " expected FrontendTransactionOptimisticServer but found "
-              + tx.getClass().getName());
-    }
-
-    try {
-      try {
-        serverTransaction.mergeReceivedTransaction(recordOperations);
-      } catch (final RecordNotFoundException e) {
-        throw e.getCause() instanceof OfflineClusterException
-            ? (OfflineClusterException) e.getCause()
-            : e;
-      }
-      try {
-        try {
-          serverTransaction.commit();
-        } catch (final RecordNotFoundException e) {
-          throw e.getCause() instanceof OfflineClusterException
-              ? (OfflineClusterException) e.getCause()
-              : e;
-        }
-        final var collectionManager =
-            connection.getDatabaseSession().getBTreeCollectionManager();
-        Map<UUID, BonsaiCollectionPointer> changedIds = null;
-        if (collectionManager != null) {
-          changedIds = collectionManager.changedIds(session);
-        }
-
-        return new CommitResponse(serverTransaction.getGeneratedOriginalRidsMap(), changedIds);
-      } catch (final RuntimeException e) {
-        if (serverTransaction.isActive()) {
-          session.rollback(true);
-        }
-
-        final var collectionManager =
-            connection.getDatabaseSession().getBTreeCollectionManager();
-        if (collectionManager != null) {
-          collectionManager.clearChangedIds(session);
-        }
-
-        throw e;
-      }
-    } catch (final RuntimeException e) {
-      // Error during TX initialization, possibly index constraints violation.
-      if (serverTransaction.isActive()) {
-        session.rollback(true);
-      }
-      throw e;
-    }
   }
 
   @Override
@@ -1120,7 +1024,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     var db = connection.getDatabaseSession();
     final byte[] stream;
     var name = connection.getData().getSerializationImpl();
-    if (RecordInternal.getRecordType(db, iRecord) == EntityImpl.RECORD_TYPE) {
+    if (iRecord.getRecordType() == EntityImpl.RECORD_TYPE) {
       ((EntityImpl) iRecord).deserializeProperties();
       var ser = RecordSerializerFactory.instance().getFormat(name);
       stream = ser.toStream(db, iRecord);
@@ -1161,35 +1065,32 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     var database = connection.getDatabaseSession();
     var metadataListener = new QueryMetadataUpdateListener();
     database.getSharedContext().registerListener(metadataListener);
-    if (database.getTransactionInternal().isActive()) {
-      ((FrontendTransactionOptimistic) database.getTransactionInternal()).resetChangesTracking();
-    }
     ResultSet rs;
     if (QueryRequest.QUERY == request.getOperationType()) {
       // TODO Assert is sql.
       if (request.isNamedParams()) {
-        rs = database.query(request.getStatement(), request.getNamedParameters(database));
+        rs = database.query(request.getStatement(), request.getNamedParameters());
       } else {
-        rs = database.query(request.getStatement(), request.getPositionalParameters(database));
+        rs = database.query(request.getStatement(), request.getPositionalParameters());
       }
     } else {
       if (QueryRequest.COMMAND == request.getOperationType()) {
         if (request.isNamedParams()) {
-          rs = database.command(request.getStatement(), request.getNamedParameters(database));
+          rs = database.command(request.getStatement(), request.getNamedParameters());
         } else {
-          rs = database.command(request.getStatement(), request.getPositionalParameters(database));
+          rs = database.command(request.getStatement(), request.getPositionalParameters());
         }
       } else {
         if (request.isNamedParams()) {
           rs =
               database.execute(
                   request.getLanguage(), request.getStatement(),
-                  request.getNamedParameters(database));
+                  request.getNamedParameters());
         } else {
           rs =
               database.execute(
                   request.getLanguage(), request.getStatement(),
-                  request.getPositionalParameters(database));
+                  request.getPositionalParameters());
         }
       }
     }
@@ -1206,7 +1107,8 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     var hasNext = rs.hasNext();
     var txChanges = false;
     if (database.getTransactionInternal().isActive()) {
-      txChanges = ((FrontendTransactionOptimistic) database.getTransactionInternal()).isChanged();
+      txChanges = !((FrontendClientServerTransaction) database.getTransactionInternal()).getOperationsToSendOnClient()
+          .isEmpty();
     }
     database.getSharedContext().unregisterListener(metadataListener);
 
@@ -1271,79 +1173,30 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
   }
 
   @Override
-  public BinaryResponse executeBeginTransaction(BeginTransactionRequest request) {
-    var session = connection.getDatabaseSession();
-    var tx = session.getTransactionInternal();
-
-    var recordOperations = request.getOperations();
-    if (tx.isActive()) {
-      if (!(tx instanceof FrontendTransactionOptimisticServer serverTransaction)) {
-        throw new DatabaseException(session, "Non-server based transaction is active");
-      }
-      if (tx.getId() != request.getTxId()) {
-        throw new DatabaseException(session,
-            "Transaction id mismatch, expected " + tx.getId() + " but got " + request.getTxId());
-      }
-
-      try {
-        serverTransaction.mergeReceivedTransaction(recordOperations);
-      } catch (final RecordNotFoundException e) {
-        throw e.getCause() instanceof OfflineClusterException
-            ? (OfflineClusterException) e.getCause()
-            : e;
-      }
-
-      return new BeginTransactionResponse(
-          tx.getId(), serverTransaction.getGeneratedOriginalRidsMap());
-    }
-
-    session.begin(new FrontendTransactionOptimisticServer(session, request.getTxId()));
-    var serverTransaction = (FrontendTransactionOptimisticServer) session.getTransactionInternal();
-
-    try {
-      serverTransaction.mergeReceivedTransaction(recordOperations);
-    } catch (final RecordNotFoundException e) {
-      throw e.getCause() instanceof OfflineClusterException
-          ? (OfflineClusterException) e.getCause()
-          : e;
-    }
-
-    return new BeginTransactionResponse(
-        tx.getId(), serverTransaction.getGeneratedOriginalRidsMap());
-  }
-
-  @Override
-  public BinaryResponse executeBeginTransaction38(BeginTransaction38Request request) {
+  public BinaryResponse executeBeginTransaction(BeginTransaction38Request request) {
     var session = connection.getDatabaseSession();
     var recordOperations = request.getOperations();
 
-    var tx = session.getTransactionInternal();
-
-    if (tx.isActive()) {
+    if (session.getTransactionInternal().isActive()) {
       throw new DatabaseException(session, "Transaction is already started on server");
     }
 
     var serverTransaction =
         doExecuteBeginTransaction(request.getTxId(), session, recordOperations);
     return new BeginTransactionResponse(
-        tx.getId(), serverTransaction.getGeneratedOriginalRidsMap());
+        serverTransaction.getId(), serverTransaction.getUpdateToOldRecordIdMap(),
+        serverTransaction.getOperationsToSendOnClient(), session);
   }
 
-  private static FrontendTransactionOptimisticServer doExecuteBeginTransaction(
+  private static FrontendClientServerTransaction doExecuteBeginTransaction(
       long txId, DatabaseSessionInternal database,
-      List<RecordOperationRequest> recordOperations) {
+      List<NetworkRecordOperation> recordOperations) {
     assert database.activeTxCount() == 0;
 
-    database.begin(new FrontendTransactionOptimisticServer(database, txId));
-    var serverTransaction = (FrontendTransactionOptimisticServer) database.getTransactionInternal();
+    database.begin(new FrontendClientServerTransaction(database, txId));
+    var serverTransaction = (FrontendClientServerTransaction) database.getTransactionInternal();
 
-    try {
-      serverTransaction.mergeReceivedTransaction(recordOperations);
-    } catch (final RecordNotFoundException e) {
-      throw e.getCause() instanceof OfflineClusterException
-          ? (OfflineClusterException) e.getCause()
-          : e;
-    }
+    serverTransaction.mergeReceivedTransaction(recordOperations);
 
     return serverTransaction;
   }
@@ -1360,23 +1213,17 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
           "Transaction with id " + request.getTxId() + " is not active on server.");
     }
 
-    if (!(tx instanceof FrontendTransactionOptimisticServer serverTransaction)) {
+    if (!(tx instanceof FrontendClientServerTransaction serverTransaction)) {
       throw new DatabaseException(session,
           "Invalid transaction type,"
               + " expected FrontendTransactionOptimisticServer but found "
               + tx.getClass().getName());
     }
 
-    try {
-      serverTransaction.mergeReceivedTransaction(recordOperations);
-    } catch (final RecordNotFoundException e) {
-      throw e.getCause() instanceof OfflineClusterException
-          ? (OfflineClusterException) e.getCause()
-          : e;
-    }
-
+    serverTransaction.mergeReceivedTransaction(recordOperations);
     return new SendTransactionStateResponse(
-        tx.getId(), serverTransaction.getGeneratedOriginalRidsMap());
+        tx.getId(), serverTransaction.getUpdateToOldRecordIdMap(),
+        serverTransaction.getOperationsToSendOnClient(), session);
   }
 
   @Override
@@ -1397,7 +1244,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
           "Invalid transaction id, expected " + tx.getId() + " but received " + request.getTxId());
     }
 
-    if (!(tx instanceof FrontendTransactionOptimisticServer serverTransaction)) {
+    if (!(tx instanceof FrontendClientServerTransaction serverTransaction)) {
       throw new DatabaseException(session,
           "Invalid transaction type,"
               + " expected FrontendTransactionOptimisticServer but found "
@@ -1405,28 +1252,15 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     }
 
     try {
-      try {
-        if (started) {
-          serverTransaction.mergeReceivedTransaction(recordOperations);
-        }
-      } catch (final RecordNotFoundException e) {
-        throw e.getCause() instanceof OfflineClusterException
-            ? (OfflineClusterException) e.getCause()
-            : e;
+      if (started) {
+        serverTransaction.mergeReceivedTransaction(recordOperations);
       }
-
       if (serverTransaction.getTxStartCounter() != 1) {
         throw new DatabaseException(session, "Transaction can be started only once on server");
       }
 
       try {
-        try {
-          session.commit();
-        } catch (final RecordNotFoundException e) {
-          throw e.getCause() instanceof OfflineClusterException
-              ? (OfflineClusterException) e.getCause()
-              : e;
-        }
+        session.commit();
         final var collectionManager =
             connection.getDatabaseSession().getBTreeCollectionManager();
         Map<UUID, BonsaiCollectionPointer> changedIds = null;
@@ -1435,8 +1269,10 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
           changedIds = collectionManager.changedIds(session);
         }
 
-        return new Commit37Response(serverTransaction.getGeneratedOriginalRidsMap(),
-            changedIds);
+        return new Commit37Response(serverTransaction.getId(),
+            serverTransaction.getUpdateToOldRecordIdMap(),
+            serverTransaction.getOperationsToSendOnClient(),
+            changedIds, session);
       } catch (final RuntimeException e) {
         if (serverTransaction.isActive()) {
           session.rollback(true);
@@ -1457,99 +1293,6 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
       }
       throw e;
     }
-  }
-
-  @Override
-  public BinaryResponse executeCommit37(Commit37Request request) {
-    var recordOperations = request.getOperations();
-    var session = connection.getDatabaseSession();
-    var tx = session.getTransactionInternal();
-
-    if (!tx.isActive()) {
-      tx = doExecuteBeginTransaction(request.getTxId(), session, recordOperations);
-    }
-
-    if (tx.getId() != request.getTxId()) {
-      throw new DatabaseException(session,
-          "Invalid transaction id, expected " + tx.getId() + " but received " + request.getTxId());
-    }
-
-    if (!(tx instanceof FrontendTransactionOptimisticServer serverTransaction)) {
-      throw new DatabaseException(session,
-          "Invalid transaction type,"
-              + " expected FrontendTransactionOptimisticServer but found "
-              + tx.getClass().getName());
-    }
-
-    if (serverTransaction.getTxStartCounter() != 1) {
-      throw new DatabaseException(session, "Transaction can be started only once on server");
-    }
-
-    try {
-      try {
-        serverTransaction.mergeReceivedTransaction(recordOperations);
-      } catch (final RecordNotFoundException e) {
-        throw e.getCause() instanceof OfflineClusterException
-            ? (OfflineClusterException) e.getCause()
-            : e;
-      }
-      try {
-        try {
-          session.commit();
-        } catch (final RecordNotFoundException e) {
-          throw e.getCause() instanceof OfflineClusterException
-              ? (OfflineClusterException) e.getCause()
-              : e;
-        }
-        final var collectionManager =
-            connection.getDatabaseSession().getBTreeCollectionManager();
-        Map<UUID, BonsaiCollectionPointer> changedIds = null;
-
-        if (collectionManager != null) {
-          changedIds = collectionManager.changedIds(session);
-        }
-
-        return new Commit37Response(serverTransaction.getGeneratedOriginalRidsMap(),
-            changedIds);
-      } catch (final RuntimeException e) {
-        if (serverTransaction.isActive()) {
-          session.rollback(true);
-        }
-
-        final var collectionManager =
-            connection.getDatabaseSession().getBTreeCollectionManager();
-        if (collectionManager != null) {
-          collectionManager.clearChangedIds(session);
-        }
-
-        throw e;
-      }
-    } catch (final RuntimeException e) {
-      // Error during TX initialization, possibly index constraints violation.
-      if (serverTransaction.isActive()) {
-        session.rollback(true);
-      }
-      throw e;
-    }
-  }
-
-  @Override
-  public BinaryResponse executeFetchTransaction(FetchTransactionRequest request) {
-    var session = connection.getDatabaseSession();
-    if (!session.getTransactionInternal().isActive()) {
-      throw new DatabaseException(session, "No Transaction Active");
-    }
-
-    var tx = (FrontendTransactionOptimisticServer) session.getTransactionInternal();
-    if (tx.getId() != request.getTxId()) {
-      throw new DatabaseException(session,
-          "Invalid transaction id, expected " + tx.getId() + " but received " + request.getTxId());
-    }
-
-    return new FetchTransactionResponse(session,
-        tx.getId(),
-        tx.getRecordOperationsInternal(),
-        tx.getGeneratedOriginalRidsMap());
   }
 
   @Override
@@ -1558,18 +1301,16 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     if (!session.getTransactionInternal().isActive()) {
       throw new DatabaseException(session, "No Transaction Active");
     }
-    var tx = (FrontendTransactionOptimisticServer) session.getTransactionInternal();
+    var tx = (FrontendClientServerTransaction) session.getTransactionInternal();
     if (tx.getId() != request.getTxId()) {
       throw new DatabaseException(session,
           "Invalid transaction id, expected " + tx.getId() + " but received " + request.getTxId());
     }
 
-    return new FetchTransaction38Response(session,
-        tx.getId(),
-        tx.getRecordOperationsInternal(),
-        Collections.emptyMap(),
-        tx.getGeneratedOriginalRidsMap(),
-        session);
+    return new FetchTransaction38Response(tx.getId(), tx.getUpdateToOldRecordIdMap(),
+        tx.getOperationsToSendOnClient(),
+        session
+    );
   }
 
   @Override

@@ -15,13 +15,10 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.RestrictedOperation;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityShared;
@@ -46,13 +43,6 @@ public class RestrictedTest extends BaseDBTest {
   @Parameters(value = "remote")
   public RestrictedTest(@Optional Boolean remote) {
     super(remote != null && remote);
-  }
-
-  @Override
-  protected YouTrackDBConfig createConfig(YouTrackDBConfigBuilderImpl builder) {
-    builder.addGlobalConfigurationParameter(GlobalConfiguration.NON_TX_READS_WARNING_MODE,
-        "EXCEPTION");
-    return builder.build();
   }
 
   @Test

@@ -19,7 +19,6 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
@@ -59,8 +58,6 @@ public class DbCreationTest {
 
   private void initODB() {
     var configBuilder = YouTrackDBConfig.builder();
-    configBuilder.addGlobalConfigurationParameter(GlobalConfiguration.NON_TX_READS_WARNING_MODE,
-        "EXCEPTION");
 
     if (remoteDB) {
       youTrackDB =
@@ -103,9 +100,6 @@ public class DbCreationTest {
     var url = calculateURL() + "/";
 
     var configBuilder = YouTrackDBConfig.builder();
-    configBuilder.addGlobalConfigurationParameter(GlobalConfiguration.NON_TX_READS_WARNING_MODE,
-        "EXCEPTION");
-
     try (var odb = new YouTrackDBImpl(url, "root", "root", configBuilder.build())) {
       var database = odb.open(DB_NAME, "admin", "admin");
       database.close();
@@ -162,8 +156,6 @@ public class DbCreationTest {
     var url = calculateURL();
 
     var configBuilder = YouTrackDBConfig.builder();
-    configBuilder.addGlobalConfigurationParameter(GlobalConfiguration.NON_TX_READS_WARNING_MODE,
-        "EXCEPTION");
     var odb = new YouTrackDBImpl(url, "root", "root", configBuilder.build());
     if (odb.exists("sub")) {
       odb.drop("sub");
@@ -185,9 +177,6 @@ public class DbCreationTest {
     var url = calculateURL();
 
     var configBuilder = YouTrackDBConfig.builder();
-    configBuilder.addGlobalConfigurationParameter(GlobalConfiguration.NON_TX_READS_WARNING_MODE,
-        "EXCEPTION");
-
     var odb = new YouTrackDBImpl(url, "root", "root", configBuilder.build());
     if (odb.exists("sub")) {
       odb.drop("sub");

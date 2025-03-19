@@ -116,7 +116,7 @@ public class SQLScriptEngine implements ScriptEngine {
         var par = iArgs[i];
 
         if (par instanceof Identifiable
-            && ((RecordId) ((Identifiable) par).getIdentity()).isValid())
+            && ((RecordId) ((Identifiable) par).getIdentity()).isValidPosition())
         // USE THE RID ONLY
         {
           par = ((Identifiable) par).getIdentity();

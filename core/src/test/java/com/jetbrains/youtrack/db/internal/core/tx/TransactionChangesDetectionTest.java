@@ -47,17 +47,12 @@ public class TransactionChangesDetectionTest {
   @Test
   public void testTransactionChangeTrackingCompleted() {
     db.begin();
-    final var currentTx = (FrontendTransactionOptimistic) db.getTransactionInternal();
+    final var currentTx = (FrontendTransactionImpl) db.getTransactionInternal();
     db.newEntity("test");
-    assertTrue(currentTx.isChanged());
-    assertFalse(currentTx.isStartedOnServer());
     assertEquals(1, currentTx.getEntryCount());
     assertEquals(FrontendTransaction.TXSTATUS.BEGUN, currentTx.getStatus());
 
-    currentTx.resetChangesTracking();
     db.newEntity("test");
-    assertTrue(currentTx.isChanged());
-    assertTrue(currentTx.isStartedOnServer());
     assertEquals(2, currentTx.getEntryCount());
     assertEquals(FrontendTransaction.TXSTATUS.BEGUN, currentTx.getStatus());
     db.commit();
@@ -67,10 +62,8 @@ public class TransactionChangesDetectionTest {
   @Test
   public void testTransactionChangeTrackingRolledBack() {
     db.begin();
-    final var currentTx = (FrontendTransactionOptimistic) db.getTransactionInternal();
+    final var currentTx = (FrontendTransactionImpl) db.getTransactionInternal();
     db.newEntity("test");
-    assertTrue(currentTx.isChanged());
-    assertFalse(currentTx.isStartedOnServer());
     assertEquals(1, currentTx.getEntryCount());
     assertEquals(FrontendTransaction.TXSTATUS.BEGUN, currentTx.getStatus());
     db.rollback();
@@ -80,7 +73,7 @@ public class TransactionChangesDetectionTest {
   @Test
   public void testTransactionChangeTrackingAfterRollback() {
     db.begin();
-    final var initialTx = (FrontendTransactionOptimistic) db.getTransactionInternal();
+    final var initialTx = (FrontendTransactionImpl) db.getTransactionInternal();
     db.newEntity("test");
     assertEquals(1, initialTx.getTxStartCounter());
     db.rollback();
@@ -88,12 +81,10 @@ public class TransactionChangesDetectionTest {
     assertEquals(0, initialTx.getEntryCount());
 
     db.begin();
-    assertTrue(db.getTransactionInternal() instanceof FrontendTransactionOptimistic);
-    final var currentTx = (FrontendTransactionOptimistic) db.getTransactionInternal();
+    assertTrue(db.getTransactionInternal() instanceof FrontendTransactionImpl);
+    final var currentTx = (FrontendTransactionImpl) db.getTransactionInternal();
     assertEquals(1, currentTx.getTxStartCounter());
     db.newEntity("test");
-    assertTrue(currentTx.isChanged());
-    assertFalse(currentTx.isStartedOnServer());
     assertEquals(1, currentTx.getEntryCount());
     assertEquals(FrontendTransaction.TXSTATUS.BEGUN, currentTx.getStatus());
   }
@@ -101,7 +92,7 @@ public class TransactionChangesDetectionTest {
   @Test
   public void testTransactionTxStartCounterCommits() {
     db.begin();
-    final var currentTx = (FrontendTransactionOptimistic) db.getTransactionInternal();
+    final var currentTx = (FrontendTransactionImpl) db.getTransactionInternal();
     db.newEntity("test");
     assertEquals(1, currentTx.getTxStartCounter());
     assertEquals(1, currentTx.getEntryCount());
@@ -118,7 +109,7 @@ public class TransactionChangesDetectionTest {
   @Test(expected = RollbackException.class)
   public void testTransactionRollbackCommit() {
     db.begin();
-    final var currentTx = (FrontendTransactionOptimistic) db.getTransactionInternal();
+    final var currentTx = (FrontendTransactionImpl) db.getTransactionInternal();
     assertEquals(1, currentTx.getTxStartCounter());
     db.begin();
     assertEquals(2, currentTx.getTxStartCounter());
@@ -131,7 +122,7 @@ public class TransactionChangesDetectionTest {
   @Test
   public void testTransactionTwoStartedThreeCompleted() {
     db.begin();
-    final var currentTx = (FrontendTransactionOptimistic) db.getTransactionInternal();
+    final var currentTx = (FrontendTransactionImpl) db.getTransactionInternal();
     assertEquals(1, currentTx.getTxStartCounter());
     db.begin();
     assertEquals(2, currentTx.getTxStartCounter());

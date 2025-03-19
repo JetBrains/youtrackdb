@@ -56,10 +56,8 @@ import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionAbstract;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionNoTx;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionNoTx.NonTxReadMode;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionOptimistic;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendClientServerTransaction;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Map;
@@ -74,7 +72,6 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   protected StorageRemoteSession sessionMetadata;
   private YouTrackDBConfigImpl config;
   private StorageRemote storage;
-  private FrontendTransactionNoTx.NonTxReadMode nonTxReadMode;
 
   public DatabaseSessionRemote(final StorageRemote storage, SharedContext sharedContext) {
     activateOnCurrentThread();
@@ -89,31 +86,6 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
       this.componentsFactory = storage.getComponentsFactory();
 
       unmodifiableHooks = Collections.unmodifiableMap(hooks);
-
-      try {
-        var cfg = storage.getConfiguration();
-        if (cfg != null) {
-          var ctx = cfg.getContextConfiguration();
-          if (ctx != null) {
-            nonTxReadMode =
-                FrontendTransactionNoTx.NonTxReadMode.valueOf(
-                    ctx.getValueAsString(GlobalConfiguration.NON_TX_READS_WARNING_MODE));
-          } else {
-            nonTxReadMode = NonTxReadMode.WARN;
-          }
-        } else {
-          nonTxReadMode = NonTxReadMode.WARN;
-        }
-      } catch (Exception e) {
-        LogManager.instance()
-            .warn(
-                this,
-                "Invalid value for %s, using %s",
-                e,
-                GlobalConfiguration.NON_TX_READS_WARNING_MODE.getKey(),
-                NonTxReadMode.WARN);
-        nonTxReadMode = NonTxReadMode.WARN;
-      }
 
       init();
 
@@ -224,8 +196,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
       status = STATUS.OPEN;
 
       initAtFirstOpen();
-      this.user = new ImmutableUser(this, -1,
-          new SecurityUserImpl(this, user, password));
+      this.user = new ImmutableUser(this, user, password, SecurityUserImpl.DATABASE_USER, null);
 
       // WAKE UP LISTENERS
       callOnOpenListeners();
@@ -308,19 +279,13 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   private void checkAndSendTransaction() {
-    if (this.currentTx.isActive()) {
-      var optimistic = (FrontendTransactionOptimistic) this.currentTx;
+    if (this.currentTx != null && this.currentTx.isActive()) {
+      var optimistic = (FrontendClientServerTransaction) this.currentTx;
       optimistic.preProcessRecordsAndExecuteCallCallbacks();
 
-      if (optimistic.isChanged()) {
-        if (((FrontendTransactionOptimistic) this.getTransactionInternal()).isStartedOnServer()) {
-          storage.sendTransactionState(optimistic);
-        } else {
-          storage.beginTransaction(optimistic);
-        }
-
-        optimistic.resetChangesTracking();
-        optimistic.setSentToServer(true);
+      var operationsToSend = optimistic.getOperationsToSendOnClient();
+      if (!operationsToSend.isEmpty()) {
+        storage.sendTransactionState(optimistic);
       }
     }
   }
@@ -385,16 +350,27 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   @Override
-  protected FrontendTransactionOptimistic newTxInstance() {
+  public int begin(FrontendTransactionImpl transaction) {
+    var result = super.begin(transaction);
+
+    if (result == 1) {
+      storage.beginTransaction((FrontendClientServerTransaction) transaction);
+    }
+
+    return result;
+  }
+
+  @Override
+  protected FrontendTransactionImpl newTxInstance(long txId) {
     assert assertIfNotActive();
-    return new FrontendTransactionOptimisticClient(this);
+    return new FrontendClientServerTransaction(this, txId);
   }
 
 
   @Override
-  protected FrontendTransactionOptimistic newReadOnlyTxInstance() {
+  protected FrontendTransactionImpl newReadOnlyTxInstance(long txId) {
     assert assertIfNotActive();
-    return new FrontendTransactionOptimisticClient(this, true);
+    return new FrontendClientServerTransaction(this, txId, true);
   }
 
   @Override
@@ -545,7 +521,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
 
     try {
       DBRecord record = getTransactionInternal().getRecord(rid);
-      if (record == FrontendTransactionAbstract.DELETED_RECORD) {
+      if (record == FrontendTransactionImpl.DELETED_RECORD) {
         return false;
       }
       if (record != null) {
@@ -843,7 +819,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   @Override
-  public void internalCommit(@Nonnull FrontendTransactionOptimistic transaction) {
+  public void internalCommit(@Nonnull FrontendTransactionImpl transaction) {
     assert assertIfNotActive();
     this.storage.commit(transaction);
   }
@@ -868,7 +844,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
       }
 
       try {
-        if (currentTx.isActive()) {
+        if (currentTx != null && currentTx.isActive()) {
           rollback(true);
         }
       } catch (Exception e) {
@@ -897,10 +873,10 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
     throw new UnsupportedOperationException();
   }
 
-  public FrontendTransactionOptimisticClient getActiveTx() {
+  public FrontendClientServerTransaction getActiveTx() {
     assert assertIfNotActive();
-    if (currentTx.isActive()) {
-      return (FrontendTransactionOptimisticClient) currentTx;
+    if (currentTx != null && currentTx.isActive()) {
+      return (FrontendClientServerTransaction) currentTx;
     } else {
       throw new DatabaseException(getDatabaseName(), "No active transaction found");
     }
@@ -951,12 +927,5 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
       }
     }
     return count;
-  }
-
-  @Override
-  public NonTxReadMode getNonTxReadMode() {
-    assert assertIfNotActive();
-
-    return nonTxReadMode;
   }
 }
