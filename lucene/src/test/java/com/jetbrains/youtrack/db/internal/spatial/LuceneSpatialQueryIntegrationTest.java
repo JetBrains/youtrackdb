@@ -28,26 +28,26 @@ public class LuceneSpatialQueryIntegrationTest extends BaseLuceneTest {
   @Test
   public void testIssueGH9105() {
 
-    session.command("create class Country extends V").close();
-    session.command("create property Country.name STRING").close();
-    session.command("create property Country.geometry EMBEDDED OMultiPolygon").close();
-    session.command("create class POI extends V").close();
-    session.command("create property POI.name STRING").close();
-    session.command("create property POI.location EMBEDDED OPoint").close();
+    session.execute("create class Country extends V").close();
+    session.execute("create property Country.name STRING").close();
+    session.execute("create property Country.geometry EMBEDDED OMultiPolygon").close();
+    session.execute("create class POI extends V").close();
+    session.execute("create property POI.name STRING").close();
+    session.execute("create property POI.location EMBEDDED OPoint").close();
 
     session.begin();
-    session.command(
+    session.execute(
             "insert into POI(name, location) values(\"zeropoint\", St_GeomFromText(\"Point(0"
                 + " 0)\"))")
         .close();
-    session.command(
+    session.execute(
             "insert into Country(name, geometry) values(\"zeroland\","
                 + " St_GeomFromText(\"MultiPolygon(((1 1, 1 -1, -1 -1, -1 1, 1 1)))\"))")
         .close();
     session.commit();
 
-    session.command("CREATE INDEX POI.location ON POI(location) SPATIAL ENGINE LUCENE");
-    session.command("CREATE INDEX Country.geometry ON Country(geometry) SPATIAL ENGINE LUCENE;");
+    session.execute("CREATE INDEX POI.location ON POI(location) SPATIAL ENGINE LUCENE");
+    session.execute("CREATE INDEX Country.geometry ON Country(geometry) SPATIAL ENGINE LUCENE;");
 
     try (var resultSet =
         session.query(
@@ -74,7 +74,7 @@ public class LuceneSpatialQueryIntegrationTest extends BaseLuceneTest {
     }
 
     session.begin();
-    session.command(
+    session.execute(
             "insert into POI(name, location) values(\"zeropoint\", St_GeomFromText(\"Point(0"
                 + " 0)\"))")
         .close();
@@ -91,7 +91,7 @@ public class LuceneSpatialQueryIntegrationTest extends BaseLuceneTest {
     }
 
     session.begin();
-    session.command("delete vertex Poi").close();
+    session.execute("delete vertex Poi").close();
     session.commit();
 
     try (var resultSet =

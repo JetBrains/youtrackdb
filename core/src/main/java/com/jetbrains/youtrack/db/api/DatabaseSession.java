@@ -61,6 +61,7 @@ import javax.annotation.Nullable;
  * Session for database operations with a specific user.
  */
 public interface DatabaseSession extends AutoCloseable {
+
   enum STATUS {
     OPEN,
     CLOSED,
@@ -835,37 +836,73 @@ public interface DatabaseSession extends AutoCloseable {
   }
 
   /**
-   * Executes a generic (idempotent or non idempotent) command. The result set has to be closed
+   * Executes a generic (idempotent or non-idempotent) command. The result set has to be closed
    * after usage <br>
    * <br>
    * Sample usage:
    *
    * <p><code>
-   * ResultSet rs = db.command("INSERT INTO Person SET name = ?", "John"); ... rs.close();
+   * ResultSet rs = db.execute("INSERT INTO Person SET name = ?", "John"); ... rs.close();
    * </code>
    *
    * @param args query arguments
    * @return the query result set
    */
-  default ResultSet command(String query, Object... args)
+  default ResultSet execute(String query, Object... args)
       throws CommandSQLParsingException, CommandExecutionException {
     throw new UnsupportedOperationException();
   }
 
   /**
-   * Executes a generic (idempotent or non idempotent) command. The result set has to be closed
+   * Executes a generic (idempotent or non-idempotent) command. The result set has to be closed
    * after usage <br>
    * <br>
    * Sample usage:
    *
    * <p><code>
-   * Map&lt;String, Object&gt params = new HashMapMap&lt;&gt(); params.put("name", "John");
-   * ResultSet rs = db.query("INSERT INTO Person SET name = :name", params); ... rs.close();
+   * ResultSet rs = db.execute("INSERT INTO Person SET name = :name", Map.of("name", "John")); ...
+   * rs.close();
    * </code>
    */
-  default ResultSet command(String query, Map args)
+  default ResultSet execute(String query, Map args)
       throws CommandSQLParsingException, CommandExecutionException {
     throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Executes a generic (non-idempotent) command, ignoring the produced result. Works in the same
+   * way as {@link DatabaseSession#execute(String, Object...)}, but doesn't require closing the
+   * result set after usage. <br>
+   * <br>
+   * Sample usage:
+   *
+   * <p><code>
+   * ResultSet rs = db.command("INSERT INTO Person SET name = ?", "John");
+   * </code>
+   *
+   * @param args query arguments
+   */
+  default void command(String query, Object... args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    execute(query, args).close();
+  }
+
+  /**
+   * Executes a generic (non-idempotent) command, ignoring the produced result. Works in the same
+   * way as {@link DatabaseSession#execute(String, Map)}, but doesn't require closing the result set
+   * after usage. <br>
+   * <br>
+   * Sample usage:
+   *
+   * <p><code>
+   * ResultSet rs = db.command("INSERT INTO Person SET name = :name", Map.of("name", "John");
+   * </code>
+   *
+   * @param args query arguments
+   */
+  default void command(String query, Map args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    execute(query, args).close();
   }
 
   /**
@@ -878,10 +915,11 @@ public interface DatabaseSession extends AutoCloseable {
    * String script = "INSERT INTO Person SET name = 'foo', surname = ?;"+ "INSERT INTO Person SET
    * name = 'bar', surname = ?;"+ "INSERT INTO Person SET name = 'baz', surname = ?;";
    * <p>
-   * ResultSet rs = db.execute("sql", script, "Surname1", "Surname2", "Surname3"); ... rs.close();
+   * ResultSet rs = db.runScript("sql", script, "Surname1", "Surname2", "Surname3"); ...
+   * rs.close();
    * </code>
    */
-  default ResultSet execute(String language, String script, Object... args)
+  default ResultSet runScript(String language, String script, Object... args)
       throws CommandExecutionException, CommandScriptException {
     throw new UnsupportedOperationException();
   }
@@ -900,9 +938,9 @@ public interface DatabaseSession extends AutoCloseable {
    * Person SET name = 'bar', surname = :surname2;"+ "INSERT INTO Person SET name = 'baz', surname =
    * :surname3;";
    * <p>
-   * ResultSet rs = db.execute("sql", script, params); ... rs.close(); </code>
+   * ResultSet rs = db.runScript("sql", script, params); ... rs.close(); </code>
    */
-  default ResultSet execute(String language, String script, Map<String, ?> args)
+  default ResultSet runScript(String language, String script, Map<String, ?> args)
       throws CommandExecutionException, CommandScriptException {
     throw new UnsupportedOperationException();
   }

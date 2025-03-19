@@ -38,10 +38,10 @@ public class InsertUnionValueTest {
   public void testUnionInsert() {
     try (var session =
         youTrackDB.open(InsertUnionValueTest.class.getSimpleName(), "admin", "admpwd")) {
-      session.command("create class example extends V").close();
-      session.command("create property example.metadata EMBEDDEDMAP").close();
+      session.execute("create class example extends V").close();
+      session.execute("create property example.metadata EMBEDDEDMAP").close();
       session
-          .execute(
+          .runScript(
               "SQL",
               """
                     begin; \

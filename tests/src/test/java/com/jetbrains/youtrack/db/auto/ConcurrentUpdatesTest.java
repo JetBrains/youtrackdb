@@ -120,7 +120,7 @@ public class ConcurrentUpdatesTest extends BaseDBTest {
             try {
               retries++;
               db.begin();
-              db.command(cmd).close();
+              db.execute(cmd).close();
               db.commit();
               counter.incrementAndGet();
 

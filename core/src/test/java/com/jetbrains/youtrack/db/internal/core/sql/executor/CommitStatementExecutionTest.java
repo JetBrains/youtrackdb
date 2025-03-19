@@ -18,7 +18,7 @@ public class CommitStatementExecutionTest extends DbTestBase {
     session.begin();
     Assert.assertFalse(
         session.getTransactionInternal() == null || !session.getTransactionInternal().isActive());
-    var result = session.command("commit");
+    var result = session.execute("commit");
     printExecutionPlan(null, result);
     Assert.assertNotNull(result);
     Assert.assertTrue(result.hasNext());

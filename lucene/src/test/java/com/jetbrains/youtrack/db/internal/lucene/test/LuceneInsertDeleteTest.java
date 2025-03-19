@@ -42,7 +42,7 @@ public class LuceneInsertDeleteTest extends BaseLuceneTest {
     var oClass = schema.createClass("City");
 
     oClass.createProperty("name", PropertyType.STRING);
-    session.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE").close();
   }
 
   @Test
@@ -86,10 +86,10 @@ public class LuceneInsertDeleteTest extends BaseLuceneTest {
   public void testDeleteWithQueryOnClosedIndex() throws Exception {
 
     try (var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql")) {
-      session.execute("sql", getScriptFromStream(stream)).close();
+      session.runScript("sql", getScriptFromStream(stream)).close();
     }
 
-    session.command(
+    session.execute(
             "create index Song.title on Song (title) FULLTEXT ENGINE LUCENE metadata"
                 + " {'closeAfterInterval':1000 , 'firstFlushAfter':1000 }")
         .close();
@@ -100,7 +100,7 @@ public class LuceneInsertDeleteTest extends BaseLuceneTest {
     TimeUnit.SECONDS.sleep(5);
 
     session.begin();
-    session.command("delete vertex from Song where title lucene 'mountain'").close();
+    session.execute("delete vertex from Song where title lucene 'mountain'").close();
     session.commit();
 
     docs = session.query("select from Song where  title lucene 'mountain'");

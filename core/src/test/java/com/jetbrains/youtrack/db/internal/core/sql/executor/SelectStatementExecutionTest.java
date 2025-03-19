@@ -63,12 +63,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
     for (var i = 0; i < 100; i++) {
       session.begin();
       final var hash = UUID.randomUUID().toString();
-      session.command("insert into InputTx set address = '" + hash + "'");
+      session.execute("insert into InputTx set address = '" + hash + "'");
 
       // CREATE RANDOM NUMBER OF COPIES final int random = new Random().nextInt(10);
       final var random = new Random().nextInt(10);
       for (var j = 0; j < random; j++) {
-        session.command("insert into InputTx set address = '" + hash + "'");
+        session.execute("insert into InputTx set address = '" + hash + "'");
       }
       session.commit();
     }
@@ -2727,7 +2727,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var clazz = session.getMetadata().getSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
-    session.command(
+    session.execute(
             "create index "
                 + className
                 + ".name_surname on "
@@ -2777,7 +2777,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var clazz = session.getMetadata().getSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
-    session.command(
+    session.execute(
             "create index "
                 + className
                 + ".name_surname on "
@@ -2827,7 +2827,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var clazz = session.getMetadata().getSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
-    session.command(
+    session.execute(
             "create index "
                 + className
                 + ".name_surname on "
@@ -2878,7 +2878,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var clazz = session.getMetadata().getSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
-    session.command(
+    session.execute(
             "create index "
                 + className
                 + ".name_surname on "
@@ -2930,7 +2930,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createProperty("address", PropertyType.STRING);
-    session.command(
+    session.execute(
             "create index "
                 + className
                 + ".name_surname on "
@@ -2980,7 +2980,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createProperty("address", PropertyType.STRING);
-    session.command(
+    session.execute(
             "create index "
                 + className
                 + ".name_surname on "
@@ -3030,7 +3030,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createProperty("address", PropertyType.STRING);
-    session.command(
+    session.execute(
             "create index "
                 + className
                 + ".name_surname on "
@@ -3078,7 +3078,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var clazz = session.getMetadata().getSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
-    session.command(
+    session.execute(
             "create index "
                 + className
                 + ".name_surname on "
@@ -3127,7 +3127,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var clazz = session.getMetadata().getSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
-    session.command(
+    session.execute(
             "create index "
                 + className
                 + ".name_surname on "
@@ -3174,7 +3174,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var clazz = session.getMetadata().getSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
-    session.command(
+    session.execute(
             "create index "
                 + className
                 + ".name_surname on "
@@ -3221,7 +3221,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var clazz = session.getMetadata().getSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
-    session.command(
+    session.execute(
             "create index "
                 + className
                 + ".name_surname on "
@@ -3268,7 +3268,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var clazz = session.getMetadata().getSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
-    session.command(
+    session.execute(
             "create index "
                 + className
                 + ".name_surname on "
@@ -3558,7 +3558,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testNestedProjections1() {
     var className = "testNestedProjections1";
-    session.command("create class " + className).close();
+    session.execute("create class " + className).close();
 
     session.begin();
     var elem1 = session.newEntity(className);
@@ -3598,7 +3598,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testSimpleCollectionFiltering() {
     var className = "testSimpleCollectionFiltering";
-    session.command("create class " + className).close();
+    session.execute("create class " + className).close();
 
     session.begin();
     var elem1 = session.newEntity(className);
@@ -3645,7 +3645,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testContaninsWithConversion() {
     var className = "testContaninsWithConversion";
-    session.command("create class " + className).close();
+    session.execute("create class " + className).close();
 
     session.begin();
     var elem1 = session.newEntity(className);
@@ -3686,14 +3686,14 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testIndexPrefixUsage() {
     // issue #7636
     var className = "testIndexPrefixUsage";
-    session.command("create class " + className).close();
-    session.command("create property " + className + ".id LONG").close();
-    session.command("create property " + className + ".name STRING").close();
-    session.command("create index " + className + ".id_name on " + className + "(id, name) UNIQUE")
+    session.execute("create class " + className).close();
+    session.execute("create property " + className + ".id LONG").close();
+    session.execute("create property " + className + ".name STRING").close();
+    session.execute("create index " + className + ".id_name on " + className + "(id, name) UNIQUE")
         .close();
 
     session.begin();
-    session.command("insert into " + className + " set id = 1 , name = 'Bar'").close();
+    session.execute("insert into " + className + " set id = 1 , name = 'Bar'").close();
     session.commit();
 
     session.begin();
@@ -3708,11 +3708,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testNamedParams() {
     var className = "testNamedParams";
-    session.command("create class " + className).close();
+    session.execute("create class " + className).close();
 
     session.begin();
-    session.command("insert into " + className + " set name = 'Foo', surname = 'Fox'").close();
-    session.command("insert into " + className + " set name = 'Bar', surname = 'Bax'").close();
+    session.execute("insert into " + className + " set name = 'Foo', surname = 'Fox'").close();
+    session.execute("insert into " + className + " set name = 'Bar', surname = 'Bax'").close();
     session.commit();
 
     Map<String, Object> params = new HashMap<>();
@@ -3731,14 +3731,14 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testNamedParamsWithIndex() {
     var className = "testNamedParamsWithIndex";
-    session.command("create class " + className).close();
-    session.command("create property " + className + ".name STRING").close();
-    session.command("create index " + className + ".name ON " + className + " (name) NOTUNIQUE")
+    session.execute("create class " + className).close();
+    session.execute("create property " + className + ".name STRING").close();
+    session.execute("create index " + className + ".name ON " + className + " (name) NOTUNIQUE")
         .close();
 
     session.begin();
-    session.command("insert into " + className + " set name = 'Foo'").close();
-    session.command("insert into " + className + " set name = 'Bar'").close();
+    session.execute("insert into " + className + " set name = 'Foo'").close();
+    session.execute("insert into " + className + " set name = 'Bar'").close();
     session.commit();
 
     Map<String, Object> params = new HashMap<>();
@@ -3755,12 +3755,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testIsDefined() {
     var className = "testIsDefined";
-    session.command("create class " + className).close();
+    session.execute("create class " + className).close();
 
     session.begin();
-    session.command("insert into " + className + " set name = 'Foo'").close();
-    session.command("insert into " + className + " set sur = 'Bar'").close();
-    session.command("insert into " + className + " set sur = 'Barz'").close();
+    session.execute("insert into " + className + " set name = 'Foo'").close();
+    session.execute("insert into " + className + " set sur = 'Bar'").close();
+    session.execute("insert into " + className + " set sur = 'Barz'").close();
     session.commit();
 
     session.begin();
@@ -3775,12 +3775,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testIsNotDefined() {
     var className = "testIsNotDefined";
-    session.command("create class " + className).close();
+    session.execute("create class " + className).close();
 
     session.begin();
-    session.command("insert into " + className + " set name = 'Foo'").close();
-    session.command("insert into " + className + " set name = null, sur = 'Bar'").close();
-    session.command("insert into " + className + " set sur = 'Barz'").close();
+    session.execute("insert into " + className + " set name = 'Foo'").close();
+    session.execute("insert into " + className + " set name = null, sur = 'Bar'").close();
+    session.execute("insert into " + className + " set sur = 'Barz'").close();
     session.commit();
 
     session.begin();
@@ -3800,11 +3800,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
     clazz2.createProperty("tags", PropertyType.EMBEDDEDLIST);
 
     session.begin();
-    session.command("insert into " + className + 1 + "  set name = 'foo'");
+    session.execute("insert into " + className + 1 + "  set name = 'foo'");
 
-    session.command("insert into " + className + 2 + "  set tags = ['foo', 'bar']");
-    session.command("insert into " + className + 2 + "  set tags = ['baz', 'bar']");
-    session.command("insert into " + className + 2 + "  set tags = ['foo']");
+    session.execute("insert into " + className + 2 + "  set tags = ['foo', 'bar']");
+    session.execute("insert into " + className + 2 + "  set tags = ['baz', 'bar']");
+    session.execute("insert into " + className + 2 + "  set tags = ['foo']");
     session.commit();
 
     session.begin();
@@ -3835,11 +3835,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
     clazz2.createProperty("tags", PropertyType.EMBEDDEDLIST);
 
     session.begin();
-    session.command("insert into " + className + 1 + "  set name = 'foo'");
+    session.execute("insert into " + className + 1 + "  set name = 'foo'");
 
-    session.command("insert into " + className + 2 + "  set tags = ['foo', 'bar']");
-    session.command("insert into " + className + 2 + "  set tags = ['baz', 'bar']");
-    session.command("insert into " + className + 2 + "  set tags = ['foo']");
+    session.execute("insert into " + className + 2 + "  set tags = ['foo', 'bar']");
+    session.execute("insert into " + className + 2 + "  set tags = ['baz', 'bar']");
+    session.execute("insert into " + className + 2 + "  set tags = ['foo']");
     session.commit();
 
     session.begin();
@@ -3869,8 +3869,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     clazz.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
 
     session.begin();
-    session.command("insert into " + className + "  set tags = ['foo', 'bar']");
-    session.command("insert into " + className + "  set tags = ['bbb', 'FFF']");
+    session.execute("insert into " + className + "  set tags = ['foo', 'bar']");
+    session.execute("insert into " + className + "  set tags = ['bbb', 'FFF']");
     session.commit();
 
     session.begin();
@@ -3917,8 +3917,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     prop.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     session.begin();
-    session.command("insert into " + className + "  set tags = ['foo', 'bar']");
-    session.command("insert into " + className + "  set tags = ['bbb', 'FFF']");
+    session.execute("insert into " + className + "  set tags = ['foo', 'bar']");
+    session.execute("insert into " + className + "  set tags = ['bbb', 'FFF']");
     session.commit();
 
     session.begin();
@@ -3978,8 +3978,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     clazz.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
 
     session.begin();
-    session.command("insert into " + className + "  set tags = ['foo', 'bar']");
-    session.command("insert into " + className + "  set tags = ['foo', 'FFF']");
+    session.execute("insert into " + className + "  set tags = ['foo', 'bar']");
+    session.execute("insert into " + className + "  set tags = ['foo', 'FFF']");
     session.commit();
 
     session.begin();
@@ -4007,10 +4007,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.createClassIfNotExist(className);
 
     session.begin();
-    session.command("insert into " + className + "  set name = 'foo1', val = 1");
-    session.command("insert into " + className + "  set name = 'foo2', val = 2");
-    session.command("insert into " + className + "  set name = 'foo3', val = 3");
-    session.command("insert into " + className + "  set name = 'foo4', val = 4");
+    session.execute("insert into " + className + "  set name = 'foo1', val = 1");
+    session.execute("insert into " + className + "  set name = 'foo2', val = 2");
+    session.execute("insert into " + className + "  set name = 'foo3', val = 3");
+    session.execute("insert into " + className + "  set name = 'foo4', val = 4");
     session.commit();
 
     session.begin();
@@ -4032,8 +4032,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     prop.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     session.begin();
-    session.command("insert into " + className + "  set tag = 'foo'");
-    session.command("insert into " + className + "  set tag = 'bar'");
+    session.execute("insert into " + className + "  set tag = 'foo'");
+    session.execute("insert into " + className + "  set tag = 'bar'");
     session.commit();
 
     session.begin();
@@ -4194,7 +4194,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var clazz1 = session.createClassIfNotExist(className);
     clazz1.createProperty("themap", PropertyType.EMBEDDEDMAP);
 
-    session.command(
+    session.execute(
         "CREATE INDEX " + className + ".themap ON " + className + "(themap by key) NOTUNIQUE");
 
     for (var i = 0; i < 100; i++) {
@@ -4231,7 +4231,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     clazz1.createProperty("themap", PropertyType.EMBEDDEDMAP);
     clazz1.createProperty("thestring", PropertyType.STRING);
 
-    session.command(
+    session.execute(
         "CREATE INDEX "
             + className
             + ".themap_thestring ON "
@@ -4277,7 +4277,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var prop = clazz1.createProperty("themap", PropertyType.EMBEDDEDMAP,
         PropertyType.STRING);
 
-    session.command(
+    session.execute(
         "CREATE INDEX " + className + ".themap ON " + className + "(themap by value) NOTUNIQUE");
 
     for (var i = 0; i < 100; i++) {
@@ -4312,8 +4312,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     clazz1.createProperty("thelist", PropertyType.EMBEDDEDLIST, PropertyType.EMBEDDEDMAP);
 
     session.begin();
-    session.command("INSERT INTO " + className + " SET thelist = [{name:\"Jack\"}]").close();
-    session.command("INSERT INTO " + className + " SET thelist = [{name:\"Joe\"}]").close();
+    session.execute("INSERT INTO " + className + " SET thelist = [{name:\"Jack\"}]").close();
+    session.execute("INSERT INTO " + className + " SET thelist = [{name:\"Joe\"}]").close();
     session.commit();
 
     session.begin();
@@ -4333,11 +4333,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.createClassIfNotExist(className);
 
     session.begin();
-    session.command("INSERT INTO " + className + " SET name = 'A', idx = 0").close();
-    session.command("INSERT INTO " + className + " SET name = 'C', idx = 2").close();
-    session.command("INSERT INTO " + className + " SET name = 'E', idx = 4").close();
-    session.command("INSERT INTO " + className + " SET name = 'b', idx = 1").close();
-    session.command("INSERT INTO " + className + " SET name = 'd', idx = 3").close();
+    session.execute("INSERT INTO " + className + " SET name = 'A', idx = 0").close();
+    session.execute("INSERT INTO " + className + " SET name = 'C', idx = 2").close();
+    session.execute("INSERT INTO " + className + " SET name = 'E', idx = 4").close();
+    session.execute("INSERT INTO " + className + " SET name = 'b', idx = 1").close();
+    session.execute("INSERT INTO " + className + " SET name = 'd', idx = 3").close();
     session.commit();
 
     session.begin();
@@ -4361,24 +4361,24 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.createClassIfNotExist(className);
 
     session.begin();
-    session.command("INSERT INTO " + className + " content {\"name\": \"jack\", \"age\": 22}")
+    session.execute("INSERT INTO " + className + " content {\"name\": \"jack\", \"age\": 22}")
         .close();
-    session.command(
+    session.execute(
             "INSERT INTO "
                 + className
                 + " content {\"name\": \"rose\", \"age\": 22, \"test\": [[]]}")
         .close();
-    session.command(
+    session.execute(
             "INSERT INTO "
                 + className
                 + " content {\"name\": \"rose\", \"age\": 22, \"test\": [[1]]}")
         .close();
-    session.command(
+    session.execute(
             "INSERT INTO "
                 + className
                 + " content {\"name\": \"pete\", \"age\": 22, \"test\": [{}]}")
         .close();
-    session.command(
+    session.execute(
             "INSERT INTO "
                 + className
                 + " content {\"name\": \"david\", \"age\": 22, \"test\": [\"hello\"]}")
@@ -4401,24 +4401,24 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.createClassIfNotExist(className);
 
     session.begin();
-    session.command("INSERT INTO " + className + " content {\"name\": \"jack\", \"age\": 22}")
+    session.execute("INSERT INTO " + className + " content {\"name\": \"jack\", \"age\": 22}")
         .close();
-    session.command(
+    session.execute(
             "INSERT INTO "
                 + className
                 + " content {\"name\": \"rose\", \"age\": 22, \"test\": [[]]}")
         .close();
-    session.command(
+    session.execute(
             "INSERT INTO "
                 + className
                 + " content {\"name\": \"rose\", \"age\": 22, \"test\": [[1]]}")
         .close();
-    session.command(
+    session.execute(
             "INSERT INTO "
                 + className
                 + " content {\"name\": \"pete\", \"age\": 22, \"test\": [{}]}")
         .close();
-    session.command(
+    session.execute(
             "INSERT INTO "
                 + className
                 + " content {\"name\": \"david\", \"age\": 22, \"test\": [\"hello\"]}")
@@ -4445,10 +4445,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.createClassIfNotExist(className);
 
       session.begin();
-      session.command("INSERT INTO " + className + " set name = 'a'").close();
-      session.command("INSERT INTO " + className + " set name = 'b'").close();
-      session.command("INSERT INTO " + className + " set name = 'c'").close();
-      session.command("INSERT INTO " + className + " set name = 'd'").close();
+      session.execute("INSERT INTO " + className + " set name = 'a'").close();
+      session.execute("INSERT INTO " + className + " set name = 'b'").close();
+      session.execute("INSERT INTO " + className + " set name = 'c'").close();
+      session.execute("INSERT INTO " + className + " set name = 'd'").close();
       session.commit();
 
       session.begin();
@@ -4485,8 +4485,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.createClassIfNotExist(className);
 
     session.begin();
-    session.command("INSERT INTO " + className + " content {\"name\": \"foobarbaz\"}").close();
-    session.command("INSERT INTO " + className + " content {\"name\": \"test[]{}()|*^.test\"}")
+    session.execute("INSERT INTO " + className + " content {\"name\": \"foobarbaz\"}").close();
+    session.execute("INSERT INTO " + className + " content {\"name\": \"test[]{}()|*^.test\"}")
         .close();
     session.commit();
 
@@ -4796,40 +4796,40 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testIndexWithSubquery() {
     var classNamePrefix = "testIndexWithSubquery_";
-    session.command("create class " + classNamePrefix + "Ownership extends V abstract;").close();
-    session.command("create class " + classNamePrefix + "User extends V;").close();
-    session.command("create property " + classNamePrefix + "User.id String;").close();
-    session.command(
+    session.execute("create class " + classNamePrefix + "Ownership extends V abstract;").close();
+    session.execute("create class " + classNamePrefix + "User extends V;").close();
+    session.execute("create property " + classNamePrefix + "User.id String;").close();
+    session.execute(
             "create index "
                 + classNamePrefix
                 + "User.id ON "
                 + classNamePrefix
                 + "User(id) unique;")
         .close();
-    session.command(
+    session.execute(
             "create class " + classNamePrefix + "Report extends " + classNamePrefix + "Ownership;")
         .close();
-    session.command("create property " + classNamePrefix + "Report.id String;").close();
-    session.command("create property " + classNamePrefix + "Report.label String;").close();
-    session.command("create property " + classNamePrefix + "Report.format String;").close();
-    session.command("create property " + classNamePrefix + "Report.source String;").close();
-    session.command("create class " + classNamePrefix + "hasOwnership extends E;").close();
+    session.execute("create property " + classNamePrefix + "Report.id String;").close();
+    session.execute("create property " + classNamePrefix + "Report.label String;").close();
+    session.execute("create property " + classNamePrefix + "Report.format String;").close();
+    session.execute("create property " + classNamePrefix + "Report.source String;").close();
+    session.execute("create class " + classNamePrefix + "hasOwnership extends E;").close();
 
     session.begin();
-    session.command("insert into " + classNamePrefix + "User content {id:\"admin\"};");
-    session.command(
+    session.execute("insert into " + classNamePrefix + "User content {id:\"admin\"};");
+    session.execute(
             "insert into "
                 + classNamePrefix
                 + "Report content {format:\"PDF\", id:\"rep1\", label:\"Report 1\","
                 + " source:\"Report1.src\"};")
         .close();
-    session.command(
+    session.execute(
             "insert into "
                 + classNamePrefix
                 + "Report content {format:\"CSV\", id:\"rep2\", label:\"Report 2\","
                 + " source:\"Report2.src\"};")
         .close();
-    session.command(
+    session.execute(
             "create edge "
                 + classNamePrefix
                 + "hasOwnership from (select from "
@@ -4858,7 +4858,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     session.commit();
 
-    session.command(
+    session.execute(
             "create index "
                 + classNamePrefix
                 + "Report.id ON "
@@ -4950,11 +4950,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testMapToJson() {
     var className = "testMapToJson";
-    session.command("create class " + className).close();
-    session.command("create property " + className + ".themap embeddedmap").close();
+    session.execute("create class " + className).close();
+    session.execute("create property " + className + ".themap embeddedmap").close();
 
     session.begin();
-    session.command(
+    session.execute(
             "insert into "
                 + className
                 + " set name = 'foo', themap = {\"foo bar\":\"baz\", \"riz\":\"faz\"}")
@@ -4973,13 +4973,13 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testOptimizedCountQuery() {
     var className = "testOptimizedCountQuery";
-    session.command("create class " + className).close();
-    session.command("create property " + className + ".field boolean").close();
-    session.command("create index " + className + ".field on " + className + "(field) NOTUNIQUE")
+    session.execute("create class " + className).close();
+    session.execute("create property " + className + ".field boolean").close();
+    session.execute("create index " + className + ".field on " + className + "(field) NOTUNIQUE")
         .close();
 
     session.begin();
-    session.command("insert into " + className + " set field=true").close();
+    session.execute("insert into " + className + " set field=true").close();
     session.commit();
 
     session.begin();

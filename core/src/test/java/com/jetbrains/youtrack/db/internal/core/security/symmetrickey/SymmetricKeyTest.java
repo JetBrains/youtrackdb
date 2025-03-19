@@ -12,7 +12,7 @@ import org.junit.Test;
 public class SymmetricKeyTest extends DbTestBase {
 
   private void command(DatabaseSession db, String sql, Object... params) {
-    db.command(sql, params).close();
+    db.execute(sql, params).close();
   }
 
   @Test

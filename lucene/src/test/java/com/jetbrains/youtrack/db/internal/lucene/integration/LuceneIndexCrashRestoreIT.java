@@ -253,14 +253,14 @@ public class LuceneIndexCrashRestoreIT {
     final var db = (DatabaseSessionInternal) pool.acquire();
 
     System.out.println("create index for db:: " + db.getURL());
-    db.command("Create class Person");
-    db.command("Create property Person.name STRING");
-    db.command("Create property Person.surname STRING");
-    db.command(
+    db.execute("Create class Person");
+    db.execute("Create property Person.name STRING");
+    db.execute("Create property Person.surname STRING");
+    db.execute(
         "Create index Person.name on Person(name) FULLTEXT ENGINE LUCENE METADATA"
             + " {'default':'org.apache.lucene.analysis.core.KeywordAnalyzer',"
             + " 'unknownKey':'unknownValue'}");
-    db.command(
+    db.execute(
         "Create index Person.surname on Person(surname) FULLTEXT ENGINE LUCENE METADATA"
             + " {'default':'org.apache.lucene.analysis.core.KeywordAnalyzer',"
             + " 'unknownKey':'unknownValue'}");
@@ -330,7 +330,7 @@ public class LuceneIndexCrashRestoreIT {
           }
           if (id % 2000 == 0) {
             final var resultSet =
-                testDB.command("delete from Person where name lucene 'Robert' ");
+                testDB.execute("delete from Person where name lucene 'Robert' ");
             System.out.println(
                 Thread.currentThread().getName()
                     + " deleted:: "
@@ -342,7 +342,7 @@ public class LuceneIndexCrashRestoreIT {
           for (var i = 0; i < 10; i++) {
             if (id % 1000 == 0) {
               var insert = "insert into person (name) values ('" + names.get(nameIdx) + "')";
-              testDB.command(insert).close();
+              testDB.execute(insert).close();
             } else {
               var insert =
                   "insert into person (name,surname) values ('"
@@ -350,7 +350,7 @@ public class LuceneIndexCrashRestoreIT {
                       + "','"
                       + surnames.get(nameIdx)
                       + "')";
-              testDB.command(insert).close();
+              testDB.execute(insert).close();
             }
           }
         }

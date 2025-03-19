@@ -22,7 +22,7 @@ public class LuceneFreezeReleaseTest extends BaseLuceneTest {
     var person = schema.createClass("Person");
     person.createProperty("name", PropertyType.STRING);
 
-    session.command("create index Person.name on Person (name) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index Person.name on Person (name) FULLTEXT ENGINE LUCENE").close();
 
     session.begin();
     EntityImpl entity1 = ((EntityImpl) session.newEntity("Person"));
@@ -59,7 +59,7 @@ public class LuceneFreezeReleaseTest extends BaseLuceneTest {
     var person = schema.createClass("Person");
     person.createProperty("name", PropertyType.STRING);
 
-    session.command("create index Person.name on Person (name) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index Person.name on Person (name) FULLTEXT ENGINE LUCENE").close();
 
     session.begin();
     EntityImpl entity1 = ((EntityImpl) session.newEntity("Person"));

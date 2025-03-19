@@ -302,12 +302,12 @@ public class DBSequenceTest {
   @Test
   public void shouldSequenceWithDefaultValueNoTx() {
 
-    db.command("CREATE CLASS Person EXTENDS V");
-    db.command("CREATE SEQUENCE personIdSequence TYPE ORDERED;");
-    db.command(
+    db.execute("CREATE CLASS Person EXTENDS V");
+    db.execute("CREATE SEQUENCE personIdSequence TYPE ORDERED;");
+    db.execute(
         "CREATE PROPERTY Person.id LONG (MANDATORY TRUE, default"
             + " \"sequence('personIdSequence').next()\");");
-    db.command("CREATE INDEX Person.id ON Person (id) UNIQUE");
+    db.execute("CREATE INDEX Person.id ON Person (id) UNIQUE");
 
     db.executeInTx(
         () -> {
@@ -323,12 +323,12 @@ public class DBSequenceTest {
   @Test
   public void shouldSequenceWithDefaultValueTx() {
 
-    db.command("CREATE CLASS Person EXTENDS V");
-    db.command("CREATE SEQUENCE personIdSequence TYPE ORDERED;");
-    db.command(
+    db.execute("CREATE CLASS Person EXTENDS V");
+    db.execute("CREATE SEQUENCE personIdSequence TYPE ORDERED;");
+    db.execute(
         "CREATE PROPERTY Person.id LONG (MANDATORY TRUE, default"
             + " \"sequence('personIdSequence').next()\");");
-    db.command("CREATE INDEX Person.id ON Person (id) UNIQUE");
+    db.execute("CREATE INDEX Person.id ON Person (id) UNIQUE");
 
     db.begin();
 

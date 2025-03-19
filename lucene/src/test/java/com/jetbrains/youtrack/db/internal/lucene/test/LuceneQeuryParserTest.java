@@ -14,14 +14,14 @@ public class LuceneQeuryParserTest extends BaseLuceneTest {
   @Before
   public void init() {
     var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
-    session.execute("sql", getScriptFromStream(stream)).close();
+    session.runScript("sql", getScriptFromStream(stream)).close();
   }
 
   @Test
   public void shouldSearchWithLeadingWildcard() {
 
     // enabling leading wildcard
-    session.command(
+    session.execute(
             "create index Song.title on Song (title) FULLTEXT ENGINE LUCENE metadata"
                 + " {\"allowLeadingWildcard\": true}")
         .close();
@@ -36,7 +36,7 @@ public class LuceneQeuryParserTest extends BaseLuceneTest {
   public void shouldSearchWithLowercaseExpandedTerms() {
 
     // enabling leading wildcard
-    session.command(
+    session.execute(
             "create index Song.author on Song (author) FULLTEXT ENGINE LUCENE metadata"
                 + " {\"default\": \""
                 + KeywordAnalyzer.class.getCanonicalName()

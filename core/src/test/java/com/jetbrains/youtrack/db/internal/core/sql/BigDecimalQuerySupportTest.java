@@ -10,10 +10,10 @@ public class BigDecimalQuerySupportTest extends DbTestBase {
 
   @Test
   public void testDecimalPrecision() {
-    session.command("CREATE Class Test").close();
-    session.command("CREATE Property Test.salary DECIMAL").close();
+    session.execute("CREATE Class Test").close();
+    session.execute("CREATE Property Test.salary DECIMAL").close();
     session.begin();
-    session.command(
+    session.execute(
             "INSERT INTO Test set salary = ?", new BigDecimal("179999999999.99999999999999999999"))
         .close();
     session.commit();

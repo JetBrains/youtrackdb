@@ -14,20 +14,20 @@ public class RemoteDBSequenceTest extends BaseServerMemoryDatabase {
   @Test
   public void testSequences() {
     var database = db;
-    database.command("CREATE CLASS SV extends V").close();
-    database.command("CREATE SEQUENCE seqCounter TYPE ORDERED").close();
-    database.command("CREATE PROPERTY SV.uniqueID Long").close();
-    database.command("CREATE PROPERTY SV.testID Long").close();
-    database.command("ALTER PROPERTY SV.uniqueID NOTNULL true").close();
-    database.command("ALTER PROPERTY SV.uniqueID MANDATORY true").close();
-    database.command("ALTER PROPERTY SV.uniqueID READONLY true").close();
+    database.execute("CREATE CLASS SV extends V").close();
+    database.execute("CREATE SEQUENCE seqCounter TYPE ORDERED").close();
+    database.execute("CREATE PROPERTY SV.uniqueID Long").close();
+    database.execute("CREATE PROPERTY SV.testID Long").close();
+    database.execute("ALTER PROPERTY SV.uniqueID NOTNULL true").close();
+    database.execute("ALTER PROPERTY SV.uniqueID MANDATORY true").close();
+    database.execute("ALTER PROPERTY SV.uniqueID READONLY true").close();
     database
-        .command("ALTER PROPERTY SV.uniqueID DEFAULT 'sequence(\"seqCounter\").next()'")
+        .execute("ALTER PROPERTY SV.uniqueID DEFAULT 'sequence(\"seqCounter\").next()'")
         .close();
-    database.command("CREATE CLASS CV1 extends SV").close();
-    database.command("CREATE CLASS CV2 extends SV").close();
-    database.command("CREATE INDEX uniqueID ON SV (uniqueID) UNIQUE").close();
-    database.command("CREATE INDEX testid ON SV (testID) UNIQUE").close();
+    database.execute("CREATE CLASS CV1 extends SV").close();
+    database.execute("CREATE CLASS CV2 extends SV").close();
+    database.execute("CREATE INDEX uniqueID ON SV (uniqueID) UNIQUE").close();
+    database.execute("CREATE INDEX testid ON SV (testID) UNIQUE").close();
     database.reload();
 
     database.begin();

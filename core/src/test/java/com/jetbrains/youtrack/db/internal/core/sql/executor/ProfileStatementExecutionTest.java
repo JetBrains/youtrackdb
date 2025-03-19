@@ -14,8 +14,8 @@ public class ProfileStatementExecutionTest extends DbTestBase {
     session.createClass("testProfile");
 
     session.begin();
-    session.command("insert into testProfile set name ='foo'");
-    session.command("insert into testProfile set name ='bar'");
+    session.execute("insert into testProfile set name ='foo'");
+    session.execute("insert into testProfile set name ='bar'");
     session.commit();
 
     session.begin();

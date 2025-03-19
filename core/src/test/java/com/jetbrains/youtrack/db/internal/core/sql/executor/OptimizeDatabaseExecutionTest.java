@@ -32,7 +32,7 @@ public class OptimizeDatabaseExecutionTest extends DbTestBase {
 
     session.begin();
     var createREs =
-        session.command(
+        session.execute(
             "create edge " + eClass + " from " + v1.getIdentity() + " to " + v2.getIdentity());
     session.commit();
 
@@ -46,7 +46,7 @@ public class OptimizeDatabaseExecutionTest extends DbTestBase {
     Assert.assertEquals("v2", next.getProperty("name"));
     result.close();
 
-    session.command("optimize database -LWEDGES").close();
+    session.execute("optimize database -LWEDGES").close();
     session.commit();
 
     session.begin();

@@ -46,7 +46,7 @@ public class LuceneSpatialTxPointTest extends BaseSpatialLuceneTest {
     place.createProperty("longitude", PropertyType.DOUBLE);
     place.createProperty("name", PropertyType.STRING);
 
-    session.command("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
+    session.execute("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
   }
 
   protected EntityImpl newCity(String name, final Double longitude, final Double latitude) {

@@ -22,7 +22,7 @@ public class CreateVertexStatementExecutionTest extends DbTestBase {
     schema.createClass(className, schema.getClass("V"));
 
     session.begin();
-    var result = session.command("create vertex " + className + " set name = 'name1'");
+    var result = session.execute("create vertex " + className + " set name = 'name1'");
 
     printExecutionPlan(result);
     for (var i = 0; i < 1; i++) {
@@ -52,7 +52,7 @@ public class CreateVertexStatementExecutionTest extends DbTestBase {
     schema.createClass(className);
 
     try {
-      var result = session.command("create vertex " + className + " set name = 'name1'");
+      var result = session.execute("create vertex " + className + " set name = 'name1'");
       Assert.fail();
     } catch (CommandExecutionException e1) {
     } catch (Exception e2) {
@@ -68,7 +68,7 @@ public class CreateVertexStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var result =
-        session.command(
+        session.execute(
             "create vertex " + className + "  (name, surname) values ('name1', 'surname1')");
 
     printExecutionPlan(result);
@@ -101,7 +101,7 @@ public class CreateVertexStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var result =
-        session.command(
+        session.execute(
             "create vertex "
                 + className
                 + "  (name, surname) values ('name1', 'surname1'), ('name2', 'surname2')");
@@ -143,7 +143,7 @@ public class CreateVertexStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var result =
-        session.command(
+        session.execute(
             "create vertex " + className + " content {'name':'name1', 'surname':'surname1'}");
 
     printExecutionPlan(result);

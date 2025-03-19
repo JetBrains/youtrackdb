@@ -39,7 +39,7 @@ public class LuceneInsertUpdateSingleDocumentTransactionTest extends LuceneBaseT
     oClass.createProperty("name", PropertyType.STRING);
     //noinspection EmptyTryBlock
     try (var command =
-        session.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE")) {
+        session.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE")) {
     }
   }
 

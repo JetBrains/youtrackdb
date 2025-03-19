@@ -34,7 +34,7 @@ public class LuceneGetSearcherTest extends LuceneBaseTest {
     var song = session.createVertexClass("Person");
     song.createProperty("isDeleted", PropertyType.BOOLEAN);
 
-    session.command("create index Person.isDeleted on Person (isDeleted) FULLTEXT ENGINE LUCENE");
+    session.execute("create index Person.isDeleted on Person (isDeleted) FULLTEXT ENGINE LUCENE");
   }
 
   @Test

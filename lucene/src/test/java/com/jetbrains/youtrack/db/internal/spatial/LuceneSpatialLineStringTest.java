@@ -16,7 +16,6 @@ package com.jetbrains.youtrack.db.internal.spatial;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -44,7 +43,7 @@ public class LuceneSpatialLineStringTest extends BaseSpatialLuceneTest {
         schema.getClass("OLineString"));
     oClass.createProperty("name", PropertyType.STRING);
 
-    session.command("CREATE INDEX Place.location ON Place(location) SPATIAL ENGINE LUCENE").close();
+    session.execute("CREATE INDEX Place.location ON Place(location) SPATIAL ENGINE LUCENE").close();
 
     var linestring1 = ((EntityImpl) session.newEntity("Place"));
     linestring1.setProperty("name", "LineString1");
@@ -70,7 +69,7 @@ public class LuceneSpatialLineStringTest extends BaseSpatialLuceneTest {
     session.commit();
 
     session.begin();
-    session.command(
+    session.execute(
             "insert into Place set name = 'LineString3' , location = ST_GeomFromText('"
                 + LINEWKT
                 + "')")
@@ -86,7 +85,7 @@ public class LuceneSpatialLineStringTest extends BaseSpatialLuceneTest {
 
   @Ignore
   public void testLineStringWithoutIndex() throws IOException {
-    session.command("drop index Place.location").close();
+    session.execute("drop index Place.location").close();
     queryLineString();
   }
 

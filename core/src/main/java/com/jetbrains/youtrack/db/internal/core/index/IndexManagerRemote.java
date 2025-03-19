@@ -426,7 +426,7 @@ public class IndexManagerRemote implements IndexManagerAbstract {
         progressListener.onBegin(this, 0, false);
       }
 
-      session.command(createIndexDDL).close();
+      session.execute(createIndexDDL).close();
 
       if (progressListener != null) {
         progressListener.onCompletition(session, this, true);

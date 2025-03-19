@@ -43,8 +43,8 @@ public class LuceneSpatialDropTest {
       test.createProperty("name", PropertyType.STRING);
       test.createProperty("latitude", PropertyType.DOUBLE).setMandatory(false);
       test.createProperty("longitude", PropertyType.DOUBLE).setMandatory(false);
-      db.command("create index test.name on test (name) FULLTEXT ENGINE LUCENE").close();
-      db.command("create index test.ll on test (latitude,longitude) SPATIAL ENGINE LUCENE").close();
+      db.execute("create index test.name on test (name) FULLTEXT ENGINE LUCENE").close();
+      db.execute("create index test.ll on test (latitude,longitude) SPATIAL ENGINE LUCENE").close();
     }
   }
 
@@ -56,10 +56,8 @@ public class LuceneSpatialDropTest {
       db.close();
 
       db = (DatabaseSessionInternal) dpPool.acquire();
-      var query =
-          new SQLSynchQuery<EntityImpl>(
-              "select from test where [latitude,longitude] WITHIN [[50.0,8.0],[51.0,9.0]]");
-      List<EntityImpl> result = db.command(query).execute(db);
+      var query = "select from test where [latitude,longitude] WITHIN [[50.0,8.0],[51.0,9.0]]";
+      final var result = db.query(query).toList();
       Assert.assertEquals(insertcount, result.size());
       db.close();
       dpPool.close();

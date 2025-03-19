@@ -74,7 +74,7 @@ public class LightWeightEdgesTest {
     session.commit();
 
     session.begin();
-    session.command(
+    session.execute(
         "create edge "
             + eClazz
             + " from (select from "
@@ -84,7 +84,7 @@ public class LightWeightEdgesTest {
             + " where name = 'b') set name = 'foo'");
     session.commit();
 
-    session.execute(
+    session.runScript(
         "sql",
         "begin;"
             + "delete edge "

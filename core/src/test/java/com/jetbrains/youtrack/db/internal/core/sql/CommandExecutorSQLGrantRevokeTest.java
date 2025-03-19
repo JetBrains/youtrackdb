@@ -41,7 +41,7 @@ public class CommandExecutorSQLGrantRevokeTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    session.command("GRANT execute on server.remove to testRole").close();
+    session.execute("GRANT execute on server.remove to testRole").close();
     session.commit();
 
     testRole = session.getMetadata().getSecurity().getRole("testRole");
@@ -49,7 +49,7 @@ public class CommandExecutorSQLGrantRevokeTest extends DbTestBase {
     assertTrue(testRole.allow(Rule.ResourceGeneric.SERVER, "remove", Role.PERMISSION_EXECUTE));
 
     session.begin();
-    session.command("REVOKE execute on server.remove from testRole").close();
+    session.execute("REVOKE execute on server.remove from testRole").close();
     session.commit();
 
     testRole = session.getMetadata().getSecurity().getRole("testRole");

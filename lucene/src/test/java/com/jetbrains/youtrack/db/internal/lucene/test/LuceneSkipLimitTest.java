@@ -65,9 +65,9 @@ public class LuceneSkipLimitTest extends BaseLuceneTest {
   public void init() {
     var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
 
-    session.execute("sql", getScriptFromStream(stream)).close();
+    session.runScript("sql", getScriptFromStream(stream)).close();
 
-    session.command("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE").close();
-    session.command("create index Song.author on Song (author) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index Song.author on Song (author) FULLTEXT ENGINE LUCENE").close();
   }
 }

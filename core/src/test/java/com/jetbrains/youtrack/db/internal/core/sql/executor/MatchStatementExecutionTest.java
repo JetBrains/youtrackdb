@@ -14,7 +14,6 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -26,22 +25,22 @@ public class MatchStatementExecutionTest extends DbTestBase {
   public void beforeTest() throws Exception {
     super.beforeTest();
 
-    session.command("CREATE class Person extends V").close();
-    session.command("CREATE class Friend extends E").close();
+    session.execute("CREATE class Person extends V").close();
+    session.execute("CREATE class Friend extends E").close();
 
     session.begin();
-    session.command("CREATE VERTEX Person set name = 'n1'").close();
-    session.command("CREATE VERTEX Person set name = 'n2'").close();
-    session.command("CREATE VERTEX Person set name = 'n3'").close();
-    session.command("CREATE VERTEX Person set name = 'n4'").close();
-    session.command("CREATE VERTEX Person set name = 'n5'").close();
-    session.command("CREATE VERTEX Person set name = 'n6'").close();
+    session.execute("CREATE VERTEX Person set name = 'n1'").close();
+    session.execute("CREATE VERTEX Person set name = 'n2'").close();
+    session.execute("CREATE VERTEX Person set name = 'n3'").close();
+    session.execute("CREATE VERTEX Person set name = 'n4'").close();
+    session.execute("CREATE VERTEX Person set name = 'n5'").close();
+    session.execute("CREATE VERTEX Person set name = 'n6'").close();
 
     var friendList =
         new String[][]{{"n1", "n2"}, {"n1", "n3"}, {"n2", "n4"}, {"n4", "n5"}, {"n4", "n6"}};
 
     for (var pair : friendList) {
-      session.command(
+      session.execute(
               "CREATE EDGE Friend from (select from Person where name = ?) to (select from Person"
                   + " where name = ?)",
               pair[0],
@@ -51,11 +50,11 @@ public class MatchStatementExecutionTest extends DbTestBase {
 
     session.commit();
 
-    session.command("CREATE class MathOp extends V").close();
+    session.execute("CREATE class MathOp extends V").close();
 
     session.begin();
-    session.command("CREATE VERTEX MathOp set a = 1, b = 3, c = 2").close();
-    session.command("CREATE VERTEX MathOp set a = 5, b = 3, c = 2").close();
+    session.execute("CREATE VERTEX MathOp set a = 1, b = 3, c = 2").close();
+    session.execute("CREATE VERTEX MathOp set a = 5, b = 3, c = 2").close();
     session.commit();
 
     initOrgChart();
@@ -68,14 +67,14 @@ public class MatchStatementExecutionTest extends DbTestBase {
   }
 
   private void initEdgeIndexTest() {
-    session.command("CREATE class IndexedVertex extends V").close();
-    session.command("CREATE property IndexedVertex.uid INTEGER").close();
-    session.command("CREATE index IndexedVertex_uid on IndexedVertex (uid) NOTUNIQUE").close();
+    session.execute("CREATE class IndexedVertex extends V").close();
+    session.execute("CREATE property IndexedVertex.uid INTEGER").close();
+    session.execute("CREATE index IndexedVertex_uid on IndexedVertex (uid) NOTUNIQUE").close();
 
-    session.command("CREATE class IndexedEdge extends E").close();
-    session.command("CREATE property IndexedEdge.out LINK").close();
-    session.command("CREATE property IndexedEdge.in LINK").close();
-    session.command("CREATE index IndexedEdge_out_in on IndexedEdge (out, in) NOTUNIQUE").close();
+    session.execute("CREATE class IndexedEdge extends E").close();
+    session.execute("CREATE property IndexedEdge.out LINK").close();
+    session.execute("CREATE property IndexedEdge.in LINK").close();
+    session.execute("CREATE index IndexedEdge_out_in on IndexedEdge (out, in) NOTUNIQUE").close();
 
     var nodes = 1000;
     for (var i = 0; i < nodes; i++) {
@@ -87,7 +86,7 @@ public class MatchStatementExecutionTest extends DbTestBase {
 
     session.begin();
     for (var i = 0; i < 100; i++) {
-      session.command(
+      session.execute(
               "CREATE EDGE IndexedEDGE FROM (SELECT FROM IndexedVertex WHERE uid = 0) TO (SELECT"
                   + " FROM IndexedVertex WHERE uid > "
                   + (i * nodes / 100)
@@ -98,7 +97,7 @@ public class MatchStatementExecutionTest extends DbTestBase {
     }
 
     for (var i = 0; i < 100; i++) {
-      session.command(
+      session.execute(
               "CREATE EDGE IndexedEDGE FROM (SELECT FROM IndexedVertex WHERE uid > "
                   + ((i * nodes / 100) + 1)
                   + " and uid < "
@@ -138,11 +137,11 @@ public class MatchStatementExecutionTest extends DbTestBase {
     // p12 works at department 9, this department has no direct manager, so p12's manager is c (the
     // upper manager)
 
-    session.command("CREATE class Employee extends V").close();
-    session.command("CREATE class Department extends V").close();
-    session.command("CREATE class ParentDepartment extends E").close();
-    session.command("CREATE class WorksAt extends E").close();
-    session.command("CREATE class ManagerOf extends E").close();
+    session.execute("CREATE class Employee extends V").close();
+    session.execute("CREATE class Department extends V").close();
+    session.execute("CREATE class ParentDepartment extends E").close();
+    session.execute("CREATE class WorksAt extends E").close();
+    session.execute("CREATE class ManagerOf extends E").close();
 
     var deptHierarchy = new int[10][];
     deptHierarchy[0] = new int[]{1, 2};
@@ -172,13 +171,13 @@ public class MatchStatementExecutionTest extends DbTestBase {
 
     session.begin();
     for (var i = 0; i < deptHierarchy.length; i++) {
-      session.command("CREATE VERTEX Department set name = 'department" + i + "' ").close();
+      session.execute("CREATE VERTEX Department set name = 'department" + i + "' ").close();
     }
 
     for (var parent = 0; parent < deptHierarchy.length; parent++) {
       var children = deptHierarchy[parent];
       for (var child : children) {
-        session.command(
+        session.execute(
                 "CREATE EDGE ParentDepartment from (select from Department where name = 'department"
                     + child
                     + "') to (select from Department where name = 'department"
@@ -191,9 +190,9 @@ public class MatchStatementExecutionTest extends DbTestBase {
     for (var dept = 0; dept < deptManagers.length; dept++) {
       var manager = deptManagers[dept];
       if (manager != null) {
-        session.command("CREATE Vertex Employee set name = '" + manager + "' ").close();
+        session.execute("CREATE Vertex Employee set name = '" + manager + "' ").close();
 
-        session.command(
+        session.execute(
                 "CREATE EDGE ManagerOf from (select from Employee where name = '"
                     + manager
                     + "') to (select from Department where name = 'department"
@@ -206,9 +205,9 @@ public class MatchStatementExecutionTest extends DbTestBase {
     for (var dept = 0; dept < employees.length; dept++) {
       var employeesForDept = employees[dept];
       for (var employee : employeesForDept) {
-        session.command("CREATE Vertex Employee set name = '" + employee + "' ").close();
+        session.execute("CREATE Vertex Employee set name = '" + employee + "' ").close();
 
-        session.command(
+        session.execute(
                 "CREATE EDGE WorksAt from (select from Employee where name = '"
                     + employee
                     + "') to (select from Department where name = 'department"
@@ -221,21 +220,21 @@ public class MatchStatementExecutionTest extends DbTestBase {
   }
 
   private void initTriangleTest() {
-    session.command("CREATE class TriangleV extends V").close();
-    session.command("CREATE property TriangleV.uid INTEGER").close();
-    session.command("CREATE index TriangleV_uid on TriangleV (uid) UNIQUE").close();
-    session.command("CREATE class TriangleE extends E").close();
+    session.execute("CREATE class TriangleV extends V").close();
+    session.execute("CREATE property TriangleV.uid INTEGER").close();
+    session.execute("CREATE index TriangleV_uid on TriangleV (uid) UNIQUE").close();
+    session.execute("CREATE class TriangleE extends E").close();
 
     session.begin();
     for (var i = 0; i < 10; i++) {
-      session.command("CREATE VERTEX TriangleV set uid = ?", i).close();
+      session.execute("CREATE VERTEX TriangleV set uid = ?", i).close();
     }
     var edges = new int[][]{
         {0, 1}, {0, 2}, {1, 2}, {1, 3}, {2, 4}, {3, 4}, {3, 5}, {4, 0}, {4, 7}, {6, 7}, {7, 8},
         {7, 9}, {8, 9}, {9, 1}, {8, 3}, {8, 4}
     };
     for (var edge : edges) {
-      session.command(
+      session.execute(
               "CREATE EDGE TriangleE from (select from TriangleV where uid = ?) to (select from"
                   + " TriangleV where uid = ?)",
               edge[0],
@@ -246,16 +245,16 @@ public class MatchStatementExecutionTest extends DbTestBase {
   }
 
   private void initDiamondTest() {
-    session.command("CREATE class DiamondV extends V").close();
-    session.command("CREATE class DiamondE extends E").close();
+    session.execute("CREATE class DiamondV extends V").close();
+    session.execute("CREATE class DiamondE extends E").close();
 
     session.begin();
     for (var i = 0; i < 4; i++) {
-      session.command("CREATE VERTEX DiamondV set uid = ?", i).close();
+      session.execute("CREATE VERTEX DiamondV set uid = ?", i).close();
     }
     var edges = new int[][]{{0, 1}, {0, 2}, {1, 3}, {2, 3}};
     for (var edge : edges) {
-      session.command(
+      session.execute(
               "CREATE EDGE DiamondE from (select from DiamondV where uid = ?) to (select from"
                   + " DiamondV where uid = ?)",
               edge[0],
@@ -788,7 +787,7 @@ public class MatchStatementExecutionTest extends DbTestBase {
             + "  return manager"
             + ")";
 
-    var qResult = session.command(query).toList();
+    var qResult = session.execute(query).toList();
     assertEquals(1, qResult.size());
     return qResult.getFirst().asEntity();
   }
@@ -1535,12 +1534,12 @@ public class MatchStatementExecutionTest extends DbTestBase {
   @Test
   public void testEvalInReturn() {
     // issue #6606
-    session.command("CREATE CLASS testEvalInReturn EXTENDS V").close();
-    session.command("CREATE PROPERTY testEvalInReturn.name String").close();
+    session.execute("CREATE CLASS testEvalInReturn EXTENDS V").close();
+    session.execute("CREATE PROPERTY testEvalInReturn.name String").close();
 
     session.begin();
-    session.command("CREATE VERTEX testEvalInReturn SET name = 'foo'").close();
-    session.command("CREATE VERTEX testEvalInReturn SET name = 'bar'").close();
+    session.execute("CREATE VERTEX testEvalInReturn SET name = 'foo'").close();
+    session.execute("CREATE VERTEX testEvalInReturn SET name = 'bar'").close();
     session.commit();
 
     session.begin();
@@ -1567,21 +1566,21 @@ public class MatchStatementExecutionTest extends DbTestBase {
   @Test
   public void testCheckClassAsCondition() {
 
-    session.command("CREATE CLASS testCheckClassAsCondition EXTENDS V").close();
-    session.command("CREATE CLASS testCheckClassAsCondition1 EXTENDS V").close();
-    session.command("CREATE CLASS testCheckClassAsCondition2 EXTENDS V").close();
+    session.execute("CREATE CLASS testCheckClassAsCondition EXTENDS V").close();
+    session.execute("CREATE CLASS testCheckClassAsCondition1 EXTENDS V").close();
+    session.execute("CREATE CLASS testCheckClassAsCondition2 EXTENDS V").close();
 
     session.begin();
-    session.command("CREATE VERTEX testCheckClassAsCondition SET name = 'foo'").close();
-    session.command("CREATE VERTEX testCheckClassAsCondition1 SET name = 'bar'").close();
+    session.execute("CREATE VERTEX testCheckClassAsCondition SET name = 'foo'").close();
+    session.execute("CREATE VERTEX testCheckClassAsCondition1 SET name = 'bar'").close();
     for (var i = 0; i < 5; i++) {
-      session.command("CREATE VERTEX testCheckClassAsCondition2 SET name = 'baz'").close();
+      session.execute("CREATE VERTEX testCheckClassAsCondition2 SET name = 'baz'").close();
     }
-    session.command(
+    session.execute(
             "CREATE EDGE E FROM (select from testCheckClassAsCondition where name = 'foo') to"
                 + " (select from testCheckClassAsCondition1)")
         .close();
-    session.command(
+    session.execute(
             "CREATE EDGE E FROM (select from testCheckClassAsCondition where name = 'foo') to"
                 + " (select from testCheckClassAsCondition2)")
         .close();
@@ -1672,29 +1671,29 @@ public class MatchStatementExecutionTest extends DbTestBase {
   @Test
   public void testMatched1() {
     // issue #6931
-    session.command("CREATE CLASS testMatched1_Foo EXTENDS V").close();
-    session.command("CREATE CLASS testMatched1_Bar EXTENDS V").close();
-    session.command("CREATE CLASS testMatched1_Baz EXTENDS V").close();
-    session.command("CREATE CLASS testMatched1_Far EXTENDS V").close();
-    session.command("CREATE CLASS testMatched1_Foo_Bar EXTENDS E").close();
-    session.command("CREATE CLASS testMatched1_Bar_Baz EXTENDS E").close();
-    session.command("CREATE CLASS testMatched1_Foo_Far EXTENDS E").close();
+    session.execute("CREATE CLASS testMatched1_Foo EXTENDS V").close();
+    session.execute("CREATE CLASS testMatched1_Bar EXTENDS V").close();
+    session.execute("CREATE CLASS testMatched1_Baz EXTENDS V").close();
+    session.execute("CREATE CLASS testMatched1_Far EXTENDS V").close();
+    session.execute("CREATE CLASS testMatched1_Foo_Bar EXTENDS E").close();
+    session.execute("CREATE CLASS testMatched1_Bar_Baz EXTENDS E").close();
+    session.execute("CREATE CLASS testMatched1_Foo_Far EXTENDS E").close();
 
     session.begin();
-    session.command("CREATE VERTEX testMatched1_Foo SET name = 'foo'").close();
-    session.command("CREATE VERTEX testMatched1_Bar SET name = 'bar'").close();
-    session.command("CREATE VERTEX testMatched1_Baz SET name = 'baz'").close();
-    session.command("CREATE VERTEX testMatched1_Far SET name = 'far'").close();
+    session.execute("CREATE VERTEX testMatched1_Foo SET name = 'foo'").close();
+    session.execute("CREATE VERTEX testMatched1_Bar SET name = 'bar'").close();
+    session.execute("CREATE VERTEX testMatched1_Baz SET name = 'baz'").close();
+    session.execute("CREATE VERTEX testMatched1_Far SET name = 'far'").close();
 
-    session.command(
+    session.execute(
             "CREATE EDGE testMatched1_Foo_Bar FROM (SELECT FROM testMatched1_Foo) TO (SELECT FROM"
                 + " testMatched1_Bar)")
         .close();
-    session.command(
+    session.execute(
             "CREATE EDGE testMatched1_Bar_Baz FROM (SELECT FROM testMatched1_Bar) TO (SELECT FROM"
                 + " testMatched1_Baz)")
         .close();
-    session.command(
+    session.execute(
             "CREATE EDGE testMatched1_Foo_Far FROM (SELECT FROM testMatched1_Foo) TO (SELECT FROM"
                 + " testMatched1_Far)")
         .close();
@@ -1729,29 +1728,29 @@ public class MatchStatementExecutionTest extends DbTestBase {
   @Ignore
   public void testDependencyOrdering1() {
     // issue #6931
-    session.command("CREATE CLASS testDependencyOrdering1_Foo EXTENDS V").close();
-    session.command("CREATE CLASS testDependencyOrdering1_Bar EXTENDS V").close();
-    session.command("CREATE CLASS testDependencyOrdering1_Baz EXTENDS V").close();
-    session.command("CREATE CLASS testDependencyOrdering1_Far EXTENDS V").close();
-    session.command("CREATE CLASS testDependencyOrdering1_Foo_Bar EXTENDS E").close();
-    session.command("CREATE CLASS testDependencyOrdering1_Bar_Baz EXTENDS E").close();
-    session.command("CREATE CLASS testDependencyOrdering1_Foo_Far EXTENDS E").close();
+    session.execute("CREATE CLASS testDependencyOrdering1_Foo EXTENDS V").close();
+    session.execute("CREATE CLASS testDependencyOrdering1_Bar EXTENDS V").close();
+    session.execute("CREATE CLASS testDependencyOrdering1_Baz EXTENDS V").close();
+    session.execute("CREATE CLASS testDependencyOrdering1_Far EXTENDS V").close();
+    session.execute("CREATE CLASS testDependencyOrdering1_Foo_Bar EXTENDS E").close();
+    session.execute("CREATE CLASS testDependencyOrdering1_Bar_Baz EXTENDS E").close();
+    session.execute("CREATE CLASS testDependencyOrdering1_Foo_Far EXTENDS E").close();
 
     session.begin();
-    session.command("CREATE VERTEX testDependencyOrdering1_Foo SET name = 'foo'").close();
-    session.command("CREATE VERTEX testDependencyOrdering1_Bar SET name = 'bar'").close();
-    session.command("CREATE VERTEX testDependencyOrdering1_Baz SET name = 'baz'").close();
-    session.command("CREATE VERTEX testDependencyOrdering1_Far SET name = 'far'").close();
+    session.execute("CREATE VERTEX testDependencyOrdering1_Foo SET name = 'foo'").close();
+    session.execute("CREATE VERTEX testDependencyOrdering1_Bar SET name = 'bar'").close();
+    session.execute("CREATE VERTEX testDependencyOrdering1_Baz SET name = 'baz'").close();
+    session.execute("CREATE VERTEX testDependencyOrdering1_Far SET name = 'far'").close();
 
-    session.command(
+    session.execute(
             "CREATE EDGE testDependencyOrdering1_Foo_Bar FROM (SELECT FROM"
                 + " testDependencyOrdering1_Foo) TO (SELECT FROM testDependencyOrdering1_Bar)")
         .close();
-    session.command(
+    session.execute(
             "CREATE EDGE testDependencyOrdering1_Bar_Baz FROM (SELECT FROM"
                 + " testDependencyOrdering1_Bar) TO (SELECT FROM testDependencyOrdering1_Baz)")
         .close();
-    session.command(
+    session.execute(
             "CREATE EDGE testDependencyOrdering1_Foo_Far FROM (SELECT FROM"
                 + " testDependencyOrdering1_Foo) TO (SELECT FROM testDependencyOrdering1_Far)")
         .close();
@@ -1789,29 +1788,29 @@ public class MatchStatementExecutionTest extends DbTestBase {
   @Test
   public void testCircularDependency() {
     // issue #6931
-    session.command("CREATE CLASS testCircularDependency_Foo EXTENDS V").close();
-    session.command("CREATE CLASS testCircularDependency_Bar EXTENDS V").close();
-    session.command("CREATE CLASS testCircularDependency_Baz EXTENDS V").close();
-    session.command("CREATE CLASS testCircularDependency_Far EXTENDS V").close();
-    session.command("CREATE CLASS testCircularDependency_Foo_Bar EXTENDS E").close();
-    session.command("CREATE CLASS testCircularDependency_Bar_Baz EXTENDS E").close();
-    session.command("CREATE CLASS testCircularDependency_Foo_Far EXTENDS E").close();
+    session.execute("CREATE CLASS testCircularDependency_Foo EXTENDS V").close();
+    session.execute("CREATE CLASS testCircularDependency_Bar EXTENDS V").close();
+    session.execute("CREATE CLASS testCircularDependency_Baz EXTENDS V").close();
+    session.execute("CREATE CLASS testCircularDependency_Far EXTENDS V").close();
+    session.execute("CREATE CLASS testCircularDependency_Foo_Bar EXTENDS E").close();
+    session.execute("CREATE CLASS testCircularDependency_Bar_Baz EXTENDS E").close();
+    session.execute("CREATE CLASS testCircularDependency_Foo_Far EXTENDS E").close();
 
     session.begin();
-    session.command("CREATE VERTEX testCircularDependency_Foo SET name = 'foo'").close();
-    session.command("CREATE VERTEX testCircularDependency_Bar SET name = 'bar'").close();
-    session.command("CREATE VERTEX testCircularDependency_Baz SET name = 'baz'").close();
-    session.command("CREATE VERTEX testCircularDependency_Far SET name = 'far'").close();
+    session.execute("CREATE VERTEX testCircularDependency_Foo SET name = 'foo'").close();
+    session.execute("CREATE VERTEX testCircularDependency_Bar SET name = 'bar'").close();
+    session.execute("CREATE VERTEX testCircularDependency_Baz SET name = 'baz'").close();
+    session.execute("CREATE VERTEX testCircularDependency_Far SET name = 'far'").close();
 
-    session.command(
+    session.execute(
             "CREATE EDGE testCircularDependency_Foo_Bar FROM (SELECT FROM"
                 + " testCircularDependency_Foo) TO (SELECT FROM testCircularDependency_Bar)")
         .close();
-    session.command(
+    session.execute(
             "CREATE EDGE testCircularDependency_Bar_Baz FROM (SELECT FROM"
                 + " testCircularDependency_Bar) TO (SELECT FROM testCircularDependency_Baz)")
         .close();
-    session.command(
+    session.execute(
             "CREATE EDGE testCircularDependency_Foo_Far FROM (SELECT FROM"
                 + " testCircularDependency_Foo) TO (SELECT FROM testCircularDependency_Far)")
         .close();
@@ -1851,15 +1850,15 @@ public class MatchStatementExecutionTest extends DbTestBase {
   @Test
   public void testUndefinedAliasDependency() {
     // issue #6931
-    session.command("CREATE CLASS testUndefinedAliasDependency_Foo EXTENDS V").close();
-    session.command("CREATE CLASS testUndefinedAliasDependency_Bar EXTENDS V").close();
-    session.command("CREATE CLASS testUndefinedAliasDependency_Foo_Bar EXTENDS E").close();
+    session.execute("CREATE CLASS testUndefinedAliasDependency_Foo EXTENDS V").close();
+    session.execute("CREATE CLASS testUndefinedAliasDependency_Bar EXTENDS V").close();
+    session.execute("CREATE CLASS testUndefinedAliasDependency_Foo_Bar EXTENDS E").close();
 
     session.begin();
-    session.command("CREATE VERTEX testUndefinedAliasDependency_Foo SET name = 'foo'").close();
-    session.command("CREATE VERTEX testUndefinedAliasDependency_Bar SET name = 'bar'").close();
+    session.execute("CREATE VERTEX testUndefinedAliasDependency_Foo SET name = 'foo'").close();
+    session.execute("CREATE VERTEX testUndefinedAliasDependency_Bar SET name = 'bar'").close();
 
-    session.command(
+    session.execute(
             "CREATE EDGE testUndefinedAliasDependency_Foo_Bar FROM (SELECT FROM"
                 + " testUndefinedAliasDependency_Foo) TO (SELECT FROM"
                 + " testUndefinedAliasDependency_Bar)")
@@ -1888,33 +1887,33 @@ public class MatchStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testCyclicDeepTraversal() {
-    session.command("CREATE CLASS testCyclicDeepTraversalV EXTENDS V").close();
-    session.command("CREATE CLASS testCyclicDeepTraversalE EXTENDS E").close();
+    session.execute("CREATE CLASS testCyclicDeepTraversalV EXTENDS V").close();
+    session.execute("CREATE CLASS testCyclicDeepTraversalE EXTENDS E").close();
 
     session.begin();
-    session.command("CREATE VERTEX testCyclicDeepTraversalV SET name = 'a'").close();
-    session.command("CREATE VERTEX testCyclicDeepTraversalV SET name = 'b'").close();
-    session.command("CREATE VERTEX testCyclicDeepTraversalV SET name = 'c'").close();
-    session.command("CREATE VERTEX testCyclicDeepTraversalV SET name = 'z'").close();
+    session.execute("CREATE VERTEX testCyclicDeepTraversalV SET name = 'a'").close();
+    session.execute("CREATE VERTEX testCyclicDeepTraversalV SET name = 'b'").close();
+    session.execute("CREATE VERTEX testCyclicDeepTraversalV SET name = 'c'").close();
+    session.execute("CREATE VERTEX testCyclicDeepTraversalV SET name = 'z'").close();
 
     // a -> b -> z
     // z -> c -> a
-    session.command(
+    session.execute(
             "CREATE EDGE testCyclicDeepTraversalE from(select from testCyclicDeepTraversalV where"
                 + " name = 'a') to (select from testCyclicDeepTraversalV where name = 'b')")
         .close();
 
-    session.command(
+    session.execute(
             "CREATE EDGE testCyclicDeepTraversalE from(select from testCyclicDeepTraversalV where"
                 + " name = 'b') to (select from testCyclicDeepTraversalV where name = 'z')")
         .close();
 
-    session.command(
+    session.execute(
             "CREATE EDGE testCyclicDeepTraversalE from(select from testCyclicDeepTraversalV where"
                 + " name = 'z') to (select from testCyclicDeepTraversalV where name = 'c')")
         .close();
 
-    session.command(
+    session.execute(
             "CREATE EDGE testCyclicDeepTraversalE from(select from testCyclicDeepTraversalV where"
                 + " name = 'c') to (select from testCyclicDeepTraversalV where name = 'a')")
         .close();
@@ -1954,6 +1953,6 @@ public class MatchStatementExecutionTest extends DbTestBase {
             + "  }<-WorksAt-{as: managed}"
             + "  return $pathElements";
 
-    return session.command(query).stream().map(Result::getIdentity).toList();
+    return session.execute(query).stream().map(Result::getIdentity).toList();
   }
 }

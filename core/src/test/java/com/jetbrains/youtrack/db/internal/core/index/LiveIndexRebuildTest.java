@@ -94,7 +94,7 @@ public class LiveIndexRebuildTest {
             final var database = pool.acquire();
             try {
               var start = System.nanoTime();
-              database.command("rebuild index " + indexName).close();
+              database.execute("rebuild index " + indexName).close();
               var end = System.nanoTime();
               rebuildInterval += (end - start);
               rebuildCount++;

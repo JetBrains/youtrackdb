@@ -17,7 +17,6 @@ package com.jetbrains.youtrack.db.internal.spatial;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import com.jetbrains.youtrack.db.internal.lucene.tests.LuceneBaseTest;
 import com.jetbrains.youtrack.db.internal.spatial.collections.SpatialCompositeKey;
 import java.util.ArrayList;
@@ -39,7 +38,7 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
     point.createProperty("latitude", PropertyType.DOUBLE);
     point.createProperty("longitude", PropertyType.DOUBLE);
 
-    session.command("CREATE INDEX Point.ll ON Point(latitude,longitude) SPATIAL ENGINE LUCENE")
+    session.execute("CREATE INDEX Point.ll ON Point(latitude,longitude) SPATIAL ENGINE LUCENE")
         .close();
 
     var document = ((EntityImpl) session.newEntity("Point"));
@@ -64,7 +63,7 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
     point.createProperty("latitude", PropertyType.DOUBLE);
     point.createProperty("longitude", PropertyType.DOUBLE);
 
-    session.command("CREATE INDEX Point.ll ON Point(latitude,longitude) SPATIAL ENGINE LUCENE")
+    session.execute("CREATE INDEX Point.ll ON Point(latitude,longitude) SPATIAL ENGINE LUCENE")
         .close();
 
     session.begin();
@@ -132,7 +131,7 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
     point.createProperty("latitude", PropertyType.DOUBLE);
     point.createProperty("longitude", PropertyType.DOUBLE);
 
-    session.command("CREATE INDEX Point.ll ON Point(latitude,longitude) SPATIAL ENGINE LUCENE")
+    session.execute("CREATE INDEX Point.ll ON Point(latitude,longitude) SPATIAL ENGINE LUCENE")
         .close();
 
     session.begin();

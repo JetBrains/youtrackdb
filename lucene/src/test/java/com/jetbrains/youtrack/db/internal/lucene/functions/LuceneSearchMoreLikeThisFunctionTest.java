@@ -15,13 +15,13 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
   public void setUp() throws Exception {
     try (var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql")) {
       //noinspection resource
-      session.execute("sql", getScriptFromStream(stream)).close();
+      session.runScript("sql", getScriptFromStream(stream)).close();
     }
   }
 
   @Test
   public void shouldSearchMoreLikeThisWithRid() throws Exception {
-    session.command("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE ");
+    session.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE ");
     var clazz = session.getMetadata().getSchema().getClass("Song");
     var defCluster = clazz.getClusterIds()[0];
 
@@ -39,7 +39,7 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
   @Test
   public void shouldSearchMoreLikeThisWithRidOnMultiFieldsIndex() throws Exception {
 
-    session.command("create index Song.multi on Song (title,author) FULLTEXT ENGINE LUCENE ");
+    session.execute("create index Song.multi on Song (title,author) FULLTEXT ENGINE LUCENE ");
 
     var clazz = session.getMetadata().getSchema().getClass("Song");
     var defCluster = clazz.getClusterIds()[0];
@@ -57,7 +57,7 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
 
   @Test
   public void shouldSearchOnFieldAndMoreLikeThisWithRidOnMultiFieldsIndex() throws Exception {
-    session.command("create index Song.multi on Song (title) FULLTEXT ENGINE LUCENE ");
+    session.execute("create index Song.multi on Song (title) FULLTEXT ENGINE LUCENE ");
 
     var clazz = session.getMetadata().getSchema().getClass("Song");
     var defCluster = clazz.getClusterIds()[0];
@@ -80,7 +80,7 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
   @Test
   public void shouldSearchOnFieldOrMoreLikeThisWithRidOnMultiFieldsIndex() throws Exception {
 
-    session.command("create index Song.multi on Song (title) FULLTEXT ENGINE LUCENE ");
+    session.execute("create index Song.multi on Song (title) FULLTEXT ENGINE LUCENE ");
 
     var clazz = session.getMetadata().getSchema().getClass("Song");
     var defCluster = clazz.getClusterIds()[0];
@@ -103,7 +103,7 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
   @Test
   public void shouldSearchMoreLikeThisWithRidOnMultiFieldsIndexWithMetadata() throws Exception {
 
-    session.command("create index Song.multi on Song (title,author) FULLTEXT ENGINE LUCENE ");
+    session.execute("create index Song.multi on Song (title,author) FULLTEXT ENGINE LUCENE ");
 
     var clazz = session.getMetadata().getSchema().getClass("Song");
     var defCluster = clazz.getClusterIds()[0];
@@ -127,7 +127,7 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
   @Test
   public void shouldSearchMoreLikeThisWithInnerQuery() {
 
-    session.command("create index Song.multi on Song (title,author) FULLTEXT ENGINE LUCENE ");
+    session.execute("create index Song.multi on Song (title,author) FULLTEXT ENGINE LUCENE ");
 
     try (var resultSet =
         session.query(

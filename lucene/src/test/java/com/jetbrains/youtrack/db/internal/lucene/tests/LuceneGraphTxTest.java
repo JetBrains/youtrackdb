@@ -34,7 +34,7 @@ public class LuceneGraphTxTest extends LuceneBaseTest {
     var type = session.createVertexClass("City");
     type.createProperty("name", PropertyType.STRING);
 
-    session.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
+    session.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
   }
 
   @Test
@@ -48,7 +48,7 @@ public class LuceneGraphTxTest extends LuceneBaseTest {
     session.commit();
 
     session.begin();
-    var resultSet = session.command("select from City where search_class('London') =true ");
+    var resultSet = session.execute("select from City where search_class('London') =true ");
 
     assertThat(resultSet).hasSize(1);
 
@@ -61,16 +61,16 @@ public class LuceneGraphTxTest extends LuceneBaseTest {
     session.commit();
 
     // only berlin
-    resultSet = session.command("select from City where search_class('Berlin') =true ");
+    resultSet = session.execute("select from City where search_class('Berlin') =true ");
     assertThat(resultSet).hasSize(1);
 
-    resultSet = session.command("select from City where search_class('London') =true ");
+    resultSet = session.execute("select from City where search_class('London') =true ");
     assertThat(resultSet).hasSize(0);
 
-    resultSet = session.command("select from City where search_class('Berlin') =true ");
+    resultSet = session.execute("select from City where search_class('Berlin') =true ");
     assertThat(resultSet).hasSize(1);
 
-    resultSet = session.command("select from City where search_class('London') =true ");
+    resultSet = session.execute("select from City where search_class('London') =true ");
     assertThat(resultSet).hasSize(0);
   }
 }

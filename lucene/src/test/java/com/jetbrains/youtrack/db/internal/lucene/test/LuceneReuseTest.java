@@ -23,8 +23,8 @@ public class LuceneReuseTest extends BaseLuceneTest {
     cls.createProperty("surname", PropertyType.STRING);
     cls.createProperty("age", PropertyType.LONG);
 
-    session.command("create index Reuse.composite on Reuse (name,surname,date,age) UNIQUE").close();
-    session.command("create index Reuse.surname on Reuse (surname) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index Reuse.composite on Reuse (name,surname,date,age) UNIQUE").close();
+    session.execute("create index Reuse.surname on Reuse (surname) FULLTEXT ENGINE LUCENE").close();
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -36,11 +36,11 @@ public class LuceneReuseTest extends BaseLuceneTest {
       session.commit();
     }
     var results =
-        session.command("SELECT FROM Reuse WHERE name='John' and surname LUCENE 'Reese'");
+        session.execute("SELECT FROM Reuse WHERE name='John' and surname LUCENE 'Reese'");
 
     Assert.assertEquals(10, results.stream().count());
 
-    results = session.command("SELECT FROM Reuse WHERE surname LUCENE 'Reese' and name='John'");
+    results = session.execute("SELECT FROM Reuse WHERE surname LUCENE 'Reese' and name='John'");
 
     Assert.assertEquals(10, results.stream().count());
   }
@@ -56,10 +56,10 @@ public class LuceneReuseTest extends BaseLuceneTest {
     cls.createProperty("surname", PropertyType.STRING);
     cls.createProperty("age", PropertyType.LONG);
 
-    session.command("create index Reuse.composite on Reuse (name,surname,date,age) UNIQUE").close();
+    session.execute("create index Reuse.composite on Reuse (name,surname,date,age) UNIQUE").close();
 
     // lucene on name and surname
-    session.command(
+    session.execute(
             "create index Reuse.name_surname on Reuse (name,surname) FULLTEXT ENGINE LUCENE")
         .close();
 
@@ -82,17 +82,17 @@ public class LuceneReuseTest extends BaseLuceneTest {
         .setProperty("age", 11);
     session.commit();
     var results =
-        session.command("SELECT FROM Reuse WHERE name='John' and [name,surname] LUCENE 'Reese'");
+        session.execute("SELECT FROM Reuse WHERE name='John' and [name,surname] LUCENE 'Reese'");
 
     Assert.assertEquals(10, results.stream().count());
 
-    results = session.command(
+    results = session.execute(
         "SELECT FROM Reuse WHERE [name,surname] LUCENE 'Reese' and name='John'");
 
     Assert.assertEquals(10, results.stream().count());
 
     results =
-        session.command(
+        session.execute(
             "SELECT FROM Reuse WHERE name='John' and [name,surname] LUCENE '(surname:Franklin)'");
 
     Assert.assertEquals(1, results.stream().count());

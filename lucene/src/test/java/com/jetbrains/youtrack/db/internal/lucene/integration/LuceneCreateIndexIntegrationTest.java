@@ -30,9 +30,9 @@ public class LuceneCreateIndexIntegrationTest {
     final var session =
         remote.open("LuceneCreateIndexIntegrationTest", "admin", "admin");
 
-    session.command("create class Person");
-    session.command("create property Person.name STRING");
-    session.command("create property Person.surname STRING");
+    session.execute("create class Person");
+    session.execute("create property Person.name STRING");
+    session.execute("create property Person.surname STRING");
 
     final var doc = session.newEntity("Person");
     doc.setProperty("name", "Jon");

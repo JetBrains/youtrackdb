@@ -33,7 +33,7 @@ public class DeleteStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(10, session.query("select from " + className).stream().count());
 
     session.begin();
-    var result = session.command("delete from  " + className + " where name = 'name4'");
+    var result = session.execute("delete from  " + className + " where name = 'name4'");
     printExecutionPlan(result);
     for (var i = 0; i < 1; i++) {
       Assert.assertTrue(result.hasNext());
@@ -77,7 +77,7 @@ public class DeleteStatementExecutionTest extends DbTestBase {
 
     try {
       session.begin();
-      session.command("delete from  " + className + " where name = 'name4'");
+      session.execute("delete from  " + className + " where name = 'name4'");
       Assert.fail();
     } catch (CommandExecutionException ex) {
     }
@@ -101,7 +101,7 @@ public class DeleteStatementExecutionTest extends DbTestBase {
     }
 
     session.begin();
-    var result = session.command("delete from  " + className + " where name = 'name4' unsafe");
+    var result = session.execute("delete from  " + className + " where name = 'name4' unsafe");
 
     printExecutionPlan(result);
     for (var i = 0; i < 1; i++) {
@@ -145,7 +145,7 @@ public class DeleteStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var result =
-        session.command("delete from  " + className + " return before where name = 'name4' ");
+        session.execute("delete from  " + className + " return before where name = 'name4' ");
     printExecutionPlan(result);
     for (var i = 0; i < 1; i++) {
       Assert.assertTrue(result.hasNext());
@@ -181,7 +181,7 @@ public class DeleteStatementExecutionTest extends DbTestBase {
       session.commit();
     }
     session.begin();
-    var result = session.command("delete from  " + className + " limit 5");
+    var result = session.execute("delete from  " + className + " limit 5");
     printExecutionPlan(result);
     for (var i = 0; i < 1; i++) {
       Assert.assertTrue(result.hasNext());

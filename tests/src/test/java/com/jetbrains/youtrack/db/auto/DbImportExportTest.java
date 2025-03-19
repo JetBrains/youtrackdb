@@ -68,7 +68,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
     }
 
     // ADD A CUSTOM TO THE CLASS
-    session.command("alter class V custom onBeforeCreate=onBeforeCreateItem").close();
+    session.execute("alter class V custom onBeforeCreate=onBeforeCreateItem").close();
 
     final var export =
         new DatabaseExport(session, testPath + "/" + exportFilePath, this);

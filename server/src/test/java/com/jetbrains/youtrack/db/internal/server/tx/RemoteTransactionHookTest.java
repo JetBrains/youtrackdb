@@ -78,11 +78,11 @@ public class RemoteTransactionHookTest extends DbTestBase {
     session.begin();
     var doc = ((EntityImpl) session.newEntity("SomeTx"));
     doc.setProperty("name", "some");
-    session.command("insert into SomeTx set name='aa' ").close();
-    var res = session.command("update SomeTx set name='bb' where name=\"some\"");
+    session.execute("insert into SomeTx set name='aa' ").close();
+    var res = session.execute("update SomeTx set name='bb' where name=\"some\"");
     assertEquals((Long) 1L, res.next().getProperty("count"));
     res.close();
-    session.command("delete from SomeTx where name='aa'").close();
+    session.execute("delete from SomeTx where name='aa'").close();
     session.commit();
 
     assertEquals(2, calls.getBeforeCreate());
@@ -101,11 +101,11 @@ public class RemoteTransactionHookTest extends DbTestBase {
     database.begin();
     var doc = ((EntityImpl) database.newEntity("SomeTx"));
     doc.setProperty("name", "some");
-    database.command("insert into SomeTx set name='aa' ").close();
-    var res = database.command("update SomeTx set name='bb' where name=\"some\"");
+    database.execute("insert into SomeTx set name='aa' ").close();
+    var res = database.execute("update SomeTx set name='bb' where name=\"some\"");
     assertEquals((Long) 1L, res.next().getProperty("count"));
     res.close();
-    database.command("delete from SomeTx where name='aa'").close();
+    database.execute("delete from SomeTx where name='aa'").close();
     database.commit();
 
     assertEquals(2, calls.getBeforeCreate());
@@ -126,11 +126,11 @@ public class RemoteTransactionHookTest extends DbTestBase {
     var calls = CountCallHookServer.instance;
     var doc = ((EntityImpl) session.newEntity("SomeTx"));
     doc.setProperty("name", "some");
-    session.command("insert into SomeTx set name='aa' ").close();
-    var res = session.command("update SomeTx set name='bb' where name=\"some\"");
+    session.execute("insert into SomeTx set name='aa' ").close();
+    var res = session.execute("update SomeTx set name='bb' where name=\"some\"");
     assertEquals((Long) 1L, res.next().getProperty("count"));
     res.close();
-    session.command("delete from SomeTx where name='aa'").close();
+    session.execute("delete from SomeTx where name='aa'").close();
     session.commit();
     assertEquals(2, calls.getBeforeCreate());
     assertEquals(2, calls.getAfterCreate());

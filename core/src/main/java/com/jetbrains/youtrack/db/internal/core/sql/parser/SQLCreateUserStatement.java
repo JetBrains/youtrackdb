@@ -110,7 +110,7 @@ public class SQLCreateUserStatement extends SQLSimpleExecStatement {
     }
     sb.append("])");
     return ExecutionStream.resultIterator(
-        ctx.getDatabaseSession().command(sb.toString(), params.toArray()).stream().iterator());
+        ctx.getDatabaseSession().execute(sb.toString(), params.toArray()).stream().iterator());
   }
 
   @Override

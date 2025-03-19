@@ -35,7 +35,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var createREs =
-        session.command(
+        session.execute(
             "create edge " + eClass + " from " + v1.getIdentity() + " to " + v2.getIdentity());
     ExecutionPlanPrintUtils.printExecutionPlan(createREs);
     session.commit();
@@ -80,7 +80,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var createREs =
-        session.command(
+        session.execute(
             "create edge "
                 + eClass
                 + " from "
@@ -120,7 +120,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var createREs =
-        session.command(
+        session.execute(
             "create edge "
                 + eClass
                 + " from (select from "
@@ -170,7 +170,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
     eclazz.createProperty("out", PropertyType.LINK, vclazz1);
     eclazz.createProperty("in", PropertyType.LINK, vclazz2);
 
-    session.command("CREATE INDEX " + eClass + "out_in ON " + eclazz + " (out, in) UNIQUE");
+    session.execute("CREATE INDEX " + eClass + "out_in ON " + eclazz + " (out, in) UNIQUE");
 
     for (var i = 0; i < 2; i++) {
       session.begin();
@@ -187,7 +187,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
     }
 
     session.begin();
-    session.command(
+    session.execute(
             "CREATE EDGE "
                 + eClass
                 + " from (select from "
@@ -205,7 +205,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
     Assert.assertFalse(rs.hasNext());
     rs.close();
 
-    session.command(
+    session.execute(
             "CREATE EDGE "
                 + eClass
                 + " UPSERT from (select from "
@@ -244,7 +244,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
     eclazz.createProperty("out", PropertyType.LINK, vclazz1);
     eclazz.createProperty("in", PropertyType.LINK, vclazz2);
 
-    session.command("CREATE INDEX " + eClass + "out_in ON " + eclazz + " (out, in) UNIQUE");
+    session.execute("CREATE INDEX " + eClass + "out_in ON " + eclazz + " (out, in) UNIQUE");
 
     for (var i = 0; i < 2; i++) {
       session.begin();
@@ -261,7 +261,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
     }
 
     session.begin();
-    session.command(
+    session.execute(
             "CREATE EDGE "
                 + eClass
                 + " from (select from "
@@ -279,7 +279,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
     Assert.assertFalse(rs.hasNext());
     rs.close();
 
-    session.command(
+    session.execute(
             "CREATE EDGE "
                 + eClass
                 + " UPSERT from (select from "
@@ -317,7 +317,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
     eclazz.createProperty("out", PropertyType.LINK, vclazz1);
     eclazz.createProperty("in", PropertyType.LINK, vclazz2);
 
-    session.command("CREATE INDEX " + eClass + "out_in ON " + eclazz + " (out, in) UNIQUE");
+    session.execute("CREATE INDEX " + eClass + "out_in ON " + eclazz + " (out, in) UNIQUE");
     for (var i = 0; i < 2; i++) {
       session.begin();
       var v1 = session.newVertex(vClass1);
@@ -333,7 +333,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
     }
 
     session.begin();
-    session.command(
+    session.execute(
             "CREATE EDGE "
                 + eClass
                 + " from (select from "
@@ -354,7 +354,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
 
     try {
       session.begin();
-      session.command(
+      session.execute(
               "CREATE EDGE "
                   + eClass
                   + " from (select from "
@@ -397,7 +397,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
     }
 
     try {
-      session.command(
+      session.execute(
               "CREATE EDGE "
                   + eClass
                   + " UPSERT from (select from "
@@ -429,7 +429,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
     }
 
     session.begin();
-    session.command(
+    session.execute(
             "CREATE EDGE "
                 + eClass
                 + " from (select from "

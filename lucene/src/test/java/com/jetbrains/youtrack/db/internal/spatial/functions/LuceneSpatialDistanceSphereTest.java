@@ -28,7 +28,7 @@ public class LuceneSpatialDistanceSphereTest extends BaseSpatialLuceneTest {
   public void testDistanceSphereNoIndex() {
 
     var execute =
-        session.command(
+        session.execute(
             "select ST_Distance(ST_GEOMFROMTEXT('POINT(12.4662748"
                 + " 41.8914114)'),ST_GEOMFROMTEXT('POINT(12.4664632 41.8904382)')) as distanceDeg,"
                 + " \n"
@@ -56,34 +56,34 @@ public class LuceneSpatialDistanceSphereTest extends BaseSpatialLuceneTest {
   @Test
   public void testWithinIndex() {
 
-    session.command("create class Place extends v").close();
-    session.command("create property Place.location EMBEDDED OPoint").close();
+    session.execute("create class Place extends v").close();
+    session.execute("create property Place.location EMBEDDED OPoint").close();
 
     session.begin();
-    session.command(
+    session.execute(
             "insert into Place set name =  'Dar Poeta',location = ST_GeomFromText('POINT(12.4684635"
                 + " 41.8914114)')")
         .close();
-    session.command(
+    session.execute(
             "insert into Place set name  = 'Antilia Pub',location ="
                 + " ST_GeomFromText('POINT(12.4686519 41.890438)')")
         .close();
 
-    session.command(
+    session.execute(
             "insert into Place set name = 'Museo Di Roma in Trastevere',location ="
                 + " ST_GeomFromText('POINT(12.4689762 41.8898916)')")
         .close();
     session.commit();
 
-    session.command("create index Place.l on Place (location) SPATIAL engine lucene").close();
+    session.execute("create index Place.l on Place (location) SPATIAL engine lucene").close();
     var execute =
-        session.command(
+        session.execute(
             "SELECT from Place where ST_Distance_Sphere(location, ST_GeomFromText('POINT(12.468933"
                 + " 41.890303)')) < 50");
 
     Assert.assertEquals(2, execute.stream().count());
     execute =
-        session.command(
+        session.execute(
             "SELECT from Place where ST_Distance_Sphere(location, ST_GeomFromText('POINT(12.468933"
                 + " 41.890303)')) > 50");
 
@@ -94,31 +94,31 @@ public class LuceneSpatialDistanceSphereTest extends BaseSpatialLuceneTest {
   @Test
   public void testDistanceProjection() {
 
-    session.command("create class Restaurant extends v").close();
-    session.command("create property Restaurant.location EMBEDDED OPoint").close();
+    session.execute("create class Restaurant extends v").close();
+    session.execute("create property Restaurant.location EMBEDDED OPoint").close();
 
     session.begin();
-    session.command(
+    session.execute(
             "INSERT INTO  Restaurant SET name = 'London', location = St_GeomFromText(\"POINT"
                 + " (-0.1277583 51.5073509)\")")
         .close();
-    session.command(
+    session.execute(
             "INSERT INTO  Restaurant SET name = 'Trafalgar', location = St_GeomFromText(\"POINT"
                 + " (-0.1280688 51.5080388)\")")
         .close();
 
-    session.command(
+    session.execute(
             "INSERT INTO  Restaurant SET name = 'Lambeth North Station', location ="
                 + " St_GeomFromText(\"POINT (-0.1120681 51.4989103)\")")
         .close();
 
-    session.command(
+    session.execute(
             "INSERT INTO  Restaurant SET name = 'Montreal', location = St_GeomFromText(\"POINT"
                 + " (-73.567256 45.5016889)\")")
         .close();
     session.commit();
 
-    session.command("CREATE INDEX bla ON Restaurant (location) SPATIAL ENGINE LUCENE;\n").close();
+    session.execute("CREATE INDEX bla ON Restaurant (location) SPATIAL ENGINE LUCENE;\n").close();
     var execute =
         session
             .query(
@@ -133,7 +133,7 @@ public class LuceneSpatialDistanceSphereTest extends BaseSpatialLuceneTest {
   @Test
   public void testNullObject() {
     var execute =
-        session.command(
+        session.execute(
             "select ST_Distance({ locationCoordinates: null },ST_GEOMFROMTEXT('POINT(12.4664632"
                 + " 41.8904382)')) as distanceMeter");
 
@@ -146,7 +146,7 @@ public class LuceneSpatialDistanceSphereTest extends BaseSpatialLuceneTest {
   @Test
   public void testSphereNullObject() {
     var execute =
-        session.command(
+        session.execute(
             "select ST_Distance_Sphere({ locationCoordinates: null"
                 + " },ST_GEOMFROMTEXT('POINT(12.4664632 41.8904382)')) as distanceMeter");
 

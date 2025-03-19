@@ -419,7 +419,7 @@ public class SecurityShared implements SecurityInternal {
 
   public boolean dropUser(final DatabaseSession session, final String iUserName) {
     final Number removed;
-    try (var res = session.command("delete from OUser where name = ?", iUserName)) {
+    try (var res = session.execute("delete from OUser where name = ?", iUserName)) {
       removed = res.next().getProperty("count");
     }
 
@@ -493,7 +493,7 @@ public class SecurityShared implements SecurityInternal {
   public boolean dropRole(final DatabaseSession session, final String iRoleName) {
     final Number removed;
     try (var result =
-        session.command("delete from " + Role.CLASS_NAME + " where name = '" + iRoleName + "'")) {
+        session.execute("delete from " + Role.CLASS_NAME + " where name = '" + iRoleName + "'")) {
       removed = result.next().getProperty("count");
     }
 
@@ -637,7 +637,7 @@ public class SecurityShared implements SecurityInternal {
   @Override
   public void deleteSecurityPolicy(DatabaseSession session, String name) {
     session
-        .command("DELETE FROM " + SecurityPolicy.CLASS_NAME + " WHERE name = ?", name)
+        .execute("DELETE FROM " + SecurityPolicy.CLASS_NAME + " WHERE name = ?", name)
         .close();
   }
 

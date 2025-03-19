@@ -54,14 +54,14 @@ public class LuceneTransactionCompositeQueryTest extends LuceneBaseTest {
     session.begin();
 
     var query = "select from Foo where name = 'Test' and SEARCH_CLASS(\"abc\") =true ";
-    try (var vertices = session.command(query)) {
+    try (var vertices = session.execute(query)) {
 
       assertThat(vertices).hasSize(1);
     }
     session.rollback();
 
     query = "select from Foo where name = 'Test' and SEARCH_CLASS(\"abc\") = true ";
-    try (var vertices = session.command(query)) {
+    try (var vertices = session.execute(query)) {
       assertThat(vertices).hasSize(0);
     }
   }
@@ -83,7 +83,7 @@ public class LuceneTransactionCompositeQueryTest extends LuceneBaseTest {
     session.delete(doc);
 
     var query = "select from Foo where name = 'Test' and  SEARCH_CLASS(\"abc\") = true ";
-    try (var vertices = session.command(query)) {
+    try (var vertices = session.execute(query)) {
 
       Collection coll;
       try (var stream = index.getRids(session, "abc")) {
@@ -99,7 +99,7 @@ public class LuceneTransactionCompositeQueryTest extends LuceneBaseTest {
     session.rollback();
 
     query = "select from Foo where name = 'Test' and SEARCH_CLASS(\"abc\") = true ";
-    try (var vertices = session.command(query)) {
+    try (var vertices = session.execute(query)) {
 
       assertThat(vertices).hasSize(1);
 
@@ -162,7 +162,7 @@ public class LuceneTransactionCompositeQueryTest extends LuceneBaseTest {
     session.rollback();
 
     query = "select from Foo where name = 'Test' and SEARCH_CLASS (\"abc\")=true ";
-    try (var vertices = session.command(query)) {
+    try (var vertices = session.execute(query)) {
 
       assertThat(vertices).hasSize(1);
 

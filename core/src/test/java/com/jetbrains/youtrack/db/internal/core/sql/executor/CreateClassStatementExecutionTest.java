@@ -13,7 +13,7 @@ public class CreateClassStatementExecutionTest extends DbTestBase {
   @Test
   public void testPlain() {
     var className = "testPlain";
-    var result = session.command("create class " + className);
+    var result = session.execute("create class " + className);
     Schema schema = session.getMetadata().getSchema();
     var clazz = schema.getClass(className);
     Assert.assertNotNull(clazz);
@@ -24,7 +24,7 @@ public class CreateClassStatementExecutionTest extends DbTestBase {
   @Test
   public void testAbstract() {
     var className = "testAbstract";
-    var result = session.command("create class " + className + " abstract ");
+    var result = session.execute("create class " + className + " abstract ");
     Schema schema = session.getMetadata().getSchema();
     var clazz = schema.getClass(className);
     Assert.assertNotNull(clazz);
@@ -36,13 +36,13 @@ public class CreateClassStatementExecutionTest extends DbTestBase {
   @Test
   public void testIfNotExists() {
     var className = "testIfNotExists";
-    var result = session.command("create class " + className + " if not exists");
+    var result = session.execute("create class " + className + " if not exists");
     Schema schema = session.getMetadata().getSchema();
     var clazz = schema.getClass(className);
     Assert.assertNotNull(clazz);
     result.close();
 
-    result = session.command("create class " + className + " if not exists");
+    result = session.execute("create class " + className + " if not exists");
     clazz = schema.getClass(className);
     Assert.assertNotNull(clazz);
     result.close();

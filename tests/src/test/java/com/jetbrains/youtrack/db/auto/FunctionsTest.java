@@ -57,9 +57,9 @@ public class FunctionsTest extends BaseDBTest {
 
   @Test
   public void testFunctionDefinitionAndCall() {
-    session.command("create function testCall \"return 0;\" LANGUAGE Javascript").close();
+    session.execute("create function testCall \"return 0;\" LANGUAGE Javascript").close();
 
-    var res1 = session.command("select testCall() as testCall");
+    var res1 = session.execute("select testCall() as testCall");
     Assert.assertEquals((int) res1.next().getProperty("testCall"), 0);
   }
 
@@ -71,7 +71,7 @@ public class FunctionsTest extends BaseDBTest {
             .execute(session);
     Assert.assertNotNull(f);
 
-    try (var res1 = session.command("select testCache() as testCache")) {
+    try (var res1 = session.execute("select testCache() as testCache")) {
       Assert.assertEquals(res1.next().<Object>getProperty("testCache"), 1);
     }
 
@@ -81,14 +81,14 @@ public class FunctionsTest extends BaseDBTest {
 
     session.commit();
 
-    try (var res2 = session.command("select testCache() as testCache")) {
+    try (var res2 = session.execute("select testCache() as testCache")) {
       Assert.assertEquals(res2.next().<Object>getProperty("testCache"), 2);
     }
   }
 
   @Test
   public void testMultiThreadsFunctionCallMoreThanPool() {
-    session.command("create function testMTCall \"return 3;\" LANGUAGE Javascript").close();
+    session.execute("create function testMTCall \"return 3;\" LANGUAGE Javascript").close();
 
     final var TOT = 1000;
     final var threadNum = GlobalConfiguration.SCRIPT_POOL.getValueAsInteger() * 3;
@@ -100,7 +100,7 @@ public class FunctionsTest extends BaseDBTest {
           new Thread() {
             public void run() {
               for (var cycle = 0; cycle < TOT; ++cycle) {
-                var res1 = session.command("select testMTCall() as testMTCall");
+                var res1 = session.execute("select testMTCall() as testMTCall");
                 Assert.assertNotNull(res1);
                 Assert.assertEquals(res1.next().<Object>getProperty("testMTCall"), 3);
 
@@ -125,13 +125,13 @@ public class FunctionsTest extends BaseDBTest {
   @Test
   public void testFunctionDefinitionAndCallWithParams() {
     session
-        .command(
+        .execute(
             "create function testParams \"return 'Hello ' + name + ' ' + surname + ' from ' +"
                 + " country;\" PARAMETERS [name,surname,country] LANGUAGE Javascript")
         .close();
 
     try (var res1 =
-        session.command("select testParams('Jay', 'Miner', 'USA') as testParams")) {
+        session.execute("select testParams('Jay', 'Miner', 'USA') as testParams")) {
       Assert.assertEquals(res1.next().getProperty("testParams"), "Hello Jay Miner from USA");
     }
 
@@ -152,7 +152,7 @@ public class FunctionsTest extends BaseDBTest {
   @Test
   public void testMapParamToFunction() {
     session
-        .command(
+        .execute(
             "create function testMapParamToFunction \"return mapParam.get('foo')[0];\" PARAMETERS"
                 + " [mapParam] LANGUAGE Javascript")
         .close();
@@ -165,7 +165,7 @@ public class FunctionsTest extends BaseDBTest {
     theMap.put("foo", theList);
     params.put("theParam", theMap);
 
-    var res1 = session.command("select testMapParamToFunction(:theParam) as a", params);
+    var res1 = session.execute("select testMapParamToFunction(:theParam) as a", params);
     Assert.assertEquals(res1.next().getProperty("a"), "bar");
   }
 }

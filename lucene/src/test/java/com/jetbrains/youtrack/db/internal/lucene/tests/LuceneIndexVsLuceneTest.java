@@ -52,7 +52,7 @@ public class LuceneIndexVsLuceneTest extends LuceneBaseTest {
   public void init() {
     var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
 
-    session.execute("sql", getScriptFromStream(stream));
+    session.runScript("sql", getScriptFromStream(stream));
 
     session.getMetadata().getSchema();
 
@@ -70,7 +70,7 @@ public class LuceneIndexVsLuceneTest extends LuceneBaseTest {
     } catch (IOException e) {
       e.printStackTrace();
     }
-    session.command("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE").close();
   }
 
   private File getPath() {

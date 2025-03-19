@@ -32,9 +32,9 @@ public class SQLCreateVertexTest extends BaseDBTest {
     }
 
     session.begin();
-    session.command("create vertex CreateVertexByContent content { \"message\": \"(:\"}").close();
+    session.execute("create vertex CreateVertexByContent content { \"message\": \"(:\"}").close();
     session
-        .command(
+        .execute(
             "create vertex CreateVertexByContent content { \"message\": \"\\\"‎ה, כן?...‎\\\"\"}")
         .close();
     session.commit();
@@ -82,9 +82,9 @@ public class SQLCreateVertexTest extends BaseDBTest {
     session = createSessionInstance();
 
     session.begin();
-    session.command("create vertex set script = true").close();
-    session.command("create vertex").close();
-    session.command("create vertex V").close();
+    session.execute("create vertex set script = true").close();
+    session.execute("create vertex").close();
+    session.execute("create vertex V").close();
     session.commit();
 
     // TODO complete this!

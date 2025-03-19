@@ -15,7 +15,6 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
@@ -58,7 +57,7 @@ public class DbImportStreamExportTest extends BaseDBTest implements CommandOutpu
 
     final var database = acquireSession();
     // ADD A CUSTOM TO THE CLASS
-    database.command("alter class V custom onBeforeCreate=onBeforeCreateItem").close();
+    database.execute("alter class V custom onBeforeCreate=onBeforeCreateItem").close();
 
     final var export =
         new DatabaseExport(database, testPath + "/" + exportFilePath, this);

@@ -1425,7 +1425,7 @@ public abstract class SchemaClassImpl {
       return;
     }
 
-    session.command("alter cluster `" + oldName + "` NAME \"" + newName + "\"").close();
+    session.execute("alter cluster `" + oldName + "` NAME \"" + newName + "\"").close();
   }
 
   protected void onlyAddPolymorphicClusterId(int clusterId) {

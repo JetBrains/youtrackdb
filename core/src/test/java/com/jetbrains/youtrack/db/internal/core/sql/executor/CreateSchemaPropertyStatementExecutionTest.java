@@ -25,8 +25,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testBasicCreateProperty() throws Exception {
-    session.command("CREATE class testBasicCreateProperty").close();
-    session.command("CREATE property testBasicCreateProperty.name STRING").close();
+    session.execute("CREATE class testBasicCreateProperty").close();
+    session.execute("CREATE property testBasicCreateProperty.name STRING").close();
 
     var companyClass = session.getMetadata().getSchema().getClass("testBasicCreateProperty");
     var nameProperty = companyClass.getProperty(PROP_NAME);
@@ -41,8 +41,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testBasicUnsafeCreateProperty() throws Exception {
-    session.command("CREATE class testBasicUnsafeCreateProperty").close();
-    session.command("CREATE property testBasicUnsafeCreateProperty.name STRING UNSAFE").close();
+    session.execute("CREATE class testBasicUnsafeCreateProperty").close();
+    session.execute("CREATE property testBasicUnsafeCreateProperty.name STRING UNSAFE").close();
 
     var companyClass = session.getMetadata().getSchema()
         .getClass("testBasicUnsafeCreateProperty");
@@ -58,9 +58,9 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testCreatePropertyWithLinkedClass() throws Exception {
-    session.command("CREATE class testCreatePropertyWithLinkedClass_1").close();
-    session.command("CREATE class testCreatePropertyWithLinkedClass_2").close();
-    session.command(
+    session.execute("CREATE class testCreatePropertyWithLinkedClass_1").close();
+    session.execute("CREATE class testCreatePropertyWithLinkedClass_2").close();
+    session.execute(
             "CREATE property testCreatePropertyWithLinkedClass_2.division LINK"
                 + " testCreatePropertyWithLinkedClass_1")
         .close();
@@ -82,8 +82,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testCreatePropertyWithEmbeddedType() throws Exception {
-    session.command("CREATE Class testCreatePropertyWithEmbeddedType").close();
-    session.command(
+    session.execute("CREATE Class testCreatePropertyWithEmbeddedType").close();
+    session.execute(
             "CREATE Property testCreatePropertyWithEmbeddedType.officers EMBEDDEDLIST STRING")
         .close();
 
@@ -102,8 +102,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testCreateMandatoryProperty() throws Exception {
-    session.command("CREATE class testCreateMandatoryProperty").close();
-    session.command("CREATE property testCreateMandatoryProperty.name STRING (MANDATORY)").close();
+    session.execute("CREATE class testCreateMandatoryProperty").close();
+    session.execute("CREATE property testCreateMandatoryProperty.name STRING (MANDATORY)").close();
 
     var companyClass = session.getMetadata().getSchema().getClass("testCreateMandatoryProperty");
     var nameProperty = companyClass.getProperty(PROP_NAME);
@@ -117,8 +117,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testCreateNotNullProperty() throws Exception {
-    session.command("CREATE class testCreateNotNullProperty").close();
-    session.command("CREATE property testCreateNotNullProperty.name STRING (NOTNULL)").close();
+    session.execute("CREATE class testCreateNotNullProperty").close();
+    session.execute("CREATE property testCreateNotNullProperty.name STRING (NOTNULL)").close();
 
     var companyClass = session.getMetadata().getSchema().getClass("testCreateNotNullProperty");
     var nameProperty = companyClass.getProperty(PROP_NAME);
@@ -132,8 +132,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testCreateReadOnlyProperty() throws Exception {
-    session.command("CREATE class testCreateReadOnlyProperty").close();
-    session.command("CREATE property testCreateReadOnlyProperty.name STRING (READONLY)").close();
+    session.execute("CREATE class testCreateReadOnlyProperty").close();
+    session.execute("CREATE property testCreateReadOnlyProperty.name STRING (READONLY)").close();
 
     var companyClass = session.getMetadata().getSchema().getClass("testCreateReadOnlyProperty");
     var nameProperty = companyClass.getProperty(PROP_NAME);
@@ -147,8 +147,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testCreateReadOnlyFalseProperty() throws Exception {
-    session.command("CREATE class testCreateReadOnlyFalseProperty").close();
-    session.command("CREATE property testCreateReadOnlyFalseProperty.name STRING (READONLY false)")
+    session.execute("CREATE class testCreateReadOnlyFalseProperty").close();
+    session.execute("CREATE property testCreateReadOnlyFalseProperty.name STRING (READONLY false)")
         .close();
 
     var companyClass = session.getMetadata().getSchema()
@@ -162,8 +162,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testCreateMandatoryPropertyWithEmbeddedType() throws Exception {
-    session.command("CREATE Class testCreateMandatoryPropertyWithEmbeddedType").close();
-    session.command(
+    session.execute("CREATE Class testCreateMandatoryPropertyWithEmbeddedType").close();
+    session.execute(
             "CREATE Property testCreateMandatoryPropertyWithEmbeddedType.officers EMBEDDEDLIST"
                 + " STRING (MANDATORY)")
         .close();
@@ -184,8 +184,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testCreateUnsafePropertyWithEmbeddedType() throws Exception {
-    session.command("CREATE Class testCreateUnsafePropertyWithEmbeddedType").close();
-    session.command(
+    session.execute("CREATE Class testCreateUnsafePropertyWithEmbeddedType").close();
+    session.execute(
             "CREATE Property testCreateUnsafePropertyWithEmbeddedType.officers EMBEDDEDLIST STRING"
                 + " UNSAFE")
         .close();
@@ -203,8 +203,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testComplexCreateProperty() throws Exception {
-    session.command("CREATE Class testComplexCreateProperty").close();
-    session.command(
+    session.execute("CREATE Class testComplexCreateProperty").close();
+    session.execute(
             "CREATE Property testComplexCreateProperty.officers EMBEDDEDLIST STRING (MANDATORY,"
                 + " READONLY, NOTNULL) UNSAFE")
         .close();
@@ -223,8 +223,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testLinkedTypeDefaultAndMinMaxUnsafeProperty() throws Exception {
-    session.command("CREATE CLASS testLinkedTypeDefaultAndMinMaxUnsafeProperty").close();
-    session.command(
+    session.execute("CREATE CLASS testLinkedTypeDefaultAndMinMaxUnsafeProperty").close();
+    session.execute(
             "CREATE PROPERTY testLinkedTypeDefaultAndMinMaxUnsafeProperty.id EMBEDDEDLIST Integer"
                 + " (DEFAULT 5, MIN 1, MAX 10) UNSAFE")
         .close();
@@ -248,8 +248,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testDefaultAndMinMaxUnsafeProperty() throws Exception {
-    session.command("CREATE CLASS testDefaultAndMinMaxUnsafeProperty").close();
-    session.command(
+    session.execute("CREATE CLASS testDefaultAndMinMaxUnsafeProperty").close();
+    session.execute(
             "CREATE PROPERTY testDefaultAndMinMaxUnsafeProperty.id INTEGER (DEFAULT 5, MIN 1, MAX"
                 + " 10) UNSAFE")
         .close();
@@ -272,8 +272,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testExtraSpaces() throws Exception {
-    session.command("CREATE CLASS testExtraSpaces").close();
-    session.command(
+    session.execute("CREATE CLASS testExtraSpaces").close();
+    session.execute(
             "CREATE PROPERTY testExtraSpaces.id INTEGER  ( DEFAULT  5 ,  MANDATORY  )  UNSAFE ")
         .close();
 
@@ -290,8 +290,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
   @Test(expected = CommandExecutionException.class)
   public void testInvalidAttributeName() throws Exception {
-    session.command("CREATE CLASS CommandExecutionException").close();
-    session.command(
+    session.execute("CREATE CLASS CommandExecutionException").close();
+    session.execute(
             "CREATE PROPERTY CommandExecutionException.id INTEGER (MANDATORY, INVALID, NOTNULL) "
                 + " UNSAFE")
         .close();
@@ -299,16 +299,16 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
   @Test(expected = CommandExecutionException.class)
   public void testMissingAttributeValue() throws Exception {
-    session.command("CREATE CLASS testMissingAttributeValue").close();
-    session.command("CREATE PROPERTY testMissingAttributeValue.id INTEGER (DEFAULT)  UNSAFE")
+    session.execute("CREATE CLASS testMissingAttributeValue").close();
+    session.execute("CREATE PROPERTY testMissingAttributeValue.id INTEGER (DEFAULT)  UNSAFE")
         .close();
   }
 
   @Test
   public void testMandatoryAsLinkedName() throws Exception {
-    session.command("CREATE CLASS testMandatoryAsLinkedName").close();
-    session.command("CREATE CLASS testMandatoryAsLinkedName_2").close();
-    session.command(
+    session.execute("CREATE CLASS testMandatoryAsLinkedName").close();
+    session.execute("CREATE CLASS testMandatoryAsLinkedName_2").close();
+    session.execute(
             "CREATE PROPERTY testMandatoryAsLinkedName.id EMBEDDEDLIST testMandatoryAsLinkedName_2"
                 + " UNSAFE")
         .close();
@@ -327,8 +327,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testIfNotExists() throws Exception {
-    session.command("CREATE class testIfNotExists").close();
-    session.command("CREATE property testIfNotExists.name if not exists STRING").close();
+    session.execute("CREATE class testIfNotExists").close();
+    session.execute("CREATE property testIfNotExists.name if not exists STRING").close();
 
     var clazz = session.getMetadata().getSchema().getClass("testIfNotExists");
     var nameProperty = clazz.getProperty(PROP_NAME);
@@ -337,7 +337,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
     assertEquals("testIfNotExists.name", nameProperty.getFullName());
     assertEquals(PropertyType.STRING, nameProperty.getType());
 
-    session.command("CREATE property testIfNotExists.name if not exists STRING").close();
+    session.execute("CREATE property testIfNotExists.name if not exists STRING").close();
 
     clazz = session.getMetadata().getSchema().getClass("testIfNotExists");
     nameProperty = clazz.getProperty(PROP_NAME);

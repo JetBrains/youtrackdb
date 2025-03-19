@@ -35,30 +35,30 @@ public class LuceneMiscTest extends BaseLuceneTest {
   @Test
   public void testDoubleLucene() {
 
-    session.command("create class Test extends V").close();
-    session.command("create property Test.attr1 string").close();
-    session.command("create index Test.attr1 on Test (attr1) fulltext engine lucene").close();
-    session.command("create property Test.attr2 string").close();
-    session.command("create index Test.attr2 on Test (attr2) fulltext engine lucene").close();
+    session.execute("create class Test extends V").close();
+    session.execute("create property Test.attr1 string").close();
+    session.execute("create index Test.attr1 on Test (attr1) fulltext engine lucene").close();
+    session.execute("create property Test.attr2 string").close();
+    session.execute("create index Test.attr2 on Test (attr2) fulltext engine lucene").close();
 
     session.begin();
-    session.command("insert into Test set attr1='foo', attr2='bar'").close();
-    session.command("insert into Test set attr1='bar', attr2='foo'").close();
+    session.execute("insert into Test set attr1='foo', attr2='bar'").close();
+    session.execute("insert into Test set attr1='bar', attr2='foo'").close();
     session.commit();
 
     var results =
-        session.command("select from Test where attr1 lucene 'foo*' OR attr2 lucene 'foo*'");
+        session.execute("select from Test where attr1 lucene 'foo*' OR attr2 lucene 'foo*'");
     Assert.assertEquals(2, results.stream().count());
 
-    results = session.command("select from Test where attr1 lucene 'bar*' OR attr2 lucene 'bar*'");
+    results = session.execute("select from Test where attr1 lucene 'bar*' OR attr2 lucene 'bar*'");
 
     Assert.assertEquals(2, results.stream().count());
 
-    results = session.command("select from Test where attr1 lucene 'foo*' AND attr2 lucene 'bar*'");
+    results = session.execute("select from Test where attr1 lucene 'foo*' AND attr2 lucene 'bar*'");
 
     Assert.assertEquals(1, results.stream().count());
 
-    results = session.command("select from Test where attr1 lucene 'bar*' AND attr2 lucene 'foo*'");
+    results = session.execute("select from Test where attr1 lucene 'bar*' AND attr2 lucene 'foo*'");
 
     Assert.assertEquals(1, results.stream().count());
   }
@@ -66,14 +66,14 @@ public class LuceneMiscTest extends BaseLuceneTest {
   @Test
   public void testSubLucene() {
 
-    session.command("create class Person extends V").close();
+    session.execute("create class Person extends V").close();
 
-    session.command("create property Person.name string").close();
+    session.execute("create property Person.name string").close();
 
-    session.command("create index Person.name on Person (name) fulltext engine lucene").close();
+    session.execute("create index Person.name on Person (name) fulltext engine lucene").close();
 
     session.begin();
-    session.command("insert into Person set name='Enrico', age=18").close();
+    session.execute("insert into Person set name='Enrico', age=18").close();
     session.commit();
 
     var results =
@@ -92,14 +92,14 @@ public class LuceneMiscTest extends BaseLuceneTest {
   @Test
   public void testNamedParams() {
 
-    session.command("create class Test extends V").close();
+    session.execute("create class Test extends V").close();
 
-    session.command("create property Test.attr1 string").close();
+    session.execute("create property Test.attr1 string").close();
 
-    session.command("create index Test.attr1 on Test (attr1) fulltext engine lucene").close();
+    session.execute("create index Test.attr1 on Test (attr1) fulltext engine lucene").close();
 
     session.begin();
-    session.command("insert into Test set attr1='foo', attr2='bar'").close();
+    session.execute("insert into Test set attr1='foo', attr2='bar'").close();
     session.commit();
 
     Map params = new HashMap();
@@ -123,8 +123,8 @@ public class LuceneMiscTest extends BaseLuceneTest {
     var authorOf = schema.createClass("AuthorOf", e);
     authorOf.createProperty("in", PropertyType.LINK, song);
 
-    session.command("create index AuthorOf.in on AuthorOf (in) NOTUNIQUE").close();
-    session.command("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index AuthorOf.in on AuthorOf (in) NOTUNIQUE").close();
+    session.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE").close();
 
     var authorVertex = session.newVertex("Author");
     authorVertex.setProperty("name", "Bob Dylan");
@@ -157,19 +157,19 @@ public class LuceneMiscTest extends BaseLuceneTest {
   @Test
   public void testUnderscoreField() {
 
-    session.command("create class Test extends V").close();
+    session.execute("create class Test extends V").close();
 
-    session.command("create property V._attr1 string").close();
+    session.execute("create property V._attr1 string").close();
 
-    session.command("create index V._attr1 on V (_attr1) fulltext engine lucene").close();
+    session.execute("create index V._attr1 on V (_attr1) fulltext engine lucene").close();
 
     session.begin();
-    session.command("insert into Test set _attr1='anyPerson', attr2='bar'").close();
+    session.execute("insert into Test set _attr1='anyPerson', attr2='bar'").close();
     session.commit();
 
     Map params = new HashMap();
     params.put("name", "anyPerson");
-    var results = session.command("select from Test where _attr1 lucene :name", params);
+    var results = session.execute("select from Test where _attr1 lucene :name", params);
     Assert.assertEquals(results.stream().count(), 1);
   }
 }

@@ -34,13 +34,13 @@ public class LuceneDropClusterTest extends LuceneBaseTest {
     LogManager.instance().setConsoleLevel(Level.FINE.getName());
     var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
 
-    session.execute("sql", getScriptFromStream(stream));
+    session.runScript("sql", getScriptFromStream(stream));
 
-    session.command(
+    session.execute(
         "create index Song.title on Song (title) FULLTEXT ENGINE LUCENE METADATA {\"default\":\""
             + StandardAnalyzer.class.getName()
             + "\"}");
-    session.command(
+    session.execute(
         "create index Song.author on Song (author) FULLTEXT ENGINE LUCENE METADATA {\"default\":\""
             + StandardAnalyzer.class.getName()
             + "\"}");

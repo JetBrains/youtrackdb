@@ -14,7 +14,7 @@ public class SleepStatementExecutionTest extends DbTestBase {
   @Test
   public void testBasic() {
     var begin = System.currentTimeMillis();
-    var result = session.command("sleep 1000");
+    var result = session.execute("sleep 1000");
     Assert.assertTrue(System.currentTimeMillis() - begin >= 1000);
     printExecutionPlan(null, result);
     Assert.assertNotNull(result);

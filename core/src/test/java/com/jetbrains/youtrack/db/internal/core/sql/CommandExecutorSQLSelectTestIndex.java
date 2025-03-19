@@ -28,11 +28,11 @@ public class CommandExecutorSQLSelectTestIndex extends BaseMemoryInternalDatabas
   @Test
   public void testIndexSqlEmbeddedList() {
 
-    session.command("create class Foo").close();
-    session.command("create property Foo.bar EMBEDDEDLIST STRING").close();
-    session.command("create index Foo.bar on Foo (bar) NOTUNIQUE").close();
+    session.execute("create class Foo").close();
+    session.execute("create property Foo.bar EMBEDDEDLIST STRING").close();
+    session.execute("create index Foo.bar on Foo (bar) NOTUNIQUE").close();
     session.executeInTx(() -> {
-      session.command("insert into Foo set bar = ['yep']").close();
+      session.execute("insert into Foo set bar = ['yep']").close();
     });
     var results = session.query("select from Foo where bar = 'yep'");
     assertEquals(results.stream().count(), 1);
@@ -45,13 +45,13 @@ public class CommandExecutorSQLSelectTestIndex extends BaseMemoryInternalDatabas
   public void testIndexOnHierarchyChange() {
     // issue #5743
 
-    session.command("CREATE CLASS Main ABSTRACT").close();
-    session.command("CREATE PROPERTY Main.uuid String").close();
-    session.command("CREATE INDEX Main.uuid UNIQUE_HASH_INDEX").close();
-    session.command("CREATE CLASS Base EXTENDS Main ABSTRACT").close();
-    session.command("CREATE CLASS Derived EXTENDS Main").close();
-    session.command("INSERT INTO Derived SET uuid='abcdef'").close();
-    session.command("ALTER CLASS Derived SUPERCLASSES Base").close();
+    session.execute("CREATE CLASS Main ABSTRACT").close();
+    session.execute("CREATE PROPERTY Main.uuid String").close();
+    session.execute("CREATE INDEX Main.uuid UNIQUE_HASH_INDEX").close();
+    session.execute("CREATE CLASS Base EXTENDS Main ABSTRACT").close();
+    session.execute("CREATE CLASS Derived EXTENDS Main").close();
+    session.execute("INSERT INTO Derived SET uuid='abcdef'").close();
+    session.execute("ALTER CLASS Derived SUPERCLASSES Base").close();
 
     var results = session.query("SELECT * FROM Derived WHERE uuid='abcdef'");
     assertEquals(results.stream().count(), 1);
@@ -59,11 +59,11 @@ public class CommandExecutorSQLSelectTestIndex extends BaseMemoryInternalDatabas
 
   @Test
   public void testListContainsField() {
-    session.command("CREATE CLASS Foo").close();
-    session.command("CREATE PROPERTY Foo.name String").close();
+    session.execute("CREATE CLASS Foo").close();
+    session.execute("CREATE PROPERTY Foo.name String").close();
 
     session.executeInTx(() -> {
-      session.command("INSERT INTO Foo SET name = 'foo'").close();
+      session.execute("INSERT INTO Foo SET name = 'foo'").close();
     });
 
     var result = session.query("SELECT * FROM Foo WHERE ['foo', 'bar'] CONTAINS name");
@@ -72,7 +72,7 @@ public class CommandExecutorSQLSelectTestIndex extends BaseMemoryInternalDatabas
     result = session.query("SELECT * FROM Foo WHERE name IN ['foo', 'bar']");
     assertEquals(result.stream().count(), 1);
 
-    session.command("CREATE INDEX Foo.name UNIQUE_HASH_INDEX").close();
+    session.execute("CREATE INDEX Foo.name UNIQUE_HASH_INDEX").close();
 
     result = session.query("SELECT * FROM Foo WHERE ['foo', 'bar'] CONTAINS name");
     assertEquals(result.stream().count(), 1);

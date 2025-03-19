@@ -137,9 +137,9 @@ public class LiveQueryRemoteTest {
     Assert.assertNotNull(monitor);
 
     db.begin();
-    db.command("insert into test set name = 'foo', surname = 'bar'").close();
-    db.command("insert into test set name = 'foo', surname = 'baz'").close();
-    db.command("insert into test2 set name = 'foo'").close();
+    db.execute("insert into test set name = 'foo', surname = 'bar'").close();
+    db.execute("insert into test set name = 'foo', surname = 'baz'").close();
+    db.execute("insert into test2 set name = 'foo'").close();
     db.commit();
 
     Assert.assertTrue(listener.latch.await(1, TimeUnit.MINUTES));
@@ -148,9 +148,9 @@ public class LiveQueryRemoteTest {
     Assert.assertTrue(listener.ended.await(1, TimeUnit.MINUTES));
 
     db.begin();
-    db.command("insert into test set name = 'foo', surname = 'bax'");
-    db.command("insert into test2 set name = 'foo'");
-    db.command("insert into test set name = 'foo', surname = 'baz'");
+    db.execute("insert into test set name = 'foo', surname = 'bax'");
+    db.execute("insert into test2 set name = 'foo'");
+    db.execute("insert into test set name = 'foo', surname = 'baz'");
     db.commit();
 
     Assert.assertEquals(2, listener.ops.size());
@@ -227,9 +227,9 @@ public class LiveQueryRemoteTest {
     latch.await();
 
     query.close();
-    db.command("insert into test set name = 'foo', surname = 'bar'");
+    db.execute("insert into test set name = 'foo', surname = 'bar'");
 
-    db.command(
+    db.execute(
         "insert into test set name = 'foo', surname = 'bar', _allow=?",
         new ArrayList<Identifiable>() {
           {

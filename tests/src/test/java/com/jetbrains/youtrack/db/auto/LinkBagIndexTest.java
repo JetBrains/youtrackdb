@@ -54,7 +54,7 @@ public class LinkBagIndexTest extends BaseDBTest {
   @AfterMethod
   public void afterMethod() {
     session.begin();
-    session.command("DELETE FROM RidBagIndexTestClass").close();
+    session.execute("DELETE FROM RidBagIndexTestClass").close();
     session.commit();
 
     var result = session.query("select from RidBagIndexTestClass");
@@ -305,7 +305,7 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     session.begin();
     session
-        .command(
+        .execute(
             "UPDATE "
                 + document.getIdentity()
                 + " set ridBag = ridBag || "
@@ -525,7 +525,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     //noinspection deprecation
     session.begin();
     session
-        .command("UPDATE " + document.getIdentity() + " remove ridBag = " + docTwo.getIdentity())
+        .execute("UPDATE " + document.getIdentity() + " remove ridBag = " + docTwo.getIdentity())
         .close();
     session.commit();
 

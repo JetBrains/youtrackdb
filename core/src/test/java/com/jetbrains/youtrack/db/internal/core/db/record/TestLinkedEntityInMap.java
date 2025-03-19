@@ -13,7 +13,7 @@ public class TestLinkedEntityInMap extends DbTestBase {
   public void testLinkedValue() {
     session.getMetadata().getSchema().createClass("PersonTest");
     session.begin();
-    session.command("delete from PersonTest").close();
+    session.execute("delete from PersonTest").close();
     session.commit();
 
     session.begin();

@@ -47,21 +47,29 @@ public class ScriptDatabaseWrapper {
     return this.database.query(query, iParameters);
   }
 
-  public ResultSet command(final String iText, final Object... iParameters) {
-    return this.database.command(iText, iParameters);
+  public ResultSet execute(final String iText, final Object... iParameters) {
+    return this.database.execute(iText, iParameters);
   }
 
-  public ResultSet command(final String query, Map<String, Object> iParameters) {
-    return this.database.query(query, iParameters);
+  public ResultSet execute(final String query, Map<String, Object> iParameters) {
+    return this.database.execute(query, iParameters);
   }
 
-  public ResultSet execute(String language, final String script, final Object... iParameters) {
-    return this.database.execute(language, script, iParameters);
+  public void command(final String iText, final Object... iParameters) {
+    this.database.command(iText, iParameters);
   }
 
-  public ResultSet execute(String language, final String script,
+  public void command(final String query, Map<String, Object> iParameters) {
+    this.database.command(query, iParameters);
+  }
+
+  public ResultSet runScript(String language, final String script, final Object... iParameters) {
+    return this.database.runScript(language, script, iParameters);
+  }
+
+  public ResultSet runScript(String language, final String script,
       Map<String, Object> iParameters) {
-    return this.database.execute(language, script, iParameters);
+    return this.database.runScript(language, script, iParameters);
   }
 
   public Entity newInstance() {

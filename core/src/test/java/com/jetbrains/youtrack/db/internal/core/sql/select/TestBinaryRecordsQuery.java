@@ -50,7 +50,7 @@ public class TestBinaryRecordsQuery extends DbTestBase {
     session.commit();
 
     session.begin();
-    var res = session.command("delete from (select from ?)", rec.getIdentity());
+    var res = session.execute("delete from (select from ?)", rec.getIdentity());
     assertEquals(1, (long) res.next().getProperty("count"));
     try {
       session.load(rec.getIdentity());
@@ -76,7 +76,7 @@ public class TestBinaryRecordsQuery extends DbTestBase {
 
     session.begin();
     var res =
-        session.command(
+        session.execute(
             "delete from (select expand(ref) from ?)", doc.getIdentity());
 
     assertEquals(1, (long) res.next().getProperty("count"));
@@ -109,7 +109,7 @@ public class TestBinaryRecordsQuery extends DbTestBase {
     session.commit();
 
     session.begin();
-    var res = session.command("delete from (select expand(ref) from RecordPointer)");
+    var res = session.execute("delete from (select expand(ref) from RecordPointer)");
     assertEquals(2, (long) res.next().getProperty("count"));
     session.commit();
 

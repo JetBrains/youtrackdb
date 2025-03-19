@@ -58,8 +58,8 @@ public class MapIndexTest extends BaseDBTest {
   @AfterMethod
   public void afterMethod() throws Exception {
     session.begin();
-    session.command("delete from Mapper").close();
-    session.command("delete from MapIndexTestMovie").close();
+    session.execute("delete from Mapper").close();
+    session.execute("delete from MapIndexTestMovie").close();
     session.commit();
 
     super.afterMethod();
@@ -341,7 +341,7 @@ public class MapIndexTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session.command("UPDATE " + mapper.getIdentity() + " set intMap['key3'] = 30").close();
+    session.execute("UPDATE " + mapper.getIdentity() + " set intMap['key3'] = 30").close();
     session.commit();
 
     var keyIndex = getIndex("mapIndexTestKey");
@@ -497,7 +497,7 @@ public class MapIndexTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session.command("UPDATE " + mapper.getIdentity() + " set intMap['key2'] = 40").close();
+    session.execute("UPDATE " + mapper.getIdentity() + " set intMap['key2'] = 40").close();
     session.commit();
 
     var keyIndex = getIndex("mapIndexTestKey");
@@ -655,7 +655,7 @@ public class MapIndexTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session.command("UPDATE " + mapper.getIdentity() + " remove intMap = 'key2'").close();
+    session.execute("UPDATE " + mapper.getIdentity() + " remove intMap = 'key2'").close();
     session.commit();
 
     var keyIndex = getIndex("mapIndexTestKey");

@@ -12,7 +12,7 @@ public class SQLAlterClassTest extends DbTestBase {
     session.getMetadata().getSchema().createClass("TestClass");
 
     try {
-      session.command("alter class TestClass name = 'test_class'").close();
+      session.execute("alter class TestClass name = 'test_class'").close();
       Assert.fail("the rename should fail for wrong syntax");
     } catch (CommandSQLParsingException ex) {
 
@@ -23,9 +23,9 @@ public class SQLAlterClassTest extends DbTestBase {
   @Test
   public void testQuoted() {
     try {
-      session.command("create class `Client-Type`").close();
+      session.execute("create class `Client-Type`").close();
       session.begin();
-      session.command("insert into `Client-Type` set foo = 'bar'").close();
+      session.execute("insert into `Client-Type` set foo = 'bar'").close();
       session.commit();
 
       var result = session.query("Select from `Client-Type`");

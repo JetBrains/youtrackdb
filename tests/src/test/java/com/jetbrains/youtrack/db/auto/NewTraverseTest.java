@@ -236,7 +236,7 @@ public class NewTraverseTest extends BaseDBTest {
   @Test
   public void traverseAPISelectAndTraverseNested() {
     var result1 =
-        session.command(
+        session.execute(
             "traverse * from ( select from ( traverse * from "
                 + tomCruise.getIdentity()
                 + " while $depth <= 2 ) where @class = 'Movie' )");
@@ -267,7 +267,7 @@ public class NewTraverseTest extends BaseDBTest {
   @Test
   public void traverseAPISelectAndTraverseNestedBreadthFirst() {
     var result1 =
-        session.command(
+        session.execute(
             "traverse * from ( select from ( traverse * from "
                 + tomCruise.getIdentity()
                 + " while $depth <= 2 strategy breadth_first ) where @class = 'Movie' )");

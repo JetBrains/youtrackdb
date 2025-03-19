@@ -84,14 +84,14 @@ public class LiveQueryTest extends BaseDBTest implements CommandOutputListener {
     int token = tokenDoc.getProperty("token");
     Assert.assertNotNull(token);
 
-    session.command("insert into " + className1 + " set name = 'foo', surname = 'bar'").close();
-    session.command("insert into  " + className1 + " set name = 'foo', surname = 'baz'").close();
+    session.execute("insert into " + className1 + " set name = 'foo', surname = 'bar'").close();
+    session.execute("insert into  " + className1 + " set name = 'foo', surname = 'baz'").close();
     /// TODO check
-    session.command("insert into " + className2 + " set name = 'foo'").close();
+    session.execute("insert into " + className2 + " set name = 'foo'").close();
     latch.await(1, TimeUnit.MINUTES);
 
-    session.command("live unsubscribe " + token).close();
-    session.command("insert into " + className1 + " set name = 'foo', surname = 'bax'").close();
+    session.execute("live unsubscribe " + token).close();
+    session.execute("insert into " + className1 + " set name = 'foo', surname = 'bax'").close();
     Assert.assertEquals(listener.ops.size(), 2);
     for (var doc : listener.ops) {
       Assert.assertEquals(doc.type, RecordOperation.CREATED);

@@ -52,7 +52,7 @@ public class LinkMapIndexTest extends BaseDBTest {
   @AfterMethod
   public void afterMethod() throws Exception {
     session.begin();
-    session.command("delete from LinkMapIndexTestClass").close();
+    session.execute("delete from LinkMapIndexTestClass").close();
     session.commit();
 
     super.afterMethod();
@@ -366,7 +366,7 @@ public class LinkMapIndexTest extends BaseDBTest {
 
     session.begin();
     session
-        .command(
+        .execute(
             "UPDATE " + document.getIdentity() + " set linkMap['key3'] = " + docThree.getIdentity())
         .close();
     session.commit();
@@ -549,7 +549,7 @@ public class LinkMapIndexTest extends BaseDBTest {
 
     session.begin();
     session
-        .command(
+        .execute(
             "UPDATE " + document.getIdentity() + " set linkMap['key2'] = " + docThree.getIdentity())
         .close();
     session.commit();
@@ -730,7 +730,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session.command("UPDATE " + document.getIdentity() + " remove linkMap = 'key2'").close();
+    session.execute("UPDATE " + document.getIdentity() + " remove linkMap = 'key2'").close();
     session.commit();
 
     final var keyIndexMap = getIndex("mapIndexTestKey");

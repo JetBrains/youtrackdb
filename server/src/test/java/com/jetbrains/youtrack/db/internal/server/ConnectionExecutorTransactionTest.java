@@ -327,7 +327,7 @@ public class ConnectionExecutorTransactionTest {
     assertTrue(response instanceof BeginTransactionResponse);
 
     var results =
-        db.command("insert into test set name = 'update'").stream()
+        db.execute("insert into test set name = 'update'").stream()
             .collect(Collectors.toList());
 
     assertEquals(1, results.size());

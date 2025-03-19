@@ -39,11 +39,11 @@ public class LuceneMultiFieldTest extends BaseLuceneTest {
   public void init() throws Exception {
     try (var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql")) {
       //noinspection deprecation
-      session.execute("sql", getScriptFromStream(stream)).close();
+      session.runScript("sql", getScriptFromStream(stream)).close();
     }
 
     //noinspection deprecation
-    session.command(
+    session.execute(
             "create index Song.title_author on Song (title,author) FULLTEXT ENGINE LUCENE METADATA"
                 + " {\"title_index\":\""
                 + EnglishAnalyzer.class.getName()
@@ -134,7 +134,7 @@ public class LuceneMultiFieldTest extends BaseLuceneTest {
             insert into Item set Title = 'test', content = 'this is a test';
             commit;
             """;
-    session.execute("sql", script).close();
+    session.runScript("sql", script).close();
 
     var docs = session.query("select * from Item where Title lucene 'te*'");
     assertThat(docs).hasSize(1);

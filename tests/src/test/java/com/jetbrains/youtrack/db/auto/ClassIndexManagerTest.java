@@ -127,15 +127,15 @@ public class ClassIndexManagerTest extends BaseDBTest {
   @AfterMethod
   public void afterMethod() throws Exception {
     session.begin();
-    session.command("delete from classIndexManagerTestClass").close();
+    session.execute("delete from classIndexManagerTestClass").close();
     session.commit();
 
     session.begin();
-    session.command("delete from classIndexManagerTestClassTwo").close();
+    session.execute("delete from classIndexManagerTestClassTwo").close();
     session.commit();
 
     session.begin();
-    session.command("delete from classIndexManagerTestSuperClass").close();
+    session.execute("delete from classIndexManagerTestSuperClass").close();
     session.commit();
 
     if (!session.getStorage().isRemote()) {

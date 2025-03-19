@@ -288,12 +288,12 @@ public class IndexTxAwareOneValueGetTest extends BaseDBTest {
 
   public void testInsertionDeletionInsideTx() {
     final var className = "_" + IndexTxAwareOneValueGetTest.class.getSimpleName();
-    session.command("create class " + className + " extends V").close();
-    session.command("create property " + className + ".name STRING").close();
-    session.command("CREATE INDEX " + className + ".name UNIQUE").close();
+    session.execute("create class " + className + " extends V").close();
+    session.execute("create property " + className + ".name STRING").close();
+    session.execute("CREATE INDEX " + className + ".name UNIQUE").close();
 
     session
-        .execute(
+        .runScript(
             "SQL",
             "begin;\n"
                 + "insert into "

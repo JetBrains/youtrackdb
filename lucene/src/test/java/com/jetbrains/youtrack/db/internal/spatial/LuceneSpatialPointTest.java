@@ -45,9 +45,9 @@ public class LuceneSpatialPointTest extends BaseSpatialLuceneTest {
     place.createProperty("longitude", PropertyType.DOUBLE);
     place.createProperty("name", PropertyType.STRING);
 
-    session.command("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
+    session.execute("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
 
-    session.command("CREATE INDEX Place.l_lon ON Place(latitude,longitude) SPATIAL ENGINE LUCENE")
+    session.execute("CREATE INDEX Place.l_lon ON Place(latitude,longitude) SPATIAL ENGINE LUCENE")
         .close();
 
     var rome = newCity(session, "Rome", 12.5, 41.9);
@@ -62,7 +62,7 @@ public class LuceneSpatialPointTest extends BaseSpatialLuceneTest {
     session.commit();
 
     session.begin();
-    session.command(
+    session.execute(
             "insert into City set name = 'TestInsert' , location = ST_GeomFromText('" + PWKT + "')")
         .close();
     session.commit();
@@ -71,7 +71,7 @@ public class LuceneSpatialPointTest extends BaseSpatialLuceneTest {
   @Test
   public void testPointWithoutIndex() {
 
-    session.command("Drop INDEX City.location").close();
+    session.execute("Drop INDEX City.location").close();
     queryPoint();
   }
 

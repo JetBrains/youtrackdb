@@ -20,7 +20,7 @@ public class AlterRoleStatementExecutionTest extends DbTestBase {
     policy.setActive(session, true);
     policy.setReadRule(session, "name = 'foo'");
     security.saveSecurityPolicy(session, policy);
-    session.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person").close();
+    session.execute("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person").close();
     session.commit();
 
     session.begin();
@@ -56,7 +56,7 @@ public class AlterRoleStatementExecutionTest extends DbTestBase {
             .get("database.class.Person")
             .getName(session));
 
-    session.command("ALTER ROLE reader REMOVE POLICY ON database.class.Person").close();
+    session.execute("ALTER ROLE reader REMOVE POLICY ON database.class.Person").close();
     session.commit();
     session.begin();
 

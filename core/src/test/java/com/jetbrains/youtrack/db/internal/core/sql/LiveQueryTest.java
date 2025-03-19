@@ -130,9 +130,9 @@ public class LiveQueryTest {
     Assert.assertNotNull(token);
 
     session.begin();
-    session.command("insert into test set name = 'foo', surname = 'bar'").close();
-    session.command("insert into test set name = 'foo', surname = 'baz'").close();
-    session.command("insert into test2 set name = 'foo'").close();
+    session.execute("insert into test set name = 'foo', surname = 'bar'").close();
+    session.execute("insert into test set name = 'foo', surname = 'baz'").close();
+    session.execute("insert into test2 set name = 'foo'").close();
     session.commit();
 
     Assert.assertTrue(listener.latch.await(1, TimeUnit.MINUTES));
@@ -140,9 +140,9 @@ public class LiveQueryTest {
     tokens.unSubscribe();
 
     session.begin();
-    session.command("insert into test set name = 'foo', surname = 'bax'").close();
-    session.command("insert into test2 set name = 'foo'").close();
-    session.command("insert into test set name = 'foo', surname = 'baz'").close();
+    session.execute("insert into test set name = 'foo', surname = 'bax'").close();
+    session.execute("insert into test2 set name = 'foo'").close();
+    session.execute("insert into test set name = 'foo', surname = 'baz'").close();
     session.commit();
 
     Assert.assertEquals(2, listener.created.size());
@@ -220,13 +220,13 @@ public class LiveQueryTest {
     latch.await();
 
     session.begin();
-    session.command("insert into test set name = 'foo', surname = 'bar'").close();
+    session.execute("insert into test set name = 'foo', surname = 'bar'").close();
 
 
     final var allow = session.newLinkList();
     allow.add(current);
     allow.add(reader);
-    session.command(
+    session.execute(
             "insert into test set name = 'foo', surname = 'bar', _allow=?",
             allow)
         .close();

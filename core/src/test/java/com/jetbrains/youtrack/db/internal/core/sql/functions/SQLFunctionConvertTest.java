@@ -16,16 +16,16 @@ public class SQLFunctionConvertTest extends DbTestBase {
 
   @Test
   public void testSQLConversions() {
-    session.command("create class TestConversion").close();
+    session.execute("create class TestConversion").close();
 
     session.begin();
-    session.command("insert into TestConversion set string = 'Jay', date = sysdate(), number = 33")
+    session.execute("insert into TestConversion set string = 'Jay', date = sysdate(), number = 33")
         .close();
     session.commit();
 
     session.begin();
     var doc = session.query("select from TestConversion limit 1").next().getIdentity();
-    session.command("update TestConversion set selfrid = 'foo" + doc.getIdentity() + "'").close();
+    session.execute("update TestConversion set selfrid = 'foo" + doc.getIdentity() + "'").close();
     session.commit();
 
     session.begin();

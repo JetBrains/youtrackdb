@@ -625,7 +625,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   @Override
-  public ResultSet command(String query, Object[] args) {
+  public ResultSet execute(String query, Object[] args) {
     checkOpenness();
     assert assertIfNotActive();
 
@@ -656,7 +656,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   @Override
-  public ResultSet command(String query, Map args) {
+  public ResultSet execute(String query, Map args) {
     checkOpenness();
     assert assertIfNotActive();
 
@@ -690,7 +690,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   @Override
-  public ResultSet execute(String language, String script, Object... args) {
+  public ResultSet runScript(String language, String script, Object... args) {
     checkOpenness();
     assert assertIfNotActive();
     if (!"sql".equalsIgnoreCase(language)) {
@@ -744,7 +744,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   @Override
-  public ResultSet execute(String language, String script, Map<String, ?> args) {
+  public ResultSet runScript(String language, String script, Map<String, ?> args) {
     checkOpenness();
     assert assertIfNotActive();
     if (!"sql".equalsIgnoreCase(language)) {

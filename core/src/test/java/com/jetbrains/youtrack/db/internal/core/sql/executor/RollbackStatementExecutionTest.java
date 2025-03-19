@@ -18,7 +18,7 @@ public class RollbackStatementExecutionTest extends DbTestBase {
     session.begin();
     Assert.assertFalse(
         session.getTransactionInternal() == null || !session.getTransactionInternal().isActive());
-    var result = session.command("rollback");
+    var result = session.execute("rollback");
     printExecutionPlan(null, result);
     Assert.assertNotNull(result);
     Assert.assertTrue(result.hasNext());

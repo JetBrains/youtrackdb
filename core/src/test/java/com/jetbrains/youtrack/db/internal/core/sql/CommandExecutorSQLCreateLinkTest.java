@@ -36,13 +36,13 @@ public class CommandExecutorSQLCreateLinkTest extends DbTestBase {
     basic2.createProperty("theLink", PropertyType.LINK);
 
     session.begin();
-    session.command("insert into Basic1 set pk = 'pkb1_1', fk = 'pkb2_1'").close();
-    session.command("insert into Basic1 set pk = 'pkb1_2', fk = 'pkb2_2'").close();
+    session.execute("insert into Basic1 set pk = 'pkb1_1', fk = 'pkb2_1'").close();
+    session.execute("insert into Basic1 set pk = 'pkb1_2', fk = 'pkb2_2'").close();
 
-    session.command("insert into Basic2 set pk = 'pkb2_1'").close();
-    session.command("insert into Basic2 set pk = 'pkb2_2'").close();
+    session.execute("insert into Basic2 set pk = 'pkb2_1'").close();
+    session.execute("insert into Basic2 set pk = 'pkb2_2'").close();
 
-    session.command("CREATE LINK theLink type link FROM Basic1.fk TO Basic2.pk ").close();
+    session.execute("CREATE LINK theLink type link FROM Basic1.fk TO Basic2.pk ").close();
     session.commit();
 
     var result = session.query("select pk, theLink.pk as other from Basic1 order by pk");
@@ -65,14 +65,14 @@ public class CommandExecutorSQLCreateLinkTest extends DbTestBase {
     inverse2.createProperty("theLink", PropertyType.LINKSET);
 
     session.begin();
-    session.command("insert into Inverse1 set pk = 'pkb1_1', fk = 'pkb2_1'").close();
-    session.command("insert into Inverse1 set pk = 'pkb1_2', fk = 'pkb2_2'").close();
-    session.command("insert into Inverse1 set pk = 'pkb1_3', fk = 'pkb2_2'").close();
+    session.execute("insert into Inverse1 set pk = 'pkb1_1', fk = 'pkb2_1'").close();
+    session.execute("insert into Inverse1 set pk = 'pkb1_2', fk = 'pkb2_2'").close();
+    session.execute("insert into Inverse1 set pk = 'pkb1_3', fk = 'pkb2_2'").close();
 
-    session.command("insert into Inverse2 set pk = 'pkb2_1'").close();
-    session.command("insert into Inverse2 set pk = 'pkb2_2'").close();
+    session.execute("insert into Inverse2 set pk = 'pkb2_1'").close();
+    session.execute("insert into Inverse2 set pk = 'pkb2_2'").close();
 
-    session.command("CREATE LINK theLink TYPE LINKSET FROM Inverse1.fk TO Inverse2.pk INVERSE")
+    session.execute("CREATE LINK theLink TYPE LINKSET FROM Inverse1.fk TO Inverse2.pk INVERSE")
         .close();
     session.commit();
 

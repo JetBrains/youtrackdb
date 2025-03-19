@@ -33,7 +33,7 @@ public class LuceneGraphTXTest extends BaseLuceneTest {
     var type = session.createVertexClass("City");
     type.createProperty("name", PropertyType.STRING);
 
-    session.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE").close();
   }
 
   @Test
@@ -46,7 +46,7 @@ public class LuceneGraphTXTest extends BaseLuceneTest {
     session.commit();
 
     session.begin();
-    var results = session.command("select from City where name lucene 'London'");
+    var results = session.execute("select from City where name lucene 'London'");
     Assert.assertEquals(results.stream().count(), 1);
 
     v = session.bindToSession(v);
@@ -54,16 +54,16 @@ public class LuceneGraphTXTest extends BaseLuceneTest {
 
     session.commit();
 
-    results = session.command("select from City where name lucene 'Berlin'");
+    results = session.execute("select from City where name lucene 'Berlin'");
     Assert.assertEquals(results.stream().count(), 1);
 
-    results = session.command("select from City where name lucene 'London'");
+    results = session.execute("select from City where name lucene 'London'");
     Assert.assertEquals(results.stream().count(), 0);
 
     // Assert After Commit
-    results = session.command("select from City where name lucene 'Berlin'");
+    results = session.execute("select from City where name lucene 'Berlin'");
     Assert.assertEquals(results.stream().count(), 1);
-    results = session.command("select from City where name lucene 'London'");
+    results = session.execute("select from City where name lucene 'London'");
     Assert.assertEquals(results.stream().count(), 0);
   }
 }

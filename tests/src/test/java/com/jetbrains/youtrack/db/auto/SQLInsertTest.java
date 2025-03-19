@@ -80,7 +80,7 @@ public class SQLInsertTest extends BaseDBTest {
     session.begin();
     var doc =
         session
-            .command(
+            .execute(
                 "insert into Profile (name, surname, salary, location, dummy) values"
                     + " ('Luca','Smith', 109.9, #"
                     + addressId
@@ -102,7 +102,7 @@ public class SQLInsertTest extends BaseDBTest {
     session.begin();
     doc =
         session
-            .command(
+            .execute(
                 "insert into Profile SET name = 'Luca', surname = 'Smith', salary = 109.9,"
                     + " location = #"
                     + addressId
@@ -133,7 +133,7 @@ public class SQLInsertTest extends BaseDBTest {
     session.begin();
     var doc =
         session
-            .command(
+            .execute(
                 "insert into Profile (name, surname, salary, location, dummy) values"
                     + " (?,?,?,?,?)",
                 "Marc",
@@ -160,7 +160,7 @@ public class SQLInsertTest extends BaseDBTest {
     session.begin();
     doc =
         session
-            .command(
+            .execute(
                 "insert into Profile SET name = ?, surname = ?, salary = ?, location = ?,"
                     + " dummy = ?",
                 "Marc",
@@ -189,7 +189,7 @@ public class SQLInsertTest extends BaseDBTest {
     session.begin();
     var doc =
         session
-            .command(
+            .execute(
                 "insert into O (equaledges, name, properties) values ('no',"
                     + " 'circle', {'round':'eeee', 'blaaa':'zigzag'} )")
             .next()
@@ -216,7 +216,7 @@ public class SQLInsertTest extends BaseDBTest {
     session.begin();
     doc =
         session
-            .command(
+            .execute(
                 "insert into O SET equaledges = 'no', name = 'circle',"
                     + " properties = {'round':'eeee', 'blaaa':'zigzag'} ")
             .next()
@@ -243,7 +243,7 @@ public class SQLInsertTest extends BaseDBTest {
     session.begin();
     var doc =
         session
-            .command(
+            .execute(
                 "insert into O (equaledges, name, list) values ('yes',"
                     + " 'square', ['bottom', 'top','left','right'] )")
             .next()
@@ -272,7 +272,7 @@ public class SQLInsertTest extends BaseDBTest {
     session.begin();
     doc =
         session
-            .command(
+            .execute(
                 "insert into O SET equaledges = 'yes', name = 'square', list"
                     + " = ['bottom', 'top','left','right'] ")
             .next()
@@ -299,7 +299,7 @@ public class SQLInsertTest extends BaseDBTest {
   public void insertWithNoSpaces() {
     session.begin();
     var res =
-        session.command("insert into O (id, title)values(10, 'NoSQL movement')");
+        session.execute("insert into O (id, title)values(10, 'NoSQL movement')");
     session.commit();
 
     Assert.assertTrue(res.hasNext());
@@ -313,7 +313,7 @@ public class SQLInsertTest extends BaseDBTest {
     }
 
     session.begin();
-    var doc = session.command("INSERT INTO test(text) VALUES ('(Hello World)')").next();
+    var doc = session.execute("INSERT INTO test(text) VALUES ('(Hello World)')").next();
     session.commit();
 
     Assert.assertNotNull(doc);
@@ -334,7 +334,7 @@ public class SQLInsertTest extends BaseDBTest {
     session.begin();
     var doc =
         session
-            .command("INSERT INTO test SET names = (select name from OUser)")
+            .execute("INSERT INTO test SET names = (select name from OUser)")
             .next()
             .asEntity();
     session.commit();
@@ -351,7 +351,7 @@ public class SQLInsertTest extends BaseDBTest {
     session.begin();
     var doc =
         session
-            .command(
+            .execute(
                 "insert into Account cluster anotherdefault (id, title) values (10, 'NoSQL"
                     + " movement')").stream().findFirst().orElseThrow().asEntityOrNull();
     session.commit();
@@ -369,7 +369,7 @@ public class SQLInsertTest extends BaseDBTest {
 
     session.begin();
     for (var i = 0; i < 30; i++) {
-      session.command("insert into O set name = 'foo" + i + "'");
+      session.execute("insert into O set name = 'foo" + i + "'");
     }
     session.commit();
 
@@ -378,7 +378,7 @@ public class SQLInsertTest extends BaseDBTest {
     session.begin();
     Identifiable result =
         session
-            .command(
+            .execute(
                 "  INSERT INTO Account SET id= 3232,name= 'my name',map="
                     + " {\"key\":\"value\"},dir= '',user= #3:"
                     + positions.getFirst())
@@ -400,12 +400,12 @@ public class SQLInsertTest extends BaseDBTest {
 
   @Test
   public void insertSelect() {
-    session.command("CREATE CLASS UserCopy").close();
+    session.execute("CREATE CLASS UserCopy").close();
 
     session.begin();
     var inserted =
         session
-            .command("INSERT INTO UserCopy FROM select from ouser where name <> 'admin' limit 2")
+            .execute("INSERT INTO UserCopy FROM select from ouser where name <> 'admin' limit 2")
             .stream()
             .count();
     session.commit();
@@ -425,11 +425,11 @@ public class SQLInsertTest extends BaseDBTest {
 
   @Test(expectedExceptions = ValidationException.class)
   public void insertSelectFromProjection() {
-    session.command("CREATE CLASS ProjectedInsert").close();
-    session.command("CREATE property ProjectedInsert.a Integer (max 3)").close();
+    session.execute("CREATE CLASS ProjectedInsert").close();
+    session.execute("CREATE property ProjectedInsert.a Integer (max 3)").close();
 
     session.begin();
-    session.command("INSERT INTO ProjectedInsert FROM select 10 as a ").close();
+    session.execute("INSERT INTO ProjectedInsert FROM select 10 as a ").close();
     session.commit();
   }
 
@@ -437,7 +437,7 @@ public class SQLInsertTest extends BaseDBTest {
   @Ignore
   public void insertWithReturn() {
     if (!session.getMetadata().getSchema().existsClass("actor2")) {
-      session.command("CREATE CLASS Actor2").close();
+      session.execute("CREATE CLASS Actor2").close();
     }
 
     // RETURN with $current.
@@ -449,13 +449,13 @@ public class SQLInsertTest extends BaseDBTest {
     Assert.assertEquals(doc.getSchemaClassName(), "Actor2");
     // RETURN with @rid
     try (var resultSet1 =
-        session.command("INSERT INTO Actor2 SET FirstName=\"Butch 1\" RETURN @rid")) {
+        session.execute("INSERT INTO Actor2 SET FirstName=\"Butch 1\" RETURN @rid")) {
       var res1 = resultSet1.next().getProperty("@rid");
       Assert.assertTrue(res1 instanceof RecordId);
       Assert.assertTrue(((RecordId) ((Identifiable) res1).getIdentity()).isValid());
       // Create many records and return @rid
       try (var resultSet2 =
-          session.command(
+          session.execute(
               "INSERT INTO Actor2(FirstName,LastName) VALUES"
                   + " ('Jay','Miner'),('Frank','Hermier'),('Emily','Saut')  RETURN @rid")) {
 
@@ -489,7 +489,7 @@ public class SQLInsertTest extends BaseDBTest {
         "let var1 = (INSERT INTO Actor2 CONTENT {Name:\"content\"} RETURN $current.@rid) "
             + "; let var2 = (UPDATE $var1 SET Bingo=1 RETURN AFTER @rid) "
             + " return $var2";
-    try (var resSql2ResultSet = session.command(sql2)) {
+    try (var resSql2ResultSet = session.execute(sql2)) {
       var res_sql2 = resSql2ResultSet.next().getProperty("$var2");
       Assert.assertTrue(res_sql2 instanceof RecordId);
 
@@ -499,7 +499,7 @@ public class SQLInsertTest extends BaseDBTest {
           "let var1 = (INSERT INTO Actor2 CONTENT {Name:\"Bingo owner\"} RETURN @this) "
               + "; let var2 = (UPDATE $var1 SET Bingo=1 RETURN AFTER) "
               + "return $var2";
-      try (var resSql3ResultSet = session.command(sql3)) {
+      try (var resSql3ResultSet = session.execute(sql3)) {
         var res_sql3 = resSql3ResultSet.next().<Identifiable>getProperty("$var2");
         final EntityImpl sql3doc = res_sql3.getRecord(session);
         Assert.assertEquals(sql3doc.<Object>getProperty("Bingo"), 1);
@@ -516,7 +516,7 @@ public class SQLInsertTest extends BaseDBTest {
     session.begin();
     var doc =
         session
-            .command(
+            .execute(
                 "INSERT INTO TestConvert SET name = 'embeddedSetNoLinkedClass',"
                     + " embeddedSetNoLinkedClass = [{'line1':'123 Fake Street'}]")
             .next()
@@ -543,7 +543,7 @@ public class SQLInsertTest extends BaseDBTest {
     session.begin();
     var doc =
         session
-            .command(
+            .execute(
                 "INSERT INTO TestConvert SET name = 'embeddedSetWithLinkedClass',"
                     + " embeddedSetWithLinkedClass = [{'line1':'123 Fake Street'}]")
             .next()
@@ -568,7 +568,7 @@ public class SQLInsertTest extends BaseDBTest {
     session.begin();
     var doc =
         session
-            .command(
+            .execute(
                 "INSERT INTO TestConvert SET name = 'embeddedListNoLinkedClass',"
                     + " embeddedListNoLinkedClass = [{'line1':'123 Fake Street'}]")
             .next()
@@ -597,7 +597,7 @@ public class SQLInsertTest extends BaseDBTest {
     session.begin();
     var doc =
         session
-            .command(
+            .execute(
                 "INSERT INTO TestConvert SET name = 'embeddedListWithLinkedClass',"
                     + " embeddedListWithLinkedClass = [{'line1':'123 Fake Street'}]")
             .next()
@@ -624,7 +624,7 @@ public class SQLInsertTest extends BaseDBTest {
     session.begin();
     var doc =
         session
-            .command(
+            .execute(
                 "INSERT INTO TestConvert SET name = 'embeddedMapNoLinkedClass',"
                     + " embeddedMapNoLinkedClass = {test:{'line1':'123 Fake Street'}}")
             .next()
@@ -651,7 +651,7 @@ public class SQLInsertTest extends BaseDBTest {
     session.begin();
     var doc =
         session
-            .command(
+            .execute(
                 "INSERT INTO TestConvert SET name = 'embeddedMapWithLinkedClass',"
                     + " embeddedMapWithLinkedClass = {test:{'line1':'123 Fake Street'}}")
             .next()
@@ -676,7 +676,7 @@ public class SQLInsertTest extends BaseDBTest {
     session.begin();
     var doc =
         session
-            .command(
+            .execute(
                 "INSERT INTO TestConvert SET name = 'embeddedNoLinkedClass',"
                     + " embeddedNoLinkedClass = {'line1':'123 Fake Street'}")
             .next()
@@ -693,7 +693,7 @@ public class SQLInsertTest extends BaseDBTest {
 
     session.begin();
     session
-        .command(
+        .execute(
             "insert into TestEmbeddedDates set events = [{\"on\": date(\"2005-09-08 04:00:00\","
                 + " \"yyyy-MM-dd HH:mm:ss\", \"UTC\")}]\n")
         .close();
@@ -734,7 +734,7 @@ public class SQLInsertTest extends BaseDBTest {
     session.begin();
     var doc =
         session
-            .command(
+            .execute(
                 "INSERT INTO TestConvert SET name = 'embeddedWithLinkedClass',"
                     + " embeddedWithLinkedClass = {'line1':'123 Fake Street'}")
             .next()
@@ -760,7 +760,7 @@ public class SQLInsertTest extends BaseDBTest {
     session.begin();
     var doc =
         session
-            .command(
+            .execute(
                 "INSERT INTO EmbeddedWithRecordAttributes SET `like` = { \n"
                     + "      count: 0, \n"
                     + "      latest: [], \n"
@@ -791,7 +791,7 @@ public class SQLInsertTest extends BaseDBTest {
     session.begin();
     var doc =
         session
-            .command(
+            .execute(
                 "INSERT INTO EmbeddedWithRecordAttributes2 SET `like` = { \n"
                     + "      count: 0, \n"
                     + "      latest: [], \n"
@@ -817,7 +817,7 @@ public class SQLInsertTest extends BaseDBTest {
 
     session.begin();
     session
-        .command("INSERT INTO InsertWithClusterAsFieldName ( `cluster` ) values ( 'foo' )")
+        .execute("INSERT INTO InsertWithClusterAsFieldName ( `cluster` ) values ( 'foo' )")
         .close();
     session.commit();
 
@@ -834,12 +834,12 @@ public class SQLInsertTest extends BaseDBTest {
     // issue #6670
     session.getMetadata().getSchema().getOrCreateClass("TestInsertEmbeddedBigDecimal");
     session
-        .command("create property TestInsertEmbeddedBigDecimal.ed embeddedlist decimal")
+        .execute("create property TestInsertEmbeddedBigDecimal.ed embeddedlist decimal")
         .close();
 
     session.begin();
     session
-        .command("INSERT INTO TestInsertEmbeddedBigDecimal CONTENT {\"ed\": [5,null,5]}")
+        .execute("INSERT INTO TestInsertEmbeddedBigDecimal CONTENT {\"ed\": [5,null,5]}")
         .close();
     session.commit();
 

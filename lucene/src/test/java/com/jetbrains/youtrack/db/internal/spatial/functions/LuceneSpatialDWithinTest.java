@@ -41,17 +41,17 @@ public class LuceneSpatialDWithinTest extends BaseSpatialLuceneTest {
   @Test
   public void testWithinIndex() {
 
-    session.command("create class Polygon extends v").close();
-    session.command("create property Polygon.geometry EMBEDDED OPolygon").close();
+    session.execute("create class Polygon extends v").close();
+    session.execute("create property Polygon.geometry EMBEDDED OPolygon").close();
 
     session.begin();
-    session.command(
+    session.execute(
             "insert into Polygon set geometry = ST_GeomFromText('POLYGON((0 0, 10 0, 10 5, 0 5, 0"
                 + " 0))')")
         .close();
     session.commit();
 
-    session.command("create index Polygon.g on Polygon (geometry) SPATIAL engine lucene").close();
+    session.execute("create index Polygon.g on Polygon (geometry) SPATIAL engine lucene").close();
 
     var execute =
         session.query(

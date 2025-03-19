@@ -72,7 +72,7 @@ public class LuceneSpatialFunctionAsTextTest extends BaseSpatialLuceneTest {
 
   protected void queryAndAssertGeom(String name, String wkt) {
     var results =
-        session.command("select *, ST_AsText(geometry) as text from Location where name = ? ",
+        session.execute("select *, ST_AsText(geometry) as text from Location where name = ? ",
             name);
 
     assertTrue(results.hasNext());

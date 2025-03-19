@@ -568,7 +568,7 @@ public class LuceneSortTest extends BaseLuceneTest {
     entity.setProperty("description", DESCRIPTION);
     session.commit();
 
-    session.command(
+    session.execute(
             "create index Person.description on Person(description) FULLTEXT ENGINE LUCENE METADATA"
                 + " { \"*_index_sorted\" : false }")
         .close();
@@ -588,7 +588,7 @@ public class LuceneSortTest extends BaseLuceneTest {
     entity.setProperty("description", DESCRIPTION);
     session.commit();
 
-    session.command(
+    session.execute(
             "create index Person.description on Person(description) FULLTEXT ENGINE LUCENE METADATA"
                 + " { \"description_index_sorted\" : false }")
         .close();

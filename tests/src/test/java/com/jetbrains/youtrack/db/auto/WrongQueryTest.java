@@ -29,7 +29,7 @@ public class WrongQueryTest extends BaseDBTest {
   }
 
   public void queryFieldOperatorNotSupported() {
-    try (var result = session.command(
+    try (var result = session.execute(
         "select * from Account where name.not() like 'G%'")) {
 
       Assert.fail();

@@ -1175,19 +1175,19 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     } else {
       if (QueryRequest.COMMAND == request.getOperationType()) {
         if (request.isNamedParams()) {
-          rs = database.command(request.getStatement(), request.getNamedParameters(database));
+          rs = database.execute(request.getStatement(), request.getNamedParameters(database));
         } else {
-          rs = database.command(request.getStatement(), request.getPositionalParameters(database));
+          rs = database.execute(request.getStatement(), request.getPositionalParameters(database));
         }
       } else {
         if (request.isNamedParams()) {
           rs =
-              database.execute(
+              database.runScript(
                   request.getLanguage(), request.getStatement(),
                   request.getNamedParameters(database));
         } else {
           rs =
-              database.execute(
+              database.runScript(
                   request.getLanguage(), request.getStatement(),
                   request.getPositionalParameters(database));
         }

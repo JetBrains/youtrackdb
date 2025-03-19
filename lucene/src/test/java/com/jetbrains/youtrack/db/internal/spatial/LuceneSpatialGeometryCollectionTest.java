@@ -27,11 +27,11 @@ public class LuceneSpatialGeometryCollectionTest extends BaseSpatialLuceneTest {
 
   @Before
   public void init() {
-    session.command("create class test").close();
-    session.command("create property test.name STRING").close();
-    session.command("create property test.geometry EMBEDDED OGeometryCollection").close();
+    session.execute("create class test").close();
+    session.execute("create property test.name STRING").close();
+    session.execute("create property test.geometry EMBEDDED OGeometryCollection").close();
 
-    session.command("create index test.geometry on test (geometry) SPATIAL engine lucene").close();
+    session.execute("create index test.geometry on test (geometry) SPATIAL engine lucene").close();
   }
 
   @Test
@@ -57,7 +57,7 @@ public class LuceneSpatialGeometryCollectionTest extends BaseSpatialLuceneTest {
     session.commit();
 
     var execute =
-        session.command(
+        session.execute(
             "SELECT from test where ST_Contains(geometry, ST_GeomFromText('POINT(1 1)')) = true");
 
     Assert.assertEquals(execute.stream().count(), 1);
@@ -86,7 +86,7 @@ public class LuceneSpatialGeometryCollectionTest extends BaseSpatialLuceneTest {
     session.commit();
 
     var execute =
-        session.command(
+        session.execute(
             "SELECT from test where ST_Contains(geometry, ST_GeomFromText('POINT(1 1)')) = true");
 
     Assert.assertEquals(execute.stream().count(), 1);

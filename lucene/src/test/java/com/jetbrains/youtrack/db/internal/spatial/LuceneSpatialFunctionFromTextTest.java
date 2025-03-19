@@ -40,7 +40,7 @@ public class LuceneSpatialFunctionFromTextTest extends BaseSpatialLuceneTest {
 
   protected void checkFromText(EntityImpl source, String query) {
 
-    var docs = session.command(query);
+    var docs = session.execute(query);
 
     assertTrue(docs.hasNext());
 
@@ -111,7 +111,7 @@ public class LuceneSpatialFunctionFromTextTest extends BaseSpatialLuceneTest {
 
   protected void checkFromCollectionText(EntityImpl source, String query) {
 
-    var docs = session.command(query);
+    var docs = session.execute(query);
 
     assertTrue(docs.hasNext());
     var geom = ((Result) docs.next().getProperty("geom")).asEntityOrNull();

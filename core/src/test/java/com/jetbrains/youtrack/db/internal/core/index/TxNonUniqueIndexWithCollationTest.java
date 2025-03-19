@@ -60,9 +60,9 @@ public class TxNonUniqueIndexWithCollationTest extends DbTestBase {
   public void testSubstrings() {
     session.begin();
 
-    session.command("update user set name='abd' where name='Aby'").close();
+    session.execute("update user set name='abd' where name='Aby'").close();
 
-    final var r = session.command("select * from user where name like '%B%' order by name");
+    final var r = session.execute("select * from user where name like '%B%' order by name");
     assertEquals("abc", r.next().getProperty("name"));
     assertEquals("abd", r.next().getProperty("name"));
     assertEquals("abd", r.next().getProperty("name"));
@@ -77,7 +77,7 @@ public class TxNonUniqueIndexWithCollationTest extends DbTestBase {
   public void testRange() {
     session.begin();
 
-    session.command("update user set name='Abd' where name='Aby'").close();
+    session.execute("update user set name='Abd' where name='Aby'").close();
 
     final var r = session.query("select * from user where name >= 'abd' order by name");
     assertEquals("Abd", r.next().getProperty("name"));
@@ -93,7 +93,7 @@ public class TxNonUniqueIndexWithCollationTest extends DbTestBase {
   public void testIn() {
     session.begin();
 
-    session.command("update user set name='abd' where name='Aby'").close();
+    session.execute("update user set name='abd' where name='Aby'").close();
 
     final var r =
         session.query("select * from user where name in ['Abc', 'Abd', 'Abz'] order by name")

@@ -81,7 +81,7 @@ public class UpdateStatementExecutionTest {
   @Test
   public void testSetString() {
     session.begin();
-    var result = session.command("update " + className + " set surname = 'foo'");
+    var result = session.execute("update " + className + " set surname = 'foo'");
     session.commit();
 
     printExecutionPlan(result);
@@ -109,7 +109,7 @@ public class UpdateStatementExecutionTest {
   @Test
   public void testCopyField() {
     session.begin();
-    var result = session.command("update " + className + " set surname = name");
+    var result = session.execute("update " + className + " set surname = name");
     session.commit();
 
     Assert.assertTrue(result.hasNext());
@@ -135,7 +135,7 @@ public class UpdateStatementExecutionTest {
   @Test
   public void testSetExpression() {
     session.begin();
-    var result = session.command("update " + className + " set surname = 'foo'+name ");
+    var result = session.execute("update " + className + " set surname = 'foo'+name ");
     session.commit();
 
     Assert.assertTrue(result.hasNext());
@@ -162,7 +162,7 @@ public class UpdateStatementExecutionTest {
   public void testConditionalSet() {
     session.begin();
     var result =
-        session.command("update " + className + " set surname = 'foo' where name = 'name3'");
+        session.execute("update " + className + " set surname = 'foo' where name = 'name3'");
     session.commit();
 
     Assert.assertTrue(result.hasNext());
@@ -194,7 +194,7 @@ public class UpdateStatementExecutionTest {
   public void testSetOnList() {
     session.begin();
     var result =
-        session.command("update " + className + " set tagsList[0] = 'abc' where name = 'name3'");
+        session.execute("update " + className + " set tagsList[0] = 'abc' where name = 'name3'");
     session.commit();
 
     printExecutionPlan(result);
@@ -231,7 +231,7 @@ public class UpdateStatementExecutionTest {
   public void testSetOnList2() {
     session.begin();
     var result =
-        session.command("update " + className + " set tagsList[6] = 'abc' where name = 'name3'");
+        session.execute("update " + className + " set tagsList[6] = 'abc' where name = 'name3'");
     session.commit();
 
     printExecutionPlan(result);
@@ -272,7 +272,7 @@ public class UpdateStatementExecutionTest {
   public void testSetOnMap() {
     session.begin();
     var result =
-        session.command("update " + className + " set tagsMap['foo'] = 'abc' where name = 'name3'");
+        session.execute("update " + className + " set tagsMap['foo'] = 'abc' where name = 'name3'");
     session.commit();
 
     Assert.assertTrue(result.hasNext());
@@ -314,7 +314,7 @@ public class UpdateStatementExecutionTest {
   public void testPlusAssign() {
     session.begin();
     var result =
-        session.command(
+        session.execute(
             "update " + className + " set name += 'foo', newField += 'bar', number += 5");
     session.commit();
 
@@ -345,7 +345,7 @@ public class UpdateStatementExecutionTest {
   @Test
   public void testMinusAssign() {
     session.begin();
-    var result = session.command("update " + className + " set number -= 5");
+    var result = session.execute("update " + className + " set number -= 5");
     session.commit();
 
     printExecutionPlan(result);
@@ -372,7 +372,7 @@ public class UpdateStatementExecutionTest {
   @Test
   public void testStarAssign() {
     session.begin();
-    var result = session.command("update " + className + " set number *= 5");
+    var result = session.execute("update " + className + " set number *= 5");
     session.commit();
 
     Assert.assertTrue(result.hasNext());
@@ -398,7 +398,7 @@ public class UpdateStatementExecutionTest {
   @Test
   public void testSlashAssign() {
     session.begin();
-    var result = session.command("update " + className + " set number /= 2");
+    var result = session.execute("update " + className + " set number /= 2");
     session.commit();
 
     Assert.assertTrue(result.hasNext());
@@ -434,7 +434,7 @@ public class UpdateStatementExecutionTest {
 
     result.close();
     session.begin();
-    result = session.command("update " + className + " remove surname");
+    result = session.execute("update " + className + " remove surname");
 
     for (var i = 0; i < 1; i++) {
       Assert.assertTrue(result.hasNext());
@@ -463,7 +463,7 @@ public class UpdateStatementExecutionTest {
 
     session.begin();
     var result =
-        session.command("update " + className + " content {'name': 'foo', 'secondName': 'bar'}");
+        session.execute("update " + className + " content {'name': 'foo', 'secondName': 'bar'}");
     session.commit();
 
     Assert.assertTrue(result.hasNext());
@@ -493,7 +493,7 @@ public class UpdateStatementExecutionTest {
 
     session.begin();
     var result =
-        session.command("update " + className + " merge {'name': 'foo', 'secondName': 'bar'}");
+        session.execute("update " + className + " merge {'name': 'foo', 'secondName': 'bar'}");
     session.commit();
 
     Assert.assertTrue(result.hasNext());
@@ -523,7 +523,7 @@ public class UpdateStatementExecutionTest {
 
     session.begin();
     var result =
-        session.command("update " + className + " set foo = 'bar' upsert where name = 'name1'");
+        session.execute("update " + className + " set foo = 'bar' upsert where name = 'name1'");
     session.commit();
 
     Assert.assertTrue(result.hasNext());
@@ -557,7 +557,7 @@ public class UpdateStatementExecutionTest {
 
     session.begin();
     var result =
-        session.command(
+        session.execute(
             "update " + className + " set foo = 'bar' upsert  return after  where name = 'name1' ");
     Assert.assertTrue(result.hasNext());
     var item = result.next();
@@ -572,7 +572,7 @@ public class UpdateStatementExecutionTest {
   public void testUpsert2() {
     session.begin();
     var result =
-        session.command("update " + className + " set foo = 'bar' upsert where name = 'name11'");
+        session.execute("update " + className + " set foo = 'bar' upsert where name = 'name11'");
     session.commit();
 
     Assert.assertTrue(result.hasNext());
@@ -620,7 +620,7 @@ public class UpdateStatementExecutionTest {
     session.commit();
 
     session.begin();
-    var result = session.command("update " + className + " remove theProperty[0]");
+    var result = session.execute("update " + className + " remove theProperty[0]");
     session.commit();
 
     printExecutionPlan(result);
@@ -661,7 +661,7 @@ public class UpdateStatementExecutionTest {
     session.commit();
 
     session.begin();
-    var result = session.command("update " + className + " remove theProperty[0, 1, 3]");
+    var result = session.execute("update " + className + " remove theProperty[0, 1, 3]");
     session.commit();
 
     printExecutionPlan(result);
@@ -707,7 +707,7 @@ public class UpdateStatementExecutionTest {
     session.commit();
 
     session.begin();
-    var result = session.command("update " + className + " remove theProperty.sub");
+    var result = session.execute("update " + className + " remove theProperty.sub");
     session.commit();
 
     printExecutionPlan(result);
@@ -735,7 +735,7 @@ public class UpdateStatementExecutionTest {
   public void testRemoveFromMapSquare() {
 
     session.begin();
-    session.command("UPDATE " + className + " REMOVE tagsMap[\"bar\"]").close();
+    session.execute("UPDATE " + className + " REMOVE tagsMap[\"bar\"]").close();
     session.commit();
 
     session.begin();
@@ -757,7 +757,7 @@ public class UpdateStatementExecutionTest {
   public void testRemoveFromMapEquals() {
 
     session.begin();
-    session.command("UPDATE " + className + " REMOVE tagsMap = \"bar\"").close();
+    session.execute("UPDATE " + className + " REMOVE tagsMap = \"bar\"").close();
     session.commit();
 
     session.begin();
@@ -786,7 +786,7 @@ public class UpdateStatementExecutionTest {
 
     session.begin();
     try (var result =
-        session.command(
+        session.execute(
             "update v set first='value' where @rid in (select @rid from [" + identity + "]) ")) {
 
       assertEquals((long) result.next().getProperty("count"), 1L);
@@ -795,7 +795,7 @@ public class UpdateStatementExecutionTest {
 
     session.begin();
     try (var result =
-        session.command(
+        session.execute(
             "update v set other='value' where @rid in (select * from [" + identity + "]) ")) {
       assertEquals((long) result.next().getProperty("count"), 1L);
     }

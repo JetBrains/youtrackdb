@@ -50,7 +50,7 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
 
   @AfterMethod
   public void afterMethod() throws Exception {
-    session.command("drop class DropPropertyIndexTestClass").close();
+    session.execute("drop class DropPropertyIndexTestClass").close();
 
     super.afterMethod();
   }
@@ -58,7 +58,7 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
   @Test
   public void testForcePropertyEnabled() throws Exception {
     session
-        .command(
+        .execute(
             "CREATE INDEX DropPropertyIndexCompositeIndex ON DropPropertyIndexTestClass (prop2,"
                 + " prop1) UNIQUE")
         .close();
@@ -71,7 +71,7 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
             .getClassIndex(session, "DropPropertyIndexCompositeIndex");
     Assert.assertNotNull(index);
 
-    session.command("DROP PROPERTY DropPropertyIndexTestClass.prop1 FORCE").close();
+    session.execute("DROP PROPERTY DropPropertyIndexTestClass.prop1 FORCE").close();
 
     index =
         session
@@ -86,7 +86,7 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
   @Test
   public void testForcePropertyEnabledBrokenCase() throws Exception {
     session
-        .command(
+        .execute(
             "CREATE INDEX DropPropertyIndexCompositeIndex ON DropPropertyIndexTestClass (prop2,"
                 + " prop1) UNIQUE")
         .close();
@@ -99,7 +99,7 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
             .getClassIndex(session, "DropPropertyIndexCompositeIndex");
     Assert.assertNotNull(index);
 
-    session.command("DROP PROPERTY DropPropertyIndextestclasS.prop1 FORCE").close();
+    session.execute("DROP PROPERTY DropPropertyIndextestclasS.prop1 FORCE").close();
 
     index =
         session
@@ -114,7 +114,7 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
   @Test
   public void testForcePropertyDisabled() throws Exception {
     session
-        .command(
+        .execute(
             "CREATE INDEX DropPropertyIndexCompositeIndex ON DropPropertyIndexTestClass (prop1,"
                 + " prop2) UNIQUE")
         .close();
@@ -128,7 +128,7 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
     Assert.assertNotNull(index);
 
     try {
-      session.command("DROP PROPERTY DropPropertyIndexTestClass.prop1").close();
+      session.execute("DROP PROPERTY DropPropertyIndexTestClass.prop1").close();
       Assert.fail();
     } catch (CommandExecutionException e) {
       Assert.assertTrue(
@@ -159,13 +159,13 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
   @Test
   public void testForcePropertyDisabledBrokenCase() throws Exception {
     session
-        .command(
+        .execute(
             "CREATE INDEX DropPropertyIndexCompositeIndex ON DropPropertyIndexTestClass (prop1,"
                 + " prop2) UNIQUE")
         .close();
 
     try {
-      session.command("DROP PROPERTY DropPropertyIndextestclass.prop1").close();
+      session.execute("DROP PROPERTY DropPropertyIndextestclass.prop1").close();
       Assert.fail();
     } catch (CommandExecutionException e) {
       Assert.assertTrue(

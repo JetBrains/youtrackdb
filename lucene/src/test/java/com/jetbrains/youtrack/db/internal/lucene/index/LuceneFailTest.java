@@ -1,6 +1,5 @@
 package com.jetbrains.youtrack.db.internal.lucene.index;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
@@ -29,8 +28,8 @@ public class LuceneFailTest {
   @Test
   public void test() {
     try (var session = odb.open("tdb", "admin", "admpwd")) {
-      session.command("create property V.text string").close();
-      session.command("create index lucene_index on V(text) FULLTEXT ENGINE LUCENE").close();
+      session.execute("create property V.text string").close();
+      session.execute("create index lucene_index on V(text) FULLTEXT ENGINE LUCENE").close();
       try {
         session.query("select from V where search_class('*this breaks') = true").close();
       } catch (Exception e) {

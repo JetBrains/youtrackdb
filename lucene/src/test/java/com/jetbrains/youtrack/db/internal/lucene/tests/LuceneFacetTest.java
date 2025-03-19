@@ -40,7 +40,7 @@ public class LuceneFacetTest extends LuceneBaseTest {
     oClass.createProperty("name", PropertyType.STRING);
     oClass.createProperty("category", PropertyType.STRING);
 
-    session.command(
+    session.execute(
             "create index Item.name_category on Item (name,category) FULLTEXT ENGINE LUCENE"
                 + " METADATA { 'facetFields' : ['category']}")
         .close();
@@ -69,7 +69,7 @@ public class LuceneFacetTest extends LuceneBaseTest {
   public void baseFacetTest() {
 
     var resultSet =
-        session.command("select *,$facet from Item where name lucene '(name:P*)' limit 1 ")
+        session.execute("select *,$facet from Item where name lucene '(name:P*)' limit 1 ")
             .toList();
 
     Assert.assertEquals(1, resultSet.size());
@@ -94,7 +94,7 @@ public class LuceneFacetTest extends LuceneBaseTest {
 
     resultSet =
         session
-            .command(
+            .execute(
                 "select *,$facet from Item where name lucene { 'q' : 'H*', 'drillDown' :"
                     + " 'category:Electronic' }  limit 1 ").toList();
 

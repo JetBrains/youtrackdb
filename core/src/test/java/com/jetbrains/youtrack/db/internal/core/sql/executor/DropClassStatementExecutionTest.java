@@ -19,7 +19,7 @@ public class DropClassStatementExecutionTest extends DbTestBase {
 
     Assert.assertNotNull(schema.getClass(className));
 
-    var result = session.command("drop class " + className);
+    var result = session.execute("drop class " + className);
     Assert.assertTrue(result.hasNext());
     var next = result.next();
     Assert.assertEquals("drop class", next.getProperty("operation"));
@@ -37,16 +37,16 @@ public class DropClassStatementExecutionTest extends DbTestBase {
     schema.createClass(className, v);
 
     session.begin();
-    session.command("insert into " + className + " set foo = 'bar'");
+    session.execute("insert into " + className + " set foo = 'bar'");
     session.commit();
     try {
-      session.command("drop class " + className).close();
+      session.execute("drop class " + className).close();
       Assert.fail();
     } catch (CommandExecutionException ex1) {
     } catch (Exception ex2) {
       Assert.fail();
     }
-    var result = session.command("drop class " + className + " unsafe");
+    var result = session.execute("drop class " + className + " unsafe");
     Assert.assertTrue(result.hasNext());
     var next = result.next();
     Assert.assertEquals("drop class", next.getProperty("operation"));
@@ -63,7 +63,7 @@ public class DropClassStatementExecutionTest extends DbTestBase {
 
     Assert.assertNotNull(schema.getClass(className));
 
-    var result = session.command("drop class " + className + " if exists");
+    var result = session.execute("drop class " + className + " if exists");
     Assert.assertTrue(result.hasNext());
     var next = result.next();
     Assert.assertEquals("drop class", next.getProperty("operation"));
@@ -71,7 +71,7 @@ public class DropClassStatementExecutionTest extends DbTestBase {
     result.close();
     Assert.assertNull(schema.getClass(className));
 
-    result = session.command("drop class " + className + " if exists");
+    result = session.execute("drop class " + className + " if exists");
     result.close();
     Assert.assertNull(schema.getClass(className));
   }
@@ -84,7 +84,7 @@ public class DropClassStatementExecutionTest extends DbTestBase {
 
     Assert.assertNotNull(schema.getClass(className));
 
-    var result = session.command("drop class ?", className);
+    var result = session.execute("drop class ?", className);
     Assert.assertTrue(result.hasNext());
     var next = result.next();
     Assert.assertEquals("drop class", next.getProperty("operation"));

@@ -59,10 +59,10 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
     }
 
     session.begin();
-    session.command("delete from PropertyIndexTestClass");
+    session.execute("delete from PropertyIndexTestClass");
     session.commit();
 
-    session.command("drop class PropertyIndexTestClass");
+    session.execute("drop class PropertyIndexTestClass");
 
     super.afterClass();
   }

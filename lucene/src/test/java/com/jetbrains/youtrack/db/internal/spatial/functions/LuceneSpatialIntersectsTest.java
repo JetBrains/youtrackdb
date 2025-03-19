@@ -44,17 +44,17 @@ public class LuceneSpatialIntersectsTest extends BaseSpatialLuceneTest {
   @Test
   public void testIntersectsIndex() {
 
-    session.command("create class Lines extends v").close();
-    session.command("create property Lines.geometry EMBEDDED OLINESTRING").close();
+    session.execute("create class Lines extends v").close();
+    session.execute("create property Lines.geometry EMBEDDED OLINESTRING").close();
 
     session.begin();
-    session.command("insert into Lines set geometry = ST_GeomFromText('LINESTRING ( 2 0, 0 2 )')")
+    session.execute("insert into Lines set geometry = ST_GeomFromText('LINESTRING ( 2 0, 0 2 )')")
         .close();
-    session.command("insert into Lines set geometry = ST_GeomFromText('LINESTRING ( 0 0, 0 2 )')")
+    session.execute("insert into Lines set geometry = ST_GeomFromText('LINESTRING ( 0 0, 0 2 )')")
         .close();
     session.commit();
 
-    session.command("create index L.g on Lines (geometry) SPATIAL engine lucene").close();
+    session.execute("create index L.g on Lines (geometry) SPATIAL engine lucene").close();
     var execute =
         session.query("SELECT from lines where ST_Intersects(geometry, 'POINT(0 0)') = true");
 

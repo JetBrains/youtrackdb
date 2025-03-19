@@ -56,16 +56,16 @@ public class DbImportExportRidbagTest extends BaseDBTest implements CommandOutpu
     }
 
     var database = acquireSession();
-    database.command("insert into V set name ='a'");
+    database.execute("insert into V set name ='a'");
     for (var i = 0; i < 100; i++) {
-      database.command("insert into V set name ='b" + i + "'");
+      database.execute("insert into V set name ='b" + i + "'");
     }
 
-    database.command(
+    database.execute(
         "create edge E from (select from V where name ='a') to (select from V where name != 'a')");
 
     // ADD A CUSTOM TO THE CLASS
-    database.command("alter class V custom onBeforeCreate=onBeforeCreateItem").close();
+    database.execute("alter class V custom onBeforeCreate=onBeforeCreateItem").close();
 
     var export = new DatabaseExport(database, testPath + "/" + exportFilePath, this);
     export.exportDatabase();

@@ -37,13 +37,13 @@ public class LuceneIndexCreateDropTest extends LuceneBaseTest {
     var type = session.createVertexClass("City");
     type.createProperty("name", PropertyType.STRING);
 
-    session.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
+    session.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
   }
 
   @Test
   public void dropIndex() {
 
-    session.command("drop index City.name");
+    session.execute("drop index City.name");
 
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "City.name");
 

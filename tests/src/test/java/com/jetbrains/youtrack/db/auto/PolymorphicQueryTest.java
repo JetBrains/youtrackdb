@@ -42,32 +42,32 @@ public class PolymorphicQueryTest extends BaseDBTest {
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    session.command("create class IndexInSubclassesTestBase").close();
-    session.command("create property IndexInSubclassesTestBase.name string").close();
+    session.execute("create class IndexInSubclassesTestBase").close();
+    session.execute("create property IndexInSubclassesTestBase.name string").close();
 
     session
-        .command("create class IndexInSubclassesTestChild1 extends IndexInSubclassesTestBase")
+        .execute("create class IndexInSubclassesTestChild1 extends IndexInSubclassesTestBase")
         .close();
     session
-        .command(
+        .execute(
             "create index IndexInSubclassesTestChild1.name on IndexInSubclassesTestChild1 (name)"
                 + " notunique")
         .close();
 
     session
-        .command("create class IndexInSubclassesTestChild2 extends IndexInSubclassesTestBase")
+        .execute("create class IndexInSubclassesTestChild2 extends IndexInSubclassesTestBase")
         .close();
     session
-        .command(
+        .execute(
             "create index IndexInSubclassesTestChild2.name on IndexInSubclassesTestChild2 (name)"
                 + " notunique")
         .close();
 
-    session.command("create class IndexInSubclassesTestBaseFail").close();
-    session.command("create property IndexInSubclassesTestBaseFail.name string").close();
+    session.execute("create class IndexInSubclassesTestBaseFail").close();
+    session.execute("create property IndexInSubclassesTestBaseFail.name string").close();
 
     session
-        .command(
+        .execute(
             "create class IndexInSubclassesTestChild1Fail extends IndexInSubclassesTestBaseFail")
         .close();
     // database.command(
@@ -76,30 +76,30 @@ public class PolymorphicQueryTest extends BaseDBTest {
     // .execute();
 
     session
-        .command(
+        .execute(
             "create class IndexInSubclassesTestChild2Fail extends IndexInSubclassesTestBaseFail")
         .close();
     session
-        .command(
+        .execute(
             "create index IndexInSubclassesTestChild2Fail.name on IndexInSubclassesTestChild2Fail"
                 + " (name) notunique")
         .close();
 
-    session.command("create class GenericCrash").close();
-    session.command("create class SpecificCrash extends GenericCrash").close();
+    session.execute("create class GenericCrash").close();
+    session.execute("create class SpecificCrash extends GenericCrash").close();
   }
 
   @BeforeMethod
   public void beforeMethod() throws Exception {
     super.beforeMethod();
 
-    session.command("delete from IndexInSubclassesTestBase").close();
-    session.command("delete from IndexInSubclassesTestChild1").close();
-    session.command("delete from IndexInSubclassesTestChild2").close();
+    session.execute("delete from IndexInSubclassesTestBase").close();
+    session.execute("delete from IndexInSubclassesTestChild1").close();
+    session.execute("delete from IndexInSubclassesTestChild2").close();
 
-    session.command("delete from IndexInSubclassesTestBaseFail").close();
-    session.command("delete from IndexInSubclassesTestChild1Fail").close();
-    session.command("delete from IndexInSubclassesTestChild2Fail").close();
+    session.execute("delete from IndexInSubclassesTestBaseFail").close();
+    session.execute("delete from IndexInSubclassesTestChild1Fail").close();
+    session.execute("delete from IndexInSubclassesTestChild2Fail").close();
   }
 
   @Test

@@ -14,7 +14,7 @@ public class LuceneIssuesTest extends BaseLuceneTest {
   public void testGh_7382() throws Exception {
 
     try (var stream = ClassLoader.getSystemResourceAsStream("testGh_7382.osql")) {
-      session.execute("sql", getScriptFromStream(stream)).close();
+      session.runScript("sql", getScriptFromStream(stream)).close();
     }
 
     final var index =
@@ -30,16 +30,16 @@ public class LuceneIssuesTest extends BaseLuceneTest {
   @Test
   public void testGh_4880_moreIndexesOnProperty() throws Exception {
     try (final var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql")) {
-      session.execute("sql", getScriptFromStream(stream)).close();
+      session.runScript("sql", getScriptFromStream(stream)).close();
     }
 
-    session.command("create index Song.title_ft on Song (title,author) FULLTEXT ENGINE LUCENE")
+    session.execute("create index Song.title_ft on Song (title,author) FULLTEXT ENGINE LUCENE")
         .close();
-    session.command("CREATE INDEX Song.author on Song (author)  NOTUNIQUE").close();
+    session.execute("CREATE INDEX Song.author on Song (author)  NOTUNIQUE").close();
 
     session.query("SELECT from Song where title = 'BELIEVE IT OR NOT' ").close();
 
-    session.command(
+    session.execute(
             "EXPLAIN SELECT from Song where author = 'Traditional'  OR [title,author] LUCENE"
                 + " '(title:believe'")
         .close();
@@ -50,7 +50,7 @@ public class LuceneIssuesTest extends BaseLuceneTest {
   public void testGh_issue7513() throws Exception {
 
     try (var stream = ClassLoader.getSystemResourceAsStream("testGh_7513.osql")) {
-      session.execute("sql", getScriptFromStream(stream)).close();
+      session.runScript("sql", getScriptFromStream(stream)).close();
     }
 
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Item.content");
@@ -62,7 +62,7 @@ public class LuceneIssuesTest extends BaseLuceneTest {
   @Test
   public void test_ph8929() throws Exception {
     try (var stream = ClassLoader.getSystemResourceAsStream("testPh_8929.osql")) {
-      session.execute("sql", getScriptFromStream(stream)).close();
+      session.runScript("sql", getScriptFromStream(stream)).close();
     }
 
     ResultSet documents;
@@ -84,7 +84,7 @@ public class LuceneIssuesTest extends BaseLuceneTest {
   public void test_ph8929_Single() throws Exception {
 
     try (var stream = ClassLoader.getSystemResourceAsStream("testPh_8929.osql")) {
-      session.execute("sql", getScriptFromStream(stream)).close();
+      session.runScript("sql", getScriptFromStream(stream)).close();
     }
 
     ResultSet documents;

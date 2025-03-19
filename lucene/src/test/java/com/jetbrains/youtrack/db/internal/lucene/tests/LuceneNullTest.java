@@ -12,11 +12,11 @@ public class LuceneNullTest extends LuceneBaseTest {
 
   @Before
   public void setUp() throws Exception {
-    session.command("create class Test extends V");
+    session.execute("create class Test extends V");
 
-    session.command("create property Test.names EMBEDDEDLIST STRING");
+    session.execute("create property Test.names EMBEDDEDLIST STRING");
 
-    session.command("create index Test.names on Test(names) FULLTEXT ENGINE LUCENE");
+    session.execute("create index Test.names on Test(names) FULLTEXT ENGINE LUCENE");
   }
 
   @Test

@@ -120,7 +120,7 @@ public class SecurityTest extends BaseDBTest {
     session.begin();
     Long updated =
         session
-            .command("update ouser set password = 'test' where name = 'reader'")
+            .execute("update ouser set password = 'test' where name = 'reader'")
             .next()
             .getProperty("count");
     session.commit();
@@ -136,7 +136,7 @@ public class SecurityTest extends BaseDBTest {
     session.begin();
     updated =
         session
-            .command("update ouser set password = 'reader' where name = 'reader'")
+            .execute("update ouser set password = 'reader' where name = 'reader'")
             .next()
             .getProperty("count");
     session.commit();
@@ -273,7 +273,7 @@ public class SecurityTest extends BaseDBTest {
 
     session.begin();
     var result =
-        session.command("select from ouser").stream().collect(Collectors.toList());
+        session.execute("select from ouser").stream().collect(Collectors.toList());
     Assert.assertFalse(result.isEmpty());
     session.commit();
 
@@ -335,7 +335,7 @@ public class SecurityTest extends BaseDBTest {
     session.getMetadata().getSchema().createClass("Protected");
 
     try {
-      session.command("alter class Protected superclass OUser").close();
+      session.execute("alter class Protected superclass OUser").close();
     } finally {
       session.getMetadata().getSchema().dropClass("Protected");
     }

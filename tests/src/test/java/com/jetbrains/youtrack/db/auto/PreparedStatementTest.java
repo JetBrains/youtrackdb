@@ -38,9 +38,9 @@ public class PreparedStatementTest extends BaseDBTest {
   @Override
   public void beforeClass() throws Exception {
     super.beforeClass();
-    session.command("CREATE CLASS PreparedStatementTest1");
-    session.command("insert into PreparedStatementTest1 (name, surname) values ('foo1', 'bar1')");
-    session.command(
+    session.execute("CREATE CLASS PreparedStatementTest1");
+    session.execute("insert into PreparedStatementTest1 (name, surname) values ('foo1', 'bar1')");
+    session.execute(
         "insert into PreparedStatementTest1 (name, listElem) values ('foo2', ['bar2'])");
   }
 

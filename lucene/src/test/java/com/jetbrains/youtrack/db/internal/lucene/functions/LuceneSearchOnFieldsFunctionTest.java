@@ -17,10 +17,10 @@ public class LuceneSearchOnFieldsFunctionTest extends BaseLuceneTest {
   @Before
   public void setUp() throws Exception {
     final var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
-    session.execute("sql", getScriptFromStream(stream));
-    session.command("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE ");
-    session.command("create index Song.author on Song (author) FULLTEXT ENGINE LUCENE ");
-    session.command(
+    session.runScript("sql", getScriptFromStream(stream));
+    session.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE ");
+    session.execute("create index Song.author on Song (author) FULLTEXT ENGINE LUCENE ");
+    session.execute(
         "create index Song.lyrics_description on Song (lyrics,description) FULLTEXT ENGINE LUCENE"
             + " ");
   }
@@ -108,10 +108,10 @@ public class LuceneSearchOnFieldsFunctionTest extends BaseLuceneTest {
 
   @Test
   public void shouldSearchWithHesitance() throws Exception {
-    session.command("create class RockSong extends Song");
+    session.execute("create class RockSong extends Song");
 
     session.begin();
-    session.command(
+    session.execute(
         "create vertex RockSong set title=\"This is only rock\", author=\"A cool rocker\"");
     session.commit();
 
@@ -126,21 +126,21 @@ public class LuceneSearchOnFieldsFunctionTest extends BaseLuceneTest {
     final var className = "testSquareBrackets";
     final var classNameE = "testSquareBracketsE";
 
-    session.command("create class " + className + " extends V;");
-    session.command("create property " + className + ".id Integer;");
-    session.command("create property " + className + ".name String;");
-    session.command(
+    session.execute("create class " + className + " extends V;");
+    session.execute("create property " + className + ".id Integer;");
+    session.execute("create property " + className + ".name String;");
+    session.execute(
         "CREATE INDEX " + className + ".name ON " + className + "(name) FULLTEXT ENGINE LUCENE;");
 
-    session.command("CREATE CLASS " + classNameE + " EXTENDS E");
+    session.execute("CREATE CLASS " + classNameE + " EXTENDS E");
 
     session.begin();
-    session.command("insert into " + className + " set id = 1, name = 'A';");
-    session.command("insert into " + className + " set id = 2, name = 'AB';");
-    session.command("insert into " + className + " set id = 3, name = 'ABC';");
-    session.command("insert into " + className + " set id = 4, name = 'ABCD';");
+    session.execute("insert into " + className + " set id = 1, name = 'A';");
+    session.execute("insert into " + className + " set id = 2, name = 'AB';");
+    session.execute("insert into " + className + " set id = 3, name = 'ABC';");
+    session.execute("insert into " + className + " set id = 4, name = 'ABCD';");
 
-    session.command(
+    session.execute(
         "CREATE EDGE "
             + classNameE
             + " FROM (SELECT FROM "

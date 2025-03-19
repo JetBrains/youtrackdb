@@ -27,26 +27,26 @@ public class SQLUpdateEdgeTest extends DbTestBase {
   @Test
   public void testUpdateEdge() {
 
-    session.command("create class V1 extends V").close();
+    session.execute("create class V1 extends V").close();
 
-    session.command("create class E1 extends E").close();
+    session.execute("create class E1 extends E").close();
 
     // VERTEXES
     session.begin();
-    var v1 = session.command("create vertex").next().asEntity();
+    var v1 = session.execute("create vertex").next().asEntity();
     assertEquals("V", v1.getSchemaClass().getName());
 
-    var v2 = session.command("create vertex V1").next().asEntity();
+    var v2 = session.execute("create vertex V1").next().asEntity();
     assertEquals("V1", v2.getSchemaClass().getName());
 
     var v3 =
-        session.command("create vertex set vid = 'v3', brand = 'fiat'").next().asEntity();
+        session.execute("create vertex set vid = 'v3', brand = 'fiat'").next().asEntity();
 
     assertEquals("V", v3.getSchemaClass().getName());
     assertEquals("fiat", v3.getProperty("brand"));
 
     var v4 =
-        session.command("create vertex V1 set vid = 'v4',  brand = 'fiat',name = 'wow'")
+        session.execute("create vertex V1 set vid = 'v4',  brand = 'fiat',name = 'wow'")
             .next()
             .asEntity();
     session.commit();
@@ -58,14 +58,14 @@ public class SQLUpdateEdgeTest extends DbTestBase {
     assertEquals("wow", v4.getProperty("name"));
 
     var edges =
-        session.command("create edge E1 from " + v1.getIdentity() + " to " + v2.getIdentity());
+        session.execute("create edge E1 from " + v1.getIdentity() + " to " + v2.getIdentity());
     var edge = edges.next().asStatefulEdge();
     assertFalse(edges.hasNext());
     assertEquals("E1", edge.getSchemaClassName());
     session.commit();
 
     session.begin();
-    session.command(
+    session.execute(
             "update edge E1 set out = "
                 + v3.getIdentity()
                 + ", in = "
@@ -96,17 +96,17 @@ public class SQLUpdateEdgeTest extends DbTestBase {
   public void testUpdateEdgeOfTypeE() {
     // issue #6378
     session.begin();
-    var v1 = session.command("create vertex").next().asVertex();
-    var v2 = session.command("create vertex").next().asVertex();
-    var v3 = session.command("create vertex").next().asVertex();
+    var v1 = session.execute("create vertex").next().asVertex();
+    var v2 = session.execute("create vertex").next().asVertex();
+    var v3 = session.execute("create vertex").next().asVertex();
     session.commit();
 
     session.begin();
     var edges =
-        session.command("create edge E from " + v1.getIdentity() + " to " + v2.getIdentity());
+        session.execute("create edge E from " + v1.getIdentity() + " to " + v2.getIdentity());
     var edge = edges.next().asStatefulEdge();
 
-    session.command("UPDATE EDGE " + edge.getIdentity() + " SET in = " + v3.getIdentity());
+    session.execute("UPDATE EDGE " + edge.getIdentity() + " SET in = " + v3.getIdentity());
     session.commit();
 
     session.begin();
@@ -116,7 +116,7 @@ public class SQLUpdateEdgeTest extends DbTestBase {
     result = session.query("select expand(in()) from " + v3.getIdentity());
     Assert.assertEquals(result.next().getIdentity(), v1.getIdentity());
 
-    result = session.command("select expand(in()) from " + v2.getIdentity());
+    result = session.execute("select expand(in()) from " + v2.getIdentity());
     Assert.assertFalse(result.hasNext());
     session.commit();
   }

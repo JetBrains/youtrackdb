@@ -53,15 +53,15 @@ public class SQLCreateIndexTest extends BaseDBTest {
       session = createSessionInstance();
     }
 
-    session.command("delete from sqlCreateIndexTestClass").close();
-    session.command("drop class sqlCreateIndexTestClass").close();
+    session.execute("delete from sqlCreateIndexTestClass").close();
+    session.execute("drop class sqlCreateIndexTestClass").close();
 
     super.afterClass();
   }
 
   @Test
   public void testOldSyntax() throws Exception {
-    session.command("CREATE INDEX sqlCreateIndexTestClass.prop1 UNIQUE").close();
+    session.execute("CREATE INDEX sqlCreateIndexTestClass.prop1 UNIQUE").close();
 
     final var index =
         session
@@ -82,7 +82,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
   @Test
   public void testCreateCompositeIndex() throws Exception {
     session
-        .command(
+        .execute(
             "CREATE INDEX sqlCreateIndexCompositeIndex ON sqlCreateIndexTestClass (prop1, prop2)"
                 + " UNIQUE")
         .close();
@@ -108,7 +108,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
   @Test
   public void testCreateEmbeddedMapIndex() throws Exception {
     session
-        .command(
+        .execute(
             "CREATE INDEX sqlCreateIndexEmbeddedMapIndex ON sqlCreateIndexTestClass (prop3) UNIQUE")
         .close();
 
@@ -134,7 +134,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
 
   @Test
   public void testOldStileCreateEmbeddedMapIndex() throws Exception {
-    session.command("CREATE INDEX sqlCreateIndexTestClass.prop3 UNIQUE").close();
+    session.execute("CREATE INDEX sqlCreateIndexTestClass.prop3 UNIQUE").close();
 
     final var index =
         session
@@ -160,7 +160,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
   public void testCreateEmbeddedMapWrongSpecifierIndexOne() throws Exception {
     try {
       session
-          .command(
+          .execute(
               "CREATE INDEX sqlCreateIndexEmbeddedMapWrongSpecifierIndex ON sqlCreateIndexTestClass"
                   + " (prop3 by ttt) UNIQUE")
           .close();
@@ -181,7 +181,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
   public void testCreateEmbeddedMapWrongSpecifierIndexTwo() throws Exception {
     try {
       session
-          .command(
+          .execute(
               "CREATE INDEX sqlCreateIndexEmbeddedMapWrongSpecifierIndex ON sqlCreateIndexTestClass"
                   + " (prop3 b value) UNIQUE")
           .close();
@@ -203,7 +203,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
   public void testCreateEmbeddedMapWrongSpecifierIndexThree() throws Exception {
     try {
       session
-          .command(
+          .execute(
               "CREATE INDEX sqlCreateIndexEmbeddedMapWrongSpecifierIndex ON sqlCreateIndexTestClass"
                   + " (prop3 by value t) UNIQUE")
           .close();
@@ -224,7 +224,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
   @Test
   public void testCreateEmbeddedMapByKeyIndex() throws Exception {
     session
-        .command(
+        .execute(
             "CREATE INDEX sqlCreateIndexEmbeddedMapByKeyIndex ON sqlCreateIndexTestClass (prop3 by"
                 + " key) UNIQUE")
         .close();
@@ -252,7 +252,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
   @Test
   public void testCreateEmbeddedMapByValueIndex() throws Exception {
     session
-        .command(
+        .execute(
             "CREATE INDEX sqlCreateIndexEmbeddedMapByValueIndex ON sqlCreateIndexTestClass (prop3"
                 + " by value) UNIQUE")
         .close();
@@ -280,7 +280,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
   @Test
   public void testCreateEmbeddedListIndex() throws Exception {
     session
-        .command(
+        .execute(
             "CREATE INDEX sqlCreateIndexEmbeddedListIndex ON sqlCreateIndexTestClass (prop5)"
                 + " NOTUNIQUE")
         .close();
@@ -304,7 +304,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
 
   public void testCreateRidBagIndex() throws Exception {
     session
-        .command(
+        .execute(
             "CREATE INDEX sqlCreateIndexRidBagIndex ON sqlCreateIndexTestClass (prop9) NOTUNIQUE")
         .close();
 
@@ -326,7 +326,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
   }
 
   public void testCreateOldStileEmbeddedListIndex() throws Exception {
-    session.command("CREATE INDEX sqlCreateIndexTestClass.prop5 NOTUNIQUE").close();
+    session.execute("CREATE INDEX sqlCreateIndexTestClass.prop5 NOTUNIQUE").close();
 
     final var index =
         session
@@ -346,7 +346,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
   }
 
   public void testCreateOldStileRidBagIndex() throws Exception {
-    session.command("CREATE INDEX sqlCreateIndexTestClass.prop9 NOTUNIQUE").close();
+    session.execute("CREATE INDEX sqlCreateIndexTestClass.prop9 NOTUNIQUE").close();
 
     final var index =
         session
@@ -369,7 +369,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
   public void testCreateEmbeddedListWithoutLinkedTypeIndex() throws Exception {
     try {
       session
-          .command(
+          .execute(
               "CREATE INDEX sqlCreateIndexEmbeddedListWithoutLinkedTypeIndex ON"
                   + " sqlCreateIndexTestClass (prop6) UNIQUE")
           .close();
@@ -395,7 +395,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
   public void testCreateEmbeddedMapWithoutLinkedTypeIndex() throws Exception {
     try {
       session
-          .command(
+          .execute(
               "CREATE INDEX sqlCreateIndexEmbeddedMapWithoutLinkedTypeIndex ON"
                   + " sqlCreateIndexTestClass (prop7 by value) UNIQUE")
           .close();
@@ -426,7 +426,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
             + ", "
             + EXPECTED_PROP2_TYPE;
 
-    session.command(query).close();
+    session.execute(query).close();
 
     final var index =
         session
@@ -484,7 +484,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
 
   public void testCompositeIndexWithMetadata() {
     session
-        .command(
+        .execute(
             "CREATE INDEX sqlCreateIndexCompositeIndexWithMetadata ON sqlCreateIndexTestClass"
                 + " (prop1, prop2) UNIQUE metadata {v1:23, v2:\"val2\"}")
         .close();
@@ -514,7 +514,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
 
   public void testOldIndexWithMetadata() {
     session
-        .command(
+        .execute(
             "CREATE INDEX sqlCreateIndexTestClass.prop8 NOTUNIQUE  metadata {v1:23, v2:\"val2\"}")
         .close();
 
@@ -549,7 +549,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
             + EXPECTED_PROP2_TYPE
             + " metadata {v1:23, v2:\"val2\"}";
 
-    session.command(query).close();
+    session.execute(query).close();
 
     final var index =
         session

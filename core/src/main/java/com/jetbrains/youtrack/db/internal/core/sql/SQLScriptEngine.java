@@ -86,9 +86,9 @@ public class SQLScriptEngine implements ScriptEngine {
     var params = convertToParameters(n);
     ResultSet queryResult;
     if (params.keySet().stream().anyMatch(x -> !(x instanceof String))) {
-      queryResult = session.execute("sql", script, params);
+      queryResult = session.runScript("sql", script, params);
     } else {
-      queryResult = session.execute("sql", script, (Map) params);
+      queryResult = session.runScript("sql", script, (Map) params);
     }
     try (var res = queryResult) {
       LegacyResultSet<Result> finalResult = new BasicLegacyResultSet<>();

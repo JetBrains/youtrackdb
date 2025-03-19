@@ -17,14 +17,14 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
   public void init() {
 
     var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
-    session.execute("sql", getScriptFromStream(stream));
+    session.runScript("sql", getScriptFromStream(stream));
   }
 
   @Test
   public void shouldSearchWithLeadingWildcard() {
 
     // enabling leading wildcard
-    session.command(
+    session.execute(
         "create index Song.title on Song (title) FULLTEXT ENGINE LUCENE metadata"
             + " {\"allowLeadingWildcard\": true}");
 
@@ -39,7 +39,7 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
   public void shouldSearchWithLowercaseExpandedTerms() {
 
     // enabling leading wildcard
-    session.command(
+    session.execute(
         "create index Song.author on Song (author) FULLTEXT ENGINE LUCENE metadata {\"default\": \""
             + KeywordAnalyzer.class.getCanonicalName()
             + "\", \"lowercaseExpandedTerms\": false}");
@@ -59,7 +59,7 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
   public void shouldFailIfLeadingWild() {
 
     // enabling leading wildcard
-    session.command(
+    session.execute(
         "create index Song.title on Song (title) FULLTEXT ENGINE LUCENE metadata"
             + " {\"allowLeadingWildcard\": true}");
 
@@ -73,7 +73,7 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
   @Test
   public void shouldUseBoostsFromQuery() throws Exception {
     // enabling leading wildcard
-    session.command(
+    session.execute(
         "create index Song.title_author on Song (title,author) FULLTEXT ENGINE LUCENE ");
 
     // querying with boost
@@ -117,7 +117,7 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
   @Test
   public void shouldUseBoostsFromMap() throws Exception {
     // enabling leading wildcard
-    session.command(
+    session.execute(
         "create index Song.title_author on Song (title,author) FULLTEXT ENGINE LUCENE ");
 
     // querying with boost
@@ -163,7 +163,7 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
   @Test
   public void shouldUseBoostsFromMapAndSyntax() throws Exception {
     // enabling leading wildcard
-    session.command(
+    session.execute(
         "create index Song.title_author on Song (title,author) FULLTEXT ENGINE LUCENE ");
 
     // querying with boost
@@ -198,7 +198,7 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
   public void ahouldOverrideAnalyzer() throws Exception {
 
     // enabling leading wildcard
-    session.command(
+    session.execute(
         "create index Song.title_author on Song (title,author) FULLTEXT ENGINE LUCENE ");
 
     // querying with boost

@@ -17,7 +17,7 @@ public class TestSqlForeach extends DbTestBase {
 
     session.begin();
     var result =
-        session.execute(
+        session.runScript(
             "sql",
             "let $res = select from Test; foreach ($r in $res) { update $r set timestamp ="
                 + " sysdate(); }; return $res; ");

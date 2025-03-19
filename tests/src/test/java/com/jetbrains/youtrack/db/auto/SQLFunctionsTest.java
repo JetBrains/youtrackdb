@@ -68,7 +68,7 @@ public class SQLFunctionsTest extends BaseDBTest {
 
   @Test
   public void queryMax() {
-    var result = session.command("select max(id) as max from Account");
+    var result = session.execute("select max(id) as max from Account");
 
     assertNotNull(result.next().getProperty("max"));
     assertFalse(result.hasNext());
@@ -90,7 +90,7 @@ public class SQLFunctionsTest extends BaseDBTest {
 
   @Test
   public void queryMin() {
-    var result = session.command("select min(id) as min from Account");
+    var result = session.execute("select min(id) as min from Account");
 
     var d = result.next();
     Assert.assertNotNull(d.getProperty("min"));
@@ -115,7 +115,7 @@ public class SQLFunctionsTest extends BaseDBTest {
 
   @Test
   public void querySum() {
-    var result = session.command("select sum(id) as sum from Account");
+    var result = session.execute("select sum(id) as sum from Account");
     var d = result.next();
     Assert.assertNotNull(d.getProperty("sum"));
     Assert.assertFalse(result.hasNext());
@@ -124,7 +124,7 @@ public class SQLFunctionsTest extends BaseDBTest {
 
   @Test
   public void queryCount() {
-    var result = session.command("select count(*) as total from Account");
+    var result = session.execute("select count(*) as total from Account");
     var d = result.next();
     Assert.assertNotNull(d.getProperty("total"));
     Assert.assertTrue(((Number) d.getProperty("total")).longValue() > 0);
@@ -394,7 +394,7 @@ public class SQLFunctionsTest extends BaseDBTest {
 
   @Test
   public void querySysdateNoFormat() {
-    var result = session.command("select sysdate() as date from Account");
+    var result = session.execute("select sysdate() as date from Account");
 
     Assert.assertTrue(result.hasNext());
     while (result.hasNext()) {
@@ -417,14 +417,14 @@ public class SQLFunctionsTest extends BaseDBTest {
 
   @Test
   public void queryDate() {
-    var result = session.command("select count(*) as tot from Account");
+    var result = session.execute("select count(*) as tot from Account");
 
     var tot = ((Number) result.next().getProperty("tot")).intValue();
     assertFalse(result.hasNext());
 
     session.begin();
     long updated =
-        session.command("update Account set created = date()").next().getProperty("count");
+        session.execute("update Account set created = date()").next().getProperty("count");
     session.commit();
 
     Assert.assertEquals(updated, tot);

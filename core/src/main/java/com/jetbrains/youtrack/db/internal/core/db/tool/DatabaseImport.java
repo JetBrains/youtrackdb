@@ -341,7 +341,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       }
 
       listener.onMessage("\nStart rebuild index " + indexName);
-      session.command("rebuild index " + indexName).close();
+      session.execute("rebuild index " + indexName).close();
       listener.onMessage("\nRebuild  of index " + indexName + " is completed.");
     }
     listener.onMessage("\nStale indexes were rebuilt...");

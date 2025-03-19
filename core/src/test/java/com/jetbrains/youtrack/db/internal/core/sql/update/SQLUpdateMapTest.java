@@ -14,28 +14,28 @@ public class SQLUpdateMapTest extends DbTestBase {
 
     EntityImpl ret;
     EntityImpl ret1;
-    session.command("create class vRecord").close();
-    session.command("create property vRecord.attrs EMBEDDEDMAP ").close();
+    session.execute("create class vRecord").close();
+    session.execute("create property vRecord.attrs EMBEDDEDMAP ").close();
 
     session.begin();
-    try (var rs = session.command("insert into vRecord (title) values('first record')")) {
+    try (var rs = session.execute("insert into vRecord (title) values('first record')")) {
       ret = (EntityImpl) rs.next().asRecord();
     }
 
-    try (var rs = session.command("insert into vRecord (title) values('second record')")) {
+    try (var rs = session.execute("insert into vRecord (title) values('second record')")) {
       ret1 = (EntityImpl) rs.next().asRecord();
     }
     session.commit();
 
     session.begin();
-    session.command(
+    session.execute(
             "update " + ret.getIdentity() + " set attrs =  {'test1':'first test' }")
         .close();
     session.commit();
     reOpen("admin", "adminpwd");
 
     session.begin();
-    session.command("update " + ret.getIdentity() + " set attrs['test'] = 'test value' ").close();
+    session.execute("update " + ret.getIdentity() + " set attrs['test'] = 'test value' ").close();
     session.commit();
 
     session.begin();

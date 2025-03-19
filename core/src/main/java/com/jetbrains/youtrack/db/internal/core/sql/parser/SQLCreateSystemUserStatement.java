@@ -113,7 +113,7 @@ public class SQLCreateSystemUserStatement extends SQLSimpleExecServerStatement {
                       }
                     }
                     sb.append("])");
-                    return session.command(sb.toString(), params.toArray()).detach();
+                    return session.execute(sb.toString(), params.toArray()).detach();
                   });
           return ExecutionStream.resultIterator(result.iterator());
         });

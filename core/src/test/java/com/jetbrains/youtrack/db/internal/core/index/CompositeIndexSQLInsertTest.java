@@ -3,7 +3,6 @@ package com.jetbrains.youtrack.db.internal.core.index;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.Assert;
@@ -37,25 +36,25 @@ public class CompositeIndexSQLInsertTest extends DbTestBase {
     clazz.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
     clazz.createProperty("name", PropertyType.STRING);
 
-    session.command(
+    session.execute(
             "create index CompositeIndexWithRangeAndConditions_id_tags_name on"
                 + " CompositeIndexWithRangeAndConditions (id, tags, name) NOTUNIQUE")
         .close();
 
     session.begin();
-    session.command(
+    session.execute(
             "insert into CompositeIndexWithRangeAndConditions set id = 1, tags ="
                 + " [\"green\",\"yellow\"] , name = \"Foo\", bar = 1")
         .close();
-    session.command(
+    session.execute(
             "insert into CompositeIndexWithRangeAndConditions set id = 1, tags ="
                 + " [\"blue\",\"black\"] , name = \"Foo\", bar = 14")
         .close();
-    session.command(
+    session.execute(
             "insert into CompositeIndexWithRangeAndConditions set id = 1, tags = [\"white\"] , name"
                 + " = \"Foo\"")
         .close();
-    session.command(
+    session.execute(
             "insert into CompositeIndexWithRangeAndConditions set id = 1, tags ="
                 + " [\"green\",\"yellow\"], name = \"Foo1\", bar = 14")
         .close();

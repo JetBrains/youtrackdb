@@ -58,7 +58,7 @@ public class LuceneVsLuceneTest extends BaseLuceneTest {
     directory = NIOFSDirectory.open(getPath().toPath());
 
     try (var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql")) {
-      session.execute("sql", getScriptFromStream(stream)).close();
+      session.runScript("sql", getScriptFromStream(stream)).close();
       FileUtils.deleteRecursively(getPath().getAbsoluteFile());
 
       analyzer = new LucenePerFieldAnalyzerWrapper(new StandardAnalyzer());
@@ -68,7 +68,7 @@ public class LuceneVsLuceneTest extends BaseLuceneTest {
       iwc.setOpenMode(IndexWriterConfig.OpenMode.CREATE_OR_APPEND);
       indexWriter = new IndexWriter(directory, iwc);
 
-      session.command("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE").close();
+      session.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE").close();
     }
   }
 

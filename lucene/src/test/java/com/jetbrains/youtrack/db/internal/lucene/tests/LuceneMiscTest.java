@@ -35,15 +35,15 @@ public class LuceneMiscTest extends LuceneBaseTest {
   @Test
   public void testDoubleLucene() {
 
-    session.command("create class Test extends V");
-    session.command("create property Test.attr1 string");
-    session.command("create index Test.attr1 on Test(attr1) FULLTEXT ENGINE LUCENE");
-    session.command("create property Test.attr2 string");
-    session.command("create index Test.attr2 on Test(attr2) FULLTEXT ENGINE LUCENE");
+    session.execute("create class Test extends V");
+    session.execute("create property Test.attr1 string");
+    session.execute("create index Test.attr1 on Test(attr1) FULLTEXT ENGINE LUCENE");
+    session.execute("create property Test.attr2 string");
+    session.execute("create index Test.attr2 on Test(attr2) FULLTEXT ENGINE LUCENE");
 
     session.begin();
-    session.command("insert into Test set attr1='foo', attr2='bar'");
-    session.command("insert into Test set attr1='bar', attr2='foo'");
+    session.execute("insert into Test set attr1='foo', attr2='bar'");
+    session.execute("insert into Test set attr1='bar', attr2='foo'");
     session.commit();
 
     var results =
@@ -78,14 +78,14 @@ public class LuceneMiscTest extends LuceneBaseTest {
   @Test
   public void testSubLucene() {
 
-    session.command("create class Person extends V");
+    session.execute("create class Person extends V");
 
-    session.command("create property Person.name string");
+    session.execute("create property Person.name string");
 
-    session.command("create index Person.name on Person(name) FULLTEXT ENGINE LUCENE");
+    session.execute("create index Person.name on Person(name) FULLTEXT ENGINE LUCENE");
 
     session.begin();
-    session.command("insert into Person set name='Enrico', age=18");
+    session.execute("insert into Person set name='Enrico', age=18");
     session.commit();
 
     var query =
@@ -109,20 +109,20 @@ public class LuceneMiscTest extends LuceneBaseTest {
   @Test
   public void testNamedParams() {
 
-    session.command("create class Test extends V");
+    session.execute("create class Test extends V");
 
-    session.command("create property Test.attr1 string");
+    session.execute("create property Test.attr1 string");
 
-    session.command("create index Test.attr1 on Test(attr1) FULLTEXT ENGINE LUCENE");
+    session.execute("create index Test.attr1 on Test(attr1) FULLTEXT ENGINE LUCENE");
 
     session.begin();
-    session.command("insert into Test set attr1='foo', attr2='bar'");
+    session.execute("insert into Test set attr1='foo', attr2='bar'");
     session.commit();
 
     var query = "select from Test where  search_class( :name) =true";
     Map params = new HashMap();
     params.put("name", "FOO or");
-    var results = session.command(query, params);
+    var results = session.execute(query, params);
 
     assertThat(results).hasSize(1);
   }
@@ -144,8 +144,8 @@ public class LuceneMiscTest extends LuceneBaseTest {
     authorOf.createProperty("in", PropertyType.LINK, song);
     session.commit();
 
-    session.command("create index AuthorOf.in on AuthorOf (in) NOTUNIQUE");
-    session.command("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE");
+    session.execute("create index AuthorOf.in on AuthorOf (in) NOTUNIQUE");
+    session.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE");
 
     var authorVertex = session.newVertex("Author");
     authorVertex.setProperty("name", "Bob Dylan");

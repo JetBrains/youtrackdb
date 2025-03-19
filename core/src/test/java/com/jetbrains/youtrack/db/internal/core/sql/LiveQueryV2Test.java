@@ -92,9 +92,9 @@ public class LiveQueryV2Test extends DbTestBase {
     Assert.assertNotNull(monitor);
 
     session.begin();
-    session.command("insert into test set name = 'foo', surname = 'bar'").close();
-    session.command("insert into test set name = 'foo', surname = 'baz'").close();
-    session.command("insert into test2 set name = 'foo'").close();
+    session.execute("insert into test set name = 'foo', surname = 'bar'").close();
+    session.execute("insert into test set name = 'foo', surname = 'baz'").close();
+    session.execute("insert into test2 set name = 'foo'").close();
     session.commit();
 
     Assert.assertTrue(listener.latch.await(1, TimeUnit.MINUTES));
@@ -102,9 +102,9 @@ public class LiveQueryV2Test extends DbTestBase {
     monitor.unSubscribe();
 
     session.begin();
-    session.command("insert into test set name = 'foo', surname = 'bax'").close();
-    session.command("insert into test2 set name = 'foo'").close();
-    session.command("insert into test set name = 'foo', surname = 'baz'").close();
+    session.execute("insert into test set name = 'foo', surname = 'bax'").close();
+    session.execute("insert into test2 set name = 'foo'").close();
+    session.execute("insert into test set name = 'foo', surname = 'baz'").close();
     session.commit();
 
     Assert.assertEquals(2, listener.ops.size());
@@ -126,7 +126,7 @@ public class LiveQueryV2Test extends DbTestBase {
     session.live(" select from test", listener);
 
     session.begin();
-    session.command("insert into test set name = 'foo', surname = 'bar'");
+    session.execute("insert into test set name = 'foo', surname = 'bar'");
     session.commit();
 
     try {
@@ -153,7 +153,7 @@ public class LiveQueryV2Test extends DbTestBase {
     session.live("select from V where id = 1", listener);
 
     session.begin();
-    session.command("insert into V set id = 1");
+    session.execute("insert into V set id = 1");
     session.commit();
 
     try {
@@ -237,8 +237,8 @@ public class LiveQueryV2Test extends DbTestBase {
     latch.await();
 
     session.begin();
-    session.command("insert into test set name = 'foo', surname = 'bar'").close();
-    session.command(
+    session.execute("insert into test set name = 'foo', surname = 'bar'").close();
+    session.execute(
             "insert into test set name = 'foo', surname = 'bar', _allow=?",
             new ArrayList<Identifiable>() {
               {
@@ -263,9 +263,9 @@ public class LiveQueryV2Test extends DbTestBase {
     Assert.assertNotNull(monitor);
 
     session.begin();
-    session.command("insert into test set name = 'foo', surname = 'bar'").close();
-    session.command("insert into test set name = 'foo', surname = 'baz'").close();
-    session.command("insert into test2 set name = 'foo'").close();
+    session.execute("insert into test set name = 'foo', surname = 'bar'").close();
+    session.execute("insert into test set name = 'foo', surname = 'baz'").close();
+    session.execute("insert into test2 set name = 'foo'").close();
     session.commit();
 
     Assert.assertTrue(listener.latch.await(5, TimeUnit.SECONDS));
@@ -273,9 +273,9 @@ public class LiveQueryV2Test extends DbTestBase {
     monitor.unSubscribe();
 
     session.begin();
-    session.command("insert into test set name = 'foo', surname = 'bax'").close();
-    session.command("insert into test2 set name = 'foo'").close();
-    session.command("insert into test set name = 'foo', surname = 'baz'").close();
+    session.execute("insert into test set name = 'foo', surname = 'bax'").close();
+    session.execute("insert into test2 set name = 'foo'").close();
+    session.execute("insert into test set name = 'foo', surname = 'baz'").close();
     session.commit();
 
     Assert.assertEquals(2, listener.ops.size());

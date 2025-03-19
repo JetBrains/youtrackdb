@@ -38,7 +38,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
           String.format(
               "alter property %s type %s", getFullNameQuoted(session),
               quoteString(type.toString()));
-      session.command(cmd).close();
+      session.execute(cmd).close();
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -52,7 +52,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
       final var cmd =
           String.format("alter property %s name %s", getFullNameQuoted(session),
               quoteString(name));
-      session.command(cmd).close();
+      session.execute(cmd).close();
 
     } finally {
       releaseSchemaWriteLock(session);
@@ -69,7 +69,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
           String.format(
               "alter property %s description %s", getFullNameQuoted(session),
               quoteString(iDescription));
-      session.command(cmd).close();
+      session.execute(cmd).close();
 
     } finally {
       releaseSchemaWriteLock(session);
@@ -88,7 +88,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
       final var cmd =
           String.format("alter property %s collate %s", getFullNameQuoted(session),
               quoteString(collate));
-      session.command(cmd).close();
+      session.execute(cmd).close();
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -101,7 +101,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
     try {
       final var cmd = String.format("alter property %s custom clear",
           getFullNameQuoted(session));
-      session.command(cmd).close();
+      session.execute(cmd).close();
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -117,7 +117,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
           String.format(
               "alter property %s custom %s=%s", getFullNameQuoted(session), name,
               quoteString(value));
-      session.command(cmd).close();
+      session.execute(cmd).close();
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -131,7 +131,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
       final var cmd =
           String.format("alter property %s regexp %s", getFullNameQuoted(session),
               quoteString(regexp));
-      session.command(cmd).close();
+      session.execute(cmd).close();
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -150,7 +150,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
               "alter property %s linkedclass %s",
               getFullNameQuoted(session),
               quoteString(linkedClass.getName(session)));
-      session.command(cmd).close();
+      session.execute(cmd).close();
 
     } finally {
       releaseSchemaWriteLock(session);
@@ -169,7 +169,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
           String.format(
               "alter property %s linkedtype %s",
               getFullNameQuoted(session), quoteString(linkedType.toString()));
-      session.command(cmd).close();
+      session.execute(cmd).close();
 
     } finally {
       releaseSchemaWriteLock(session);
@@ -184,7 +184,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
       final var cmd =
           String.format("alter property %s notnull %s", getFullNameQuoted(session),
               isNotNull);
-      session.command(cmd).close();
+      session.execute(cmd).close();
 
     } finally {
       releaseSchemaWriteLock(session);
@@ -201,7 +201,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
           String.format(
               "alter property %s default %s", getFullNameQuoted(session),
               quoteString(defaultValue));
-      session.command(cmd).close();
+      session.execute(cmd).close();
 
     } finally {
       releaseSchemaWriteLock(session);
@@ -216,7 +216,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
       final var cmd =
           String.format("alter property %s max %s", getFullNameQuoted(session),
               quoteString(max));
-      session.command(cmd).close();
+      session.execute(cmd).close();
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -230,7 +230,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
       final var cmd =
           String.format("alter property %s min %s", getFullNameQuoted(session),
               quoteString(min));
-      session.command(cmd).close();
+      session.execute(cmd).close();
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -244,7 +244,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
       final var cmd =
           String.format("alter property %s readonly %s", getFullNameQuoted(session),
               isReadonly);
-      session.command(cmd).close();
+      session.execute(cmd).close();
 
     } finally {
       releaseSchemaWriteLock(session);
@@ -260,7 +260,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
       final var cmd =
           String.format("alter property %s mandatory %s", getFullNameQuoted(session),
               isMandatory);
-      session.command(cmd).close();
+      session.execute(cmd).close();
     } finally {
       releaseSchemaWriteLock(session);
     }

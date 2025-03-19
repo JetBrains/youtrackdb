@@ -58,7 +58,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
 
     //noinspection EmptyTryBlock
     try (final var command =
-        session.command("create index Person.weight on Person(weight) FULLTEXT ENGINE LUCENE")) {
+        session.execute("create index Person.weight on Person(weight) FULLTEXT ENGINE LUCENE")) {
     }
 
     session.begin();
@@ -73,13 +73,13 @@ public class LuceneRangeTest extends LuceneBaseTest {
 
     // range
     try (final var results =
-        session.command("SELECT FROM Person WHERE search_class('weight:[0.0 TO 1.1]') = true")) {
+        session.execute("SELECT FROM Person WHERE search_class('weight:[0.0 TO 1.1]') = true")) {
       assertThat(results).hasSize(2);
     }
 
     // single value
     try (final var results =
-        session.command("SELECT FROM Person WHERE search_class('weight:7.1') = true")) {
+        session.execute("SELECT FROM Person WHERE search_class('weight:7.1') = true")) {
       assertThat(results).hasSize(1);
     }
   }
@@ -89,7 +89,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
 
     //noinspection EmptyTryBlock
     try (var command =
-        session.command("create index Person.age on Person(age) FULLTEXT ENGINE LUCENE")) {
+        session.execute("create index Person.age on Person(age) FULLTEXT ENGINE LUCENE")) {
     }
 
     session.begin();
@@ -104,13 +104,13 @@ public class LuceneRangeTest extends LuceneBaseTest {
 
     // range
     try (var results =
-        session.command("SELECT FROM Person WHERE search_class('age:[5 TO 6]') = true")) {
+        session.execute("SELECT FROM Person WHERE search_class('age:[5 TO 6]') = true")) {
 
       assertThat(results).hasSize(2);
     }
 
     // single value
-    try (var results = session.command(
+    try (var results = session.execute(
         "SELECT FROM Person WHERE search_class('age:5') = true")) {
       assertThat(results).hasSize(1);
     }
@@ -120,7 +120,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
   public void shouldUseRangeQueryOnSingleDateField() {
     //noinspection EmptyTryBlock
     try (var command =
-        session.command("create index Person.date on Person(date) FULLTEXT ENGINE LUCENE")) {
+        session.execute("create index Person.date on Person(date) FULLTEXT ENGINE LUCENE")) {
     }
 
     session.begin();
@@ -140,7 +140,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
 
     // range
     try (final var results =
-        session.command(
+        session.execute(
             "SELECT FROM Person WHERE search_class('date:["
                 + fiveDaysAgo
                 + " TO "
@@ -156,7 +156,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
 
     //noinspection EmptyTryBlock
     try (var command =
-        session.command(
+        session.execute(
             "create index Person.composite on Person(name,surname,date,age) FULLTEXT ENGINE"
                 + " LUCENE")) {
     }
@@ -178,7 +178,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
 
     // name and age range
     try (var results =
-        session.command(
+        session.execute(
             "SELECT * FROM Person WHERE search_class('age:[5 TO 6] name:robert  ')=true")) {
 
       assertThat(results).hasSize(3);
@@ -186,7 +186,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
 
     // date range
     try (var results =
-        session.command(
+        session.execute(
             "SELECT FROM Person WHERE search_class('date:["
                 + fiveDaysAgo
                 + " TO "
@@ -198,7 +198,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
 
     // age and date range with MUST
     try (var results =
-        session.command(
+        session.execute(
             "SELECT FROM Person WHERE search_class('+age:[4 TO 7]  +date:["
                 + fiveDaysAgo
                 + " TO "
@@ -212,7 +212,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
   public void shouldUseRangeQueryMultipleFieldWithDirectIndexAccess() {
     //noinspection EmptyTryBlock
     try (var command =
-        session.command(
+        session.execute(
             "create index Person.composite on Person(name,surname,date,age) FULLTEXT ENGINE"
                 + " LUCENE")) {
     }

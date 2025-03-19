@@ -90,7 +90,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
         cmd.append(" unsafe ");
       }
 
-      session.command(cmd.toString()).close();
+      session.execute(cmd.toString()).close();
       getOwner().reload(session);
 
       return getProperty(session, propertyName);
@@ -106,7 +106,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
     acquireSchemaWriteLock(session);
     try {
       final var cmd = String.format("alter class `%s` custom %s = ?", getName(session), name);
-      session.command(cmd, value).close();
+      session.execute(cmd, value).close();
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -118,7 +118,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
     acquireSchemaWriteLock(session);
     try {
       final var cmd = String.format("alter class `%s` custom clear", getName(session));
-      session.command(cmd).close();
+      session.execute(cmd).close();
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -146,7 +146,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
       }
 
       final var cmd = String.format("alter class `%s` superclasses %s", name, sb);
-      session.command(cmd).close();
+      session.execute(cmd).close();
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -163,7 +163,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
           String.format(
               "alter class `%s` superclass +`%s`",
               name, superClass.getName(session));
-      session.command(cmd).close();
+      session.execute(cmd).close();
 
     } finally {
       releaseSchemaWriteLock(session);
@@ -178,7 +178,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
           String.format(
               "alter class `%s` superclass -`%s`",
               name, superClass != null ? superClass.getName(session) : null);
-      session.command(cmd).close();
+      session.execute(cmd).close();
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -233,7 +233,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
       queryBuilder.append(" metadata ").append(RecordSerializerJackson.mapToJson(metadata));
     }
 
-    session.command(queryBuilder.toString()).close();
+    session.execute(queryBuilder.toString()).close();
   }
 
   public void setName(DatabaseSessionInternal session, final String name) {
@@ -262,7 +262,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
     try {
 
       final var cmd = String.format("alter class `%s` name `%s`", this.name, name);
-      session.command(cmd);
+      session.execute(cmd);
 
     } finally {
       releaseSchemaWriteLock(session);
@@ -278,7 +278,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
     acquireSchemaWriteLock(session);
     try {
       final var cmd = String.format("alter class `%s` strict_mode %s", name, isStrict);
-      session.command(cmd);
+      session.execute(cmd);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -297,7 +297,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
     acquireSchemaWriteLock(session);
     try {
       final var cmd = String.format("alter class `%s` description ?", name);
-      session.command(cmd, iDescription).close();
+      session.execute(cmd, iDescription).close();
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -317,7 +317,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
             "Property '" + propertyName + "' not found in class " + name + "'");
       }
 
-      session.command("drop property " + name + '.' + propertyName).close();
+      session.execute("drop property " + name + '.' + propertyName).close();
 
     } finally {
       releaseSchemaWriteLock(session);
@@ -331,7 +331,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
     try {
       // FORMAT FLOAT LOCALE AGNOSTIC
       final var cmd = Float.toString(overSize);
-      session.command(cmd).close();
+      session.execute(cmd).close();
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -343,7 +343,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
     acquireSchemaWriteLock(session);
     try {
       final var cmd = String.format("alter class `%s` abstract %s", name, isAbstract);
-      session.command(cmd).close();
+      session.execute(cmd).close();
     } finally {
       releaseSchemaWriteLock(session);
     }

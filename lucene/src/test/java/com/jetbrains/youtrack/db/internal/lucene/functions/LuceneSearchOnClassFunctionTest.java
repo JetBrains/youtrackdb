@@ -15,8 +15,8 @@ public class LuceneSearchOnClassFunctionTest extends LuceneBaseTest {
   @Before
   public void setUp() throws Exception {
     final var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
-    session.execute("sql", getScriptFromStream(stream));
-    session.command("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE ");
+    session.runScript("sql", getScriptFromStream(stream));
+    session.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE ");
   }
 
   @Test
@@ -77,7 +77,7 @@ public class LuceneSearchOnClassFunctionTest extends LuceneBaseTest {
   @Test(expected = IllegalArgumentException.class)
   public void shouldThrowExceptionIfMoreIndexesAreDefined() {
 
-    session.command("create index Song.author on Song (author) FULLTEXT ENGINE LUCENE ");
+    session.execute("create index Song.author on Song (author) FULLTEXT ENGINE LUCENE ");
 
     var resultSet =
         session.query("SELECT from Song where SEARCH_CLASS('not important, will fail') = true ");
@@ -103,13 +103,13 @@ public class LuceneSearchOnClassFunctionTest extends LuceneBaseTest {
   @Test
   public void shouldHighlightWithNullValues() throws Exception {
 
-    session.command("drop index Song.title");
+    session.execute("drop index Song.title");
 
-    session.command(
+    session.execute(
         "create index Song.title_description on Song (title,description) FULLTEXT ENGINE LUCENE ");
 
     session.begin();
-    session.command("insert into Song set description = 'shouldHighlightWithNullValues'");
+    session.execute("insert into Song set description = 'shouldHighlightWithNullValues'");
     session.commit();
 
     var resultSet =

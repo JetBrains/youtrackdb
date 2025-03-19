@@ -37,7 +37,7 @@ public class DocumentEmbeddedTest extends BaseLuceneTest {
     var type = session.getMetadata().getSchema().createClass("City");
     type.createProperty("name", PropertyType.STRING);
 
-    session.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE").close();
   }
 
   @Test

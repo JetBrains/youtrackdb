@@ -55,17 +55,17 @@ public class FetchPlanComplexNestedLevelsTest extends BaseDBTest {
     }
 
     session.begin();
-    session.command("create vertex PersonTest set name = 'A'").close();
-    session.command("create vertex PersonTest set name = 'B'").close();
-    session.command("create vertex PersonTest set name = 'C'").close();
+    session.execute("create vertex PersonTest set name = 'A'").close();
+    session.execute("create vertex PersonTest set name = 'B'").close();
+    session.execute("create vertex PersonTest set name = 'C'").close();
 
     session
-        .command(
+        .execute(
             "create edge FollowTest from (select from PersonTest where name = 'A') to (select from"
                 + " PersonTest where name = 'B')")
         .close();
     session
-        .command(
+        .execute(
             "create edge FollowTest from (select from PersonTest where name = 'B') to (select from"
                 + " PersonTest where name = 'C')")
         .close();

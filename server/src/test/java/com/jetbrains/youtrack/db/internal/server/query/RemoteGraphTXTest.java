@@ -21,13 +21,13 @@ public class RemoteGraphTXTest extends BaseServerMemoryDatabase {
   @Test
   public void itShouldDeleteEdgesInTx() {
     db.begin();
-    db.command("create vertex FirstV set id = '1'").close();
-    db.command("create vertex SecondV set id = '2'").close();
+    db.execute("create vertex FirstV set id = '1'").close();
+    db.execute("create vertex SecondV set id = '2'").close();
     db.commit();
 
     db.begin();
     try (var resultSet =
-        db.command(
+        db.execute(
             "create edge TestEdge  from ( select from FirstV where id = '1') to ( select from"
                 + " SecondV where id = '2')")) {
       var result = resultSet.stream().iterator().next();
@@ -38,7 +38,7 @@ public class RemoteGraphTXTest extends BaseServerMemoryDatabase {
 
     db.begin();
     db
-        .command(
+        .execute(
             "delete edge TestEdge from (select from FirstV where id = :param1) to (select from"
                 + " SecondV where id = :param2)",
             new HashMap() {

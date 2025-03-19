@@ -16,7 +16,7 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
     var className = "testName1";
     Schema schema = session.getMetadata().getSchema();
     schema.createClass(className);
-    var result = session.command("alter class " + className + " name " + className + "_new");
+    var result = session.execute("alter class " + className + " name " + className + "_new");
     Assert.assertNull(schema.getClass(className));
     Assert.assertNotNull(schema.getClass(className + "_new"));
     result.close();
@@ -32,7 +32,7 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
     }
     schema.createClass(className, e);
     try {
-      session.command("alter class " + className + " name " + className + "_new");
+      session.execute("alter class " + className + " name " + className + "_new");
       Assert.fail();
     } catch (CommandExecutionException ex) {
 
@@ -53,7 +53,7 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
     var superclass = schema.createClass(superclassName);
     var superclass2 = schema.createClass(superclassName2);
     var result =
-        session.command(
+        session.execute(
             "alter class "
                 + className
                 + " superclasses "
@@ -70,7 +70,7 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
     var className = "testStrictmode";
     Schema schema = session.getMetadata().getSchema();
     schema.createClass(className);
-    var result = session.command("alter class " + className + " strict_mode true");
+    var result = session.execute("alter class " + className + " strict_mode true");
     var clazz = schema.getClass(className);
     Assert.assertTrue(clazz.isStrictMode());
     result.close();
@@ -81,7 +81,7 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
     var className = "testCustom";
     Schema schema = session.getMetadata().getSchema();
     schema.createClass(className);
-    var result = session.command("alter class " + className + " custom foo = 'bar'");
+    var result = session.execute("alter class " + className + " custom foo = 'bar'");
     var clazz = schema.getClass(className);
     Assert.assertEquals("bar", clazz.getCustom("foo"));
     result.close();
@@ -92,7 +92,7 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
     var className = "testCustom2";
     Schema schema = session.getMetadata().getSchema();
     schema.createClass(className);
-    var result = session.command("alter class " + className + " custom foo = ?", "bar");
+    var result = session.execute("alter class " + className + " custom foo = ?", "bar");
     var clazz = schema.getClass(className);
     Assert.assertEquals("bar", clazz.getCustom("foo"));
     result.close();
@@ -103,7 +103,7 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
     var className = "testAbstract";
     Schema schema = session.getMetadata().getSchema();
     schema.createClass(className);
-    var result = session.command("alter class " + className + " abstract true");
+    var result = session.execute("alter class " + className + " abstract true");
     var clazz = schema.getClass(className);
     Assert.assertTrue(clazz.isAbstract());
     result.close();
@@ -119,12 +119,12 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
     }
     schema.createClass(className, e);
     try {
-      session.command("alter class " + className + " name " + className + "_new");
+      session.execute("alter class " + className + " name " + className + "_new");
       Assert.fail();
     } catch (CommandExecutionException ex) {
     }
     var result =
-        session.command("alter class " + className + " name " + className + "_new unsafe");
+        session.execute("alter class " + className + " name " + className + "_new unsafe");
     Assert.assertNull(schema.getClass(className));
     Assert.assertNotNull(schema.getClass(className + "_new"));
     result.close();

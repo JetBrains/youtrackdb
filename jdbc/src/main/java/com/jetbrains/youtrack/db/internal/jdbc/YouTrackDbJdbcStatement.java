@@ -159,7 +159,7 @@ public class YouTrackDbJdbcStatement implements Statement {
   protected ResultSet executeCommand(String query) throws SQLException {
 
     try {
-      return session.command(query);
+      return session.execute(query);
     } catch (QueryParsingException e) {
       throw new SQLSyntaxErrorException("Error while parsing command", e);
     } catch (BaseException e) {

@@ -17,7 +17,7 @@ public class LucenePhraseQueriesTest extends LuceneBaseTest {
     var type = session.createVertexClass("Role");
     type.createProperty("name", PropertyType.STRING);
 
-    session.command(
+    session.execute(
         "create index Role.name on Role (name) FULLTEXT ENGINE LUCENE "
             + "METADATA{"
             + "\"name_index\": \"org.apache.lucene.analysis.standard.StandardAnalyzer\","
@@ -56,31 +56,31 @@ public class LucenePhraseQueriesTest extends LuceneBaseTest {
   public void testPhraseQueries() throws Exception {
 
     var vertexes =
-        session.command("select from Role where search_class(' \"Business Owner\" ')=true  ");
+        session.execute("select from Role where search_class(' \"Business Owner\" ')=true  ");
 
     assertThat(vertexes).hasSize(1);
 
-    vertexes = session.command(
+    vertexes = session.execute(
         "select from Role where search_class( ' \"Owner of Business\" ')=true  ");
 
     assertThat(vertexes).hasSize(0);
 
-    vertexes = session.command(
+    vertexes = session.execute(
         "select from Role where search_class(' \"System Owner\" '  )=true  ");
 
     assertThat(vertexes).hasSize(0);
 
-    vertexes = session.command(
+    vertexes = session.execute(
         "select from Role where search_class(' \"System SME\"~1 '  )=true  ");
 
     assertThat(vertexes).hasSize(2);
 
     vertexes =
-        session.command("select from Role where search_class(' \"System Business\"~1 '  )=true  ");
+        session.execute("select from Role where search_class(' \"System Business\"~1 '  )=true  ");
 
     assertThat(vertexes).hasSize(2);
 
-    vertexes = session.command("select from Role where search_class(' /[mb]oat/ '  )=true  ");
+    vertexes = session.execute("select from Role where search_class(' /[mb]oat/ '  )=true  ");
 
     assertThat(vertexes).hasSize(2);
   }
@@ -89,41 +89,41 @@ public class LucenePhraseQueriesTest extends LuceneBaseTest {
   public void testComplexPhraseQueries() throws Exception {
 
     var vertexes =
-        session.command("select from Role where search_class(?)=true", "\"System SME\"~1");
+        session.execute("select from Role where search_class(?)=true", "\"System SME\"~1");
 
     assertThat(vertexes).allMatch(v -> v.<String>getProperty("name").contains("SME"));
 
-    vertexes = session.command("select from Role where search_class(? )=true", "\"SME System\"~1");
+    vertexes = session.execute("select from Role where search_class(? )=true", "\"SME System\"~1");
 
     assertThat(vertexes).isEmpty();
 
-    vertexes = session.command("select from Role where search_class(?) =true",
+    vertexes = session.execute("select from Role where search_class(?) =true",
         "\"Owner Of Business\"");
     vertexes.stream().forEach(v -> System.out.println("v = " + v.getProperty("name")));
 
     assertThat(vertexes).isEmpty();
 
     vertexes =
-        session.command("select from Role where search_class(? )=true", "\"System Business SME\"");
+        session.execute("select from Role where search_class(? )=true", "\"System Business SME\"");
 
     assertThat(vertexes)
         .hasSize(1)
         .allMatch(v -> v.<String>getProperty("name").equalsIgnoreCase("System Business SME"));
 
-    vertexes = session.command("select from Role where search_class(? )=true",
+    vertexes = session.execute("select from Role where search_class(? )=true",
         "\"System Owner\"~1 -IT");
     assertThat(vertexes)
         .hasSize(1)
         .allMatch(v -> v.<String>getProperty("name").equalsIgnoreCase("System Business Owner"));
 
-    vertexes = session.command("select from Role where search_class(? )=true",
+    vertexes = session.execute("select from Role where search_class(? )=true",
         "+System +Own*~0.0 -IT");
     assertThat(vertexes)
         .hasSize(1)
         .allMatch(v -> v.<String>getProperty("name").equalsIgnoreCase("System Business Owner"));
 
     vertexes =
-        session.command("select from Role where search_class(? )=true",
+        session.execute("select from Role where search_class(? )=true",
             "\"System Owner\"~1 -Business");
     assertThat(vertexes)
         .hasSize(1)

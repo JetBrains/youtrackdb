@@ -28,7 +28,7 @@ public class LuceneFreezeReleaseTest extends LuceneBaseTest {
     var person = schema.createClass("Person");
     person.createProperty("name", PropertyType.STRING);
 
-    session.command("create index Person.name on Person (name) FULLTEXT ENGINE LUCENE");
+    session.execute("create index Person.name on Person (name) FULLTEXT ENGINE LUCENE");
 
     session.begin();
     EntityImpl entity = ((EntityImpl) session.newEntity("Person"));
@@ -42,7 +42,7 @@ public class LuceneFreezeReleaseTest extends LuceneBaseTest {
 
     session.freeze();
 
-    results = session.command("select from Person where search_class('John')=true");
+    results = session.execute("select from Person where search_class('John')=true");
     assertThat(results).hasSize(1);
     results.close();
 
@@ -67,14 +67,14 @@ public class LuceneFreezeReleaseTest extends LuceneBaseTest {
     var person = schema.createClass("Person");
     person.createProperty("name", PropertyType.STRING);
 
-    session.command("create index Person.name on Person (name) FULLTEXT ENGINE LUCENE");
+    session.execute("create index Person.name on Person (name) FULLTEXT ENGINE LUCENE");
 
     session.begin();
     EntityImpl entity1 = ((EntityImpl) session.newEntity("Person"));
     entity1.setProperty("name", "John");
     session.commit();
 
-    var results = session.command("select from Person where search_class('John')=true");
+    var results = session.execute("select from Person where search_class('John')=true");
 
     assertThat(results).hasSize(1);
     results.close();
@@ -83,7 +83,7 @@ public class LuceneFreezeReleaseTest extends LuceneBaseTest {
 
     session.freeze();
 
-    results = session.command("select from Person where search_class('John')=true");
+    results = session.execute("select from Person where search_class('John')=true");
 
     assertThat(results).hasSize(1);
     results.close();
@@ -96,7 +96,7 @@ public class LuceneFreezeReleaseTest extends LuceneBaseTest {
     entity.setProperty("name", "John");
     session.commit();
 
-    results = session.command("select from Person where search_class('John')=true");
+    results = session.execute("select from Person where search_class('John')=true");
     assertThat(results).hasSize(2);
     results.close();
   }

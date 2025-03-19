@@ -19,7 +19,7 @@ public class AlterSchemaPropertyStatementExecutionTest extends DbTestBase {
     var prop = clazz.createProperty("name", PropertyType.STRING);
     prop.setMax("15");
 
-    var result = session.command("alter property " + className + ".name max 30");
+    var result = session.execute("alter property " + className + ".name max 30");
     printExecutionPlan(null, result);
     Object currentValue = prop.getMax();
 
@@ -40,7 +40,7 @@ public class AlterSchemaPropertyStatementExecutionTest extends DbTestBase {
     var prop = clazz.createProperty("name", PropertyType.STRING);
     prop.setCustom("foo", "bar");
 
-    var result = session.command("alter property " + className + ".name custom foo='baz'");
+    var result = session.execute("alter property " + className + ".name custom foo='baz'");
     printExecutionPlan(null, result);
     Object currentValue = prop.getCustom("foo");
 

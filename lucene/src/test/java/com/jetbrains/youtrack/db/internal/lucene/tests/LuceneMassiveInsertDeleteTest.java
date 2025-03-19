@@ -37,7 +37,7 @@ public class LuceneMassiveInsertDeleteTest extends LuceneBaseTest {
     var song = session.createVertexClass("City");
     song.createProperty("name", PropertyType.STRING);
 
-    session.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
+    session.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
   }
 
   @Test
@@ -63,7 +63,7 @@ public class LuceneMassiveInsertDeleteTest extends LuceneBaseTest {
     docs.close();
 
     session.begin();
-    session.command("delete vertex City");
+    session.execute("delete vertex City");
     session.commit();
 
     docs = session.query(query);

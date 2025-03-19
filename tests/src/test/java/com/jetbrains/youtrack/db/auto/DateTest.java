@@ -56,7 +56,7 @@ public class DateTest extends BaseDBTest {
     Assert.assertNotNull(doc2.getDate("date"));
 
     var result =
-        session.command("select * from Order where date >= ? and context = 'test'", begin);
+        session.execute("select * from Order where date >= ? and context = 'test'", begin);
 
     Assert.assertEquals(result.stream().count(), 2);
     session.rollback();
@@ -79,7 +79,7 @@ public class DateTest extends BaseDBTest {
 
     var result =
         session
-            .command(
+            .execute(
                 "select * from Order where date >= ? and context = 'testPrecision'", dateAsString)
             .stream()
             .collect(Collectors.toList());
@@ -102,14 +102,14 @@ public class DateTest extends BaseDBTest {
    */
   @Test
   public void testDateGregorianCalendar() throws ParseException {
-    session.command("CREATE CLASS TimeTest EXTENDS V").close();
+    session.execute("CREATE CLASS TimeTest EXTENDS V").close();
 
     final var df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
     final var date = df.parse("1200-11-11 00:00:00.000");
 
     session.begin();
     session
-        .command("CREATE VERTEX TimeTest SET firstname = ?, birthDate = ?", "Robert", date)
+        .execute("CREATE VERTEX TimeTest SET firstname = ?, birthDate = ?", "Robert", date)
         .close();
     session.commit();
 

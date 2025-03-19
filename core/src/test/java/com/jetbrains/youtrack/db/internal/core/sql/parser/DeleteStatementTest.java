@@ -42,8 +42,8 @@ public class DeleteStatementTest extends DbTestBase {
   @Test
   public void deleteFromSubqueryWithWhereTest() {
 
-    session.command("create class Foo").close();
-    session.command("create class Bar").close();
+    session.execute("create class Foo").close();
+    session.execute("create class Bar").close();
 
     session.begin();
     final var doc1 = ((EntityImpl) session.newEntity("Foo"));
@@ -62,7 +62,7 @@ public class DeleteStatementTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    session.command("delete from (select expand(arr) from Bar) where k = 'key2'").close();
+    session.execute("delete from (select expand(arr) from Bar) where k = 'key2'").close();
     session.commit();
 
     session.begin();

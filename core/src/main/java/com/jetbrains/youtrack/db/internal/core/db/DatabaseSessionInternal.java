@@ -724,8 +724,8 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    *
    * @param iCommand Command request to execute.
    * @return The same Command request received as parameter.
-   * @deprecated use {@link #command(String, Map)}, {@link #command(String, Object...)},
-   * {@link #execute(String, String, Map)}, {@link #execute(String, String, Object...)} instead
+   * @deprecated use {@link #execute(String, Map)}, {@link #execute(String, Object...)},
+   * {@link #runScript(String, String, Map)}, {@link #runScript(String, String, Object...)} instead
    */
   @Deprecated
   <RET extends CommandRequest> RET command(CommandRequest iCommand);

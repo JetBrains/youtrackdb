@@ -34,7 +34,7 @@ public class LuceneDocumentEmbeddedTest extends LuceneBaseTest {
     var type = session.getMetadata().getSchema().createClass("City");
     type.createProperty("name", PropertyType.STRING);
 
-    session.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
+    session.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
   }
 
   @Test
@@ -53,7 +53,7 @@ public class LuceneDocumentEmbeddedTest extends LuceneBaseTest {
     session.commit();
 
     var results =
-        session.command("select from City where SEARCH_FIELDS(['name'] ,'London') = true ");
+        session.execute("select from City where SEARCH_FIELDS(['name'] ,'London') = true ");
 
     Assertions.assertThat(results).hasSize(1);
   }
@@ -69,7 +69,7 @@ public class LuceneDocumentEmbeddedTest extends LuceneBaseTest {
     session.commit();
 
     var results =
-        session.command("select from City where SEARCH_FIELDS(['name'] ,'Berlin')=true ");
+        session.execute("select from City where SEARCH_FIELDS(['name'] ,'Berlin')=true ");
 
     Assertions.assertThat(results).hasSize(1);
   }

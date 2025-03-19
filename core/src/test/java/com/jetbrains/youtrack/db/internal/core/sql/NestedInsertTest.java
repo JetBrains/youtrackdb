@@ -17,7 +17,7 @@ public class NestedInsertTest extends DbTestBase {
 
     session.begin();
     var result =
-        session.command(
+        session.execute(
             "insert into myClass (name,meta) values"
                 + " (\"claudio\",{\"@type\":\"d\",\"country\":\"italy\","
                 + " \"date\":\"2013-01-01\",\"@fieldTypes\":\"date=a\"}) return @this");
@@ -43,7 +43,7 @@ public class NestedInsertTest extends DbTestBase {
 
     session.begin();
     var result =
-        session.command(
+        session.execute(
             "insert into myClass set some ={\"@class\":\"Linked\",\"name\":\"a"
                 + " name\"} return @this");
 

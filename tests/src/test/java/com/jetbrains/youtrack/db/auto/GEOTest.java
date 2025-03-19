@@ -114,7 +114,7 @@ public class GEOTest extends BaseDBTest {
 
     // MAKE THE FIRST RECORD DIRTY TO TEST IF DISTANCE JUMP IT
     var resultSet =
-        session.command("select from MapPoint limit 1").toList();
+        session.execute("select from MapPoint limit 1").toList();
     try {
       resultSet.getFirst().asEntityOrNull().setProperty("x", "--wrong--");
       Assert.fail();

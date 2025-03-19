@@ -40,7 +40,7 @@ public class DeleteEdgeStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(9, rs.stream().count());
     rs.close();
 
-    session.command(
+    session.execute(
             "DELETE EDGE "
                 + edgeClassName
                 + " from (SELECT FROM "
@@ -96,7 +96,7 @@ public class DeleteEdgeStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(9, rs.stream().count());
     rs.close();
 
-    session.command("DELETE EDGE " + edgeClassName).close();
+    session.execute("DELETE EDGE " + edgeClassName).close();
     session.commit();
 
     session.begin();

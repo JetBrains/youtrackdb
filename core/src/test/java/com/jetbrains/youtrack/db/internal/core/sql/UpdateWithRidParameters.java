@@ -17,19 +17,19 @@ public class UpdateWithRidParameters extends DbTestBase {
     schm.createClass("testingClass");
     schm.createClass("testingClass2");
 
-    session.command("INSERT INTO testingClass SET id = ?", 123).close();
+    session.execute("INSERT INTO testingClass SET id = ?", 123).close();
 
-    session.command("INSERT INTO testingClass2 SET id = ?", 456).close();
+    session.execute("INSERT INTO testingClass2 SET id = ?", 456).close();
     RID orid;
     try (var docs = session.query("SELECT FROM testingClass2 WHERE id = ?", 456)) {
       orid = docs.next().getProperty("@rid");
     }
 
     // This does not work. It silently adds a null instead of the RID.
-    session.command("UPDATE testingClass set linkedlist = linkedlist || ?", orid).close();
+    session.execute("UPDATE testingClass set linkedlist = linkedlist || ?", orid).close();
 
     // This does work.
-    session.command("UPDATE testingClass set linkedlist = linkedlist || " + orid.toString())
+    session.execute("UPDATE testingClass set linkedlist = linkedlist || " + orid.toString())
         .close();
     List<RID> lst;
     try (var docs = session.query("SELECT FROM testingClass WHERE id = ?", 123)) {

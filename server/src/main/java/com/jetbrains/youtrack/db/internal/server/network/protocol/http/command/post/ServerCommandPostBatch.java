@@ -185,9 +185,9 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
 
           ResultSet result;
           if (params == null) {
-            result = db.execute(language, commandAsString);
+            result = db.runScript(language, commandAsString);
           } else {
-            result = db.execute(language, commandAsString, (Object[]) params);
+            result = db.runScript(language, commandAsString, (Object[]) params);
           }
           lastResult = result.stream().map(Result::toMap).collect(Collectors.toList());
           result.close();
@@ -229,9 +229,9 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
 
           ResultSet result;
           if (params == null) {
-            result = db.execute(language, text.toString());
+            result = db.runScript(language, text.toString());
           } else {
-            result = db.execute(language, text.toString(), (Object[]) params);
+            result = db.runScript(language, text.toString(), (Object[]) params);
           }
 
           lastResult = result.stream().map(Result::toMap).collect(Collectors.toList());

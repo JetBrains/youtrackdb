@@ -38,7 +38,7 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
     oClass.createProperty("location", PropertyType.EMBEDDED, schema.getClass("OPoint"));
     oClass.createProperty("name", PropertyType.STRING);
 
-    session.command("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
+    session.execute("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
 
     var idx = session.getMetadata().getIndexManagerInternal().getIndex(session, "City.location");
     var rome = newCity(session, "Rome", 12.5, 41.9);
@@ -46,7 +46,7 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
 
     session.begin();
 
-    session.command(
+    session.execute(
             "insert into City set name = 'TestInsert' , location = ST_GeomFromText('"
                 + PWKT
                 + "')")
@@ -83,7 +83,7 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
     oClass.createProperty("location", PropertyType.EMBEDDED, schema.getClass("OPoint"));
     oClass.createProperty("name", PropertyType.STRING);
 
-    session.command("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
+    session.execute("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
 
     var idx = session.getMetadata().getIndexManagerInternal().getIndex(session, "City.location");
     var rome = newCity(session, "Rome", 12.5, 41.9);
@@ -103,7 +103,7 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
     Assert.assertEquals(0, docs.size());
     Assert.assertEquals(1, idx.size(session));
 
-    session.command("update City set location = ST_GeomFromText('" + PWKT + "')").close();
+    session.execute("update City set location = ST_GeomFromText('" + PWKT + "')").close();
 
     query =
         "select * from City where location && 'LINESTRING(-160.06393432617188"

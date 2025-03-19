@@ -16,14 +16,14 @@ public class LuceneSandboxTest extends LuceneBaseTest {
 
   @Before
   public void setUp() throws Exception {
-    session.command("CREATE CLASS CDR");
-    session.command("CREATE PROPERTY  CDR.filename STRING");
+    session.execute("CREATE CLASS CDR");
+    session.execute("CREATE PROPERTY  CDR.filename STRING");
 
     session.begin();
-    session.command(
+    session.execute(
         "INSERT into cdr(filename)"
             + " values('MDCA10MCR201612291808.276388.eno.RRC.20161229183002.PROD_R4.eno.data') ");
-    session.command(
+    session.execute(
         "INSERT into cdr(filename)"
             + " values('MDCA20MCR201612291911.277904.eno.RRC.20161229193002.PROD_R4.eno.data') ");
     session.commit();
@@ -31,7 +31,7 @@ public class LuceneSandboxTest extends LuceneBaseTest {
 
   @Test
   public void shouldFetchOneDocumentWithExactMatchOnLuceneIndexStandardAnalyzer() throws Exception {
-    session.command("CREATE INDEX cdr.filename ON cdr(filename) FULLTEXT ENGINE LUCENE ");
+    session.execute("CREATE INDEX cdr.filename ON cdr(filename) FULLTEXT ENGINE LUCENE ");
     // partial match
     var res =
         session.query(
@@ -57,7 +57,7 @@ public class LuceneSandboxTest extends LuceneBaseTest {
   @Test
   public void shouldFetchOneDocumentWithExactMatchOnLuceneIndexKeyWordAnalyzer() throws Exception {
 
-    session.command(
+    session.execute(
         "CREATE INDEX cdr.filename ON cdr(filename) FULLTEXT ENGINE LUCENE metadata {"
             + " 'allowLeadingWildcard': true}");
 
@@ -90,15 +90,15 @@ public class LuceneSandboxTest extends LuceneBaseTest {
   @Test
   public void testHierarchy() throws Exception {
 
-    session.command("CREATE Class Father EXTENDS V");
-    session.command("CREATE PROPERTY Father.text STRING");
+    session.execute("CREATE Class Father EXTENDS V");
+    session.execute("CREATE PROPERTY Father.text STRING");
 
-    session.command("CREATE INDEX Father.text ON Father(text) FULLTEXT ENGINE LUCENE ");
+    session.execute("CREATE INDEX Father.text ON Father(text) FULLTEXT ENGINE LUCENE ");
 
-    session.command("CREATE Class Son EXTENDS Father");
-    session.command("CREATE PROPERTY Son.textOfSon STRING");
+    session.execute("CREATE Class Son EXTENDS Father");
+    session.execute("CREATE PROPERTY Son.textOfSon STRING");
 
-    session.command("CREATE INDEX Son.textOfSon ON Son(textOfSon) FULLTEXT ENGINE LUCENE ");
+    session.execute("CREATE INDEX Son.textOfSon ON Son(textOfSon) FULLTEXT ENGINE LUCENE ");
     var father = session.getMetadata().getSchema().getClass("Father");
   }
 

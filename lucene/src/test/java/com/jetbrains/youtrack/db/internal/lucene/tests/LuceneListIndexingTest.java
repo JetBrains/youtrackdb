@@ -47,7 +47,7 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
     person.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
     //noinspection EmptyTryBlock
     try (var command =
-        session.command(
+        session.execute(
             "create index Person.name_tags on Person (name,tags) FULLTEXT ENGINE LUCENE")) {
     }
 
@@ -56,7 +56,7 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
     city.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
     //noinspection EmptyTryBlock
     try (var command =
-        session.command("create index City.tags on City (tags) FULLTEXT ENGINE LUCENE")) {
+        session.execute("create index City.tags on City (tags) FULLTEXT ENGINE LUCENE")) {
     }
   }
 

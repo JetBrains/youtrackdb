@@ -44,7 +44,7 @@ public class LuceneInsertDeleteTest extends LuceneBaseTest {
     oClass.createProperty("name", PropertyType.STRING);
     //noinspection EmptyTryBlock
     try (var resultSet =
-        session.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE")) {
+        session.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE")) {
     }
   }
 
@@ -87,13 +87,13 @@ public class LuceneInsertDeleteTest extends LuceneBaseTest {
 
     try (var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql")) {
       //noinspection EmptyTryBlock
-      try (var resultSet = session.execute("sql", getScriptFromStream(stream))) {
+      try (var resultSet = session.runScript("sql", getScriptFromStream(stream))) {
       }
     }
 
     //noinspection EmptyTryBlock
     try (var resultSet =
-        session.command(
+        session.execute(
             "create index Song.title on Song (title) FULLTEXT ENGINE LUCENE metadata"
                 + " {'closeAfterInterval':1000 , 'firstFlushAfter':1000 }")) {
     }
@@ -107,7 +107,7 @@ public class LuceneInsertDeleteTest extends LuceneBaseTest {
       session.begin();
       //noinspection EmptyTryBlock
       try (var command =
-          session.command("delete vertex from Song where title lucene 'mountain'")) {
+          session.execute("delete vertex from Song where title lucene 'mountain'")) {
       }
       session.commit();
 

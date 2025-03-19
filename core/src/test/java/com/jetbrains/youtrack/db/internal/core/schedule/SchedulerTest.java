@@ -152,7 +152,7 @@ public class SchedulerTest {
                 CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
       var func = createFunction(db);
       db.begin();
-      db.command(
+      db.execute(
               "insert into oschedule set name = 'test',"
                   + " function = ?, rule = \"0/1 * * * * ?\", arguments = {\"note\": \"test\"}",
               func.getIdentity())
@@ -173,7 +173,7 @@ public class SchedulerTest {
       while (true) {
         try {
           db.begin();
-          db.command(
+          db.execute(
                   "update oschedule set rule = \"0/2 * * * * ?\", function = ? where name = 'test'",
                   func.getIdentity())
               .close();
@@ -202,7 +202,7 @@ public class SchedulerTest {
         try {
           // DELETE
           db.begin();
-          db.command("delete from oschedule where name = 'test'", func.getIdentity()).close();
+          db.execute("delete from oschedule where name = 'test'", func.getIdentity()).close();
           db.commit();
           break;
         } catch (NeedRetryException e) {

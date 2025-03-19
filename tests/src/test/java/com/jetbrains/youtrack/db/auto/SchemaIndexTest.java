@@ -33,15 +33,15 @@ public class SchemaIndexTest extends BaseDBTest {
   @AfterMethod
   public void tearDown() throws Exception {
     if (session.getMetadata().getSchema().existsClass("SchemaIndexTest")) {
-      session.command("drop class SchemaIndexTest").close();
+      session.execute("drop class SchemaIndexTest").close();
     }
-    session.command("drop class SchemaSharedIndexSuperTest").close();
+    session.execute("drop class SchemaSharedIndexSuperTest").close();
   }
 
   @Test
   public void testDropClass() throws Exception {
     session
-        .command(
+        .execute(
             "CREATE INDEX SchemaSharedIndexCompositeIndex ON SchemaIndexTest (prop1, prop2) UNIQUE")
         .close();
     session.getMetadata().getIndexManagerInternal().reload(session);
@@ -67,7 +67,7 @@ public class SchemaIndexTest extends BaseDBTest {
   @Test
   public void testDropSuperClass() throws Exception {
     session
-        .command(
+        .execute(
             "CREATE INDEX SchemaSharedIndexCompositeIndex ON SchemaIndexTest (prop1, prop2) UNIQUE")
         .close();
 

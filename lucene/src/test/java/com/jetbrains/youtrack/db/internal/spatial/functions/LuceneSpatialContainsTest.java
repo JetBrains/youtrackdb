@@ -26,7 +26,7 @@ public class LuceneSpatialContainsTest extends BaseSpatialLuceneTest {
   public void testContainsNoIndex() {
 
     var execute =
-        session.command(
+        session.execute(
             "select ST_Contains(smallc,smallc) as smallinsmall,ST_Contains(smallc, bigc) As"
                 + " smallinbig, ST_Contains(bigc,smallc) As biginsmall from (SELECT"
                 + " ST_Buffer(ST_GeomFromText('POINT(50 50)'), 20) As"
@@ -41,26 +41,26 @@ public class LuceneSpatialContainsTest extends BaseSpatialLuceneTest {
   @Test
   public void testContainsIndex() {
 
-    session.command("create class Polygon extends v").close();
-    session.command("create property Polygon.geometry EMBEDDED OPolygon").close();
+    session.execute("create class Polygon extends v").close();
+    session.execute("create property Polygon.geometry EMBEDDED OPolygon").close();
 
     session.begin();
-    session.command(
+    session.execute(
             "insert into Polygon set geometry = ST_Buffer(ST_GeomFromText('POINT(50 50)'), 20)")
         .close();
-    session.command(
+    session.execute(
             "insert into Polygon set geometry = ST_Buffer(ST_GeomFromText('POINT(50 50)'), 40)")
         .close();
     session.commit();
 
-    session.command("create index Polygon.g on Polygon (geometry) SPATIAL engine lucene").close();
+    session.execute("create index Polygon.g on Polygon (geometry) SPATIAL engine lucene").close();
     var execute =
-        session.command("SELECT from Polygon where ST_Contains(geometry, 'POINT(50 50)') = true");
+        session.execute("SELECT from Polygon where ST_Contains(geometry, 'POINT(50 50)') = true");
 
     Assert.assertEquals(2, execute.stream().count());
 
     execute =
-        session.command(
+        session.execute(
             "SELECT from Polygon where ST_Contains(geometry, ST_Buffer(ST_GeomFromText('POINT(50"
                 + " 50)'), 30)) = true");
 
@@ -70,28 +70,28 @@ public class LuceneSpatialContainsTest extends BaseSpatialLuceneTest {
   @Test
   public void testContainsIndex_GeometryCollection() {
 
-    session.command("create class TestInsert extends v").close();
-    session.command("create property TestInsert.geometry EMBEDDED OGeometryCollection").close();
+    session.execute("create class TestInsert extends v").close();
+    session.execute("create property TestInsert.geometry EMBEDDED OGeometryCollection").close();
 
     session.begin();
-    session.command(
+    session.execute(
             "insert into TestInsert set geometry ="
                 + " {'@type':'d','@class':'OGeometryCollection','geometries':[{'@type':'d','@class':'OPolygon','coordinates':[[[0,0],[10,0],[10,10],[0,10],[0,0]]]}]}")
         .close();
-    session.command(
+    session.execute(
             "insert into TestInsert set geometry ="
                 + " {'@type':'d','@class':'OGeometryCollection','geometries':[{'@type':'d','@class':'OPolygon','coordinates':[[[11,11],[21,11],[21,21],[11,21],[11,11]]]}]}")
         .close();
     session.commit();
 
-    session.command(
+    session.execute(
             "create index TestInsert.geometry on TestInsert (geometry) SPATIAL engine lucene")
         .close();
 
     var testGeometry =
         "{'@type':'d','@class':'OGeometryCollection','geometries':[{'@type':'d','@class':'OPolygon','coordinates':[[[1,1],[2,1],[2,2],[1,2],[1,1]]]}]}";
     var execute =
-        session.command(
+        session.execute(
             "SELECT from TestInsert where ST_Contains(geometry, " + testGeometry + ") = true");
 
     Assert.assertEquals(1, execute.stream().count());

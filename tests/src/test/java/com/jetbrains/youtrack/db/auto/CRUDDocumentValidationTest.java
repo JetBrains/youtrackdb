@@ -64,7 +64,7 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
     }
 
     session
-        .command("ALTER DATABASE " + ATTRIBUTES_INTERNAL.VALIDATION.name() + " FALSE")
+        .execute("ALTER DATABASE " + ATTRIBUTES_INTERNAL.VALIDATION.name() + " FALSE")
         .close();
     try {
       var doc = ((EntityImpl) session.newEntity("MyTestClass"));
@@ -78,7 +78,7 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
     } finally {
       session.setValidationEnabled(true);
       session
-          .command("ALTER DATABASE " + DatabaseSessionInternal.ATTRIBUTES_INTERNAL.VALIDATION.name()
+          .execute("ALTER DATABASE " + DatabaseSessionInternal.ATTRIBUTES_INTERNAL.VALIDATION.name()
               + " TRUE")
           .close();
     }
@@ -170,20 +170,20 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
       session.getMetadata().getSchema().dropClass("MyTestClass");
     }
 
-    session.command("CREATE CLASS MyTestClass").close();
-    session.command("CREATE PROPERTY MyTestClass.keyField STRING").close();
-    session.command("ALTER PROPERTY MyTestClass.keyField MANDATORY true").close();
-    session.command("ALTER PROPERTY MyTestClass.keyField NOTNULL true").close();
-    session.command("CREATE PROPERTY MyTestClass.dateTimeField DATETIME").close();
-    session.command("ALTER PROPERTY MyTestClass.dateTimeField MANDATORY true").close();
-    session.command("ALTER PROPERTY MyTestClass.dateTimeField NOTNULL false").close();
-    session.command("CREATE PROPERTY MyTestClass.stringField STRING").close();
-    session.command("ALTER PROPERTY MyTestClass.stringField MANDATORY true").close();
-    session.command("ALTER PROPERTY MyTestClass.stringField NOTNULL false").close();
+    session.execute("CREATE CLASS MyTestClass").close();
+    session.execute("CREATE PROPERTY MyTestClass.keyField STRING").close();
+    session.execute("ALTER PROPERTY MyTestClass.keyField MANDATORY true").close();
+    session.execute("ALTER PROPERTY MyTestClass.keyField NOTNULL true").close();
+    session.execute("CREATE PROPERTY MyTestClass.dateTimeField DATETIME").close();
+    session.execute("ALTER PROPERTY MyTestClass.dateTimeField MANDATORY true").close();
+    session.execute("ALTER PROPERTY MyTestClass.dateTimeField NOTNULL false").close();
+    session.execute("CREATE PROPERTY MyTestClass.stringField STRING").close();
+    session.execute("ALTER PROPERTY MyTestClass.stringField MANDATORY true").close();
+    session.execute("ALTER PROPERTY MyTestClass.stringField NOTNULL false").close();
 
     session.begin();
     session
-        .command(
+        .execute(
             "INSERT INTO MyTestClass (keyField,dateTimeField,stringField) VALUES"
                 + " (\"K1\",null,null)")
         .close();
@@ -259,7 +259,7 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "validationDisabledAdDatabaseLevel")
   public void dropSchemaForMandatoryNullableTest() {
-    session.command("DROP CLASS MyTestClass").close();
+    session.execute("DROP CLASS MyTestClass").close();
     session.getMetadata().reload();
   }
 

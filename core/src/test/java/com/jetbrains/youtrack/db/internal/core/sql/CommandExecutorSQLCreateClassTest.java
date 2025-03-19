@@ -37,7 +37,7 @@ public class CommandExecutorSQLCreateClassTest extends DbTestBase {
   @Test
   public void testCreateWithSuperclasses() throws Exception {
 
-    session.command("create class `UserVertex` extends `V` , `User`").close();
+    session.execute("create class `UserVertex` extends `V` , `User`").close();
 
     var userVertex = session.getMetadata().getSchema().getClass("UserVertex");
 

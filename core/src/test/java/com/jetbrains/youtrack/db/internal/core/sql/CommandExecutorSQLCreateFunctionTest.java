@@ -12,13 +12,13 @@ public class CommandExecutorSQLCreateFunctionTest extends DbTestBase {
   @Test
   public void testCreateFunction() {
     session.begin();
-    session.command(
+    session.execute(
             "CREATE FUNCTION testCreateFunction \"return 'hello '+name;\" PARAMETERS [name]"
                 + " IDEMPOTENT true LANGUAGE Javascript")
         .close();
     session.commit();
 
-    var result = session.command("select testCreateFunction('world') as name");
+    var result = session.execute("select testCreateFunction('world') as name");
     Assert.assertEquals(result.next().getProperty("name"), "hello world");
     Assert.assertFalse(result.hasNext());
   }

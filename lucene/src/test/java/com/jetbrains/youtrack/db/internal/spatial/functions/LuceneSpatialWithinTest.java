@@ -43,19 +43,19 @@ public class LuceneSpatialWithinTest extends BaseSpatialLuceneTest {
   @Test
   public void testWithinIndex() {
 
-    session.command("create class Polygon extends v").close();
-    session.command("create property Polygon.geometry EMBEDDED OPolygon").close();
+    session.execute("create class Polygon extends v").close();
+    session.execute("create property Polygon.geometry EMBEDDED OPolygon").close();
 
     session.begin();
-    session.command(
+    session.execute(
             "insert into Polygon set geometry = ST_Buffer(ST_GeomFromText('POINT(50 50)'), 20)")
         .close();
-    session.command(
+    session.execute(
             "insert into Polygon set geometry = ST_Buffer(ST_GeomFromText('POINT(50 50)'), 40)")
         .close();
     session.commit();
 
-    session.command("create index Polygon.g on Polygon (geometry) SPATIAL engine lucene").close();
+    session.execute("create index Polygon.g on Polygon (geometry) SPATIAL engine lucene").close();
     var execute =
         session.query(
             "SELECT from Polygon where ST_Within(geometry, ST_Buffer(ST_GeomFromText('POINT(50"
@@ -73,17 +73,17 @@ public class LuceneSpatialWithinTest extends BaseSpatialLuceneTest {
 
   @Test
   public void testWithinNewExecutor() throws Exception {
-    session.command("create class Polygon extends v");
-    session.command("create property Polygon.geometry EMBEDDED OPolygon");
+    session.execute("create class Polygon extends v");
+    session.execute("create property Polygon.geometry EMBEDDED OPolygon");
 
     session.begin();
-    session.command(
+    session.execute(
         "insert into Polygon set geometry = ST_Buffer(ST_GeomFromText('POINT(50 50)'), 20)");
-    session.command(
+    session.execute(
         "insert into Polygon set geometry = ST_Buffer(ST_GeomFromText('POINT(50 50)'), 40)");
     session.commit();
 
-    session.command("create index Polygon.g on Polygon(geometry) SPATIAL ENGINE LUCENE");
+    session.execute("create index Polygon.g on Polygon(geometry) SPATIAL ENGINE LUCENE");
     var execute =
         session.query(
             "SELECT from Polygon where ST_Within(geometry, ST_Buffer(ST_GeomFromText('POINT(50"

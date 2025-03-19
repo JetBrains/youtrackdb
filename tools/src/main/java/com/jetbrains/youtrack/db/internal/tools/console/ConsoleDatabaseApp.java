@@ -706,7 +706,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     resetResultSet();
     final var start = System.currentTimeMillis();
 
-    var rs = currentDatabaseSession.command(command);
+    var rs = currentDatabaseSession.execute(command);
     var result =
         rs.stream().map(x -> new RawPair<RID, Object>(x.getIdentity(), x.toMap())).toList();
     rs.close();
@@ -1056,7 +1056,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     }
 
     var start = System.currentTimeMillis();
-    var rs = currentDatabaseSession.command("traverse " + iQueryText);
+    var rs = currentDatabaseSession.execute("traverse " + iQueryText);
     currentResultSet = rs.stream().map(x -> new RawPair<RID, Object>(x.getIdentity(), x.toMap()))
         .toList();
     rs.close();
@@ -1214,7 +1214,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     resetResultSet();
 
     var start = System.currentTimeMillis();
-    currentResultSet = currentDatabaseSession.execute("JavaScript", iText).stream()
+    currentResultSet = currentDatabaseSession.runScript("JavaScript", iText).stream()
         .map(result -> new RawPair<RID, Object>(result.getIdentity(), result.toMap())).toList();
     var elapsedSeconds = getElapsedSecs(start);
 
@@ -2905,7 +2905,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
 
     resetResultSet();
     var start = System.currentTimeMillis();
-    var rs = currentDatabaseSession.execute(iLanguage, script);
+    var rs = currentDatabaseSession.runScript(iLanguage, script);
     currentResultSet = rs.stream().map(x -> new RawPair<RID, Object>(x.getIdentity(), x.toMap()))
         .toList();
     rs.close();
@@ -2995,7 +2995,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     final var start = System.currentTimeMillis();
 
     List<Map<String, ?>> result;
-    try (var rs = currentDatabaseSession.command(iReceivedCommand)) {
+    try (var rs = currentDatabaseSession.execute(iReceivedCommand)) {
       result = rs.stream().map(Result::toMap).collect(Collectors.toList());
     }
     var elapsedSeconds = getElapsedSecs(start);

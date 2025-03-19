@@ -25,7 +25,7 @@ public class DropDBSequenceStatementExecutionTest extends DbTestBase {
 
     Assert.assertNotNull(session.getMetadata().getSequenceLibrary().getSequence(name));
     session.begin();
-    var result = session.command("drop sequence " + name);
+    var result = session.execute("drop sequence " + name);
     Assert.assertTrue(result.hasNext());
     var next = result.next();
     Assert.assertEquals("drop sequence", next.getProperty("operation"));
@@ -42,7 +42,7 @@ public class DropDBSequenceStatementExecutionTest extends DbTestBase {
     var lib = session.getMetadata().getSequenceLibrary();
     Assert.assertNull(lib.getSequence(name));
     try {
-      var result = session.command("drop sequence " + name);
+      var result = session.execute("drop sequence " + name);
       Assert.fail();
     } catch (CommandExecutionException ex1) {
 
@@ -57,7 +57,7 @@ public class DropDBSequenceStatementExecutionTest extends DbTestBase {
     var lib = session.getMetadata().getSequenceLibrary();
     Assert.assertNull(lib.getSequence(name));
 
-    var result = session.command("drop sequence " + name + " if exists");
+    var result = session.execute("drop sequence " + name + " if exists");
     Assert.assertFalse(result.hasNext());
 
     try {
@@ -70,7 +70,7 @@ public class DropDBSequenceStatementExecutionTest extends DbTestBase {
 
     Assert.assertNotNull(session.getMetadata().getSequenceLibrary().getSequence(name));
     session.begin();
-    result = session.command("drop sequence " + name + " if exists");
+    result = session.execute("drop sequence " + name + " if exists");
     Assert.assertTrue(result.hasNext());
     var next = result.next();
     Assert.assertEquals("drop sequence", next.getProperty("operation"));

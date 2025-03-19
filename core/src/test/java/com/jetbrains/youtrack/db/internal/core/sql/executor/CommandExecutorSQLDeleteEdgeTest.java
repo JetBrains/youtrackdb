@@ -46,7 +46,7 @@ public class CommandExecutorSQLDeleteEdgeTest extends DbTestBase {
 
     session.begin();
     edges =
-        session.command("create edge CanAccess from " + userId1 + " to " + folderId1).stream()
+        session.execute("create edge CanAccess from " + userId1 + " to " + folderId1).stream()
             .map(Result::getIdentity)
             .collect(Collectors.toList());
     session.commit();
@@ -56,7 +56,7 @@ public class CommandExecutorSQLDeleteEdgeTest extends DbTestBase {
   public void testFromSelect() {
     session.begin();
     var res =
-        session.command(
+        session.execute(
             "delete edge CanAccess from (select from User where username = 'gongolo') to "
                 + folderId1);
     Assert.assertEquals(1, (long) res.next().getProperty("count"));
@@ -68,7 +68,7 @@ public class CommandExecutorSQLDeleteEdgeTest extends DbTestBase {
   public void testFromSelectToSelect() {
     session.begin();
     var res =
-        session.command(
+        session.execute(
             "delete edge CanAccess from ( select from User where username = 'gongolo' ) to ( select"
                 + " from Folder where keyId = '01234567893' )");
     assertEquals(1, (long) res.next().getProperty("count"));
@@ -79,7 +79,7 @@ public class CommandExecutorSQLDeleteEdgeTest extends DbTestBase {
   @Test
   public void testDeleteByRID() {
     session.begin();
-    var result = session.command("delete edge [" + edges.get(0).getIdentity() + "]");
+    var result = session.execute("delete edge [" + edges.get(0).getIdentity() + "]");
     session.commit();
     assertEquals(1L, (long) result.next().getProperty("count"));
   }
@@ -87,9 +87,9 @@ public class CommandExecutorSQLDeleteEdgeTest extends DbTestBase {
   @Test
   public void testDeleteEdgeWithVertexRid() {
     session.begin();
-    var vertexes = session.command("select from v limit 1");
+    var vertexes = session.execute("select from v limit 1");
     try {
-      session.command("delete edge [" + vertexes.next().getIdentity() + "]").close();
+      session.execute("delete edge [" + vertexes.next().getIdentity() + "]").close();
       session.commit();
       Assert.fail("Error on deleting an edge with a rid of a vertex");
     } catch (Exception e) {
@@ -103,8 +103,8 @@ public class CommandExecutorSQLDeleteEdgeTest extends DbTestBase {
 
     for (var i = 0; i < 100; i++) {
       session.begin();
-      session.command("create vertex User set name = 'foo" + i + "'").close();
-      session.command(
+      session.execute("create vertex User set name = 'foo" + i + "'").close();
+      session.execute(
               "create edge CanAccess from (select from User where name = 'foo"
                   + i
                   + "') to "
@@ -114,7 +114,7 @@ public class CommandExecutorSQLDeleteEdgeTest extends DbTestBase {
     }
 
     session.begin();
-    session.command("delete edge CanAccess batch 5").close();
+    session.execute("delete edge CanAccess batch 5").close();
     session.commit();
 
     session.begin();

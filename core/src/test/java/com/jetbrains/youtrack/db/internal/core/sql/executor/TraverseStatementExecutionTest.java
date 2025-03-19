@@ -16,12 +16,12 @@ public class TraverseStatementExecutionTest extends DbTestBase {
     session.createEdgeClass(classPrefix + "E");
 
     session.begin();
-    session.command("create vertex " + classPrefix + "V set name = 'a'").close();
-    session.command("create vertex " + classPrefix + "V set name = 'b'").close();
-    session.command("create vertex " + classPrefix + "V set name = 'c'").close();
-    session.command("create vertex " + classPrefix + "V set name = 'd'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'a'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'b'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'c'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'd'").close();
 
-    session.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -30,7 +30,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
                 + classPrefix
                 + "V where name = 'b')")
         .close();
-    session.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -39,7 +39,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
                 + classPrefix
                 + "V where name = 'c')")
         .close();
-    session.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -71,12 +71,12 @@ public class TraverseStatementExecutionTest extends DbTestBase {
     session.createEdgeClass(classPrefix + "E");
 
     session.begin();
-    session.command("create vertex " + classPrefix + "V set name = 'a'").close();
-    session.command("create vertex " + classPrefix + "V set name = 'b'").close();
-    session.command("create vertex " + classPrefix + "V set name = 'c'").close();
-    session.command("create vertex " + classPrefix + "V set name = 'd'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'a'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'b'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'c'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'd'").close();
 
-    session.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -85,7 +85,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
                 + classPrefix
                 + "V where name = 'b')")
         .close();
-    session.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -94,7 +94,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
                 + classPrefix
                 + "V where name = 'c')")
         .close();
-    session.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -129,12 +129,12 @@ public class TraverseStatementExecutionTest extends DbTestBase {
     session.createEdgeClass(classPrefix + "E");
 
     session.begin();
-    session.command("create vertex " + classPrefix + "V set name = 'a'").close();
-    session.command("create vertex " + classPrefix + "V set name = 'b'").close();
-    session.command("create vertex " + classPrefix + "V set name = 'c'").close();
-    session.command("create vertex " + classPrefix + "V set name = 'd'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'a'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'b'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'c'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'd'").close();
 
-    session.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -143,7 +143,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
                 + classPrefix
                 + "V where name = 'b')")
         .close();
-    session.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -152,7 +152,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
                 + classPrefix
                 + "V where name = 'c')")
         .close();
-    session.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -197,12 +197,12 @@ public class TraverseStatementExecutionTest extends DbTestBase {
     session.createEdgeClass(classPrefix + "E");
 
     session.begin();
-    session.command("create vertex " + classPrefix + "V set name = 'a'").close();
-    session.command("create vertex " + classPrefix + "V set name = 'b'").close();
-    session.command("create vertex " + classPrefix + "V set name = 'c'").close();
-    session.command("create vertex " + classPrefix + "V set name = 'd'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'a'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'b'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'c'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'd'").close();
 
-    session.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -211,7 +211,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
                 + classPrefix
                 + "V where name = 'b')")
         .close();
-    session.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -220,7 +220,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
                 + classPrefix
                 + "V where name = 'c')")
         .close();
-    session.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -274,7 +274,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
     script += "commit;";
     script += "return $top";
 
-    var result = session.execute("sql", script);
+    var result = session.runScript("sql", script);
     Assert.assertTrue(result.hasNext());
     var item = result.next();
 

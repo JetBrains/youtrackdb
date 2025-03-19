@@ -37,7 +37,7 @@ public class AlterDBSequenceStatementExecutionTest extends DbTestBase {
         });
 
     session.begin();
-    var result = session.command("alter sequence " + sequenceName + " increment 20");
+    var result = session.execute("alter sequence " + sequenceName + " increment 20");
     Assert.assertNotNull(result);
     Assert.assertTrue(result.hasNext());
     var next = result.next();

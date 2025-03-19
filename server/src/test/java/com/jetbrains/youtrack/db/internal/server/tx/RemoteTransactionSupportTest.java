@@ -50,7 +50,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     db.begin();
     EntityImpl doc2 = db.load(id.getIdentity());
     doc2.setProperty("name", "Jane");
-    var result = db.command("update SomeTx set name='July' where name = 'Jane' ");
+    var result = db.execute("update SomeTx set name='July' where name = 'Jane' ");
     assertEquals(1L, (long) result.next().getProperty("count"));
     EntityImpl doc3 = db.load(id.getIdentity());
     assertEquals("July", doc3.getProperty("name"));
@@ -65,7 +65,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     doc1.setProperty("name", "Jane");
     var doc2 = ((EntityImpl) db.newEntity("SomeTx"));
     doc2.setProperty("name", "Jane");
-    var result = db.command("update SomeTx set name='July' where name = 'Jane' ");
+    var result = db.execute("update SomeTx set name='July' where name = 'Jane' ");
     assertEquals(1L, (long) result.next().getProperty("count"));
     assertEquals("July", doc2.getProperty("name"));
     result.close();
@@ -81,7 +81,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     var docx = ((EntityImpl) db.newEntity("SomeTx2"));
     docx.setProperty("name", "Jane");
 
-    var result = db.command("update SomeTx set name='July' where name = 'Jane' ");
+    var result = db.execute("update SomeTx set name='July' where name = 'Jane' ");
     assertTrue(result.hasNext());
     assertEquals(1L, (long) result.next().getProperty("count"));
     EntityImpl doc2 = db.load(id.getIdentity());
@@ -101,13 +101,13 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     var doc1 = ((EntityImpl) db.newEntity("SomeTx"));
     doc1.setProperty("name", "Jane");
 
-    var result = db.command("update SomeTx set name='July' where name = 'Jane' ");
+    var result = db.execute("update SomeTx set name='July' where name = 'Jane' ");
     assertTrue(result.hasNext());
     assertEquals(2L, (long) result.next().getProperty("count"));
     result.close();
     db.rollback();
 
-    var result1 = db.command("select count(*) from SomeTx where name='Jane'");
+    var result1 = db.execute("select count(*) from SomeTx where name='Jane'");
     assertTrue(result1.hasNext());
     assertEquals(1L, (long) result1.next().getProperty("count(*)"));
     result1.close();
@@ -124,7 +124,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     var doc1 = ((EntityImpl) db.newEntity("SomeTx"));
     doc1.setProperty("name", "Jane");
 
-    var result = db.command("select count(*) from SomeTx where name='Jane' ");
+    var result = db.execute("select count(*) from SomeTx where name='Jane' ");
     assertTrue(result.hasNext());
     assertEquals(2L, (long) result.next().getProperty("count(*)"));
 
@@ -132,7 +132,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     result.close();
     db.rollback();
 
-    var result1 = db.command("select count(*) from SomeTx where name='Jane'");
+    var result1 = db.execute("select count(*) from SomeTx where name='Jane'");
     assertTrue(result1.hasNext());
     assertEquals(1L, (long) result1.next().getProperty("count(*)"));
 
@@ -144,7 +144,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
   public void testDownloadTransactionAtStart() {
     db.begin();
 
-    db.command("insert into SomeTx set name ='Jane' ").close();
+    db.execute("insert into SomeTx set name ='Jane' ").close();
     assertEquals(1, db.getTransactionInternal().getEntryCount());
   }
 
@@ -152,9 +152,9 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
   public void testQueryUpdateCreatedInTxSQLTransaction() {
     db.begin();
 
-    db.command("insert into SomeTx set name ='Jane' ").close();
+    db.execute("insert into SomeTx set name ='Jane' ").close();
 
-    var result = db.command("update SomeTx set name='July' where name = 'Jane' ");
+    var result = db.execute("update SomeTx set name='July' where name = 'Jane' ");
     assertTrue(result.hasNext());
     assertEquals(1L, (long) result.next().getProperty("count"));
     result.close();
@@ -173,10 +173,10 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     db.commit();
 
     db.begin();
-    db.command("delete from SomeTx");
+    db.execute("delete from SomeTx");
     db.commit();
 
-    var result = db.command("select from SomeTx");
+    var result = db.execute("select from SomeTx");
     assertFalse(result.hasNext());
     result.close();
   }
@@ -273,17 +273,17 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     var doc = ((EntityImpl) db.newEntity("SomeTx"));
     doc.setProperty("name", "Jane");
 
-    db.command("insert into SomeTx set name ='Jane1' ").close();
-    db.command("insert into SomeTx set name ='Jane2' ").close();
+    db.execute("insert into SomeTx set name ='Jane1' ").close();
+    db.execute("insert into SomeTx set name ='Jane2' ").close();
 
     var doc1 = ((EntityImpl) db.newEntity("SomeTx"));
     doc1.setProperty("name", "Jane3");
 
     doc1 = ((EntityImpl) db.newEntity("SomeTx"));
     doc1.setProperty("name", "Jane4");
-    db.command("insert into SomeTx set name ='Jane2' ").close();
+    db.execute("insert into SomeTx set name ='Jane2' ").close();
 
-    var result = db.command("select count(*) from SomeTx");
+    var result = db.execute("select count(*) from SomeTx");
     System.out.println(result.getExecutionPlan().toString());
     assertTrue(result.hasNext());
     assertEquals(6L, (long) result.next().getProperty("count(*)"));
@@ -292,7 +292,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
 
     db.commit();
 
-    var result1 = db.command("select count(*) from SomeTx ");
+    var result1 = db.execute("select count(*) from SomeTx ");
     assertTrue(result1.hasNext());
     assertEquals(6L, (long) result1.next().getProperty("count(*)"));
     result1.close();

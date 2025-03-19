@@ -79,11 +79,11 @@ public class ServerCommandDeleteDocument extends ServerCommandDocumentAbstract {
               if (cls.isSubClassOf("V"))
               // DELETE IT AS VERTEX
               {
-                session.command("DELETE VERTEX ?", recordId).close();
+                session.execute("DELETE VERTEX ?", recordId).close();
               } else if (cls.isSubClassOf("E"))
               // DELETE IT AS EDGE
               {
-                session.command("DELETE EDGE ?", recordId).close();
+                session.execute("DELETE EDGE ?", recordId).close();
               } else {
                 entity.delete();
               }

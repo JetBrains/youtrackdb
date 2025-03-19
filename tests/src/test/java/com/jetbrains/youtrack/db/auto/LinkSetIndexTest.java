@@ -50,10 +50,10 @@ public class LinkSetIndexTest extends BaseDBTest {
     checkEmbeddedDB();
 
     session.begin();
-    session.command("DELETE FROM LinkSetIndexTestClass").close();
+    session.execute("DELETE FROM LinkSetIndexTestClass").close();
     session.commit();
 
-    var result = session.command("select from LinkSetIndexTestClass");
+    var result = session.execute("select from LinkSetIndexTestClass");
     Assert.assertEquals(result.stream().count(), 0);
 
     if (session.getStorage().isRemote()) {
@@ -302,7 +302,7 @@ public class LinkSetIndexTest extends BaseDBTest {
 
     session.begin();
     session
-        .command(
+        .execute(
             "UPDATE "
                 + document.getIdentity()
                 + " set linkSet = linkSet || "
@@ -519,7 +519,7 @@ public class LinkSetIndexTest extends BaseDBTest {
 
     session.begin();
     session
-        .command("UPDATE " + document.getIdentity() + " remove linkSet = " + docTwo.getIdentity())
+        .execute("UPDATE " + document.getIdentity() + " remove linkSet = " + docTwo.getIdentity())
         .close();
     session.commit();
 

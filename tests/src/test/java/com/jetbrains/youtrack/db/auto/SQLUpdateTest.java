@@ -66,7 +66,7 @@ public class SQLUpdateTest extends BaseDBTest {
 
     session.begin();
     var records =
-        session.command(
+        session.execute(
             "update Profile set salary = 120.30, location = "
                 + positions.get(2)
                 + ", salary_cloned = salary where surname = 'Obama'");
@@ -79,14 +79,14 @@ public class SQLUpdateTest extends BaseDBTest {
   public void updateWithWhereRid() {
 
     var result =
-        session.command("select @rid as rid from Profile where surname = 'Obama'").stream()
+        session.execute("select @rid as rid from Profile where surname = 'Obama'").stream()
             .toList();
 
     Assert.assertEquals(result.size(), 3);
 
     session.begin();
     var records =
-        session.command(
+        session.execute(
             "update Profile set salary = 133.00 where @rid = ?",
             result.get(0).<Object>getProperty("rid"));
     session.commit();
@@ -99,20 +99,20 @@ public class SQLUpdateTest extends BaseDBTest {
 
     session.begin();
     var result =
-        session.command(
+        session.execute(
             "UPDATE Profile SET surname='Merkel' RETURN AFTER where surname = 'Merkel'");
     session.commit();
     Assert.assertEquals(result.stream().count(), 0);
 
     session.begin();
     result =
-        session.command(
+        session.execute(
             "UPDATE Profile SET surname='Merkel' UPSERT RETURN AFTER  where surname = 'Merkel'");
     session.commit();
 
     Assert.assertEquals(result.stream().count(), 1);
 
-    result = session.command("SELECT FROM Profile  where surname = 'Merkel'");
+    result = session.execute("SELECT FROM Profile  where surname = 'Merkel'");
     Assert.assertEquals(result.stream().count(), 1);
   }
 
@@ -122,7 +122,7 @@ public class SQLUpdateTest extends BaseDBTest {
     var positions = getAddressValidPositions();
     updatedRecords =
         session
-            .command("update Account set addresses = addresses || " + positions.get(0))
+            .execute("update Account set addresses = addresses || " + positions.get(0))
             .next()
             .getProperty("count");
     session.commit();
@@ -134,7 +134,7 @@ public class SQLUpdateTest extends BaseDBTest {
     session.begin();
     final long records =
         session
-            .command("update Account remove addresses = " + positions.get(0))
+            .execute("update Account remove addresses = " + positions.get(0))
             .next()
             .getProperty("count");
     session.commit();
@@ -154,7 +154,7 @@ public class SQLUpdateTest extends BaseDBTest {
       session.begin();
       final long records =
           session
-              .command(
+              .execute(
                   "update Account set addresses = ["
                       + positions.get(0)
                       + ","
@@ -188,7 +188,7 @@ public class SQLUpdateTest extends BaseDBTest {
     session.begin();
     var element =
         session
-            .command(
+            .execute(
                 "insert into O (equaledges, name, properties) values ('no',"
                     + " 'circleUpdate', {'round':'eeee', 'blaaa':'zigzag'} )")
             .next()
@@ -198,7 +198,7 @@ public class SQLUpdateTest extends BaseDBTest {
 
     long records =
         session
-            .command(
+            .execute(
                 "update "
                     + element.getIdentity()
                     + " set properties = {'roundOne':'ffff',"
@@ -230,7 +230,7 @@ public class SQLUpdateTest extends BaseDBTest {
     var total = session.countClass("Profile");
 
     session.begin();
-    Long records = session.command("update Profile set sex = 'male'").next().getProperty("count");
+    Long records = session.execute("update Profile set sex = 'male'").next().getProperty("count");
     session.commit();
 
     Assert.assertEquals(records.intValue(), (int) total);
@@ -242,7 +242,7 @@ public class SQLUpdateTest extends BaseDBTest {
     session.begin();
     long updated =
         session
-            .command("update Profile set sex = ? where sex = 'male' limit 1", "male")
+            .execute("update Profile set sex = ? where sex = 'male' limit 1", "male")
             .next()
             .getProperty("count");
     session.commit();
@@ -266,32 +266,32 @@ public class SQLUpdateTest extends BaseDBTest {
 
     /* THESE COMMANDS ARE OK */
     session.begin();
-    session.command("update Person set gender = 'female' where name = 'Raf'", "Raf");
+    session.execute("update Person set gender = 'female' where name = 'Raf'", "Raf");
     session.commit();
 
     checkUpdatedDoc(session, "Torino", "female");
 
     session.begin();
-    session.command("update Person set city = 'Turin' where name = ?", "Raf");
+    session.execute("update Person set city = 'Turin' where name = ?", "Raf");
     session.commit();
 
     checkUpdatedDoc(session, "Turin", "female");
 
     session.begin();
-    session.command("update Person set gender = ? where name = 'Raf'", "F");
+    session.execute("update Person set gender = ? where name = 'Raf'", "F");
     session.commit();
 
     checkUpdatedDoc(session, "Turin", "F");
 
     session.begin();
-    session.command(
+    session.execute(
         "update Person set gender = ?, city = ? where name = 'Raf'", "FEMALE", "TORINO");
     session.commit();
 
     checkUpdatedDoc(session, "TORINO", "FEMALE");
 
     session.begin();
-    session.command("update Person set gender = ? where name = ?", "f", "Raf");
+    session.execute("update Person set gender = ? where name = ?", "f", "Raf");
     session.commit();
 
     checkUpdatedDoc(session, "TORINO", "f");
@@ -309,7 +309,7 @@ public class SQLUpdateTest extends BaseDBTest {
     // check AFTER
     var sqlString = "UPDATE " + doc.getIdentity() + " SET gender='male' RETURN AFTER";
     session.begin();
-    var result1 = session.command(sqlString).stream().toList();
+    var result1 = session.execute(sqlString).stream().toList();
     session.commit();
     Assert.assertEquals(result1.size(), 1);
     Assert.assertEquals(result1.get(0).getIdentity(), doc.getIdentity());
@@ -318,7 +318,7 @@ public class SQLUpdateTest extends BaseDBTest {
     sqlString =
         "UPDATE " + doc.getIdentity() + " set Age = 101 RETURN AFTER $current.Age";
     session.begin();
-    result1 = session.command(sqlString).stream().toList();
+    result1 = session.execute(sqlString).stream().toList();
     session.commit();
 
     Assert.assertEquals(result1.size(), 1);
@@ -331,7 +331,7 @@ public class SQLUpdateTest extends BaseDBTest {
             + " set Age = Age + 100 RETURN AFTER $current.Exclude('really_big_field') as res WHERE"
             + " Age=101 LIMIT 1";
     session.begin();
-    result1 = session.command(sqlString).stream().toList();
+    result1 = session.execute(sqlString).stream().toList();
     session.commit();
 
     Assert.assertEquals(result1.size(), 1);
@@ -359,7 +359,7 @@ public class SQLUpdateTest extends BaseDBTest {
     params.put("name", "Raf");
 
     session.begin();
-    session.command(updatecommand, params);
+    session.execute(updatecommand, params);
     session.commit();
 
     var result = session.query("select * from Data");
@@ -379,7 +379,7 @@ public class SQLUpdateTest extends BaseDBTest {
     session.begin();
     updatedRecords =
         session
-            .command("update Account set salary += 10 where salary is defined")
+            .execute("update Account set salary += 10 where salary is defined")
             .next()
             .getProperty("count");
     session.commit();
@@ -400,7 +400,7 @@ public class SQLUpdateTest extends BaseDBTest {
     session.begin();
     updatedRecords =
         session
-            .command("update Account set salary -= 10 where salary is defined")
+            .execute("update Account set salary -= 10 where salary is defined")
             .next()
             .getProperty("count");
     session.commit();
@@ -408,7 +408,7 @@ public class SQLUpdateTest extends BaseDBTest {
     Assert.assertTrue(updatedRecords > 0);
 
     var result3 =
-        session.command("select salary from Account where salary is defined").stream().toList();
+        session.execute("select salary from Account where salary is defined").stream().toList();
     Assert.assertFalse(result3.isEmpty());
     Assert.assertEquals(result3.size(), result1.size());
 
@@ -428,7 +428,7 @@ public class SQLUpdateTest extends BaseDBTest {
     session.begin();
     updatedRecords =
         session
-            .command(
+            .execute(
                 "update Account set salary2 = salary, checkpoint = true where salary is defined")
             .next()
             .getProperty("count");
@@ -454,7 +454,7 @@ public class SQLUpdateTest extends BaseDBTest {
     session.begin();
     updatedRecords =
         session
-            .command("update Account set myCollection = myCollection || [1,2] limit 1")
+            .execute("update Account set myCollection = myCollection || [1,2] limit 1")
             .next()
             .getProperty("count");
     session.commit();
@@ -462,7 +462,7 @@ public class SQLUpdateTest extends BaseDBTest {
     Assert.assertTrue(updatedRecords > 0);
 
     var result2 =
-        session.command("select from Account where myCollection is defined").stream().toList();
+        session.execute("select from Account where myCollection is defined").stream().toList();
     Assert.assertEquals(result2.size(), 1);
 
     Collection<Object> myCollection = result2.iterator().next().getProperty("myCollection");
@@ -482,7 +482,7 @@ public class SQLUpdateTest extends BaseDBTest {
 
     session.begin();
     session
-        .command(
+        .execute(
             "UPDATE FormatEscapingTest SET test = format('aaa \\' bbb') WHERE @rid = "
                 + document.getIdentity())
         .close();
@@ -493,7 +493,7 @@ public class SQLUpdateTest extends BaseDBTest {
 
     session.begin();
     session
-        .command(
+        .execute(
             "UPDATE FormatEscapingTest SET test = 'ccc \\' eee', test2 = format('aaa \\' bbb')"
                 + " WHERE @rid = "
                 + document.getIdentity())
@@ -506,7 +506,7 @@ public class SQLUpdateTest extends BaseDBTest {
 
     session.begin();
     session
-        .command(
+        .execute(
             "UPDATE FormatEscapingTest SET test = 'aaa \\n bbb' WHERE @rid = "
                 + document.getIdentity())
         .close();
@@ -517,7 +517,7 @@ public class SQLUpdateTest extends BaseDBTest {
 
     session.begin();
     session
-        .command(
+        .execute(
             "UPDATE FormatEscapingTest SET test = 'aaa \\r bbb' WHERE @rid = "
                 + document.getIdentity())
         .close();
@@ -528,7 +528,7 @@ public class SQLUpdateTest extends BaseDBTest {
 
     session.begin();
     session
-        .command(
+        .execute(
             "UPDATE FormatEscapingTest SET test = 'aaa \\b bbb' WHERE @rid = "
                 + document.getIdentity())
         .close();
@@ -539,7 +539,7 @@ public class SQLUpdateTest extends BaseDBTest {
 
     session.begin();
     session
-        .command(
+        .execute(
             "UPDATE FormatEscapingTest SET test = 'aaa \\t bbb' WHERE @rid = "
                 + document.getIdentity())
         .close();
@@ -550,7 +550,7 @@ public class SQLUpdateTest extends BaseDBTest {
 
     session.begin();
     session
-        .command(
+        .execute(
             "UPDATE FormatEscapingTest SET test = 'aaa \\f bbb' WHERE @rid = "
                 + document.getIdentity())
         .close();
@@ -566,12 +566,12 @@ public class SQLUpdateTest extends BaseDBTest {
     schema.createClass("UpdateVertexContent", vertex);
 
     session.begin();
-    final var vOneId = session.command("create vertex UpdateVertexContent").next().getIdentity();
-    final var vTwoId = session.command("create vertex UpdateVertexContent").next().getIdentity();
+    final var vOneId = session.execute("create vertex UpdateVertexContent").next().getIdentity();
+    final var vTwoId = session.execute("create vertex UpdateVertexContent").next().getIdentity();
 
-    session.command("create edge from " + vOneId + " to " + vTwoId).close();
-    session.command("create edge from " + vOneId + " to " + vTwoId).close();
-    session.command("create edge from " + vOneId + " to " + vTwoId).close();
+    session.execute("create edge from " + vOneId + " to " + vTwoId).close();
+    session.execute("create edge from " + vOneId + " to " + vTwoId).close();
+    session.execute("create edge from " + vOneId + " to " + vTwoId).close();
     session.commit();
 
     var result =
@@ -588,10 +588,10 @@ public class SQLUpdateTest extends BaseDBTest {
 
     session.begin();
     session
-        .command("update UpdateVertexContent content {value : 'val'} where @rid = " + vOneId)
+        .execute("update UpdateVertexContent content {value : 'val'} where @rid = " + vOneId)
         .close();
     session
-        .command("update UpdateVertexContent content {value : 'val'} where @rid =  " + vTwoId)
+        .execute("update UpdateVertexContent content {value : 'val'} where @rid =  " + vTwoId)
         .close();
     session.commit();
 
@@ -624,12 +624,12 @@ public class SQLUpdateTest extends BaseDBTest {
     schema.createClass("UpdateEdgeContentE", edge);
 
     session.begin();
-    final var vOneId = session.command("create vertex UpdateEdgeContentV").next().getIdentity();
-    final var vTwoId = session.command("create vertex UpdateEdgeContentV").next().getIdentity();
+    final var vOneId = session.execute("create vertex UpdateEdgeContentV").next().getIdentity();
+    final var vTwoId = session.execute("create vertex UpdateEdgeContentV").next().getIdentity();
 
-    session.command("create edge UpdateEdgeContentE from " + vOneId + " to " + vTwoId).close();
-    session.command("create edge UpdateEdgeContentE from " + vOneId + " to " + vTwoId).close();
-    session.command("create edge UpdateEdgeContentE from " + vOneId + " to " + vTwoId).close();
+    session.execute("create edge UpdateEdgeContentE from " + vOneId + " to " + vTwoId).close();
+    session.execute("create edge UpdateEdgeContentE from " + vOneId + " to " + vTwoId).close();
+    session.execute("create edge UpdateEdgeContentE from " + vOneId + " to " + vTwoId).close();
     session.commit();
 
     var result =
@@ -644,7 +644,7 @@ public class SQLUpdateTest extends BaseDBTest {
     }
 
     session.begin();
-    session.command("update UpdateEdgeContentE content {value : 'val'}").close();
+    session.execute("update UpdateEdgeContentE content {value : 'val'}").close();
     session.commit();
 
     result =
@@ -698,7 +698,7 @@ public class SQLUpdateTest extends BaseDBTest {
     session.begin();
     Long records =
         session
-            .command(
+            .execute(
                 "UPDATE"
                     + v.getIdentity()
                     + " SET embmap[\"test\"] = \"Luca\" ,embmap[\"test2\"]=\"Alex\"")
@@ -727,14 +727,14 @@ public class SQLUpdateTest extends BaseDBTest {
     session.begin();
     var id =
         session
-            .command(
+            .execute(
                 "INSERT INTO TestConvert SET name = 'embeddedListWithLinkedClass',"
                     + " embeddedListWithLinkedClass = [{'line1':'123 Fake Street'}]")
             .next()
             .getIdentity();
 
     session
-        .command(
+        .execute(
             "UPDATE "
                 + id
                 + " set embeddedListWithLinkedClass = embeddedListWithLinkedClass || [{'line1':'123"
@@ -749,7 +749,7 @@ public class SQLUpdateTest extends BaseDBTest {
 
     session.begin();
     session
-        .command(
+        .execute(
             "UPDATE "
                 + doc.getIdentity()
                 + " set embeddedListWithLinkedClass =  embeddedListWithLinkedClass ||"
@@ -774,9 +774,9 @@ public class SQLUpdateTest extends BaseDBTest {
 
     session.begin();
     session
-        .command("insert into " + className + " set list = [{\"xxx\":1},{\"zzz\":3},{\"yyy\":2}]")
+        .execute("insert into " + className + " set list = [{\"xxx\":1},{\"zzz\":3},{\"yyy\":2}]")
         .close();
-    session.command("UPDATE " + className + " set list = list || [{\"kkk\":4}]").close();
+    session.execute("UPDATE " + className + " set list = list || [{\"kkk\":4}]").close();
     session.commit();
 
     var result =

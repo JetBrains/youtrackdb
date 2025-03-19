@@ -191,7 +191,7 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
     doc.setProperty("bar", "removed");
 
     var query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";
-    var vertices = session.command(query);
+    var vertices = session.execute(query);
     Collection coll;
     try (var stream = index.getRids(session, "abc")) {
       coll = stream.collect(Collectors.toList());

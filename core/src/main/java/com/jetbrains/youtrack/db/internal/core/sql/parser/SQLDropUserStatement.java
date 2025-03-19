@@ -30,7 +30,7 @@ public class SQLDropUserStatement extends SQLSimpleExecStatement {
     params.add(this.name.getStringValue());
 
     return ExecutionStream.resultIterator(
-        ctx.getDatabaseSession().command(sb, params.toArray()).stream().iterator());
+        ctx.getDatabaseSession().execute(sb, params.toArray()).stream().iterator());
   }
 
   @Override

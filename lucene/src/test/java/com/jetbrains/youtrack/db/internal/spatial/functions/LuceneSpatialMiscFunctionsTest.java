@@ -86,7 +86,7 @@ public class LuceneSpatialMiscFunctionsTest extends BaseSpatialLuceneTest {
   public void testAsBinary() {
 
     var execute =
-        session.command(
+        session.execute(
             "SELECT ST_AsBinary(ST_GeomFromText('LINESTRING(0 0, 10 10)')) as ST_AsBinary");
     var next = execute.next();
     Assert.assertNull(next.getProperty("ST_AsBinary"));

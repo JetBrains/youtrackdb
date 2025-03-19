@@ -12,7 +12,7 @@ public class ConsoleStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testError() {
-    var result = session.command("console.error 'foo bar'");
+    var result = session.execute("console.error 'foo bar'");
     Assert.assertNotNull(result);
     Assert.assertTrue(result.hasNext());
     var item = result.next();
@@ -23,7 +23,7 @@ public class ConsoleStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testLog() {
-    var result = session.command("console.log 'foo bar'");
+    var result = session.execute("console.log 'foo bar'");
     Assert.assertNotNull(result);
     Assert.assertTrue(result.hasNext());
     var item = result.next();
@@ -35,7 +35,7 @@ public class ConsoleStatementExecutionTest extends DbTestBase {
   @Test
   public void testInvalidLevel() {
     try {
-      session.command("console.bla 'foo bar'");
+      session.execute("console.bla 'foo bar'");
       Assert.fail();
     } catch (CommandExecutionException x) {
 

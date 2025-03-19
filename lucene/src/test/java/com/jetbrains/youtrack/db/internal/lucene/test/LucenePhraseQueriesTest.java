@@ -14,7 +14,7 @@ public class LucenePhraseQueriesTest extends BaseLuceneTest {
     var type = session.createVertexClass("Role");
     type.createProperty("name", PropertyType.STRING);
 
-    session.command(
+    session.execute(
             "create index Role.name on Role (name) FULLTEXT ENGINE LUCENE "
                 + "METADATA {"
                 + "\"name_index\": \"org.apache.lucene.analysis.standard.StandardAnalyzer\","

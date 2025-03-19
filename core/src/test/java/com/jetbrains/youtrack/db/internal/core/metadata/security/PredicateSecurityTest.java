@@ -121,12 +121,12 @@ public class PredicateSecurityTest {
             youTrackDB.open(DB_NAME, "writer", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "writer"
 
     session.begin();
-    session.command("insert into Person SET name = 'foo'");
+    session.execute("insert into Person SET name = 'foo'");
     session.commit();
 
     try {
       session.begin();
-      session.command("insert into Person SET name = 'bar'");
+      session.execute("insert into Person SET name = 'bar'");
       session.commit();
       Assert.fail();
     } catch (SecurityException ex) {
@@ -179,7 +179,7 @@ public class PredicateSecurityTest {
 
     var person = session.createClass("Person");
     person.createProperty("name", PropertyType.STRING);
-    session.command("create index Person.name on Person (name) NOTUNIQUE");
+    session.execute("create index Person.name on Person (name) NOTUNIQUE");
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -219,7 +219,7 @@ public class PredicateSecurityTest {
 
     var person = session.createClass("Person");
     person.createProperty("name", PropertyType.STRING);
-    session.command("create index Person.name on Person (name) NOTUNIQUE");
+    session.execute("create index Person.name on Person (name) NOTUNIQUE");
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -344,7 +344,7 @@ public class PredicateSecurityTest {
 
     try {
       session.begin();
-      session.command("update Person set name = 'bar'");
+      session.execute("update Person set name = 'bar'");
       session.commit();
       return false;
     } catch (SecurityException ex) {
@@ -429,7 +429,7 @@ public class PredicateSecurityTest {
 
     try {
       session.begin();
-      session.command("update Person set name = 'bar'");
+      session.execute("update Person set name = 'bar'");
       session.commit();
       Assert.fail();
     } catch (SecurityException ex) {
@@ -520,11 +520,11 @@ public class PredicateSecurityTest {
         });
 
     session.begin();
-    session.command("delete from Person where name = 'foo'");
+    session.execute("delete from Person where name = 'foo'");
     session.commit();
     try {
       session.begin();
-      session.command("delete from Person where name = 'bar'");
+      session.execute("delete from Person where name = 'bar'");
       session.commit();
       Assert.fail();
     } catch (SecurityException ex) {
@@ -584,7 +584,7 @@ public class PredicateSecurityTest {
 
     var person = session.createClass("Person");
     person.createProperty("name", PropertyType.STRING);
-    session.command("create index Person.name on Person (name) NOTUNIQUE");
+    session.execute("create index Person.name on Person (name) NOTUNIQUE");
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -628,7 +628,7 @@ public class PredicateSecurityTest {
 
     var person = session.createClass("Person");
     person.createProperty("name", PropertyType.STRING);
-    session.command("create index Person.name on Person (name) NOTUNIQUE");
+    session.execute("create index Person.name on Person (name) NOTUNIQUE");
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");

@@ -57,9 +57,9 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
       session = createSessionInstance();
     }
 
-    session.command("drop class lpirtStudent").close();
-    session.command("drop class lpirtGroup").close();
-    session.command("drop class lpirtCurator").close();
+    session.execute("drop class lpirtStudent").close();
+    session.execute("drop class lpirtGroup").close();
+    session.execute("drop class lpirtCurator").close();
 
     super.afterClass();
   }

@@ -465,7 +465,7 @@ public class DefaultAuditing
         .getSystemDatabase()
         .executeWithDB(
             (db -> {
-              db.command("delete from OAuditingLog where date < ?", time).close();
+              db.execute("delete from OAuditingLog where date < ?", time).close();
               return null;
             }));
   }

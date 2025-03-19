@@ -29,7 +29,7 @@ public class SQLCreateClassTest {
     db.create();
     try {
       Assert.assertFalse(db.getMetadata().getSchema().existsClass("testSimpleCreate"));
-      db.command("create class testSimpleCreate").close();
+      db.execute("create class testSimpleCreate").close();
       Assert.assertTrue(db.getMetadata().getSchema().existsClass("testSimpleCreate"));
     } finally {
       db.drop();
@@ -43,12 +43,12 @@ public class SQLCreateClassTest {
     db.create();
     try {
       Assert.assertFalse(db.getMetadata().getSchema().existsClass("testIfNotExists"));
-      db.command("create class testIfNotExists if not exists").close();
+      db.execute("create class testIfNotExists if not exists").close();
       Assert.assertTrue(db.getMetadata().getSchema().existsClass("testIfNotExists"));
-      db.command("create class testIfNotExists if not exists").close();
+      db.execute("create class testIfNotExists if not exists").close();
       Assert.assertTrue(db.getMetadata().getSchema().existsClass("testIfNotExists"));
       try {
-        db.command("create class testIfNotExists").close();
+        db.execute("create class testIfNotExists").close();
         Assert.fail();
       } catch (Exception e) {
       }

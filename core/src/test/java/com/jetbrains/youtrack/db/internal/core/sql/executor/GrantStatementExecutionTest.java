@@ -22,7 +22,7 @@ public class GrantStatementExecutionTest extends DbTestBase {
         testRole.allow(Rule.ResourceGeneric.SERVER, "server", Role.PERMISSION_EXECUTE));
     session.commit();
     session.begin();
-    session.command("GRANT execute on server.remove to testRole");
+    session.execute("GRANT execute on server.remove to testRole");
     session.commit();
 
     session.begin();
@@ -43,7 +43,7 @@ public class GrantStatementExecutionTest extends DbTestBase {
     policy.setActive(session, true);
     policy.setReadRule(session, "name = 'foo'");
     security.saveSecurityPolicy(session, policy);
-    session.command("GRANT POLICY testPolicy ON database.class.Person TO reader").close();
+    session.execute("GRANT POLICY testPolicy ON database.class.Person TO reader").close();
     session.commit();
 
     session.begin();

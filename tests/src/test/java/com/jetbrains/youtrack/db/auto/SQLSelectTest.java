@@ -922,7 +922,7 @@ public class SQLSelectTest extends AbstractSelectTest {
   public void queryParenthesisInStrings() {
 
     session.begin();
-    session.command("INSERT INTO account (name) VALUES ('test (demo)')");
+    session.execute("INSERT INTO account (name) VALUES ('test (demo)')");
     session.commit();
 
     var result = executeQuery("select * from account where name = 'test (demo)'");
@@ -1417,13 +1417,13 @@ public class SQLSelectTest extends AbstractSelectTest {
   public void testOutFilterInclude() {
     Schema schema = session.getMetadata().getSchema();
     schema.createClass("TestOutFilterInclude", schema.getClass("V"));
-    session.command("create class linkedToOutFilterInclude extends E").close();
+    session.execute("create class linkedToOutFilterInclude extends E").close();
 
     session.begin();
-    session.command("insert into TestOutFilterInclude content { \"name\": \"one\" }").close();
-    session.command("insert into TestOutFilterInclude content { \"name\": \"two\" }").close();
+    session.execute("insert into TestOutFilterInclude content { \"name\": \"one\" }").close();
+    session.execute("insert into TestOutFilterInclude content { \"name\": \"two\" }").close();
     session
-        .command(
+        .execute(
             "create edge linkedToOutFilterInclude from (select from TestOutFilterInclude where name"
                 + " = 'one') to (select from TestOutFilterInclude where name = 'two')")
         .close();
@@ -1461,7 +1461,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void testBinaryClusterSelect() {
-    session.command("create blob cluster binarycluster").close();
+    session.execute("create blob cluster binarycluster").close();
     session.reload();
     session.begin();
     session.newBlob(new byte[]{1, 2, 3});
@@ -1472,7 +1472,7 @@ public class SQLSelectTest extends AbstractSelectTest {
     Assert.assertEquals(result.stream().count(), 1);
 
     session.begin();
-    session.command("delete from cluster:binarycluster").close();
+    session.execute("delete from cluster:binarycluster").close();
     session.commit();
 
     result = session.query("select from cluster:binarycluster");
@@ -1489,13 +1489,13 @@ public class SQLSelectTest extends AbstractSelectTest {
     cls.createIndex("TestExpandSkip.name", INDEX_TYPE.UNIQUE, "name");
 
     session.begin();
-    session.command("CREATE VERTEX TestExpandSkip set name = '1'").close();
-    session.command("CREATE VERTEX TestExpandSkip set name = '2'").close();
-    session.command("CREATE VERTEX TestExpandSkip set name = '3'").close();
-    session.command("CREATE VERTEX TestExpandSkip set name = '4'").close();
+    session.execute("CREATE VERTEX TestExpandSkip set name = '1'").close();
+    session.execute("CREATE VERTEX TestExpandSkip set name = '2'").close();
+    session.execute("CREATE VERTEX TestExpandSkip set name = '3'").close();
+    session.execute("CREATE VERTEX TestExpandSkip set name = '4'").close();
 
     session
-        .command(
+        .execute(
             "CREATE EDGE E FROM (SELECT FROM TestExpandSkip WHERE name = '1') to (SELECT FROM"
                 + " TestExpandSkip WHERE name <> '1')")
         .close();
@@ -1538,17 +1538,17 @@ public class SQLSelectTest extends AbstractSelectTest {
     schema.createClass("TestPolymorphicEdges_E2", e1);
 
     session.begin();
-    session.command("CREATE VERTEX TestPolymorphicEdges_V set name = '1'").close();
-    session.command("CREATE VERTEX TestPolymorphicEdges_V set name = '2'").close();
-    session.command("CREATE VERTEX TestPolymorphicEdges_V set name = '3'").close();
+    session.execute("CREATE VERTEX TestPolymorphicEdges_V set name = '1'").close();
+    session.execute("CREATE VERTEX TestPolymorphicEdges_V set name = '2'").close();
+    session.execute("CREATE VERTEX TestPolymorphicEdges_V set name = '3'").close();
 
     session
-        .command(
+        .execute(
             "CREATE EDGE TestPolymorphicEdges_E1 FROM (SELECT FROM TestPolymorphicEdges_V WHERE"
                 + " name = '1') to (SELECT FROM TestPolymorphicEdges_V WHERE name = '2')")
         .close();
     session
-        .command(
+        .execute(
             "CREATE EDGE TestPolymorphicEdges_E2 FROM (SELECT FROM TestPolymorphicEdges_V WHERE"
                 + " name = '1') to (SELECT FROM TestPolymorphicEdges_V WHERE name = '3')")
         .close();
@@ -1574,11 +1574,11 @@ public class SQLSelectTest extends AbstractSelectTest {
     schema.createClass("TestSizeOfLink", v);
 
     session.begin();
-    session.command("CREATE VERTEX TestSizeOfLink set name = '1'").close();
-    session.command("CREATE VERTEX TestSizeOfLink set name = '2'").close();
-    session.command("CREATE VERTEX TestSizeOfLink set name = '3'").close();
+    session.execute("CREATE VERTEX TestSizeOfLink set name = '1'").close();
+    session.execute("CREATE VERTEX TestSizeOfLink set name = '2'").close();
+    session.execute("CREATE VERTEX TestSizeOfLink set name = '3'").close();
     session
-        .command(
+        .execute(
             "CREATE EDGE E FROM (SELECT FROM TestSizeOfLink WHERE name = '1') to (SELECT FROM"
                 + " TestSizeOfLink WHERE name <> '1')")
         .close();
@@ -1598,14 +1598,14 @@ public class SQLSelectTest extends AbstractSelectTest {
     schema.createClass("EmbeddedMapAndDotNotation", v);
 
     session.begin();
-    session.command("CREATE VERTEX EmbeddedMapAndDotNotation set name = 'foo'").close();
+    session.execute("CREATE VERTEX EmbeddedMapAndDotNotation set name = 'foo'").close();
     session
-        .command(
+        .execute(
             "CREATE VERTEX EmbeddedMapAndDotNotation set data = {\"bar\": \"baz\", \"quux\": 1},"
                 + " name = 'bar'")
         .close();
     session
-        .command(
+        .execute(
             "CREATE EDGE E FROM (SELECT FROM EmbeddedMapAndDotNotation WHERE name = 'foo') to"
                 + " (SELECT FROM EmbeddedMapAndDotNotation WHERE name = 'bar')")
         .close();
@@ -1633,7 +1633,7 @@ public class SQLSelectTest extends AbstractSelectTest {
     var v = schema.getClass("V");
     schema.createClass("LetWithQuotedValue", v);
     session.begin();
-    session.command("CREATE VERTEX LetWithQuotedValue set name = \"\\\"foo\\\"\"").close();
+    session.execute("CREATE VERTEX LetWithQuotedValue set name = \"\\\"foo\\\"\"").close();
     session.commit();
 
     var result =
@@ -1647,15 +1647,15 @@ public class SQLSelectTest extends AbstractSelectTest {
   public void testNamedParams() {
     // issue #7236
 
-    session.command("create class testNamedParams extends V").close();
-    session.command("create class testNamedParams_permission extends V").close();
-    session.command("create class testNamedParams_HasPermission extends E").close();
+    session.execute("create class testNamedParams extends V").close();
+    session.execute("create class testNamedParams_permission extends V").close();
+    session.execute("create class testNamedParams_HasPermission extends E").close();
 
     session.begin();
-    session.command("insert into testNamedParams_permission set type = ['USER']").close();
-    session.command("insert into testNamedParams set login = 20").close();
+    session.execute("insert into testNamedParams_permission set type = ['USER']").close();
+    session.execute("insert into testNamedParams set login = 20").close();
     session
-        .command(
+        .execute(
             "CREATE EDGE testNamedParams_HasPermission from (select from testNamedParams) to"
                 + " (select from testNamedParams_permission)")
         .close();

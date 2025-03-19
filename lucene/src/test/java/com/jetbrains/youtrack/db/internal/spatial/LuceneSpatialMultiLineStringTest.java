@@ -13,12 +13,8 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial;
 
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
-import java.util.List;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -220,13 +216,13 @@ public class LuceneSpatialMultiLineStringTest extends BaseSpatialLuceneTest {
         schema.getClass("OMultiLineString"));
     oClass.createProperty("name", PropertyType.STRING);
 
-    session.command("CREATE INDEX Place.location ON Place(location) SPATIAL ENGINE LUCENE").close();
+    session.execute("CREATE INDEX Place.location ON Place(location) SPATIAL ENGINE LUCENE").close();
   }
 
   @Test
   public void testWithoutIndex() {
     testWithIndex();
-    session.command("Drop INDEX Place.location").close();
+    session.execute("Drop INDEX Place.location").close();
 
     testQueryMultiLineString();
   }
@@ -234,7 +230,7 @@ public class LuceneSpatialMultiLineStringTest extends BaseSpatialLuceneTest {
   @Test
   public void testWithIndex() {
     session.begin();
-    session.command(
+    session.execute(
             "insert into Place set name = 'TestInsert' , location = ST_GeomFromText('" + WKT + "')")
         .close();
 

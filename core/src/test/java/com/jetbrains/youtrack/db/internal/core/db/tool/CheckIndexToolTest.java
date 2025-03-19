@@ -12,9 +12,9 @@ public class CheckIndexToolTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void test() {
-    session.command("create class Foo").close();
-    session.command("create property Foo.name STRING").close();
-    session.command("create index Foo.name on Foo (name) NOTUNIQUE").close();
+    session.execute("create class Foo").close();
+    session.execute("create property Foo.name STRING").close();
+    session.execute("create index Foo.name on Foo (name) NOTUNIQUE").close();
 
     session.begin();
     var doc = session.newInstance("Foo");
@@ -56,20 +56,20 @@ public class CheckIndexToolTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testBugOnCollectionIndex() {
-    session.command("create class testclass");
-    session.command("create property testclass.name string");
-    session.command("create property testclass.tags linklist");
-    session.command("alter property testclass.tags default '[]'");
-    session.command("create index testclass_tags_idx on testclass (tags) NOTUNIQUE");
+    session.execute("create class testclass");
+    session.execute("create property testclass.name string");
+    session.execute("create property testclass.tags linklist");
+    session.execute("alter property testclass.tags default '[]'");
+    session.execute("create index testclass_tags_idx on testclass (tags) NOTUNIQUE");
 
     session.begin();
     var entity = session.newEntity();
     session.commit();
 
     session.begin();
-    session.command("insert into testclass set name = 'a',tags = [" + entity.getIdentity() + " ] ");
-    session.command("insert into testclass set name = 'b'");
-    session.command("insert into testclass set name = 'c' ");
+    session.execute("insert into testclass set name = 'a',tags = [" + entity.getIdentity() + " ] ");
+    session.execute("insert into testclass set name = 'b'");
+    session.execute("insert into testclass set name = 'c' ");
     session.commit();
 
     final var tool = new CheckIndexTool();

@@ -228,7 +228,7 @@ public class GraphDatabaseTest extends BaseDBTest {
 
   public void testDeleteOfVerticesWithDeleteCommandMustFail() {
     try {
-      session.command("delete from GraphVehicle").close();
+      session.execute("delete from GraphVehicle").close();
       Assert.fail();
     } catch (CommandExecutionException e) {
       Assert.assertTrue(true);
@@ -248,7 +248,7 @@ public class GraphDatabaseTest extends BaseDBTest {
     session.begin();
     var insertedEdge =
         session
-            .command("insert into E set in = #9:0, out = #9:1, a = 33 unsafe")
+            .execute("insert into E set in = #9:0, out = #9:1, a = 33 unsafe")
             .next()
             .asEntity();
     session.commit();
@@ -258,7 +258,7 @@ public class GraphDatabaseTest extends BaseDBTest {
     session.begin();
     var confirmDeleted =
         session
-            .command("delete from " + insertedEdge.getIdentity() + " unsafe")
+            .execute("delete from " + insertedEdge.getIdentity() + " unsafe")
             .next()
             .<Long>getProperty("count");
     session.commit();

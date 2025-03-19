@@ -24,7 +24,7 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
     Assert.assertNotNull(
         (session.getMetadata().getIndexManagerInternal()).getIndex(session, indexName));
 
-    var result = session.command("drop index " + indexName);
+    var result = session.execute("drop index " + indexName);
     Assert.assertTrue(result.hasNext());
     var next = result.next();
     Assert.assertEquals("drop index", next.getProperty("operation"));
@@ -47,7 +47,7 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
     Assert.assertNotNull(
         session.getMetadata().getIndexManagerInternal().getIndex(session, indexName));
 
-    var result = session.command("drop index *");
+    var result = session.execute("drop index *");
     Assert.assertTrue(result.hasNext());
     var next = result.next();
     Assert.assertEquals("drop index", next.getProperty("operation"));
@@ -66,7 +66,7 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
     Assert.assertNull(session.getMetadata().getIndexManagerInternal().getIndex(session, indexName));
 
     try {
-      session.command("drop index " + indexName).close();
+      session.execute("drop index " + indexName).close();
       Assert.fail();
     } catch (CommandExecutionException ex) {
     } catch (Exception e) {
@@ -82,7 +82,7 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
     Assert.assertNull(session.getMetadata().getIndexManagerInternal().getIndex(session, indexName));
 
     try {
-      session.command("drop index " + indexName + " if exists").close();
+      session.execute("drop index " + indexName + " if exists").close();
     } catch (Exception e) {
       Assert.fail();
     }

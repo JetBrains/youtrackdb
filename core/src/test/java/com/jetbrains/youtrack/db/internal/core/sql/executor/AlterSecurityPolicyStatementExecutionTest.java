@@ -13,8 +13,8 @@ public class AlterSecurityPolicyStatementExecutionTest extends DbTestBase {
   @Test
   public void testPlain() {
     session.begin();
-    session.command("CREATE SECURITY POLICY foo").close();
-    session.command("ALTER SECURITY POLICY foo SET READ = (name = 'foo')").close();
+    session.execute("CREATE SECURITY POLICY foo").close();
+    session.execute("ALTER SECURITY POLICY foo SET READ = (name = 'foo')").close();
     session.commit();
 
     session.begin();
@@ -29,7 +29,7 @@ public class AlterSecurityPolicyStatementExecutionTest extends DbTestBase {
     Assert.assertNull(policy.getDeleteRule(session));
     Assert.assertNull(policy.getExecuteRule(session));
 
-    session.command("ALTER SECURITY POLICY foo REMOVE READ").close();
+    session.execute("ALTER SECURITY POLICY foo REMOVE READ").close();
     session.commit();
 
     session.begin();

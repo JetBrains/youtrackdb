@@ -34,7 +34,7 @@ public class SQLBatchTest extends BaseDBTest {
   @Test(enabled = false)
   public void createEdgeFailIfNoSourceOrTargetVertices() {
     try {
-      session.execute("sql",
+      session.runScript("sql",
           """
               BEGIN;
               LET credential = INSERT INTO V SET email = '123', password = '123';
@@ -58,9 +58,9 @@ public class SQLBatchTest extends BaseDBTest {
   public void testInlineArray() {
     var className1 = "SQLBatchTest_testInlineArray1";
     var className2 = "SQLBatchTest_testInlineArray2";
-    session.command("CREATE CLASS " + className1 + " EXTENDS V").close();
-    session.command("CREATE CLASS " + className2 + " EXTENDS V").close();
-    session.command("CREATE PROPERTY " + className2 + ".foos LinkList " + className1).close();
+    session.execute("CREATE CLASS " + className1 + " EXTENDS V").close();
+    session.execute("CREATE CLASS " + className2 + " EXTENDS V").close();
+    session.execute("CREATE PROPERTY " + className2 + ".foos LinkList " + className1).close();
 
     var script =
         "BEGIN;"
@@ -78,7 +78,7 @@ public class SQLBatchTest extends BaseDBTest {
             + " SET foos=[$a,$b,$c];"
             + "COMMIT";
 
-    session.execute("sql", script);
+    session.runScript("sql", script);
 
     var result = executeQuery("select from " + className2);
     Assert.assertEquals(result.size(), 1);
@@ -92,9 +92,9 @@ public class SQLBatchTest extends BaseDBTest {
   public void testInlineArray2() {
     var className1 = "SQLBatchTest_testInlineArray21";
     var className2 = "SQLBatchTest_testInlineArray22";
-    session.command("CREATE CLASS " + className1 + " EXTENDS V").close();
-    session.command("CREATE CLASS " + className2 + " EXTENDS V").close();
-    session.command("CREATE PROPERTY " + className2 + ".foos LinkList " + className1).close();
+    session.execute("CREATE CLASS " + className1 + " EXTENDS V").close();
+    session.execute("CREATE CLASS " + className2 + " EXTENDS V").close();
+    session.execute("CREATE PROPERTY " + className2 + ".foos LinkList " + className1).close();
 
     var script =
         "BEGIN;\n"
@@ -113,7 +113,7 @@ public class SQLBatchTest extends BaseDBTest {
             + " SET foos= $foos;\n"
             + "COMMIT;";
 
-    session.execute("sql", script);
+    session.runScript("sql", script);
 
     var result = executeQuery("select from " + className2);
     Assert.assertEquals(result.size(), 1);

@@ -46,8 +46,8 @@ public class RemoteSecurityTests {
   @Test
   public void testCreate() {
     db.begin();
-    db.command("CREATE SECURITY POLICY testPolicy SET create = (name = 'foo')");
-    db.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
+    db.execute("CREATE SECURITY POLICY testPolicy SET create = (name = 'foo')");
+    db.execute("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
     db.commit();
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "writer", "writer")) {
@@ -69,17 +69,17 @@ public class RemoteSecurityTests {
   @Test
   public void testSqlCreate() {
     db.begin();
-    db.command("CREATE SECURITY POLICY testPolicy SET create = (name = 'foo')");
-    db.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
+    db.execute("CREATE SECURITY POLICY testPolicy SET create = (name = 'foo')");
+    db.execute("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
     db.commit();
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "writer", "writer")) {
       filteredSession.begin();
-      filteredSession.command("insert into Person SET name = 'foo'");
+      filteredSession.execute("insert into Person SET name = 'foo'");
       filteredSession.commit();
       try {
         filteredSession.begin();
-        filteredSession.command("insert into Person SET name = 'bar'");
+        filteredSession.execute("insert into Person SET name = 'bar'");
         filteredSession.commit();
         Assert.fail();
       } catch (SecurityException ex) {
@@ -90,8 +90,8 @@ public class RemoteSecurityTests {
   @Test
   public void testSqlRead() {
     db.begin();
-    db.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
-    db.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
+    db.execute("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
+    db.execute("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
     db.commit();
 
     db.begin();
@@ -114,11 +114,11 @@ public class RemoteSecurityTests {
 
   @Test
   public void testSqlReadWithIndex() {
-    db.command("create index Person.name on Person (name) NOTUNIQUE");
+    db.execute("create index Person.name on Person (name) NOTUNIQUE");
 
     db.begin();
-    db.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
-    db.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
+    db.execute("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
+    db.execute("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
     db.commit();
 
     db.begin();
@@ -139,11 +139,11 @@ public class RemoteSecurityTests {
 
   @Test
   public void testSqlReadWithIndex2() {
-    db.command("create index Person.name on Person (name) NOTUNIQUE");
+    db.execute("create index Person.name on Person (name) NOTUNIQUE");
 
     db.begin();
-    db.command("CREATE SECURITY POLICY testPolicy SET read = (surname = 'foo')");
-    db.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
+    db.execute("CREATE SECURITY POLICY testPolicy SET read = (surname = 'foo')");
+    db.execute("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
     db.commit();
 
     db.begin();
@@ -169,8 +169,8 @@ public class RemoteSecurityTests {
   @Test
   public void testBeforeUpdateCreate() {
     db.begin();
-    db.command("CREATE SECURITY POLICY testPolicy SET BEFORE UPDATE = (name = 'bar')");
-    db.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
+    db.execute("CREATE SECURITY POLICY testPolicy SET BEFORE UPDATE = (name = 'bar')");
+    db.execute("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
     db.commit();
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "writer", "writer")) {
@@ -193,8 +193,8 @@ public class RemoteSecurityTests {
   @Test
   public void testBeforeUpdateCreateSQL() {
     db.begin();
-    db.command("CREATE SECURITY POLICY testPolicy SET BEFORE UPDATE = (name = 'bar')");
-    db.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
+    db.execute("CREATE SECURITY POLICY testPolicy SET BEFORE UPDATE = (name = 'bar')");
+    db.execute("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
     db.commit();
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "writer", "writer")) {
@@ -204,7 +204,7 @@ public class RemoteSecurityTests {
       filteredSession.commit();
       try {
         filteredSession.begin();
-        filteredSession.command("update Person set name = 'bar'");
+        filteredSession.execute("update Person set name = 'bar'");
         filteredSession.commit();
         Assert.fail();
       } catch (SecurityException ex) {
@@ -217,8 +217,8 @@ public class RemoteSecurityTests {
   @Test
   public void testAfterUpdate() {
     db.begin();
-    db.command("CREATE SECURITY POLICY testPolicy SET AFTER UPDATE = (name = 'foo')");
-    db.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
+    db.execute("CREATE SECURITY POLICY testPolicy SET AFTER UPDATE = (name = 'foo')");
+    db.execute("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
     db.commit();
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "writer", "writer")) {
@@ -242,8 +242,8 @@ public class RemoteSecurityTests {
   @Test
   public void testAfterUpdateSQL() {
     db.begin();
-    db.command("CREATE SECURITY POLICY testPolicy SET AFTER UPDATE = (name = 'foo')");
-    db.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
+    db.execute("CREATE SECURITY POLICY testPolicy SET AFTER UPDATE = (name = 'foo')");
+    db.execute("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
     db.commit();
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "writer", "writer")) {
@@ -253,7 +253,7 @@ public class RemoteSecurityTests {
       filteredSession.commit();
       try {
         filteredSession.begin();
-        filteredSession.command("update Person set name = 'bar'");
+        filteredSession.execute("update Person set name = 'bar'");
         filteredSession.commit();
         Assert.fail();
       } catch (SecurityException ex) {
@@ -266,8 +266,8 @@ public class RemoteSecurityTests {
   @Test
   public void testDelete() {
     db.begin();
-    db.command("CREATE SECURITY POLICY testPolicy SET DELETE = (name = 'foo')");
-    db.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
+    db.execute("CREATE SECURITY POLICY testPolicy SET DELETE = (name = 'foo')");
+    db.execute("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
     db.commit();
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "writer", "writer")) {
@@ -296,8 +296,8 @@ public class RemoteSecurityTests {
   @Test
   public void testDeleteSQL() {
     db.begin();
-    db.command("CREATE SECURITY POLICY testPolicy SET DELETE = (name = 'foo')");
-    db.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
+    db.execute("CREATE SECURITY POLICY testPolicy SET DELETE = (name = 'foo')");
+    db.execute("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
     db.commit();
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "writer", "writer")) {
@@ -310,11 +310,11 @@ public class RemoteSecurityTests {
       filteredSession.commit();
 
       filteredSession.begin();
-      filteredSession.command("delete from Person where name = 'foo'");
+      filteredSession.execute("delete from Person where name = 'foo'");
       filteredSession.commit();
       try {
         filteredSession.begin();
-        filteredSession.command("delete from Person where name = 'bar'");
+        filteredSession.execute("delete from Person where name = 'bar'");
         filteredSession.commit();
         Assert.fail();
       } catch (SecurityException ex) {
@@ -331,8 +331,8 @@ public class RemoteSecurityTests {
   @Test
   public void testSqlCount() {
     db.begin();
-    db.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
-    db.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
+    db.execute("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
+    db.execute("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
     db.commit();
 
     db.begin();
@@ -352,11 +352,11 @@ public class RemoteSecurityTests {
 
   @Test
   public void testSqlCountWithIndex() {
-    db.command("create index Person.name on Person (name) NOTUNIQUE");
+    db.execute("create index Person.name on Person (name) NOTUNIQUE");
 
     db.begin();
-    db.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
-    db.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
+    db.execute("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
+    db.execute("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
     db.commit();
 
     db.begin();
@@ -383,11 +383,11 @@ public class RemoteSecurityTests {
 
   @Test
   public void testIndexGet() {
-    db.command("create index Person.name on Person (name) NOTUNIQUE");
+    db.execute("create index Person.name on Person (name) NOTUNIQUE");
 
     db.begin();
-    db.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
-    db.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
+    db.execute("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
+    db.execute("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
     db.commit();
 
     db.begin();
@@ -413,11 +413,11 @@ public class RemoteSecurityTests {
 
   @Test
   public void testIndexGetAndColumnSecurity() {
-    db.command("create index Person.name on Person (name) NOTUNIQUE");
+    db.execute("create index Person.name on Person (name) NOTUNIQUE");
 
     db.begin();
-    db.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
-    db.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person.name");
+    db.execute("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
+    db.execute("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person.name");
     db.commit();
 
     db.begin();
@@ -444,8 +444,8 @@ public class RemoteSecurityTests {
   @Test
   public void testReadHiddenColumn() {
     db.begin();
-    db.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'bar')");
-    db.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person.name");
+    db.execute("CREATE SECURITY POLICY testPolicy SET read = (name = 'bar')");
+    db.execute("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person.name");
     db.commit();
 
     db.begin();
@@ -466,8 +466,8 @@ public class RemoteSecurityTests {
   @Test
   public void testUpdateHiddenColumn() {
     db.begin();
-    db.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'bar')");
-    db.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person.name");
+    db.execute("CREATE SECURITY POLICY testPolicy SET read = (name = 'bar')");
+    db.execute("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person.name");
     db.commit();
 
     db.begin();

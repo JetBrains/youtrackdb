@@ -12,7 +12,7 @@ public class CreateSecurityPolicyStatementExecutionTest extends DbTestBase {
   @Test
   public void testPlain() {
     session.begin();
-    var result = session.command("CREATE SECURITY POLICY foo");
+    var result = session.execute("CREATE SECURITY POLICY foo");
     result.close();
     session.commit();
 

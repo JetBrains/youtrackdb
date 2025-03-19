@@ -691,7 +691,7 @@ public class LDAPImporter implements SecurityComponent {
   private void deleteUsers(final DatabaseSession odb, final Set<String> usersToBeDeleted) {
     try {
       for (var user : usersToBeDeleted) {
-        odb.command("DELETE FROM OUser WHERE name = ?", user);
+        odb.execute("DELETE FROM OUser WHERE name = ?", user);
 
         LogManager.instance()
             .info(
@@ -777,7 +777,7 @@ public class LDAPImporter implements SecurityComponent {
 
       sb.append("]) UPSERT WHERE name = ?");
 
-      db.command(sb.toString(), upn, password, upn);
+      db.execute(sb.toString(), upn, password, upn);
 
       return true;
     } catch (Exception ex) {

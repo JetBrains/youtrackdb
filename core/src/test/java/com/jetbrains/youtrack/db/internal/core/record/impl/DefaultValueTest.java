@@ -56,7 +56,7 @@ public class DefaultValueTest extends DbTestBase {
     assertTrue(saved.getProperty("date") instanceof Date);
     assertNotNull(saved.getProperty("id"));
 
-    var inserted = session.command("insert into ClassA content {}").next();
+    var inserted = session.execute("insert into ClassA content {}").next();
     session.commit();
 
     session.begin();
@@ -92,7 +92,7 @@ public class DefaultValueTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    var inserted = session.command("insert into ClassA content {\"date\":\"" + value + "\"}")
+    var inserted = session.execute("insert into ClassA content {\"date\":\"" + value + "\"}")
         .next();
     session.commit();
 

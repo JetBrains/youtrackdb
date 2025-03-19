@@ -39,7 +39,7 @@ public class CommandExecutorSQLCreateEdgeTest extends DbTestBase {
   @Test
   public void testParametersBinding() {
     session.begin();
-    session.command(
+    session.execute(
             "CREATE EDGE link from "
                 + owner1.getIdentity()
                 + " TO "
@@ -66,7 +66,7 @@ public class CommandExecutorSQLCreateEdgeTest extends DbTestBase {
     params.put("toId", 2);
 
     session.begin();
-    session.command(
+    session.execute(
             "CREATE EDGE link from (select from Owner where id = :fromId) TO (select from Owner"
                 + " where id = :toId) SET foo = :foo",
             params)
@@ -90,13 +90,13 @@ public class CommandExecutorSQLCreateEdgeTest extends DbTestBase {
   public void testBatch() throws Exception {
     for (var i = 0; i < 20; ++i) {
       session.begin();
-      session.command("CREATE VERTEX Owner SET testbatch = true, id = ?", i).close();
+      session.execute("CREATE VERTEX Owner SET testbatch = true, id = ?", i).close();
       session.commit();
     }
 
     session.begin();
     var edges =
-        session.command(
+        session.execute(
             "CREATE EDGE link from (select from owner where testbatch = true and id > 0) TO (select"
                 + " from owner where testbatch = true and id = 0) batch 10",
             "456");
@@ -116,7 +116,7 @@ public class CommandExecutorSQLCreateEdgeTest extends DbTestBase {
 
   @Test
   public void testEdgeConstraints() {
-    session.execute(
+    session.runScript(
             "sql",
             "create class E2 extends E;"
                 + "create property E2.x LONG;"
@@ -136,7 +136,7 @@ public class CommandExecutorSQLCreateEdgeTest extends DbTestBase {
                 + "alter property FooType.name MANDATORY true;")
         .close();
 
-    session.execute(
+    session.runScript(
             "sql",
             "begin;"
                 + "let $v1 = create vertex FooType content {'name':'foo1'};"

@@ -46,7 +46,7 @@ public class LuceneSpatialQueryTest extends BaseLuceneTest {
     oClass.createProperty("longitude", PropertyType.DOUBLE);
     oClass.createProperty("name", PropertyType.STRING);
 
-    session.command("CREATE INDEX Place.l_lon ON Place(latitude,longitude) SPATIAL ENGINE LUCENE")
+    session.execute("CREATE INDEX Place.l_lon ON Place(latitude,longitude) SPATIAL ENGINE LUCENE")
         .close();
 
     try {

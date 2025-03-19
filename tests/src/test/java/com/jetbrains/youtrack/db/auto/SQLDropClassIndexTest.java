@@ -47,7 +47,7 @@ public class SQLDropClassIndexTest extends BaseDBTest {
   @Test
   public void testIndexDeletion() throws Exception {
     session
-        .command(
+        .execute(
             "CREATE INDEX SQLDropClassCompositeIndex ON SQLDropClassTestClass (prop1, prop2)"
                 + " UNIQUE")
         .close();
@@ -58,7 +58,7 @@ public class SQLDropClassIndexTest extends BaseDBTest {
             .getIndexManagerInternal()
             .getIndex(session, "SQLDropClassCompositeIndex"));
 
-    session.command("DROP CLASS SQLDropClassTestClass").close();
+    session.execute("DROP CLASS SQLDropClassTestClass").close();
 
     Assert.assertNull(session.getMetadata().getSchema().getClass("SQLDropClassTestClass"));
     Assert.assertNull(

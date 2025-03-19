@@ -12,11 +12,11 @@ public class LuceneNullTest extends BaseLuceneTest {
   @Test
   public void testNullChangeToNotNullWithLists() {
 
-    session.command("create class Test extends V").close();
+    session.execute("create class Test extends V").close();
 
-    session.command("create property Test.names EMBEDDEDLIST STRING").close();
+    session.execute("create property Test.names EMBEDDEDLIST STRING").close();
 
-    session.command("create index Test.names on Test (names) fulltext engine lucene").close();
+    session.execute("create index Test.names on Test (names) fulltext engine lucene").close();
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("Test"));
@@ -36,9 +36,9 @@ public class LuceneNullTest extends BaseLuceneTest {
   @Test
   public void testNotNullChangeToNullWithLists() {
 
-    session.command("create class Test extends V").close();
-    session.command("create property Test.names EMBEDDEDLIST STRING").close();
-    session.command("create index Test.names on Test (names) fulltext engine lucene").close();
+    session.execute("create class Test extends V").close();
+    session.execute("create property Test.names EMBEDDEDLIST STRING").close();
+    session.execute("create index Test.names on Test (names) fulltext engine lucene").close();
 
     var doc = ((EntityImpl) session.newEntity("Test"));
 

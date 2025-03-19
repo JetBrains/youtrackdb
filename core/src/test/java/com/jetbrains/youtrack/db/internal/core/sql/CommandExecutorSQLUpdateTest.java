@@ -28,7 +28,6 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.command.script.CommandScript;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Date;
@@ -44,27 +43,27 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
   @Test
   public void testUpdateRemoveAll() throws Exception {
 
-    session.command("CREATE class company").close();
-    session.command("CREATE property company.name STRING").close();
-    session.command("CREATE class employee").close();
-    session.command("CREATE property employee.name STRING").close();
-    session.command("CREATE property company.employees LINKSET employee").close();
+    session.execute("CREATE class company").close();
+    session.execute("CREATE property company.name STRING").close();
+    session.execute("CREATE class employee").close();
+    session.execute("CREATE property employee.name STRING").close();
+    session.execute("CREATE property company.employees LINKSET employee").close();
 
     session.begin();
-    session.command("INSERT INTO company SET name = 'MyCompany'").close();
+    session.execute("INSERT INTO company SET name = 'MyCompany'").close();
     session.commit();
 
     final var r = session.query("SELECT FROM company").findFirst(Result::asEntity);
 
     session.begin();
     session.executeInTx(() -> {
-      session.command("INSERT INTO employee SET name = 'Philipp'").close();
-      session.command("INSERT INTO employee SET name = 'Selma'").close();
-      session.command("INSERT INTO employee SET name = 'Thierry'").close();
-      session.command("INSERT INTO employee SET name = 'Linn'").close();
+      session.execute("INSERT INTO employee SET name = 'Philipp'").close();
+      session.execute("INSERT INTO employee SET name = 'Selma'").close();
+      session.execute("INSERT INTO employee SET name = 'Thierry'").close();
+      session.execute("INSERT INTO employee SET name = 'Linn'").close();
     });
 
-    session.command("UPDATE company set employees = (SELECT FROM employee)").close();
+    session.execute("UPDATE company set employees = (SELECT FROM employee)").close();
     session.commit();
 
     session.executeInTx(() ->
@@ -72,7 +71,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     );
 
     session.executeInTx(() ->
-        session.command(
+        session.execute(
                 "UPDATE company REMOVE employees = (SELECT FROM employee WHERE name = 'Linn') WHERE"
                     + " name = 'MyCompany'")
             .close()
@@ -86,8 +85,8 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
   @Test
   public void testUpdateContent() throws Exception {
     session.begin();
-    session.command("insert into V (name) values ('bar')").close();
-    session.command("UPDATE V content {\"value\":\"foo\"}").close();
+    session.execute("insert into V (name) values ('bar')").close();
+    session.execute("UPDATE V content {\"value\":\"foo\"}").close();
     session.commit();
 
     try (var result = session.query("select from V")) {
@@ -99,8 +98,8 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
   @Test
   public void testUpdateContentParse() throws Exception {
     session.begin();
-    session.command("insert into V (name) values ('bar')").close();
-    session.command("UPDATE V content {\"value\":\"foo\\\\\"}").close();
+    session.execute("insert into V (name) values ('bar')").close();
+    session.execute("UPDATE V content {\"value\":\"foo\\\\\"}").close();
     session.commit();
 
     try (var result = session.query("select from V")) {
@@ -108,7 +107,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     }
 
     session.begin();
-    session.command("UPDATE V content {\"value\":\"foo\\\\\\\\\"}").close();
+    session.execute("UPDATE V content {\"value\":\"foo\\\\\\\\\"}").close();
 
     try (var result = session.query("select from V")) {
       assertEquals(result.next().getProperty("value"), "foo\\\\");
@@ -118,21 +117,21 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
 
   @Test
   public void testUpdateMergeWithIndex() {
-    session.command("CREATE CLASS i_have_a_list ").close();
-    session.command("CREATE PROPERTY i_have_a_list.id STRING").close();
-    session.command("CREATE INDEX i_have_a_list.id ON i_have_a_list (id) UNIQUE").close();
-    session.command("CREATE PROPERTY i_have_a_list.types EMBEDDEDLIST STRING").close();
-    session.command("CREATE INDEX i_have_a_list.types ON i_have_a_list (types) NOTUNIQUE").close();
+    session.execute("CREATE CLASS i_have_a_list ").close();
+    session.execute("CREATE PROPERTY i_have_a_list.id STRING").close();
+    session.execute("CREATE INDEX i_have_a_list.id ON i_have_a_list (id) UNIQUE").close();
+    session.execute("CREATE PROPERTY i_have_a_list.types EMBEDDEDLIST STRING").close();
+    session.execute("CREATE INDEX i_have_a_list.types ON i_have_a_list (types) NOTUNIQUE").close();
 
     session.begin();
-    session.command(
+    session.execute(
             "INSERT INTO i_have_a_list CONTENT {\"id\": \"the_id\", \"types\": [\"aaa\", \"bbb\"]}")
         .close();
 
     var result = session.query("SELECT * FROM i_have_a_list WHERE types = 'aaa'");
     assertEquals(result.stream().count(), 1);
 
-    session.command(
+    session.execute(
             "UPDATE i_have_a_list CONTENT {\"id\": \"the_id\", \"types\": [\"ccc\", \"bbb\"]} WHERE"
                 + " id = 'the_id'")
         .close();
@@ -162,10 +161,10 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     params.put("ssh_url", "foo");
     params.put("clone_url", "foo");
     params.put("svn_url", "foo");
-    session.command("create class " + className).close();
+    session.execute("create class " + className).close();
 
     session.executeInTx(() -> {
-      session.command(
+      session.execute(
               "update "
                   + className
                   + " SET name = :name, full_name = :full_name, html_url = :html_url, description ="
@@ -174,7 +173,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
               params)
           .close();
 
-      session.command(
+      session.execute(
               "update "
                   + className
                   + " SET name = :name, html_url = :html_url, description = :description, git_url ="
@@ -187,12 +186,12 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
 
   @Test
   public void testUpsertSetPut() throws Exception {
-    session.command("CREATE CLASS test").close();
-    session.command("CREATE PROPERTY test.id integer").close();
-    session.command("CREATE PROPERTY test.addField EMBEDDEDSET string").close();
+    session.execute("CREATE CLASS test").close();
+    session.execute("CREATE PROPERTY test.id integer").close();
+    session.execute("CREATE PROPERTY test.addField EMBEDDEDSET string").close();
 
     session.begin();
-    session.command("UPDATE test SET id = 1 , addField=[\"xxxx\"] UPSERT WHERE id = 1").close();
+    session.execute("UPDATE test SET id = 1 , addField=[\"xxxx\"] UPSERT WHERE id = 1").close();
     session.commit();
 
     try (var result = session.query("select from test")) {
@@ -205,11 +204,11 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
 
   @Test
   public void testUpdateParamDate() throws Exception {
-    session.command("CREATE CLASS test").close();
+    session.execute("CREATE CLASS test").close();
     var date = new Date();
 
     session.begin();
-    session.command("insert into test set birthDate = ?", date).close();
+    session.execute("insert into test set birthDate = ?", date).close();
     session.commit();
     try (var result = session.query("select from test")) {
       var doc = result.next();
@@ -218,7 +217,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
 
     date = new Date();
     session.begin();
-    session.command("UPDATE test set birthDate = ?", date).close();
+    session.execute("UPDATE test set birthDate = ?", date).close();
     session.commit();
 
     try (var result = session.query("select from test")) {
@@ -253,7 +252,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     params.put("booleanList", booleanList);
 
     session.executeInTx(() -> {
-      session.command(
+      session.execute(
               "UPDATE test SET boolean = :boolean, booleanList = :booleanList, integerList ="
                   + " :integerList WHERE id = 1",
               params)
@@ -261,7 +260,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     });
 
     session.executeInTx(() -> {
-      try (var queryResult = session.command("SELECT * FROM test WHERE id = 1")) {
+      try (var queryResult = session.execute("SELECT * FROM test WHERE id = 1")) {
         var docResult = queryResult.next();
         List<?> resultBooleanList = docResult.getProperty("booleanList");
         assertNotNull(resultBooleanList);
@@ -275,7 +274,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
   @Test
   public void testIncrementWithDotNotationField() throws Exception {
 
-    session.command("CREATE class test").close();
+    session.execute("CREATE class test").close();
 
     session.executeInTx(() -> {
       final var test = (EntityImpl) session.newEntity("test");
@@ -290,7 +289,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
             () -> session.query("SELECT FROM test WHERE id = \"id1\"").next().asEntity());
 
     session.executeInTx(() ->
-        session.command("UPDATE test set count += 2").close()
+        session.execute("UPDATE test set count += 2").close()
     );
 
     session.executeInTx(() ->
@@ -298,7 +297,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
             .isEqualTo(22));
 
     session.executeInTx(() ->
-        session.command("UPDATE test set map.nestedCount = map.nestedCount + 5").close()
+        session.execute("UPDATE test set map.nestedCount = map.nestedCount + 5").close()
     );
 
     session.executeInTx(() ->
@@ -306,7 +305,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
             .isEqualTo(15));
 
     session.executeInTx(() ->
-        session.command("UPDATE test set map.nestedCount = map.nestedCount+ 5").close()
+        session.execute("UPDATE test set map.nestedCount = map.nestedCount+ 5").close()
     );
 
     session.executeInTx(() ->
@@ -316,7 +315,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
 
   @Test
   public void testSingleQuoteInNamedParameter() throws Exception {
-    session.command("CREATE class test").close();
+    session.execute("CREATE class test").close();
 
     session.executeInTx(() -> {
       final var test = (EntityImpl) session.newEntity("test");
@@ -334,7 +333,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     params.put("text", "single \"");
 
     session.executeInTx(() ->
-        session.command("UPDATE test SET text = :text", params).close()
+        session.execute("UPDATE test SET text = :text", params).close()
     );
 
     session.executeInTx(() ->
@@ -345,7 +344,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
   @Test
   public void testQuotedStringInNamedParameter() throws Exception {
 
-    session.command("CREATE class test").close();
+    session.execute("CREATE class test").close();
 
     session.executeInTx(() -> {
       final var test = (EntityImpl) session.newEntity("test");
@@ -362,7 +361,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     params.put("text", "quoted \"value\" string");
 
     session.executeInTx(() ->
-        session.command("UPDATE test SET text = :text", params).close());
+        session.execute("UPDATE test SET text = :text", params).close());
 
     session.executeInTx(() ->
         assertEquals(session.bindToSession(queried).getProperty("text"), "quoted \"value\" string")
@@ -372,10 +371,10 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
   @Test
   public void testQuotesInJson() throws Exception {
 
-    session.command("CREATE class testquotesinjson").close();
+    session.execute("CREATE class testquotesinjson").close();
 
     session.begin();
-    session.command(
+    session.execute(
             "UPDATE testquotesinjson SET value = {\"f12\":'test\\\\'} UPSERT WHERE key = \"test\"")
         .close();
     session.commit();
@@ -387,12 +386,12 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
   @Test
   public void testDottedTargetInScript() {
     // #issue #5397
-    session.command("create class A").close();
-    session.command("create class B").close();
+    session.execute("create class A").close();
+    session.execute("create class B").close();
 
     session.executeInTx(() -> {
-      session.command("insert into A set name = 'foo'").close();
-      session.command("insert into B set name = 'bar', a = (select from A)").close();
+      session.execute("insert into A set name = 'foo'").close();
+      session.execute("insert into B set name = 'bar', a = (select from A)").close();
       session.commit();
     });
 
@@ -402,7 +401,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
         """;
 
     session.begin();
-    session.execute("SQL", script).close();
+    session.runScript("SQL", script).close();
     session.commit();
 
     try (var result = session.query("select from A")) {
@@ -415,8 +414,8 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
   public void testBacktickClassName() throws Exception {
     session.getMetadata().getSchema().createClass("foo-bar");
     session.begin();
-    session.command("insert into `foo-bar` set name = 'foo'").close();
-    session.command("UPDATE `foo-bar` set name = 'bar' where name = 'foo'").close();
+    session.execute("insert into `foo-bar` set name = 'foo'").close();
+    session.execute("UPDATE `foo-bar` set name = 'bar' where name = 'foo'").close();
     session.commit();
 
     try (var result = session.query("select from `foo-bar`")) {
@@ -428,25 +427,25 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
   @Ignore
   public void testUpdateLockLimit() throws Exception {
     session.getMetadata().getSchema().createClass("foo");
-    session.command("insert into foo set name = 'foo'").close();
-    session.command("UPDATE foo set name = 'bar' where name = 'foo' lock record limit 1").close();
+    session.execute("insert into foo set name = 'foo'").close();
+    session.execute("UPDATE foo set name = 'bar' where name = 'foo' lock record limit 1").close();
     try (var result = session.query("select from foo")) {
       assertEquals(result.next().getProperty("name"), "bar");
     }
-    session.command("UPDATE foo set name = 'foo' where name = 'bar' lock record limit 1").close();
+    session.execute("UPDATE foo set name = 'foo' where name = 'bar' lock record limit 1").close();
   }
 
   @Test
   public void testUpdateContentNotORestricted() throws Exception {
     // issue #5564
-    session.command("CREATE class Foo").close();
+    session.execute("CREATE class Foo").close();
 
     session.begin();
     var d = (EntityImpl) session.newEntity("Foo");
     d.setProperty("name", "foo");
 
-    session.command("update Foo MERGE {\"a\":1}").close();
-    session.command("update Foo CONTENT {\"a\":1}").close();
+    session.execute("update Foo MERGE {\"a\":1}").close();
+    session.execute("update Foo CONTENT {\"a\":1}").close();
     session.commit();
 
     try (var result = session.query("select from Foo")) {
@@ -460,7 +459,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
   @Test
   public void testUpdateReturnCount() throws Exception {
     // issue #5564
-    session.command("CREATE class Foo").close();
+    session.execute("CREATE class Foo").close();
 
     session.begin();
     var d = (EntityImpl) session.newEntity("Foo");
@@ -475,7 +474,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    var result = session.command("update Foo set surname = 'baz' return count");
+    var result = session.execute("update Foo set surname = 'baz' return count");
     session.commit();
 
     assertEquals(2, (long) result.next().getProperty("count"));
@@ -483,10 +482,10 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
 
   @Test
   public void testLinkedUpdate() {
-    session.command("CREATE class TestSource").close();
-    session.command("CREATE class TestLinked").close();
-    session.command("CREATE property TestLinked.id STRING").close();
-    session.command("CREATE INDEX TestLinked.id ON TestLinked (id) UNIQUE")
+    session.execute("CREATE class TestSource").close();
+    session.execute("CREATE class TestLinked").close();
+    session.execute("CREATE property TestLinked.id STRING").close();
+    session.execute("CREATE INDEX TestLinked.id ON TestLinked (id) UNIQUE")
         .close();
 
     session.begin();
@@ -502,7 +501,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    session.command(
+    session.execute(
             "Update TestSource set flag = true , linked.flag = true return after *, linked:{*} as"
                 + " infoLinked  where name = \"foo\"")
         .close();

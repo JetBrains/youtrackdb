@@ -58,13 +58,13 @@ public class RevokeStatementExecutionTest {
     session.commit();
 
     session.begin();
-    session.command("GRANT execute on server.remove to testRole");
+    session.execute("GRANT execute on server.remove to testRole");
     session.commit();
     session.begin();
     testRole = session.getMetadata().getSecurity().getRole("testRole");
     Assert.assertTrue(
         testRole.allow(Rule.ResourceGeneric.SERVER, "remove", Role.PERMISSION_EXECUTE));
-    session.command("REVOKE execute on server.remove from testRole");
+    session.execute("REVOKE execute on server.remove from testRole");
     session.commit();
     session.begin();
     testRole = session.getMetadata().getSecurity().getRole("testRole");
@@ -96,7 +96,7 @@ public class RevokeStatementExecutionTest {
             .get("database.class.Person")
             .getName(session));
 
-    session.command("REVOKE POLICY ON database.class.Person FROM reader").close();
+    session.execute("REVOKE POLICY ON database.class.Person FROM reader").close();
     session.commit();
 
     session.begin();

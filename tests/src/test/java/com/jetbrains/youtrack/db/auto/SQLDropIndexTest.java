@@ -51,15 +51,15 @@ public class SQLDropIndexTest extends BaseDBTest {
       session = createSessionInstance();
     }
 
-    session.command("delete from SQLDropIndexTestClass").close();
-    session.command("drop class SQLDropIndexTestClass").close();
+    session.execute("delete from SQLDropIndexTestClass").close();
+    session.execute("drop class SQLDropIndexTestClass").close();
 
     super.afterClass();
   }
 
   @Test
   public void testOldSyntax() throws Exception {
-    session.command("CREATE INDEX SQLDropIndexTestClass.prop1 UNIQUE").close();
+    session.execute("CREATE INDEX SQLDropIndexTestClass.prop1 UNIQUE").close();
 
     var index =
         session
@@ -69,7 +69,7 @@ public class SQLDropIndexTest extends BaseDBTest {
             .getClassIndex(session, "SQLDropIndexTestClass.prop1");
     Assert.assertNotNull(index);
 
-    session.command("DROP INDEX SQLDropIndexTestClass.prop1").close();
+    session.execute("DROP INDEX SQLDropIndexTestClass.prop1").close();
 
     index =
         session
@@ -83,7 +83,7 @@ public class SQLDropIndexTest extends BaseDBTest {
   @Test(dependsOnMethods = "testOldSyntax")
   public void testDropCompositeIndex() throws Exception {
     session
-        .command(
+        .execute(
             "CREATE INDEX SQLDropIndexCompositeIndex ON SQLDropIndexTestClass (prop1, prop2)"
                 + " UNIQUE")
         .close();
@@ -96,7 +96,7 @@ public class SQLDropIndexTest extends BaseDBTest {
             .getClassIndex(session, "SQLDropIndexCompositeIndex");
     Assert.assertNotNull(index);
 
-    session.command("DROP INDEX SQLDropIndexCompositeIndex").close();
+    session.execute("DROP INDEX SQLDropIndexCompositeIndex").close();
 
     index =
         session

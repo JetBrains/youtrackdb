@@ -191,11 +191,11 @@ public class ServerCommandGetGephi extends ServerCommandAuthenticatedDbAbstract 
       String language, String text, Object params, DatabaseSession db) {
     ResultSet result;
     if (params instanceof Map) {
-      result = db.command(text, (Map) params);
+      result = db.execute(text, (Map) params);
     } else if (params instanceof Object[]) {
-      result = db.command(text, (Object[]) params);
+      result = db.execute(text, (Object[]) params);
     } else {
-      result = db.command(text, params);
+      result = db.execute(text, params);
     }
     return result;
   }

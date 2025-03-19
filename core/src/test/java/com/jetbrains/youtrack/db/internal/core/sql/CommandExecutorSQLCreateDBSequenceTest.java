@@ -29,7 +29,7 @@ public class CommandExecutorSQLCreateDBSequenceTest extends DbTestBase {
 
   @Test
   public void testSimple() {
-    session.command("CREATE SEQUENCE Sequence1 TYPE ORDERED").close();
+    session.execute("CREATE SEQUENCE Sequence1 TYPE ORDERED").close();
 
     var results =
         session.query("select sequence('Sequence1').next() as val").toList();
@@ -53,7 +53,7 @@ public class CommandExecutorSQLCreateDBSequenceTest extends DbTestBase {
 
   @Test
   public void testIncrement() {
-    session.command("CREATE SEQUENCE SequenceIncrement TYPE ORDERED INCREMENT 3").close();
+    session.execute("CREATE SEQUENCE SequenceIncrement TYPE ORDERED INCREMENT 3").close();
     var results =
         session.query("select sequence('SequenceIncrement').next() as val").toList();
     assertEquals(1, results.size());
@@ -76,7 +76,7 @@ public class CommandExecutorSQLCreateDBSequenceTest extends DbTestBase {
 
   @Test
   public void testStart() {
-    session.command("CREATE SEQUENCE SequenceStart TYPE ORDERED START 3").close();
+    session.execute("CREATE SEQUENCE SequenceStart TYPE ORDERED START 3").close();
 
     var results =
         session.query("select sequence('SequenceStart').next() as val").toList();
@@ -100,7 +100,7 @@ public class CommandExecutorSQLCreateDBSequenceTest extends DbTestBase {
 
   @Test
   public void testStartIncrement() {
-    session.command("CREATE SEQUENCE SequenceStartIncrement TYPE ORDERED START 3 INCREMENT 10")
+    session.execute("CREATE SEQUENCE SequenceStartIncrement TYPE ORDERED START 3 INCREMENT 10")
         .close();
 
     var results =

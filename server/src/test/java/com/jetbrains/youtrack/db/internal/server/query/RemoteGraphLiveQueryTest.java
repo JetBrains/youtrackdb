@@ -25,13 +25,13 @@ public class RemoteGraphLiveQueryTest extends BaseServerMemoryDatabase {
   public void testLiveQuery() throws InterruptedException {
 
     db.begin();
-    db.command("create vertex FirstV set id = '1'").close();
-    db.command("create vertex SecondV set id = '2'").close();
+    db.execute("create vertex FirstV set id = '1'").close();
+    db.execute("create vertex SecondV set id = '2'").close();
     db.commit();
 
     db.begin();
     try (var resultSet =
-        db.command("create edge TestEdge  from (select from FirstV) to (select from SecondV)")) {
+        db.execute("create edge TestEdge  from (select from FirstV) to (select from SecondV)")) {
       var result = resultSet.stream().iterator().next();
 
       Assert.assertTrue(result.isStatefulEdge());
@@ -69,7 +69,7 @@ public class RemoteGraphLiveQueryTest extends BaseServerMemoryDatabase {
         new HashMap<String, String>());
 
     db.begin();
-    db.command("update SecondV set id = 3");
+    db.execute("update SecondV set id = 3");
     db.commit();
 
     Thread.sleep(100);

@@ -322,7 +322,7 @@ public class SecurityRemote implements SecurityInternal {
   @Override
   public boolean dropUser(final DatabaseSession session, final String iUserName) {
     final Number removed =
-        session.command("delete from OUser where name = ?", iUserName).next().getProperty("count");
+        session.execute("delete from OUser where name = ?", iUserName).next().getProperty("count");
 
     return removed != null && removed.intValue() > 0;
   }
@@ -331,7 +331,7 @@ public class SecurityRemote implements SecurityInternal {
   public boolean dropRole(final DatabaseSession session, final String iRoleName) {
     final Number removed =
         session
-            .command("delete from " + Role.CLASS_NAME + " where name = '" + iRoleName + "'")
+            .execute("delete from " + Role.CLASS_NAME + " where name = '" + iRoleName + "'")
             .next()
             .getProperty("count");
 

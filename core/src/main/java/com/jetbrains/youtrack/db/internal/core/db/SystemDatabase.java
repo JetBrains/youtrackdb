@@ -63,7 +63,7 @@ public class SystemDatabase {
       final Object... args) {
     // BYPASS SECURITY
     try (final DatabaseSession session = openSystemDatabaseSession()) {
-      try (var result = session.command(sql, args)) {
+      try (var result = session.execute(sql, args)) {
         return callback.apply(result, session);
       }
     }

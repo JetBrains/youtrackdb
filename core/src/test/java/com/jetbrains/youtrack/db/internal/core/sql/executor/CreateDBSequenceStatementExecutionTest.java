@@ -13,7 +13,7 @@ public class CreateDBSequenceStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testSimple() {
-    session.command("CREATE SEQUENCE Sequence1 TYPE ORDERED");
+    session.execute("CREATE SEQUENCE Sequence1 TYPE ORDERED");
 
     var results = session.query("select sequence('Sequence1').next() as val");
     Assert.assertTrue(results.hasNext());
@@ -39,7 +39,7 @@ public class CreateDBSequenceStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testIncrement() {
-    session.command("CREATE SEQUENCE SequenceIncrement TYPE ORDERED INCREMENT 3");
+    session.execute("CREATE SEQUENCE SequenceIncrement TYPE ORDERED INCREMENT 3");
 
     var results = session.query("select sequence('SequenceIncrement').next() as val");
     Assert.assertTrue(results.hasNext());
@@ -65,7 +65,7 @@ public class CreateDBSequenceStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testStart() {
-    session.command("CREATE SEQUENCE SequenceStart TYPE ORDERED START 3");
+    session.execute("CREATE SEQUENCE SequenceStart TYPE ORDERED START 3");
 
     var results = session.query("select sequence('SequenceStart').next() as val");
     Assert.assertTrue(results.hasNext());
@@ -91,7 +91,7 @@ public class CreateDBSequenceStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testStartIncrement() {
-    session.command("CREATE SEQUENCE SequenceStartIncrement TYPE ORDERED START 3 INCREMENT 10");
+    session.execute("CREATE SEQUENCE SequenceStartIncrement TYPE ORDERED START 3 INCREMENT 10");
 
     var results = session.query("select sequence('SequenceStartIncrement').next() as val");
     Assert.assertTrue(results.hasNext());
@@ -117,10 +117,10 @@ public class CreateDBSequenceStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testCreateSequenceIfNotExists() {
-    session.command("CREATE SEQUENCE SequenceIfNotExists if not exists TYPE ORDERED").close();
+    session.execute("CREATE SEQUENCE SequenceIfNotExists if not exists TYPE ORDERED").close();
 
     var result =
-        session.command("CREATE SEQUENCE SequenceIfNotExists if not exists TYPE ORDERED");
+        session.execute("CREATE SEQUENCE SequenceIfNotExists if not exists TYPE ORDERED");
 
     Assert.assertFalse(result.hasNext());
     result.close();

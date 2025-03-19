@@ -17,13 +17,13 @@ public class LuceneSearchOnIndexFunctionTest extends BaseLuceneTest {
   public void setUp() throws Exception {
     var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
 
-    //    db.execute("sql", getScriptFromStream(stream)).close();
-    session.execute("sql", getScriptFromStream(stream));
+    //    db.runScript("sql", getScriptFromStream(stream)).close();
+    session.runScript("sql", getScriptFromStream(stream));
 
-    session.command("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE ");
-    session.command("create index Song.author on Song (author) FULLTEXT ENGINE LUCENE ");
-    session.command("create index Author.name on Author (name) FULLTEXT ENGINE LUCENE ");
-    session.command(
+    session.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE ");
+    session.execute("create index Song.author on Song (author) FULLTEXT ENGINE LUCENE ");
+    session.execute("create index Author.name on Author (name) FULLTEXT ENGINE LUCENE ");
+    session.execute(
         "create index Song.lyrics_description on Song (lyrics,description) FULLTEXT ENGINE LUCENE"
             + " ");
   }

@@ -14,7 +14,7 @@ public class CreateFunctionStatementExecutionTest extends DbTestBase {
     var name = "testPlain";
     session.begin();
     var result =
-        session.command(
+        session.execute(
             "CREATE FUNCTION " + name + " \"return a + b;\" PARAMETERS [a,b] language javascript");
     Assert.assertTrue(result.hasNext());
     var next = result.next();

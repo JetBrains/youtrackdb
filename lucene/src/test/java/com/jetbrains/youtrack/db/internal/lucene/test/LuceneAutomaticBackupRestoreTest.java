@@ -117,9 +117,9 @@ public class LuceneAutomaticBackupRestoreTest {
 
     db = (DatabaseSessionInternal) youTrackDB.open(DBNAME, "admin", "admin");
 
-    db.command("create class City ");
-    db.command("create property City.name string");
-    db.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
+    db.execute("create class City ");
+    db.execute("create property City.name string");
+    db.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
 
     var doc = ((EntityImpl) db.newEntity("City"));
     doc.setProperty("name", "Rome");

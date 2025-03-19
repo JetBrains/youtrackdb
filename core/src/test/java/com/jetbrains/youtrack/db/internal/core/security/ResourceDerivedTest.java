@@ -47,82 +47,82 @@ public class ResourceDerivedTest {
     var db = youTrackDB.open("test", "admin", "admin");
 
     db.begin();
-    db.command(
+    db.execute(
         "CREATE SECURITY POLICY r SET create = (false), read = (true), before update = (false),"
             + " after update = (false), delete = (false), execute = (true)");
-    db.command(
+    db.execute(
         "CREATE SECURITY POLICY rw SET create = (true), read = (true), before update = (true),"
             + " after update = (true), delete = (true), execute = (true)");
     db.commit();
 
-    db.command("CREATE CLASS Customer extends V ABSTRACT");
-    db.command("CREATE PROPERTY Customer.name String");
+    db.execute("CREATE CLASS Customer extends V ABSTRACT");
+    db.execute("CREATE PROPERTY Customer.name String");
 
-    db.command("CREATE CLASS Customer_t1 extends Customer");
-    db.command("CREATE CLASS Customer_t2 extends Customer");
+    db.execute("CREATE CLASS Customer_t1 extends Customer");
+    db.execute("CREATE CLASS Customer_t2 extends Customer");
 
-    db.command("CREATE CLASS Customer_u1 extends Customer_t1");
-    db.command("CREATE CLASS Customer_u2 extends Customer_t2");
+    db.execute("CREATE CLASS Customer_u1 extends Customer_t1");
+    db.execute("CREATE CLASS Customer_u2 extends Customer_t2");
 
     db.begin();
-    db.command("INSERT INTO ORole SET name = 'tenant1', mode = 0");
+    db.execute("INSERT INTO ORole SET name = 'tenant1', mode = 0");
     db.commit();
     db.begin();
-    db.command("ALTER ROLE tenant1 set policy rw ON database.class.*.*");
+    db.execute("ALTER ROLE tenant1 set policy rw ON database.class.*.*");
     db.commit();
     db.begin();
-    db.command("UPDATE ORole SET rules = {'database.class.customer': 2} WHERE name = ?", "tenant1");
+    db.execute("UPDATE ORole SET rules = {'database.class.customer': 2} WHERE name = ?", "tenant1");
     db.commit();
     db.begin();
-    db.command("ALTER ROLE tenant1 set policy r ON database.class.Customer");
-    db.command(
+    db.execute("ALTER ROLE tenant1 set policy r ON database.class.Customer");
+    db.execute(
         "UPDATE ORole SET rules = {'database.class.customer_t1': 31} WHERE name = ?", "tenant1");
     db.commit();
     db.begin();
-    db.command("ALTER ROLE tenant1 set policy rw ON database.class.Customer_t1");
-    db.command(
+    db.execute("ALTER ROLE tenant1 set policy rw ON database.class.Customer_t1");
+    db.execute(
         "UPDATE ORole SET rules = {'database.class.customer_t2': 2} WHERE name = ?", "tenant1");
     db.commit();
 
     db.begin();
-    db.command("ALTER ROLE tenant1 set policy r ON database.class.Custome_t2r");
-    db.command(
+    db.execute("ALTER ROLE tenant1 set policy r ON database.class.Custome_t2r");
+    db.execute(
         "UPDATE ORole SET rules = {'database.class.customer_u2': 0} WHERE name = ?", "tenant1");
-    db.command(
+    db.execute(
         "UPDATE ORole SET inheritedRole = (SELECT FROM ORole WHERE name = 'reader') WHERE name = ?",
         "tenant1");
 
-    db.command(
+    db.execute(
         "INSERT INTO OUser set name = 'tenant1', password = 'password', status = 'ACTIVE', roles ="
             + " (SELECT FROM ORole WHERE name = 'tenant1')");
 
-    db.command("INSERT INTO ORole SET name = 'tenant2', mode = 0");
+    db.execute("INSERT INTO ORole SET name = 'tenant2', mode = 0");
     db.commit();
 
     db.begin();
-    db.command("ALTER ROLE tenant2 set policy rw ON database.class.*.*");
+    db.execute("ALTER ROLE tenant2 set policy rw ON database.class.*.*");
     db.commit();
 
     db.begin();
-    db.command(
+    db.execute(
         "UPDATE ORole SET rules = {'database.class.customer_t1': 0} WHERE name = ?", "tenant2");
-    db.command(
+    db.execute(
         "UPDATE ORole SET rules = {'database.class.customer_t2': 31} WHERE name = ?", "tenant2");
-    db.command("ALTER ROLE tenant2 set policy rw ON database.class.Customer_t2");
-    db.command("UPDATE ORole SET rules = {'database.class.customer': 0} WHERE name = ?", "tenant2");
-    db.command(
+    db.execute("ALTER ROLE tenant2 set policy rw ON database.class.Customer_t2");
+    db.execute("UPDATE ORole SET rules = {'database.class.customer': 0} WHERE name = ?", "tenant2");
+    db.execute(
         "UPDATE ORole SET inheritedRole = (SELECT FROM ORole WHERE name = 'reader') WHERE name ="
             + " 'tenant2'");
 
-    db.command(
+    db.execute(
         "INSERT INTO OUser set name = 'tenant2', password = 'password', status = 'ACTIVE', roles ="
             + " (SELECT FROM ORole WHERE name = 'tenant2')");
 
-    db.command("create vertex Customer_t1 set name='Amy'");
-    db.command("create vertex Customer_t2 set name='Bob'");
+    db.execute("create vertex Customer_t1 set name='Amy'");
+    db.execute("create vertex Customer_t2 set name='Bob'");
 
-    db.command("create vertex Customer_u1 set name='Fred'");
-    db.command("create vertex Customer_u2 set name='George'");
+    db.execute("create vertex Customer_u1 set name='Fred'");
+    db.execute("create vertex Customer_u2 set name='George'");
     db.commit();
 
     db.close();

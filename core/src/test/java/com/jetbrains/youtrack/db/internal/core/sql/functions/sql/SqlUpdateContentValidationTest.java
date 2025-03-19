@@ -16,13 +16,13 @@ public class SqlUpdateContentValidationTest extends DbTestBase {
 
     session.begin();
     var res =
-        session.command(
+        session.execute(
             "insert into Test content {\"testNormal\":\"hello\",\"test\":\"only read\"} ");
     var id = res.next().getIdentity();
     session.commit();
     try {
       session.begin();
-      session.command("update " + id + " CONTENT {\"testNormal\":\"by\"}").close();
+      session.execute("update " + id + " CONTENT {\"testNormal\":\"by\"}").close();
       session.commit();
       Assert.fail("Error on update of a record removing a readonly property");
     } catch (ValidationException val) {

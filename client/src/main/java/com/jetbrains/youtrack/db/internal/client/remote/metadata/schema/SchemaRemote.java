@@ -138,7 +138,7 @@ public class SchemaRemote extends SchemaShared {
         }
       }
 
-      session.command(cmd.toString()).close();
+      session.execute(cmd.toString()).close();
       reload(session);
 
       result = classes.get(className.toLowerCase(Locale.ENGLISH));
@@ -208,7 +208,7 @@ public class SchemaRemote extends SchemaShared {
         cmd.append(clusters);
       }
 
-      session.command(cmd.toString()).close();
+      session.execute(cmd.toString()).close();
       reload(session);
       result = classes.get(className.toLowerCase(Locale.ENGLISH));
     } finally {
@@ -271,7 +271,7 @@ public class SchemaRemote extends SchemaShared {
       }
 
       var cmd = "drop class `" + className + "` unsafe";
-      session.command(cmd).close();
+      session.execute(cmd).close();
       reload(session);
 
       var localCache = session.getLocalCache();

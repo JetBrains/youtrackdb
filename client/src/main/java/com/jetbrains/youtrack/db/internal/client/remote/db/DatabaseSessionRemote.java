@@ -356,7 +356,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   @Override
-  public ResultSet command(String query, Object... args) {
+  public ResultSet execute(String query, Object... args) {
     checkOpenness();
     assert assertIfNotActive();
     checkAndSendTransaction();
@@ -370,7 +370,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   @Override
-  public ResultSet command(String query, Map args) {
+  public ResultSet execute(String query, Map args) {
     checkOpenness();
     assert assertIfNotActive();
 
@@ -398,7 +398,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   @Override
-  public ResultSet execute(String language, String script, Object... args)
+  public ResultSet runScript(String language, String script, Object... args)
       throws CommandExecutionException, CommandScriptException {
     checkOpenness();
     assert assertIfNotActive();
@@ -413,7 +413,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   @Override
-  public ResultSet execute(String language, String script, Map<String, ?> args)
+  public ResultSet runScript(String language, String script, Map<String, ?> args)
       throws CommandExecutionException, CommandScriptException {
     checkOpenness();
     assert assertIfNotActive();
@@ -479,7 +479,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   public int addBlobCluster(final String iClusterName, final Object... iParameters) {
     int id;
     assert assertIfNotActive();
-    try (var resultSet = command("create blob cluster :1", iClusterName)) {
+    try (var resultSet = execute("create blob cluster :1", iClusterName)) {
       assert resultSet.hasNext();
       var result = resultSet.next();
       assert result.getProperty("value") != null;
@@ -918,13 +918,13 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   @Override
   public void truncateCluster(String clusterName) {
     assert assertIfNotActive();
-    command("truncate cluster " + clusterName).close();
+    execute("truncate cluster " + clusterName).close();
   }
 
   @Override
   public void truncateClass(String name) {
     assert assertIfNotActive();
-    command("truncate class " + name).close();
+    execute("truncate class " + name).close();
   }
 
   @Override
@@ -938,13 +938,13 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
 
     long count = 0;
     if (polimorfic) {
-      try (var result = command("truncate class " + name + " polymorphic ")) {
+      try (var result = execute("truncate class " + name + " polymorphic ")) {
         while (result.hasNext()) {
           count += result.next().<Long>getProperty("count");
         }
       }
     } else {
-      try (var result = command("truncate class " + name)) {
+      try (var result = execute("truncate class " + name)) {
         while (result.hasNext()) {
           count += result.next().<Long>getProperty("count");
         }

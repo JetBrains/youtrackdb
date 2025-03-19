@@ -49,17 +49,17 @@ public class SQLFindReferencesTest extends BaseDBTest {
 
   @Test
   public void findSimpleReference() {
-    var result = session.command("find references " + carID).stream().toList();
+    var result = session.execute("find references " + carID).stream().toList();
 
     Assert.assertEquals(result.size(), 1);
     Assert.assertEquals(result.iterator().next().getProperty("referredBy"), johnDoeID);
 
     // SUB QUERY
-    result = session.command("find references ( select from " + carID + ")").stream().toList();
+    result = session.execute("find references ( select from " + carID + ")").stream().toList();
     Assert.assertEquals(result.size(), 1);
     Assert.assertEquals(result.iterator().next().getProperty("referredBy"), johnDoeID);
 
-    result = session.command("find references " + chuckNorrisID).stream().toList();
+    result = session.execute("find references " + chuckNorrisID).stream().toList();
     Assert.assertEquals(result.size(), 2);
 
     for (var rid : result) {
@@ -68,7 +68,7 @@ public class SQLFindReferencesTest extends BaseDBTest {
               || rid.getProperty("referredBy").equals(fbiID));
     }
 
-    result = session.command("find references " + johnDoeID).stream().toList();
+    result = session.execute("find references " + johnDoeID).stream().toList();
     Assert.assertEquals(result.size(), 0);
 
     result = null;
@@ -77,14 +77,14 @@ public class SQLFindReferencesTest extends BaseDBTest {
   @Test
   public void findReferenceByClassAndClusters() {
     var result =
-        session.command("find references " + janeDoeID + " [" + WORKPLACE + "]").stream().toList();
+        session.execute("find references " + janeDoeID + " [" + WORKPLACE + "]").stream().toList();
 
     Assert.assertEquals(result.size(), 1);
     Assert.assertEquals(ctuID, result.iterator().next().getProperty("referredBy"));
 
     result =
         session
-            .command("find references " + jackBauerID + " [" + WORKPLACE + ",cluster:" + CAR + "]")
+            .execute("find references " + jackBauerID + " [" + WORKPLACE + ",cluster:" + CAR + "]")
             .stream()
             .toList();
 
@@ -97,7 +97,7 @@ public class SQLFindReferencesTest extends BaseDBTest {
 
     result =
         session
-            .command(
+            .execute(
                 "find references "
                     + johnDoeID
                     + " ["
@@ -220,7 +220,7 @@ public class SQLFindReferencesTest extends BaseDBTest {
   }
 
   private void dropClass(String iClass) {
-    session.command("drop class " + iClass).close();
+    session.execute("drop class " + iClass).close();
     while (session.getMetadata().getSchema().existsClass(iClass)) {
       session.getMetadata().getSchema().dropClass(iClass);
       session.reload();

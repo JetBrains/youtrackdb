@@ -50,7 +50,7 @@ public class ConcurrentQueriesTest extends BaseDBTest {
         try {
           for (var retry = 0; retry < MAX_RETRIES; ++retry) {
             try {
-              db.command("select from Concurrent").close();
+              db.execute("select from Concurrent").close();
 
               counter.incrementAndGet();
               totalRetries.addAndGet(retry);

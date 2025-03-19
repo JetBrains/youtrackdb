@@ -1,11 +1,9 @@
 package com.jetbrains.youtrack.db.internal.server.security;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import java.io.IOException;
@@ -53,7 +51,7 @@ public class RemoteScriptSecurityTest {
         YouTrackDBConfig.defaultConfig())) {
       try (var writer =
           writerOrient.open("RemoteScriptSecurityTest", "reader", "reader")) {
-        try (var rs = writer.execute("javascript", "1+1;")) {
+        try (var rs = writer.runScript("javascript", "1+1;")) {
         }
       }
     }
@@ -67,7 +65,7 @@ public class RemoteScriptSecurityTest {
       try (var writer =
           writerOrient.open("RemoteScriptSecurityTest", "reader", "reader")) {
 
-        try (var rs = writer.execute("ecmascript", "1+1;")) {
+        try (var rs = writer.runScript("ecmascript", "1+1;")) {
         }
       }
     }

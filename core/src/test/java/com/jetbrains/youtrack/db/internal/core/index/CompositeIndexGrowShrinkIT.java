@@ -29,7 +29,7 @@ public class CompositeIndexGrowShrinkIT extends DbTestBase {
     clazz.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
     clazz.createProperty("name", PropertyType.STRING);
 
-    session.command(
+    session.execute(
             "create index CompositeIndex_id_tags_name on CompositeIndex (id, tags, name) NOTUNIQUE")
         .close();
     for (var i = 0; i < 150000; i++) {
@@ -48,7 +48,7 @@ public class CompositeIndexGrowShrinkIT extends DbTestBase {
     }
 
     session.begin();
-    session.command("delete from CompositeIndex").close();
+    session.execute("delete from CompositeIndex").close();
     session.commit();
   }
 
@@ -62,7 +62,7 @@ public class CompositeIndexGrowShrinkIT extends DbTestBase {
     clazz.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
     clazz.createProperty("name", PropertyType.STRING);
 
-    session.command(
+    session.execute(
             "create index CompositeIndex_id_tags_name on CompositeIndex (id, tags, name) NOTUNIQUE")
         .close();
 
@@ -78,6 +78,6 @@ public class CompositeIndexGrowShrinkIT extends DbTestBase {
       rec.setProperty("name", "name" + i);
       session.commit();
     }
-    session.command("drop index CompositeIndex_id_tags_name").close();
+    session.execute("drop index CompositeIndex_id_tags_name").close();
   }
 }

@@ -174,7 +174,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       session = createSessionInstance();
     }
 
-    session.command("drop class sqlSelectIndexReuseTestClass").close();
+    session.execute("drop class sqlSelectIndexReuseTestClass").close();
 
     super.afterClass();
   }

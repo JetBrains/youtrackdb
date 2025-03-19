@@ -25,7 +25,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
     session.getMetadata().getSchema().createClass(className);
 
     session.begin();
-    var result = session.command("insert into " + className + " set name = 'name1'");
+    var result = session.execute("insert into " + className + " set name = 'name1'");
 
     printExecutionPlan(result);
     for (var i = 0; i < 1; i++) {
@@ -57,7 +57,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var result =
-        session.command(
+        session.execute(
             "insert into " + className + "  (name, surname) values ('name1', 'surname1')");
 
     printExecutionPlan(result);
@@ -91,7 +91,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var result =
-        session.command(
+        session.execute(
             "insert into "
                 + className
                 + "  (name, surname) values ('name1', 'surname1'), ('name2', 'surname2')");
@@ -144,7 +144,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
     }
 
     session.begin();
-    var result = session.command(
+    var result = session.execute(
         "insert into " + className2 + " from select from " + className1);
 
     printExecutionPlan(result);
@@ -197,7 +197,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var result =
-        session.command("insert into " + className2 + " ( select from " + className1 + ")");
+        session.execute("insert into " + className2 + " ( select from " + className1 + ")");
 
     printExecutionPlan(result);
 
@@ -238,7 +238,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var result =
-        session.command(
+        session.execute(
             "insert into " + className + " content {'name':'name1', 'surname':'surname1'}");
 
     printExecutionPlan(result);
@@ -272,7 +272,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var result =
-        session.command(
+        session.execute(
             "insert into "
                 + className
                 + " content {'name':'name1', 'surname':'surname1'},{'name':'name1',"
@@ -314,7 +314,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
     params.put("theContent", theContent);
 
     session.begin();
-    var result = session.command("insert into " + className + " content :theContent", params);
+    var result = session.execute("insert into " + className + " content :theContent", params);
 
     printExecutionPlan(result);
     for (var i = 0; i < 1; i++) {
@@ -345,26 +345,26 @@ public class InsertStatementExecutionTest extends DbTestBase {
     var className1 = "testLinkConversion1";
     var className2 = "testLinkConversion2";
 
-    session.command("CREATE CLASS " + className1).close();
+    session.execute("CREATE CLASS " + className1).close();
 
     session.begin();
-    session.command("INSERT INTO " + className1 + " SET name='Active';").close();
-    session.command("INSERT INTO " + className1 + " SET name='Inactive';").close();
+    session.execute("INSERT INTO " + className1 + " SET name='Active';").close();
+    session.execute("INSERT INTO " + className1 + " SET name='Inactive';").close();
     session.commit();
 
-    session.command("CREATE CLASS " + className2 + ";").close();
-    session.command("CREATE PROPERTY " + className2 + ".processingType LINK " + className1 + ";")
+    session.execute("CREATE CLASS " + className2 + ";").close();
+    session.execute("CREATE PROPERTY " + className2 + ".processingType LINK " + className1 + ";")
         .close();
 
     session.begin();
-    session.command(
+    session.execute(
             "INSERT INTO "
                 + className2
                 + " SET name='Active', processingType = (SELECT FROM "
                 + className1
                 + " WHERE name = 'Active') ;")
         .close();
-    session.command(
+    session.execute(
             "INSERT INTO "
                 + className2
                 + " SET name='Inactive', processingType = (SELECT FROM "
@@ -391,14 +391,14 @@ public class InsertStatementExecutionTest extends DbTestBase {
     var className1 = "testEmbeddedlistConversion1";
     var className2 = "testEmbeddedlistConversion2";
 
-    session.command("CREATE CLASS " + className1 + " abstract").close();
+    session.execute("CREATE CLASS " + className1 + " abstract").close();
 
-    session.command("CREATE CLASS " + className2 + ";").close();
-    session.command("CREATE PROPERTY " + className2 + ".sub EMBEDDEDLIST " + className1 + ";")
+    session.execute("CREATE CLASS " + className2 + ";").close();
+    session.execute("CREATE PROPERTY " + className2 + ".sub EMBEDDEDLIST " + className1 + ";")
         .close();
 
     session.begin();
-    session.command("INSERT INTO " + className2 + " SET name='Active', sub = [{'name':'foo'}];")
+    session.execute("INSERT INTO " + className2 + " SET name='Active', sub = [{'name':'foo'}];")
         .close();
     session.commit();
 
@@ -427,14 +427,14 @@ public class InsertStatementExecutionTest extends DbTestBase {
     var className1 = "testEmbeddedlistConversion21";
     var className2 = "testEmbeddedlistConversion22";
 
-    session.command("CREATE CLASS " + className1 + " abstract").close();
+    session.execute("CREATE CLASS " + className1 + " abstract").close();
 
-    session.command("CREATE CLASS " + className2 + ";").close();
-    session.command("CREATE PROPERTY " + className2 + ".sub EMBEDDEDLIST " + className1 + ";")
+    session.execute("CREATE CLASS " + className2 + ";").close();
+    session.execute("CREATE PROPERTY " + className2 + ".sub EMBEDDEDLIST " + className1 + ";")
         .close();
 
     session.begin();
-    session.command(
+    session.execute(
             "INSERT INTO " + className2 + " (name, sub) values ('Active', [{'name':'foo'}]);")
         .close();
     session.commit();
@@ -466,7 +466,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var result =
-        session.command("insert into " + className + " set name = 'name1' RETURN 'OK' as result");
+        session.execute("insert into " + className + " set name = 'name1' RETURN 'OK' as result");
 
     printExecutionPlan(result);
     for (var i = 0; i < 1; i++) {
@@ -498,7 +498,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var result =
-        session.command(
+        session.execute(
             "insert into "
                 + className
                 + " set name = 'parent', children = (INSERT INTO "
@@ -528,13 +528,13 @@ public class InsertStatementExecutionTest extends DbTestBase {
     var className = "testLinkMapWithSubqueries";
     var itemclassName = "testLinkMapWithSubqueriesTheItem";
 
-    session.command("CREATE CLASS " + className);
-    session.command("CREATE CLASS " + itemclassName);
-    session.command("CREATE PROPERTY " + className + ".mymap LINKMAP " + itemclassName);
+    session.execute("CREATE CLASS " + className);
+    session.execute("CREATE CLASS " + itemclassName);
+    session.execute("CREATE PROPERTY " + className + ".mymap LINKMAP " + itemclassName);
 
     session.begin();
-    session.command("INSERT INTO " + itemclassName + " (name) VALUES ('test')");
-    session.command(
+    session.execute("INSERT INTO " + itemclassName + " (name) VALUES ('test')");
+    session.execute(
         "INSERT INTO "
             + className
             + " (mymap) VALUES ({'A-1': (SELECT FROM "
@@ -559,10 +559,10 @@ public class InsertStatementExecutionTest extends DbTestBase {
   public void testQuotedCharactersInJson() {
     var className = "testQuotedCharactersInJson";
 
-    session.command("CREATE CLASS " + className);
+    session.execute("CREATE CLASS " + className);
 
     session.begin();
-    session.command(
+    session.execute(
         "INSERT INTO "
             + className
             + " CONTENT { name: \"jack\", memo: \"this is a \\n multi line text\" }");

@@ -120,7 +120,7 @@ public class YouTrackDbJdbcPreparedStatement extends YouTrackDbJdbcStatement imp
 
     try {
       session.activateOnCurrentThread();
-      return session.command(query, params.values().toArray());
+      return session.execute(query, params.values().toArray());
     } catch (BaseException e) {
       throw new SQLException("Error while executing command", e);
     }

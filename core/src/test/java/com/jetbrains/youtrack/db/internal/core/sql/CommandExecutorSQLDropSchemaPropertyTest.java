@@ -34,22 +34,22 @@ public class CommandExecutorSQLDropSchemaPropertyTest extends DbTestBase {
 
     foo.createProperty("name", PropertyType.STRING);
     Assert.assertTrue(schema.getClass("Foo").existsProperty("name"));
-    session.command("DROP PROPERTY Foo.name").close();
+    session.execute("DROP PROPERTY Foo.name").close();
     Assert.assertFalse(schema.getClass("Foo").existsProperty("name"));
 
     foo.createProperty("name", PropertyType.STRING);
     Assert.assertTrue(schema.getClass("Foo").existsProperty("name"));
-    session.command("DROP PROPERTY `Foo`.name").close();
+    session.execute("DROP PROPERTY `Foo`.name").close();
     Assert.assertFalse(schema.getClass("Foo").existsProperty("name"));
 
     foo.createProperty("name", PropertyType.STRING);
     Assert.assertTrue(schema.getClass("Foo").existsProperty("name"));
-    session.command("DROP PROPERTY Foo.`name`").close();
+    session.execute("DROP PROPERTY Foo.`name`").close();
     Assert.assertFalse(schema.getClass("Foo").existsProperty("name"));
 
     foo.createProperty("name", PropertyType.STRING);
     Assert.assertTrue(schema.getClass("Foo").existsProperty("name"));
-    session.command("DROP PROPERTY `Foo`.`name`").close();
+    session.execute("DROP PROPERTY `Foo`.`name`").close();
     Assert.assertFalse(schema.getClass("Foo").existsProperty("name"));
   }
 
@@ -60,10 +60,10 @@ public class CommandExecutorSQLDropSchemaPropertyTest extends DbTestBase {
 
     testIfExistsClass.createProperty("name", PropertyType.STRING);
     Assert.assertTrue(schema.getClass("testIfExists").existsProperty("name"));
-    session.command("DROP PROPERTY testIfExists.name if exists").close();
+    session.execute("DROP PROPERTY testIfExists.name if exists").close();
     Assert.assertFalse(schema.getClass("testIfExists").existsProperty("name"));
 
-    session.command("DROP PROPERTY testIfExists.name if exists").close();
+    session.execute("DROP PROPERTY testIfExists.name if exists").close();
     Assert.assertFalse(schema.getClass("testIfExists").existsProperty("name"));
   }
 }

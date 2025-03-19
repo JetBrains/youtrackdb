@@ -27,25 +27,25 @@ public class LuceneAllIndexTest extends BaseLuceneTest {
 
     var fromStream =
         IOUtils.readStreamAsString(ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql"));
-    session.execute("sql", fromStream).close();
+    session.runScript("sql", fromStream).close();
     session.setProperty("CUSTOM", "strictSql=false");
 
     // three separate indeexs, one result
-    session.command(
+    session.execute(
             "create index Song.title on Song (title) FULLTEXT ENGINE LUCENE METADATA"
                 + " {\"index_analyzer\":\""
                 + StandardAnalyzer.class.getName()
                 + "\"}")
         .close();
 
-    session.command(
+    session.execute(
             "create index Song.author on Song (author) FULLTEXT ENGINE LUCENE METADATA"
                 + " {\"index_analyzer\":\""
                 + StandardAnalyzer.class.getName()
                 + "\"}")
         .close();
 
-    session.command(
+    session.execute(
             "create index Song.lyrics on Song (lyrics) FULLTEXT ENGINE LUCENE METADATA"
                 + " {\"index_analyzer\":\""
                 + EnglishAnalyzer.class.getName()

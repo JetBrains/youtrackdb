@@ -32,15 +32,15 @@ public class LuceneCreateIndexTest extends BaseLuceneTest {
   public void loadAndTest() {
     var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
 
-    session.execute("sql", getScriptFromStream(stream)).close();
+    session.runScript("sql", getScriptFromStream(stream)).close();
 
-    session.command(
+    session.execute(
             "create index Song.title on Song (title) FULLTEXT ENGINE LUCENE METADATA"
                 + " {\"analyzer\":\""
                 + StandardAnalyzer.class.getName()
                 + "\"}")
         .close();
-    session.command(
+    session.execute(
             "create index Song.author on Song (author) FULLTEXT ENGINE LUCENE METADATA"
                 + " {\"analyzer\":\""
                 + StandardAnalyzer.class.getName()

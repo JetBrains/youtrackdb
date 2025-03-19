@@ -74,7 +74,7 @@ public class ColumnSecurityTest {
         session, security.getRole(session, "reader"), "database.class.Person.name", policy);
     session.commit();
 
-    session.command("create index Person.name on Person (name) NOTUNIQUE");
+    session.execute("create index Person.name on Person (name) NOTUNIQUE");
   }
 
   @Test
@@ -96,7 +96,7 @@ public class ColumnSecurityTest {
 
     Thread.sleep(100);
     try {
-      session.command("create index Person.name_surname on Person (name, surname) NOTUNIQUE");
+      session.execute("create index Person.name_surname on Person (name, surname) NOTUNIQUE");
       Assert.fail();
     } catch (IndexException e) {
 
@@ -123,7 +123,7 @@ public class ColumnSecurityTest {
         session, security.getRole(session, "reader"), "database.class.Person.name", policy);
     session.commit();
 
-    session.command("create index Person.name on Person (name) NOTUNIQUE");
+    session.execute("create index Person.name on Person (name) NOTUNIQUE");
   }
 
   @Test
@@ -142,7 +142,7 @@ public class ColumnSecurityTest {
         session, security.getRole(session, "reader"), "database.class.Person.surname", policy);
     session.commit();
 
-    session.command("create index Person.name on Person (name) NOTUNIQUE");
+    session.execute("create index Person.name on Person (name) NOTUNIQUE");
   }
 
   @Test
@@ -153,7 +153,7 @@ public class ColumnSecurityTest {
     person.createProperty("name", PropertyType.STRING);
     person.createProperty("address", PropertyType.STRING);
 
-    session.command("create index Person.name_address on Person (name, address) NOTUNIQUE");
+    session.execute("create index Person.name_address on Person (name, address) NOTUNIQUE");
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -173,7 +173,7 @@ public class ColumnSecurityTest {
     person.createProperty("name", PropertyType.STRING);
     person.createProperty("surname", PropertyType.STRING);
 
-    session.command("create index Person.name_surname on Person (name, surname) NOTUNIQUE");
+    session.execute("create index Person.name_surname on Person (name, surname) NOTUNIQUE");
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -197,7 +197,7 @@ public class ColumnSecurityTest {
     var person = session.createClass("Person");
     person.createProperty("name", PropertyType.STRING);
 
-    session.command("create index Person.name on Person (name) NOTUNIQUE");
+    session.execute("create index Person.name on Person (name) NOTUNIQUE");
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -262,7 +262,7 @@ public class ColumnSecurityTest {
     var clazz = session.createClass("Person");
     clazz.createProperty("name", PropertyType.STRING);
 
-    session.command("create index Person.name on Person (name) NOTUNIQUE");
+    session.execute("create index Person.name on Person (name) NOTUNIQUE");
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -466,7 +466,7 @@ public class ColumnSecurityTest {
 
     this.session = (DatabaseSessionInternal) context.open(DB_NAME, "writer", "writer");
     session.begin();
-    session.command("UPDATE Person SET name = 'foo1' WHERE name = 'foo'");
+    session.execute("UPDATE Person SET name = 'foo1' WHERE name = 'foo'");
     session.commit();
 
     session.begin();
@@ -479,7 +479,7 @@ public class ColumnSecurityTest {
 
     try {
       session.begin();
-      session.command("UPDATE Person SET name = 'bar1' WHERE name = 'bar'");
+      session.execute("UPDATE Person SET name = 'bar1' WHERE name = 'bar'");
       session.commit();
       Assert.fail();
     } catch (SecurityException e) {
@@ -510,7 +510,7 @@ public class ColumnSecurityTest {
     this.session = (DatabaseSessionInternal) context.open(DB_NAME, "writer", "writer");
 
     session.begin();
-    session.command("UPDATE Person SET name = 'foo1' WHERE name = 'foo'");
+    session.execute("UPDATE Person SET name = 'foo1' WHERE name = 'foo'");
 
     try (var rs = session.query("SELECT FROM Person WHERE name = 'foo1'")) {
       Assert.assertTrue(rs.hasNext());
@@ -521,7 +521,7 @@ public class ColumnSecurityTest {
 
     try {
       session.begin();
-      session.command("UPDATE Person SET name = 'invalid'");
+      session.execute("UPDATE Person SET name = 'invalid'");
       session.commit();
       Assert.fail();
     } catch (SecurityException e) {
@@ -531,10 +531,10 @@ public class ColumnSecurityTest {
 
   @Test
   public void testReadHiddenColumn() {
-    session.command("CREATE CLASS Person");
+    session.execute("CREATE CLASS Person");
     session.begin();
-    session.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'bar')");
-    session.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person.name");
+    session.execute("CREATE SECURITY POLICY testPolicy SET read = (name = 'bar')");
+    session.execute("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person.name");
 
     var elem = session.newEntity("Person");
     elem.setProperty("name", "foo");
@@ -554,11 +554,11 @@ public class ColumnSecurityTest {
 
   @Test
   public void testUpdateHiddenColumn() {
-    session.command("CREATE CLASS Person");
+    session.execute("CREATE CLASS Person");
 
     session.begin();
-    session.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'bar')");
-    session.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person.name");
+    session.execute("CREATE SECURITY POLICY testPolicy SET read = (name = 'bar')");
+    session.execute("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person.name");
 
     var elem = session.newEntity("Person");
     elem.setProperty("name", "foo");

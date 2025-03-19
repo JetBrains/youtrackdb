@@ -36,7 +36,7 @@ public class LuceneGraphEmbeddedTest extends LuceneBaseTest {
     type.createProperty("longitude", PropertyType.DOUBLE);
     type.createProperty("name", PropertyType.STRING);
 
-    session.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
+    session.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
   }
 
   @Test
@@ -73,7 +73,7 @@ public class LuceneGraphEmbeddedTest extends LuceneBaseTest {
 
     var v = session.getClass("V");
     v.createProperty("name", PropertyType.STRING);
-    session.command("CREATE INDEX V.name ON V(name) NOTUNIQUE");
+    session.execute("CREATE INDEX V.name ON V(name) NOTUNIQUE");
 
     var oneClass = session.createVertexClass("One");
     var twoClass = session.createVertexClass("Two");

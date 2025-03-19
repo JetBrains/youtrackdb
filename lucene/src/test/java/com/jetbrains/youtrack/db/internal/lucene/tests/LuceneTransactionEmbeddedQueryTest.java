@@ -50,13 +50,13 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
 
     var query = "select from C1 where search_class( \"abc\")=true ";
 
-    try (var vertices = session.command(query)) {
+    try (var vertices = session.execute(query)) {
       assertThat(vertices).hasSize(1);
     }
     session.rollback();
 
     query = "select from C1 where search_class( \"abc\")=true  ";
-    try (var vertices = session.command(query)) {
+    try (var vertices = session.execute(query)) {
       assertThat(vertices).hasSize(0);
     }
   }
@@ -71,14 +71,14 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "C1.p1");
 
     var query = "select from C1 where search_class( \"abc\")=true";
-    try (var vertices = session.command(query)) {
+    try (var vertices = session.execute(query)) {
       assertThat(vertices).hasSize(1);
       Assert.assertEquals(index.size(session), 1);
     }
     session.commit();
 
     session.begin();
-    try (var vertices = session.command(query)) {
+    try (var vertices = session.execute(query)) {
 
       assertThat(vertices).hasSize(1);
       Assert.assertEquals(index.size(session), 1);
@@ -87,7 +87,7 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
     doc = session.bindToSession(doc);
     session.delete(doc);
 
-    try (var vertices = session.command(query)) {
+    try (var vertices = session.execute(query)) {
 
       Collection coll;
       try (var stream = index.getRids(session, "abc")) {
@@ -109,7 +109,7 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
 
     session.rollback();
 
-    try (var vertices = session.command(query)) {
+    try (var vertices = session.execute(query)) {
 
       assertThat(vertices).hasSize(1);
 
@@ -131,14 +131,14 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
     doc.setProperty("p1", new String[]{"update removed", "update fixed"});
 
     var query = "select from C1 where search_class(\"update\")=true ";
-    try (var vertices = session.command(query)) {
+    try (var vertices = session.execute(query)) {
       assertThat(vertices).hasSize(1);
       Assert.assertEquals(index.size(session), 2);
     }
     session.commit();
 
     Collection coll;
-    try (var vertices = session.command(query)) {
+    try (var vertices = session.execute(query)) {
       try (var stream = index.getRids(session, "update")) {
         coll = stream.collect(Collectors.toList());
       }
@@ -153,7 +153,7 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
     Collection p1 = doc.getProperty("p1");
     p1.remove("update removed");
 
-    try (var vertices = session.command(query)) {
+    try (var vertices = session.execute(query)) {
       try (var stream = index.getRids(session, "update")) {
         coll = stream.collect(Collectors.toList());
       }
@@ -163,7 +163,7 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
       Assert.assertEquals(index.size(session), 1);
     }
 
-    try (var vertices = session.command(query)) {
+    try (var vertices = session.execute(query)) {
       try (var stream = index.getRids(session, "update")) {
         coll = stream.collect(Collectors.toList());
       }
@@ -173,7 +173,7 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
 
     session.rollback();
 
-    try (var vertices = session.command(query)) {
+    try (var vertices = session.execute(query)) {
       assertThat(vertices).hasSize(1);
     }
 

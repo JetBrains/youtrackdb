@@ -61,7 +61,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
   @Test
   public void create() {
-    session.executeInTx(() -> session.command("delete from Account").close());
+    session.executeInTx(() -> session.execute("delete from Account").close());
 
     session.executeInTx(() ->
         Assert.assertEquals(session.countClass("Account"), 0)
@@ -69,7 +69,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
     fillInAccountData();
 
-    session.executeInTx(() -> session.command("delete from Profile").close());
+    session.executeInTx(() -> session.execute("delete from Profile").close());
 
     session.executeInTx(() ->
         Assert.assertEquals(session.countClass("Profile"), 0)

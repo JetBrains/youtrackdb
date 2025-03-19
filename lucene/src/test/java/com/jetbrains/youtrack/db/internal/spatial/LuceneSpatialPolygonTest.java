@@ -16,9 +16,7 @@ package com.jetbrains.youtrack.db.internal.spatial;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.io.IOException;
-import java.util.List;
 import java.util.Map;
 import org.junit.Assert;
 import org.junit.Before;
@@ -38,13 +36,13 @@ public class LuceneSpatialPolygonTest extends BaseSpatialLuceneTest {
     oClass.createProperty("location", PropertyType.EMBEDDED, schema.getClass("OPolygon"));
     oClass.createProperty("name", PropertyType.STRING);
 
-    session.command("CREATE INDEX Place.location ON Place(location) SPATIAL ENGINE LUCENE").close();
+    session.execute("CREATE INDEX Place.location ON Place(location) SPATIAL ENGINE LUCENE").close();
   }
 
   @Test
   public void testPolygonWithoutIndex() throws IOException {
     testIndexingPolygon();
-    session.command("drop index Place.location").close();
+    session.execute("drop index Place.location").close();
     queryPolygon();
   }
 

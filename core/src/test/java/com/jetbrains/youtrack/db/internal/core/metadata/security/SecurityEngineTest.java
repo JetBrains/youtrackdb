@@ -224,7 +224,7 @@ public class SecurityEngineTest {
   public void testTwoRoles() {
 
     session.begin();
-    session.command(
+    session.execute(
         "Update OUser set roles = roles || (select from orole where name = 'reader') where name ="
             + " 'admin'");
     session.commit();

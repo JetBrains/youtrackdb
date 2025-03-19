@@ -130,7 +130,7 @@ public class IndexFinderTest {
   public void testFindByKey() {
     var cl = this.session.createClass("cl");
     cl.createProperty("map", PropertyType.EMBEDDEDMAP);
-    this.session.command("create index cl.map on cl(map by key) NOTUNIQUE").close();
+    this.session.execute("create index cl.map on cl(map by key) NOTUNIQUE").close();
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -143,7 +143,7 @@ public class IndexFinderTest {
   public void testFindByValue() {
     var cl = this.session.createClass("cl");
     cl.createProperty("map", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
-    this.session.command("create index cl.map on cl(map by value) NOTUNIQUE").close();
+    this.session.execute("create index cl.map on cl(map by value) NOTUNIQUE").close();
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -190,7 +190,7 @@ public class IndexFinderTest {
   public void testFindChainByKeyIndex() {
     var cl = this.session.createClass("cl");
     cl.createProperty("map", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
-    this.session.command("create index cl.map on cl(map by key) NOTUNIQUE").close();
+    this.session.execute("create index cl.map on cl(map by key) NOTUNIQUE").close();
     var prop1 = cl.createProperty("friend", PropertyType.LINK, cl);
     prop1.createIndex(INDEX_TYPE.NOTUNIQUE);
 
@@ -207,7 +207,7 @@ public class IndexFinderTest {
   public void testFindChainByValueIndex() {
     var cl = this.session.createClass("cl");
     cl.createProperty("map", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
-    this.session.command("create index cl.map on cl(map by value) NOTUNIQUE").close();
+    this.session.execute("create index cl.map on cl(map by value) NOTUNIQUE").close();
     var prop1 = cl.createProperty("friend", PropertyType.LINK, cl);
     prop1.createIndex(INDEX_TYPE.NOTUNIQUE);
 

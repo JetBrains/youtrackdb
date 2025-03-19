@@ -53,7 +53,7 @@ public class LuceneRangeTest extends BaseLuceneTest {
 
   @Test
   public void shouldUseRangeQueryOnSingleIntegerField() {
-    session.command("create index Person.age on Person(age) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index Person.age on Person(age) FULLTEXT ENGINE LUCENE").close();
 
     session.begin();
     assertThat(
@@ -66,19 +66,19 @@ public class LuceneRangeTest extends BaseLuceneTest {
     session.commit();
 
     // range
-    var results = session.command("SELECT FROM Person WHERE age LUCENE 'age:[5 TO 6]'");
+    var results = session.execute("SELECT FROM Person WHERE age LUCENE 'age:[5 TO 6]'");
 
     assertThat(results).hasSize(2);
 
     // single value
-    results = session.command("SELECT FROM Person WHERE age LUCENE 'age:5'");
+    results = session.execute("SELECT FROM Person WHERE age LUCENE 'age:5'");
 
     assertThat(results).hasSize(1);
   }
 
   @Test
   public void shouldUseRangeQueryOnSingleDateField() {
-    session.command("create index Person.date on Person(date) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index Person.date on Person(date) FULLTEXT ENGINE LUCENE").close();
 
     session.begin();
     assertThat(
@@ -97,7 +97,7 @@ public class LuceneRangeTest extends BaseLuceneTest {
 
     // range
     var results =
-        session.command(
+        session.execute(
             "SELECT FROM Person WHERE date LUCENE 'date:[" + fiveDaysAgo + " TO " + today + "]'");
 
     assertThat(results).hasSize(5);
@@ -106,7 +106,7 @@ public class LuceneRangeTest extends BaseLuceneTest {
   @Test
   @Ignore
   public void shouldUseRangeQueryMultipleField() {
-    session.command(
+    session.execute(
             "create index Person.composite on Person(name,surname,date,age) FULLTEXT ENGINE LUCENE")
         .close();
 
@@ -158,7 +158,7 @@ public class LuceneRangeTest extends BaseLuceneTest {
 
   @Test
   public void shouldUseRangeQueryMultipleFieldWithDirectIndexAccess() {
-    session.command(
+    session.execute(
             "create index Person.composite on Person(name,surname,date,age) FULLTEXT ENGINE LUCENE")
         .close();
 
@@ -201,7 +201,7 @@ public class LuceneRangeTest extends BaseLuceneTest {
 
   @Test
   public void shouldFetchOnlyFromACluster() {
-    session.command("create index Person.name on Person(name) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index Person.name on Person(name) FULLTEXT ENGINE LUCENE").close();
 
     session.begin();
     assertThat(
@@ -216,7 +216,7 @@ public class LuceneRangeTest extends BaseLuceneTest {
     var cluster = session.getMetadata().getSchema().getClass("Person").getClusterIds()[1];
 
     var results =
-        session.command("SELECT FROM Person WHERE name LUCENE '+_CLUSTER:" + cluster + "'");
+        session.execute("SELECT FROM Person WHERE name LUCENE '+_CLUSTER:" + cluster + "'");
 
     assertThat(results).hasSize(2);
   }

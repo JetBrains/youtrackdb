@@ -30,7 +30,7 @@ public class SQLDeleteTest extends BaseDBTest {
   @Test
   public void deleteWithWhereOperator() {
     session.begin();
-    session.command("insert into Profile (sex, salary) values ('female', 2100)").close();
+    session.execute("insert into Profile (sex, salary) values ('female', 2100)").close();
     session.commit();
 
     final Long total = session.countClass("Profile");
@@ -41,7 +41,7 @@ public class SQLDeleteTest extends BaseDBTest {
 
     session.begin();
     var result =
-        session.command("delete from Profile where sex = 'female' and salary = 2100");
+        session.execute("delete from Profile where sex = 'female' and salary = 2100");
     session.commit();
     long count = result.next().getProperty("count");
 
@@ -63,7 +63,7 @@ public class SQLDeleteTest extends BaseDBTest {
 
     db.begin();
     var records =
-        db.command("delete from Profile where sex = 'male' and salary > 120 and salary <= 133");
+        db.execute("delete from Profile where sex = 'male' and salary > 120 and salary <= 133");
     db.commit();
 
     long count = records.next().getProperty("count");

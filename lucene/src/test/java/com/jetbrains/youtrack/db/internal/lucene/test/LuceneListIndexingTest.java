@@ -49,14 +49,14 @@ public class LuceneListIndexingTest extends BaseLuceneTest {
     person.createProperty("name", PropertyType.STRING);
     person.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
     //noinspection deprecation
-    session.command("create index Person.name_tags on Person (name,tags) FULLTEXT ENGINE LUCENE")
+    session.execute("create index Person.name_tags on Person (name,tags) FULLTEXT ENGINE LUCENE")
         .close();
 
     var city = schema.createClass("City");
     city.createProperty("name", PropertyType.STRING);
     city.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
     //noinspection deprecation
-    session.command("create index City.tags on City (tags) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index City.tags on City (tags) FULLTEXT ENGINE LUCENE").close();
   }
 
   @Test

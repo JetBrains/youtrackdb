@@ -32,11 +32,11 @@ public class SQLDBSequenceTest extends BaseDBTest {
 
   private void testSequence(String sequenceName, DBSequence.SEQUENCE_TYPE sequenceType) {
 
-    session.command("CREATE SEQUENCE " + sequenceName + " TYPE " + sequenceType).close();
+    session.execute("CREATE SEQUENCE " + sequenceName + " TYPE " + sequenceType).close();
 
     CommandExecutionException err = null;
     try {
-      session.command("CREATE SEQUENCE " + sequenceName + " TYPE " + sequenceType).close();
+      session.execute("CREATE SEQUENCE " + sequenceName + " TYPE " + sequenceType).close();
     } catch (CommandExecutionException se) {
       err = se;
     }
@@ -73,7 +73,7 @@ public class SQLDBSequenceTest extends BaseDBTest {
 
   private long sequenceSql(String sequenceName, String cmd) {
     try (var ret =
-        session.command("SELECT sequence('" + sequenceName + "')." + cmd + " as value")) {
+        session.execute("SELECT sequence('" + sequenceName + "')." + cmd + " as value")) {
       return ret.next().getProperty("value");
     }
   }

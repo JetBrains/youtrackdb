@@ -17,7 +17,7 @@ public class TestTypeGuessingWorkingWithSQLAndMultiValues extends DbTestBase {
   public void beforeTest() throws Exception {
     super.beforeTest();
 
-    session.execute(
+    session.runScript(
             "sql",
             """
                 create class Address abstract;
@@ -34,7 +34,7 @@ public class TestTypeGuessingWorkingWithSQLAndMultiValues extends DbTestBase {
   public void testLinkedValue() {
     session.begin();
     try (var result =
-        session.execute(
+        session.runScript(
             "sql",
             "let res = insert into client set name = 'James Bond', phones = ['1234',"
                 + " '34567'], addresses = [{'@class':'Address','city':'Shanghai', 'zip':'3999'},"
@@ -55,7 +55,7 @@ public class TestTypeGuessingWorkingWithSQLAndMultiValues extends DbTestBase {
 
     session.begin();
     try (var resultSet =
-        session.command(
+        session.execute(
             "update client set addresses = addresses || [{'city':'London', 'zip':'67373'}] return"
                 + " after")) {
       Assert.assertTrue(resultSet.hasNext());

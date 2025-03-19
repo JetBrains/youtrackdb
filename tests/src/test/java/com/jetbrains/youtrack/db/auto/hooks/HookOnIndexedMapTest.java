@@ -1,9 +1,7 @@
 package com.jetbrains.youtrack.db.auto.hooks;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import org.junit.Assert;
 import org.junit.Test;
@@ -20,43 +18,43 @@ public class HookOnIndexedMapTest {
     var db = youTrackDb.open("test", "admin", "admin");
     db.registerHook(new BrokenMapHook());
 
-    db.command("CREATE CLASS AbsVertex IF NOT EXISTS EXTENDS V ABSTRACT;");
-    db.command("CREATE PROPERTY AbsVertex.uId IF NOT EXISTS string;");
-    db.command("CREATE PROPERTY AbsVertex.myMap IF NOT EXISTS EMBEDDEDMAP;");
+    db.execute("CREATE CLASS AbsVertex IF NOT EXISTS EXTENDS V ABSTRACT;");
+    db.execute("CREATE PROPERTY AbsVertex.uId IF NOT EXISTS string;");
+    db.execute("CREATE PROPERTY AbsVertex.myMap IF NOT EXISTS EMBEDDEDMAP;");
 
-    db.command("CREATE CLASS MyClass IF NOT EXISTS EXTENDS AbsVertex;");
-    db.command("CREATE INDEX MyClass.uId IF NOT EXISTS ON MyClass(uId) UNIQUE;");
-    db.command("CREATE INDEX MyClass.myMap IF NOT EXISTS ON MyClass(myMap by key) NOTUNIQUE;");
+    db.execute("CREATE CLASS MyClass IF NOT EXISTS EXTENDS AbsVertex;");
+    db.execute("CREATE INDEX MyClass.uId IF NOT EXISTS ON MyClass(uId) UNIQUE;");
+    db.execute("CREATE INDEX MyClass.myMap IF NOT EXISTS ON MyClass(myMap by key) NOTUNIQUE;");
 
-    db.command("INSERT INTO MyClass SET uId = \"test1\", myMap={\"F1\": \"V1\"}");
+    db.execute("INSERT INTO MyClass SET uId = \"test1\", myMap={\"F1\": \"V1\"}");
 
-    try (var rs = db.command("SELECT * FROM INDEX:MyClass.myMap ORDER BY rid")) {
+    try (var rs = db.execute("SELECT * FROM INDEX:MyClass.myMap ORDER BY rid")) {
       //      System.out.println("----------");
       //      System.out.println("SELECT * FROM INDEX:MyClass.myMap ORDER BY rid");
       //      rs.forEachRemaining(x-> System.out.println(x));
     }
 
-    try (var rs = db.command("SELECT FROM V")) {
+    try (var rs = db.execute("SELECT FROM V")) {
       //      System.out.println("----------");
       //      System.out.println("SELECT FROM V");
       //      rs.forEachRemaining(x-> System.out.println(x));
     }
 
-    db.command("UPDATE MyClass SET myMap = {\"F11\": \"V11\"} WHERE uId = \"test1\"");
+    db.execute("UPDATE MyClass SET myMap = {\"F11\": \"V11\"} WHERE uId = \"test1\"");
 
-    try (var rs = db.command("SELECT FROM V")) {
+    try (var rs = db.execute("SELECT FROM V")) {
       //      System.out.println("----------");
       //      System.out.println("SELECT FROM V");
       //      rs.forEachRemaining(x-> System.out.println(x));
     }
 
-    try (var rs = db.command("SELECT * FROM INDEX:MyClass.myMap ORDER BY rid")) {
+    try (var rs = db.execute("SELECT * FROM INDEX:MyClass.myMap ORDER BY rid")) {
       //      System.out.println("----------");
       //      System.out.println("SELECT * FROM INDEX:MyClass.myMap ORDER BY rid");
       //      rs.forEachRemaining(x-> System.out.println(x));
     }
 
-    try (var rs = db.command("SELECT COUNT(*) FROM MyClass WHERE myMap.F1 IS NOT NULL")) {
+    try (var rs = db.execute("SELECT COUNT(*) FROM MyClass WHERE myMap.F1 IS NOT NULL")) {
       //      System.out.println("----------");
       //      System.out.println("SELECT COUNT(*) FROM MyClass WHERE myMap.F1 IS NOT NULL");
       //      rs.forEachRemaining(x-> System.out.println(x));
@@ -68,9 +66,9 @@ public class HookOnIndexedMapTest {
       //      rs.forEachRemaining(x-> System.out.println(x));
     }
 
-    db.command("DELETE VERTEX FROM V");
+    db.execute("DELETE VERTEX FROM V");
 
-    try (var rs = db.command("SELECT * FROM INDEX:MyClass.myMap ORDER BY rid")) {
+    try (var rs = db.execute("SELECT * FROM INDEX:MyClass.myMap ORDER BY rid")) {
       //      System.out.println("----------");
       //      System.out.println("SELECT * FROM INDEX:MyClass.myMap ORDER BY rid");
       if (rs.hasNext()) {

@@ -2664,7 +2664,7 @@ public class CRUDTest extends BaseDBTest {
   @Test
   public void queryByIdNewApi() {
     session.begin();
-    session.command("insert into Profile set nick = 'foo', name='foo'").close();
+    session.execute("insert into Profile set nick = 'foo', name='foo'").close();
     session.commit();
 
     session.begin();

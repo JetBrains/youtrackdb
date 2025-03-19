@@ -53,7 +53,7 @@ public class CollectionIndexTest extends BaseDBTest {
   @AfterMethod
   public void afterMethod() throws Exception {
     session.begin();
-    session.command("delete from Collector").close();
+    session.execute("delete from Collector").close();
     session.commit();
 
     super.afterMethod();
@@ -215,7 +215,7 @@ public class CollectionIndexTest extends BaseDBTest {
 
     session.begin();
     session
-        .command(
+        .execute(
             "UPDATE "
                 + collector.getIdentity()
                 + " set stringCollection = stringCollection || 'cookies'")
@@ -380,7 +380,7 @@ public class CollectionIndexTest extends BaseDBTest {
 
     session.begin();
     session
-        .command("UPDATE " + collector.getIdentity() + " remove stringCollection = 'spam'")
+        .execute("UPDATE " + collector.getIdentity() + " remove stringCollection = 'spam'")
         .close();
     session.commit();
 

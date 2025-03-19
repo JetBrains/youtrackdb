@@ -17,7 +17,6 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.text.ParseException;
@@ -123,13 +122,13 @@ public class LuceneSpatialMultiPolygonTest extends BaseSpatialLuceneTest {
         schema.getClass("OMultiPolygon"));
     oClass.createProperty("name", PropertyType.STRING);
 
-    session.command("CREATE INDEX Place.location ON Place(location) SPATIAL ENGINE LUCENE").close();
+    session.execute("CREATE INDEX Place.location ON Place(location) SPATIAL ENGINE LUCENE").close();
   }
 
   @Test
   public void testMultiPolygonWithoutIndex() throws IOException {
     testIndexingMultiPolygon();
-    session.command("DROP INDEX Place.location").close();
+    session.execute("DROP INDEX Place.location").close();
     queryMultiPolygon();
   }
 
@@ -233,13 +232,13 @@ public class LuceneSpatialMultiPolygonTest extends BaseSpatialLuceneTest {
     IOUtils.copyStream(systemResourceAsStream, outputStream);
 
     session.begin();
-    session.command(
+    session.execute(
             "insert into Place set name = 'TestInsert' , location = ST_GeomFromText('"
                 + outputStream
                 + "')")
         .close();
 
-    session.command(
+    session.execute(
             "insert into Place set name = 'Test1' , location = ST_GeomFromText('" + MULTIWKT + "')")
         .close();
     session.commit();

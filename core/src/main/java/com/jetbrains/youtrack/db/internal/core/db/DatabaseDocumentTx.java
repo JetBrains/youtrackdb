@@ -1357,16 +1357,16 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public ResultSet command(String query, Object... args)
+  public ResultSet execute(String query, Object... args)
       throws CommandSQLParsingException, CommandExecutionException {
     checkOpenness();
-    return internal.command(query, args);
+    return internal.execute(query, args);
   }
 
-  public ResultSet command(String query, Map args)
+  public ResultSet execute(String query, Map args)
       throws CommandSQLParsingException, CommandExecutionException {
     checkOpenness();
-    return internal.command(query, args);
+    return internal.execute(query, args);
   }
 
   @Override
@@ -1391,17 +1391,17 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public ResultSet execute(String language, String script, Object... args)
+  public ResultSet runScript(String language, String script, Object... args)
       throws CommandExecutionException, CommandScriptException {
     checkOpenness();
-    return internal.execute(language, script, args);
+    return internal.runScript(language, script, args);
   }
 
   @Override
-  public ResultSet execute(String language, String script, Map<String, ?> args)
+  public ResultSet runScript(String language, String script, Map<String, ?> args)
       throws CommandExecutionException, CommandScriptException {
     checkOpenness();
-    return internal.execute(language, script, args);
+    return internal.runScript(language, script, args);
   }
 
   @Override

@@ -110,13 +110,13 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
 
     db = (DatabaseSessionInternal) youTrackDB.open(DBNAME, "admin", "admin");
 
-    db.command("create class City ").close();
-    db.command("create property City.name string").close();
-    db.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE").close();
+    db.execute("create class City ").close();
+    db.execute("create property City.name string").close();
+    db.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE").close();
 
-    db.command("create property City.location EMBEDDED OPOINT").close();
+    db.execute("create property City.location EMBEDDED OPOINT").close();
 
-    db.command("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
+    db.execute("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
 
     var rome = newCity("Rome", 12.5, 41.9);
 

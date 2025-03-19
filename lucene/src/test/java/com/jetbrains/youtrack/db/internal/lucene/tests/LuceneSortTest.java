@@ -12,15 +12,15 @@ public class LuceneSortTest extends LuceneBaseTest {
   public void setUp() throws Exception {
     var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
 
-    session.execute("sql", getScriptFromStream(stream));
+    session.runScript("sql", getScriptFromStream(stream));
 
-    session.command("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE ");
+    session.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE ");
   }
 
   @Test
   public void shouldSortByReverseDocScore() throws Exception {
 
-    session.command("create index Author.ft on Author (name,score) FULLTEXT ENGINE LUCENE ");
+    session.execute("create index Author.ft on Author (name,score) FULLTEXT ENGINE LUCENE ");
 
     var resultSet =
         session.query(
@@ -38,7 +38,7 @@ public class LuceneSortTest extends LuceneBaseTest {
   @Test
   public void shouldSortByReverseScoreFieldValue() throws Exception {
 
-    session.command("create index Author.ft on Author (score) FULLTEXT ENGINE LUCENE ");
+    session.execute("create index Author.ft on Author (score) FULLTEXT ENGINE LUCENE ");
 
     var resultSet =
         session.query(
@@ -56,7 +56,7 @@ public class LuceneSortTest extends LuceneBaseTest {
   @Test
   public void shouldSortByReverseNameValue() throws Exception {
 
-    session.command("create index Author.ft on Author (name) FULLTEXT ENGINE LUCENE ");
+    session.execute("create index Author.ft on Author (name) FULLTEXT ENGINE LUCENE ");
 
     var resultSet =
         session.query(
@@ -76,7 +76,7 @@ public class LuceneSortTest extends LuceneBaseTest {
   @Test
   public void shouldSortByReverseNameValueWithTxRollback() throws Exception {
 
-    session.command("create index Author.ft on Author (name) FULLTEXT ENGINE LUCENE ");
+    session.execute("create index Author.ft on Author (name) FULLTEXT ENGINE LUCENE ");
 
     session.begin();
 
@@ -122,7 +122,7 @@ public class LuceneSortTest extends LuceneBaseTest {
   @Test
   public void shouldSortByReverseScoreFieldValueAndThenReverseName() throws Exception {
 
-    session.command("create index Author.ft on Author (name,score) FULLTEXT ENGINE LUCENE ");
+    session.execute("create index Author.ft on Author (name,score) FULLTEXT ENGINE LUCENE ");
 
     var resultSet =
         session.query(

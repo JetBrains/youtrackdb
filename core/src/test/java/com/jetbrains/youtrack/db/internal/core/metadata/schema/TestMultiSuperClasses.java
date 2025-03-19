@@ -68,7 +68,7 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
     var aClass = oSchema.createAbstractClass("sqlA");
     var bClass = oSchema.createAbstractClass("sqlB");
     var cClass = oSchema.createClass("sqlC");
-    session.command("alter class sqlC superclasses sqlA, sqlB").close();
+    session.execute("alter class sqlC superclasses sqlA, sqlB").close();
     assertTrue(cClass.isSubClassOf(aClass));
     assertTrue(cClass.isSubClassOf(bClass));
   }
@@ -77,9 +77,9 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
   public void testCreationBySql() {
     final Schema oSchema = session.getMetadata().getSchema();
 
-    session.command("create class sql2A abstract").close();
-    session.command("create class sql2B abstract").close();
-    session.command("create class sql2C extends sql2A, sql2B abstract").close();
+    session.execute("create class sql2A abstract").close();
+    session.execute("create class sql2B abstract").close();
+    session.execute("create class sql2C extends sql2A, sql2B abstract").close();
 
     var aClass = oSchema.getClass("sql2A");
     var bClass = oSchema.getClass("sql2B");

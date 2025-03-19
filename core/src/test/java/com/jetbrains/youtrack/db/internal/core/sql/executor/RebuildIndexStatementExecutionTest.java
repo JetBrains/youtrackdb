@@ -43,7 +43,7 @@ public class RebuildIndexStatementExecutionTest extends DbTestBase {
 
     session.begin();
     // when
-    var result = session.command("rebuild index " + className + "index1");
+    var result = session.execute("rebuild index " + className + "index1");
     Assert.assertTrue(result.hasNext());
     var resultRecord = result.next();
     Assert.assertEquals(2L, resultRecord.<Object>getProperty("totalIndexed"));

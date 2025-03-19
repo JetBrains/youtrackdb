@@ -62,7 +62,7 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
       db.commit();
     }
 
-    var res = db.command("select from Some");
+    var res = db.execute("select from Some");
     for (var i = 0; i < 150; i++) {
       assertTrue(res.hasNext());
       var item = res.next();
@@ -80,7 +80,7 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
     }
 
     db.begin();
-    var res = db.command("insert into V from select from Some");
+    var res = db.execute("insert into V from select from Some");
     for (var i = 0; i < 150; i++) {
       assertTrue(res.hasNext());
       var item = res.next();
@@ -216,11 +216,11 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
 
     db.begin();
 
-    db.command("insert into Some set prop = 'value'");
+    db.execute("insert into Some set prop = 'value'");
 
     DBRecord record;
 
-    try (var resultSet = db.command("insert into Some set prop = 'value'")) {
+    try (var resultSet = db.execute("insert into Some set prop = 'value'")) {
       record = resultSet.next().asRecord();
     }
 
@@ -242,14 +242,14 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
 
   @Test
   public void testScriptWithRidbags() {
-    db.command("create class testScriptWithRidbagsV extends V");
-    db.command("create class testScriptWithRidbagsE extends E");
+    db.execute("create class testScriptWithRidbagsV extends V");
+    db.execute("create class testScriptWithRidbagsE extends E");
 
     db.begin();
-    db.command("create vertex testScriptWithRidbagsV set name = 'a'");
-    db.command("create vertex testScriptWithRidbagsV set name = 'b'");
+    db.execute("create vertex testScriptWithRidbagsV set name = 'a'");
+    db.execute("create vertex testScriptWithRidbagsV set name = 'b'");
 
-    db.command(
+    db.execute(
         "create edge testScriptWithRidbagsE from (select from testScriptWithRidbagsV where name ="
             + " 'a') TO (select from testScriptWithRidbagsV where name = 'b');");
     db.commit();
@@ -261,7 +261,7 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
     script += "COMMIT ;";
     script += "RETURN [$q1,$q2]";
 
-    var rs = db.execute("sql", script);
+    var rs = db.runScript("sql", script);
 
     rs.forEachRemaining(System.out::println);
     rs.close();
@@ -269,13 +269,13 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
 
   @Test
   public void testLetOut() {
-    db.command("create class letVertex extends V");
-    db.command("create class letEdge extends E");
+    db.execute("create class letVertex extends V");
+    db.execute("create class letEdge extends E");
 
     db.begin();
-    db.command("create vertex letVertex set name = 'a'");
-    db.command("create vertex letVertex set name = 'b'");
-    db.command(
+    db.execute("create vertex letVertex set name = 'a'");
+    db.execute("create vertex letVertex set name = 'b'");
+    db.execute(
         "create edge letEdge from (select from letVertex where name = 'a') TO (select from"
             + " letVertex where name = 'b');");
     db.commit();

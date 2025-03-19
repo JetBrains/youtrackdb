@@ -65,7 +65,7 @@ public class IndexConcurrentCommitTest extends BaseDBTest {
       session.rollback();
     }
 
-    final var result2 = session.command("select from Person");
+    final var result2 = session.execute("select from Person");
     System.out.println("After transaction 2");
     while (result2.hasNext()) {
       System.out.println(result2.next());

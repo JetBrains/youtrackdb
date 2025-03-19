@@ -53,7 +53,7 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
   public void queryProjectionOk() {
     var result =
         session
-            .command(
+            .execute(
                 "select nick, followings, followers from Profile where nick is defined and"
                     + " followings is defined and followers is defined")
             .toList();
@@ -324,8 +324,8 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
       Assert.assertNull(res.getFirst().<EntityImpl>getProperty("child").getProperty("d"));
       Assert.assertNotNull(res.getFirst().<EntityImpl>getProperty("child").getProperty("e"));
     } finally {
-      session.command("drop class A").close();
-      session.command("drop class B").close();
+      session.execute("drop class A").close();
+      session.execute("drop class B").close();
     }
   }
 
@@ -365,8 +365,8 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
       Assert.assertNotNull(root.<EntityImpl>getProperty("link").getProperty("e"));
 
     } finally {
-      session.command("drop class A").close();
-      session.command("drop class B").close();
+      session.execute("drop class A").close();
+      session.execute("drop class B").close();
     }
   }
 

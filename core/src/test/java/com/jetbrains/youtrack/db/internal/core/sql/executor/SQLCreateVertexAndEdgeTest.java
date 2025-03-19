@@ -30,27 +30,27 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
 
   @Test
   public void testCreateEdgeDefaultClass() {
-    session.command("create class V1 extends V").close();
+    session.execute("create class V1 extends V").close();
 
-    session.command("create class E1 extends E").close();
+    session.execute("create class E1 extends E").close();
 
     // VERTEXES
     session.begin();
-    var v1 = session.command("create vertex").next().asVertex();
+    var v1 = session.execute("create vertex").next().asVertex();
     session.commit();
 
     session.begin();
     v1 = session.bindToSession(v1);
     Assert.assertEquals("V", v1.getSchemaClassName());
 
-    var v2 = session.command("create vertex V1").next().asVertex();
+    var v2 = session.execute("create vertex V1").next().asVertex();
     session.commit();
 
     session.begin();
     v2 = session.bindToSession(v2);
     Assert.assertEquals("V1", v2.getSchemaClassName());
 
-    var v3 = session.command("create vertex set brand = 'fiat'").next().asVertex();
+    var v3 = session.execute("create vertex set brand = 'fiat'").next().asVertex();
     session.commit();
     session.begin();
     v3 = session.bindToSession(v3);
@@ -58,7 +58,7 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
     Assert.assertEquals("fiat", v3.getProperty("brand"));
 
     var v4 =
-        session.command("create vertex V1 set brand = 'fiat',name = 'wow'").next().asVertex();
+        session.execute("create vertex V1 set brand = 'fiat',name = 'wow'").next().asVertex();
     session.commit();
 
     session.begin();
@@ -67,7 +67,7 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
     Assert.assertEquals("fiat", v4.getProperty("brand"));
     Assert.assertEquals("wow", v4.getProperty("name"));
 
-    var v5 = session.command("create vertex V1").next().asVertex();
+    var v5 = session.execute("create vertex V1").next().asVertex();
     session.commit();
 
     session.begin();
@@ -77,18 +77,18 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
     // EDGES
 
     var edges =
-        session.command("create edge from " + v1.getIdentity() + " to " + v2.getIdentity());
+        session.execute("create edge from " + v1.getIdentity() + " to " + v2.getIdentity());
     session.commit();
     assertEquals(1, edges.stream().count());
 
     session.begin();
-    edges = session.command("create edge E1 from " + v1.getIdentity() + " to " + v3.getIdentity());
+    edges = session.execute("create edge E1 from " + v1.getIdentity() + " to " + v3.getIdentity());
     session.commit();
     assertEquals(1, edges.stream().count());
 
     session.begin();
     edges =
-        session.command(
+        session.execute(
             "create edge from " + v1.getIdentity() + " to " + v4.getIdentity() + " set weight = 3");
     session.commit();
 
@@ -100,7 +100,7 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
     Assert.assertEquals(3, e3.<Object>getProperty("weight"));
 
     edges =
-        session.command(
+        session.execute(
             "create edge E1 from "
                 + v2.getIdentity()
                 + " to "
@@ -115,7 +115,7 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
     Assert.assertEquals(10, e4.<Object>getProperty("weight"));
 
     edges =
-        session.command(
+        session.execute(
             "create edge e1 from "
                 + v3.getIdentity()
                 + " to "
@@ -142,7 +142,7 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
     var result = session.query("select from V");
     var before = result.stream().count();
 
-    session.execute("sql", cmd).close();
+    session.runScript("sql", cmd).close();
 
     session.begin();
     result = session.query("select from V");
@@ -153,7 +153,7 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
   @Test
   public void testNewParser() {
     session.begin();
-    var v1 = session.command("create vertex").next().asVertex();
+    var v1 = session.execute("create vertex").next().asVertex();
     session.commit();
 
     session.begin();
@@ -162,29 +162,29 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
 
     var vid = v1.getIdentity();
 
-    session.command("create edge from " + vid + " to " + vid).close();
+    session.execute("create edge from " + vid + " to " + vid).close();
 
-    session.command("create edge E from " + vid + " to " + vid).close();
+    session.execute("create edge E from " + vid + " to " + vid).close();
 
-    session.command("create edge from " + vid + " to " + vid + " set foo = 'bar'").close();
+    session.execute("create edge from " + vid + " to " + vid + " set foo = 'bar'").close();
 
-    session.command("create edge E from " + vid + " to " + vid + " set bar = 'foo'").close();
+    session.execute("create edge E from " + vid + " to " + vid + " set bar = 'foo'").close();
     session.commit();
   }
 
   @Test
   public void testCannotAlterEClassname() {
-    session.command("create class ETest extends E").close();
+    session.execute("create class ETest extends E").close();
 
     try {
-      session.command("alter class ETest name ETest2").close();
+      session.execute("alter class ETest name ETest2").close();
       Assert.fail();
     } catch (CommandExecutionException e) {
       Assert.assertTrue(true);
     }
 
     try {
-      session.command("alter class ETest name ETest2 unsafe").close();
+      session.execute("alter class ETest name ETest2 unsafe").close();
       Assert.assertTrue(true);
     } catch (CommandExecutionException e) {
       Assert.fail();
@@ -194,9 +194,9 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
   @Test
   public void testSqlScriptThatDeletesEdge() {
     session.begin();
-    session.command("create vertex V set name = 'testSqlScriptThatDeletesEdge1'").close();
-    session.command("create vertex V set name = 'testSqlScriptThatDeletesEdge2'").close();
-    session.command(
+    session.execute("create vertex V set name = 'testSqlScriptThatDeletesEdge1'").close();
+    session.execute("create vertex V set name = 'testSqlScriptThatDeletesEdge2'").close();
+    session.execute(
             "create edge E from (select from V where name = 'testSqlScriptThatDeletesEdge1') to"
                 + " (select from V where name = 'testSqlScriptThatDeletesEdge2') set name ="
                 + " 'testSqlScriptThatDeletesEdge'")
@@ -209,7 +209,7 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
     cmd += "COMMIT;\n";
     cmd += "RETURN $groupVertices;\n";
 
-    session.execute("sql", cmd);
+    session.runScript("sql", cmd);
 
     session.begin();
     var edges = session.query("select from E where name = 'testSqlScriptThatDeletesEdge'");

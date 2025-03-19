@@ -354,7 +354,7 @@ public class RestrictedTest extends BaseDBTest {
   public void testTruncateClass() {
     session = createSessionInstance();
     try {
-      session.command("truncate class CMSDocument").close();
+      session.execute("truncate class CMSDocument").close();
       Assert.fail();
     } catch (SecurityException e) {
       Assert.assertTrue(true);
@@ -365,7 +365,7 @@ public class RestrictedTest extends BaseDBTest {
   public void testTruncateUnderlyingCluster() {
     session = createSessionInstance();
     try {
-      session.command("truncate cluster CMSDocument").close();
+      session.execute("truncate cluster CMSDocument").close();
     } catch (SecurityException e) {
 
     }
@@ -401,7 +401,7 @@ public class RestrictedTest extends BaseDBTest {
     session = createSessionInstance();
     session.begin();
     session
-        .command("update TestUpdateRestricted content {\"data\":\"My Test\"}").close();
+        .execute("update TestUpdateRestricted content {\"data\":\"My Test\"}").close();
     session.commit();
 
     session.begin();

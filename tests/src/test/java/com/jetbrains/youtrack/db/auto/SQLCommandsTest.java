@@ -46,7 +46,7 @@ public class SQLCommandsTest extends BaseDBTest {
       schema.createClass("account");
     }
 
-    session.command("create property account.timesheet string").close();
+    session.execute("create property account.timesheet string").close();
 
     Assert.assertEquals(
         session.getMetadata().getSchema().getClass("account").getProperty("timesheet")
@@ -56,7 +56,7 @@ public class SQLCommandsTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "createProperty")
   public void createLinkedClassProperty() {
-    session.command("create property account.knows embeddedmap account").close();
+    session.execute("create property account.knows embeddedmap account").close();
 
     Assert.assertEquals(
         session.getMetadata().getSchema().getClass("account").getProperty("knows")
@@ -74,7 +74,7 @@ public class SQLCommandsTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "createLinkedClassProperty")
   public void createLinkedTypeProperty() {
-    session.command("create property account.tags embeddedlist string").close();
+    session.execute("create property account.tags embeddedlist string").close();
 
     Assert.assertEquals(
         session.getMetadata().getSchema().getClass("account").getProperty("tags")
@@ -88,8 +88,8 @@ public class SQLCommandsTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "createLinkedTypeProperty")
   public void removeProperty() {
-    session.command("drop property account.timesheet").close();
-    session.command("drop property account.tags").close();
+    session.execute("drop property account.timesheet").close();
+    session.execute("drop property account.tags").close();
 
     Assert.assertFalse(
         session.getMetadata().getSchema().getClass("account").existsProperty("timesheet"));
@@ -125,12 +125,12 @@ public class SQLCommandsTest extends BaseDBTest {
     var names = session.getClusterNames();
     Assert.assertFalse(names.contains("testClusterRename".toLowerCase(Locale.ENGLISH)));
 
-    session.command("create cluster testClusterRename").close();
+    session.execute("create cluster testClusterRename").close();
 
     names = session.getClusterNames();
     Assert.assertTrue(names.contains("testClusterRename".toLowerCase(Locale.ENGLISH)));
 
-    session.command("alter cluster testClusterRename name testClusterRename42").close();
+    session.execute("alter cluster testClusterRename name testClusterRename42").close();
     names = session.getClusterNames();
 
     Assert.assertTrue(names.contains("testClusterRename42".toLowerCase(Locale.ENGLISH)));

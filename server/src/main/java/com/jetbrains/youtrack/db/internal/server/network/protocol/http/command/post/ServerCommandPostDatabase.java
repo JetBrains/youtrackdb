@@ -97,7 +97,7 @@ public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerA
           if (createAdmin) {
             try {
               session.begin();
-              session.command("CREATE USER admin IDENTIFIED BY ? ROLE admin", adminPwd);
+              session.execute("CREATE USER admin IDENTIFIED BY ? ROLE admin", adminPwd);
               session.commit();
             } catch (Exception e) {
               LogManager.instance()

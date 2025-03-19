@@ -94,13 +94,13 @@ public class LiveQuery30Test extends BaseDBTest implements CommandOutputListener
     var monitor = session.live("live select from " + className1, listener);
     Assert.assertNotNull(monitor);
 
-    session.command("insert into " + className1 + " set name = 'foo', surname = 'bar'");
-    session.command("insert into  " + className1 + " set name = 'foo', surname = 'baz'");
-    session.command("insert into " + className2 + " set name = 'foo'");
+    session.execute("insert into " + className1 + " set name = 'foo', surname = 'bar'");
+    session.execute("insert into  " + className1 + " set name = 'foo', surname = 'baz'");
+    session.execute("insert into " + className2 + " set name = 'foo'");
     latch.await(1, TimeUnit.MINUTES);
 
     monitor.unSubscribe();
-    session.command("insert into " + className1 + " set name = 'foo', surname = 'bax'");
+    session.execute("insert into " + className1 + " set name = 'foo', surname = 'bax'");
     Assert.assertEquals(listener.ops.size(), 2);
     for (Pair doc : listener.ops) {
       Assert.assertEquals(doc.getKey(), "create");

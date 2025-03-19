@@ -15,7 +15,7 @@ public class BeginStatementExecutionTest extends DbTestBase {
   public void testBegin() {
     Assert.assertTrue(
         session.getTransactionInternal() == null || !session.getTransactionInternal().isActive());
-    var result = session.command("begin");
+    var result = session.execute("begin");
     printExecutionPlan(null, result);
     Assert.assertNotNull(result);
     Assert.assertTrue(result.hasNext());

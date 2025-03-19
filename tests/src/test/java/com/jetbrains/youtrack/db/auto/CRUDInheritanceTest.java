@@ -43,7 +43,7 @@ public class CRUDInheritanceTest extends BaseDBTest {
 
   @Test
   public void create() {
-    session.command("delete from Company").close();
+    session.execute("delete from Company").close();
 
     generateCompanyData();
   }

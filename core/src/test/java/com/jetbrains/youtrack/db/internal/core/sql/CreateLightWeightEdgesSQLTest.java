@@ -38,9 +38,9 @@ public class CreateLightWeightEdgesSQLTest {
     session.createLightweightEdgeClass("lightweight");
 
     session.begin();
-    session.command("create vertex v set name='a' ");
-    session.command("create vertex v set name='b' ");
-    session.command(
+    session.execute("create vertex v set name='a' ");
+    session.execute("create vertex v set name='b' ");
+    session.execute(
         "create edge lightweight from (select from v where name='a') to (select from v where name='a') ");
     session.commit();
 
@@ -63,8 +63,8 @@ public class CreateLightWeightEdgesSQLTest {
     var session = pool.acquire();
 
     session.begin();
-    session.command("create vertex v set id = 1 ");
-    session.command("create vertex v set id = 2 ");
+    session.execute("create vertex v set id = 1 ");
+    session.execute("create vertex v set id = 2 ");
     session.commit();
 
     session.close();
@@ -80,7 +80,7 @@ public class CreateLightWeightEdgesSQLTest {
 
                       try {
                         session1.begin();
-                        session1.command(
+                        session1.execute(
                             "create edge lightweight from (select from v where id=1) to (select from v"
                                 + " where id=2) ");
                         session1.commit();

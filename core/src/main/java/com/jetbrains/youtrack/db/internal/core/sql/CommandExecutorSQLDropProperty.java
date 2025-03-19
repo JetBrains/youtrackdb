@@ -168,7 +168,7 @@ public class CommandExecutorSQLDropProperty extends CommandExecutorSQLAbstract
 
   private static void dropRelatedIndexes(final List<Index> indexes, DatabaseSessionInternal db) {
     for (final var index : indexes) {
-      db.command("DROP INDEX " + index.getName()).close();
+      db.execute("DROP INDEX " + index.getName()).close();
     }
   }
 

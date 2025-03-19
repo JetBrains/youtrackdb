@@ -24,13 +24,13 @@ public class LuceneGeoUpdateTest extends BaseSpatialLuceneTest {
   @Test
   public void testUpdate() {
 
-    session.command("create class City extends V").close();
+    session.execute("create class City extends V").close();
 
-    session.command("create property City.location embedded OPoint").close();
+    session.execute("create property City.location embedded OPoint").close();
 
-    session.command("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
+    session.execute("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
     session.begin();
-    session.command(
+    session.execute(
             "insert into City set name = 'TestInsert' , location ="
                 + " ST_GeomFromText('POINT(-160.2075374 21.9029803)')")
         .close();
@@ -39,7 +39,7 @@ public class LuceneGeoUpdateTest extends BaseSpatialLuceneTest {
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "City.location");
 
     session.begin();
-    session.command(
+    session.execute(
             "update City set name = 'TestInsert' , location = ST_GeomFromText('POINT(12.5 41.9)')")
         .close();
     session.commit();

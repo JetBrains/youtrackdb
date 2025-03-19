@@ -192,7 +192,7 @@ public class IndexTest extends BaseDBTest {
 
   private void dropIndexes() {
     if (remoteDB) {
-      session.command("drop index " + "Profile" + "." + "nick").close();
+      session.execute("drop index " + "Profile" + "." + "nick").close();
     } else {
       for (var indexName : session.getMetadata().getSchema().getClassInternal("Profile")
           .getPropertyInternal("nick").getAllIndexes()) {
@@ -955,14 +955,14 @@ public class IndexTest extends BaseDBTest {
   public void testIndexReturnOnlySpecifiedClass() {
 
     try (var result =
-        session.command("select * from ChildTestClass where testParentProperty = 10")) {
+        session.execute("select * from ChildTestClass where testParentProperty = 10")) {
 
       Assert.assertEquals(result.next().<Object>getProperty("testParentProperty"), 10L);
       Assert.assertFalse(result.hasNext());
     }
 
     try (var result =
-        session.command("select * from AnotherChildTestClass where testParentProperty = 11")) {
+        session.execute("select * from AnotherChildTestClass where testParentProperty = 11")) {
       Assert.assertEquals(result.next().<Object>getProperty("testParentProperty"), 11L);
       Assert.assertFalse(result.hasNext());
     }
@@ -1088,7 +1088,7 @@ public class IndexTest extends BaseDBTest {
   public void testRestoreUniqueIndex() {
     dropIndexes();
     session
-        .command(
+        .execute(
             "CREATE INDEX Profile.nick on Profile (nick) UNIQUE METADATA {ignoreNullValues: true}")
         .close();
     session.getMetadata().reload();
@@ -1132,7 +1132,7 @@ public class IndexTest extends BaseDBTest {
     indexWithLimitAndOffset.createProperty("index", PropertyType.INTEGER);
 
     session
-        .command(
+        .execute(
             "create index IndexWithLimitAndOffset on IndexWithLimitAndOffsetClass (val) notunique")
         .close();
 
@@ -1398,7 +1398,7 @@ public class IndexTest extends BaseDBTest {
     Assert.assertEquals(resultOne.size(), 1);
     Assert.assertEquals(resultOne.getFirst().getIdentity(), docOne.getIdentity());
 
-    try (var result = session.command("explain " + queryOne)) {
+    try (var result = session.execute("explain " + queryOne)) {
       var explain = result.next();
       Assert.assertTrue(
           explain
@@ -1431,7 +1431,7 @@ public class IndexTest extends BaseDBTest {
     clazz.createProperty("val", PropertyType.STRING);
 
     session
-        .command(
+        .execute(
             "create index ValuesContainerIsRemovedIfIndexIsRemovedIndex on"
                 + " ValuesContainerIsRemovedIfIndexIsRemovedClass (val) notunique")
         .close();
@@ -1453,7 +1453,7 @@ public class IndexTest extends BaseDBTest {
 
     final var writeCache = storageLocalAbstract.getWriteCache();
     Assert.assertTrue(writeCache.exists("ValuesContainerIsRemovedIfIndexIsRemovedIndex.irs"));
-    session.command("drop index ValuesContainerIsRemovedIfIndexIsRemovedIndex").close();
+    session.execute("drop index ValuesContainerIsRemovedIfIndexIsRemovedIndex").close();
     Assert.assertFalse(writeCache.exists("ValuesContainerIsRemovedIfIndexIsRemovedIndex.irs"));
   }
 
@@ -1570,12 +1570,12 @@ public class IndexTest extends BaseDBTest {
 
     session.begin();
     session
-        .command("CREATE VERTEX NullIterationTest SET name = 'Andrew', birth = sysdate()")
+        .execute("CREATE VERTEX NullIterationTest SET name = 'Andrew', birth = sysdate()")
         .close();
     session
-        .command("CREATE VERTEX NullIterationTest SET name = 'Marcel', birth = sysdate()")
+        .execute("CREATE VERTEX NullIterationTest SET name = 'Marcel', birth = sysdate()")
         .close();
-    session.command("CREATE VERTEX NullIterationTest SET name = 'Olivier'").close();
+    session.execute("CREATE VERTEX NullIterationTest SET name = 'Olivier'").close();
     session.commit();
 
     var metadata = Map.<String, Object>of("ignoreNullValues", false);
@@ -2215,16 +2215,16 @@ public class IndexTest extends BaseDBTest {
 
   @Test
   public void testParamsOrder() {
-    session.command("CREATE CLASS Task extends V").close();
+    session.execute("CREATE CLASS Task extends V").close();
     session
-        .command("CREATE PROPERTY Task.projectId STRING (MANDATORY TRUE, NOTNULL, MAX 20)")
+        .execute("CREATE PROPERTY Task.projectId STRING (MANDATORY TRUE, NOTNULL, MAX 20)")
         .close();
-    session.command("CREATE PROPERTY Task.seq SHORT ( MANDATORY TRUE, NOTNULL, MIN 0)").close();
-    session.command("CREATE INDEX TaskPK ON Task (projectId, seq) UNIQUE").close();
+    session.execute("CREATE PROPERTY Task.seq SHORT ( MANDATORY TRUE, NOTNULL, MIN 0)").close();
+    session.execute("CREATE INDEX TaskPK ON Task (projectId, seq) UNIQUE").close();
 
     session.begin();
-    session.command("INSERT INTO Task (projectId, seq) values ( 'foo', 2)").close();
-    session.command("INSERT INTO Task (projectId, seq) values ( 'bar', 3)").close();
+    session.execute("INSERT INTO Task (projectId, seq) values ( 'foo', 2)").close();
+    session.execute("INSERT INTO Task (projectId, seq) values ( 'bar', 3)").close();
     session.commit();
 
     var results =

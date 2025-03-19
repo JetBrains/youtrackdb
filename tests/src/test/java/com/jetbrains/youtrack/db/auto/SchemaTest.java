@@ -221,7 +221,7 @@ public class SchemaTest extends BaseDBTest {
     Assert.assertNotNull(dropTestClass);
     Assert.assertEquals(session.getStorage().getClusterIdByName(testClassName), clusterId);
     Assert.assertNotNull(session.getClusterNameById(clusterId));
-    session.command("drop class " + testClassName).close();
+    session.execute("drop class " + testClassName).close();
 
     dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
     Assert.assertNull(dropTestClass);
@@ -362,7 +362,7 @@ public class SchemaTest extends BaseDBTest {
     }
 
     session
-        .command("alter class " + company.getName() + " superclasses " + superClass.getName())
+        .execute("alter class " + company.getName() + " superclasses " + superClass.getName())
         .close();
 
     company = session.getMetadata().getSchema().getClass("Company");
@@ -443,7 +443,7 @@ public class SchemaTest extends BaseDBTest {
   public void testMinimumClustersAndClusterSelection() {
     session.command(new CommandSQL("alter database minimum_clusters 3")).execute(session);
     try {
-      session.command("create class multipleclusters").close();
+      session.execute("create class multipleclusters").close();
 
       Assert.assertTrue(session.existsCluster("multipleclusters"));
 
@@ -470,14 +470,14 @@ public class SchemaTest extends BaseDBTest {
       session.begin();
       // DELETE ALL THE RECORDS
       var deleted =
-          session.command("delete from cluster:multipleclusters_2").stream().
+          session.execute("delete from cluster:multipleclusters_2").stream().
               findFirst().orElseThrow().<Long>getProperty("count");
       session.commit();
       Assert.assertEquals(deleted, 2);
 
       // CHANGE CLASS STRATEGY to BALANCED
       session
-          .command("alter class multipleclusters cluster_selection balanced").close();
+          .execute("alter class multipleclusters cluster_selection balanced").close();
 
       for (var i = 0; i < 2; ++i) {
         session.begin();
@@ -492,12 +492,12 @@ public class SchemaTest extends BaseDBTest {
 
     } finally {
       // RESTORE DEFAULT
-      session.command("alter database minimum_clusters 0").close();
+      session.execute("alter database minimum_clusters 0").close();
     }
   }
 
   public void testExchangeCluster() {
-    session.command("CREATE CLASS TestRenameClusterOriginal clusters 2").close();
+    session.execute("CREATE CLASS TestRenameClusterOriginal clusters 2").close();
     swapClusters(session, 1);
     swapClusters(session, 2);
     swapClusters(session, 3);
@@ -528,21 +528,21 @@ public class SchemaTest extends BaseDBTest {
   public void testCaseSensitivePropNames() {
     var className = "TestCaseSensitivePropNames";
     var propertyName = "propName";
-    session.command("create class " + className);
-    session.command(
+    session.execute("create class " + className);
+    session.execute(
         "create property "
             + className
             + "."
             + propertyName.toUpperCase(Locale.ENGLISH)
             + " STRING");
-    session.command(
+    session.execute(
         "create property "
             + className
             + "."
             + propertyName.toLowerCase(Locale.ENGLISH)
             + " STRING");
 
-    session.command(
+    session.execute(
         "create index "
             + className
             + "."
@@ -552,7 +552,7 @@ public class SchemaTest extends BaseDBTest {
             + "("
             + propertyName.toLowerCase(Locale.ENGLISH)
             + ") NOTUNIQUE");
-    session.command(
+    session.execute(
         "create index "
             + className
             + "."
@@ -564,7 +564,7 @@ public class SchemaTest extends BaseDBTest {
             + ") NOTUNIQUE");
 
     session.begin();
-    session.command(
+    session.execute(
         "insert into "
             + className
             + " set "
@@ -572,7 +572,7 @@ public class SchemaTest extends BaseDBTest {
             + " = 'FOO', "
             + propertyName.toLowerCase(Locale.ENGLISH)
             + " = 'foo'");
-    session.command(
+    session.execute(
         "insert into "
             + className
             + " set "
@@ -584,7 +584,7 @@ public class SchemaTest extends BaseDBTest {
 
     session.begin();
     try (var rs =
-        session.command(
+        session.execute(
             "select from "
                 + className
                 + " where "
@@ -597,7 +597,7 @@ public class SchemaTest extends BaseDBTest {
     session.commit();
 
     try (var rs =
-        session.command(
+        session.execute(
             "select from "
                 + className
                 + " where "
@@ -608,7 +608,7 @@ public class SchemaTest extends BaseDBTest {
 
     session.begin();
     try (var rs =
-        session.command(
+        session.execute(
             "select from "
                 + className
                 + " where "
@@ -622,7 +622,7 @@ public class SchemaTest extends BaseDBTest {
 
     session.begin();
     try (var rs =
-        session.command(
+        session.execute(
             "select from "
                 + className
                 + " where "
@@ -653,25 +653,25 @@ public class SchemaTest extends BaseDBTest {
 
   private void swapClusters(DatabaseSessionInternal databaseDocumentTx, int i) {
     databaseDocumentTx
-        .command("CREATE CLASS TestRenameClusterNew extends TestRenameClusterOriginal clusters 2")
+        .execute("CREATE CLASS TestRenameClusterNew extends TestRenameClusterOriginal clusters 2")
         .close();
     databaseDocumentTx.begin();
     databaseDocumentTx
-        .command("INSERT INTO TestRenameClusterNew (iteration) VALUES(" + i + ")")
+        .execute("INSERT INTO TestRenameClusterNew (iteration) VALUES(" + i + ")")
         .close();
     databaseDocumentTx.commit();
 
     databaseDocumentTx
-        .command("ALTER CLASS TestRenameClusterOriginal remove_cluster TestRenameClusterOriginal")
+        .execute("ALTER CLASS TestRenameClusterOriginal remove_cluster TestRenameClusterOriginal")
         .close();
     databaseDocumentTx
-        .command("ALTER CLASS TestRenameClusterNew remove_cluster TestRenameClusterNew")
+        .execute("ALTER CLASS TestRenameClusterNew remove_cluster TestRenameClusterNew")
         .close();
-    databaseDocumentTx.command("DROP CLASS TestRenameClusterNew").close();
+    databaseDocumentTx.execute("DROP CLASS TestRenameClusterNew").close();
     databaseDocumentTx
-        .command("ALTER CLASS TestRenameClusterOriginal add_cluster TestRenameClusterNew")
+        .execute("ALTER CLASS TestRenameClusterOriginal add_cluster TestRenameClusterNew")
         .close();
-    databaseDocumentTx.command("DROP CLUSTER TestRenameClusterOriginal").close();
+    databaseDocumentTx.execute("DROP CLUSTER TestRenameClusterOriginal").close();
     databaseDocumentTx
         .command(
             new CommandSQL("ALTER CLUSTER TestRenameClusterNew name TestRenameClusterOriginal"))

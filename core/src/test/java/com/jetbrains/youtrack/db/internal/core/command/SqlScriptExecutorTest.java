@@ -21,7 +21,7 @@ public class SqlScriptExecutorTest extends DbTestBase {
     script += "insert into V set name ='d';\n";
     script += "select from v;";
 
-    var result = session.execute("sql", script);
+    var result = session.runScript("sql", script);
     var list =
         result.stream().map(x -> x.getProperty("name")).toList();
     result.close();
@@ -43,7 +43,7 @@ public class SqlScriptExecutorTest extends DbTestBase {
     script += "insert into V set name ='d';\n";
     script += "select from v where name = ?;\n";
 
-    var result = session.execute("sql", script, "a");
+    var result = session.runScript("sql", script, "a");
 
     var list =
         result.stream().map(x -> x.getProperty("name")).collect(Collectors.toList());
@@ -66,7 +66,7 @@ public class SqlScriptExecutorTest extends DbTestBase {
     Map<String, Object> params = new HashMap<String, Object>();
     params.put("name", "a");
 
-    var result = session.execute("sql", script, params);
+    var result = session.runScript("sql", script, params);
     var list =
         result.stream().map(x -> x.getProperty("name")).toList();
     result.close();
@@ -86,7 +86,7 @@ public class SqlScriptExecutorTest extends DbTestBase {
     script += "let $v3 = create vertex v set name = 'Baz';\n";
     script += "create edge from $v1 to $v3;\n";
 
-    var result = session.execute("sql", script);
+    var result = session.runScript("sql", script);
     result.close();
 
     result = session.query("SELECT expand(out()) FROM V WHERE name ='Foo'");

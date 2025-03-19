@@ -14,15 +14,15 @@ public class UpdateEdgeStatementExecutionTest extends DbTestBase {
   @Test
   public void testUpdateEdge() {
 
-    session.command("create class V1 extends V");
+    session.execute("create class V1 extends V");
 
-    session.command("create class E1 extends E");
+    session.execute("create class E1 extends E");
 
     // VERTEXES
 
     session.begin();
     Entity v1;
-    try (var res1 = session.command("create vertex")) {
+    try (var res1 = session.execute("create vertex")) {
       var r = res1.next();
       Assert.assertEquals("V", r.getProperty("@class"));
       v1 = r.asEntityOrNull();
@@ -31,7 +31,7 @@ public class UpdateEdgeStatementExecutionTest extends DbTestBase {
 
     session.begin();
     Entity v2;
-    try (var res2 = session.command("create vertex V1")) {
+    try (var res2 = session.execute("create vertex V1")) {
       var r = res2.next();
       Assert.assertEquals("V1", r.getProperty("@class"));
       v2 = r.asEntityOrNull();
@@ -40,7 +40,7 @@ public class UpdateEdgeStatementExecutionTest extends DbTestBase {
 
     session.begin();
     Entity v3;
-    try (var res3 = session.command("create vertex set vid = 'v3', brand = 'fiat'")) {
+    try (var res3 = session.execute("create vertex set vid = 'v3', brand = 'fiat'")) {
       var r = res3.next();
       Assert.assertEquals("V", r.getProperty("@class"));
       Assert.assertEquals("fiat", r.getProperty("brand"));
@@ -51,7 +51,7 @@ public class UpdateEdgeStatementExecutionTest extends DbTestBase {
     session.begin();
     Entity v4;
     try (var res4 =
-        session.command("create vertex V1 set vid = 'v4',  brand = 'fiat',name = 'wow'")) {
+        session.execute("create vertex V1 set vid = 'v4',  brand = 'fiat',name = 'wow'")) {
       var r = res4.next();
       Assert.assertEquals("V1", r.getProperty("@class"));
       Assert.assertEquals("fiat", r.getProperty("brand"));
@@ -62,7 +62,7 @@ public class UpdateEdgeStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var edges =
-        session.command("create edge E1 from " + v1.getIdentity() + " to " + v2.getIdentity());
+        session.execute("create edge E1 from " + v1.getIdentity() + " to " + v2.getIdentity());
 
     Assert.assertTrue(edges.hasNext());
     var edge = edges.next();
@@ -72,7 +72,7 @@ public class UpdateEdgeStatementExecutionTest extends DbTestBase {
     edges.close();
     session.commit();
     session.begin();
-    session.command(
+    session.execute(
         "update edge E1 set out = "
             + v3.getIdentity()
             + ", in = "
@@ -118,12 +118,12 @@ public class UpdateEdgeStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var edges =
-        session.command("create edge E from " + v1.getIdentity() + " to " + v2.getIdentity());
+        session.execute("create edge E from " + v1.getIdentity() + " to " + v2.getIdentity());
     session.commit();
     var edge = edges.next();
 
     session.begin();
-    session.command(
+    session.execute(
             "UPDATE EDGE " + edge.asEntityOrNull().getIdentity() + " SET in = " + v3.getIdentity())
         .close();
     session.commit();
@@ -139,7 +139,7 @@ public class UpdateEdgeStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(result.next().getIdentity(), v1.getIdentity());
     result.close();
 
-    result = session.command("select expand(in()) from " + v2.getIdentity());
+    result = session.execute("select expand(in()) from " + v2.getIdentity());
     Assert.assertFalse(result.hasNext());
     result.close();
     session.commit();

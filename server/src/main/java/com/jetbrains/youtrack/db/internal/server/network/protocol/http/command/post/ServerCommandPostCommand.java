@@ -231,19 +231,19 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
     ResultSet result;
     if ("sql".equalsIgnoreCase(language)) {
       if (params instanceof Map) {
-        result = db.command(text, (Map) params);
+        result = db.execute(text, (Map) params);
       } else if (params instanceof Object[]) {
-        result = db.command(text, (Object[]) params);
+        result = db.execute(text, (Object[]) params);
       } else {
-        result = db.command(text, params);
+        result = db.execute(text, params);
       }
     } else {
       if (params instanceof Map) {
-        result = db.execute(language, text, (Map) params);
+        result = db.runScript(language, text, (Map) params);
       } else if (params instanceof Object[]) {
-        result = db.execute(language, text, (Object[]) params);
+        result = db.runScript(language, text, (Object[]) params);
       } else {
-        result = db.execute(language, text, params);
+        result = db.runScript(language, text, params);
       }
     }
     return result;

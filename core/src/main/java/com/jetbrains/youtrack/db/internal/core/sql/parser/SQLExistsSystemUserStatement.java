@@ -3,9 +3,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.internal.core.command.ServerCommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.SystemDatabase;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
 import java.util.List;
@@ -46,7 +44,7 @@ public class SQLExistsSystemUserStatement extends SQLSimpleExecServerStatement {
           }
           // INSERT INTO OUser SET
 
-          try (var rs = db.command("SELECT FROM OUser WHERE name = ?", params.toArray())) {
+          try (var rs = db.execute("SELECT FROM OUser WHERE name = ?", params.toArray())) {
             if (rs.hasNext()) {
               result.setProperty("exists", true);
             } else {

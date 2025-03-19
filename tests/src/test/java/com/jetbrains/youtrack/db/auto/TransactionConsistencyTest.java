@@ -370,7 +370,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
     session.commit();
 
-    var result = session.command("select from MyProfile ");
+    var result = session.execute("select from MyProfile ");
 
     Assert.assertTrue(result.stream().findAny().isPresent());
   }
@@ -634,7 +634,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
     }
     session.commit();
 
-    final var result1 = session.command("select from TRPerson");
+    final var result1 = session.execute("select from TRPerson");
     Assert.assertEquals(result1.stream().count(), cnt);
 
     try {
@@ -681,7 +681,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
       Assert.assertTrue(true);
     }
 
-    final var result2 = session.command("select from TRPerson");
+    final var result2 = session.execute("select from TRPerson");
     Assert.assertNotNull(result2);
     Assert.assertEquals(result2.stream().count(), cnt);
   }

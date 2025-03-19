@@ -88,7 +88,7 @@ public class AlterSchemaPropertyTest extends DbTestBase {
     var classLinked = schema.createClass("LinkedClass");
     var prop = classA.createProperty("propertyLink", PropertyType.LINK, classLinked);
     assertNotNull(prop.getLinkedClass());
-    session.command("alter property TestRemoveLinkedClass.propertyLink linkedclass null").close();
+    session.execute("alter property TestRemoveLinkedClass.propertyLink linkedclass null").close();
     assertNull(prop.getLinkedClass());
   }
 
@@ -99,10 +99,10 @@ public class AlterSchemaPropertyTest extends DbTestBase {
     var prop = classA.createProperty("dates", PropertyType.EMBEDDEDLIST,
         PropertyType.DATE);
 
-    session.command("alter property TestWrongMax.dates max 2016-05-25").close();
+    session.execute("alter property TestWrongMax.dates max 2016-05-25").close();
 
     try {
-      session.command("alter property TestWrongMax.dates max '2016-05-25'").close();
+      session.execute("alter property TestWrongMax.dates max '2016-05-25'").close();
       Assert.fail();
     } catch (Exception e) {
     }
@@ -112,10 +112,10 @@ public class AlterSchemaPropertyTest extends DbTestBase {
   public void testAlterPropertyWithDot() {
 
     Schema schema = session.getMetadata().getSchema();
-    session.command("create class testAlterPropertyWithDot").close();
-    session.command("create property testAlterPropertyWithDot.`a.b` STRING").close();
+    session.execute("create class testAlterPropertyWithDot").close();
+    session.execute("create property testAlterPropertyWithDot.`a.b` STRING").close();
     Assert.assertNotNull(schema.getClass("testAlterPropertyWithDot").getProperty("a.b"));
-    session.command("alter property testAlterPropertyWithDot.`a.b` name c").close();
+    session.execute("alter property testAlterPropertyWithDot.`a.b` name c").close();
     Assert.assertNull(schema.getClass("testAlterPropertyWithDot").getProperty("a.b"));
     Assert.assertNotNull(schema.getClass("testAlterPropertyWithDot").getProperty("c"));
   }

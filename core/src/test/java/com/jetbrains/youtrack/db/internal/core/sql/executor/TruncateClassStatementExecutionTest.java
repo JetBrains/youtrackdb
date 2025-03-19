@@ -30,7 +30,7 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
 
     final var index = getOrCreateIndex(testClass);
 
-    session.command("truncate class test_class");
+    session.execute("truncate class test_class");
 
     session.begin();
     var e1 = ((EntityImpl) session.newEntity(testClass));
@@ -41,7 +41,7 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
     e2.newEmbeddedList("data", Arrays.asList(3, 0));
     session.commit();
 
-    session.command("truncate class test_class").close();
+    session.execute("truncate class test_class").close();
 
     session.begin();
     var e3 = ((EntityImpl) session.newEntity(testClass));
@@ -79,14 +79,14 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
 
   @Test
   public void testTruncateVertexClass() {
-    session.command("create class TestTruncateVertexClass extends V");
+    session.execute("create class TestTruncateVertexClass extends V");
 
     session.begin();
-    session.command("create vertex TestTruncateVertexClass set name = 'foo'");
+    session.execute("create vertex TestTruncateVertexClass set name = 'foo'");
     session.commit();
 
     try {
-      session.command("truncate class TestTruncateVertexClass");
+      session.execute("truncate class TestTruncateVertexClass");
       Assert.fail();
     } catch (Exception e) {
     }
@@ -96,7 +96,7 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
     Assert.assertTrue(result.hasNext());
     result.close();
 
-    session.command("truncate class TestTruncateVertexClass unsafe");
+    session.execute("truncate class TestTruncateVertexClass unsafe");
     result = session.query("select from TestTruncateVertexClass");
     Assert.assertFalse(result.hasNext());
     result.close();
@@ -106,13 +106,13 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
   @Test
   public void testTruncateVertexClassSubclasses() {
 
-    session.command("create class TestTruncateVertexClassSuperclass");
-    session.command(
+    session.execute("create class TestTruncateVertexClassSuperclass");
+    session.execute(
         "create class TestTruncateVertexClassSubclass extends TestTruncateVertexClassSuperclass");
 
     session.begin();
-    session.command("insert into TestTruncateVertexClassSuperclass set name = 'foo'");
-    session.command("insert into TestTruncateVertexClassSubclass set name = 'bar'");
+    session.execute("insert into TestTruncateVertexClassSuperclass set name = 'foo'");
+    session.execute("insert into TestTruncateVertexClassSubclass set name = 'bar'");
     session.commit();
 
     session.begin();
@@ -125,7 +125,7 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
     result.close();
     session.commit();
 
-    session.command("truncate class TestTruncateVertexClassSuperclass ");
+    session.execute("truncate class TestTruncateVertexClassSuperclass ");
     session.begin();
     result = session.query("select from TestTruncateVertexClassSubclass");
     Assert.assertTrue(result.hasNext());
@@ -134,7 +134,7 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
     result.close();
     session.commit();
 
-    session.command("truncate class TestTruncateVertexClassSuperclass polymorphic");
+    session.execute("truncate class TestTruncateVertexClassSuperclass polymorphic");
 
     session.begin();
     result = session.query("select from TestTruncateVertexClassSubclass");
@@ -146,19 +146,19 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
   @Test
   public void testTruncateVertexClassSubclassesWithIndex() {
 
-    session.command("create class TestTruncateVertexClassSuperclassWithIndex");
-    session.command("create property TestTruncateVertexClassSuperclassWithIndex.name STRING");
-    session.command(
+    session.execute("create class TestTruncateVertexClassSuperclassWithIndex");
+    session.execute("create property TestTruncateVertexClassSuperclassWithIndex.name STRING");
+    session.execute(
         "create index TestTruncateVertexClassSuperclassWithIndex_index on"
             + " TestTruncateVertexClassSuperclassWithIndex (name) NOTUNIQUE");
 
-    session.command(
+    session.execute(
         "create class TestTruncateVertexClassSubclassWithIndex extends"
             + " TestTruncateVertexClassSuperclassWithIndex");
 
     session.begin();
-    session.command("insert into TestTruncateVertexClassSuperclassWithIndex set name = 'foo'");
-    session.command("insert into TestTruncateVertexClassSubclassWithIndex set name = 'bar'");
+    session.execute("insert into TestTruncateVertexClassSuperclassWithIndex set name = 'foo'");
+    session.execute("insert into TestTruncateVertexClassSubclassWithIndex set name = 'bar'");
     session.commit();
 
     if (!session.getStorage().isRemote()) {
@@ -167,10 +167,10 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
           indexManager.getIndex(session, "TestTruncateVertexClassSuperclassWithIndex_index");
       Assert.assertEquals(2, indexOne.size(session));
 
-      session.command("truncate class TestTruncateVertexClassSubclassWithIndex");
+      session.execute("truncate class TestTruncateVertexClassSubclassWithIndex");
       Assert.assertEquals(1, indexOne.size(session));
 
-      session.command("truncate class TestTruncateVertexClassSuperclassWithIndex polymorphic");
+      session.execute("truncate class TestTruncateVertexClassSuperclassWithIndex polymorphic");
       Assert.assertEquals(0, indexOne.size(session));
     }
   }
@@ -211,7 +211,7 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
     Schema schema = session.getMetadata().getSchema();
     var testClass = getOrCreateClass(schema);
 
-    session.command("truncate class test_class");
+    session.execute("truncate class test_class");
 
     session.begin();
     var e1 = ((EntityImpl) session.newEntity(testClass));
@@ -228,7 +228,7 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
     Assert.assertEquals(toList(result).size(), 2);
 
     result.close();
-    session.command("truncate class test_class");
+    session.execute("truncate class test_class");
 
     result = session.query("select from test_class");
     Assert.assertEquals(toList(result).size(), 0);

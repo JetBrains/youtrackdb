@@ -33,12 +33,12 @@ public class DBSequenceRemoteTest extends AbstractRemoteTest {
   @Test
   public void shouldSequenceWithDefaultValueNoTx() {
 
-    db.command("CREATE CLASS Person EXTENDS V");
-    db.command("CREATE SEQUENCE personIdSequence TYPE ORDERED;");
-    db.command(
+    db.execute("CREATE CLASS Person EXTENDS V");
+    db.execute("CREATE SEQUENCE personIdSequence TYPE ORDERED;");
+    db.execute(
         "CREATE PROPERTY Person.id LONG (MANDATORY TRUE, default"
             + " \"sequence('personIdSequence').next()\");");
-    db.command("CREATE INDEX Person.id ON Person (id) UNIQUE");
+    db.execute("CREATE INDEX Person.id ON Person (id) UNIQUE");
 
     db.begin();
     for (var i = 0; i < 10; i++) {
@@ -54,12 +54,12 @@ public class DBSequenceRemoteTest extends AbstractRemoteTest {
   @Test
   public void shouldSequenceWithDefaultValueTx() {
 
-    db.command("CREATE CLASS Person EXTENDS V");
-    db.command("CREATE SEQUENCE personIdSequence TYPE ORDERED;");
-    db.command(
+    db.execute("CREATE CLASS Person EXTENDS V");
+    db.execute("CREATE SEQUENCE personIdSequence TYPE ORDERED;");
+    db.execute(
         "CREATE PROPERTY Person.id LONG (MANDATORY TRUE, default"
             + " \"sequence('personIdSequence').next()\");");
-    db.command("CREATE INDEX Person.id ON Person (id) UNIQUE");
+    db.execute("CREATE INDEX Person.id ON Person (id) UNIQUE");
 
     db.begin();
 
@@ -76,18 +76,18 @@ public class DBSequenceRemoteTest extends AbstractRemoteTest {
   @Test
   public void testCreateCachedSequenceInTx() {
     db.begin();
-    db.command("CREATE SEQUENCE CircuitSequence TYPE CACHED START 1 INCREMENT 1 CACHE 10;");
+    db.execute("CREATE SEQUENCE CircuitSequence TYPE CACHED START 1 INCREMENT 1 CACHE 10;");
     db.commit();
 
-    db.command("select sequence('CircuitSequence').next() as seq");
+    db.execute("select sequence('CircuitSequence').next() as seq");
   }
 
   @Test
   public void testCreateOrderedSequenceInTx() {
     db.begin();
-    db.command("CREATE SEQUENCE CircuitSequence TYPE ORDERED;");
+    db.execute("CREATE SEQUENCE CircuitSequence TYPE ORDERED;");
     db.commit();
 
-    db.command("select sequence('CircuitSequence').next() as seq");
+    db.execute("select sequence('CircuitSequence').next() as seq");
   }
 }

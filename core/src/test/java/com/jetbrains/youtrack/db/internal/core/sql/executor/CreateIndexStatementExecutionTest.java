@@ -19,7 +19,7 @@ public class CreateIndexStatementExecutionTest extends BaseMemoryInternalDatabas
     Assert.assertNull(
         session.getMetadata().getIndexManagerInternal().getIndex(session, className + ".name"));
     var result =
-        session.command(
+        session.execute(
             "create index " + className + ".name on " + className + " (name) notunique");
     Assert.assertTrue(result.hasNext());
     var next = result.next();
@@ -41,7 +41,7 @@ public class CreateIndexStatementExecutionTest extends BaseMemoryInternalDatabas
     Assert.assertNull(
         session.getMetadata().getIndexManagerInternal().getIndex(session, className + ".name"));
     var result =
-        session.command(
+        session.execute(
             "create index "
                 + className
                 + ".name IF NOT EXISTS on "
@@ -58,7 +58,7 @@ public class CreateIndexStatementExecutionTest extends BaseMemoryInternalDatabas
     Assert.assertFalse(idx.isUnique());
 
     result =
-        session.command(
+        session.execute(
             "create index "
                 + className
                 + ".name IF NOT EXISTS on "

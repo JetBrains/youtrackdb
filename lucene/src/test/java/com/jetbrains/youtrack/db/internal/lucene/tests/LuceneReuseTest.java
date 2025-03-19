@@ -24,8 +24,8 @@ public class LuceneReuseTest extends LuceneBaseTest {
     cls.createProperty("surname", PropertyType.STRING);
     cls.createProperty("age", PropertyType.LONG);
 
-    session.command("create index Reuse.composite on Reuse (name,surname,date,age) UNIQUE");
-    session.command("create index Reuse.surname on Reuse (surname) FULLTEXT ENGINE LUCENE");
+    session.execute("create index Reuse.composite on Reuse (name,surname,date,age) UNIQUE");
+    session.execute("create index Reuse.surname on Reuse (surname) FULLTEXT ENGINE LUCENE");
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -38,11 +38,11 @@ public class LuceneReuseTest extends LuceneBaseTest {
     }
 
     var results =
-        session.command("SELECT FROM Reuse WHERE name='John' and search_class('Reese') =true");
+        session.execute("SELECT FROM Reuse WHERE name='John' and search_class('Reese') =true");
 
     assertThat(results).hasSize(10);
 
-    results = session.command(
+    results = session.execute(
         "SELECT FROM Reuse WHERE search_class('Reese')=true  and name='John'");
 
     assertThat(results).hasSize(10);
@@ -59,10 +59,10 @@ public class LuceneReuseTest extends LuceneBaseTest {
     cls.createProperty("surname", PropertyType.STRING);
     cls.createProperty("age", PropertyType.LONG);
 
-    session.command("create index Reuse.composite on Reuse (name,surname,date,age) UNIQUE");
+    session.execute("create index Reuse.composite on Reuse (name,surname,date,age) UNIQUE");
 
     // lucene on name and surname
-    session.command(
+    session.execute(
         "create index Reuse.name_surname on Reuse (name,surname) FULLTEXT ENGINE LUCENE");
 
     for (var i = 0; i < 10; i++) {
@@ -86,16 +86,16 @@ public class LuceneReuseTest extends LuceneBaseTest {
 
     // exact query on name uses Reuse.conposite
     var results =
-        session.command("SELECT FROM Reuse WHERE name='John' and search_class('Reese')=true");
+        session.execute("SELECT FROM Reuse WHERE name='John' and search_class('Reese')=true");
 
     assertThat(results).hasSize(10);
 
-    results = session.command("SELECT FROM Reuse WHERE search_class('Reese')=true and name='John'");
+    results = session.execute("SELECT FROM Reuse WHERE search_class('Reese')=true and name='John'");
 
     assertThat(results).hasSize(10);
 
     results =
-        session.command(
+        session.execute(
             "SELECT FROM Reuse WHERE name='John' AND search_class('surname:Franklin') =true");
 
     assertThat(results).hasSize(1);

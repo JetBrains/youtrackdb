@@ -21,7 +21,7 @@ public class DeleteVertexStatementExecutionTest extends DbTestBase {
     }
 
     session.begin();
-    session.command("DELETE VERTEX " + className + " WHERE name = 'a3'").close();
+    session.execute("DELETE VERTEX " + className + " WHERE name = 'a3'").close();
     var rs = session.query("SELECT FROM " + className);
     Assert.assertEquals(9, rs.stream().count());
     rs.close();
@@ -40,7 +40,7 @@ public class DeleteVertexStatementExecutionTest extends DbTestBase {
     }
 
     session.begin();
-    session.command("DELETE VERTEX " + className).close();
+    session.execute("DELETE VERTEX " + className).close();
     var rs = session.query("SELECT FROM " + className);
     Assert.assertEquals(0, rs.stream().count());
     rs.close();
@@ -68,7 +68,7 @@ public class DeleteVertexStatementExecutionTest extends DbTestBase {
     }
 
     session.begin();
-    session.command("DELETE VERTEX " + className1).close();
+    session.execute("DELETE VERTEX " + className1).close();
     var rs = session.query("SELECT FROM " + className1);
     Assert.assertEquals(0, rs.stream().count());
     rs.close();

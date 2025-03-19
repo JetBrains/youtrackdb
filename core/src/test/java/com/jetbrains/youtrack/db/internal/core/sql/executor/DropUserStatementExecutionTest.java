@@ -13,7 +13,7 @@ public class DropUserStatementExecutionTest extends DbTestBase {
   @Test
   public void testPlain() {
     session.begin();
-    var result = session.command("CREATE USER test IDENTIFIED BY foo ROLE admin");
+    var result = session.execute("CREATE USER test IDENTIFIED BY foo ROLE admin");
     session.commit();
     result.close();
 
@@ -29,7 +29,7 @@ public class DropUserStatementExecutionTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    result = session.command("DROP USER test");
+    result = session.execute("DROP USER test");
     session.commit();
     result.close();
 

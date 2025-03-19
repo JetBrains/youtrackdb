@@ -48,8 +48,8 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
   @Test
   public void testBasicCreateProperty() throws Exception {
 
-    session.command("CREATE class company").close();
-    session.command("CREATE property company.name STRING").close();
+    session.execute("CREATE class company").close();
+    session.execute("CREATE property company.name STRING").close();
 
     var companyClass = session.getMetadata().getSchema().getClass("company");
     var nameProperty = companyClass.getProperty(PROP_NAME);
@@ -65,8 +65,8 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
   @Test
   public void testBasicUnsafeCreateProperty() throws Exception {
 
-    session.command("CREATE class company").close();
-    session.command("CREATE property company.name STRING UNSAFE").close();
+    session.execute("CREATE class company").close();
+    session.execute("CREATE property company.name STRING UNSAFE").close();
 
     var companyClass = session.getMetadata().getSchema().getClass("company");
     var nameProperty = companyClass.getProperty(PROP_NAME);
@@ -81,9 +81,9 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
 
   @Test
   public void testCreatePropertyWithLinkedClass() throws Exception {
-    session.command("CREATE class division").close();
-    session.command("CREATE class company").close();
-    session.command("CREATE property company.division LINK division").close();
+    session.execute("CREATE class division").close();
+    session.execute("CREATE class company").close();
+    session.execute("CREATE property company.division LINK division").close();
 
     var companyClass = session.getMetadata().getSchema().getClass("company");
     var nameProperty = companyClass.getProperty(PROP_DIVISION);
@@ -100,8 +100,8 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
   @Test
   public void testCreatePropertyWithEmbeddedType() throws Exception {
 
-    session.command("CREATE Class company").close();
-    session.command("CREATE Property company.officers EMBEDDEDLIST STRING").close();
+    session.execute("CREATE Class company").close();
+    session.execute("CREATE Property company.officers EMBEDDEDLIST STRING").close();
 
     var companyClass = session.getMetadata().getSchema().getClass("company");
     var nameProperty = companyClass.getProperty(PROP_OFFICERS);
@@ -117,8 +117,8 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
 
   @Test
   public void testCreateMandatoryProperty() throws Exception {
-    session.command("CREATE class company").close();
-    session.command("CREATE property company.name STRING (MANDATORY)").close();
+    session.execute("CREATE class company").close();
+    session.execute("CREATE property company.name STRING (MANDATORY)").close();
 
     var companyClass = session.getMetadata().getSchema().getClass("company");
     var nameProperty = companyClass.getProperty(PROP_NAME);
@@ -132,8 +132,8 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
 
   @Test
   public void testCreateNotNullProperty() {
-    session.command("CREATE class company").close();
-    session.command("CREATE property company.name STRING (NOTNULL)").close();
+    session.execute("CREATE class company").close();
+    session.execute("CREATE property company.name STRING (NOTNULL)").close();
 
     var companyClass = session.getMetadata().getSchema().getClass("company");
     var nameProperty = companyClass.getProperty(PROP_NAME);
@@ -147,8 +147,8 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
 
   @Test
   public void testCreateReadOnlyProperty() {
-    session.command("CREATE class company").close();
-    session.command("CREATE property company.name STRING (READONLY)").close();
+    session.execute("CREATE class company").close();
+    session.execute("CREATE property company.name STRING (READONLY)").close();
 
     var companyClass = session.getMetadata().getSchema().getClass("company");
     var nameProperty = companyClass.getProperty(PROP_NAME);
@@ -162,8 +162,8 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
 
   @Test
   public void testCreateReadOnlyFalseProperty() {
-    session.command("CREATE class company").close();
-    session.command("CREATE property company.name STRING (READONLY false)").close();
+    session.execute("CREATE class company").close();
+    session.execute("CREATE property company.name STRING (READONLY false)").close();
 
     var companyClass = session.getMetadata().getSchema().getClass("company");
     var nameProperty = companyClass.getProperty(PROP_NAME);
@@ -176,8 +176,8 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
   @Test
   public void testCreateMandatoryPropertyWithEmbeddedType() {
 
-    session.command("CREATE Class company").close();
-    session.command("CREATE Property company.officers EMBEDDEDLIST STRING (MANDATORY)").close();
+    session.execute("CREATE Class company").close();
+    session.execute("CREATE Property company.officers EMBEDDEDLIST STRING (MANDATORY)").close();
 
     var companyClass = session.getMetadata().getSchema().getClass("company");
     var nameProperty = companyClass.getProperty(PROP_OFFICERS);
@@ -194,8 +194,8 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
   @Test
   public void testCreateUnsafePropertyWithEmbeddedType() {
 
-    session.command("CREATE Class company").close();
-    session.command("CREATE Property company.officers EMBEDDEDLIST STRING UNSAFE").close();
+    session.execute("CREATE Class company").close();
+    session.execute("CREATE Property company.officers EMBEDDEDLIST STRING UNSAFE").close();
 
     var companyClass = session.getMetadata().getSchema().getClass("company");
     var nameProperty = companyClass.getProperty(PROP_OFFICERS);
@@ -209,8 +209,8 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
   @Test
   public void testComplexCreateProperty() throws Exception {
 
-    session.command("CREATE Class company").close();
-    session.command(
+    session.execute("CREATE Class company").close();
+    session.execute(
             "CREATE Property company.officers EMBEDDEDLIST STRING (MANDATORY, READONLY, NOTNULL)"
                 + " UNSAFE")
         .close();
@@ -229,8 +229,8 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
 
   @Test
   public void testLinkedTypeDefaultAndMinMaxUnsafeProperty() {
-    session.command("CREATE CLASS company").close();
-    session.command(
+    session.execute("CREATE CLASS company").close();
+    session.execute(
             "CREATE PROPERTY company.id EMBEDDEDLIST Integer (DEFAULT 5, MIN 1, MAX 10) UNSAFE")
         .close();
 
@@ -251,8 +251,8 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
 
   @Test
   public void testDefaultAndMinMaxUnsafeProperty() {
-    session.command("CREATE CLASS company").close();
-    session.command("CREATE PROPERTY company.id INTEGER (DEFAULT 5, MIN 1, MAX 10) UNSAFE").close();
+    session.execute("CREATE CLASS company").close();
+    session.execute("CREATE PROPERTY company.id INTEGER (DEFAULT 5, MIN 1, MAX 10) UNSAFE").close();
 
     var companyClass = session.getMetadata().getSchema().getClass("company");
     var idProperty = companyClass.getProperty(PROP_ID);
@@ -271,8 +271,8 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
 
   @Test
   public void testExtraSpaces() throws Exception {
-    session.command("CREATE CLASS company").close();
-    session.command("CREATE PROPERTY company.id INTEGER  ( DEFAULT  5 ,  MANDATORY  )  UNSAFE ")
+    session.execute("CREATE CLASS company").close();
+    session.execute("CREATE PROPERTY company.id INTEGER  ( DEFAULT  5 ,  MANDATORY  )  UNSAFE ")
         .close();
 
     var companyClass = session.getMetadata().getSchema().getClass("company");
@@ -291,8 +291,8 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
 
     session.getStorage().setProperty(SQLStatement.CUSTOM_STRICT_SQL, "false");
 
-    session.command("CREATE CLASS company").close();
-    session.command(
+    session.execute("CREATE CLASS company").close();
+    session.execute(
             "CREATE PROPERTY company.id INTEGER (MANDATORY, NOTNULL false, READONLY true, MAX 10,"
                 + " MIN 4, DEFAULT 6)  UNSAFE")
         .close();
@@ -314,30 +314,30 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
 
   @Test(expected = CommandExecutionException.class)
   public void testInvalidAttributeName() throws Exception {
-    session.command("CREATE CLASS company").close();
-    session.command("CREATE PROPERTY company.id INTEGER (MANDATORY, INVALID, NOTNULL)  UNSAFE")
+    session.execute("CREATE CLASS company").close();
+    session.execute("CREATE PROPERTY company.id INTEGER (MANDATORY, INVALID, NOTNULL)  UNSAFE")
         .close();
   }
 
   @Test(expected = CommandExecutionException.class)
   public void testMissingAttributeValue() throws Exception {
 
-    session.command("CREATE CLASS company").close();
-    session.command("CREATE PROPERTY company.id INTEGER (DEFAULT)  UNSAFE").close();
+    session.execute("CREATE CLASS company").close();
+    session.execute("CREATE PROPERTY company.id INTEGER (DEFAULT)  UNSAFE").close();
   }
 
   @Test(expected = CommandSQLParsingException.class)
   public void tooManyAttributeParts() throws Exception {
 
-    session.command("CREATE CLASS company").close();
-    session.command("CREATE PROPERTY company.id INTEGER (DEFAULT 5 10)  UNSAFE").close();
+    session.execute("CREATE CLASS company").close();
+    session.execute("CREATE PROPERTY company.id INTEGER (DEFAULT 5 10)  UNSAFE").close();
   }
 
   @Test
   public void testMandatoryAsLinkedName() throws Exception {
-    session.command("CREATE CLASS company").close();
-    session.command("CREATE CLASS Mandatory").close();
-    session.command("CREATE PROPERTY company.id EMBEDDEDLIST Mandatory UNSAFE").close();
+    session.execute("CREATE CLASS company").close();
+    session.execute("CREATE CLASS Mandatory").close();
+    session.execute("CREATE PROPERTY company.id EMBEDDEDLIST Mandatory UNSAFE").close();
 
     var companyClass = session.getMetadata().getSchema().getClass("company");
     var mandatoryClass = session.getMetadata().getSchema().getClass("Mandatory");
@@ -352,14 +352,14 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
 
   @Test
   public void testIfNotExists() {
-    session.command("CREATE class testIfNotExists").close();
-    session.command("CREATE property testIfNotExists.name if not exists STRING").close();
+    session.execute("CREATE class testIfNotExists").close();
+    session.execute("CREATE property testIfNotExists.name if not exists STRING").close();
 
     var companyClass = session.getMetadata().getSchema().getClass("testIfNotExists");
     var property = companyClass.getProperty("name");
     assertEquals(PROP_NAME, property.getName());
 
-    session.command("CREATE property testIfNotExists.name if not exists STRING").close();
+    session.execute("CREATE property testIfNotExists.name if not exists STRING").close();
 
     companyClass = session.getMetadata().getSchema().getClass("testIfNotExists");
     property = companyClass.getProperty("name");

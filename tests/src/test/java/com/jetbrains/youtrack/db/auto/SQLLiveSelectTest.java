@@ -85,13 +85,13 @@ public class SQLLiveSelectTest extends AbstractSelectTest {
     Assert.assertNotNull(token);
 
     session.begin();
-    session.command("insert into LiveClassTx set name = 'foo', surname = 'bar'").close();
-    session.command("insert into LiveClassTx set name = 'foo', surname = 'baz'").close();
-    session.command("insert into LiveClassTx set name = 'foo'").close();
+    session.execute("insert into LiveClassTx set name = 'foo', surname = 'bar'").close();
+    session.execute("insert into LiveClassTx set name = 'foo', surname = 'baz'").close();
+    session.execute("insert into LiveClassTx set name = 'foo'").close();
     session.commit();
 
     session.begin();
-    session.command("update LiveClassTx set name = 'updated'").close();
+    session.execute("update LiveClassTx set name = 'updated'").close();
     session.commit();
 
     latch.await();
@@ -140,11 +140,11 @@ public class SQLLiveSelectTest extends AbstractSelectTest {
     Integer token = tokenDoc.getProperty("token");
     Assert.assertNotNull(token);
 
-    session.command("insert into liveclass set name = 'foo', surname = 'bar'").close();
-    session.command("insert into liveclass set name = 'foo', surname = 'baz'").close();
-    session.command("insert into liveclass set name = 'foo'").close();
+    session.execute("insert into liveclass set name = 'foo', surname = 'bar'").close();
+    session.execute("insert into liveclass set name = 'foo', surname = 'baz'").close();
+    session.execute("insert into liveclass set name = 'foo'").close();
 
-    session.command("update liveclass set name = 'updated'").close();
+    session.execute("update liveclass set name = 'updated'").close();
 
     latch.await();
 

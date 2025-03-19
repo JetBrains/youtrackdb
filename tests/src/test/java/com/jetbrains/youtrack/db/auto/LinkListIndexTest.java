@@ -48,7 +48,7 @@ public class LinkListIndexTest extends BaseDBTest {
   @AfterMethod
   public void afterMethod() throws Exception {
     session.begin();
-    session.command("DELETE FROM LinkListIndexTestClass").close();
+    session.execute("DELETE FROM LinkListIndexTestClass").close();
     session.commit();
 
     var result = session.query("select from LinkListIndexTestClass");
@@ -274,7 +274,7 @@ public class LinkListIndexTest extends BaseDBTest {
 
     session.begin();
     session
-        .command(
+        .execute(
             "UPDATE "
                 + document.getIdentity()
                 + " set linkCollection = linkCollection || "
@@ -477,7 +477,7 @@ public class LinkListIndexTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session.command(
+    session.execute(
         "UPDATE " + document.getIdentity() + " remove linkCollection = " + docTwo.getIdentity());
     session.commit();
 
