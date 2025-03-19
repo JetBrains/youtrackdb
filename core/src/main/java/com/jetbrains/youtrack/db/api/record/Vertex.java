@@ -19,12 +19,8 @@
  */
 package com.jetbrains.youtrack.db.api.record;
 
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import java.util.List;
 import java.util.Set;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 
 /**
  * Vertex interface represents a vertex in a graph database. Unlike non-typed record it treats some
@@ -32,8 +28,8 @@ import javax.annotation.Nullable;
  * {@code #DIRECTION_IN_PREFIX} and {@code #DIRECTION_OUT_PREFIX} are considered as booked and
  * should not be used by users directly.
  */
+@SuppressWarnings({"UnusedReturnValue", "unused"})
 public interface Vertex extends Entity {
-
   /**
    * The name of the class of the vertex record
    */
@@ -48,84 +44,6 @@ public interface Vertex extends Entity {
    * A constant variable representing the prefix used for inbound edges in a graph.
    */
   String DIRECTION_IN_PREFIX = "in_";
-
-  /**
-   * Returns the names of defined properties except of properties used to manage edges.
-   *
-   * @return all the names of defined properties
-   */
-  @Nonnull
-  List<String> getPropertyNames();
-
-  /**
-   * Gets a property given its name. if the property name starts with {@link #DIRECTION_IN_PREFIX}
-   * or {@link #DIRECTION_OUT_PREFIX} method throws {@link IllegalArgumentException}. Those names
-   * are used to manage edges.
-   *
-   * @param name the property name
-   * @return Returns the property value
-   * @throws IllegalArgumentException if booked property name is used.
-   */
-  <RET> RET getProperty(@Nonnull String name);
-
-  /**
-   * This method similar to {@link com.jetbrains.youtrack.db.api.query.Result#getProperty(String)}
-   * bun unlike before mentioned method it does not load link automatically. if the property name
-   * starts with {@link #DIRECTION_IN_PREFIX} or {@link #DIRECTION_OUT_PREFIX} method throws
-   * {@link IllegalArgumentException}. Those names are used to manage edges.
-   *
-   * @param name the name of the link property
-   * @return the link property value, or null if the property does not exist
-   * @throws IllegalArgumentException if booked property name is used or requested property is not a
-   *                                  link.
-   * @see com.jetbrains.youtrack.db.api.query.Result#getProperty(String)
-   */
-  @Nullable
-  @Override
-  RID getLink(@Nonnull String name);
-
-  /**
-   * Check if a property exists in the Element. if the property name starts with
-   * {@link #DIRECTION_IN_PREFIX} or {@link #DIRECTION_OUT_PREFIX} method throws
-   * {@link IllegalArgumentException}. Those names are used to manage edges.
-   *
-   * @param propertyName Name of the property to check.
-   * @return true if exists otherwise false.
-   * @throws IllegalArgumentException if booked property name is used.
-   */
-  boolean hasProperty(final @Nonnull String propertyName);
-
-  /**
-   * Sets a property value, if the property name starts with {@link #DIRECTION_IN_PREFIX} or
-   * {@link #DIRECTION_OUT_PREFIX} update of such property is aborted. Those names are used to
-   *
-   * @param name  the property name
-   * @param value the property value
-   * @throws IllegalArgumentException if booked property name is used.
-   */
-  void setProperty(@Nonnull String name, @Nullable Object value);
-
-  /**
-   * Sets a property value, if the property name starts with {@link #DIRECTION_IN_PREFIX} or
-   * {@link #DIRECTION_OUT_PREFIX} update of such property is aborted. Those names are used to
-   * manage edges.
-   *
-   * @param propertyName the property name
-   * @param value        the property value
-   * @param fieldType    Forced type (not auto-determined)
-   * @throws IllegalArgumentException if booked property name is used.
-   */
-  void setProperty(@Nonnull String propertyName, Object value, @Nonnull PropertyType fieldType);
-
-  /**
-   * Remove a property, if the property name starts with {@link #DIRECTION_IN_PREFIX} or
-   * {@link #DIRECTION_OUT_PREFIX} removal of such property is aborted. Those names are used to
-   * manage edges.
-   *
-   * @param name the property name
-   * @throws IllegalArgumentException if booked property name is used.
-   */
-  <RET> RET removeProperty(@Nonnull String name);
 
   /**
    * Returns the names of the edges connected to the vertex in both directions. It is identical to

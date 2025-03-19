@@ -19,12 +19,12 @@
  */
 package com.jetbrains.youtrack.db.internal.client.remote;
 
-import com.jetbrains.youtrack.db.internal.common.io.YTIOException;
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
 import com.jetbrains.youtrack.db.internal.client.binary.SocketChannelBinaryAsynchClient;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseRequest;
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.internal.common.io.YTIOException;
+import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;

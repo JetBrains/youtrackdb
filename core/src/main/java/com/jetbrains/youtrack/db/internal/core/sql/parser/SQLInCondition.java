@@ -3,13 +3,13 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexCandidate;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorEquals;
@@ -141,7 +141,7 @@ public class SQLInCondition extends SQLBooleanExpression {
 
   protected static boolean evaluateExpression(DatabaseSessionInternal session, final Object iLeft,
       final Object iRight) {
-    if (iRight instanceof ResultSet rsRight) {
+    if (iRight instanceof InternalResultSet rsRight) {
       rsRight.reset();
 
       while (rsRight.hasNext()) {

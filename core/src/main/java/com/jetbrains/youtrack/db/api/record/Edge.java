@@ -24,11 +24,7 @@ import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- *
- */
 public interface Edge {
-
   /**
    * The name of the class of the edge record
    */

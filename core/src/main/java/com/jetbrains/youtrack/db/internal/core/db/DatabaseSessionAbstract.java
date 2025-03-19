@@ -21,7 +21,6 @@
 package com.jetbrains.youtrack.db.internal.core.db;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
@@ -58,6 +57,7 @@ import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestInternal;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
@@ -277,7 +277,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
       Map<String, ?> args) {
     var youTrackDb = sharedContext.youtrackDB;
 
-    var configBuilder = YouTrackDBConfig.builder();
+    var configBuilder = (YouTrackDBConfigBuilderImpl) YouTrackDBConfig.builder();
     var contextConfig = getConfiguration();
     var poolConfig = configBuilder.fromContext(contextConfig).build();
 
@@ -292,7 +292,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   public LiveQueryMonitor live(String query, LiveQueryResultListener listener, Object... args) {
     var youTrackDb = sharedContext.youtrackDB;
 
-    var configBuilder = YouTrackDBConfig.builder();
+    var configBuilder = (YouTrackDBConfigBuilderImpl) YouTrackDBConfig.builder();
     var contextConfig = getConfiguration();
     var poolConfig = configBuilder.fromContext(contextConfig).build();
 

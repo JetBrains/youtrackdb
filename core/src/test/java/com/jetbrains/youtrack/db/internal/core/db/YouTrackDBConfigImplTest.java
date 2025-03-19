@@ -38,7 +38,8 @@ public class YouTrackDBConfigImplTest {
             .addAttribute(ATTRIBUTES.LOCALE_COUNTRY, "US")
             .build();
 
-    assertEquals(20, settings.getConfiguration().getValue(GlobalConfiguration.DB_POOL_MAX));
+    assertEquals(20, ((YouTrackDBConfigImpl) settings).getConfiguration()
+        .getValue(GlobalConfiguration.DB_POOL_MAX));
     assertEquals("US", settings.getAttributes().get(ATTRIBUTES.LOCALE_COUNTRY));
   }
 

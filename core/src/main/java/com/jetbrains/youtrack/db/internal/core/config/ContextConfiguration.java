@@ -17,8 +17,9 @@
  *
  *
  */
-package com.jetbrains.youtrack.db.api.config;
+package com.jetbrains.youtrack.db.internal.core.config;
 
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import java.io.Serializable;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;

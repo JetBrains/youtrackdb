@@ -23,13 +23,12 @@ import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.CLIENT_CH
 import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.CLIENT_CHANNEL_IDLE_TIMEOUT;
 import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.NETWORK_LOCK_TIMEOUT;
 
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.client.binary.SocketChannelBinaryAsynchClient;
+import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;

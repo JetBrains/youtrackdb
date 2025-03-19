@@ -3,7 +3,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.Vertex;
@@ -101,9 +100,9 @@ public class CreateEdgesStep extends AbstractExecutionStep {
 
     var toIter = (Iterator<?>) toValues;
 
-    if (toIter instanceof ResultSet) {
+    if (toIter instanceof InternalResultSet resultSet) {
       try {
-        ((ResultSet) toIter).reset();
+        resultSet.reset();
       } catch (Exception ignore) {
       }
     }
@@ -125,9 +124,9 @@ public class CreateEdgesStep extends AbstractExecutionStep {
       fromValues = ((InternalResultSet) fromValues).copy();
     }
     var fromIter = (Iterator<?>) fromValues;
-    if (fromIter instanceof ResultSet) {
+    if (fromIter instanceof InternalResultSet resultSet) {
       try {
-        ((ResultSet) fromIter).reset();
+        resultSet.reset();
       } catch (Exception ignore) {
       }
     }

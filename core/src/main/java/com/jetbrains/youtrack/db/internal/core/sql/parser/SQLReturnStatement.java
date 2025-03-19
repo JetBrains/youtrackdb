@@ -6,6 +6,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
@@ -39,7 +40,9 @@ public class SQLReturnStatement extends SQLSimpleExecStatement {
     } else if (result instanceof ResultSet) {
       if (!((ResultSet) result).hasNext()) {
         try {
-          ((ResultSet) result).reset();
+          if (result instanceof InternalResultSet internalResultSet) {
+            internalResultSet.reset();
+          }
         } catch (UnsupportedOperationException ignore) {
           // just try to reset the RS, in case it was already used during the script execution
           // already

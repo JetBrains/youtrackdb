@@ -21,7 +21,6 @@
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local;
 
 import com.google.common.util.concurrent.Striped;
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.ClusterDoesNotExistException;
@@ -62,6 +61,7 @@ import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandExecutor;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrack.db.internal.core.config.StorageClusterConfiguration;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;

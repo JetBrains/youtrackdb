@@ -20,10 +20,10 @@
 package com.jetbrains.youtrack.db.internal.core.db;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
 import com.jetbrains.youtrack.db.internal.common.concur.resource.ReentrantResourcePool;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import java.util.Map;
 
 /**

@@ -11,6 +11,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import javax.annotation.Nullable;
 
 public class RemoteResultSet implements ResultSet {
@@ -113,12 +114,6 @@ public class RemoteResultSet implements ResultSet {
     return executionPlan;
   }
 
-  @Override
-  public Map<String, Long> getQueryStats() {
-    assert session == null || session.assertIfNotActive();
-    return queryStats;
-  }
-
   @Nullable
   @Override
   public DatabaseSession getBoundToSession() {
@@ -154,6 +149,37 @@ public class RemoteResultSet implements ResultSet {
     }
     if (executionPlan != null) {
       this.executionPlan = executionPlan;
+    }
+  }
+
+  @Override
+  public boolean tryAdvance(Consumer<? super Result> action) {
+    if (hasNext()) {
+      action.accept(next());
+      return true;
+    }
+    return false;
+  }
+
+  @Override
+  public ResultSet trySplit() {
+    return null;
+  }
+
+  @Override
+  public long estimateSize() {
+    return Long.MAX_VALUE;
+  }
+
+  @Override
+  public int characteristics() {
+    return ORDERED;
+  }
+
+  @Override
+  public void forEachRemaining(Consumer<? super Result> action) {
+    while (hasNext()) {
+      action.accept(next());
     }
   }
 }

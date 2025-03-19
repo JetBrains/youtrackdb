@@ -7,9 +7,8 @@ import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.common.util.Resettable;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.function.Consumer;
 import javax.annotation.Nullable;
 
 /**
@@ -57,12 +56,6 @@ public class InternalResultSet implements ResultSet, Resettable {
     this.plan = plan;
   }
 
-  @Override
-  public Map<String, Long> getQueryStats() {
-    assert session == null || session.assertIfNotActive();
-    return new HashMap<>();
-  }
-
   public void add(Result nextResult) {
     assert session == null || session.assertIfNotActive();
     content.add(nextResult);
@@ -90,4 +83,36 @@ public class InternalResultSet implements ResultSet, Resettable {
   public DatabaseSession getBoundToSession() {
     return session;
   }
+
+  @Override
+  public boolean tryAdvance(Consumer<? super Result> action) {
+    if (hasNext()) {
+      action.accept(next());
+      return true;
+    }
+    return false;
+  }
+
+  @Override
+  public void forEachRemaining(Consumer<? super Result> action) {
+    while (hasNext()) {
+      action.accept(next());
+    }
+  }
+
+  @Override
+  public ResultSet trySplit() {
+    return null;
+  }
+
+  @Override
+  public long estimateSize() {
+    return Long.MAX_VALUE;
+  }
+
+  @Override
+  public int characteristics() {
+    return ORDERED;
+  }
+
 }

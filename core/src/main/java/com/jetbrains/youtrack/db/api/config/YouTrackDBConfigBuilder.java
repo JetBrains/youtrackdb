@@ -18,7 +18,5 @@ public interface YouTrackDBConfigBuilder {
   YouTrackDBConfigBuilder addGlobalConfigurationParameter(GlobalConfiguration configuration,
       Object value);
 
-  YouTrackDBConfigBuilder fromContext(ContextConfiguration contextConfiguration);
-
   YouTrackDBConfig build();
 }

@@ -6,7 +6,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import java.util.Map;
+import java.util.function.Consumer;
 import javax.annotation.Nullable;
 
 public class ExecutionResultSet implements ResultSet {
@@ -51,15 +51,40 @@ public class ExecutionResultSet implements ResultSet {
     return plan;
   }
 
-  @Override
-  public Map<String, Long> getQueryStats() {
-    assert session == null || session.assertIfNotActive();
-    return null;
-  }
-
   @Nullable
   @Override
   public DatabaseSession getBoundToSession() {
     return session;
+  }
+
+  @Override
+  public boolean tryAdvance(Consumer<? super Result> action) {
+    if (hasNext()) {
+      action.accept(next());
+      return true;
+    }
+    return false;
+  }
+
+  @Override
+  public ResultSet trySplit() {
+    return null;
+  }
+
+  @Override
+  public long estimateSize() {
+    return Long.MAX_VALUE;
+  }
+
+  @Override
+  public int characteristics() {
+    return ORDERED;
+  }
+
+  @Override
+  public void forEachRemaining(Consumer<? super Result> action) {
+    while (hasNext()) {
+      action.accept(next());
+    }
   }
 }

@@ -15,11 +15,11 @@
  */
 package com.jetbrains.youtrack.db.internal.enterprise.channel;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;

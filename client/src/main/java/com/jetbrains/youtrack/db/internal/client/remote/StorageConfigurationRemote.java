@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.internal.client.remote;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.client.remote.message.push.StorageConfigurationPayload;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrack.db.internal.core.config.StorageClusterConfiguration;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;

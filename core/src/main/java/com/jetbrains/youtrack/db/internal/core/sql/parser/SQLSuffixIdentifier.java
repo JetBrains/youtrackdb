@@ -6,7 +6,6 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Collate;
@@ -16,6 +15,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -209,9 +209,9 @@ public class SQLSuffixIdentifier extends SimpleNode {
     while (iterator.hasNext()) {
       result.add(execute(iterator.next(), ctx));
     }
-    if (iterator instanceof ResultSet) {
+    if (iterator instanceof InternalResultSet resultSet) {
       try {
-        ((ResultSet) iterator).reset();
+        resultSet.reset();
       } catch (Exception ignore) {
       }
     }

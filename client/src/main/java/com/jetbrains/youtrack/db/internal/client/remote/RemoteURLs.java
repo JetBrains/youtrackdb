@@ -2,11 +2,11 @@ package com.jetbrains.youtrack.db.internal.client.remote;
 
 import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.CLIENT_CONNECTION_FETCH_HOST_LIST;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemote.CONNECTION_STRATEGY;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import java.util.ArrayList;
 import java.util.Collections;

@@ -1,8 +1,8 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.server.ClientConnection;
 import java.io.IOException;

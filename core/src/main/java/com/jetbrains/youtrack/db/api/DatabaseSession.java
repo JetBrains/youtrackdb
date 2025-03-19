@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrack.db.api;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
@@ -35,6 +34,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.api.session.SessionListener;
 import com.jetbrains.youtrack.db.api.session.Transaction;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.List;

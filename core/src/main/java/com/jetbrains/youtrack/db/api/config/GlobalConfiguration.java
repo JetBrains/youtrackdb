@@ -27,8 +27,6 @@ import com.jetbrains.youtrack.db.internal.core.storage.ChecksumMode;
 import java.io.PrintStream;
 import java.util.Locale;
 import java.util.Map;
-import java.util.logging.ConsoleHandler;
-import java.util.logging.FileHandler;
 import java.util.logging.Level;
 
 /**
@@ -100,14 +98,6 @@ public enum GlobalConfiguration {
       String.class,
       "256m"),
 
-  DIRECT_MEMORY_SAFE_MODE(
-      "memory.directMemory.safeMode",
-      "Indicates whether to perform a range check before each direct memory update. It is true by"
-          + " default, but usually it can be safely set to false. It should only be to true after"
-          + " dramatic changes have been made in the storage structures",
-      Boolean.class,
-      true),
-
   DIRECT_MEMORY_POOL_LIMIT(
       "memory.pool.limit",
       "Limit of the pages cached inside of direct memory pool to avoid frequent reallocation of"
@@ -161,16 +151,9 @@ public enum GlobalConfiguration {
       Integer.class,
       10000),
 
-  DISK_CACHE_PINNED_PAGES(
-      "storage.diskCache.pinnedPages",
-      "Maximum amount of pinned pages which may be contained in cache, if this percent is reached"
-          + " next pages will be left in unpinned state. You can not set value more than 50",
-      Integer.class,
-      20,
-      false),
-
   DISK_CACHE_SIZE(
-      "storage.diskCache.bufferSize", "Size of disk buffer in megabytes", Integer.class, 4 * 1024),
+      "storage.diskCache.bufferSize", "Size of disk buffer in megabytes", Integer.class,
+      4 << 10),
 
   DISK_WRITE_CACHE_PART(
       "storage.diskCache.writeCachePart",
@@ -178,63 +161,11 @@ public enum GlobalConfiguration {
       Integer.class,
       5),
 
-  DISK_WRITE_CACHE_SHUTDOWN_TIMEOUT(
-      "storage.diskCache.writeCacheShutdownTimeout",
-      "Timeout of shutdown of write cache for single task in min.",
-      Integer.class,
-      30),
-
-  DISK_WRITE_CACHE_PAGE_TTL(
-      "storage.diskCache.writeCachePageTTL",
-      "Max time until a page will be flushed from write cache (in seconds)",
-      Long.class,
-      24 * 60 * 60),
-
   DISK_WRITE_CACHE_PAGE_FLUSH_INTERVAL(
       "storage.diskCache.writeCachePageFlushInterval",
       "Interval between flushing of pages from write cache (in ms)",
       Integer.class,
       25),
-
-  DISK_WRITE_CACHE_FLUSH_WRITE_INACTIVITY_INTERVAL(
-      "storage.diskCache.writeCacheFlushInactivityInterval",
-      "Interval between 2 writes to the disk cache, if writes are done with an interval more than"
-          + " provided, all files will be fsynced before the next write, which allows a data"
-          + " restore after a server crash (in ms)",
-      Long.class,
-      60 * 1000),
-
-  DISK_WRITE_CACHE_FLUSH_LOCK_TIMEOUT(
-      "storage.diskCache.writeCacheFlushLockTimeout",
-      "Maximum amount of time the write cache will wait before a page flushes (in ms, -1 to"
-          + " disable)",
-      Integer.class,
-      -1),
-
-  /**
-   * The interval (how many new pages should be added before free space will be checked), after
-   * which the storage periodically checks whether the amount of free disk space is enough to work
-   * in write mode.
-   */
-  DISC_CACHE_FREE_SPACE_CHECK_INTERVAL_IN_PAGES(
-      "storage.diskCache.diskFreeSpaceCheckIntervalInPages",
-      "The interval (how many new pages should be added before free space will be checked), after"
-          + " which the storage periodically checks whether the amount of free disk space is enough"
-          + " to work in write mode",
-      Integer.class,
-      2048),
-
-  /**
-   * Keep disk cache state between moment when storage is closed and moment when it is opened
-   * again.
-   * <code>true</code> by default.
-   */
-  STORAGE_KEEP_DISK_CACHE_STATE(
-      "storage.diskCache.keepState",
-      "Keep disk cache state between moment when storage is closed and moment when it is opened"
-          + " again. true by default",
-      Boolean.class,
-      false),
 
   STORAGE_CHECKSUM_MODE(
       "storage.diskCache.checksumMode",
@@ -252,33 +183,12 @@ public enum GlobalConfiguration {
       ChecksumMode.StoreAndSwitchReadOnlyMode,
       false),
 
-  STORAGE_CHECK_LATEST_OPERATION_ID(
-      "storage.checkLatestOperationId",
-      "Indicates wether storage should be checked for latest operation id, to ensure that all the"
-          + " records are needed to restore database are stored into the WAL (true by default)",
-      Boolean.class,
-      true),
-
   STORAGE_EXCLUSIVE_FILE_ACCESS(
       "storage.exclusiveFileAccess",
       "Limit access to the datafiles to the single API user, set to "
           + "true to prevent concurrent modification files by different instances of storage",
       Boolean.class,
       true),
-
-  STORAGE_TRACK_FILE_ACCESS(
-      "storage.trackFileAccess",
-      "Works only if storage.exclusiveFileAccess is set to true. "
-          + "Tracks stack trace of thread which initially opened a file",
-      Boolean.class,
-      true),
-
-  STORAGE_COMPRESSION_METHOD(
-      "storage.compressionMethod",
-      "Record compression method used in storage"
-          + " Possible values : gzip, nothing. Default is 'nothing' that means no compression",
-      String.class,
-      "nothing"),
 
   STORAGE_ENCRYPTION_KEY(
       "storage.encryptionKey",
@@ -299,12 +209,6 @@ public enum GlobalConfiguration {
       "Limit of size of atomic operations table after which compaction will be triggered on",
       Integer.class,
       10_000),
-
-  STORAGE_MAKE_FULL_CHECKPOINT_AFTER_CLUSTER_CREATE(
-      "storage.makeFullCheckpointAfterClusterCreate",
-      "Indicates whether a full checkpoint should be performed, if storage was opened",
-      Boolean.class,
-      true),
 
   STORAGE_CALL_FSYNC(
       "storage.callFsync",
@@ -341,13 +245,6 @@ public enum GlobalConfiguration {
       Integer.class,
       256),
 
-  STORAGE_PAGE_OPERATIONS_CACHE_SIZE(
-      "storage.pageOperationsCacheSize",
-      "Size of page operations cache in MB per transaction. "
-          + "If operations are cached, they are not read from WAL during rollback.",
-      Integer.class,
-      16),
-
   STORAGE_CLUSTER_VERSION(
       "storage.cluster.version",
       "Binary version of cluster which will be used inside of storage",
@@ -366,22 +263,9 @@ public enum GlobalConfiguration {
       Integer.class,
       10),
 
-  STORAGE_INTERNAL_JOURNALED_TX_STREAMING_PORT(
-      "storage.internal.journaled.tx.streaming.port",
-      "Activates journaled tx streaming on the given TCP/IP port. Used for internal testing"
-          + " purposes only. Never touch it if you don't know what you doing.",
-      Integer.class,
-      null),
-
   STORAGE_BLOB_CLUSTERS_COUNT("youtrackdb.storage.blob.clusters.count",
       "Amount storage clusters allocated for storing blobs", Integer.class,
       8),
-
-  WAL_SYNC_ON_PAGE_FLUSH(
-      "storage.wal.syncOnPageFlush",
-      "Indicates whether a force sync should be performed during WAL page flush",
-      Boolean.class,
-      true),
 
   WAL_CACHE_SIZE(
       "storage.wal.cacheSize",
@@ -403,20 +287,6 @@ public enum GlobalConfiguration {
       Integer.class,
       10),
 
-  WAL_FILE_AUTOCLOSE_INTERVAL(
-      "storage.wal.fileAutoCloseInterval",
-      "Interval in seconds after which WAL file will be closed if there is no "
-          + "any IO operations on this file (in seconds), default value is 10",
-      Integer.class,
-      10,
-      false),
-
-  WAL_SEGMENT_BUFFER_SIZE(
-      "storage.wal.segmentBufferSize",
-      "Size of the buffer which contains WAL records in serialized format " + "in megabytes",
-      Integer.class,
-      32),
-
   WAL_MAX_SEGMENT_SIZE(
       "storage.wal.maxSegmentSize",
       "Maximum size of single WAL segment (in megabytes)",
@@ -433,13 +303,13 @@ public enum GlobalConfiguration {
       "storage.wal.minSegSize",
       "Minimal value of maximum WAL segment size in MB",
       Integer.class,
-      6 * 1024),
+      6 << 10),
 
   WAL_MIN_COMPRESSED_RECORD_SIZE(
       "storage.wal.minCompressedRecordSize",
       "Minimum size of record which is needed to be compressed before stored on disk",
       Integer.class,
-      8 * 1024),
+      8 << 10),
 
   WAL_MAX_SIZE(
       "storage.wal.maxSize", "Maximum size of WAL on disk (in megabytes)", Integer.class, -1),
@@ -482,19 +352,6 @@ public enum GlobalConfiguration {
       Integer.class,
       1000),
 
-  WAL_FUZZY_CHECKPOINT_SHUTDOWN_TIMEOUT(
-      "storage.wal.fuzzyCheckpointShutdownWait",
-      "The amount of time the DB should wait until it shuts down (in seconds)",
-      Integer.class,
-      60 * 10),
-
-  WAL_FULL_CHECKPOINT_SHUTDOWN_TIMEOUT(
-      "storage.wal.fullCheckpointShutdownTimeout",
-      "The amount of time the DB will wait, until a checkpoint is finished, during a DB shutdown"
-          + " (in seconds)",
-      Integer.class,
-      60 * 10),
-
   WAL_LOCATION(
       "storage.wal.path",
       "Path to the WAL file on the disk. By default, it is placed in the DB directory, but"
@@ -508,60 +365,6 @@ public enum GlobalConfiguration {
       Integer.class,
       8),
 
-  DISK_CACHE_PRINT_FLUSH_TILL_SEGMENT_STATISTICS(
-      "storage.diskCache.printFlushTillSegmentStatistics",
-      "Print information about write cache state when it is requested to flush all data operations"
-          + " on which are logged till provided WAL segment",
-      Boolean.class,
-      true),
-
-  DISK_CACHE_PRINT_FLUSH_FILE_STATISTICS(
-      "storage.diskCache.printFlushFileStatistics",
-      "Print information about write cache state when it is requested to flush all data of file"
-          + " specified",
-      Boolean.class,
-      true),
-
-  DISK_CACHE_PRINT_FILE_REMOVE_STATISTICS(
-      "storage.diskCache.printFileRemoveStatistics",
-      "Print information about write cache state when it is requested to clear all data of file"
-          + " specified",
-      Boolean.class,
-      true),
-
-  DISK_CACHE_WAL_SIZE_TO_START_FLUSH(
-      "storage.diskCache.walSizeToStartFlush",
-      "WAL size after which pages in write cache will be started to flush",
-      Long.class,
-      6 * 1024L * 1024 * 1024),
-
-  DISK_CACHE_EXCLUSIVE_FLUSH_BOUNDARY(
-      "storage.diskCache.exclusiveFlushBoundary",
-      "If portion of exclusive pages into cache exceeds this value we start to flush only exclusive"
-          + " pages from disk cache",
-      Float.class,
-      0.9),
-
-  DISK_CACHE_CHUNK_SIZE(
-      "storage.diskCache.chunkSize",
-      "Maximum distance between two pages after which they are not treated as single continous"
-          + " chunk",
-      Integer.class,
-      256),
-
-  DISK_CACHE_EXCLUSIVE_PAGES_BOUNDARY(
-      "storage.diskCache.exclusiveBoundary",
-      "Portion of exclusive pages in write cache after which we will start to flush only exclusive"
-          + " pages",
-      Float.class,
-      0.7),
-
-  DISK_CACHE_WAL_SIZE_TO_STOP_FLUSH(
-      "storage.diskCache.walSizeToStopFlush",
-      "WAL size reaching which pages in write cache will be prevented from flush",
-      Long.class,
-      2 * 1024L * 1024 * 1024),
-
   DISK_CACHE_FREE_SPACE_LIMIT(
       "storage.diskCache.diskFreeSpaceLimit",
       "Minimum amount of space on disk, which, when exceeded, "
@@ -574,23 +377,6 @@ public enum GlobalConfiguration {
       "Maximum amount of time (in ms) to lock the storage",
       Integer.class,
       0),
-
-  STORAGE_RECORD_LOCK_TIMEOUT(
-      "storage.record.lockTimeout",
-      "Maximum of time (in ms) to lock a shared record",
-      Integer.class,
-      2000),
-
-  // DATABASE
-  OBJECT_SAVE_ONLY_DIRTY(
-      "object.saveOnlyDirty",
-      "Object Database only! It saves objects bound to dirty records",
-      Boolean.class,
-      false,
-      true),
-
-  DOCUMENT_BINARY_MAPPING(
-      "entity.binaryMapping", "Mapping approach for binary fields", Integer.class, 0),
 
   // DATABASE
   DB_POOL_MIN("db.pool.min", "Default database pool minimum size", Integer.class, 1),
@@ -619,22 +405,6 @@ public enum GlobalConfiguration {
       Integer.class,
       60000),
 
-  DB_SKIP_BROKEN_RECORDS(
-      "db.skipBrokenRecords",
-      "Indicates whether the database should skip broken records during "
-          + "iteration over query result set or not (true by default)",
-      Boolean.class,
-      true),
-
-  DB_MVCC_THROWFAST(
-      "db.mvcc.throwfast",
-      "Use fast-thrown exceptions for MVCC OConcurrentModificationExceptions. No context"
-          + " information will be available. Set to true, when these exceptions are thrown, but the"
-          + " details are not necessary",
-      Boolean.class,
-      false,
-      true),
-
   DB_VALIDATION(
       "db.validation", "Enables or disables validation of records", Boolean.class, true, true),
 
@@ -647,29 +417,11 @@ public enum GlobalConfiguration {
       40,
       true),
 
-  INDEX_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD(
-      "index.sbtreeBonsaiToEmbeddedThreshold",
-      "Amount of values, after which index implementation will use an embedded values container"
-          + " (disabled by default)",
-      Integer.class,
-      -1,
-      true),
-
-  HASH_TABLE_SPLIT_BUCKETS_BUFFER_LENGTH(
-      "hashTable.slitBucketsBuffer.length",
-      "Length of buffer (in pages), where buckets that were split, but not flushed to the disk, are"
-          + " kept. This buffer is used to minimize random IO overhead",
-      Integer.class,
-      1500),
-
   INDEX_SYNCHRONOUS_AUTO_REBUILD(
       "index.auto.synchronousAutoRebuild",
       "Synchronous execution of auto rebuilding of indexes, in case of a DB crash",
       Boolean.class,
       Boolean.TRUE),
-
-  INDEX_FLUSH_AFTER_CREATE(
-      "index.flushAfterCreate", "Flush storage buffer after index creation", Boolean.class, true),
 
   INDEX_ALLOW_MANUAL_INDEXES(
       "index.allowManualIndexes",
@@ -718,26 +470,6 @@ public enum GlobalConfiguration {
           + " page in bytes (40960 by default)",
       Integer.class,
       40960),
-
-  SBTREEBONSAI_BUCKET_SIZE(
-      "sbtreebonsai.bucketSize",
-      "Size of bucket in EdgeBTree (in kB). Contract: bucketSize < storagePageSize,"
-          + " storagePageSize % bucketSize == 0",
-      Integer.class,
-      2),
-
-  SBTREEBONSAI_LINKBAG_CACHE_SIZE(
-      "sbtreebonsai.linkBagCache.size",
-      "Amount of LINKBAG collections to be cached, to avoid constant reloading of data",
-      Integer.class,
-      100000),
-
-  SBTREEBONSAI_LINKBAG_CACHE_EVICTION_SIZE(
-      "sbtreebonsai.linkBagCache.evictionSize",
-      "The number of cached LINKBAG collections, which will be removed, when the cache limit is"
-          + " reached",
-      Integer.class,
-      1000),
 
   SBTREEBOSAI_FREE_SPACE_REUSE_TRIGGER(
       "sbtreebonsai.freeSpaceReuseTrigger",
@@ -841,13 +573,6 @@ public enum GlobalConfiguration {
       3600000 /* one hour */,
       true),
 
-  NETWORK_SOCKET_RETRY_STRATEGY(
-      "network.retry.strategy",
-      "Select the retry server selection strategy, possible values are auto,same-dc ",
-      String.class,
-      "auto",
-      true),
-
   NETWORK_SOCKET_RETRY(
       "network.retry",
       "Number of attempts to connect to the server on failure",
@@ -908,10 +633,6 @@ public enum GlobalConfiguration {
       true),
 
   // HTTP
-
-  /**
-   * Since v2.2.8
-   */
   NETWORK_HTTP_INSTALL_DEFAULT_COMMANDS(
       "network.http.installDefaultCommands",
       "Installs the default HTTP commands",
@@ -989,9 +710,6 @@ public enum GlobalConfiguration {
       Boolean.class,
       true),
 
-  /**
-   * @since 2.2.27
-   */
   PROFILER_MEMORYCHECK_INTERVAL(
       "youtrackdb.profiler.memoryCheckInterval",
       "Checks the memory usage every configured milliseconds. Use 0 to disable it",
@@ -1020,44 +738,6 @@ public enum GlobalConfiguration {
           + " computed as random between 1 and this number",
       Integer.class,
       200),
-
-  /**
-   * Interval between snapshots of profiler state in milliseconds, default value is 100.
-   */
-  STORAGE_PROFILER_SNAPSHOT_INTERVAL(
-      "storageProfiler.intervalBetweenSnapshots",
-      "Interval between snapshots of profiler state in milliseconds",
-      Integer.class,
-      100),
-
-  STORAGE_PROFILER_CLEANUP_INTERVAL(
-      "storageProfiler.cleanUpInterval",
-      "Interval between time series in milliseconds",
-      Integer.class,
-      5000),
-
-  // LOG
-  LOG_CONSOLE_LEVEL(
-      "log.console.level",
-      "Console logging level",
-      String.class,
-      "info",
-      new ConfigurationChangeCallback() {
-        public void change(final Object iCurrentValue, final Object iNewValue) {
-          LogManager.instance().setLevel((String) iNewValue, ConsoleHandler.class);
-        }
-      }),
-
-  LOG_FILE_LEVEL(
-      "log.file.level",
-      "File logging level",
-      String.class,
-      "info",
-      new ConfigurationChangeCallback() {
-        public void change(final Object iCurrentValue, final Object iNewValue) {
-          LogManager.instance().setLevel((String) iNewValue, FileHandler.class);
-        }
-      }),
 
   // CLASS
   CLASS_MINIMUM_CLUSTERS(
@@ -1146,13 +826,6 @@ public enum GlobalConfiguration {
       Long.class,
       1000),
 
-  QUERY_SCAN_THRESHOLD_TIP(
-      "query.scanThresholdTip",
-      "If the total number of records scanned in a query exceeds this setting, then a warning is"
-          + " given. (Use 0 to disable)",
-      Long.class,
-      50000),
-
   QUERY_LIMIT_THRESHOLD_TIP(
       "query.limitThresholdTip",
       "If the total number of returned records exceeds this value, then a warning is given. (Use 0"
@@ -1181,19 +854,6 @@ public enum GlobalConfiguration {
       "Number of parsed SQL statements kept in cache. Zero means cache disabled",
       Integer.class,
       100),
-
-  // GRAPH
-  SQL_GRAPH_CONSISTENCY_MODE(
-      "sql.graphConsistencyMode",
-      "Consistency mode for graphs. It can be 'tx' (default), 'notx_sync_repair' and"
-          + " 'notx_async_repair'. 'tx' uses transactions to maintain consistency. Instead both"
-          + " 'notx_sync_repair' and 'notx_async_repair' do not use transactions, and the"
-          + " consistency, in case of JVM crash, is guaranteed by a database repair operation that"
-          + " run at startup. With 'notx_sync_repair' the repair is synchronous, so the database"
-          + " comes online after the repair is ended, while with 'notx_async_repair' the repair is"
-          + " a background process",
-      String.class,
-      "tx"),
 
   /**
    * Maximum size of pool of network channels between client and server. A channel is a TCP/IP
@@ -1250,12 +910,6 @@ public enum GlobalConfiguration {
       Boolean.class,
       false),
 
-  SERVER_DATABASE_PATH(
-      "server.database.path",
-      "The path where are located the databases of a server",
-      String.class,
-      null),
-
   SERVER_CHANNEL_CLEAN_DELAY(
       "server.channel.cleanDelay",
       "Time in ms of delay to check pending closed connections",
@@ -1293,21 +947,14 @@ public enum GlobalConfiguration {
       String.class,
       "RecordSerializerBinary"),
 
-  /**
-   * @since 2.2
-   */
+
   CLIENT_KRB5_CONFIG(
       "client.krb5.config", "Location of the Kerberos configuration file", String.class, null),
 
-  /**
-   * @since 2.2
-   */
   CLIENT_KRB5_CCNAME(
       "client.krb5.ccname", "Location of the Kerberos client ticketcache", String.class, null),
 
-  /**
-   * @since 2.2
-   */
+
   CLIENT_KRB5_KTNAME(
       "client.krb5.ktname", "Location of the Kerberos client keytab", String.class, null),
 
@@ -1324,9 +971,6 @@ public enum GlobalConfiguration {
       Boolean.class,
       true),
 
-  /**
-   * @since 2.2
-   */
   CLIENT_CREDENTIAL_INTERCEPTOR(
       "client.credentialinterceptor",
       "The name of the CredentialInterceptor class",
@@ -1359,9 +1003,7 @@ public enum GlobalConfiguration {
       false,
       true),
 
-  /**
-   * @since 2.2
-   */
+
   CREATE_DEFAULT_USERS(
       "security.createDefaultUsers",
       "Indicates whether default database users should be created",
@@ -1372,25 +1014,10 @@ public enum GlobalConfiguration {
       "Indicates whether access with default users should show a warning",
       Boolean.class,
       true),
-  /**
-   * @since 2.2
-   */
+
   SERVER_SECURITY_FILE(
       "server.security.file",
       "Location of the YouTrackDB security.json configuration file",
-      String.class,
-      null),
-
-  // CLOUD
-  CLOUD_PROJECT_TOKEN(
-      "cloud.project.token",
-      "The token used to authenticate this project on the cloud platform",
-      String.class,
-      null),
-
-  CLOUD_PROJECT_ID(
-      "cloud.project.id",
-      "The ID used to identify this project on the cloud platform",
       String.class,
       null),
 
@@ -1417,7 +1044,7 @@ public enum GlobalConfiguration {
       false),
 
   TX_BATCH_SIZE(
-      "tx.batchSize",
+      "youtrackdb.tx.batchSize",
       "Size of the single batch by default in case of call to the"
           + " DatabaseSession#executeInTxBatches call. 1_000 by default.",
       Integer.class,
@@ -1426,13 +1053,6 @@ public enum GlobalConfiguration {
   CLIENT_CHANNEL_IDLE_TIMEOUT(
       "client.channel.idleTimeout", "sockets maximum time idle in seconds", Integer.class, 900),
 
-  ENTERPRISE_METRICS_MAX(
-      "emterprise.metrics.max",
-      "Top limit of number of metrics that the enterprise edition can keep in memory",
-      Integer.class,
-      2500,
-      false,
-      false),
   EXECUTOR_DEBUG_TRACE_SOURCE(
       "executor.debug.traceSource",
       "Enable tracing of the source that submit a task in database executor in case of exception",
@@ -1471,24 +1091,9 @@ public enum GlobalConfiguration {
   private final ConfigurationChangeCallback changeCallback;
   private final Boolean canChangeAtRuntime;
   private final boolean hidden;
-  private boolean env;
+  private final boolean env;
 
   private volatile Object value = nullValue;
-
-  GlobalConfiguration(
-      final String iKey,
-      final String iDescription,
-      final Class<?> iType,
-      final Object iDefValue,
-      final ConfigurationChangeCallback iChangeAction) {
-    key = iKey;
-    description = iDescription;
-    defValue = iDefValue;
-    type = iType;
-    canChangeAtRuntime = true;
-    hidden = false;
-    changeCallback = iChangeAction;
-  }
 
   GlobalConfiguration(
       final String iKey, final String iDescription, final Class<?> iType, final Object iDefValue) {

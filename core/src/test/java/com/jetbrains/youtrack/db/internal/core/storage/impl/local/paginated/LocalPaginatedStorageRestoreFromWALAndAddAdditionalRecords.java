@@ -49,7 +49,6 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
 
   @BeforeClass
   public static void beforeClass() {
-    GlobalConfiguration.STORAGE_COMPRESSION_METHOD.setValue("nothing");
     GlobalConfiguration.FILE_LOCK.setValue(false);
 
     var buildDirectory = System.getProperty("buildDirectory", ".");

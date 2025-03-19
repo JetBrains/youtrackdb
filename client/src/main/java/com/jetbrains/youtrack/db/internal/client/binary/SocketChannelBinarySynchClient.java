@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.client.binary;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import java.io.IOException;
 
 /**

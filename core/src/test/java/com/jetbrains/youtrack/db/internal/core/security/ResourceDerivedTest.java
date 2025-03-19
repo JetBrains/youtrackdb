@@ -147,7 +147,7 @@ public class ResourceDerivedTest {
     try {
       var result = query(db, "SELECT FROM Customer");
 
-      assertThat(result).hasSize(3);
+      assertThat(result.stream().toList()).hasSize(3);
       tx.commit();
     } finally {
       db.close();
@@ -164,7 +164,7 @@ public class ResourceDerivedTest {
     try {
       var result = query(db, "SELECT FROM Customer_t2");
 
-      assertThat(result).hasSize(1);
+      assertThat(result.toList()).hasSize(1);
       tx.commit();
     } finally {
       db.close();
@@ -178,7 +178,7 @@ public class ResourceDerivedTest {
     var tx = db.begin();
     try {
       var result = query(db, "SELECT FROM Customer_u2");
-      assertThat(result).hasSize(0);
+      assertThat(result.toList()).hasSize(0);
     } finally {
       tx.rollback();
       db.close();
@@ -190,7 +190,7 @@ public class ResourceDerivedTest {
     var tx = db.begin();
     try {
       var result = query(db, "SELECT FROM Customer");
-      assertThat(result).hasSize(0);
+      assertThat(result.toList()).hasSize(0);
     } finally {
       tx.rollback();
       db.close();
@@ -207,7 +207,7 @@ public class ResourceDerivedTest {
     try {
       var result = query(db, "SELECT FROM Customer_t2");
 
-      assertThat(result).hasSize(2);
+      assertThat(result.toList()).hasSize(2);
       tx.commit();
     } finally {
       db.close();

@@ -8,7 +8,6 @@ import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Spliterator;
 import java.util.function.Consumer;
@@ -18,11 +17,7 @@ import java.util.stream.StreamSupport;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- *
- */
 public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCloseable {
-
   @Override
   boolean hasNext();
 
@@ -38,38 +33,8 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
   @Nullable
   ExecutionPlan getExecutionPlan();
 
-  Map<String, Long> getQueryStats();
-
   @Nullable
   DatabaseSession getBoundToSession();
-
-  default void reset() {
-    throw new UnsupportedOperationException("Implement RESET on " + getClass().getSimpleName());
-  }
-
-  default boolean tryAdvance(Consumer<? super Result> action) {
-    if (hasNext()) {
-      action.accept(next());
-      return true;
-    }
-    return false;
-  }
-
-  default void forEachRemaining(Consumer<? super Result> action) {
-    Spliterator.super.forEachRemaining(action);
-  }
-
-  default ResultSet trySplit() {
-    return null;
-  }
-
-  default long estimateSize() {
-    return Long.MAX_VALUE;
-  }
-
-  default int characteristics() {
-    return ORDERED;
-  }
 
   /**
    * Returns the result set as a stream. IMPORTANT: the stream consumes the result set!
@@ -405,5 +370,8 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
   default void forEachStatefulEdge(Consumer<? super StatefulEdge> action) {
     statefulEdgeStream().forEach(action);
   }
+
+  @Override
+  void forEachRemaining(Consumer<? super Result> action);
 }
 

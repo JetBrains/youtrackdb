@@ -1,6 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.config;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.text.SimpleDateFormat;
 import java.util.List;

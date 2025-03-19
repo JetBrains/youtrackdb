@@ -20,11 +20,11 @@
 
 package com.jetbrains.youtrack.db.internal.core.db;
 
-import com.jetbrains.youtrack.db.api.config.YouTrackDBConfigBuilder;
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.session.SessionListener;
 import com.jetbrains.youtrack.db.api.DatabaseSession.ATTRIBUTES;
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.config.YouTrackDBConfigBuilder;
+import com.jetbrains.youtrack.db.api.session.SessionListener;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.config.NodeConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.config.NodeConfigurationBuilder;
 import com.jetbrains.youtrack.db.internal.core.security.GlobalUser;
@@ -108,7 +108,6 @@ public class YouTrackDBConfigBuilderImpl implements YouTrackDBConfigBuilder {
         users);
   }
 
-  @Override
   public YouTrackDBConfigBuilderImpl fromContext(final ContextConfiguration contextConfiguration) {
     configurations = contextConfiguration;
     return this;

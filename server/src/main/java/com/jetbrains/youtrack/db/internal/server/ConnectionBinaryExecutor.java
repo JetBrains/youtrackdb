@@ -162,6 +162,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -1056,7 +1057,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
         rsCopy,
         rs.getExecutionPlan(),
         false,
-        rs.getQueryStats(),
+        Collections.emptyMap(),
         false);
   }
 
@@ -1118,7 +1119,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
         rsCopy,
         rs.getExecutionPlan(),
         hasNext,
-        rs.getQueryStats(),
+        Collections.emptyMap(),
         metadataListener.isUpdated());
   }
 
@@ -1165,7 +1166,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
           rsCopy,
           rs.getExecutionPlan(),
           hasNext,
-          rs.getQueryStats(),
+          Collections.emptyMap(),
           false);
     } finally {
       youTrackDB.endCommand();

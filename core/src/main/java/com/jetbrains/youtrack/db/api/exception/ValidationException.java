@@ -24,7 +24,6 @@ import com.jetbrains.youtrack.db.internal.common.exception.ErrorCode;
 import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
 
 public class ValidationException extends CoreException implements HighLevelException {
-
   public ValidationException(ValidationException exception) {
     super(exception, ErrorCode.VALIDATION_ERROR);
   }

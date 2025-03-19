@@ -23,7 +23,6 @@ package com.jetbrains.youtrack.db.internal.core.storage.disk;
 import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.MASTER_RECORD_EXTENSION;
 import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.WAL_SEGMENT_EXTENSION;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BackupInProgressException;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
@@ -45,6 +44,7 @@ import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.compression.impl.ZIPCompressionUtil;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;

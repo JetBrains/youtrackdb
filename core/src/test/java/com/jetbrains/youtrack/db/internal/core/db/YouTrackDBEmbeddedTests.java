@@ -109,7 +109,7 @@ public class YouTrackDBEmbeddedTests {
               db.executeInTx(transaction -> {
                 assertThat(((DatabaseSessionInternal) db).isActiveOnCurrentThread()).isTrue();
                 final var res = transaction.query("SELECT * FROM OUser");
-                assertThat(res).hasSize(1); // Only 'admin' created in this test
+                assertThat(res.toList()).hasSize(1); // Only 'admin' created in this test
               });
             }
           };

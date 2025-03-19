@@ -20,7 +20,6 @@ import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.NETWORK_S
 import static com.jetbrains.youtrack.db.internal.client.remote.StorageRemote.ADDRESS_SEPARATOR;
 
 import com.jetbrains.youtrack.db.api.DatabaseType;
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
@@ -47,6 +46,7 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.thread.ThreadPoolExecutors;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.CachedDatabasePoolFactory;
 import com.jetbrains.youtrack.db.internal.core.db.CachedDatabasePoolFactoryImpl;
 import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolImpl;
@@ -196,7 +196,8 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
       DatabaseType databaseType,
       YouTrackDBConfig config) {
 
-    config = solveConfig((YouTrackDBConfigImpl) config);
+    var configImpl = (YouTrackDBConfigImpl) config;
+    configImpl = solveConfig(configImpl);
 
     if (name == null || name.length() <= 0 || name.contains("`")) {
       final var message = "Cannot create unnamed remote storage. Check your syntax";
@@ -205,13 +206,13 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
     }
     var create = String.format("CREATE DATABASE `%s` %s ", name, databaseType.name());
     Map<String, Object> parameters = new HashMap<String, Object>();
-    var keys = config.getConfiguration().getContextKeys();
+    var keys = configImpl.getConfiguration().getContextKeys();
     if (!keys.isEmpty()) {
       List<String> entries = new ArrayList<String>();
       for (var key : keys) {
         var globalKey = GlobalConfiguration.findByKey(key);
         entries.add(String.format("\"%s\": :%s", key, globalKey.name()));
-        parameters.put(globalKey.name(), config.getConfiguration().getValue(globalKey));
+        parameters.put(globalKey.name(), configImpl.getConfiguration().getValue(globalKey));
       }
       create += String.format("{\"config\":{%s}}", String.join(",", entries));
     }

@@ -3,11 +3,11 @@ package com.jetbrains.youtrack.db.internal.server.network;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.client.remote.RemotePushHandler;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemotePushThread;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushResponse;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;

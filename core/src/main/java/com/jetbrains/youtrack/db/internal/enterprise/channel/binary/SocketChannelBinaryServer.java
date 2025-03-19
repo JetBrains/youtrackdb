@@ -20,7 +20,7 @@
 
 package com.jetbrains.youtrack.db.internal.enterprise.channel.binary;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.DataInputStream;

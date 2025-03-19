@@ -61,7 +61,6 @@ public class LocalPaginatedStorageRestoreFromWALIT {
 
   @BeforeClass
   public static void beforeClass() {
-    GlobalConfiguration.STORAGE_COMPRESSION_METHOD.setValue("nothing");
     GlobalConfiguration.FILE_LOCK.setValue(false);
     GlobalConfiguration.WAL_FUZZY_CHECKPOINT_INTERVAL.setValue(100000000);
 

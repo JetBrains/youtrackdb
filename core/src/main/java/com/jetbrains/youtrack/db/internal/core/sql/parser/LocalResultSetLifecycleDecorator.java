@@ -9,8 +9,8 @@ import com.jetbrains.youtrack.db.internal.core.db.QueryLifecycleListener;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 
 /**
  *
@@ -77,11 +77,6 @@ public class LocalResultSetLifecycleDecorator implements ResultSet {
     return entity.getExecutionPlan();
   }
 
-  @Override
-  public Map<String, Long> getQueryStats() {
-    return entity.getQueryStats();
-  }
-
   public String getQueryId() {
     return queryId;
   }
@@ -100,5 +95,36 @@ public class LocalResultSetLifecycleDecorator implements ResultSet {
 
   public ResultSet getInternal() {
     return entity;
+  }
+
+  @Override
+  public boolean tryAdvance(Consumer<? super Result> action) {
+    if (hasNext()) {
+      action.accept(next());
+      return true;
+    }
+    return false;
+  }
+
+  @Override
+  public ResultSet trySplit() {
+    return null;
+  }
+
+  @Override
+  public long estimateSize() {
+    return Long.MAX_VALUE;
+  }
+
+  @Override
+  public int characteristics() {
+    return ORDERED;
+  }
+
+  @Override
+  public void forEachRemaining(Consumer<? super Result> action) {
+    while (hasNext()) {
+      action.accept(next());
+    }
   }
 }

@@ -4,7 +4,6 @@ import static com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTxInter
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
@@ -34,6 +33,7 @@ import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
