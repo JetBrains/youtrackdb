@@ -2,8 +2,8 @@ package com.jetbrains.youtrack.db.internal.core.security.symmetrickey;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import org.junit.Test;
 
 /**
@@ -12,7 +12,7 @@ import org.junit.Test;
 public class SymmetricKeyTest extends DbTestBase {
 
   private void command(DatabaseSession db, String sql, Object... params) {
-    db.execute(sql, params).close();
+    db.runScript("sql", sql, params).close();
   }
 
   @Test

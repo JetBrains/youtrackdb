@@ -27,14 +27,16 @@ public final class LinkConverter implements ValuesConverter<Identifiable> {
       return ImportConvertersFactory.BROKEN_LINK;
     }
 
-    try (final var resultSet =
-        converterData.session.query(
-            "select value from " + DatabaseImport.EXPORT_IMPORT_CLASS_NAME + " where key = ?",
-            rid.toString())) {
-      if (resultSet.hasNext()) {
-        return new RecordId(resultSet.next().<String>getProperty("value"));
+    return converterData.session.computeInTx(transaction -> {
+      try (final var resultSet =
+          transaction.query(
+              "select value from " + DatabaseImport.EXPORT_IMPORT_CLASS_NAME + " where key = ?",
+              rid.toString())) {
+        if (resultSet.hasNext()) {
+          return new RecordId(resultSet.next().<String>getProperty("value"));
+        }
+        return value;
       }
-      return value;
-    }
+    });
   }
 }

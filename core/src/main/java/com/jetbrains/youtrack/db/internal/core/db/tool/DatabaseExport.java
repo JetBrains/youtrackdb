@@ -132,7 +132,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
 
       var time = System.nanoTime();
 
-      session.executeInTx(() -> {
+      session.executeInTx(transaction -> {
         try {
           exportInfo();
           exportClusters();
@@ -199,7 +199,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
           var it = session.browseCluster(clusterName);
 
           while (it.hasNext()) {
-            rec = (RecordAbstract) it.next();
+            rec = it.next();
             if (rec instanceof EntityImpl entity) {
               // CHECK IF THE CLASS OF THE DOCUMENT IS INCLUDED
               final var className =

@@ -22,14 +22,23 @@ package com.jetbrains.youtrack.db.internal.core.tx;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
+import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.jetbrains.youtrack.db.api.record.Edge;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.RecordHook.TYPE;
+import com.jetbrains.youtrack.db.api.record.StatefulEdge;
+import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
@@ -134,7 +143,7 @@ public class FrontendTransactionImpl implements
     readOnly = false;
   }
 
-  public int begin() {
+  public int beginInternal() {
     if (txStartCounter < 0) {
       throw new TransactionException(session, "Invalid value of TX counter: " + txStartCounter);
     }
@@ -159,8 +168,8 @@ public class FrontendTransactionImpl implements
     return txStartCounter;
   }
 
-  public void commit() {
-    commit(false);
+  public void commitInternal() {
+    commitInternal(false);
   }
 
   /**
@@ -170,7 +179,7 @@ public class FrontendTransactionImpl implements
    * @param force commit transaction even
    */
   @Override
-  public void commit(final boolean force) {
+  public void commitInternal(final boolean force) {
     checkTransactionValid();
     if (txStartCounter < 0) {
       throw new TransactionException(session.getDatabaseName(),
@@ -283,7 +292,7 @@ public class FrontendTransactionImpl implements
             new FrontendTransactionRecordIndexOperation(iIndexName, key, iOperation));
       }
     } catch (Exception e) {
-      rollback(true, 0);
+      rollbackInternal(true, 0);
       throw e;
     }
   }
@@ -300,8 +309,8 @@ public class FrontendTransactionImpl implements
     return txStartCounter;
   }
 
-  public void rollback() {
-    rollback(false, -1);
+  public void rollbackInternal() {
+    rollbackInternal(false, -1);
   }
 
   public void internalRollback() {
@@ -332,7 +341,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public void rollback(boolean force, int commitLevelDiff) {
+  public void rollbackInternal(boolean force, int commitLevelDiff) {
     if (txStartCounter < 0) {
       throw new TransactionException(session, "Invalid value of TX counter");
     }
@@ -393,7 +402,7 @@ public class FrontendTransactionImpl implements
       //execute it here because after this operation record will be unloaded
       preProcessRecordsAndExecuteCallCallbacks();
     } catch (Exception e) {
-      rollback(true, 0);
+      rollbackInternal(true, 0);
       throw e;
     }
   }
@@ -512,7 +521,7 @@ public class FrontendTransactionImpl implements
         operationsBetweenCallbacks.put(record.getIdentity(), txEntry);
       }
     } catch (Exception e) {
-      rollback(true, 0);
+      rollbackInternal(true, 0);
       throw e;
     }
 
@@ -545,7 +554,7 @@ public class FrontendTransactionImpl implements
       }
 
     } catch (Exception e) {
-      rollback(true, 0);
+      rollbackInternal(true, 0);
       throw e;
     }
 
@@ -1198,6 +1207,228 @@ public class FrontendTransactionImpl implements
     this.session = session;
   }
 
+  @Override
+  public DatabaseSession getSession() {
+    return session;
+  }
+
+  @Override
+  public <T extends Identifiable> T bindToSession(T identifiable) {
+    checkIfActive();
+    return session.bindToSession(identifiable);
+  }
+
+  @Nonnull
+  @Override
+  public Entity loadEntity(RID id) throws DatabaseException, RecordNotFoundException {
+    checkIfActive();
+    return session.loadEntity(id);
+  }
+
+  @Nonnull
+  @Override
+  public Vertex loadVertex(RID id) throws DatabaseException, RecordNotFoundException {
+    checkIfActive();
+    return session.loadVertex(id);
+  }
+
+  @Nonnull
+  @Override
+  public Edge loadEdge(RID id) throws DatabaseException, RecordNotFoundException {
+    checkIfActive();
+    return session.loadEdge(id);
+  }
+
+  @Nonnull
+  @Override
+  public Blob loadBlob(RID id) throws DatabaseException, RecordNotFoundException {
+    checkIfActive();
+    return session.loadBlob(id);
+  }
+
+  @Override
+  public Blob newBlob(byte[] bytes) {
+    checkIfActive();
+    return session.newBlob(bytes);
+  }
+
+  @Override
+  public Blob newBlob() {
+    checkIfActive();
+    return session.newBlob();
+  }
+
+  @Override
+  public Entity newEntity(String className) {
+    checkIfActive();
+    return session.newEntity(className);
+  }
+
+  @Override
+  public Entity newEntity(SchemaClass cls) {
+    checkIfActive();
+    return session.newEntity(cls);
+  }
+
+  @Override
+  public Entity newEntity() {
+    checkIfActive();
+    return session.newEntity();
+  }
+
+  @Override
+  public Entity newEmbeddedEntity(SchemaClass schemaClass) {
+    checkIfActive();
+    return session.newEmbeddedEntity(schemaClass);
+  }
+
+  @Override
+  public Entity newEmbeddedEntity(String schemaClass) {
+    checkIfActive();
+    return session.newEmbeddedEntity(schemaClass);
+  }
+
+  @Override
+  public Entity newEmbeddedEntity() {
+    checkIfActive();
+    return session.newEmbeddedEntity();
+  }
+
+  @Override
+  public <T extends DBRecord> T createOrLoadRecordFromJson(String json) {
+    checkIfActive();
+    return session.createOrLoadRecordFromJson(json);
+  }
+
+  @Override
+  public Entity createOrLoadEntityFromJson(String json) {
+    checkIfActive();
+    return session.createOrLoadEntityFromJson(json);
+  }
+
+  @Override
+  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, SchemaClass type) {
+    checkIfActive();
+    return session.newStatefulEdge(from, to, type);
+  }
+
+  @Override
+  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, String type) {
+    checkIfActive();
+    return session.newStatefulEdge(from, to, type);
+  }
+
+  @Override
+  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull SchemaClass type) {
+    checkIfActive();
+    return session.newLightweightEdge(from, to, type);
+  }
+
+  @Override
+  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull String type) {
+    checkIfActive();
+    return session.newLightweightEdge(from, to, type);
+  }
+
+  @Override
+  public Vertex newVertex(SchemaClass type) {
+    checkIfActive();
+    return session.newVertex(type);
+  }
+
+  @Override
+  public Vertex newVertex(String type) {
+    checkIfActive();
+    return session.newVertex(type);
+  }
+
+  @Override
+  public StatefulEdge newStatefulEdge(Vertex from, Vertex to) {
+    checkIfActive();
+    return session.newStatefulEdge(from, to);
+  }
+
+  @Nonnull
+  @Override
+  public <RET extends DBRecord> RET load(RID recordId) {
+    checkIfActive();
+    return session.load(recordId);
+  }
+
+  @Nullable
+  @Override
+  public <RET extends DBRecord> RET loadSilently(RID recordId) {
+    checkIfActive();
+    return session.loadSilently(recordId);
+  }
+
+  @Override
+  public void delete(@Nonnull DBRecord record) {
+    checkIfActive();
+    session.delete(record);
+  }
+
+  @Override
+  public boolean commit() throws TransactionException {
+    checkIfActive();
+    return session.commit();
+  }
+
+  @Override
+  public void rollback() throws TransactionException {
+    checkIfActive();
+    session.rollback();
+  }
+
+  @Override
+  public ResultSet query(String query, Object... args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    checkIfActive();
+    return session.query(query, args);
+  }
+
+  @Override
+  public ResultSet query(String query, Map args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    checkIfActive();
+    return session.query(query, args);
+  }
+
+  @Override
+  public ResultSet execute(String query, Object... args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    checkIfActive();
+    return session.execute(query, args);
+  }
+
+  @Override
+  public ResultSet execute(String query, Map args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    checkIfActive();
+    return session.execute(query, args);
+  }
+
+  @Override
+  public void command(String query, Object... args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    checkIfActive();
+    session.command(query, args);
+  }
+
+  @Override
+  public void command(String query, Map args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    checkIfActive();
+    session.command(query, args);
+  }
+
+  private void checkIfActive() {
+    if (!isActive()) {
+      throw new TransactionException(session,
+          "Transaction is not active and can not be used.");
+    }
+  }
+
   private boolean isWriteTransaction() {
     return !recordOperations.isEmpty() || !indexEntries.isEmpty();
   }
@@ -1205,4 +1436,5 @@ public class FrontendTransactionImpl implements
   public static long generateTxId() {
     return txSerial.incrementAndGet();
   }
+
 }

@@ -7,7 +7,6 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import java.math.BigDecimal;
@@ -164,9 +163,11 @@ public class SQLFunctionAbsoluteValueTest {
         YouTrackDBConfig.defaultConfig())) {
       ctx.execute("create database test memory users(admin identified by 'adminpwd' role admin)");
       try (var db = ctx.open("test", "admin", "adminpwd")) {
-        try (var result = db.query("select abs(-45.4) as abs")) {
+        var tx = db.begin();
+        try (var result = tx.query("select abs(-45.4) as abs")) {
           assertThat(result.next().<Float>getProperty("abs")).isEqualTo(45.4f);
         }
+        tx.commit();
       }
       ctx.drop("test");
     }

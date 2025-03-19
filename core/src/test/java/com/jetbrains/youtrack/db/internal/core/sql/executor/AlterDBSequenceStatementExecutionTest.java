@@ -14,7 +14,7 @@ public class AlterDBSequenceStatementExecutionTest extends DbTestBase {
   public void testSetIncrement() {
     var sequenceName = "testSetStart";
     session.executeInTx(
-        () -> {
+        transaction -> {
           try {
             session.getMetadata()
                 .getSequenceLibrary()
@@ -36,7 +36,7 @@ public class AlterDBSequenceStatementExecutionTest extends DbTestBase {
     session.commit();
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var seq = session.getMetadata().getSequenceLibrary().getSequence(sequenceName);
           Assert.assertNotNull(seq);
           try {

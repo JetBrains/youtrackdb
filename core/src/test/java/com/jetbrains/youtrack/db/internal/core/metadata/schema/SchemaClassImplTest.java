@@ -71,7 +71,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     var oClass = oSchema.createClass("Test3");
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var document = (EntityImpl) session.newEntity("Test3");
           document.setProperty("some", "String");
         });
@@ -85,7 +85,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     var oClass = oSchema.createClass("Test4");
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var entity = session.newEntity("Test4");
           var list = session.newLinkList();
           list.add(session.newEntity("Test4"));
@@ -101,7 +101,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     var oClass = oSchema.createClass("Test5");
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var entity = session.newEntity("Test5");
           var set = session.newLinkSet();
           set.add(session.newEntity("Test5"));
@@ -118,7 +118,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     oSchema.createAbstractClass("Test69");
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var entity = session.newEntity("Test6");
           var list = session.newEmbeddedSet();
           list.add(session.newEmbeddedEntity("Test69"));
@@ -134,7 +134,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     var oClass = oSchema.createClass("Test7");
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var entity = session.newEntity("Test7");
           var list = session.newEmbeddedList();
           list.add(session.newEntity("Test7"));
@@ -151,7 +151,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     oSchema.createAbstractClass("Test89");
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var entity = session.newEntity("Test8");
           Map<String, EntityImpl> map = session.newEmbeddedMap();
           map.put("test", (EntityImpl) session.newEmbeddedEntity("Test89"));
@@ -168,7 +168,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     oSchema.createClass("Test8");
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var entity = session.newEntity("Test9");
           var map = session.newLinkMap();
           map.put("test", session.newEntity("Test8"));
@@ -185,7 +185,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
 
     var rid =
         session.computeInTx(
-            () -> {
+            transaction -> {
               var document = (EntityImpl) session.newEntity("Test10");
               // TODO add boolan and byte
               document.setProperty("test1", (short) 1);
@@ -228,7 +228,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
 
     var rid =
         session.computeInTx(
-            () -> {
+            transaction -> {
               var entity = session.newEntity("Test11");
               entity.newEmbeddedList("test1");
               entity.newLinkList("test2");
@@ -348,7 +348,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
 
     var rid =
         session.computeInTx(
-            () -> {
+            transaction -> {
               var document = (EntityImpl) session.newEntity("Test19");
               // TODO add boolean and byte
               document.setProperty("test1", (short) 1);
@@ -398,7 +398,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
 
     var rid =
         session.computeInTx(
-            () -> {
+            transaction -> {
               var document = (EntityImpl) session.newEntity("Test20");
               // TODO add boolan and byte
               document.setProperty("test1", (short) 1);
@@ -441,7 +441,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
 
     var rid =
         session.computeInTx(
-            () -> {
+            transaction -> {
               final var entity = session.newEntity("Test11bis");
               entity.newEmbeddedList("test1");
               entity.newLinkList("test2");

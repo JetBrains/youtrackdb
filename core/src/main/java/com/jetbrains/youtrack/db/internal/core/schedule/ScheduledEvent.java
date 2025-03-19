@@ -253,8 +253,8 @@ public class ScheduledEvent extends IdentityWrapper {
       for (var retry = 0; retry < 10; ++retry) {
         try {
           try {
-            return db.computeInTx(() -> {
-              var eventEntity = db.loadEntity(event.getIdentity());
+            return db.computeInTx(transaction -> {
+              var eventEntity = transaction.loadEntity(event.getIdentity());
               if (isEventAlreadyExecuted(eventEntity)) {
                 return false;
               }
@@ -273,8 +273,8 @@ public class ScheduledEvent extends IdentityWrapper {
             return false;
           }
         } catch (NeedRetryException e) {
-          if (db.computeInTx(() -> {
-            var eventEntity = db.loadEntity(event.getIdentity());
+          if (db.computeInTx(transaction -> {
+            var eventEntity = transaction.loadEntity(event.getIdentity());
             // CONCURRENT UPDATE, PROBABLY EXECUTED BY ANOTHER SERVER
             return isEventAlreadyExecuted(eventEntity);
           })) {
@@ -324,7 +324,7 @@ public class ScheduledEvent extends IdentityWrapper {
         context.setDatabaseSession(session);
 
         result = session.computeInTx(
-            () -> event.getFunction().executeInContext(context, event.getArguments()));
+            transaction -> event.getFunction().executeInContext(context, event.getArguments()));
       } finally {
         LogManager.instance()
             .info(
@@ -335,7 +335,7 @@ public class ScheduledEvent extends IdentityWrapper {
                 result);
         for (var retry = 0; retry < 10; ++retry) {
           session.executeInTx(
-              () -> {
+              transaction -> {
                 try {
                   event.status = STATUS.WAITING;
                   event.save(session);

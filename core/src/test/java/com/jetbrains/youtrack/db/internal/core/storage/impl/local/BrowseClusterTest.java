@@ -45,10 +45,10 @@ public class BrowseClusterTest {
   public void testBrowse() {
     var numberOfEntries = 4962;
     for (var i = 0; i < numberOfEntries; i++) {
-      db.begin();
-      var v = db.newVertex("One");
+      var tx = db.begin();
+      var v = tx.newVertex("One");
       v.setProperty("a", i);
-      db.commit();
+      tx.commit();
     }
     var cluster = db.getClass("One").getClusterIds()[0];
     var browser =

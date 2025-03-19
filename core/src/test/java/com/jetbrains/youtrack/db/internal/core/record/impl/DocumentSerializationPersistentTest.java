@@ -35,7 +35,7 @@ public class DocumentSerializationPersistentTest extends BaseMemoryInternalDatab
 
   @Test(expected = DatabaseException.class)
   public void testRidBagInEmbeddedDocument() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       var doc = (EntityImpl) session.newEntity();
       var rids = new RidBag(session);
       rids.add(new RecordId(2, 3));

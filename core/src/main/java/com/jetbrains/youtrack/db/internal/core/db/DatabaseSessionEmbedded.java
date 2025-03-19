@@ -248,7 +248,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   public void internalOpen(
       final String iUserName, final String iUserPassword, boolean checkPassword) {
     executeInTx(
-        () -> {
+        transaction -> {
           try {
             var security = sharedContext.getSecurity();
 
@@ -351,7 +351,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   protected void loadMetadata() {
     assert assertIfNotActive();
     executeInTx(
-        () -> {
+        transaction -> {
           metadata = new MetadataDefault(this);
           metadata.init(sharedContext);
           sharedContext.load(this);

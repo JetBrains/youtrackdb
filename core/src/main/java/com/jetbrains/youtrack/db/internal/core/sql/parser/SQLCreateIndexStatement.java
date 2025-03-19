@@ -158,7 +158,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
     }
 
     if (idx != null) {
-      return session.computeInTx(() -> idx.size(session));
+      return session.computeInTx(transaction -> idx.size(session));
     }
 
     return null;

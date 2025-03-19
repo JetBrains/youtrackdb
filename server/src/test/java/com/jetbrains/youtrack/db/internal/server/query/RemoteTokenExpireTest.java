@@ -88,23 +88,24 @@ public class RemoteTokenExpireTest {
   public void itShouldNotFailWithQuery() {
 
     waitAndClean();
-    try (var res = session.query("select from Some")) {
+    session.executeInTx(transaction -> {
+      try (var res = transaction.query("select from Some")) {
+        Assert.assertEquals(0, res.stream().count());
 
-      Assert.assertEquals(0, res.stream().count());
+      } catch (TokenSecurityException e) {
 
-    } catch (TokenSecurityException e) {
-
-      Assert.fail("It should not get the exception");
-    }
+        Assert.fail("It should not get the exception");
+      }
+    });
   }
 
   @Test
   public void itShouldNotFailWithCommand() {
 
     waitAndClean();
-    session.begin();
-    try (var res = session.execute("insert into V set name = 'foo'")) {
-      session.commit();
+    var tx = session.begin();
+    try (var res = tx.execute("insert into V set name = 'foo'")) {
+      tx.commit();
 
       Assert.assertEquals(1, res.stream().count());
 
@@ -133,16 +134,17 @@ public class RemoteTokenExpireTest {
 
     QUERY_REMOTE_RESULTSET_PAGE_SIZE.setValue(1);
 
-    try (var res = session.query("select from ORole")) {
+    session.executeInTx(transaction -> {
+      try (var res = transaction.query("select from ORole")) {
 
-      waitAndClean();
-      Assert.assertEquals(3, res.stream().count());
+        waitAndClean();
+        Assert.assertEquals(3, res.stream().count());
 
-    } catch (TokenSecurityException e) {
-      return;
-    } finally {
-      QUERY_REMOTE_RESULTSET_PAGE_SIZE.setValue(10);
-    }
+      } catch (TokenSecurityException e) {
+      } finally {
+        QUERY_REMOTE_RESULTSET_PAGE_SIZE.setValue(10);
+      }
+    });
     Assert.fail("It should get an exception");
   }
 
@@ -150,37 +152,36 @@ public class RemoteTokenExpireTest {
   public void itShouldNotFailWithNewTXAndQuery() {
 
     waitAndClean();
-    session.begin();
+    var tx = session.begin();
 
-    session.newEntity("Some");
-
-    try (var res = session.query("select from Some")) {
+    tx.newEntity("Some");
+    try (var res = tx.query("select from Some")) {
       Assert.assertEquals(1, res.stream().count());
     } catch (TokenSecurityException e) {
       Assert.fail("It should not get the expire exception");
     } finally {
-      session.rollback();
+      tx.rollback();
     }
   }
 
   @Test
   public void itShouldFailAtBeingAndQuery() {
 
-    session.begin();
+    var tx = session.begin();
 
-    session.newEntity("Some");
-
-    try (var resultSet = session.query("select from Some")) {
+    tx.newEntity("Some");
+    try (var resultSet = tx.query("select from Some")) {
       Assert.assertEquals(1, resultSet.stream().count());
     }
     waitAndClean();
 
     try {
-      session.query("select from Some");
+      tx.query("select from Some").close();
     } catch (TokenSecurityException e) {
-      session.rollback();
+      tx.rollback();
       return;
     }
+
     Assert.fail("It should not get the expire exception");
   }
 
@@ -201,18 +202,20 @@ public class RemoteTokenExpireTest {
 
     var session = pool.acquire();
 
-    try (var resultSet = session.query("select from Some")) {
-      Assert.assertEquals(0, resultSet.stream().count());
-    }
-
-    waitAndClean();
-    try {
-      try (var resultSet = session.query("select from Some")) {
+    session.executeInTx(transaction -> {
+      try (var resultSet = transaction.query("select from Some")) {
         Assert.assertEquals(0, resultSet.stream().count());
       }
-    } catch (TokenSecurityException e) {
-      Assert.fail("It should  get the expire exception");
-    }
+
+      waitAndClean();
+      try {
+        try (var resultSet = transaction.query("select from Some")) {
+          Assert.assertEquals(0, resultSet.stream().count());
+        }
+      } catch (TokenSecurityException e) {
+        Assert.fail("It should  get the expire exception");
+      }
+    });
     pool.close();
   }
 

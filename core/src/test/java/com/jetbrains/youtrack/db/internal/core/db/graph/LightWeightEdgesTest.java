@@ -30,29 +30,29 @@ public class LightWeightEdgesTest {
 
   @Test
   public void testSimpleLightWeight() {
-    session.begin();
-    var v = session.newVertex("Vertex");
-    var v1 = session.newVertex("Vertex");
+    var tx = session.begin();
+    var v = tx.newVertex("Vertex");
+    var v1 = tx.newVertex("Vertex");
     v.addLightWeightEdge(v1, "Edge");
     v.setProperty("name", "aName");
     v1.setProperty("name", "bName");
-    session.commit();
+    tx.commit();
 
-    session.begin();
+    tx = session.begin();
     try (var res =
-        session.query(" select expand(out('Edge')) from `Vertex` where name = 'aName'")) {
+        tx.query(" select expand(out('Edge')) from `Vertex` where name = 'aName'")) {
       assertTrue(res.hasNext());
       var r = res.next();
       assertEquals(r.getProperty("name"), "bName");
     }
 
     try (var res =
-        session.query(" select expand(in('Edge')) from `Vertex` where name = 'bName'")) {
+        tx.query(" select expand(in('Edge')) from `Vertex` where name = 'bName'")) {
       assertTrue(res.hasNext());
       var r = res.next();
       assertEquals(r.getProperty("name"), "aName");
     }
-    session.commit();
+    tx.commit();
   }
 
   @Test
@@ -66,15 +66,15 @@ public class LightWeightEdgesTest {
     vClass.createProperty("out_" + eClazz, PropertyType.LINKBAG, eClass);
     vClass.createProperty("in_" + eClazz, PropertyType.LINKBAG, eClass);
 
-    session.begin();
-    var v = session.newVertex(vClass);
+    var tx = session.begin();
+    var v = tx.newVertex(vClass);
     v.setProperty("name", "a");
-    var v1 = session.newVertex(vClass);
+    var v1 = tx.newVertex(vClass);
     v1.setProperty("name", "b");
-    session.commit();
+    tx.commit();
 
-    session.begin();
-    session.execute(
+    tx = session.begin();
+    tx.command(
         "create edge "
             + eClazz
             + " from (select from "
@@ -82,7 +82,7 @@ public class LightWeightEdgesTest {
             + " where name = 'a') to (select from "
             + vClazz
             + " where name = 'b') set name = 'foo'");
-    session.commit();
+    tx.commit();
 
     session.runScript(
         "sql",

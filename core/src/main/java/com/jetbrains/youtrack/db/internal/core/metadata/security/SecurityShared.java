@@ -144,7 +144,7 @@ public class SecurityShared implements SecurityInternal {
       final RestrictedOperation iOperation,
       final String iRoleName) {
     return session.computeInTx(
-        () -> {
+        transaction -> {
           final var role = getRoleRID(session, iRoleName);
           if (role == null) {
             throw new IllegalArgumentException("Role '" + iRoleName + "' not found");
@@ -161,7 +161,7 @@ public class SecurityShared implements SecurityInternal {
       final RestrictedOperation iOperation,
       final String iUserName) {
     return session.computeInTx(
-        () -> {
+        transaction -> {
           final var user = getUserRID(session, iUserName);
           if (user == null) {
             throw new IllegalArgumentException("User '" + iUserName + "' not found");
@@ -177,7 +177,7 @@ public class SecurityShared implements SecurityInternal {
       final String iAllowFieldName,
       final Identifiable iId) {
     return session.computeInTx(
-        () -> {
+        transaction -> {
           var field = entity.getOrCreateLinkSet(iAllowFieldName);
           field.add(iId);
 
@@ -192,7 +192,7 @@ public class SecurityShared implements SecurityInternal {
       final RestrictedOperation iOperation,
       final String iUserName) {
     return session.computeInTx(
-        () -> {
+        transaction -> {
           final var user = getUserRID(session, iUserName);
           if (user == null) {
             throw new IllegalArgumentException("User '" + iUserName + "' not found");
@@ -209,7 +209,7 @@ public class SecurityShared implements SecurityInternal {
       final RestrictedOperation iOperation,
       final String iRoleName) {
     return session.computeInTx(
-        () -> {
+        transaction -> {
           final var role = getRoleRID(session, iRoleName);
           if (role == null) {
             throw new IllegalArgumentException("Role '" + iRoleName + "' not found");
@@ -376,7 +376,7 @@ public class SecurityShared implements SecurityInternal {
     }
 
     EntityImpl result;
-    result = session.load(iRecordId);
+    result = ((DatabaseSessionInternal) session).load(iRecordId);
     if (!result.getSchemaClassName().equals(SecurityUserImpl.CLASS_NAME)) {
       result = null;
     }
@@ -419,7 +419,8 @@ public class SecurityShared implements SecurityInternal {
 
   public boolean dropUser(final DatabaseSession session, final String iUserName) {
     final Number removed;
-    try (var res = session.execute("delete from OUser where name = ?", iUserName)) {
+    try (var res = session.getActiveTransaction().
+        execute("delete from OUser where name = ?", iUserName)) {
       removed = res.next().getProperty("count");
     }
 
@@ -448,15 +449,18 @@ public class SecurityShared implements SecurityInternal {
       return null;
     }
 
-    try (final var result =
-        session.query("select from " + Role.CLASS_NAME + " where name = ? limit 1", iRoleName)) {
-      if (result.hasNext()) {
-        return new Role((DatabaseSessionInternal) session,
-            (EntityImpl) result.next().asEntity());
+    return session.computeInTx(transaction -> {
+      try (final var result =
+          transaction.query("select from " + Role.CLASS_NAME + " where name = ? limit 1",
+              iRoleName)) {
+        if (result.hasNext()) {
+          return new Role((DatabaseSessionInternal) session,
+              (EntityImpl) result.next().asEntity());
+        }
       }
-    }
 
-    return null;
+      return null;
+    });
   }
 
   public static RID getRoleRID(final DatabaseSession session, final String iRoleName) {
@@ -464,15 +468,18 @@ public class SecurityShared implements SecurityInternal {
       return null;
     }
 
-    try (final var result =
-        session.query("select @rid as rid from " + Role.CLASS_NAME + " where name = ? limit 1",
-            iRoleName)) {
+    return session.computeInTx(transaction -> {
+      try (final var result =
+          transaction.query(
+              "select @rid as rid from " + Role.CLASS_NAME + " where name = ? limit 1",
+              iRoleName)) {
 
-      if (result.hasNext()) {
-        return result.next().getProperty("rid");
+        if (result.hasNext()) {
+          return result.next().getProperty("rid");
+        }
       }
-    }
-    return null;
+      return null;
+    });
   }
 
   public Role createRole(
@@ -491,27 +498,34 @@ public class SecurityShared implements SecurityInternal {
   }
 
   public boolean dropRole(final DatabaseSession session, final String iRoleName) {
-    final Number removed;
-    try (var result =
-        session.execute("delete from " + Role.CLASS_NAME + " where name = '" + iRoleName + "'")) {
-      removed = result.next().getProperty("count");
-    }
+    return session.computeInTx(transaction -> {
+      final Number removed;
+      try (var result =
+          transaction.execute(
+              "delete from " + Role.CLASS_NAME + " where name = '" + iRoleName + "'")) {
+        removed = result.next().getProperty("count");
+      }
 
-    return removed != null && removed.intValue() > 0;
+      return removed != null && removed.intValue() > 0;
+    });
   }
 
   public List<EntityImpl> getAllUsers(final DatabaseSession session) {
-    try (var rs = session.query("select from OUser")) {
-      return rs.stream().map((e) -> (EntityImpl) e.asEntity())
-          .collect(Collectors.toList());
-    }
+    return session.computeInTx(transaction -> {
+      try (var rs = transaction.query("select from OUser")) {
+        return rs.stream().map((e) -> (EntityImpl) e.asEntity())
+            .collect(Collectors.toList());
+      }
+    });
   }
 
   public List<EntityImpl> getAllRoles(final DatabaseSession session) {
-    try (var rs = session.query("select from " + Role.CLASS_NAME)) {
-      return rs.stream().map((e) -> (EntityImpl) e.asEntity())
-          .collect(Collectors.toList());
-    }
+    return session.computeInTx(transaction -> {
+      try (var rs = transaction.query("select from " + Role.CLASS_NAME)) {
+        return rs.stream().map((e) -> (EntityImpl) e.asEntity())
+            .collect(Collectors.toList());
+      }
+    });
   }
 
   @Override
@@ -608,7 +622,8 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public SecurityPolicyImpl createSecurityPolicy(DatabaseSession session, String name) {
-    var elem = session.newEntity(SecurityPolicy.CLASS_NAME);
+    var sessionInternal = (DatabaseSessionInternal) session;
+    var elem = sessionInternal.newEntity(SecurityPolicy.CLASS_NAME);
     elem.setProperty("name", name);
     var policy = new SecurityPolicyImpl(elem);
     saveSecurityPolicy(session, policy);
@@ -617,15 +632,17 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public SecurityPolicyImpl getSecurityPolicy(DatabaseSession session, String name) {
-    try (var rs =
-        session.query(
-            "SELECT FROM " + SecurityPolicy.CLASS_NAME + " WHERE name = ?", name)) {
-      if (rs.hasNext()) {
-        var result = rs.next();
-        return new SecurityPolicyImpl(result.asEntity());
+    return session.computeInTx(transaction -> {
+      try (var rs =
+          transaction.query(
+              "SELECT FROM " + SecurityPolicy.CLASS_NAME + " WHERE name = ?", name)) {
+        if (rs.hasNext()) {
+          var result = rs.next();
+          return new SecurityPolicyImpl(result.asEntity());
+        }
       }
-    }
-    return null;
+      return null;
+    });
   }
 
   @Override
@@ -636,9 +653,11 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public void deleteSecurityPolicy(DatabaseSession session, String name) {
-    session
-        .execute("DELETE FROM " + SecurityPolicy.CLASS_NAME + " WHERE name = ?", name)
-        .close();
+    session.executeInTx(transaction -> {
+      transaction
+          .execute("DELETE FROM " + SecurityPolicy.CLASS_NAME + " WHERE name = ?", name)
+          .close();
+    });
   }
 
   @Override
@@ -693,7 +712,7 @@ public class SecurityShared implements SecurityInternal {
 
   private void createDefaultRoles(final DatabaseSessionInternal session) {
     session.executeInTx(
-        () -> {
+        transaction -> {
           createDefaultAdminRole(session);
           createDefaultReaderRole(session);
           createDefaultWriterRole(session);
@@ -709,7 +728,7 @@ public class SecurityShared implements SecurityInternal {
     // exist.
     if (createDefUsers) {
       session.computeInTx(
-          () -> {
+          transaction -> {
             var admin = createUser(session, SecurityUserImpl.ADMIN, SecurityUserImpl.ADMIN,
                 Role.ADMIN);
             createUser(session, "reader", "reader", DEFAULT_READER_ROLE_NAME);
@@ -1174,7 +1193,7 @@ public class SecurityShared implements SecurityInternal {
         .getClass(SecurityPolicy.CLASS_NAME);
     if (securityPolicyClass == null) {
       createOrUpdateOSecurityPolicyClass(session);
-      session.executeInTx(() -> {
+      session.executeInTx(transaction -> {
         var adminRole = getRole(session, "admin");
         if (adminRole != null) {
           setDefaultAdminPermissions(session, adminRole);
@@ -1203,15 +1222,17 @@ public class SecurityShared implements SecurityInternal {
 
   public static SecurityUserImpl getUserInternal(final DatabaseSession session,
       final String iUserName) {
-    try (var result =
-        session.query("select from OUser where name = ? limit 1", iUserName)) {
-      if (result.hasNext()) {
-        return new SecurityUserImpl((DatabaseSessionInternal) session,
-            (EntityImpl) result.next().asEntity());
+    return session.computeInTx(transaction -> {
+      try (var result =
+          transaction.query("select from OUser where name = ? limit 1", iUserName)) {
+        if (result.hasNext()) {
+          return new SecurityUserImpl((DatabaseSessionInternal) session,
+              (EntityImpl) result.next().asEntity());
+        }
       }
-    }
 
-    return null;
+      return null;
+    });
   }
 
   @Override
@@ -1268,15 +1289,17 @@ public class SecurityShared implements SecurityInternal {
   }
 
   public static RID getUserRID(final DatabaseSession session, final String userName) {
-    try (var result =
-        session.query("select @rid as rid from OUser where name = ? limit 1", userName)) {
+    return session.computeInTx(transaction -> {
+      try (var result =
+          transaction.query("select @rid as rid from OUser where name = ? limit 1", userName)) {
 
-      if (result.hasNext()) {
-        return result.next().getProperty("rid");
+        if (result.hasNext()) {
+          return result.next().getProperty("rid");
+        }
       }
-    }
 
-    return null;
+      return null;
+    });
   }
 
   @Override
@@ -1328,7 +1351,7 @@ public class SecurityShared implements SecurityInternal {
     }
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           synchronized (this) {
             try (var rs = session.query("select name, policies from " + Role.CLASS_NAME)) {
               while (rs.hasNext()) {

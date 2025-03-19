@@ -20,7 +20,7 @@ public class SessionPoolTest {
         new SessionPoolImpl(youTrackDb, "test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     var db = (DatabaseSessionInternal) pool.acquire();
     db.executeInTx(
-        () -> db.newEntity());
+        transaction -> db.newEntity());
     db.close();
     pool.close();
     youTrackDb.close();

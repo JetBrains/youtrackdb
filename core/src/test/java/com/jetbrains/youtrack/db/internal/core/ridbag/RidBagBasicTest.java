@@ -1,14 +1,16 @@
 package com.jetbrains.youtrack.db.internal.core.ridbag;
 
+import static org.junit.Assert.fail;
+
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.embedded.EmbeddedRidBag;
-import static org.junit.Assert.fail;
 import org.junit.Test;
 
 public class RidBagBasicTest extends DbTestBase {
+
   @Test(expected = IllegalArgumentException.class)
   public void testExceptionInCaseOfNull() {
     var bag = new EmbeddedRidBag(session);
@@ -18,7 +20,7 @@ public class RidBagBasicTest extends DbTestBase {
   @Test
   public void allowOnlyAtRoot() {
     try {
-      session.executeInTx(() -> {
+      session.executeInTx(transaction -> {
         var record = session.newVertex();
         var valueList = session.newEmbeddedList();
 
@@ -32,7 +34,7 @@ public class RidBagBasicTest extends DbTestBase {
     }
 
     try {
-      session.executeInTx(() -> {
+      session.executeInTx(transaction -> {
         var record = session.newVertex();
         var valueSet = session.newEmbeddedSet();
 
@@ -46,7 +48,7 @@ public class RidBagBasicTest extends DbTestBase {
     }
 
     try {
-      session.executeInTx(() -> {
+      session.executeInTx(transaction -> {
         var record = session.newVertex();
         var valueMap = session.newEmbeddedMap();
 
@@ -60,7 +62,7 @@ public class RidBagBasicTest extends DbTestBase {
     }
 
     try {
-      session.executeInTx(() -> {
+      session.executeInTx(transaction -> {
         var record = session.newVertex();
         var valueSet = session.newEmbeddedMap();
 
@@ -76,7 +78,7 @@ public class RidBagBasicTest extends DbTestBase {
     }
 
     try {
-      session.executeInTx(() -> {
+      session.executeInTx(transaction -> {
         var record = session.newVertex();
         var valueList = session.newEmbeddedList();
         var nested = session.newEmbeddedEntity();
@@ -92,7 +94,7 @@ public class RidBagBasicTest extends DbTestBase {
     }
 
     try {
-      session.executeInTx(() -> {
+      session.executeInTx(transaction -> {
         var record = session.newVertex();
         var valueSet = session.newEmbeddedSet();
 
@@ -108,7 +110,7 @@ public class RidBagBasicTest extends DbTestBase {
     }
 
     try {
-      session.executeInTx(() -> {
+      session.executeInTx(transaction -> {
         var record = session.newVertex();
         var nested = session.newEmbeddedEntity();
 

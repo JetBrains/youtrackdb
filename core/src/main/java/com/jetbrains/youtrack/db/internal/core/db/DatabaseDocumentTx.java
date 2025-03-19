@@ -75,7 +75,8 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
-import java.util.function.Supplier;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -707,7 +708,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public int begin() {
+  public Transaction begin() {
     checkOpenness();
     return internal.begin();
   }
@@ -1528,47 +1529,47 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void executeInTx(Runnable runnable) {
-    internal.executeInTx(runnable);
+  public void executeInTx(Consumer<Transaction> code) {
+    internal.executeInTx(code);
   }
 
   @Override
   public <T> void executeInTxBatches(
-      Iterator<T> iterator, int batchSize, BiConsumer<DatabaseSession, T> consumer) {
+      Iterator<T> iterator, int batchSize, BiConsumer<Transaction, T> consumer) {
     internal.executeInTxBatches(iterator, batchSize, consumer);
   }
 
   @Override
   public <T> void executeInTxBatches(
-      Iterator<T> iterator, BiConsumer<DatabaseSession, T> consumer) {
+      Iterator<T> iterator, BiConsumer<Transaction, T> consumer) {
     internal.executeInTxBatches(iterator, consumer);
   }
 
   @Override
   public <T> void executeInTxBatches(
-      Iterable<T> iterable, int batchSize, BiConsumer<DatabaseSession, T> consumer) {
+      Iterable<T> iterable, int batchSize, BiConsumer<Transaction, T> consumer) {
     internal.executeInTxBatches(iterable, batchSize, consumer);
   }
 
   @Override
   public <T> void executeInTxBatches(
-      Iterable<T> iterable, BiConsumer<DatabaseSession, T> consumer) {
+      Iterable<T> iterable, BiConsumer<Transaction, T> consumer) {
     internal.executeInTxBatches(iterable, consumer);
   }
 
   @Override
   public <T> void executeInTxBatches(
-      Stream<T> stream, int batchSize, BiConsumer<DatabaseSession, T> consumer) {
+      Stream<T> stream, int batchSize, BiConsumer<Transaction, T> consumer) {
     internal.executeInTxBatches(stream, batchSize, consumer);
   }
 
   @Override
-  public <T> void executeInTxBatches(Stream<T> stream, BiConsumer<DatabaseSession, T> consumer) {
+  public <T> void executeInTxBatches(Stream<T> stream, BiConsumer<Transaction, T> consumer) {
     internal.executeInTxBatches(stream, consumer);
   }
 
   @Override
-  public <T> T computeInTx(Supplier<T> supplier) {
+  public <R> R computeInTx(Function<Transaction, R> supplier) {
     return internal.computeInTx(supplier);
   }
 
@@ -1589,34 +1590,34 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
 
   @Override
   public <T> void forEachInTx(Iterator<T> iterator,
-      BiFunction<DatabaseSession, T, Boolean> consumer) {
+      BiFunction<Transaction, T, Boolean> consumer) {
     internal.forEachInTx(iterator, consumer);
   }
 
   @Override
   public <T> void forEachInTx(Iterable<T> iterable,
-      BiFunction<DatabaseSession, T, Boolean> consumer) {
+      BiFunction<Transaction, T, Boolean> consumer) {
     internal.forEachInTx(iterable, consumer);
   }
 
   @Override
   public <T> void forEachInTx(Stream<T> stream,
-      BiFunction<DatabaseSession, T, Boolean> consumer) {
+      BiFunction<Transaction, T, Boolean> consumer) {
     internal.forEachInTx(stream, consumer);
   }
 
   @Override
-  public <T> void forEachInTx(Iterator<T> iterator, BiConsumer<DatabaseSession, T> consumer) {
+  public <T> void forEachInTx(Iterator<T> iterator, BiConsumer<Transaction, T> consumer) {
     internal.forEachInTx(iterator, consumer);
   }
 
   @Override
-  public <T> void forEachInTx(Iterable<T> iterable, BiConsumer<DatabaseSession, T> consumer) {
+  public <T> void forEachInTx(Iterable<T> iterable, BiConsumer<Transaction, T> consumer) {
     internal.forEachInTx(iterable, consumer);
   }
 
   @Override
-  public <T> void forEachInTx(Stream<T> stream, BiConsumer<DatabaseSession, T> consumer) {
+  public <T> void forEachInTx(Stream<T> stream, BiConsumer<Transaction, T> consumer) {
     internal.forEachInTx(stream, consumer);
   }
 }

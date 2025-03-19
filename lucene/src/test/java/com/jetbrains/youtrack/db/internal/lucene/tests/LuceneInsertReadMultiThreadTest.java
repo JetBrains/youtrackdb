@@ -95,19 +95,19 @@ public class LuceneInsertReadMultiThreadTest extends LuceneBaseTest {
     public void run() {
 
       final var db = pool.acquire();
-      db.begin();
+      var tx = db.begin();
       var i = 0;
       for (; i < cycle; i++) {
-        var doc = db.newEntity("City");
+        var doc = tx.newEntity("City");
 
         doc.setProperty("name", "Rome");
 
         if (i % commitBuf == 0) {
-          db.commit();
-          db.begin();
+          tx.commit();
+          tx = db.begin();
         }
       }
-      db.commit();
+      tx.commit();
       db.close();
     }
   }

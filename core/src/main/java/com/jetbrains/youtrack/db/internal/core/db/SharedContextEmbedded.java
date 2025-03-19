@@ -81,7 +81,7 @@ public class SharedContextEmbedded extends SharedContext {
 
     lock.lock();
     try {
-      database.executeInTx(() -> {
+      database.executeInTx(transaction -> {
         schema.load(database);
         schema.forceSnapshot(database);
         indexManager.load(database);

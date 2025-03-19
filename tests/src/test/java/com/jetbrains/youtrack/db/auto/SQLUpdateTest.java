@@ -667,11 +667,13 @@ public class SQLUpdateTest extends BaseDBTest {
 
   private void checkUpdatedDoc(
       DatabaseSession database, String expectedCity, String expectedGender) {
-    var result = database.query("select * from person");
-    var oDoc = result.next();
-    Assert.assertEquals("Raf", oDoc.getProperty("name"));
-    Assert.assertEquals(expectedCity, oDoc.getProperty("city"));
-    Assert.assertEquals(expectedGender, oDoc.getProperty("gender"));
+    database.executeInTx(transaction -> {
+      var result = transaction.query("select * from person");
+      var oDoc = result.next();
+      Assert.assertEquals("Raf", oDoc.getProperty("name"));
+      Assert.assertEquals(expectedCity, oDoc.getProperty("city"));
+      Assert.assertEquals(expectedGender, oDoc.getProperty("gender"));
+    });
   }
 
   private List<RID> getAddressValidPositions() {

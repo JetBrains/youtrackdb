@@ -43,9 +43,9 @@ public class RemoteBasicSecurityTest {
             + " identified by 'reader' role reader, writer identified by 'writer' role writer)");
     try (var db = youTrackDB.open("test", "admin", "admin")) {
       db.createClass("one");
-      db.begin();
-      db.newEntity("one");
-      db.commit();
+      var tx = db.begin();
+      tx.newEntity("one");
+      tx.commit();
     }
     youTrackDB.close();
   }
@@ -56,12 +56,14 @@ public class RemoteBasicSecurityTest {
     try (YouTrackDB writerOrient = new YouTrackDBImpl("remote:localhost",
         YouTrackDBConfig.defaultConfig())) {
       try (var db = writerOrient.open("test", "writer", "writer")) {
-        db.begin();
-        db.newEntity("one");
-        db.commit();
-        try (var rs = db.query("select from one")) {
-          assertEquals(2, rs.stream().count());
-        }
+        var tx = db.begin();
+        tx.newEntity("one");
+        tx.commit();
+        db.executeInTx(transaction -> {
+          try (var rs = transaction.query("select from one")) {
+            assertEquals(2, rs.stream().count());
+          }
+        });
       }
     }
   }
@@ -72,9 +74,11 @@ public class RemoteBasicSecurityTest {
     try (YouTrackDB writerOrient = new YouTrackDBImpl("remote:localhost",
         YouTrackDBConfig.defaultConfig())) {
       try (var writer = writerOrient.open("test", "reader", "reader")) {
-        try (var rs = writer.query("select from one")) {
-          assertEquals(1, rs.stream().count());
-        }
+        writer.executeInTx(transaction -> {
+          try (var rs = transaction.query("select from one")) {
+            assertEquals(1, rs.stream().count());
+          }
+        });
       }
     }
   }

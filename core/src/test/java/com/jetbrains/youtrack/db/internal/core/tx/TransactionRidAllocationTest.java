@@ -54,14 +54,14 @@ public class TransactionRidAllocationTest {
 
     var db1 = youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-    db1.begin();
+    var tx = db1.begin();
     try {
-      db1.load(generated);
+      tx.load(generated);
       Assert.fail();
     } catch (RecordNotFoundException e) {
       // ignore
     }
-    db1.commit();
+    tx.commit();
 
     db1.close();
   }
@@ -79,9 +79,9 @@ public class TransactionRidAllocationTest {
 
     var db1 = youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-    db1.begin();
-    assertNotNull(db1.load(generated));
-    db1.commit();
+    var tx = db1.begin();
+    assertNotNull(tx.load(generated));
+    tx.commit();
     db1.close();
   }
 
@@ -138,9 +138,9 @@ public class TransactionRidAllocationTest {
         .commitPreAllocated((FrontendTransactionImpl) db.getTransactionInternal());
 
     var db1 = youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
-    db1.begin();
-    assertNotNull(db1.load(generated));
-    db1.commit();
+    var tx = db1.begin();
+    assertNotNull(tx.load(generated));
+    tx.commit();
 
     db1.close();
     second.activateOnCurrentThread();
@@ -148,9 +148,9 @@ public class TransactionRidAllocationTest {
         .commitPreAllocated((FrontendTransactionImpl) second.getTransactionInternal());
     second.close();
     var db2 = youTrackDB.open("secondTest", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
-    db2.begin();
-    assertNotNull(db2.load(generated));
-    db2.commit();
+    tx = db2.begin();
+    assertNotNull(tx.load(generated));
+    tx.commit();
     db2.close();
   }
 
@@ -226,11 +226,11 @@ public class TransactionRidAllocationTest {
         .commitPreAllocated((FrontendTransactionImpl) db.getTransactionInternal());
 
     var db1 = youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
-    db1.begin();
+    var tx = db1.begin();
     for (final var id : allocated) {
-      assertNotNull(db1.load(id));
+      assertNotNull(tx.load(id));
     }
-    db1.commit();
+    tx.commit();
     db1.close();
   }
 

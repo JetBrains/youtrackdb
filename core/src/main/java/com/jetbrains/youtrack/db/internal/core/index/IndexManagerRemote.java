@@ -73,8 +73,8 @@ public class IndexManagerRemote implements IndexManagerAbstract {
           new RecordId(session.getStorageInfo().getConfiguration().getIndexMgrRecordId());
 
       session.executeInTx(
-          () -> {
-            EntityImpl entity = session.load(identity);
+          transaction -> {
+            EntityImpl entity = transaction.load(identity);
             fromStream(entity, session);
           });
     } finally {
@@ -88,7 +88,7 @@ public class IndexManagerRemote implements IndexManagerAbstract {
       identity =
           new RecordId(session.getStorageInfo().getConfiguration().getIndexMgrRecordId());
       session.executeInTx(
-          () -> {
+          transaction -> {
             EntityImpl entity = session.load(identity);
             fromStream(entity, session);
           });

@@ -99,9 +99,10 @@ public class FrontendClientServerTransaction extends FrontendTransactionImpl {
               addRecordOperation(record, RecordOperation.CREATED);
               newRecordsWithNetworkOperations.add(new RawPair<>(record, recordOperation));
 
-              assert !oldRid.equals(record.getIdentity());
-              updatedToOldRecordIdMap.put(record.getIdentity().copy(), oldRid);
-              originalChangedRecordIdMap.put(oldRid, record.getIdentity());
+              if (!oldRid.equals(record.getIdentity())) {
+                updatedToOldRecordIdMap.put(record.getIdentity().copy(), oldRid);
+                originalChangedRecordIdMap.put(oldRid, record.getIdentity());
+              }
             }
             case RecordOperation.UPDATED -> {
               var record = loadRecordAndCheckVersion(recordOperation);

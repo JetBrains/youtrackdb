@@ -62,7 +62,7 @@ public class SystemDatabase {
       @Nonnull final BiFunction<ResultSet, DatabaseSession, R> callback, final String sql,
       final Object... args) {
     // BYPASS SECURITY
-    try (final DatabaseSession session = openSystemDatabaseSession()) {
+    try (final var session = openSystemDatabaseSession()) {
       try (var result = session.execute(sql, args)) {
         return callback.apply(result, session);
       }
@@ -74,8 +74,8 @@ public class SystemDatabase {
       final Object... args) {
     // BYPASS SECURITY
     try (final DatabaseSession session = openSystemDatabaseSession()) {
-      return session.computeInTx(() -> {
-        try (var result = session.query(sql, args)) {
+      return session.computeInTx(transaction -> {
+        try (var result = transaction.query(sql, args)) {
           return callback.apply(result, session);
         }
       });
@@ -113,7 +113,7 @@ public class SystemDatabase {
       }
       var clz = clazz;
       session.executeInTx(
-          () -> {
+          transaction -> {
             Entity info;
             if (session.query("select count(*) as count from " + clz.getName()).
                 findFirst(r -> r.<Long>getProperty("count") == 0)) {

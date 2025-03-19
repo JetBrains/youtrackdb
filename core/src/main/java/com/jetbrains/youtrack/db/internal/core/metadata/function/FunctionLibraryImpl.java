@@ -191,7 +191,7 @@ public class FunctionLibraryImpl {
     reloadIfNeeded(session);
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var function = getFunction(session, iName);
           function.delete(session);
           functions.remove(iName.toUpperCase(Locale.ENGLISH));

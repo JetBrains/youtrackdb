@@ -320,7 +320,7 @@ public class EntityImplTest extends DbTestBase {
 
   @Test(expected = IllegalArgumentException.class)
   public void testFailNullMapKey() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       var doc = (EntityImpl) session.newEntity();
       var map = session.newEmbeddedMap();
       map.put(null, "dd");

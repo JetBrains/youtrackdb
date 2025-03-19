@@ -99,7 +99,7 @@ public class FreezeAndDBRecordInsertAtomicityTest extends DbTestBase {
                       case 0:
                         var val = i1;
                         session.executeInTx(
-                            () ->
+                            transaction ->
                             {
                               session.newInstance("Person")
                                   .setProperty("name", "name-" + thread + "-" + val);

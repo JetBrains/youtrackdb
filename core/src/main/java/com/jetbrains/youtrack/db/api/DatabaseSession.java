@@ -22,23 +22,13 @@ package com.jetbrains.youtrack.db.api;
 import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.ModificationOperationProhibitedException;
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
-import com.jetbrains.youtrack.db.api.exception.TransactionException;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.record.Blob;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Edge;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
-import com.jetbrains.youtrack.db.api.record.StatefulEdge;
-import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -52,16 +42,15 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
-import java.util.function.Supplier;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Stream;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
  * Session for database operations with a specific user.
  */
 public interface DatabaseSession extends AutoCloseable {
-
   enum STATUS {
     OPEN,
     CLOSED,
@@ -73,9 +62,9 @@ public interface DatabaseSession extends AutoCloseable {
    * this case the transaction is committed after the code is executed or rolled back if an
    * exception is thrown.
    *
-   * @param runnable Code to execute in transaction
+   * @param code Code to execute in transaction
    */
-  void executeInTx(Runnable runnable);
+  void executeInTx(Consumer<Transaction> code);
 
   /**
    * Splits data provided by iterator in batches and execute every batch in separate transaction.
@@ -89,7 +78,7 @@ public interface DatabaseSession extends AutoCloseable {
    * @param consumer  Consumer to process data
    */
   <T> void executeInTxBatches(
-      Iterator<T> iterator, int batchSize, BiConsumer<DatabaseSession, T> consumer);
+      Iterator<T> iterator, int batchSize, BiConsumer<Transaction, T> consumer);
 
   /**
    * Splits data by batches, size of each batch is specified by parameter
@@ -100,7 +89,7 @@ public interface DatabaseSession extends AutoCloseable {
    * @param <T>      Type of data
    * @see #executeInTxBatches(Iterator, int, BiConsumer)
    */
-  <T> void executeInTxBatches(Iterator<T> iterator, BiConsumer<DatabaseSession, T> consumer);
+  <T> void executeInTxBatches(Iterator<T> iterator, BiConsumer<Transaction, T> consumer);
 
   /**
    * Splits data provided by iterator in batches and execute every batch in separate transaction.
@@ -114,7 +103,7 @@ public interface DatabaseSession extends AutoCloseable {
    * @param consumer  Consumer to process data
    */
   <T> void executeInTxBatches(
-      Iterable<T> iterable, int batchSize, BiConsumer<DatabaseSession, T> consumer);
+      Iterable<T> iterable, int batchSize, BiConsumer<Transaction, T> consumer);
 
   /**
    * Splits data by batches, size of each batch is specified by parameter
@@ -125,7 +114,7 @@ public interface DatabaseSession extends AutoCloseable {
    * @param <T>      Type of data
    * @see #executeInTxBatches(Iterable, BiConsumer)
    */
-  <T> void executeInTxBatches(Iterable<T> iterable, BiConsumer<DatabaseSession, T> consumer);
+  <T> void executeInTxBatches(Iterable<T> iterable, BiConsumer<Transaction, T> consumer);
 
   /**
    * Splits data provided by stream in batches and execute every batch in separate transaction.
@@ -141,7 +130,7 @@ public interface DatabaseSession extends AutoCloseable {
    * @param consumer  Consumer to process data
    */
   <T> void executeInTxBatches(
-      Stream<T> stream, int batchSize, BiConsumer<DatabaseSession, T> consumer);
+      Stream<T> stream, int batchSize, BiConsumer<Transaction, T> consumer);
 
   /**
    * Splits processing of  data by batches, size of each batch is specified by parameter
@@ -154,7 +143,7 @@ public interface DatabaseSession extends AutoCloseable {
    * @param <T>      Type of data
    * @see #executeInTxBatches(Stream, int, BiConsumer)
    */
-  <T> void executeInTxBatches(Stream<T> stream, BiConsumer<DatabaseSession, T> consumer);
+  <T> void executeInTxBatches(Stream<T> stream, BiConsumer<Transaction, T> consumer);
 
   /**
    * Executes the given code in a transaction. Starts a transaction if not already started, in this
@@ -162,10 +151,10 @@ public interface DatabaseSession extends AutoCloseable {
    * thrown.
    *
    * @param supplier Code to execute in transaction
-   * @param <T>      the type of the returned result
+   * @param <R>      the type of the returned result
    * @return the result of the code execution
    */
-  <T> T computeInTx(Supplier<T> supplier);
+  <R> R computeInTx(Function<Transaction, R> supplier);
 
   /**
    * Executes the given code for each element in the iterator in a transaction. Starts a transaction
@@ -175,7 +164,7 @@ public interface DatabaseSession extends AutoCloseable {
    * @param iterator the iterator to iterate over
    * @param <T>      the type of the elements in the iterator
    */
-  <T> void forEachInTx(Iterator<T> iterator, BiConsumer<DatabaseSession, T> consumer);
+  <T> void forEachInTx(Iterator<T> iterator, BiConsumer<Transaction, T> consumer);
 
   /**
    * Executes the given code for each element in the iterable in a transaction. Starts a transaction
@@ -189,7 +178,7 @@ public interface DatabaseSession extends AutoCloseable {
    * @param consumer the code to execute for each element
    * @param <T>      the type of the elements in the iterable
    */
-  <T> void forEachInTx(Iterable<T> iterable, BiConsumer<DatabaseSession, T> consumer);
+  <T> void forEachInTx(Iterable<T> iterable, BiConsumer<Transaction, T> consumer);
 
   /**
    * Executes the given code for each element in the stream in a transaction. Starts a transaction
@@ -205,7 +194,7 @@ public interface DatabaseSession extends AutoCloseable {
    * @param consumer the code to execute for each element
    * @param <T>      the type of the elements in the stream
    */
-  <T> void forEachInTx(Stream<T> stream, BiConsumer<DatabaseSession, T> consumer);
+  <T> void forEachInTx(Stream<T> stream, BiConsumer<Transaction, T> consumer);
 
   /**
    * Executes the given code for each element in the iterator in a transaction. Starts a transaction
@@ -218,7 +207,7 @@ public interface DatabaseSession extends AutoCloseable {
    * @param iterator the iterator to iterate over
    * @param <T>      the type of the elements in the iterator
    */
-  <T> void forEachInTx(Iterator<T> iterator, BiFunction<DatabaseSession, T, Boolean> consumer);
+  <T> void forEachInTx(Iterator<T> iterator, BiFunction<Transaction, T, Boolean> consumer);
 
 
   /**
@@ -233,7 +222,7 @@ public interface DatabaseSession extends AutoCloseable {
    * @param consumer the code to execute for each element
    * @param <T>      the type of the elements in the iterable
    */
-  <T> void forEachInTx(Iterable<T> iterable, BiFunction<DatabaseSession, T, Boolean> consumer);
+  <T> void forEachInTx(Iterable<T> iterable, BiFunction<Transaction, T, Boolean> consumer);
 
   /**
    * Executes the given code for each element in the stream in a transaction. Starts a transaction
@@ -249,34 +238,8 @@ public interface DatabaseSession extends AutoCloseable {
    * @param consumer the code to execute for each element
    * @param <T>      the type of the elements in the stream
    */
-  <T> void forEachInTx(Stream<T> stream, BiFunction<DatabaseSession, T, Boolean> consumer);
+  <T> void forEachInTx(Stream<T> stream, BiFunction<Transaction, T, Boolean> consumer);
 
-  /**
-   * Binds current record to the session. It is mandatory to call this method in case you use
-   * records that are not created or loaded by the session. Method returns bounded instance of given
-   * record, usage of passed in instance is prohibited.
-   * <p>
-   * Method throws {@link RecordNotFoundException} if record does not exist in database or if record
-   * rid is temporary.
-   * <p/>
-   * You can verify if record already bound to the session by calling
-   * {@link DBRecord#isNotBound(DatabaseSession)} method.
-   * <p/>
-   * <p>
-   * Records with temporary RIDs are not allowed to be bound to the session and can not be accepted
-   * from the outside of the transaction boundaries.
-   *
-   * @param identifiable Record or rid to bind to the session, passed in instance is
-   *                     <b>prohibited</b> for further usage.
-   * @param <T>          Type of record.
-   * @return Bounded instance of given record.
-   * @throws RecordNotFoundException if record does not exist in database
-   * @throws DatabaseException       if the record rid is temporary
-   * @see DBRecord#isNotBound(DatabaseSession)
-   * @see Identifiable#getIdentity()
-   * @see RID#isPersistent()
-   */
-  <T extends Identifiable> T bindToSession(T identifiable);
 
   /**
    * Returns the schema of the database.
@@ -290,8 +253,8 @@ public interface DatabaseSession extends AutoCloseable {
    *
    * @return the number of active transactions, 0 means no active transactions are present.
    * @see #begin()
-   * @see #commit()
-   * @see #rollback()
+   * @see Transaction#commit()
+   * @see Transaction#rollback()
    */
   int activeTxCount();
 
@@ -306,193 +269,11 @@ public interface DatabaseSession extends AutoCloseable {
   }
 
   /**
-   * Loads an element by its id, throws an exception if record is not an element or does not exist.
-   *
-   * @param id the id of the element to load
-   * @return the loaded element
-   * @throws DatabaseException       if the record is not an element
-   * @throws RecordNotFoundException if the record does not exist
-   */
-  @Nonnull
-  default Entity loadEntity(RID id) throws DatabaseException, RecordNotFoundException {
-    var record = load(id);
-    if (record instanceof Entity element) {
-      return element;
-    }
-
-    throw new DatabaseException(getDatabaseName(),
-        "Record with id " + id + " is not an entity, but a " + record.getClass().getSimpleName());
-  }
-
-  /**
-   * Loads a vertex by its id, throws an exception if record is not a vertex or does not exist.
-   *
-   * @param id the id of the vertex to load
-   * @return the loaded vertex
-   * @throws DatabaseException       if the record is not a vertex
-   * @throws RecordNotFoundException if the record does not exist
-   */
-  @Nonnull
-  default Vertex loadVertex(RID id) throws DatabaseException, RecordNotFoundException {
-    var record = load(id);
-    if (record instanceof Vertex vertex) {
-      return vertex;
-    }
-
-    throw new DatabaseException(getDatabaseName(),
-        "Record with id " + id + " is not a vertex, but a " + record.getClass().getSimpleName());
-  }
-
-  /**
-   * Loads an edge by its id, throws an exception if record is not an edge or does not exist.
-   *
-   * @param id the id of the edge to load
-   * @return the loaded edge
-   * @throws DatabaseException       if the record is not an edge
-   * @throws RecordNotFoundException if the record does not exist
-   */
-  @Nonnull
-  default Edge loadEdge(RID id) throws DatabaseException, RecordNotFoundException {
-    var record = load(id);
-
-    if (record instanceof Edge edge) {
-      return edge;
-    }
-
-    throw new DatabaseException(getDatabaseName(),
-        "Record with id " + id + " is not an edge, but a " + record.getClass().getSimpleName());
-  }
-
-  /**
-   * Loads a blob by its id, throws an exception if record is not a blob or does not exist.
-   *
-   * @param id the id of the blob to load
-   * @return the loaded blob
-   * @throws DatabaseException       if the record is not a blob
-   * @throws RecordNotFoundException if the record does not exist
-   */
-  @Nonnull
-  default Blob loadBlob(RID id) throws DatabaseException, RecordNotFoundException {
-    var record = load(id);
-
-    if (record instanceof Blob blob) {
-      return blob;
-    }
-
-    throw new DatabaseException(getDatabaseName(),
-        "Record with id " + id + " is not a blob, but a " + record.getClass().getSimpleName());
-  }
-
-  /**
-   * Create a new instance of a blob containing the given bytes.
-   *
-   * @param bytes content of the Blob
-   * @return the Blob instance.
-   */
-  Blob newBlob(byte[] bytes);
-
-  /**
-   * Create a new empty instance of a blob.
-   *
-   * @return the Blob instance.
-   */
-  Blob newBlob();
-
-  /**
    * @return <code>true</code> if database is obtained from the pool and <code>false</code>
    * otherwise.
    */
   boolean isPooled();
 
-  Entity newEntity(final String className);
-
-  Entity newEntity(final SchemaClass cls);
-
-  Entity newEntity();
-
-  Entity newEmbeddedEntity(SchemaClass schemaClass);
-
-  Entity newEmbeddedEntity(String schemaClass);
-
-  Entity newEmbeddedEntity();
-
-  <T extends DBRecord> T createOrLoadRecordFromJson(String json);
-
-  Entity createOrLoadEntityFromJson(String json);
-
-  /**
-   * Creates a new Edge of type E
-   *
-   * @param from the starting point vertex
-   * @param to   the endpoint vertex
-   * @return the edge
-   */
-  default StatefulEdge newStatefulEdge(Vertex from, Vertex to) {
-    return newStatefulEdge(from, to, "E");
-  }
-
-  /**
-   * Creates a new Edge
-   *
-   * @param from the starting point vertex
-   * @param to   the endpoint vertex
-   * @param type the edge type
-   * @return the edge
-   */
-  StatefulEdge newStatefulEdge(Vertex from, Vertex to, SchemaClass type);
-
-  /**
-   * Creates a new Edge
-   *
-   * @param from the starting point vertex
-   * @param to   the endpoint vertex
-   * @param type the edge type
-   * @return the edge
-   */
-  StatefulEdge newStatefulEdge(Vertex from, Vertex to, String type);
-
-  /**
-   * Creates a new lightweight edge of provided type (class). Provided class should be an abstract
-   * class.
-   *
-   * @param from the starting point vertex
-   * @param to   the endpoint vertex
-   * @param type the edge type
-   * @return the edge
-   */
-  Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull SchemaClass type);
-
-  /**
-   * Creates a new lightweight edge of provided type (class). Provided class should be an abstract
-   * class.
-   *
-   * @param from the starting point vertex
-   * @param to   the endpoint vertex
-   * @param type the edge type
-   * @return the edge
-   */
-  Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull String type);
-
-  /**
-   * Creates a new Vertex of type V
-   */
-  default Vertex newVertex() {
-    return newVertex("V");
-  }
-
-  /**
-   * Creates a new Vertex
-   *
-   * @param type the vertex type
-   */
-  Vertex newVertex(SchemaClass type);
-
-  /**
-   * Creates a new Vertex
-   *
-   * @param type the vertex type (class name)
-   */
-  Vertex newVertex(String type);
 
   /**
    * creates a new vertex class (a class that extends V)
@@ -596,12 +377,6 @@ public interface DatabaseSession extends AutoCloseable {
    */
   boolean isClosed();
 
-  /**
-   * Retrieve the set of defined blob cluster.
-   *
-   * @return the array of defined blob cluster ids.
-   */
-  int[] getBlobClusterIds();
 
   /**
    * Flush cached storage content to the disk.
@@ -725,185 +500,14 @@ public interface DatabaseSession extends AutoCloseable {
   }
 
   /**
-   * Loads the entity by the Record ID.
-   *
-   * @param recordId The unique record id of the entity to load.
-   * @return The loaded entity
-   * @throws RecordNotFoundException if record does not exist in database
-   */
-  @Nonnull
-  <RET extends DBRecord> RET load(RID recordId);
-
-  /**
-   * Loads the entity by the Record ID, unlike {@link  #load(RID)} method does not throw exception
-   * if record not found but returns <code>null</code> instead.
-   *
-   * @param recordId The unique record id of the entity to load.
-   * @return The loaded entity or <code>null</code> if entity does not exist.
-   */
-  @Nullable
-  default <RET extends DBRecord> RET loadSilently(RID recordId) {
-    try {
-      return load(recordId);
-    } catch (RecordNotFoundException e) {
-      return null;
-    }
-  }
-
-  /**
-   * Checks if record exists in database. That happens in two cases:
-   * <ol>
-   *   <li>Record is already stored in database.</li>
-   *   <li>Record is only added in current transaction.</li>
-   * </ol>
-   * <p/>
-   *
-   * @param rid Record id to check.
-   * @return True if record exists, otherwise false.
-   */
-  boolean exists(RID rid);
-
-  /**
-   * Deletes an entity from the database in synchronous mode.
-   *
-   * @param record The entity to delete.
-   */
-  void delete(@Nonnull DBRecord record);
-
-  /**
    * Begins a new transaction.If a previous transaction is running a nested call counter is
-   * incremented. A transaction once begun has to be closed by calling the {@link #commit()} or
-   * {@link #rollback()}.
+   * incremented. A transaction once begun has to be closed by calling the
+   * {@link Transaction#commit()} or {@link Transaction#rollback()}.
    *
    * @return Amount of nested transaction calls. First call is 1.
    */
-  int begin();
+  Transaction begin();
 
-  /**
-   * Commits the current transaction. The approach is all or nothing. All changes will be permanent
-   * following the storage type. If the operation succeed all the entities changed inside the
-   * transaction context will be effective. If the operation fails, all the changed entities will be
-   * restored in the data store.
-   *
-   * @return true if the transaction is the last nested transaction and thus cmd can be committed,
-   * otherwise false. If false is returned, then there are still nested transaction that have to be
-   * committed.
-   */
-  boolean commit() throws TransactionException;
-
-  /**
-   * Aborts the current running transaction. All the pending changed entities will be restored in
-   * the data store.
-   */
-  void rollback() throws TransactionException;
-
-  /**
-   * Executes an SQL query. The result set has to be closed after usage <br>
-   * <br>
-   * Sample usage:
-   *
-   * <p><code>
-   * ResultSet rs = db.query("SELECT FROM V where name = ?", "John"); while(rs.hasNext()){ Result
-   * item = rs.next(); ... } rs.close(); </code>
-   *
-   * @param query the query string
-   * @param args  query parameters (positional)
-   * @return the query result set
-   */
-  default ResultSet query(String query, Object... args)
-      throws CommandSQLParsingException, CommandExecutionException {
-    throw new UnsupportedOperationException();
-  }
-
-  /**
-   * Executes an SQL query (idempotent). The result set has to be closed after usage <br>
-   * <br>
-   * Sample usage:
-   *
-   * <p><code>
-   * Map&lt;String, Object&gt params = new HashMapMap&lt;&gt(); params.put("name", "John");
-   * ResultSet rs = db.query("SELECT FROM V where name = :name", params); while(rs.hasNext()){
-   * Result item = rs.next(); ... } rs.close();
-   * </code>
-   *
-   * @param query the query string
-   * @param args  query parameters (named)
-   * @return the query result set
-   */
-  default ResultSet query(String query, Map args)
-      throws CommandSQLParsingException, CommandExecutionException {
-    throw new UnsupportedOperationException();
-  }
-
-  /**
-   * Executes a generic (idempotent or non-idempotent) command. The result set has to be closed
-   * after usage <br>
-   * <br>
-   * Sample usage:
-   *
-   * <p><code>
-   * ResultSet rs = db.execute("INSERT INTO Person SET name = ?", "John"); ... rs.close();
-   * </code>
-   *
-   * @param args query arguments
-   * @return the query result set
-   */
-  default ResultSet execute(String query, Object... args)
-      throws CommandSQLParsingException, CommandExecutionException {
-    throw new UnsupportedOperationException();
-  }
-
-  /**
-   * Executes a generic (idempotent or non-idempotent) command. The result set has to be closed
-   * after usage <br>
-   * <br>
-   * Sample usage:
-   *
-   * <p><code>
-   * ResultSet rs = db.execute("INSERT INTO Person SET name = :name", Map.of("name", "John")); ...
-   * rs.close();
-   * </code>
-   */
-  default ResultSet execute(String query, Map args)
-      throws CommandSQLParsingException, CommandExecutionException {
-    throw new UnsupportedOperationException();
-  }
-
-  /**
-   * Executes a generic (non-idempotent) command, ignoring the produced result. Works in the same
-   * way as {@link DatabaseSession#execute(String, Object...)}, but doesn't require closing the
-   * result set after usage. <br>
-   * <br>
-   * Sample usage:
-   *
-   * <p><code>
-   * ResultSet rs = db.command("INSERT INTO Person SET name = ?", "John");
-   * </code>
-   *
-   * @param args query arguments
-   */
-  default void command(String query, Object... args)
-      throws CommandSQLParsingException, CommandExecutionException {
-    execute(query, args).close();
-  }
-
-  /**
-   * Executes a generic (non-idempotent) command, ignoring the produced result. Works in the same
-   * way as {@link DatabaseSession#execute(String, Map)}, but doesn't require closing the result set
-   * after usage. <br>
-   * <br>
-   * Sample usage:
-   *
-   * <p><code>
-   * ResultSet rs = db.command("INSERT INTO Person SET name = :name", Map.of("name", "John");
-   * </code>
-   *
-   * @param args query arguments
-   */
-  default void command(String query, Map args)
-      throws CommandSQLParsingException, CommandExecutionException {
-    execute(query, args).close();
-  }
 
   /**
    * Execute a script in a specified query language. The result set has to be closed after usage

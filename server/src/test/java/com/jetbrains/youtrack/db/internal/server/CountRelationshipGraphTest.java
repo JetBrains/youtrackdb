@@ -36,14 +36,15 @@ public class CountRelationshipGraphTest extends AbstractRemoteTest {
 
   @Test
   public void test() throws Exception {
-    var g = youTrackDB.open(name.getMethodName(), "admin", "admin");
-    g.begin();
-    var vertex1 = g.newVertex("V");
-    var vertex2 = g.newVertex("V");
-    g.commit();
+    var session = youTrackDB.open(name.getMethodName(), "admin", "admin");
+    var tx = session.begin();
+    var vertex1 = tx.newVertex("V");
+    var vertex2 = tx.newVertex("V");
+    tx.commit();
 
-    vertex1 = g.load(vertex1.getIdentity());
-    vertex2 = g.load(vertex2.getIdentity());
+    tx = session.begin();
+    vertex1 = tx.load(vertex1.getIdentity());
+    vertex2 = tx.load(vertex2.getIdentity());
 
     int version = vertex1.getProperty("@version");
     assertEquals(0, countEdges(vertex1, Direction.OUT));
@@ -55,10 +56,11 @@ public class CountRelationshipGraphTest extends AbstractRemoteTest {
      * output: Version: 1 vertex1 out: 0 vertex2 in: 0
      */
 
-    g.begin();
+    tx.commit();
+    tx = session.begin();
 
-    vertex1 = g.load(vertex1.getIdentity());
-    vertex2 = g.load(vertex2.getIdentity());
+    vertex1 = tx.load(vertex1.getIdentity());
+    vertex2 = tx.load(vertex2.getIdentity());
 
     vertex1.addStateFulEdge(vertex2);
 
@@ -73,10 +75,11 @@ public class CountRelationshipGraphTest extends AbstractRemoteTest {
      * output: Pre-commit: Version: 1 vertex1 out: 1 vertex2 in: 1
      */
 
-    g.commit();
+    tx.commit();
 
-    vertex1 = g.load(vertex1.getIdentity());
-    vertex2 = g.load(vertex2.getIdentity());
+    tx = session.begin();
+    vertex1 = tx.load(vertex1.getIdentity());
+    vertex2 = tx.load(vertex2.getIdentity());
 
     version = vertex1.getProperty("@version");
     assertEquals(1, countEdges(vertex1, Direction.OUT));
@@ -89,11 +92,13 @@ public class CountRelationshipGraphTest extends AbstractRemoteTest {
      * output: Post-commit: Version: 2 vertex1 out: 0 <- INCORRECT vertex2 in: 0 <- INCORRECT
      */
 
-    g.close();
+    tx.commit();
+    session.close();
 
-    g = youTrackDB.open(name.getMethodName(), "admin", "admin");
-    vertex1 = g.load(vertex1.getIdentity());
-    vertex2 = g.load(vertex2.getIdentity());
+    session = youTrackDB.open(name.getMethodName(), "admin", "admin");
+    tx = session.begin();
+    vertex1 = tx.load(vertex1.getIdentity());
+    vertex2 = tx.load(vertex2.getIdentity());
 
     version = vertex1.getProperty("@version");
     assertEquals(1, countEdges(vertex1, Direction.OUT));
@@ -105,6 +110,7 @@ public class CountRelationshipGraphTest extends AbstractRemoteTest {
     /*
      * output: Reload in new transaction: Version: 2 vertex1 out: 1 vertex2 in: 1
      */
+    tx.commit();
   }
 
   private static int countEdges(Vertex v, Direction dir) throws Exception {

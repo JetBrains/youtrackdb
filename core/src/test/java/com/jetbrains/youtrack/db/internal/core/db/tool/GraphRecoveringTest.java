@@ -63,19 +63,19 @@ public class GraphRecoveringTest {
     session.createEdgeClass("E1");
     session.createEdgeClass("E2");
 
-    session.begin();
-    var v0 = session.newVertex();
+    var tx = session.begin();
+    var v0 = tx.newVertex();
     v0.setProperty("key", 0);
-    var v1 = session.newVertex("V1");
+    var v1 = tx.newVertex("V1");
     v1.setProperty("key", 1);
-    var v2 = session.newVertex("V2");
+    var v2 = tx.newVertex("V2");
     v2.setProperty("key", 2);
 
     v0.addStateFulEdge(v1);
     v1.addEdge(v2, "E1");
     v2.addEdge(v0, "E2");
 
-    session.commit();
+    tx.commit();
   }
 
   @Test
@@ -112,14 +112,14 @@ public class GraphRecoveringTest {
       try (var session = youTrackDB.open("testRecoverBrokenGraphAllEdges", "admin", "admin")) {
         init(session);
 
-        session.begin();
+        var tx = session.begin();
         for (var e :
-            session.query("select from E").stream()
+            tx.query("select from E").stream()
                 .map(Result::asStatefulEdge)
                 .toList()) {
           e.<EntityImpl>getRecord(session).removePropertyInternal("out");
         }
-        session.commit();
+        tx.commit();
 
         final var eventListener = new TestListener();
 
@@ -148,9 +148,9 @@ public class GraphRecoveringTest {
           youTrackDB.open("testRecoverBrokenGraphLinksInVerticesNonLW", "admin", "admin")) {
         init(session);
 
-        session.begin();
+        var tx = session.begin();
         for (var v :
-            session.query("select from V").stream()
+            tx.query("select from V").stream()
                 .map(Result::asEntityOrNull)
                 .filter(Objects::nonNull)
                 .map(Entity::asVertex)
@@ -162,7 +162,7 @@ public class GraphRecoveringTest {
             }
           }
         }
-        session.commit();
+        tx.commit();
 
         final var eventListener = new TestListener();
 

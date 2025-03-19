@@ -53,16 +53,21 @@ public class SocketIdleCleanupIT {
     youTrackDb.execute(
         "create database test memory users (admin identified by 'admin' role admin)");
     var session = youTrackDb.open("test", "admin", "admin");
-    session.newVertex("V");
+    var tx = session.begin();
+    tx.newVertex("V");
+    tx.commit();
+
     Thread.sleep(2000);
     var remote = (YouTrackDBRemote) YouTrackDBInternal.extract(youTrackDb);
     var connectionManager = remote.getConnectionManager();
     var pool =
         connectionManager.getPool(connectionManager.getURLs().iterator().next());
     assertFalse(pool.getPool().getResources().iterator().next().isConnected());
-    try (var result = session.query("select from V")) {
-      assertEquals(result.stream().count(), 1);
-    }
+    session.executeInTx(transaction -> {
+      try (var result = transaction.query("select from V")) {
+        assertEquals(result.stream().count(), 1);
+      }
+    });
   }
 
   @After

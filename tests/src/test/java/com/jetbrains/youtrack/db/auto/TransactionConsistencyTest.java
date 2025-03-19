@@ -639,7 +639,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
     try {
       session.executeInTx(
-          () -> {
+          transaction -> {
             List<Entity> inserted2 = new ArrayList<>();
 
             for (var i = 0; i < cnt; i++) {

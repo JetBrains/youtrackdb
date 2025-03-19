@@ -93,9 +93,11 @@ public class DefaultValuesTrivialTest {
   }
 
   private static Date getDatabaseSysdate(DatabaseSession database) {
-    try (var dates = database.query("SELECT sysdate() as sysdate")) {
-      return dates.next().getProperty("sysdate");
-    }
+    return database.computeInTx(transaction -> {
+      try (var dates = transaction.query("SELECT sysdate() as sysdate")) {
+        return dates.next().getProperty("sysdate");
+      }
+    });
   }
 
   @Test

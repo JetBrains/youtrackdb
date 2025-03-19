@@ -111,7 +111,7 @@ public class GraphRepair {
       final boolean checkOnly) {
     final var session = (DatabaseSessionInternal) graph;
     session.executeInTx(
-        () -> {
+        transaction -> {
           final Metadata metadata = session.getMetadata();
           final Schema schema = metadata.getSchema();
 
@@ -318,7 +318,7 @@ public class GraphRepair {
     if (vertexClass != null) {
       final var countVertices = db.countClass(vertexClass.getName());
       session.executeInTx(
-          () -> {
+          transaction -> {
             var skipVertices = 0L;
             if (options != null && options.get("-skipVertices") != null) {
               skipVertices = Long.parseLong(options.get("-skipVertices").getFirst());

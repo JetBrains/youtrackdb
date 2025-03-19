@@ -77,10 +77,13 @@ public class ConsoleDatabaseAppTest {
       console.run();
 
       try (var db = console.getCurrentDatabaseSession()) {
-        var result = db.query("select from foo where name = 'foo'");
-        var doc = result.next();
-        Assert.assertNull(doc.getProperty("surname"));
-        Assert.assertFalse(result.hasNext());
+        db.executeInTx(transaction -> {
+          try (var result = transaction.query("select from foo where name = 'foo'")) {
+            var doc = result.next();
+            Assert.assertNull(doc.getProperty("surname"));
+            Assert.assertFalse(result.hasNext());
+          }
+        });
       }
     } finally {
       console.close();
@@ -105,8 +108,10 @@ public class ConsoleDatabaseAppTest {
       console.run();
 
       try (var db = console.getCurrentDatabaseSession()) {
-        var size = db.query("select from foo where name = 'foo'").stream().count();
-        Assert.assertEquals(1, size);
+        db.executeInTx(transaction -> {
+          var size = transaction.query("select from foo where name = 'foo'").stream().count();
+          Assert.assertEquals(1, size);
+        });
       }
     } finally {
       console.close();
@@ -241,14 +246,16 @@ public class ConsoleDatabaseAppTest {
       console.run();
 
       var db = console.getCurrentDatabaseSession();
-      var result = db.query("select from foo where name = 'foo'");
-      var doc = result.next();
-      Assert.assertEquals("bar", doc.getProperty("surname"));
-      Assert.assertFalse(result.hasNext());
-      result.close();
+      db.executeInTx(transaction -> {
+        var result = transaction.query("select from foo where name = 'foo'");
+        var doc = result.next();
+        Assert.assertEquals("bar", doc.getProperty("surname"));
+        Assert.assertFalse(result.hasNext());
+        result.close();
 
-      result = db.query("select from bar");
-      Assert.assertEquals(0, result.stream().count());
+        result = transaction.query("select from bar");
+        Assert.assertEquals(0, result.stream().count());
+      });
 
     } finally {
       console.close();
@@ -306,14 +313,16 @@ public class ConsoleDatabaseAppTest {
       console.run();
 
       var db = console.getCurrentDatabaseSession();
-      var result = db.query("select from foo where name = 'foo'");
-      var doc = result.next();
-      Assert.assertEquals("bar", doc.getProperty("surname"));
-      Assert.assertFalse(result.hasNext());
-      result.close();
+      db.executeInTx(transaction -> {
+        var result = transaction.query("select from foo where name = 'foo'");
+        var doc = result.next();
+        Assert.assertEquals("bar", doc.getProperty("surname"));
+        Assert.assertFalse(result.hasNext());
+        result.close();
 
-      result = db.query("select from bar");
-      Assert.assertEquals(0, result.stream().count());
+        result = transaction.query("select from bar");
+        Assert.assertEquals(0, result.stream().count());
+      });
 
     } finally {
       console.close();
@@ -321,6 +330,7 @@ public class ConsoleDatabaseAppTest {
   }
 
   static class ConsoleTest {
+
     ConsoleDatabaseApp console;
     ByteArrayOutputStream out;
     PrintStream stream;

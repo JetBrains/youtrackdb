@@ -59,7 +59,7 @@ public class BetweenConversionTest extends BaseDBTest {
   }
 
   public void testBetweenRightLeftIncluded() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from BetweenConversionTest where a >= 1 and a <= 3").toList();
 
@@ -75,7 +75,7 @@ public class BetweenConversionTest extends BaseDBTest {
   }
 
   public void testBetweenRightLeftIncludedReverseOrder() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from BetweenConversionTest where a <= 3 and a >= 1").toList();
 
@@ -91,7 +91,7 @@ public class BetweenConversionTest extends BaseDBTest {
   }
 
   public void testBetweenRightIncluded() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from BetweenConversionTest where a > 1 and a <= 3").toList();
 
@@ -107,7 +107,7 @@ public class BetweenConversionTest extends BaseDBTest {
   }
 
   public void testBetweenRightIncludedReverse() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from BetweenConversionTest where a <= 3 and a > 1").toList();
 
@@ -123,7 +123,7 @@ public class BetweenConversionTest extends BaseDBTest {
   }
 
   public void testBetweenLeftIncluded() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from BetweenConversionTest where a >= 1 and a < 3").toList();
 
@@ -139,7 +139,7 @@ public class BetweenConversionTest extends BaseDBTest {
   }
 
   public void testBetweenLeftIncludedReverseOrder() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from BetweenConversionTest where  a < 3 and a >= 1").toList();
 
@@ -155,7 +155,7 @@ public class BetweenConversionTest extends BaseDBTest {
   }
 
   public void testBetween() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from BetweenConversionTest where a > 1 and a < 3").toList();
 
@@ -171,7 +171,7 @@ public class BetweenConversionTest extends BaseDBTest {
   }
 
   public void testBetweenRightLeftIncludedIndex() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from BetweenConversionTest where ai >= 1 and ai <= 3").toList();
 
@@ -187,7 +187,7 @@ public class BetweenConversionTest extends BaseDBTest {
   }
 
   public void testBetweenRightLeftIncludedReverseOrderIndex() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from BetweenConversionTest where ai <= 3 and ai >= 1").toList();
 
@@ -203,7 +203,7 @@ public class BetweenConversionTest extends BaseDBTest {
   }
 
   public void testBetweenRightIncludedIndex() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from BetweenConversionTest where ai > 1 and ai <= 3").toList();
 
@@ -219,7 +219,7 @@ public class BetweenConversionTest extends BaseDBTest {
   }
 
   public void testBetweenRightIncludedReverseOrderIndex() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from BetweenConversionTest where ai <= 3 and ai > 1").toList();
 
@@ -235,7 +235,7 @@ public class BetweenConversionTest extends BaseDBTest {
   }
 
   public void testBetweenLeftIncludedIndex() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from BetweenConversionTest where ai >= 1 and ai < 3").toList();
 
@@ -251,7 +251,7 @@ public class BetweenConversionTest extends BaseDBTest {
   }
 
   public void testBetweenLeftIncludedReverseOrderIndex() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from BetweenConversionTest where  ai < 3 and ai >= 1").toList();
 
@@ -267,7 +267,7 @@ public class BetweenConversionTest extends BaseDBTest {
   }
 
   public void testBetweenIndex() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from BetweenConversionTest where ai > 1 and ai < 3").toList();
 
@@ -283,7 +283,7 @@ public class BetweenConversionTest extends BaseDBTest {
   }
 
   public void testBetweenRightLeftIncludedDeepQuery() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result = session.query(
           "select from BetweenConversionTest where (vl = 'v1' and (vl <> 'v3' and (vl <> 'v2' and ((a"
               + " >= 1 and a <= 7) and vl = 'v1'))) and vl <> 'v4')"
@@ -301,7 +301,7 @@ public class BetweenConversionTest extends BaseDBTest {
   }
 
   public void testBetweenRightLeftIncludedDeepQueryIndex() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result = session.query(
           "select from BetweenConversionTest where (vl = 'v1' and (vl <> 'v3' and (vl <> 'v2' and"
               + " ((ai >= 1 and ai <= 7) and vl = 'v1'))) and vl <> 'v4')"
@@ -319,7 +319,7 @@ public class BetweenConversionTest extends BaseDBTest {
   }
 
   public void testBetweenRightLeftIncludedDifferentFields() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from BetweenConversionTest where a >= 1 and ai <= 3").toList();
 
@@ -335,7 +335,7 @@ public class BetweenConversionTest extends BaseDBTest {
   }
 
   public void testBetweenNotRangeQueryRight() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from BetweenConversionTest where a >= 1 and a = 3").toList();
 
@@ -351,7 +351,7 @@ public class BetweenConversionTest extends BaseDBTest {
   }
 
   public void testBetweenNotRangeQueryLeft() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from BetweenConversionTest where a = 1 and a <= 3").toList();
 
@@ -367,7 +367,7 @@ public class BetweenConversionTest extends BaseDBTest {
   }
 
   public void testBetweenRightLeftIncludedBothFieldsLeft() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from BetweenConversionTest where a >= ai and a <= 3").toList();
 
@@ -383,7 +383,7 @@ public class BetweenConversionTest extends BaseDBTest {
   }
 
   public void testBetweenRightLeftIncludedBothFieldsRight() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from BetweenConversionTest where a >= 1 and a <= ai").toList();
 
@@ -399,7 +399,7 @@ public class BetweenConversionTest extends BaseDBTest {
   }
 
   public void testBetweenRightLeftIncludedFieldChainLeft() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from BetweenConversionTest where d.a >= 1 and a <= 3").toList();
 
@@ -415,7 +415,7 @@ public class BetweenConversionTest extends BaseDBTest {
   }
 
   public void testBetweenRightLeftIncludedFieldChainRight() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from BetweenConversionTest where a >= 1 and d.a <= 3").toList();
 

@@ -84,7 +84,7 @@ public class CheckHookCallCountTest extends DbTestBase {
           @Override
           public void onRecordAfterRead(EntityImpl entity) {
             var script = "select sum(a, b) as value from " + entity.getIdentity();
-            try (var calculated = session.query(script)) {
+            try (var calculated = session.getActiveTransaction().query(script)) {
               if (calculated.hasNext()) {
                 entity.setProperty("c", calculated.next().getProperty("value"));
               }

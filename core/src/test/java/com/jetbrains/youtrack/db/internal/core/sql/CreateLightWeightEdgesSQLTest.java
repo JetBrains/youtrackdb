@@ -37,17 +37,19 @@ public class CreateLightWeightEdgesSQLTest {
 
     session.createLightweightEdgeClass("lightweight");
 
-    session.begin();
-    session.execute("create vertex v set name='a' ");
-    session.execute("create vertex v set name='b' ");
-    session.execute(
+    var tx = session.begin();
+    tx.command("create vertex v set name='a' ");
+    tx.command("create vertex v set name='b' ");
+    tx.command(
         "create edge lightweight from (select from v where name='a') to (select from v where name='a') ");
-    session.commit();
+    tx.commit();
 
-    try (var res = session.query(
+    tx = session.begin();
+    try (var res = tx.query(
         "select expand(out('lightweight')) from v where name='a' ")) {
       assertEquals(1, res.stream().count());
     }
+    tx.commit();
     session.close();
   }
 
@@ -62,10 +64,10 @@ public class CreateLightWeightEdgesSQLTest {
 
     var session = pool.acquire();
 
-    session.begin();
-    session.execute("create vertex v set id = 1 ");
-    session.execute("create vertex v set id = 2 ");
-    session.commit();
+    var tx = session.begin();
+    tx.command("create vertex v set id = 1 ");
+    tx.command("create vertex v set id = 2 ");
+    tx.commit();
 
     session.close();
 
@@ -79,11 +81,11 @@ public class CreateLightWeightEdgesSQLTest {
                     for (var j = 0; j < 100; j++) {
 
                       try {
-                        session1.begin();
-                        session1.execute(
+                        var tx1 = session1.begin();
+                        tx1.command(
                             "create edge lightweight from (select from v where id=1) to (select from v"
                                 + " where id=2) ");
-                        session1.commit();
+                        tx1.commit();
                       } catch (ConcurrentModificationException e) {
                         // ignore
                       }
@@ -97,9 +99,10 @@ public class CreateLightWeightEdgesSQLTest {
     latch.await();
 
     session = pool.acquire();
-    try (var res = session.query(
+    tx = session.begin();
+    try (var res = tx.query(
         "select sum(out('lightweight').size()) as size from V where id = 1");
-        var res1 = session.query(
+        var res1 = tx.query(
             "select sum(in('lightweight').size()) as size from V where id = 2")) {
 
       var s1 = res.findFirst(r -> r.getInt("size"));

@@ -17,6 +17,7 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.StorageDoesNotExistException;
+import com.jetbrains.youtrack.db.api.session.Transaction;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
@@ -65,7 +66,7 @@ public class YouTrackDBEmbeddedTests {
               youTrackDb.open(
                   "createAndUseEmbeddedDatabase", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
       db.executeInTx(
-          () -> db.newEntity());
+          Transaction::newEntity);
       db.close();
     }
   }
@@ -105,9 +106,9 @@ public class YouTrackDBEmbeddedTests {
       Runnable acquirer =
           () -> {
             try (var db = pool.acquire()) {
-              db.executeInTx(() -> {
+              db.executeInTx(transaction -> {
                 assertThat(((DatabaseSessionInternal) db).isActiveOnCurrentThread()).isTrue();
-                final var res = db.query("SELECT * FROM OUser");
+                final var res = transaction.query("SELECT * FROM OUser");
                 assertThat(res).hasSize(1); // Only 'admin' created in this test
               });
             }
@@ -536,7 +537,7 @@ public class YouTrackDBEmbeddedTests {
         (DatabaseSessionInternal)
             youTrackDb.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     db.executeInTx(
-        () -> db.newEntity());
+        Transaction::newEntity);
     db.close();
     youTrackDb.close();
   }

@@ -86,7 +86,7 @@ public class SQLCreateDatabaseStatement extends SQLSimpleExecServerStatement {
             (session) -> {
               if (!users.isEmpty()) {
                 session.executeInTx(
-                    () -> {
+                    transaction -> {
                       for (var user : users) {
                         user.executeCreate(session, ctx);
                       }

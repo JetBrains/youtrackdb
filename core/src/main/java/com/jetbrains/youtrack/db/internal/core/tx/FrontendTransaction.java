@@ -50,15 +50,15 @@ public interface FrontendTransaction extends Transaction {
     ROLLED_BACK
   }
 
-  int begin();
+  int beginInternal();
 
-  void commit();
+  void commitInternal();
 
-  void commit(boolean force);
+  void commitInternal(boolean force);
 
-  void rollback();
+  void rollbackInternal();
 
-  void rollback(boolean force, int commitLevelDiff);
+  void rollbackInternal(boolean force, int commitLevelDiff);
 
   DatabaseSessionInternal getDatabaseSession();
 

@@ -77,7 +77,7 @@ public class StorageBackupMTIT {
 
         latch.countDown();
 
-      TimeUnit.MINUTES.sleep(15);
+        TimeUnit.MINUTES.sleep(15);
 
         stop = true;
 
@@ -253,9 +253,8 @@ public class StorageBackupMTIT {
 
             final var num = random.nextInt();
 
-            databaseSession.executeInTx(() -> {
-
-              var entity = databaseSession.newEntity("BackupClass");
+            databaseSession.executeInTx(transaction -> {
+              var entity = transaction.newEntity("BackupClass");
               entity.setProperty("num", num);
               entity.setProperty("data", data);
             });

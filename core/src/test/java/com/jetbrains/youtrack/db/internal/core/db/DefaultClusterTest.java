@@ -20,17 +20,18 @@ public class DefaultClusterTest {
         context.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
       var v =
           session.computeInTx(
-              () -> {
-                final var vertex = session.newVertex("V");
-                vertex.setProperty("embedded", session.newEmbeddedEntity(), PropertyType.EMBEDDED);
+              transaction -> {
+                final var vertex = transaction.newVertex("V");
+                vertex.setProperty("embedded", transaction.newEmbeddedEntity(),
+                    PropertyType.EMBEDDED);
                 return vertex;
               });
 
-      session.begin();
-      final EntityImpl embedded = session.bindToSession(v).getProperty("embedded");
+      var tx = session.begin();
+      final EntityImpl embedded = tx.bindToSession(v).getProperty("embedded");
       Assert.assertFalse("Found: " + embedded.getIdentity(),
           embedded.getIdentity().isValidPosition());
-      session.commit();
+      tx.commit();
     }
   }
 }

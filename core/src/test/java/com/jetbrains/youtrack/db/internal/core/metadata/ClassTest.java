@@ -8,7 +8,6 @@ import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.BaseMemoryInternalDatabase;
 import com.jetbrains.youtrack.db.internal.core.storage.cluster.PaginatedCluster;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
-import java.util.Locale;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -58,7 +57,7 @@ public class ClassTest extends BaseMemoryInternalDatabase {
   }
 
   private String queryShortName() {
-    return session.computeInTx(() -> {
+    return session.computeInTx(transaction -> {
       var selectShortNameSQL =
           "select shortName from ( select expand(classes) from metadata:schema )"
               + " where name = \""

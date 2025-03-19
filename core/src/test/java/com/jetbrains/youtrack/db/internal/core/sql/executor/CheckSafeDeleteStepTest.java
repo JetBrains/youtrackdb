@@ -47,7 +47,7 @@ public class CheckSafeDeleteStepTest extends TestUtilsFixture {
     }
 
     var simpleClassName = createClassInstance().getName();
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       CommandContext context = new BasicCommandContext();
       context.setDatabaseSession(session);
 
@@ -95,7 +95,7 @@ public class CheckSafeDeleteStepTest extends TestUtilsFixture {
   public void shouldSafelyDeleteRecord() {
     var className = createClassInstance().getName();
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       CommandContext context = new BasicCommandContext();
       context.setDatabaseSession(session);
       var step = new CheckSafeDeleteStep(context, false);

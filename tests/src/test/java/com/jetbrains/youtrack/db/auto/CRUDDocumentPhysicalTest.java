@@ -60,17 +60,17 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
   @Test
   public void create() {
-    session.executeInTx(() -> session.execute("delete from Account").close());
+    session.executeInTx(transaction -> session.execute("delete from Account").close());
 
-    session.executeInTx(() ->
+    session.executeInTx(transaction ->
         Assert.assertEquals(session.countClass("Account"), 0)
     );
 
     fillInAccountData();
 
-    session.executeInTx(() -> session.execute("delete from Profile").close());
+    session.executeInTx(transaction -> session.execute("delete from Profile").close());
 
-    session.executeInTx(() ->
+    session.executeInTx(transaction ->
         Assert.assertEquals(session.countClass("Profile"), 0)
     );
 
@@ -285,7 +285,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
         .setPropertyInChain("surname", "Hall")
         .setProperty("tag_list", tags);
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
 
       final var result =
           session.query("select from Profile where name = 'Michael'").entityStream().toList();
@@ -298,7 +298,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
       ((Collection<String>) dexter.getProperty("tag_list")).add("actor");
     });
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result = session
           .query("select from Profile where tag_list contains 'actor' and tag_list contains 'test'")
           .toList();
@@ -397,7 +397,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
   @Test
   public void commandWrongParameterNames() {
     session.executeInTx(
-        () -> {
+        transaction -> {
           try {
             EntityImpl doc = session.newInstance();
             doc.setProperty("a:b", 10);
@@ -408,7 +408,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
         });
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           try {
             EntityImpl doc = session.newInstance();
             doc.setProperty("a,b", 10);
@@ -470,7 +470,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
   @Test
   public void testDirtyChild() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       var parent = ((EntityImpl) session.newEntity());
 
       var child1 = ((EntityImpl) session.newEntity());
@@ -745,7 +745,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
   }
 
   public void testRemoveAllLinkList() {
-    var doc = session.computeInTx(() -> session.newEntity());
+    var doc = session.computeInTx(transaction -> session.newEntity());
 
     session.begin();
     final var allDocs = session.newLinkList();

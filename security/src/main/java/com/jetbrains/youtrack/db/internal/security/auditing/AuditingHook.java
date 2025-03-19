@@ -21,6 +21,7 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.api.session.SessionListener;
+import com.jetbrains.youtrack.db.api.session.Transaction;
 import com.jetbrains.youtrack.db.internal.common.parser.VariableParser;
 import com.jetbrains.youtrack.db.internal.common.parser.VariableParserListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -34,7 +35,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -241,31 +241,18 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
   }
 
   @Override
-  public void onBeforeTxBegin(DatabaseSession iDatabase) {
-  }
-
-  @Override
-  public void onBeforeTxRollback(DatabaseSession iDatabase) {
-  }
-
-  @Override
-  public void onAfterTxRollback(DatabaseSession iDatabase) {
-
+  public void onAfterTxRollback(Transaction transaction) {
     synchronized (operations) {
-      operations.remove(iDatabase);
+      operations.remove(transaction.getSession());
     }
   }
 
   @Override
-  public void onBeforeTxCommit(DatabaseSession iDatabase) {
-  }
-
-  @Override
-  public void onAfterTxCommit(DatabaseSession iDatabase) {
+  public void onAfterTxCommit(Transaction transaction) {
     List<Map<String, ?>> entries;
 
     synchronized (operations) {
-      entries = operations.remove(iDatabase);
+      entries = operations.remove(transaction.getSession());
     }
     if (entries != null) {
       for (var oDocument : entries) {
@@ -303,9 +290,9 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
       SchemaImmutableClass clazz = null;
       clazz = entity.getImmutableSchemaClass((DatabaseSessionInternal) session);
 
-      if (clazz.isUser() && Objects.equals(
-          entity.getDirtyPropertiesBetweenCallbacksInternal(false, false),
-          "password")) {
+      if (clazz.isUser() &&
+          entity.getDirtyPropertiesBetweenCallbacksInternal(false, false).contains(
+              "password")) {
         String name = entity.getProperty("name");
         var message = String.format("The password for user '%s' has been changed", name);
         log(session, AuditingOperation.CHANGED_PWD, session.getDatabaseName(),
@@ -364,10 +351,10 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
         note = cfg.onUpdateMessage;
 
         if (iRecord instanceof EntityImpl entity && cfg.onUpdateChanges) {
-          changes = db.newEmbeddedEntity();
+          changes = db.getActiveTransaction().newEmbeddedEntity();
 
           for (var f : entity.getDirtyPropertiesBetweenCallbacksInternal(false, false)) {
-            var fieldChanges = db.newEntity();
+            var fieldChanges = db.getActiveTransaction().newEntity();
             fieldChanges.setProperty("from", entity.getOriginalValue(f));
             fieldChanges.setProperty("to", entity.getProperty(f));
             changes.setProperty(f, fieldChanges, PropertyType.EMBEDDED);

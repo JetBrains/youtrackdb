@@ -40,7 +40,7 @@ public interface DBRecord extends Identifiable {
    *
    * @param session The session to check
    * @return <code>true</code> if record is bound to the passed in session.
-   * @see DatabaseSession#bindToSession(Identifiable)
+   * @see com.jetbrains.youtrack.db.api.session.Transaction#bindToSession(Identifiable)
    */
   boolean isNotBound(@Nonnull DatabaseSession session);
 
@@ -105,12 +105,9 @@ public interface DBRecord extends Identifiable {
    *                  <li><b>rid</b>: exports the record's id as property "@rid"
    *                  <li><b>version</b>: exports the record's version as property "@version"
    *                  <li><b>class</b>: exports the record's class as property "@class"
-   *                  <li><b>attribSameRow</b>: exports all the record attributes in the same row
-   *                  <li><b>indent:&lt;level&gt;</b>: Indents the output if the &lt;level&gt; specified.
-   *                      Default is 0
    *                </ul>
-   *                Example: "rid,version,class,indent:6" exports record id, version and class properties along
-   *                with record properties using an indenting level equals of 6.
+   *                Example: "rid,version,class" exports record id, version and class properties along
+   *                with record properties.
    * @return Object content in JSON format
    */
   @Nonnull
@@ -118,7 +115,7 @@ public interface DBRecord extends Identifiable {
 
   /**
    * Checks if the record exists in the database. It adheres the same rules
-   * {@link DatabaseSession#exists(RID)}.
+   * {@link com.jetbrains.youtrack.db.api.session.Transaction#exists(RID)}.
    *
    * @return true if the record exists, otherwise false
    */

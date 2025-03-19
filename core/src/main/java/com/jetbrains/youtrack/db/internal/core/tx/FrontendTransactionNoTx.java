@@ -19,10 +19,23 @@
  */
 package com.jetbrains.youtrack.db.internal.core.tx;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.NoTxRecordReadException;
+import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.api.exception.TransactionException;
+import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.record.Blob;
+import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.jetbrains.youtrack.db.api.record.Edge;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.StatefulEdge;
+import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
@@ -55,11 +68,11 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
     this.session = session;
   }
 
-  public int begin() {
+  public int beginInternal() {
     throw new UnsupportedOperationException("Begin is not supported in no tx mode");
   }
 
-  public void commit() {
+  public void commitInternal() {
     throw new UnsupportedOperationException("Commit is not supported in no tx mode");
   }
 
@@ -74,11 +87,142 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public void commit(boolean force) {
+  public DatabaseSession getSession() {
+    return session;
+  }
+
+  @Override
+  public <T extends Identifiable> T bindToSession(T identifiable) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nonnull
+  @Override
+  public Entity loadEntity(RID id) throws DatabaseException, RecordNotFoundException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nonnull
+  @Override
+  public Vertex loadVertex(RID id) throws DatabaseException, RecordNotFoundException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nonnull
+  @Override
+  public Edge loadEdge(RID id) throws DatabaseException, RecordNotFoundException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nonnull
+  @Override
+  public Blob loadBlob(RID id) throws DatabaseException, RecordNotFoundException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Blob newBlob(byte[] bytes) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Blob newBlob() {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Entity newEntity(String className) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Entity newEntity(SchemaClass cls) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Entity newEntity() {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Entity newEmbeddedEntity(SchemaClass schemaClass) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Entity newEmbeddedEntity(String schemaClass) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Entity newEmbeddedEntity() {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public <T extends DBRecord> T createOrLoadRecordFromJson(String json) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Entity createOrLoadEntityFromJson(String json) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, SchemaClass type) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, String type) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull SchemaClass type) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull String type) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Vertex newVertex(SchemaClass type) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Vertex newVertex(String type) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public StatefulEdge newStatefulEdge(Vertex from, Vertex to) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nonnull
+  @Override
+  public <RET extends DBRecord> RET load(RID recordId) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nullable
+  @Override
+  public <RET extends DBRecord> RET loadSilently(RID recordId) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public void commitInternal(boolean force) {
     throw new UnsupportedOperationException("Commit is not supported in no tx mode");
   }
 
-  public void rollback() {
+  public void rollbackInternal() {
     throw new UnsupportedOperationException("Rollback is not supported in no tx mode");
   }
 
@@ -89,6 +233,57 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   @Override
   public boolean exists(RID rid) {
     throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
+  }
+
+  @Override
+  public void delete(@Nonnull DBRecord record) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public boolean commit() throws TransactionException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public void rollback() throws TransactionException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public ResultSet query(String query, Object... args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public ResultSet query(String query, Map args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public ResultSet execute(String query, Object... args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public ResultSet execute(String query, Map args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public void command(String query, Object... args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public void command(String query, Map args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
   @Override
@@ -202,7 +397,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public void rollback(boolean force, int commitLevelDiff) {
+  public void rollbackInternal(boolean force, int commitLevelDiff) {
     throw new UnsupportedOperationException("Rollback is not supported in no tx mode");
   }
 

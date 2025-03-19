@@ -46,90 +46,90 @@ public class ResourceDerivedTest {
         "create database test memory users (admin identified by 'admin' role admin)");
     var db = youTrackDB.open("test", "admin", "admin");
 
-    db.begin();
-    db.execute(
+    var tx = db.begin();
+    tx.command(
         "CREATE SECURITY POLICY r SET create = (false), read = (true), before update = (false),"
             + " after update = (false), delete = (false), execute = (true)");
-    db.execute(
+    tx.command(
         "CREATE SECURITY POLICY rw SET create = (true), read = (true), before update = (true),"
             + " after update = (true), delete = (true), execute = (true)");
-    db.commit();
+    tx.commit();
 
-    db.execute("CREATE CLASS Customer extends V ABSTRACT");
-    db.execute("CREATE PROPERTY Customer.name String");
+    db.runScript("sql", "CREATE CLASS Customer extends V ABSTRACT");
+    db.runScript("sql", "CREATE PROPERTY Customer.name String");
 
-    db.execute("CREATE CLASS Customer_t1 extends Customer");
-    db.execute("CREATE CLASS Customer_t2 extends Customer");
+    db.runScript("sql", "CREATE CLASS Customer_t1 extends Customer");
+    db.runScript("sql", "CREATE CLASS Customer_t2 extends Customer");
 
-    db.execute("CREATE CLASS Customer_u1 extends Customer_t1");
-    db.execute("CREATE CLASS Customer_u2 extends Customer_t2");
+    db.runScript("sql", "CREATE CLASS Customer_u1 extends Customer_t1");
+    db.runScript("sql", "CREATE CLASS Customer_u2 extends Customer_t2");
 
-    db.begin();
-    db.execute("INSERT INTO ORole SET name = 'tenant1', mode = 0");
-    db.commit();
-    db.begin();
-    db.execute("ALTER ROLE tenant1 set policy rw ON database.class.*.*");
-    db.commit();
-    db.begin();
-    db.execute("UPDATE ORole SET rules = {'database.class.customer': 2} WHERE name = ?", "tenant1");
-    db.commit();
-    db.begin();
-    db.execute("ALTER ROLE tenant1 set policy r ON database.class.Customer");
-    db.execute(
+    tx = db.begin();
+    tx.command("INSERT INTO ORole SET name = 'tenant1', mode = 0");
+    tx.commit();
+    tx = db.begin();
+    tx.command("ALTER ROLE tenant1 set policy rw ON database.class.*.*");
+    tx.commit();
+    tx = db.begin();
+    tx.command("UPDATE ORole SET rules = {'database.class.customer': 2} WHERE name = ?", "tenant1");
+    tx.commit();
+    tx = db.begin();
+    tx.command("ALTER ROLE tenant1 set policy r ON database.class.Customer");
+    tx.command(
         "UPDATE ORole SET rules = {'database.class.customer_t1': 31} WHERE name = ?", "tenant1");
-    db.commit();
-    db.begin();
-    db.execute("ALTER ROLE tenant1 set policy rw ON database.class.Customer_t1");
-    db.execute(
+    tx.commit();
+    tx = db.begin();
+    tx.command("ALTER ROLE tenant1 set policy rw ON database.class.Customer_t1");
+    tx.command(
         "UPDATE ORole SET rules = {'database.class.customer_t2': 2} WHERE name = ?", "tenant1");
-    db.commit();
+    tx.commit();
 
-    db.begin();
-    db.execute("ALTER ROLE tenant1 set policy r ON database.class.Custome_t2r");
-    db.execute(
+    tx = db.begin();
+    tx.command("ALTER ROLE tenant1 set policy r ON database.class.Custome_t2r");
+    tx.command(
         "UPDATE ORole SET rules = {'database.class.customer_u2': 0} WHERE name = ?", "tenant1");
-    db.execute(
+    tx.command(
         "UPDATE ORole SET inheritedRole = (SELECT FROM ORole WHERE name = 'reader') WHERE name = ?",
         "tenant1");
 
-    db.execute(
+    tx.command(
         "INSERT INTO OUser set name = 'tenant1', password = 'password', status = 'ACTIVE', roles ="
             + " (SELECT FROM ORole WHERE name = 'tenant1')");
 
-    db.execute("INSERT INTO ORole SET name = 'tenant2', mode = 0");
-    db.commit();
+    tx.command("INSERT INTO ORole SET name = 'tenant2', mode = 0");
+    tx.commit();
 
-    db.begin();
-    db.execute("ALTER ROLE tenant2 set policy rw ON database.class.*.*");
-    db.commit();
+    tx = db.begin();
+    tx.command("ALTER ROLE tenant2 set policy rw ON database.class.*.*");
+    tx.commit();
 
-    db.begin();
-    db.execute(
+    tx = db.begin();
+    tx.command(
         "UPDATE ORole SET rules = {'database.class.customer_t1': 0} WHERE name = ?", "tenant2");
-    db.execute(
+    tx.command(
         "UPDATE ORole SET rules = {'database.class.customer_t2': 31} WHERE name = ?", "tenant2");
-    db.execute("ALTER ROLE tenant2 set policy rw ON database.class.Customer_t2");
-    db.execute("UPDATE ORole SET rules = {'database.class.customer': 0} WHERE name = ?", "tenant2");
-    db.execute(
+    tx.command("ALTER ROLE tenant2 set policy rw ON database.class.Customer_t2");
+    tx.command("UPDATE ORole SET rules = {'database.class.customer': 0} WHERE name = ?", "tenant2");
+    tx.command(
         "UPDATE ORole SET inheritedRole = (SELECT FROM ORole WHERE name = 'reader') WHERE name ="
             + " 'tenant2'");
 
-    db.execute(
+    tx.command(
         "INSERT INTO OUser set name = 'tenant2', password = 'password', status = 'ACTIVE', roles ="
             + " (SELECT FROM ORole WHERE name = 'tenant2')");
 
-    db.execute("create vertex Customer_t1 set name='Amy'");
-    db.execute("create vertex Customer_t2 set name='Bob'");
+    tx.command("create vertex Customer_t1 set name='Amy'");
+    tx.command("create vertex Customer_t2 set name='Bob'");
 
-    db.execute("create vertex Customer_u1 set name='Fred'");
-    db.execute("create vertex Customer_u2 set name='George'");
-    db.commit();
+    tx.command("create vertex Customer_u1 set name='Fred'");
+    tx.command("create vertex Customer_u2 set name='George'");
+    tx.commit();
 
     db.close();
   }
 
   private ResultSet query(DatabaseSession db, String sql, Object... params) {
-    return db.query(sql, params);
+    return db.getActiveTransaction().query(sql, params);
   }
 
   @After
@@ -143,12 +143,12 @@ public class ResourceDerivedTest {
 
     var db = youTrackDB.open("test", "tenant1", "password");
 
-    db.begin();
+    var tx = db.begin();
     try {
       var result = query(db, "SELECT FROM Customer");
 
       assertThat(result).hasSize(3);
-      db.commit();
+      tx.commit();
     } finally {
       db.close();
     }
@@ -160,12 +160,12 @@ public class ResourceDerivedTest {
 
     var db = youTrackDB.open("test", "tenant1", "password");
 
-    db.begin();
+    var tx = db.begin();
     try {
       var result = query(db, "SELECT FROM Customer_t2");
 
       assertThat(result).hasSize(1);
-      db.commit();
+      tx.commit();
     } finally {
       db.close();
     }
@@ -175,24 +175,24 @@ public class ResourceDerivedTest {
 
     var db = youTrackDB.open("test", "tenant1", "password");
 
-    db.begin();
+    var tx = db.begin();
     try {
       var result = query(db, "SELECT FROM Customer_u2");
       assertThat(result).hasSize(0);
     } finally {
-      db.rollback();
+      tx.rollback();
       db.close();
     }
   }
 
   public void shouldTestCustomer() {
     var db = youTrackDB.open("test", "tenant2", "password");
-    db.begin();
+    var tx = db.begin();
     try {
       var result = query(db, "SELECT FROM Customer");
       assertThat(result).hasSize(0);
     } finally {
-      db.rollback();
+      tx.rollback();
       db.close();
     }
   }
@@ -203,12 +203,12 @@ public class ResourceDerivedTest {
   public void shouldTestCustomer_t2Tenant2() {
 
     var db = youTrackDB.open("test", "tenant2", "password");
-    db.begin();
+    var tx = db.begin();
     try {
       var result = query(db, "SELECT FROM Customer_t2");
 
       assertThat(result).hasSize(2);
-      db.commit();
+      tx.commit();
     } finally {
       db.close();
     }

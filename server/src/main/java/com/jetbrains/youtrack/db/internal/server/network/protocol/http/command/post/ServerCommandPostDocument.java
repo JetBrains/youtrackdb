@@ -41,7 +41,7 @@ public class ServerCommandPostDocument extends ServerCommandDocumentAbstract {
     try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
       d =
           db.computeInTx(
-              () -> {
+              transaction -> {
                 var entity = new EntityImpl(db);
                 entity.updateFromJSON(iRequest.getContent());
                 final var rec = (RecordAbstract) entity;

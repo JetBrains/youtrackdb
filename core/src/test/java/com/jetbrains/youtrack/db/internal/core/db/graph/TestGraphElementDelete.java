@@ -42,90 +42,90 @@ public class TestGraphElementDelete {
 
   @Test
   public void testDeleteVertex() {
-    session.begin();
-    var vertex = session.newVertex("V");
-    var vertex1 = session.newVertex("V");
+    var tx = session.begin();
+    var vertex = tx.newVertex("V");
+    var vertex1 = tx.newVertex("V");
     var edge = vertex.addStateFulEdge(vertex1, "E");
-    session.commit();
+    tx.commit();
 
-    session.begin();
-    session.delete(session.bindToSession(vertex));
-    session.commit();
+    tx = session.begin();
+    tx.delete(tx.bindToSession(vertex));
+    tx.commit();
 
-    session.begin();
+    tx = session.begin();
     try {
-      session.load(edge.getIdentity());
+      tx.load(edge.getIdentity());
       Assert.fail();
     } catch (RecordNotFoundException e) {
       // ignore
     }
-    session.commit();
+    tx.commit();
   }
 
   @Test
   public void testDeleteEdge() {
 
-    session.begin();
-    var vertex = session.newVertex("V");
-    var vertex1 = session.newVertex("V");
+    var tx = session.begin();
+    var vertex = tx.newVertex("V");
+    var vertex1 = tx.newVertex("V");
     var edge = vertex.addStateFulEdge(vertex1, "E");
-    session.commit();
+    tx.commit();
 
-    session.begin();
-    session.delete(session.bindToSession(edge));
-    session.commit();
+    tx = session.begin();
+    tx.delete(tx.bindToSession(edge));
+    tx.commit();
 
-    session.begin();
-    assertFalse(session.bindToSession(vertex).getEdges(Direction.OUT, "E").iterator().hasNext());
-    session.commit();
+    tx = session.begin();
+    assertFalse(tx.bindToSession(vertex).getEdges(Direction.OUT, "E").iterator().hasNext());
+    tx.commit();
   }
 
   @Test
   public void testDeleteEdgeConcurrentModification() throws Exception {
-    session.begin();
-    var vertex = session.newVertex("V");
-    var vertex1 = session.newVertex("V");
+    var tx = session.begin();
+    var vertex = tx.newVertex("V");
+    var vertex1 = tx.newVertex("V");
     var edge = vertex.addStateFulEdge(vertex1, "E");
-    session.commit();
+    tx.commit();
 
-    session.begin();
-    Entity instance = session.load(edge.getIdentity());
+    tx = session.begin();
+    Entity instance = tx.load(edge.getIdentity());
 
     var th =
         new Thread(
             () -> {
               try (var database =
                   youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
-                database.begin();
-                Entity element = database.load(edge.getIdentity());
+                var tx1 = database.begin();
+                Entity element = tx1.load(edge.getIdentity());
                 element.setProperty("one", "two");
-                database.commit();
+                tx1.commit();
               }
             });
     th.start();
     th.join();
 
     try {
-      session.delete(instance);
-      session.commit();
+      tx.delete(instance);
+      tx.commit();
       Assert.fail();
     } catch (ConcurrentModificationException e) {
     }
 
-    session.begin();
-    assertNotNull(session.load(edge.getIdentity()));
-    assertNotNull(session.load(vertex.getIdentity()));
-    assertNotNull(session.load(vertex1.getIdentity()));
+    tx = session.begin();
+    assertNotNull(tx.load(edge.getIdentity()));
+    assertNotNull(tx.load(vertex.getIdentity()));
+    assertNotNull(tx.load(vertex1.getIdentity()));
     assertTrue(
-        ((Vertex) session.load(vertex.getIdentity()))
+        ((Vertex) tx.load(vertex.getIdentity()))
             .getEdges(Direction.OUT, "E")
             .iterator()
             .hasNext());
     assertTrue(
-        ((Vertex) session.load(vertex1.getIdentity()))
+        ((Vertex) tx.load(vertex1.getIdentity()))
             .getEdges(Direction.IN, "E")
             .iterator()
             .hasNext());
-    session.commit();
+    tx.commit();
   }
 }

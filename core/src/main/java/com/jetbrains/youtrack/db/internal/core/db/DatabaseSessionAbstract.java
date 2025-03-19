@@ -121,7 +121,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
-import java.util.function.Supplier;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -1365,14 +1366,16 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     return clusterId;
   }
 
-  public int begin() {
+  public Transaction begin() {
     assert assertIfNotActive();
 
     if (currentTx.isActive()) {
-      return currentTx.begin();
+      currentTx.beginInternal();
+      return currentTx;
     }
 
-    return begin(newTxInstance(FrontendTransactionImpl.generateTxId()));
+    begin(newTxInstance(FrontendTransactionImpl.generateTxId()));
+    return currentTx;
   }
 
   public void beginReadOnly() {
@@ -1396,14 +1399,14 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
     if (currentTx.isActive()) {
       if (currentTx instanceof FrontendTransactionImpl) {
-        return currentTx.begin();
+        return currentTx.beginInternal();
       }
     }
 
     // WAKE UP LISTENERS
     for (var listener : browseListeners()) {
       try {
-        listener.onBeforeTxBegin(this);
+        listener.onBeforeTxBegin(currentTx);
       } catch (Exception e) {
         LogManager.instance().error(this, "Error before tx begin", e);
       }
@@ -1411,7 +1414,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
     currentTx = transaction;
 
-    return currentTx.begin();
+    return currentTx.beginInternal();
   }
 
   protected FrontendTransactionImpl newTxInstance(long txId) {
@@ -1909,7 +1912,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
     if (currentTx.amountOfNestedTxs() > 1) {
       // This just do count down no real commit here
-      currentTx.commit();
+      currentTx.commitInternal();
       return false;
     }
 
@@ -1927,7 +1930,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
       throw e;
     }
     try {
-      currentTx.commit();
+      currentTx.commitInternal();
     } catch (RuntimeException e) {
 
       if ((e instanceof HighLevelException) || (e instanceof NeedRetryException)) {
@@ -1963,7 +1966,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     closeActiveQueries();
     for (var listener : browseListeners()) {
       try {
-        listener.onBeforeTxCommit(this);
+        listener.onBeforeTxCommit(currentTx);
       } catch (Exception e) {
         LogManager.instance()
             .error(
@@ -1987,7 +1990,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     assert assertIfNotActive();
     for (var listener : browseListeners()) {
       try {
-        listener.onAfterTxCommit(this);
+        listener.onAfterTxCommit(currentTx);
       } catch (Exception e) {
         final var message =
             "Error after the transaction has been committed. The transaction remains valid. The"
@@ -2009,7 +2012,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     closeActiveQueries();
     for (var listener : browseListeners()) {
       try {
-        listener.onBeforeTxRollback(this);
+        listener.onBeforeTxRollback(currentTx);
       } catch (Exception t) {
         LogManager.instance()
             .error(this, "Error before transaction rollback `%08X`", t, System.identityHashCode(t));
@@ -2021,7 +2024,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     assert assertIfNotActive();
     for (var listener : browseListeners()) {
       try {
-        listener.onAfterTxRollback(this);
+        listener.onAfterTxRollback(currentTx);
       } catch (Exception t) {
         LogManager.instance()
             .error(this, "Error after transaction rollback `%08X`", t, System.identityHashCode(t));
@@ -2046,13 +2049,13 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     if (currentTx.isActive()) {
       if (!force && currentTx.amountOfNestedTxs() > 1) {
         // This just decrement the counter no real rollback here
-        currentTx.rollback();
+        currentTx.rollbackInternal();
         return;
       }
 
       // WAKE UP LISTENERS
       beforeRollbackOperations();
-      currentTx.rollback(force, -1);
+      currentTx.rollbackInternal(force, -1);
       // WAKE UP LISTENERS
       afterRollbackOperations();
     }
@@ -2336,12 +2339,12 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public void executeInTx(Runnable runnable) {
+  public void executeInTx(Consumer<Transaction> code) {
     var ok = false;
     assert assertIfNotActive();
-    begin();
+    var tx = begin();
     try {
-      runnable.run();
+      code.accept(tx);
       ok = true;
     } finally {
       finishTx(ok);
@@ -2350,15 +2353,15 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Override
   public <T> void executeInTxBatches(
-      Iterable<T> iterable, int batchSize, BiConsumer<DatabaseSession, T> consumer) {
+      Iterable<T> iterable, int batchSize, BiConsumer<Transaction, T> consumer) {
     var ok = false;
     assert assertIfNotActive();
     var counter = 0;
 
-    begin();
+    var tx = begin();
     try {
       for (var t : iterable) {
-        consumer.accept(this, t);
+        consumer.accept(tx, t);
         counter++;
 
         if (counter % batchSize == 0) {
@@ -2374,7 +2377,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public <T> void forEachInTx(Iterator<T> iterator, BiConsumer<DatabaseSession, T> consumer) {
+  public <T> void forEachInTx(Iterator<T> iterator, BiConsumer<Transaction, T> consumer) {
     assert assertIfNotActive();
 
     forEachInTx(iterator, (db, t) -> {
@@ -2384,14 +2387,14 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public <T> void forEachInTx(Iterable<T> iterable, BiConsumer<DatabaseSession, T> consumer) {
+  public <T> void forEachInTx(Iterable<T> iterable, BiConsumer<Transaction, T> consumer) {
     assert assertIfNotActive();
 
     forEachInTx(iterable.iterator(), consumer);
   }
 
   @Override
-  public <T> void forEachInTx(Stream<T> stream, BiConsumer<DatabaseSession, T> consumer) {
+  public <T> void forEachInTx(Stream<T> stream, BiConsumer<Transaction, T> consumer) {
     assert assertIfNotActive();
 
     try (var s = stream) {
@@ -2401,14 +2404,14 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Override
   public <T> void forEachInTx(Iterator<T> iterator,
-      BiFunction<DatabaseSession, T, Boolean> consumer) {
+      BiFunction<Transaction, T, Boolean> consumer) {
     var ok = false;
     assert assertIfNotActive();
 
-    begin();
+    var tx = begin();
     try {
       while (iterator.hasNext()) {
-        var cont = consumer.apply(this, iterator.next());
+        var cont = consumer.apply(tx, iterator.next());
         commit();
         if (!cont) {
           break;
@@ -2424,7 +2427,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Override
   public <T> void forEachInTx(Iterable<T> iterable,
-      BiFunction<DatabaseSession, T, Boolean> consumer) {
+      BiFunction<Transaction, T, Boolean> consumer) {
     assert assertIfNotActive();
 
     forEachInTx(iterable.iterator(), consumer);
@@ -2432,7 +2435,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Override
   public <T> void forEachInTx(Stream<T> stream,
-      BiFunction<DatabaseSession, T, Boolean> consumer) {
+      BiFunction<Transaction, T, Boolean> consumer) {
     assert assertIfNotActive();
 
     try (stream) {
@@ -2448,7 +2451,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
         if (isActiveOnCurrentThread()) {
           rollback();
         } else {
-          currentTx.rollback();
+          currentTx.rollbackInternal();
         }
       }
     }
@@ -2456,15 +2459,15 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Override
   public <T> void executeInTxBatches(
-      Iterator<T> iterator, int batchSize, BiConsumer<DatabaseSession, T> consumer) {
+      Iterator<T> iterator, int batchSize, BiConsumer<Transaction, T> consumer) {
     var ok = false;
     assert assertIfNotActive();
     var counter = 0;
 
-    begin();
+    var tx = begin();
     try {
       while (iterator.hasNext()) {
-        consumer.accept(this, iterator.next());
+        consumer.accept(tx, iterator.next());
         counter++;
 
         if (counter % batchSize == 0) {
@@ -2481,7 +2484,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Override
   public <T> void executeInTxBatches(
-      Iterator<T> iterator, BiConsumer<DatabaseSession, T> consumer) {
+      Iterator<T> iterator, BiConsumer<Transaction, T> consumer) {
     assert assertIfNotActive();
 
     executeInTxBatches(
@@ -2492,7 +2495,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Override
   public <T> void executeInTxBatches(
-      Iterable<T> iterable, BiConsumer<DatabaseSession, T> consumer) {
+      Iterable<T> iterable, BiConsumer<Transaction, T> consumer) {
     assert assertIfNotActive();
 
     executeInTxBatches(
@@ -2503,7 +2506,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Override
   public <T> void executeInTxBatches(
-      Stream<T> stream, int batchSize, BiConsumer<DatabaseSession, T> consumer) {
+      Stream<T> stream, int batchSize, BiConsumer<Transaction, T> consumer) {
     assert assertIfNotActive();
 
     try (stream) {
@@ -2512,7 +2515,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public <T> void executeInTxBatches(Stream<T> stream, BiConsumer<DatabaseSession, T> consumer) {
+  public <T> void executeInTxBatches(Stream<T> stream, BiConsumer<Transaction, T> consumer) {
     assert assertIfNotActive();
 
     try (stream) {
@@ -2521,12 +2524,12 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public <T> T computeInTx(Supplier<T> supplier) {
+  public <R> R computeInTx(Function<Transaction, R> code) {
     assert assertIfNotActive();
     var ok = false;
-    begin();
+    var tx = begin();
     try {
-      var result = supplier.get();
+      var result = code.apply(tx);
       ok = true;
       return result;
     } finally {

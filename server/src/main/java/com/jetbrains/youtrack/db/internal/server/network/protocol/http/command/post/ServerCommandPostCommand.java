@@ -229,23 +229,15 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
   protected ResultSet executeStatement(
       String language, String text, Object params, DatabaseSession db) {
     ResultSet result;
-    if ("sql".equalsIgnoreCase(language)) {
-      if (params instanceof Map) {
-        result = db.execute(text, (Map) params);
-      } else if (params instanceof Object[]) {
-        result = db.execute(text, (Object[]) params);
-      } else {
-        result = db.execute(text, params);
-      }
+
+    if (params instanceof Map) {
+      result = db.runScript(language, text, (Map) params);
+    } else if (params instanceof Object[]) {
+      result = db.runScript(language, text, (Object[]) params);
     } else {
-      if (params instanceof Map) {
-        result = db.runScript(language, text, (Map) params);
-      } else if (params instanceof Object[]) {
-        result = db.runScript(language, text, (Object[]) params);
-      } else {
-        result = db.runScript(language, text, params);
-      }
+      result = db.runScript(language, text, params);
     }
+
     return result;
   }
 

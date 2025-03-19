@@ -117,17 +117,19 @@ public class LuceneSpatialPointTest extends BaseSpatialLuceneTest {
 
   protected static EntityImpl newCity(DatabaseSession db, String name, final Double longitude,
       final Double latitude) {
-    var location = ((EntityImpl) db.newEntity("OPoint"));
-    location.setProperty("coordinates", new ArrayList<Double>() {
-          {
-            add(longitude);
-            add(latitude);
-          }
-        });
+    return db.computeInTx(transaction -> {
+      var location = ((EntityImpl) transaction.newEntity("OPoint"));
+      location.setProperty("coordinates", new ArrayList<Double>() {
+        {
+          add(longitude);
+          add(latitude);
+        }
+      });
 
-    var city = ((EntityImpl) db.newEntity("City"));
-    city.setProperty("name", name);
-    city.setProperty("location", location);
-    return city;
+      var city = ((EntityImpl) transaction.newEntity("City"));
+      city.setProperty("name", name);
+      city.setProperty("location", location);
+      return city;
+    });
   }
 }

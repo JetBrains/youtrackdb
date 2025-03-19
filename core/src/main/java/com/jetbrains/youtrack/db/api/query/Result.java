@@ -20,12 +20,10 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public interface Result {
+
   /**
-   *
    * @param name the property name
-   * @return the property value. If the property value is a persistent record, it only returns the
-   * RID. See also {@link #getEntity(String)} {@link #getVertex(String)} {@link #getEdge(String)}
-   * {@link #getBlob(String)}
+   * @return the property value.
    */
   @Nullable
   <T> T getProperty(@Nonnull String name);

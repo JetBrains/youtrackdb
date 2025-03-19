@@ -217,145 +217,145 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initCollateOnLinked(DatabaseSession db) {
-    db.execute("CREATE CLASS CollateOnLinked").close();
-    db.execute("CREATE PROPERTY CollateOnLinked.name String").close();
-    db.execute("ALTER PROPERTY CollateOnLinked.name collate ci").close();
+    db.runScript("sql", "CREATE CLASS CollateOnLinked");
+    db.runScript("sql", "CREATE PROPERTY CollateOnLinked.name String");
+    db.runScript("sql", "ALTER PROPERTY CollateOnLinked.name collate ci");
 
-    db.execute("CREATE CLASS CollateOnLinked2").close();
+    db.runScript("sql", "CREATE CLASS CollateOnLinked2");
 
-    db.execute("CREATE CLASS CollateOnLinked3").close();
+    db.runScript("sql", "CREATE CLASS CollateOnLinked3");
+    db.runScript("sql", "CREATE CLASS CollateOnLinked4");
 
-    db.execute("CREATE CLASS CollateOnLinked4").close();
-
-    db.executeInTx(() -> {
-      var doc = (EntityImpl) db.newEntity("CollateOnLinked");
+    db.executeInTx(transaction -> {
+      var doc = (EntityImpl) transaction.newEntity("CollateOnLinked");
       doc.setProperty("name", "foo");
 
-      var doc2 = (EntityImpl) db.newEntity("CollateOnLinked2");
+      var doc2 = (EntityImpl) transaction.newEntity("CollateOnLinked2");
       doc2.setProperty("level1", doc.getIdentity());
 
-      var doc3 = (EntityImpl) db.newEntity("CollateOnLinked3");
+      var doc3 = (EntityImpl) transaction.newEntity("CollateOnLinked3");
       doc3.setProperty("level2", doc2.getIdentity());
 
-      var doc4 = (EntityImpl) db.newEntity("CollateOnLinked4");
+      var doc4 = (EntityImpl) transaction.newEntity("CollateOnLinked4");
       doc4.setProperty("level3", doc3.getIdentity());
     });
   }
 
   private static void initComplexFilterInSquareBrackets(DatabaseSession db) {
-    db.execute("CREATE CLASS ComplexFilterInSquareBrackets1").close();
-    db.execute("CREATE CLASS ComplexFilterInSquareBrackets2").close();
+    db.runScript("sql", "CREATE CLASS ComplexFilterInSquareBrackets1").close();
+    db.runScript("sql", "CREATE CLASS ComplexFilterInSquareBrackets2").close();
 
-    db.begin();
-    db.execute("INSERT INTO ComplexFilterInSquareBrackets1 SET name = 'n1', value = 1").close();
-    db.execute("INSERT INTO ComplexFilterInSquareBrackets1 SET name = 'n2', value = 2").close();
-    db.execute("INSERT INTO ComplexFilterInSquareBrackets1 SET name = 'n3', value = 3").close();
-    db.execute("INSERT INTO ComplexFilterInSquareBrackets1 SET name = 'n4', value = 4").close();
-    db.execute("INSERT INTO ComplexFilterInSquareBrackets1 SET name = 'n5', value = 5").close();
-    db.execute("INSERT INTO ComplexFilterInSquareBrackets1 SET name = 'n6', value = -1").close();
-    db.execute("INSERT INTO ComplexFilterInSquareBrackets1 SET name = 'n7', value = null").close();
-    db.execute(
-            "INSERT INTO ComplexFilterInSquareBrackets2 SET collection = (select from"
-                + " ComplexFilterInSquareBrackets1)")
-        .close();
-    db.commit();
+    var tx = db.begin();
+    tx.command("INSERT INTO ComplexFilterInSquareBrackets1 SET name = 'n1', value = 1");
+    tx.command("INSERT INTO ComplexFilterInSquareBrackets1 SET name = 'n2', value = 2");
+    tx.command("INSERT INTO ComplexFilterInSquareBrackets1 SET name = 'n3', value = 3");
+    tx.command("INSERT INTO ComplexFilterInSquareBrackets1 SET name = 'n4', value = 4");
+    tx.command("INSERT INTO ComplexFilterInSquareBrackets1 SET name = 'n5', value = 5");
+    tx.command("INSERT INTO ComplexFilterInSquareBrackets1 SET name = 'n6', value = -1");
+    tx.command("INSERT INTO ComplexFilterInSquareBrackets1 SET name = 'n7', value = null");
+    tx.command(
+        "INSERT INTO ComplexFilterInSquareBrackets2 SET collection = (select from"
+            + " ComplexFilterInSquareBrackets1)");
+    tx.commit();
   }
 
   private static void initFilterAndOrderByTest(DatabaseSession db) {
-    db.execute("CREATE CLASS FilterAndOrderByTest").close();
-    db.execute("CREATE PROPERTY FilterAndOrderByTest.dc DATETIME").close();
-    db.execute("CREATE PROPERTY FilterAndOrderByTest.active BOOLEAN").close();
-    db.execute(
+    db.runScript("sql", "CREATE CLASS FilterAndOrderByTest").close();
+    db.runScript("sql", "CREATE PROPERTY FilterAndOrderByTest.dc DATETIME").close();
+    db.runScript("sql", "CREATE PROPERTY FilterAndOrderByTest.active BOOLEAN").close();
+    db.runScript("sql",
             "CREATE INDEX FilterAndOrderByTest.active ON FilterAndOrderByTest (active) NOTUNIQUE")
         .close();
 
-    db.begin();
-    db.execute("insert into FilterAndOrderByTest SET dc = '2010-01-05 12:00:00:000', active = true")
+    var tx = db.begin();
+    tx.execute("insert into FilterAndOrderByTest SET dc = '2010-01-05 12:00:00:000', active = true")
         .close();
-    db.execute(
+    tx.execute(
             "insert into FilterAndOrderByTest SET dc = '2010-05-05 14:00:00:000', active = false")
         .close();
-    db.execute("insert into FilterAndOrderByTest SET dc = '2009-05-05 16:00:00:000', active = true")
+    tx.execute("insert into FilterAndOrderByTest SET dc = '2009-05-05 16:00:00:000', active = true")
         .close();
-    db.execute(
+    tx.execute(
             "insert into FilterAndOrderByTest SET dc = '2008-05-05 12:00:00:000', active = false")
         .close();
-    db.execute(
+    tx.execute(
             "insert into FilterAndOrderByTest SET dc = '2014-05-05 14:00:00:000', active = false")
         .close();
-    db.execute("insert into FilterAndOrderByTest SET dc = '2016-01-05 14:00:00:000', active = true")
+    tx.execute("insert into FilterAndOrderByTest SET dc = '2016-01-05 14:00:00:000', active = true")
         .close();
-    db.commit();
+    tx.commit();
   }
 
   private static void initMaxLongNumber(DatabaseSession db) {
-    db.execute("CREATE class MaxLongNumberTest").close();
+    db.runScript("sql", "CREATE class MaxLongNumberTest").close();
 
-    db.begin();
-    db.execute("insert into MaxLongNumberTest set last = 1").close();
-    db.execute("insert into MaxLongNumberTest set last = null").close();
-    db.execute("insert into MaxLongNumberTest set last = 958769876987698").close();
-    db.execute("insert into MaxLongNumberTest set foo = 'bar'").close();
-    db.commit();
+    var tx = db.begin();
+    tx.execute("insert into MaxLongNumberTest set last = 1").close();
+    tx.execute("insert into MaxLongNumberTest set last = null").close();
+    tx.execute("insert into MaxLongNumberTest set last = 958769876987698").close();
+    tx.execute("insert into MaxLongNumberTest set foo = 'bar'").close();
+    tx.commit();
   }
 
   private static void initLinkListSequence(DatabaseSession db) {
-    db.execute("CREATE class LinkListSequence").close();
-    db.execute("CREATE PROPERTY LinkListSequence.name STRING").close();
-    db.execute("CREATE PROPERTY LinkListSequence.children LINKLIST LinkListSequence").close();
+    db.runScript("sql", "CREATE class LinkListSequence").close();
+    db.runScript("sql", "CREATE PROPERTY LinkListSequence.name STRING").close();
+    db.runScript("sql", "CREATE PROPERTY LinkListSequence.children LINKLIST LinkListSequence")
+        .close();
 
-    db.begin();
-    db.execute("insert into LinkListSequence set name = '1.1.1'").close();
-    db.execute("insert into LinkListSequence set name = '1.1.2'").close();
-    db.execute("insert into LinkListSequence set name = '1.2.1'").close();
-    db.execute("insert into LinkListSequence set name = '1.2.2'").close();
-    db.execute(
+    var tx = db.begin();
+    tx.execute("insert into LinkListSequence set name = '1.1.1'").close();
+    tx.execute("insert into LinkListSequence set name = '1.1.2'").close();
+    tx.execute("insert into LinkListSequence set name = '1.2.1'").close();
+    tx.execute("insert into LinkListSequence set name = '1.2.2'").close();
+    tx.execute(
             "insert into LinkListSequence set name = '1.1', children = (select from"
                 + " LinkListSequence where name like '1.1.%' order by name asc)")
         .close();
-    db.execute(
+    tx.execute(
             "insert into LinkListSequence set name = '1.2', children = (select from"
                 + " LinkListSequence where name like '1.2.%' order by name asc)")
         .close();
-    db.execute(
+    tx.execute(
             "insert into LinkListSequence set name = '1', children = (select from LinkListSequence"
                 + " where name in ['1.1', '1.2'] order by name asc)")
         .close();
-    db.execute("insert into LinkListSequence set name = '2'").close();
-    db.execute(
+    tx.execute("insert into LinkListSequence set name = '2'").close();
+    tx.execute(
             "insert into LinkListSequence set name = 'root', children = (select from"
                 + " LinkListSequence where name in ['1', '2'] order by name asc)")
         .close();
-    db.commit();
+    tx.commit();
   }
 
   private static void initMatchesWithRegex(DatabaseSession db) {
-    db.execute("CREATE class matchesstuff").close();
+    db.runScript("sql", "CREATE class matchesstuff").close();
 
-    db.begin();
-    db.execute("insert into matchesstuff (name, foo) values ('admin[name]', 1)").close();
-    db.commit();
+    var tx = db.begin();
+    tx.execute("insert into matchesstuff (name, foo) values ('admin[name]', 1)").close();
+    tx.commit();
   }
 
   private static void initDistinctLimit(DatabaseSession db) {
-    db.execute("CREATE class DistinctLimit").close();
+    db.runScript("sql", "CREATE class DistinctLimit").close();
 
-    db.begin();
-    db.execute("insert into DistinctLimit (name, foo) values ('one', 1)").close();
-    db.execute("insert into DistinctLimit (name, foo) values ('one', 1)").close();
-    db.execute("insert into DistinctLimit (name, foo) values ('two', 2)").close();
-    db.execute("insert into DistinctLimit (name, foo) values ('two', 2)").close();
-    db.commit();
+    var tx = db.begin();
+    tx.execute("insert into DistinctLimit (name, foo) values ('one', 1)").close();
+    tx.execute("insert into DistinctLimit (name, foo) values ('one', 1)").close();
+    tx.execute("insert into DistinctLimit (name, foo) values ('two', 2)").close();
+    tx.execute("insert into DistinctLimit (name, foo) values ('two', 2)").close();
+    tx.commit();
   }
 
   private static void initDatesSet(DatabaseSession db) {
-    db.execute("create class OCommandExecutorSQLSelectTest_datesSet").close();
-    db.execute("create property OCommandExecutorSQLSelectTest_datesSet.foo embeddedlist date")
+    db.runScript("sql", "create class OCommandExecutorSQLSelectTest_datesSet").close();
+    db.runScript("sql",
+            "create property OCommandExecutorSQLSelectTest_datesSet.foo embeddedlist date")
         .close();
-    db.begin();
-    db.execute("insert into OCommandExecutorSQLSelectTest_datesSet set foo = ['2015-10-21']")
+    var tx = db.begin();
+    tx.execute("insert into OCommandExecutorSQLSelectTest_datesSet set foo = ['2015-10-21']")
         .close();
-    db.commit();
+    tx.commit();
   }
 
   private static void initMassiveOrderSkipLimit(DatabaseSessionInternal db) {
@@ -379,19 +379,19 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initExpandSkipLimit(DatabaseSession db) {
-    db.execute("create class ExpandSkipLimit").close();
+    db.runScript("sql", "create class ExpandSkipLimit ").close();
 
     for (var i = 0; i < 5; i++) {
-      db.begin();
-      var doc = (EntityImpl) db.newEntity("ExpandSkipLimit");
+      var tx = db.begin();
+      var doc = (EntityImpl) tx.newEntity("ExpandSkipLimit");
       doc.setProperty("nnum", i);
 
-      var parent = (EntityImpl) db.newEntity("ExpandSkipLimit");
+      var parent = (EntityImpl) tx.newEntity("ExpandSkipLimit");
       parent.setProperty("parent", true);
       parent.setProperty("num", i);
       parent.setProperty("linked", doc);
 
-      db.commit();
+      tx.commit();
     }
   }
 
@@ -412,11 +412,11 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   public void testUseIndexWithOr() {
     var idxUsagesBefore = indexUsages(session);
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var qResult =
           session.execute("select * from foo where bar = 2 or name ='a' and bar >= 0")
               .stream()
-              .map(r -> r.asEntity())
+              .map(Result::asEntity)
               .toList();
 
       assertEquals(2, qResult.size());
@@ -435,7 +435,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   public void testCompositeIndex() {
     var idxUsagesBefore = indexUsages(session);
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var qResult =
           session.execute("select * from foo where comp = 'a' and osite = 1")
               .stream()
@@ -476,7 +476,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   public void testCompositeIndex2() {
     var idxUsagesBefore = indexUsages(session);
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var qResult =
           session.execute("select * from foo where (comp = 'a' and osite = 1) or name = 'a'")
               .stream()
@@ -1382,7 +1382,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
             "alter property OCommandExecutorSQLSelectTest_testCollate.categories COLLATE ci")
         .close();
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       session.execute(
               "insert into OCommandExecutorSQLSelectTest_testCollate set name = 'FOO', categories = ['BAR']")
           .close();
@@ -1392,7 +1392,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
           .close();
     });
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var r1 =
           session.query("select from OCommandExecutorSQLSelectTest_testCollate where name = 'FOO'")
               .entityStream().toList();
@@ -1404,7 +1404,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
       assertThat(r2.size()).isEqualTo(1);
     });
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var r1 =
           session.query(
                   "select from OCommandExecutorSQLSelectTest_testCollate where categories = ['BAR']")
@@ -1429,7 +1429,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
                 + " EMBEDDEDLIST string")
         .close();
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       session.execute(
               "insert into OCommandExecutorSqlSelectTest_collateOnCollections set"
                   + " categories=['a','b']")
@@ -1440,7 +1440,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
             "alter property OCommandExecutorSqlSelectTest_collateOnCollections.categories COLLATE ci")
         .close();
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       session.execute(
               "insert into OCommandExecutorSqlSelectTest_collateOnCollections set"
                   + " categories=['Math','English']")

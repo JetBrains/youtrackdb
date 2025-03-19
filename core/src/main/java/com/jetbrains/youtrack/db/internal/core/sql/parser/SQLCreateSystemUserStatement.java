@@ -46,7 +46,7 @@ public class SQLCreateSystemUserStatement extends SQLSimpleExecServerStatement {
         (session) -> {
           var result =
               session.computeInTx(
-                  () -> {
+                  transaction -> {
                     List<Object> params = new ArrayList<>();
                     // INSERT INTO OUser SET
                     var sb = new StringBuilder();

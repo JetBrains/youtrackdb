@@ -282,7 +282,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
   private static void checkRequireField(Entity toCheck, String fieldName) {
     try {
       var session = toCheck.getBoundedToSession();
-      var newD = (EntityImpl) session.newEntity(toCheck.getSchemaClass());
+      var newD = (EntityImpl) session.getActiveTransaction().newEntity(toCheck.getSchemaClass());
 
       newD.unsetDirty();
       newD.fromStream(((EntityImpl) toCheck).toStream());
@@ -834,7 +834,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
   private static void checkField(Entity toCheck, String field, Object newValue) {
     try {
       var session = toCheck.getBoundedToSession();
-      var newD = (EntityImpl) session.newEntity(toCheck.getSchemaClass());
+      var newD = (EntityImpl) session.getActiveTransaction().newEntity(toCheck.getSchemaClass());
 
       newD.unsetDirty();
       newD.fromStream(((EntityImpl) toCheck).toStream());

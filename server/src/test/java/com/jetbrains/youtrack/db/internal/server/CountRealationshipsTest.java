@@ -41,14 +41,14 @@ public class CountRealationshipsTest {
   public void test() throws Exception {
     var session =
         youTrackDB.open(CountRealationshipsTest.class.getSimpleName(), "admin", "admin");
-    session.begin();
-    var vertex1 = session.newVertex("V");
-    var vertex2 = session.newVertex("V");
-    session.commit();
+    var tx = session.begin();
+    var vertex1 = tx.newVertex("V");
+    var vertex2 = tx.newVertex("V");
+    tx.commit();
 
-    session.begin();
-    vertex1 = session.load(vertex1.getIdentity());
-    vertex2 = session.load(vertex2.getIdentity());
+    tx = session.begin();
+    vertex1 = tx.load(vertex1.getIdentity());
+    vertex2 = tx.load(vertex2.getIdentity());
 
     int version = vertex1.getProperty("@version");
     assertEquals(0, countEdges(vertex1, Direction.OUT));
@@ -60,8 +60,8 @@ public class CountRealationshipsTest {
      * output: Version: 1 vertex1 out: 0 vertex2 in: 0
      */
 
-    vertex2 = session.load(vertex2.getIdentity());
-    vertex1 = session.load(vertex1.getIdentity());
+    vertex2 = tx.load(vertex2.getIdentity());
+    vertex1 = tx.load(vertex1.getIdentity());
 
     vertex1.addStateFulEdge(vertex2);
 
@@ -76,11 +76,11 @@ public class CountRealationshipsTest {
      * output: Pre-commit: Version: 1 vertex1 out: 1 vertex2 in: 1
      */
 
-    session.commit();
+    tx.commit();
 
-    session.begin();
-    vertex1 = session.load(vertex1.getIdentity());
-    vertex2 = session.load(vertex2.getIdentity());
+    tx = session.begin();
+    vertex1 = tx.load(vertex1.getIdentity());
+    vertex2 = tx.load(vertex2.getIdentity());
 
     version = vertex1.getProperty("@version");
     assertEquals(1, countEdges(vertex1, Direction.OUT));
@@ -93,13 +93,13 @@ public class CountRealationshipsTest {
      * output: Post-commit: Version: 2 vertex1 out: 0 <- INCORRECT vertex2 in: 0 <- INCORRECT
      */
 
-    session.commit();
+    tx.commit();
     session.close();
 
     session = youTrackDB.open(CountRealationshipsTest.class.getSimpleName(), "admin", "admin");
-    session.begin();
-    vertex1 = session.load(vertex1.getIdentity());
-    vertex2 = session.load(vertex2.getIdentity());
+    tx = session.begin();
+    vertex1 = tx.load(vertex1.getIdentity());
+    vertex2 = tx.load(vertex2.getIdentity());
 
     version = vertex1.getProperty("@version");
     assertEquals(1, countEdges(vertex1, Direction.OUT));
@@ -111,7 +111,7 @@ public class CountRealationshipsTest {
     /*
      * output: Reload in new transaction: Version: 2 vertex1 out: 1 vertex2 in: 1
      */
-    session.commit();
+    tx.commit();
   }
 
   private int countEdges(Vertex v, Direction dir) throws Exception {

@@ -45,15 +45,15 @@ public class TestImmutableIndexLoad {
             TestImmutableIndexLoad.class.getSimpleName(),
             "admin",
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
-    db.begin();
-    var doc = (EntityImpl) db.newEntity("One");
+    var tx = db.begin();
+    var doc = (EntityImpl) tx.newEntity("One");
     doc.setProperty("one", "a");
-    db.commit();
+    tx.commit();
     try {
-      db.begin();
-      var doc1 = (EntityImpl) db.newEntity("One");
+      tx = db.begin();
+      var doc1 = (EntityImpl) tx.newEntity("One");
       doc1.setProperty("one", "a");
-      db.commit();
+      tx.commit();
       fail("It should fail the unique index");
     } catch (RecordDuplicatedException e) {
       // EXPEXTED

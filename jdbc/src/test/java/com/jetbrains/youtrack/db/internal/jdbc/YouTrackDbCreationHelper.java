@@ -35,10 +35,9 @@ import java.util.TimeZone;
 public class YouTrackDbCreationHelper {
 
   public static void loadDB(DatabaseSession db, int documents) throws IOException {
-
-    db.begin();
+    var tx = db.begin();
     for (var i = 1; i <= documents; i++) {
-      var doc = ((EntityImpl) db.newEntity("Item"));
+      var doc = ((EntityImpl) tx.newEntity("Item"));
       doc = createItem(i, doc);
     }
 
@@ -46,7 +45,7 @@ public class YouTrackDbCreationHelper {
     createArticleWithAttachmentSplitted(db);
 
     createWriterAndPosts(db, 10, 10);
-    db.commit();
+    tx.commit();
   }
 
   public static EntityImpl createItem(int id, EntityImpl doc) {
@@ -86,107 +85,126 @@ public class YouTrackDbCreationHelper {
 
   public static void createAuthorAndArticles(DatabaseSession db, int totAuthors, int totArticles)
       throws IOException {
-    var articleSerial = 0;
-    for (var a = 1; a <= totAuthors; ++a) {
-      var author = ((EntityImpl) db.newEntity("Author"));
-      List<EntityImpl> articles = new ArrayList<>(totArticles);
-      author.setProperty("articles", articles);
+    db.executeInTx(transaction -> {
+      var articleSerial = 0;
+      for (var a = 1; a <= totAuthors; ++a) {
+        var author = ((EntityImpl) transaction.newEntity("Author"));
+        List<EntityImpl> articles = new ArrayList<>(totArticles);
+        author.setProperty("articles", articles);
 
-      author.setProperty("uuid", a, PropertyType.DOUBLE);
-      author.setProperty("name", "Jay");
-      author.setProperty("rating", new Random().nextDouble());
+        author.setProperty("uuid", a, PropertyType.DOUBLE);
+        author.setProperty("name", "Jay");
+        author.setProperty("rating", new Random().nextDouble());
 
-      for (var i = 1; i <= totArticles; ++i) {
-        var article = ((EntityImpl) db.newEntity("Article"));
+        for (var i = 1; i <= totArticles; ++i) {
+          var article = ((EntityImpl) transaction.newEntity("Article"));
 
-        var instance = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
-        var time = instance.getTime();
-        article.setProperty("date", time, PropertyType.DATE);
+          var instance = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
+          var time = instance.getTime();
+          article.setProperty("date", time, PropertyType.DATE);
 
-        article.setProperty("uuid", articleSerial++);
-        article.setProperty("title", "the title for article " + articleSerial);
-        article.setProperty("content", "the content for article " + articleSerial);
-        article.setProperty("attachment", loadFile(db, "./src/test/resources/file.pdf"));
-
-        articles.add(article);
+          article.setProperty("uuid", articleSerial++);
+          article.setProperty("title", "the title for article " + articleSerial);
+          article.setProperty("content", "the content for article " + articleSerial);
+          try {
+            article.setProperty("attachment", loadFile(db, "./src/test/resources/file.pdf"));
+          } catch (IOException e) {
+            throw new RuntimeException(e);
+          }
+          articles.add(article);
+        }
       }
-
-    }
+    });
   }
 
   public static EntityImpl createArticleWithAttachmentSplitted(DatabaseSession db)
       throws IOException {
 
-    var article = ((EntityImpl) db.newEntity("Article"));
-    var instance = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
+    return db.computeInTx(transaction -> {
+      var article = ((EntityImpl) transaction.newEntity("Article"));
+      var instance = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
 
-    var time = instance.getTime();
-    article.setProperty("date", time, PropertyType.DATE);
+      var time = instance.getTime();
+      article.setProperty("date", time, PropertyType.DATE);
 
-    article.setProperty("uuid", 1000000);
-    article.setProperty("title", "the title 2");
-    article.setProperty("content", "the content 2");
-    if (new File("./src/test/resources/file.pdf").exists()) {
-      article.setProperty("attachment", loadFile(db, "./src/test/resources/file.pdf", 256));
-    }
-    db.begin();
-    db.commit();
-    return article;
+      article.setProperty("uuid", 1000000);
+      article.setProperty("title", "the title 2");
+      article.setProperty("content", "the content 2");
+      if (new File("./src/test/resources/file.pdf").exists()) {
+        try {
+          article.setProperty("attachment", loadFile(db, "./src/test/resources/file.pdf", 256));
+        } catch (IOException e) {
+          throw new RuntimeException(e);
+        }
+      }
+
+      return article;
+    });
   }
 
   public static void createWriterAndPosts(DatabaseSession db, int totAuthors, int totArticles)
       throws IOException {
-    var articleSerial = 0;
-    for (var a = 1; a <= totAuthors; ++a) {
-      var writer = db.newVertex("Writer");
-      writer.setProperty("uuid", a);
+    db.executeInTx(transaction -> {
+      var articleSerial = 0;
+      for (var a = 1; a <= totAuthors; ++a) {
+        var writer = transaction.newVertex("Writer");
+        writer.setProperty("uuid", a);
+        writer.setProperty("name", "happy writer");
+        writer.setProperty("is_active", Boolean.TRUE);
+        writer.setProperty("isActive", Boolean.TRUE);
+
+        for (var i = 1; i <= totArticles; ++i) {
+
+          var post = transaction.newVertex("Post");
+
+          var instance = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
+          var time = instance.getTime();
+          post.setProperty("date", time, PropertyType.DATE);
+          post.setProperty("uuid", articleSerial++);
+          post.setProperty("title", "the title");
+          post.setProperty("content", "the content");
+
+          transaction.newStatefulEdge(writer, post, "Writes");
+        }
+      }
+
+      // additional wrong data
+      var writer = transaction.newVertex("Writer");
+      writer.setProperty("uuid", totAuthors << 1);
       writer.setProperty("name", "happy writer");
       writer.setProperty("is_active", Boolean.TRUE);
       writer.setProperty("isActive", Boolean.TRUE);
 
-      for (var i = 1; i <= totArticles; ++i) {
+      var post = transaction.newVertex("Post");
 
-        var post = db.newVertex("Post");
+      // no date!!
 
-        var instance = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
-        var time = instance.getTime();
-        post.setProperty("date", time, PropertyType.DATE);
-        post.setProperty("uuid", articleSerial++);
-        post.setProperty("title", "the title");
-        post.setProperty("content", "the content");
+      post.setProperty("uuid", articleSerial << 1);
+      post.setProperty("title", "the title");
+      post.setProperty("content", "the content");
 
-        db.newStatefulEdge(writer, post, "Writes");
-      }
-    }
-
-    // additional wrong data
-    var writer = db.newVertex("Writer");
-    writer.setProperty("uuid", totAuthors * 2);
-    writer.setProperty("name", "happy writer");
-    writer.setProperty("is_active", Boolean.TRUE);
-    writer.setProperty("isActive", Boolean.TRUE);
-
-    var post = db.newVertex("Post");
-
-    // no date!!
-
-    post.setProperty("uuid", articleSerial * 2);
-    post.setProperty("title", "the title");
-    post.setProperty("content", "the content");
-
-    db.newStatefulEdge(writer, post, "Writes");
+      transaction.newStatefulEdge(writer, post, "Writes");
+    });
   }
 
   private static Blob loadFile(DatabaseSession database, String filePath) throws IOException {
-    final var f = new File(filePath);
-    if (f.exists()) {
-      var inputStream = new BufferedInputStream(new FileInputStream(f));
-      var record = database.newBlob();
-      record.fromInputStream(inputStream);
-      return record;
-    }
+    return database.computeInTx(transaction -> {
+      final var f = new File(filePath);
+      if (f.exists()) {
+        BufferedInputStream inputStream = null;
+        try {
+          inputStream = new BufferedInputStream(new FileInputStream(f));
 
-    return null;
+          var record = transaction.newBlob();
+          record.fromInputStream(inputStream);
+          return record;
+        } catch (IOException e) {
+          throw new RuntimeException(e);
+        }
+      }
+
+      return null;
+    });
   }
 
   private static List<RID> loadFile(DatabaseSession database, String filePath, int bufferSize)
@@ -206,7 +224,7 @@ public class YouTrackDbCreationHelper {
       var recnum = numberOfRecords;
 
       database.executeInTx(
-          () -> {
+          transaction -> {
             byte[] chunk;
             if (index == recnum - 1) {
               chunk = new byte[remainder];
@@ -219,7 +237,7 @@ public class YouTrackDbCreationHelper {
               throw new RuntimeException(e);
             }
 
-            var recordChunk = database.newBlob();
+            var recordChunk = transaction.newBlob();
 
             binaryChuncks.add(recordChunk.getIdentity());
           });

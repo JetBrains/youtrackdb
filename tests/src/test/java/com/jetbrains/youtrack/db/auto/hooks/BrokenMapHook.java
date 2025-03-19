@@ -39,7 +39,7 @@ public class BrokenMapHook extends RecordHookAbstract implements RecordHook {
     var newElement = (Entity) newRecord;
     try {
       var session = newElement.getBoundedToSession();
-      Entity oldElement = session.load(newElement.getIdentity());
+      Entity oldElement = session.getActiveTransaction().load(newElement.getIdentity());
 
       var newPropertyNames = newElement.getPropertyNames();
       var oldPropertyNames = oldElement.getPropertyNames();

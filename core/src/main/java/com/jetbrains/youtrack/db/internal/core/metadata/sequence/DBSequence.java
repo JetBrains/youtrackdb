@@ -230,7 +230,7 @@ public abstract class DBSequence {
 
     entityRid =
         session.computeInTx(
-            () -> {
+            transaction -> {
               var entity = session.newInstance(CLASS_NAME);
 
               CreateParams currentParams;
@@ -470,11 +470,10 @@ public abstract class DBSequence {
                   updateLock.lock();
                   try {
                     return dbCopy.computeInTx(
-                        () -> {
+                        transaction -> {
                           var entity = entityRid.<EntityImpl>getRecord(dbCopy);
-                          var result = callable.call(dbCopy, entity);
 
-                          return result;
+                          return callable.call(dbCopy, entity);
                         });
                   } catch (ConcurrentModificationException ignore) {
                     try {
@@ -505,7 +504,7 @@ public abstract class DBSequence {
                     }
                   } catch (Exception e) {
                     dbCopy.executeInTx(
-                        () -> {
+                        transaction -> {
                           throw BaseException.wrapException(
                               new SequenceException(db.getDatabaseName(),
                                   "Error in transactional processing of "
@@ -522,11 +521,10 @@ public abstract class DBSequence {
                 updateLock.lock();
                 try {
                   return dbCopy.computeInTx(
-                      () -> {
+                      transaction -> {
                         var entity = entityRid.<EntityImpl>getRecord(dbCopy);
-                        var result = callable.call(dbCopy, entity);
 
-                        return result;
+                        return callable.call(dbCopy, entity);
                       });
                 } catch (Exception e) {
                   throw BaseException.wrapException(

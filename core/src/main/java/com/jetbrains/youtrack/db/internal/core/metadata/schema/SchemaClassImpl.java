@@ -1200,7 +1200,7 @@ public abstract class SchemaClassImpl {
     final var strictSQL =
         database.getStorageInfo().getConfiguration().isStrictSql();
 
-    var recordsToUpdate = database.computeInTx(() -> {
+    var recordsToUpdate = database.computeInTx(transaction -> {
       try (var result =
           database.query(
               "select from "
@@ -1236,7 +1236,7 @@ public abstract class SchemaClassImpl {
     final var strictSQL =
         database.getStorageInfo().getConfiguration().isStrictSql();
 
-    var ridsToMigrate = database.computeInTx(() -> {
+    var ridsToMigrate = database.computeInTx(transaction -> {
       try (var result =
           database.query(
               "select from "
@@ -1287,7 +1287,7 @@ public abstract class SchemaClassImpl {
           .append(".size() <> 0 limit 1");
     }
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       try (final var res = session.query(builder.toString())) {
         if (res.hasNext()) {
           throw new SchemaException(session.getDatabaseName(),

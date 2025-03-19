@@ -23,6 +23,7 @@ import org.junit.Ignore;
 import org.junit.Test;
 
 public class RemoteTransactionHookTest extends DbTestBase {
+
   private static final String SERVER_DIRECTORY = "./target/hook-transaction";
   private YouTrackDBServer server;
 
@@ -98,15 +99,15 @@ public class RemoteTransactionHookTest extends DbTestBase {
     var calls = new CountCallHook(database);
     database.registerHook(calls);
     database.createClassIfNotExist("SomeTx");
-    database.begin();
-    var doc = ((EntityImpl) database.newEntity("SomeTx"));
+    var tx = database.begin();
+    var doc = ((EntityImpl) tx.newEntity("SomeTx"));
     doc.setProperty("name", "some");
-    database.execute("insert into SomeTx set name='aa' ").close();
-    var res = database.execute("update SomeTx set name='bb' where name=\"some\"");
+    tx.execute("insert into SomeTx set name='aa' ").close();
+    var res = tx.execute("update SomeTx set name='bb' where name=\"some\"");
     assertEquals((Long) 1L, res.next().getProperty("count"));
     res.close();
-    database.execute("delete from SomeTx where name='aa'").close();
-    database.commit();
+    tx.execute("delete from SomeTx where name='aa'").close();
+    tx.commit();
 
     assertEquals(2, calls.getBeforeCreate());
     assertEquals(2, calls.getAfterCreate());

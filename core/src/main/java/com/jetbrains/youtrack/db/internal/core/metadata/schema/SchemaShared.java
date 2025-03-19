@@ -332,7 +332,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     lock.writeLock().lock();
     try {
       session.executeInTx(
-          () -> {
+          transaction -> {
             identity = new RecordId(
                 session.getStorageInfo().getConfiguration().getSchemaRecordId());
 
@@ -664,7 +664,7 @@ public abstract class SchemaShared implements CloseableInStorage {
             "Schema is not created and cannot be loaded");
       }
       session.executeInTx(
-          () -> {
+          transaction -> {
             EntityImpl entity = session.load(identity);
             fromStream(session, entity);
           });
@@ -677,7 +677,7 @@ public abstract class SchemaShared implements CloseableInStorage {
   public void create(final DatabaseSessionInternal session) {
     lock.writeLock().lock();
     try {
-      var entity = session.computeInTx(session::newInternalInstance);
+      var entity = session.computeInTx(transaction -> session.newInternalInstance());
 
       this.identity = entity.getIdentity();
       session.getStorage().setSchemaRecordId(entity.getIdentity().toString());
@@ -771,7 +771,7 @@ public abstract class SchemaShared implements CloseableInStorage {
               + " transactional");
     }
 
-    session.executeInTx(() -> toStream(session));
+    session.executeInTx(transaction -> toStream(session));
 
     forceSnapshot(session);
   }

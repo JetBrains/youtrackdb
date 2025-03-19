@@ -52,7 +52,7 @@ public class ServerCommandDeleteDocument extends ServerCommandDocumentAbstract {
       }
 
       session.executeInTx(
-          () -> {
+          transaction -> {
             final EntityImpl entity = recordId.getRecord(session);
 
             // UNMARSHALL DOCUMENT WITH REQUEST CONTENT

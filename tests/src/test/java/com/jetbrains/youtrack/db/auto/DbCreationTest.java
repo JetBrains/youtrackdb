@@ -141,9 +141,9 @@ public class DbCreationTest {
   @Test(dependsOnMethods = {"testChangeLocale"})
   public void testRoles() {
     try (var database = youTrackDB.open(DB_NAME, "admin", "admin")) {
-      database.begin();
-      database.query("select from ORole where name = 'admin'").close();
-      database.commit();
+      var tx = database.begin();
+      tx.query("select from ORole where name = 'admin'").close();
+      tx.commit();
     }
   }
 

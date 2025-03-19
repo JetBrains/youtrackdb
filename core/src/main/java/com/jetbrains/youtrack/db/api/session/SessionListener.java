@@ -28,20 +28,19 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
  */
 public interface SessionListener {
 
-  default void onBeforeTxBegin(final DatabaseSession iDatabase) {
+  default void onBeforeTxBegin(final Transaction transaction) {
   }
 
-
-  default void onBeforeTxRollback(final DatabaseSession iDatabase) {
+  default void onBeforeTxRollback(final Transaction transaction) {
   }
 
-  default void onAfterTxRollback(final DatabaseSession iDatabase) {
+  default void onAfterTxRollback(final Transaction transaction) {
   }
 
-  default void onBeforeTxCommit(final DatabaseSession iDatabase) {
+  default void onBeforeTxCommit(final Transaction transaction) {
   }
 
-  default void onAfterTxCommit(final DatabaseSession iDatabase) {
+  default void onAfterTxCommit(final Transaction transaction) {
   }
 
   default void onClose(final DatabaseSession iDatabase) {

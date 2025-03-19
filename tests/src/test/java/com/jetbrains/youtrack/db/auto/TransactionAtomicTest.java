@@ -15,13 +15,13 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrack.db.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.session.SessionListener;
+import com.jetbrains.youtrack.db.api.session.Transaction;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;
@@ -113,30 +113,9 @@ public class TransactionAtomicTest extends BaseDBTest {
 
     final var listener =
         new SessionListener() {
-
           @Override
-          public void onAfterTxCommit(DatabaseSession iDatabase) {
-          }
-
-          @Override
-          public void onAfterTxRollback(DatabaseSession iDatabase) {
-          }
-
-          @Override
-          public void onBeforeTxBegin(DatabaseSession iDatabase) {
-          }
-
-          @Override
-          public void onBeforeTxCommit(DatabaseSession iDatabase) {
+          public void onBeforeTxCommit(Transaction transaction) {
             throw new RuntimeException("Rollback test");
-          }
-
-          @Override
-          public void onBeforeTxRollback(DatabaseSession iDatabase) {
-          }
-
-          @Override
-          public void onClose(DatabaseSession iDatabase) {
           }
         };
 

@@ -65,7 +65,7 @@ public class TestConcurrentDBSequenceGenerationIT {
                   try (var db = (DatabaseSessionInternal) pool.acquire()) {
                     Assert.assertTrue(db.assertIfNotActive());
                     for (var j = 0; j < RECORDS; j++) {
-                      db.executeInTx(() -> {
+                      db.executeInTx(transaction -> {
                         var vert = db.newVertex("TestSequence");
                         assertNotNull(vert.getProperty("id"));
                       });

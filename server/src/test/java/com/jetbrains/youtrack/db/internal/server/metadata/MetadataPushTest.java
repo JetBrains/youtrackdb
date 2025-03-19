@@ -68,7 +68,7 @@ public class MetadataPushTest {
 
   @Test
   public void testStorageUpdate() throws Exception {
-    database.execute(" ALTER DATABASE LOCALE_LANGUAGE  ?", Locale.GERMANY.getLanguage());
+    database.runScript("sql", " ALTER DATABASE LOCALE_LANGUAGE  ?", Locale.GERMANY.getLanguage());
     // Push done in background for now, do not guarantee update before command return.
     secondDatabase.activateOnCurrentThread();
     DbTestBase.assertWithTimeout(
@@ -83,7 +83,7 @@ public class MetadataPushTest {
 
   @Test
   public void testSchemaUpdate() throws Exception {
-    database.execute(" create class X");
+    database.runScript("sql", " create class X");
 
     // Push done in background for now, do not guarantee update before command return.
     secondDatabase.activateOnCurrentThread();
@@ -97,9 +97,9 @@ public class MetadataPushTest {
 
   @Test
   public void testSequencesUpdate() throws Exception {
-    database.begin();
-    database.execute("CREATE SEQUENCE test TYPE CACHED");
-    database.commit();
+    var tx = database.begin();
+    tx.command("CREATE SEQUENCE test TYPE CACHED");
+    tx.commit();
     // Push done in background for now, do not guarantee update before command return.
     secondDatabase.activateOnCurrentThread();
     DbTestBase.assertWithTimeout(

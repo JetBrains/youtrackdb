@@ -72,14 +72,14 @@ public class DatabaseSuperNodeTest {
       session.createClassIfNotExist("SuperNodeClass", "V");
       session.createClassIfNotExist("NonSuperEdgeClass", "E");
 
-      // session.begin();
-      final var fromNode = session.newVertex("SuperNodeClass");
-      final var toNode = session.newVertex("SuperNodeClass");
+      var tx = session.begin();
+      final var fromNode = tx.newVertex("SuperNodeClass");
+      final var toNode = tx.newVertex("SuperNodeClass");
 
       for (var i = 0; i < edgeNumber; i++) {
-        final var edge = session.newStatefulEdge(fromNode, toNode, "NonSuperEdgeClass");
+        final var edge = tx.newStatefulEdge(fromNode, toNode, "NonSuperEdgeClass");
       }
-      session.commit();
+      tx.commit();
 
       final var export =
           new DatabaseExport(

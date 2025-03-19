@@ -13,7 +13,6 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ExecutionStepInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.FetchFromIndexStep;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -178,7 +177,7 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
     createCityClass();
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           addGaribaldiAndBonaparte();
           addBarackObamaAndFollowers();
 
@@ -201,7 +200,7 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
 
   protected void addGaribaldiAndBonaparte() {
     session.executeInTx(
-        () -> {
+        transaction -> {
           if (session.query("select from Profile where nick = 'NBonaparte'").stream()
               .findAny()
               .isPresent()) {
@@ -237,7 +236,7 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
 
   private Entity addRome() {
     return session.computeInTx(
-        () -> {
+        transaction -> {
           var italy = addItaly();
           var city = session.newInstance("City");
           city.setProperty("name", "Rome");
@@ -249,7 +248,7 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
 
   private Entity addItaly() {
     return session.computeInTx(
-        () -> {
+        transaction -> {
           var italy = session.newEntity("Country");
           italy.setProperty("name", "Italy");
           return italy;

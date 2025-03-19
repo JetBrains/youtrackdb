@@ -117,7 +117,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
 
   public static void createSystemRoles(DatabaseSessionInternal session) {
     session.executeInTx(
-        () -> {
+        transaction -> {
           var security = session.getMetadata().getSecurity();
           if (security.getRole("root") == null) {
             var root = security.createRole("root");

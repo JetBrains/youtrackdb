@@ -8,10 +8,8 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import com.jetbrains.youtrack.db.internal.lucene.tests.LuceneBaseTest;
 import java.io.File;
-import java.util.List;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -43,8 +41,9 @@ public class LuceneSpatialDropTest {
       test.createProperty("name", PropertyType.STRING);
       test.createProperty("latitude", PropertyType.DOUBLE).setMandatory(false);
       test.createProperty("longitude", PropertyType.DOUBLE).setMandatory(false);
-      db.execute("create index test.name on test (name) FULLTEXT ENGINE LUCENE").close();
-      db.execute("create index test.ll on test (latitude,longitude) SPATIAL ENGINE LUCENE").close();
+      db.runScript("sql", "create index test.name on test (name) FULLTEXT ENGINE LUCENE").close();
+      db.runScript("sql", "create index test.ll on test (latitude,longitude) SPATIAL ENGINE LUCENE")
+          .close();
     }
   }
 
@@ -69,16 +68,18 @@ public class LuceneSpatialDropTest {
   }
 
   private static void fillDb(DatabaseSession db, int count) {
-    for (var i = 0; i < count; i++) {
-      var doc = ((EntityImpl) db.newEntity("test"));
-      doc.setProperty("name", "TestInsert" + i);
-      doc.setProperty("latitude", 50.0 + (i * 0.000001));
-      doc.setProperty("longitude", 8.0 + (i * 0.000001));
+    db.executeInTx(transaction -> {
+      for (var i = 0; i < count; i++) {
+        var doc = ((EntityImpl) transaction.newEntity("test"));
+        doc.setProperty("name", "TestInsert" + i);
+        doc.setProperty("latitude", 50.0 + (i * 0.000001));
+        doc.setProperty("longitude", 8.0 + (i * 0.000001));
+      }
+    });
 
-      db.begin();
-      db.commit();
-    }
-    var result = db.query("select * from test");
-    Assert.assertEquals(count, result.stream().count());
+    db.executeInTx(transaction -> {
+      var result = transaction.query("select * from test");
+      Assert.assertEquals(count, result.stream().count());
+    });
   }
 }

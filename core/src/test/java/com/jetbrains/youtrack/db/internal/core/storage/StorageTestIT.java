@@ -310,12 +310,14 @@ public class StorageTestIT {
 
     final var session =
         youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin", "admin");
-    try (var resultSet = session.query("SELECT FROM metadata:storage")) {
+    var tx = session.begin();
+    try (var resultSet = tx.query("SELECT FROM metadata:storage")) {
       Assert.assertTrue(resultSet.hasNext());
 
       final var result = resultSet.next();
       Assert.assertEquals(YouTrackDBConstants.getVersion(), result.getProperty("createdAtVersion"));
     }
+    tx.commit();
   }
 
   @After

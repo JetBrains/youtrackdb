@@ -83,13 +83,13 @@ public class PredicateSecurityTest {
             youTrackDB.open(DB_NAME, "writer", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "writer"
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var elem = session.newEntity("Person");
           elem.setProperty("name", "foo");
         });
     try {
       session.executeInTx(
-          () -> {
+          transaction -> {
             var elem = session.newEntity("Person");
             elem.setProperty("name", "bar");
           });
@@ -149,13 +149,13 @@ public class PredicateSecurityTest {
     session.commit();
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var elem = session.newEntity("Person");
           elem.setProperty("name", "foo");
         });
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var elem = session.newEntity("Person");
           elem.setProperty("name", "bar");
         });
@@ -191,13 +191,13 @@ public class PredicateSecurityTest {
     session.commit();
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var elem = session.newEntity("Person");
           elem.setProperty("name", "foo");
         });
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var elem = session.newEntity("Person");
           elem.setProperty("name", "bar");
         });
@@ -231,14 +231,14 @@ public class PredicateSecurityTest {
     session.commit();
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var elem = session.newEntity("Person");
           elem.setProperty("name", "foo");
           elem.setProperty("surname", "foo");
         });
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var elem = session.newEntity("Person");
           elem.setProperty("name", "foo");
           elem.setProperty("surname", "bar");
@@ -280,7 +280,7 @@ public class PredicateSecurityTest {
 
     var elem =
         session.computeInTx(
-            () -> {
+            transaction -> {
               var e = session.newEntity("Person");
               e.setProperty("name", "foo");
               return e;
@@ -336,7 +336,7 @@ public class PredicateSecurityTest {
 
     var elem =
         session.computeInTx(
-            () -> {
+            transaction -> {
               var e = session.newEntity("Person");
               e.setProperty("name", "foo");
               return e;
@@ -378,7 +378,7 @@ public class PredicateSecurityTest {
 
     var elem =
         session.computeInTx(
-            () -> {
+            transaction -> {
               var e = session.newEntity("Person");
               e.setProperty("name", "foo");
               return e;
@@ -421,7 +421,7 @@ public class PredicateSecurityTest {
 
     var elem =
         session.computeInTx(
-            () -> {
+            transaction -> {
               var e = session.newEntity("Person");
               e.setProperty("name", "foo");
               return e;
@@ -462,7 +462,7 @@ public class PredicateSecurityTest {
 
     var elem =
         session.computeInTx(
-            () -> {
+            transaction -> {
               var e = session.newEntity("Person");
               e.setProperty("name", "bar");
               return e;
@@ -470,21 +470,21 @@ public class PredicateSecurityTest {
 
     try {
       var elemToDelete = elem;
-      session.executeInTx(() -> session.delete(session.bindToSession(elemToDelete)));
+      session.executeInTx(transaction -> session.delete(session.bindToSession(elemToDelete)));
       Assert.fail();
     } catch (SecurityException ex) {
     }
 
     elem =
         session.computeInTx(
-            () -> {
+            transaction -> {
               var e = session.newEntity("Person");
               e.setProperty("name", "foo");
               return e;
             });
 
     var elemToDelete = elem;
-    session.executeInTx(() -> session.delete(session.bindToSession(elemToDelete)));
+    session.executeInTx(transaction -> session.delete(session.bindToSession(elemToDelete)));
   }
 
   @Test
@@ -508,13 +508,13 @@ public class PredicateSecurityTest {
             youTrackDB.open(DB_NAME, "writer", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "writer"
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var elem = session.newEntity("Person");
           elem.setProperty("name", "foo");
         });
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var elem = session.newEntity("Person");
           elem.setProperty("name", "bar");
         });
@@ -556,13 +556,13 @@ public class PredicateSecurityTest {
     session.commit();
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var elem = session.newEntity("Person");
           elem.setProperty("name", "foo");
         });
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var elem = session.newEntity("Person");
           elem.setProperty("name", "bar");
         });
@@ -596,13 +596,13 @@ public class PredicateSecurityTest {
     session.commit();
 
     session.executeInTx(
-        () -> {
+        t -> {
           var e = session.newEntity("Person");
           e.setProperty("name", "foo");
         });
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var elem = session.newEntity("Person");
           elem.setProperty("name", "bar");
         });
@@ -640,13 +640,13 @@ public class PredicateSecurityTest {
     session.commit();
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var elem = session.newEntity("Person");
           elem.setProperty("name", "foo");
         });
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var elem = session.newEntity("Person");
           elem.setProperty("name", "bar");
         });

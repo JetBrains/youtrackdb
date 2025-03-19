@@ -35,7 +35,7 @@ public class CollateTest extends BaseDBTest {
 
     for (var i = 0; i < 10; i++) {
       final var upper = i % 2 == 0;
-      session.executeInTx(() -> {
+      session.executeInTx(transaction -> {
         var document = ((EntityImpl) session.newEntity("collateTest"));
 
         if (upper) {
@@ -48,7 +48,7 @@ public class CollateTest extends BaseDBTest {
       });
     }
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from collateTest where csp = 'VAL'").entityStream().toList();
       Assert.assertEquals(result.size(), 5);
@@ -58,7 +58,7 @@ public class CollateTest extends BaseDBTest {
       }
     });
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from collateTest where cip = 'VaL'").entityStream().toList();
       Assert.assertEquals(result.size(), 10);
@@ -77,13 +77,13 @@ public class CollateTest extends BaseDBTest {
     var csp = clazz.createProperty("bar", PropertyType.STRING);
     csp.setCollate(CaseInsensitiveCollate.NAME);
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       session.newEntity("collateTestNotNull").setProperty("bar", "baz");
 
       session.newEntity("collateTestNotNull").setProperty("nobar", true);
     });
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result1 =
           session.query("select from collateTestNotNull where bar is null").toList();
       Assert.assertEquals(result1.size(), 1);
@@ -109,7 +109,7 @@ public class CollateTest extends BaseDBTest {
 
     for (var i = 0; i < 10; i++) {
       final var upper = i % 2 == 0;
-      session.executeInTx(() -> {
+      session.executeInTx(transaction -> {
         var document = ((EntityImpl) session.newEntity("collateIndexTest"));
 
         if (upper) {
@@ -122,7 +122,7 @@ public class CollateTest extends BaseDBTest {
       });
     }
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result = session
           .query("select from collateIndexTest where csp = 'VAL'")
           .entityStream().toList();
@@ -133,7 +133,7 @@ public class CollateTest extends BaseDBTest {
       }
     });
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from collateIndexTest where cip = 'VaL'").toList();
       Assert.assertEquals(result.size(), 10);
@@ -166,7 +166,7 @@ public class CollateTest extends BaseDBTest {
       session.commit();
     }
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from collateWasChangedIndexTest where cp = 'VAL'").toList();
       Assert.assertEquals(result.size(), 5);
@@ -179,7 +179,7 @@ public class CollateTest extends BaseDBTest {
     cp = clazz.getProperty("cp");
     cp.setCollate(CaseInsensitiveCollate.NAME);
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from collateWasChangedIndexTest where cp = 'VaL'").toList();
       Assert.assertEquals(result.size(), 10);
@@ -219,7 +219,7 @@ public class CollateTest extends BaseDBTest {
       session.commit();
     }
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from CompositeIndexQueryCSTest where csp = 'VAL'").toList();
       Assert.assertEquals(result.size(), 5);
@@ -229,7 +229,7 @@ public class CollateTest extends BaseDBTest {
       }
     });
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from CompositeIndexQueryCSTest where csp = 'VAL' and cip = 'VaL'")
               .toList();
@@ -285,7 +285,7 @@ public class CollateTest extends BaseDBTest {
       session.commit();
     }
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result = session.query(
           "select from CompositeIndexQueryCollateWasChangedTest where csp = 'VAL'").toList();
       Assert.assertEquals(result.size(), 5);
@@ -298,7 +298,7 @@ public class CollateTest extends BaseDBTest {
     csp = clazz.getProperty("csp");
     csp.setCollate(CaseInsensitiveCollate.NAME);
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       //noinspection deprecation
       final var result = session.query(
           "select from CompositeIndexQueryCollateWasChangedTest where csp = 'VaL'").toList();
@@ -337,7 +337,7 @@ public class CollateTest extends BaseDBTest {
       session.commit();
     }
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result =
           session.query("select from collateTestViaSQL where csp = 'VAL'").toList();
       Assert.assertEquals(result.size(), 5);
@@ -347,7 +347,7 @@ public class CollateTest extends BaseDBTest {
       }
     });
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       //noinspection deprecation
       final var result =
           session.query("select from collateTestViaSQL where cip = 'VaL'").toList();

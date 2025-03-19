@@ -320,7 +320,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     vc.createProperty("out_testEdge", PropertyType.LINK);
     vc.createProperty("in_testEdge", PropertyType.LINK);
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       var doc1 = session.newVertex(vertexClass);
       doc1.setProperty("name", "first");
 

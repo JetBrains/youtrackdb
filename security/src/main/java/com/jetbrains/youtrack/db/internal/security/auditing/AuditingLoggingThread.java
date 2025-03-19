@@ -85,7 +85,7 @@ public class AuditingLoggingThread extends Thread {
         var systemDatabase = context.getSystemDatabase();
         try (var systemSession = systemDatabase.openSystemDatabaseSession()) {
           systemSession.executeInTx(
-              () -> {
+              transaction -> {
                 var log = systemSession.newEntity(className);
                 log.updateFromMap(logEntry);
 

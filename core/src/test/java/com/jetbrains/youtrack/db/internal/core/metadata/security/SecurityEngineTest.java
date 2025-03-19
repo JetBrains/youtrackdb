@@ -269,7 +269,7 @@ public class SecurityEngineTest {
     session.createClass("Person");
     var rec1 =
         session.computeInTx(
-            () -> {
+            transaction -> {
               var record1 = session.newEntity("Person");
               record1.setProperty("name", "foo");
               return record1;
@@ -277,7 +277,7 @@ public class SecurityEngineTest {
 
     var rec2 =
         session.computeInTx(
-            () -> {
+            transaction -> {
               var record2 = session.newEntity("Person");
               record2.setProperty("name", "bar");
               return record2;
@@ -292,7 +292,7 @@ public class SecurityEngineTest {
         policy);
     session.commit();
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       session.bindToSession(rec1);
       Assert.assertTrue(rec1.getIdentity().isPersistent());
 

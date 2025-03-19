@@ -31,7 +31,7 @@ public class CommandExecutorSQLSelectTestIndex extends BaseMemoryInternalDatabas
     session.execute("create class Foo").close();
     session.execute("create property Foo.bar EMBEDDEDLIST STRING").close();
     session.execute("create index Foo.bar on Foo (bar) NOTUNIQUE").close();
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       session.execute("insert into Foo set bar = ['yep']").close();
     });
     var results = session.query("select from Foo where bar = 'yep'");
@@ -62,7 +62,7 @@ public class CommandExecutorSQLSelectTestIndex extends BaseMemoryInternalDatabas
     session.execute("CREATE CLASS Foo").close();
     session.execute("CREATE PROPERTY Foo.name String").close();
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       session.execute("INSERT INTO Foo SET name = 'foo'").close();
     });
 

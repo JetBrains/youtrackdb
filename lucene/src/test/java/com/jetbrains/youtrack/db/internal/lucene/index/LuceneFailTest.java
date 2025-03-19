@@ -28,13 +28,17 @@ public class LuceneFailTest {
   @Test
   public void test() {
     try (var session = odb.open("tdb", "admin", "admpwd")) {
-      session.execute("create property V.text string").close();
-      session.execute("create index lucene_index on V(text) FULLTEXT ENGINE LUCENE").close();
-      try {
-        session.query("select from V where search_class('*this breaks') = true").close();
-      } catch (Exception e) {
-      }
-      session.query("select from V ").close();
+      session.runScript("sql", "create property V.text string").close();
+      session.runScript("sql", "create index lucene_index on V(text) FULLTEXT ENGINE LUCENE")
+          .close();
+
+      session.executeInTx(transaction -> {
+        try {
+          transaction.query("select from V where search_class('*this breaks') = true").close();
+        } catch (Exception e) {
+        }
+        transaction.query("select from V ").close();
+      });
     }
   }
 }

@@ -611,99 +611,106 @@ public class LDAPImporter implements SecurityComponent {
   // Loads the User object from the oldapUserClass class for each domain.
   // This is equivalent to the "users" objects in "ldapImporter" of security.json.
   private void retrieveLDAPUsers(
-      final DatabaseSession odb, final String domain, final List<User> userList) {
-    try {
-      var sql = String.format("SELECT FROM `%s` WHERE Domain = ?", oldapUserClass);
+      final DatabaseSession session, final String domain, final List<User> userList) {
+    session.executeInTx(transaction -> {
+      try {
+        var sql = String.format("SELECT FROM `%s` WHERE Domain = ?", oldapUserClass);
 
-      var users = odb.query(sql, domain);
+        try (var users = transaction.query(sql, domain)) {
+          while (users.hasNext()) {
+            var userDoc = users.next();
+            String roles = userDoc.getProperty("Roles");
 
-      while (users.hasNext()) {
-        var userDoc = users.next();
-        String roles = userDoc.getProperty("Roles");
+            if (roles != null) {
+              List<String> roleList = new ArrayList<String>();
 
-        if (roles != null) {
-          List<String> roleList = new ArrayList<String>();
+              var roleArray = roles.split(",");
 
-          var roleArray = roles.split(",");
+              for (var role : roleArray) {
+                roleList.add(role.trim());
+              }
 
-          for (var role : roleArray) {
-            roleList.add(role.trim());
+              var user =
+                  new User(userDoc.getProperty("BaseDN"), userDoc.getProperty("Filter"), roleList);
+              userList.add(user);
+            } else {
+              LogManager.instance()
+                  .error(
+                      this,
+                      "LDAPImporter.retrieveLDAPUsers() Roles is missing for entry Database: %s,"
+                          + " Domain: %s",
+                      null,
+                      session.getDatabaseName(),
+                      domain);
+            }
           }
-
-          var user =
-              new User(userDoc.getProperty("BaseDN"), userDoc.getProperty("Filter"), roleList);
-          userList.add(user);
-        } else {
-          LogManager.instance()
-              .error(
-                  this,
-                  "LDAPImporter.retrieveLDAPUsers() Roles is missing for entry Database: %s,"
-                      + " Domain: %s",
-                  null,
-                  odb.getDatabaseName(),
-                  domain);
         }
+      } catch (Exception ex) {
+        LogManager.instance()
+            .error(
+                this,
+                "LDAPImporter.retrieveLDAPUsers() Database: %s, Domain: %s",
+                ex,
+                session.getDatabaseName(),
+                domain);
       }
-    } catch (Exception ex) {
-      LogManager.instance()
-          .error(
-              this,
-              "LDAPImporter.retrieveLDAPUsers() Database: %s, Domain: %s",
-              ex,
-              odb.getDatabaseName(),
-              domain);
-    }
+    });
   }
 
   private void retrieveAllUsers(
       final DatabaseSession odb, final boolean ignoreLocal, final Set<String> usersToBeDeleted) {
-    try {
-      var sql = "SELECT FROM OUser";
+    odb.executeInTx(transaction -> {
+      try {
+        var sql = "SELECT FROM OUser";
 
-      if (ignoreLocal) {
-        sql = "SELECT FROM OUser WHERE _externalUser = true";
-      }
-      var users = odb.query(sql);
+        if (ignoreLocal) {
+          sql = "SELECT FROM OUser WHERE _externalUser = true";
+        }
+        try (var users = transaction.query(sql)) {
 
-      while (users.hasNext()) {
-        var user = users.next();
-        String name = user.getProperty("name");
+          while (users.hasNext()) {
+            var user = users.next();
+            String name = user.getProperty("name");
 
-        if (name != null) {
-          if (!(name.equals("admin") || name.equals("reader") || name.equals("writer"))) {
-            usersToBeDeleted.add(name);
+            if (name != null) {
+              if (!(name.equals("admin") || name.equals("reader") || name.equals("writer"))) {
+                usersToBeDeleted.add(name);
 
-            LogManager.instance()
-                .info(
-                    this,
-                    "LDAPImporter.retrieveAllUsers() Database: %s, User: %s",
-                    odb.getDatabaseName(),
-                    name);
+                LogManager.instance()
+                    .info(
+                        this,
+                        "LDAPImporter.retrieveAllUsers() Database: %s, User: %s",
+                        odb.getDatabaseName(),
+                        name);
+              }
+            }
           }
         }
+      } catch (Exception ex) {
+        LogManager.instance()
+            .error(this, "LDAPImporter.retrieveAllUsers() Database: %s", ex, odb.getDatabaseName());
       }
-    } catch (Exception ex) {
-      LogManager.instance()
-          .error(this, "LDAPImporter.retrieveAllUsers() Database: %s", ex, odb.getDatabaseName());
-    }
+    });
   }
 
-  private void deleteUsers(final DatabaseSession odb, final Set<String> usersToBeDeleted) {
-    try {
-      for (var user : usersToBeDeleted) {
-        odb.execute("DELETE FROM OUser WHERE name = ?", user);
+  private void deleteUsers(final DatabaseSession session, final Set<String> usersToBeDeleted) {
+    session.executeInTx(transaction -> {
+      try {
+        for (var user : usersToBeDeleted) {
+          transaction.command("DELETE FROM OUser WHERE name = ?", user);
 
+          LogManager.instance()
+              .info(
+                  this,
+                  "LDAPImporter.deleteUsers() Deleted User: %s from Database: %s",
+                  user,
+                  session.getDatabaseName());
+        }
+      } catch (Exception ex) {
         LogManager.instance()
-            .info(
-                this,
-                "LDAPImporter.deleteUsers() Deleted User: %s from Database: %s",
-                user,
-                odb.getDatabaseName());
+            .error(this, "LDAPImporter.deleteUsers() Database: %s", ex, session.getDatabaseName());
       }
-    } catch (Exception ex) {
-      LogManager.instance()
-          .error(this, "LDAPImporter.deleteUsers() Database: %s", ex, odb.getDatabaseName());
-    }
+    });
   }
 
   private void importUsers(final DatabaseSession odb, final Map<String, DatabaseUser> usersMap) {
@@ -777,7 +784,9 @@ public class LDAPImporter implements SecurityComponent {
 
       sb.append("]) UPSERT WHERE name = ?");
 
-      db.execute(sb.toString(), upn, password, upn);
+      db.executeInTx(transaction -> {
+        transaction.command(sb.toString(), upn, password, upn);
+      });
 
       return true;
     } catch (Exception ex) {

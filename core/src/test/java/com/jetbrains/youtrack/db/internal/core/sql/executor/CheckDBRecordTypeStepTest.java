@@ -92,7 +92,7 @@ public class CheckDBRecordTypeStepTest extends TestUtilsFixture {
     var firstClassName = createClassInstance().getName();
     var secondClassName = createClassInstance().getName();
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       var step = new CheckRecordTypeStep(context, firstClassName, false);
       var previous =
           new AbstractExecutionStep(context, false) {

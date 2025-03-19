@@ -54,7 +54,7 @@ public class SequenceCached extends DBSequence {
 
     var currentParams = params;
     db.executeInTx(
-        () -> {
+        transaction -> {
           var entity = (EntityImpl) entityRid.getRecord(db);
 
           setCacheSize(entity, currentParams.cacheSize);

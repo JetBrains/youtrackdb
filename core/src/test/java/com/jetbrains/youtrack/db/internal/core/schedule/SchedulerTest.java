@@ -236,7 +236,7 @@ public class SchedulerTest {
   private static void createLogEvent(DatabaseSessionInternal db) {
     var func = createFunction(db);
 
-    db.executeInTx(() -> {
+    db.executeInTx(transaction -> {
       Map<Object, Object> args = new HashMap<>();
       args.put("note", "test");
 
@@ -253,7 +253,7 @@ public class SchedulerTest {
     db.getMetadata().getSchema().createClass("scheduler_log");
 
     return db.computeInTx(
-        () -> {
+        transaction -> {
           var func = db.getMetadata().getFunctionLibrary().createFunction("logEvent");
           func.setLanguage("SQL");
           func.setCode("insert into scheduler_log set timestamp = sysdate(), note = :note");
@@ -266,9 +266,9 @@ public class SchedulerTest {
   }
 
   private static Long getLogCounter(final DatabaseSession session) {
-    return session.computeInTx(() -> {
+    return session.computeInTx(transaction -> {
       var resultSet =
-          session.query("select count(*) as count from scheduler_log where note = 'test'");
+          transaction.query("select count(*) as count from scheduler_log where note = 'test'");
       var result = resultSet.stream().findFirst().orElseThrow();
       var count = result.<Long>getProperty("count");
       resultSet.close();

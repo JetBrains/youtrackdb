@@ -306,7 +306,7 @@ public class DBSequenceTest {
     db.execute("CREATE INDEX Person.id ON Person (id) UNIQUE");
 
     db.executeInTx(
-        () -> {
+        transaction -> {
           for (var i = 0; i < 10; i++) {
             var person = db.newVertex("Person");
             person.setProperty("name", "Foo" + i);
@@ -591,7 +591,7 @@ public class DBSequenceTest {
     db.commit();
 
     db.executeInTx(
-        () -> {
+        transaction -> {
           Byte exceptionsCought = 0;
           try {
             myseq.next(db);
@@ -633,7 +633,7 @@ public class DBSequenceTest {
     db.commit();
 
     db.executeInTx(
-        () -> {
+        transaction -> {
           Byte exceptionsCought = 0;
           try {
             myseq.next(db);
@@ -674,7 +674,7 @@ public class DBSequenceTest {
     db.commit();
 
     db.executeInTx(
-        () -> {
+        transaction -> {
           Byte exceptionsCought = 0;
           try {
             newSeq.next(db);
@@ -710,7 +710,7 @@ public class DBSequenceTest {
     db.commit();
 
     db.executeInTx(
-        () -> {
+        transaction -> {
           Byte exceptionsCought = 0;
           try {
             myseq.next(db);
@@ -764,7 +764,7 @@ public class DBSequenceTest {
     db.commit();
 
     db.executeInTx(
-        () -> {
+        transaction -> {
           Byte exceptionsCought = 0;
           try {
             myseq.next(db);
@@ -810,7 +810,7 @@ public class DBSequenceTest {
     db.commit();
 
     db.executeInTx(
-        () -> {
+        transaction -> {
           Byte exceptionsCought = 0;
           try {
             myseq.next(db);
@@ -878,7 +878,7 @@ public class DBSequenceTest {
     db.commit();
 
     db.executeInTx(
-        () -> {
+        transaction -> {
           Byte exceptionsCought = 0;
           try {
             myseq.next(db);

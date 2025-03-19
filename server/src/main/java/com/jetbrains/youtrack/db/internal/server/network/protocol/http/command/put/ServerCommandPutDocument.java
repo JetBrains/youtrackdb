@@ -63,7 +63,7 @@ public class ServerCommandPutDocument extends ServerCommandDocumentAbstract {
 
       var d =
           db.computeInTx(
-              () -> {
+              tx -> {
                 var txRecordId = recordId;
                 final Map<String, Object> content = RecordSerializerJackson.mapFromJson(
                     iRequest.getContent());

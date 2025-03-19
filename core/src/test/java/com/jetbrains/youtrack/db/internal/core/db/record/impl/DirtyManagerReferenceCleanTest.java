@@ -16,7 +16,7 @@ public class DirtyManagerReferenceCleanTest extends DbTestBase {
 
   @Test
   public void testReferDeletedDocument() {
-    var id = session.computeInTx(() -> {
+    var id = session.computeInTx(transaction -> {
       var doc = (EntityImpl) session.newEntity();
       var doc1 = (EntityImpl) session.newEntity();
       doc1.setProperty("aa", "aa");
@@ -26,7 +26,7 @@ public class DirtyManagerReferenceCleanTest extends DbTestBase {
       return doc.getIdentity();
     });
 
-    var rid1 = session.computeInTx(() -> {
+    var rid1 = session.computeInTx(transaction -> {
       var doc = session.loadEntity(id.getIdentity());
       var doc1 = doc.getEntity("ref");
       doc1.delete();
@@ -34,7 +34,7 @@ public class DirtyManagerReferenceCleanTest extends DbTestBase {
       return doc1.getIdentity();
     });
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       try {
         session.loadEntity(rid1);
         Assert.fail();

@@ -27,20 +27,20 @@ public class TransactionTest {
 
   @Test
   public void test() {
-    db.begin();
-    var v = db.newVertex("V");
+    var tx = db.begin();
+    var v = tx.newVertex("V");
     v.setProperty("name", "Foo");
-    db.commit();
+    tx.commit();
 
-    db.begin();
-    v = db.bindToSession(v);
+    tx = db.begin();
+    v = tx.bindToSession(v);
     v.setProperty("name", "Bar");
-    db.rollback();
+    tx.rollback();
 
-    db.begin();
-    v = db.bindToSession(v);
+    tx = db.begin();
+    v = tx.bindToSession(v);
     Assert.assertEquals("Foo", v.getProperty("name"));
-    db.commit();
+    tx.commit();
   }
 
   @After

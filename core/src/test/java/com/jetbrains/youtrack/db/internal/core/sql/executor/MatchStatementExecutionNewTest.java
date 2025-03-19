@@ -61,7 +61,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     var nodes = 1000;
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           for (var i = 0; i < nodes; i++) {
             var doc = (EntityImpl) session.newVertex("IndexedVertex");
             doc.setProperty("uid", i);
@@ -2355,7 +2355,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.execute("CREATE CLASS " + clazz + " EXTENDS V").close();
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var v1 = session.newVertex(clazz);
           v1.setProperty("name", "a");
 
@@ -2389,7 +2389,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.execute("CREATE CLASS " + clazz + " EXTENDS V").close();
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var v1 = session.newVertex(clazz);
           v1.setProperty("name", "a");
 
@@ -2422,7 +2422,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.execute("CREATE CLASS " + clazz + " EXTENDS V").close();
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var v1 = session.newVertex(clazz);
           v1.setProperty("name", "a");
 
@@ -2457,7 +2457,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.execute("CREATE CLASS " + clazz + " EXTENDS V").close();
 
     session.executeInTx(
-        () -> {
+        transaction -> {
           var v1 = session.newVertex(clazz);
           v1.setProperty("name", "a");
 

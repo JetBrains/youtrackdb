@@ -26,6 +26,7 @@ import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.util.PatternConst;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.BinaryProtocol;
 import com.jetbrains.youtrack.db.internal.core.serialization.MemoryStream;
 import com.jetbrains.youtrack.db.internal.core.serialization.SerializableStream;
@@ -298,7 +299,7 @@ public class RecordId implements RID, SerializableStream {
       throw new RecordNotFoundException(session.getDatabaseName(), this);
     }
 
-    return session.load(this);
+    return ((DatabaseSessionInternal) session).load(this);
   }
 
   private void checkClusterLimits() {

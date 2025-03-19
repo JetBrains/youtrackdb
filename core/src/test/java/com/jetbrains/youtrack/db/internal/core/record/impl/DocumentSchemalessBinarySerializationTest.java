@@ -15,7 +15,6 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkBase;
@@ -583,7 +582,7 @@ public class DocumentSchemalessBinarySerializationTest extends DbTestBase {
 
   @Test(expected = SchemaException.class)
   public void testSetOfWrongData() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       var document = (EntityImpl) session.newEntity();
 
       var embeddedSet = session.newEmbeddedSet();
@@ -594,7 +593,7 @@ public class DocumentSchemalessBinarySerializationTest extends DbTestBase {
 
   @Test(expected = DatabaseException.class)
   public void testListOfWrongData() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       var document = (EntityImpl) session.newEntity();
 
       List<Object> embeddedList = new ArrayList<>();
@@ -607,7 +606,7 @@ public class DocumentSchemalessBinarySerializationTest extends DbTestBase {
 
   @Test(expected = SchemaException.class)
   public void testMapOfWrongData() {
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       var document = (EntityImpl) session.newEntity();
 
       Map<String, Object> embeddedMap = session.newEmbeddedMap();
@@ -726,7 +725,6 @@ public class DocumentSchemalessBinarySerializationTest extends DbTestBase {
     document.setProperty("age", 20);
     document.setProperty("youngAge", (short) 20);
     document.setProperty("oldAge", (long) 20);
-
 
     var res = serializer.toStream(session, document);
 

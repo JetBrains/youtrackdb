@@ -651,7 +651,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.getMetadata().getSchema().createClass(className);
 
     try {
-      session.executeInTx(() -> {
+      session.executeInTx(transaction -> {
         session.query(
                 "select max(a) + max(b) + pippo + pluto as foo, max(d) + max(e), f from " + className)
             .close();
@@ -670,7 +670,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.getMetadata().getSchema().createClass(className);
 
     try {
-      session.executeInTx(() -> {
+      session.executeInTx(transaction -> {
         session.query("select [max(a), max(b), foo] from " + className).close();
         Assert.fail();
       });

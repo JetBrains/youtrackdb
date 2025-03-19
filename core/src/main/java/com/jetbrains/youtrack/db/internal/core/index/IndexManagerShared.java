@@ -98,7 +98,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
     acquireExclusiveLock(session);
     try {
       session.executeInTx(
-          () -> {
+          transaction -> {
             EntityImpl entity = session.load(identity);
             fromStream(session, entity);
           });
@@ -164,7 +164,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
   public void create(DatabaseSessionInternal session) {
     acquireExclusiveLock(session);
     try {
-      var entity = session.computeInTx(session::newInternalInstance);
+      var entity = session.computeInTx(transaction -> session.newInternalInstance());
       identity = entity.getIdentity();
       session.getStorage().setIndexMgrRecordId(entity.getIdentity().toString());
     } finally {

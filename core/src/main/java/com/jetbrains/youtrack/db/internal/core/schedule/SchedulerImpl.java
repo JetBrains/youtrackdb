@@ -102,7 +102,7 @@ public class SchedulerImpl {
 
     if (event != null) {
       // RECORD EXISTS: DELETE THE EVENT RECORD
-      session.executeInTx(() -> {
+      session.executeInTx(transaction -> {
         try {
           event.delete(session);
         } catch (RecordNotFoundException ignore) {

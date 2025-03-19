@@ -59,7 +59,7 @@ public class FrontendTransactionImplTest extends BaseDBTest {
   }
 
   @Test(dependsOnMethods = "testTransactionOptimisticRollback")
-  public void testTransactionOptimisticCommit() {
+  public void testTransactionOptimisticCommitInternal() {
     if (session.getClusterIdByName("binary") == -1) {
       session.addBlobCluster("binary");
     }
@@ -74,7 +74,7 @@ public class FrontendTransactionImplTest extends BaseDBTest {
     Assert.assertEquals(session.countClusterElements("binary"), tot + 1);
   }
 
-  @Test(dependsOnMethods = "testTransactionOptimisticCommit")
+  @Test(dependsOnMethods = "testTransactionOptimisticCommitInternal")
   public void testTransactionOptimisticConcurrentException() {
     if (session.getClusterIdByName("binary") == -1) {
       session.addBlobCluster("binary");
@@ -387,7 +387,7 @@ public class FrontendTransactionImplTest extends BaseDBTest {
           .submit(
               () -> {
                 try (var db = acquireSession()) {
-                  db.executeInTx(() -> {
+                  db.executeInTx(transaction -> {
                     EntityImpl brokenDocTwo = db.load(brokenRid);
                     brokenDocTwo.setProperty("v", "vstr");
 

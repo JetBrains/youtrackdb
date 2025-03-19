@@ -94,7 +94,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
     try {
       if (clustersToIndex.remove(clusterName)) {
         session.executeInTx(
-            () -> remove(session, "_CLUSTER:" + storage.getClusterIdByName(clusterName)));
+            transaction -> remove(session, "_CLUSTER:" + storage.getClusterIdByName(clusterName)));
       }
     } finally {
       releaseExclusiveLock();
@@ -280,8 +280,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
 
   @Override
   public Stream<RID> getRids(DatabaseSessionInternal session, Object key) {
-    return session.computeInTx(() -> {
-      var transaction = session.getTransactionInternal();
+    return session.computeInTx(transaction -> {
       while (true) {
         try {
           return storage
@@ -290,7 +289,8 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
                   indexId,
                   engine -> {
                     var indexEngine = (LuceneIndexEngine) engine;
-                    return indexEngine.getInTx(session, key, getTransactionChanges(transaction));
+                    return indexEngine.getInTx(session, key,
+                        getTransactionChanges((FrontendTransaction) transaction));
                   })
               .stream()
               .map(Identifiable::getIdentity);
@@ -337,16 +337,16 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
 
   @Override
   public long size(DatabaseSessionInternal session) {
-    return session.computeInTx(() -> {
+    return session.computeInTx(transaction -> {
       while (true) {
         try {
           return storage.callIndexEngine(
               false,
               indexId,
               engine -> {
-                var transaction = session.getTransactionInternal();
                 var indexEngine = (LuceneIndexEngine) engine;
-                return indexEngine.sizeInTx(getTransactionChanges(transaction), storage);
+                return indexEngine.sizeInTx(
+                    getTransactionChanges((FrontendTransaction) transaction), storage);
               });
         } catch (InvalidIndexEngineIdException e) {
           doReloadIndexEngine();

@@ -105,10 +105,10 @@ public class AutomaticBackupTest {
     db = server.getDatabases().openNoAuthorization(DBNAME);
 
     db.createClass("TestBackup");
-    db.begin();
-    db.newEntity("TestBackup").setProperty("name", DBNAME);
+    var tx = db.begin();
+    tx.newEntity("TestBackup").setProperty("name", DBNAME);
 
-    db.commit();
+    tx.commit();
   }
 
   // @After
@@ -131,8 +131,8 @@ public class AutomaticBackupTest {
 
     var jsonConfig =
         IOUtils.readStreamAsString(getClass().getResourceAsStream("automatic-backup.json"));
-
-    var doc = ((EntityImpl) db.newEntity());
+    var tx = db.begin();
+    var doc = ((EntityImpl) tx.newEntity());
     doc.updateFromJSON(jsonConfig);
 
     doc.setProperty("enabled", true);
@@ -181,7 +181,8 @@ public class AutomaticBackupTest {
     var jsonConfig =
         IOUtils.readStreamAsString(getClass().getResourceAsStream("automatic-backup.json"));
 
-    var doc = ((EntityImpl) db.newEntity());
+    var tx = db.begin();
+    var doc = ((EntityImpl) tx.newEntity());
     doc.updateFromJSON(jsonConfig);
 
     doc.setProperty("enabled", true);
@@ -264,7 +265,8 @@ public class AutomaticBackupTest {
     var jsonConfig =
         IOUtils.readStreamAsString(getClass().getResourceAsStream("automatic-backup.json"));
 
-    var doc = ((EntityImpl) db.newEntity());
+    var tx = db.begin();
+    var doc = ((EntityImpl) tx.newEntity());
     doc.updateFromJSON(jsonConfig);
 
     doc.setProperty("enabled", false);

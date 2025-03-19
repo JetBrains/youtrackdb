@@ -254,7 +254,7 @@ public class Function extends IdentityWrapper {
                 .getCommandManager()
                 .getScriptExecutor(language);
 
-        result = session.computeInTx(() -> executor.execute(session, code, iArgs));
+        result = session.computeInTx(transaction -> executor.execute(session, code, iArgs));
 
         break;
 

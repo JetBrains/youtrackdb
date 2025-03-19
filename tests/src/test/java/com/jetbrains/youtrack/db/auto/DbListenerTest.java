@@ -17,6 +17,7 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.session.SessionListener;
+import com.jetbrains.youtrack.db.api.session.Transaction;
 import com.jetbrains.youtrack.db.internal.core.hook.DocumentHookAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.IOException;
@@ -73,27 +74,27 @@ public class DbListenerTest extends BaseDBTest {
   public class DbListener implements SessionListener {
 
     @Override
-    public void onAfterTxCommit(DatabaseSession iDatabase) {
+    public void onAfterTxCommit(Transaction transaction) {
       onAfterTxCommit++;
     }
 
     @Override
-    public void onAfterTxRollback(DatabaseSession iDatabase) {
+    public void onAfterTxRollback(Transaction transaction) {
       onAfterTxRollback++;
     }
 
     @Override
-    public void onBeforeTxBegin(DatabaseSession iDatabase) {
+    public void onBeforeTxBegin(Transaction transaction) {
       onBeforeTxBegin++;
     }
 
     @Override
-    public void onBeforeTxCommit(DatabaseSession iDatabase) {
+    public void onBeforeTxCommit(Transaction transaction) {
       onBeforeTxCommit++;
     }
 
     @Override
-    public void onBeforeTxRollback(DatabaseSession iDatabase) {
+    public void onBeforeTxRollback(Transaction transaction) {
       onBeforeTxRollback++;
     }
 

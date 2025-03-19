@@ -108,32 +108,36 @@ public class SecurityRemote implements SecurityInternal {
     return iId;
   }
 
-  public RID getRoleRID(final DatabaseSession session, final String iRoleName) {
+  public static RID getRoleRID(final DatabaseSession session, final String iRoleName) {
     if (iRoleName == null) {
       return null;
     }
 
-    try (final var result =
-        session.query("select @rid as rid from " + Role.CLASS_NAME + " where name = ? limit 1",
-            iRoleName)) {
+    return session.computeInTx(transaction -> {
+      try (final var result =
+          transaction.query(
+              "select @rid as rid from " + Role.CLASS_NAME + " where name = ? limit 1",
+              iRoleName)) {
 
-      if (result.hasNext()) {
-        return result.next().getProperty("rid");
+        if (result.hasNext()) {
+          return result.next().getProperty("rid");
+        }
       }
-    }
-    return null;
+      return null;
+    });
   }
 
-  public RID getUserRID(final DatabaseSession session, final String userName) {
-    try (var result =
-        session.query("select @rid as rid from OUser where name = ? limit 1", userName)) {
-
-      if (result.hasNext()) {
-        return result.next().getProperty("rid");
+  public static RID getUserRID(final DatabaseSession session, final String userName) {
+    return session.computeInTx(transaction -> {
+      try (var result =
+          transaction.query("select @rid as rid from OUser where name = ? limit 1", userName)) {
+        if (result.hasNext()) {
+          return result.next().getProperty("rid");
+        }
       }
-    }
 
-    return null;
+      return null;
+    });
   }
 
   @Override
@@ -210,14 +214,16 @@ public class SecurityRemote implements SecurityInternal {
 
   @Override
   public SecurityUserImpl getUser(final DatabaseSession session, final String iUserName) {
-    try (var result = session.query("select from OUser where name = ? limit 1",
-        iUserName)) {
-      if (result.hasNext()) {
-        return new SecurityUserImpl((DatabaseSessionInternal) session,
-            (EntityImpl) result.next().asEntity());
+    return session.computeInTx(transaction -> {
+      try (var result = transaction.query("select from OUser where name = ? limit 1",
+          iUserName)) {
+        if (result.hasNext()) {
+          return new SecurityUserImpl((DatabaseSessionInternal) session,
+              (EntityImpl) result.next().asEntity());
+        }
       }
-    }
-    return null;
+      return null;
+    });
   }
 
   public SecurityUserImpl getUser(final DatabaseSession session, final RID iRecordId) {
@@ -225,8 +231,9 @@ public class SecurityRemote implements SecurityInternal {
       return null;
     }
 
+    var sessionInternal = (DatabaseSessionInternal) session;
     EntityImpl result;
-    result = session.load(iRecordId);
+    result = sessionInternal.load(iRecordId);
     if (!result.getSchemaClassName().equals(SecurityUserImpl.CLASS_NAME)) {
       result = null;
     }
@@ -250,29 +257,36 @@ public class SecurityRemote implements SecurityInternal {
       return null;
     }
 
-    try (final var result =
-        session.query("select from " + Role.CLASS_NAME + " where name = ? limit 1", iRoleName)) {
-      if (result.hasNext()) {
-        return new Role((DatabaseSessionInternal) session,
-            (EntityImpl) result.next().asEntity());
+    return session.computeInTx(transaction -> {
+      try (final var result =
+          transaction.query("select from " + Role.CLASS_NAME + " where name = ? limit 1",
+              iRoleName)) {
+        if (result.hasNext()) {
+          return new Role((DatabaseSessionInternal) session,
+              (EntityImpl) result.next().asEntity());
+        }
       }
-    }
 
-    return null;
+      return null;
+    });
   }
 
   public List<EntityImpl> getAllUsers(final DatabaseSession session) {
-    try (var rs = session.query("select from OUser")) {
-      return rs.stream().map((e) -> (EntityImpl) e.asEntity())
-          .collect(Collectors.toList());
-    }
+    return session.computeInTx(transaction -> {
+      try (var rs = transaction.query("select from OUser")) {
+        return rs.stream().map((e) -> (EntityImpl) e.asEntity())
+            .collect(Collectors.toList());
+      }
+    });
   }
 
   public List<EntityImpl> getAllRoles(final DatabaseSession session) {
-    try (var rs = session.query("select from " + Role.CLASS_NAME)) {
-      return rs.stream().map((e) -> (EntityImpl) e.asEntity())
-          .collect(Collectors.toList());
-    }
+    return session.computeInTx(transaction -> {
+      try (var rs = transaction.query("select from " + Role.CLASS_NAME)) {
+        return rs.stream().map((e) -> (EntityImpl) e.asEntity())
+            .collect(Collectors.toList());
+      }
+    });
   }
 
   @Override
@@ -321,21 +335,23 @@ public class SecurityRemote implements SecurityInternal {
 
   @Override
   public boolean dropUser(final DatabaseSession session, final String iUserName) {
-    final Number removed =
-        session.execute("delete from OUser where name = ?", iUserName).next().getProperty("count");
-
-    return removed != null && removed.intValue() > 0;
+    return session.computeInTx(transaction -> {
+      try (var result = transaction.execute("delete from OUser where name = ?", iUserName)) {
+        final Number removed = result.next().getProperty("count");
+        return removed != null && removed.intValue() > 0;
+      }
+    });
   }
 
   @Override
   public boolean dropRole(final DatabaseSession session, final String iRoleName) {
-    final Number removed =
-        session
-            .execute("delete from " + Role.CLASS_NAME + " where name = '" + iRoleName + "'")
-            .next()
-            .getProperty("count");
-
-    return removed != null && removed.intValue() > 0;
+    return session.computeInTx(transaction -> {
+      try (var resutl = transaction.execute(
+          "delete from " + Role.CLASS_NAME + " where name = '" + iRoleName + "'")) {
+        final Number removed = resutl.next().getProperty("count");
+        return removed != null && removed.intValue() > 0;
+      }
+    });
   }
 
   @Override

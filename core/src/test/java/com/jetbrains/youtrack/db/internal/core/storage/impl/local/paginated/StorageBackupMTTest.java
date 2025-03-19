@@ -275,20 +275,21 @@ public class StorageBackupMTTest {
 
           for (var i = 0; i < count; i++) {
             try {
-              session.begin();
+              var tx = session.begin();
               final var data = new byte[random.nextInt(1024)];
               random.nextBytes(data);
 
               final var num = random.nextInt();
               if (!ids.isEmpty() && i % 8 == 0) {
                 var id = ids.removeFirst();
-                session.delete(id.getEntity(session));
+                session.getActiveTransaction().delete(id.getEntity(session));
               } else if (!ids.isEmpty() && i % 4 == 0) {
                 var id = ids.removeFirst();
-                final EntityImpl document = session.load(id);
+                final EntityImpl document = session.getActiveTransaction().load(id);
                 document.setProperty("data", data);
               } else {
-                final var document = ((EntityImpl) session.newEntity("BackupClass"));
+                final var document = ((EntityImpl) session.getActiveTransaction()
+                    .newEntity("BackupClass"));
                 document.setProperty("num", num);
                 document.setProperty("data", data);
 
@@ -297,7 +298,7 @@ public class StorageBackupMTTest {
                   ids.add(id);
                 }
               }
-              session.commit();
+              tx.commit();
 
             } catch (ModificationOperationProhibitedException e) {
               System.out.println("Modification prohibited ... wait ...");

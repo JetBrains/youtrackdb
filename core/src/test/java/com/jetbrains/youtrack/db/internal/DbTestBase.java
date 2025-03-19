@@ -18,6 +18,7 @@ import org.junit.Rule;
 import org.junit.rules.TestName;
 
 public class DbTestBase {
+
   private static final AtomicLong counter = new AtomicLong();
   private static final ConcurrentHashMap<Class<?>, Long> ids = new ConcurrentHashMap<>();
 
@@ -152,16 +153,16 @@ public class DbTestBase {
   public static void assertWithTimeout(DatabaseSession session, Runnable runnable)
       throws Exception {
     for (var i = 0; i < 30 * 60 * 10; i++) {
+      var tx = session.begin();
       try {
-        session.begin();
         runnable.run();
-        session.commit();
+        tx.commit();
         return;
       } catch (AssertionError e) {
-        session.rollback();
+        tx.rollback();
         Thread.sleep(100);
       } catch (Exception e) {
-        session.rollback();
+        tx.rollback();
         throw e;
       }
     }

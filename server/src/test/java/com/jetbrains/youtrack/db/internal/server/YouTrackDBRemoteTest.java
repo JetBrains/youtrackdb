@@ -178,10 +178,10 @@ public class YouTrackDBRemoteTest {
 
           try {
             assertThat(((DatabaseSessionInternal) db).isActiveOnCurrentThread()).isTrue();
-
-            var res = db.query("SELECT * FROM OUser");
-
-            assertEquals(3, res.stream().count());
+            db.executeInTx(transaction -> {
+              var res = transaction.query("SELECT * FROM OUser");
+              assertEquals(3, res.stream().count());
+            });
 
           } finally {
 
@@ -219,7 +219,9 @@ public class YouTrackDBRemoteTest {
             .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
             .build());
     try (var session = factory.open("noUser", "root", "root")) {
-      assertEquals(0, session.query("select from OUser").stream().count());
+      session.executeInTx(transaction -> {
+        assertEquals(0, transaction.query("select from OUser").stream().count());
+      });
     }
   }
 
@@ -232,7 +234,9 @@ public class YouTrackDBRemoteTest {
             .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, true)
             .build());
     try (var session = factory.open("noUser", "root", "root")) {
-      assertEquals(3, session.query("select from OUser").stream().count());
+      session.executeInTx(transaction -> {
+        assertEquals(3, transaction.query("select from OUser").stream().count());
+      });
     }
   }
 

@@ -23,6 +23,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 public class HookInstallServerTest {
+
   private static final String SERVER_DIRECTORY = "./target/dbfactory";
 
   public static class MyHook extends DocumentHookAbstract {
@@ -102,10 +103,9 @@ public class HookInstallServerTest {
         try (var db = poolInstance.acquire()) {
           db.createClassIfNotExist("Test");
 
-          db.executeInTx(() -> {
-            EntityImpl entity = ((EntityImpl) db.newEntity("Test"));
+          db.executeInTx(transaction -> {
+            var entity = transaction.newEntity("Test");
             entity.setProperty("entry", id);
-            db.commit();
           });
         }
       }

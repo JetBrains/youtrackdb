@@ -21,12 +21,12 @@ public class SQLFunctionExpandTest extends DbTestBase {
 
     final var aClass = session.createClass("SingleValueClass");
     aClass.createProperty("stringProp", PropertyType.STRING);
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       session.newEntity(aClass).setProperty("stringProp", "a1");
       session.newEntity(aClass).setProperty("stringProp", "a2");
     });
 
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var result = session.query("SELECT expand(stringProp) FROM SingleValueClass");
       assertThat(result.hasNext()).isFalse();
     });
@@ -41,7 +41,7 @@ public class SQLFunctionExpandTest extends DbTestBase {
     aClass.createProperty("listProp", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
 
     // init data
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var a1 = session.newEntity(aClass);
       a1.setProperty("name", "a1");
       a1.getOrCreateEmbeddedList("listProp").addAll(List.of("a1", "a2"));
@@ -68,7 +68,7 @@ public class SQLFunctionExpandTest extends DbTestBase {
 
     for (var condition : conditions) {
       for (var withAlias : includeAlias) {
-        session.executeInTx(() -> {
+        session.executeInTx(transaction -> {
 
           final var result = session.query(
               "SELECT expand(listProp) " +
@@ -95,7 +95,7 @@ public class SQLFunctionExpandTest extends DbTestBase {
     aClass.createProperty("mapProp", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
 
     // init data
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var a1 = session.newEntity(aClass);
       a1.setProperty("name", "a1");
       a1.getOrCreateEmbeddedMap("mapProp").putAll(Map.of(
@@ -139,7 +139,7 @@ public class SQLFunctionExpandTest extends DbTestBase {
 
         final Set<Map<String, ?>> result;
         try {
-          result = session.computeInTx(() ->
+          result = session.computeInTx(transaction ->
               session
                   .query(
                       "SELECT expand(mapProp) " +
@@ -183,7 +183,7 @@ public class SQLFunctionExpandTest extends DbTestBase {
     linkingClass.createProperty("link", PropertyType.LINK, linkedClass);
 
     // init data
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var linked1 = session.newEntity(linkedClass);
       linked1.setProperty("name", "linked1");
 
@@ -213,7 +213,7 @@ public class SQLFunctionExpandTest extends DbTestBase {
       for (var withAlias : includeAlias) {
         final Set<String> result;
         try {
-          result = session.computeInTx(() -> session
+          result = session.computeInTx(transaction -> session
               .query(
                   "SELECT expand(link) " +
                       (withAlias ? "AS myAlias " : "") +
@@ -251,7 +251,7 @@ public class SQLFunctionExpandTest extends DbTestBase {
     linkingClass.createProperty("links", PropertyType.LINKLIST, linkedClass);
 
     // init data
-    session.executeInTx(() -> {
+    session.executeInTx(transaction -> {
       final var linked1 = session.newEntity(linkedClass);
       linked1.setProperty("name", "linked1");
 
@@ -267,7 +267,7 @@ public class SQLFunctionExpandTest extends DbTestBase {
 
       final var linking2 = session.newEntity(linkingClass);
       linking2.setProperty("name", "linking2");
-      linking2.getOrCreateLinkList("links").addAll(List.of(linked3));
+      linking2.getOrCreateLinkList("links").add(linked3);
 
       final var linking3 = session.newEntity(linkingClass);
       linking3.setProperty("name", "linking3");
@@ -290,7 +290,7 @@ public class SQLFunctionExpandTest extends DbTestBase {
       for (var withAlias : includeAlias) {
         final Set<String> result;
         try {
-          result = session.computeInTx(() ->
+          result = session.computeInTx(transaction ->
               session
                   .query(
                       "SELECT expand(links) " +

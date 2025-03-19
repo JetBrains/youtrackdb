@@ -68,10 +68,10 @@ public class TestConcurrentCachedDBSequenceGenerationIT {
             public void run() {
               try (var db = pool.acquire()) {
                 for (var j = 0; j < RECORDS; j++) {
-                  db.begin();
-                  var vert = db.newVertex("TestSequence");
+                  var tx = db.begin();
+                  var vert = tx.newVertex("TestSequence");
                   assertNotNull(vert.getProperty("id"));
-                  db.commit();
+                  tx.commit();
                 }
               } catch (Exception e) {
                 failures.incrementAndGet();

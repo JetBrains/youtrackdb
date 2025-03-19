@@ -57,7 +57,9 @@ public class ConcurrentSchemaTest extends BaseDBTest {
           Assert.assertTrue(
               ConcurrentSchemaTest.this.session.getMetadata().getSchema().existsClass(clsName));
 
-          db.execute("select from " + clsName).close();
+          db.executeInTx(transaction -> {
+            transaction.execute("select from " + clsName).close();
+          });
 
           counter.incrementAndGet();
         } finally {

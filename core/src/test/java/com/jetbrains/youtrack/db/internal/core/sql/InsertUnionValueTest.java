@@ -38,8 +38,8 @@ public class InsertUnionValueTest {
   public void testUnionInsert() {
     try (var session =
         youTrackDB.open(InsertUnionValueTest.class.getSimpleName(), "admin", "admpwd")) {
-      session.execute("create class example extends V").close();
-      session.execute("create property example.metadata EMBEDDEDMAP").close();
+      session.runScript("sql", "create class example extends V").close();
+      session.runScript("sql", "create property example.metadata EMBEDDEDMAP").close();
       session
           .runScript(
               "SQL",
@@ -59,27 +59,27 @@ public class InsertUnionValueTest {
           )
           .close();
 
-      var values =
-          session.query("select metadata.something from example").toList();
-      assertThat(values).hasSize(1);
-      assertThat(values.getFirst().<Map<?, ?>>getProperty("metadata.something"))
-          .isEqualTo(Map.of(
-              "aKey", "aValue",
-              "anotherKey", "anotherValue")
-          );
+      session.executeInTx(transaction -> {
+        var values = transaction.query("select metadata.something from example").stream().toList();
+        assertThat(values).hasSize(1);
+        assertThat(values.getFirst().<Map<?, ?>>getProperty("metadata.something"))
+            .isEqualTo(Map.of(
+                "aKey", "aValue",
+                "anotherKey", "anotherValue")
+            );
 
-      var expandedValues = session
-          .query("select expand(metadata.something) from example")
-          .stream()
-          .map(Result::toMap)
-          .collect(Collectors.toSet());
+        var expandedValues = transaction.query("select expand(metadata.something) from example")
+            .stream()
+            .map(Result::toMap)
+            .collect(Collectors.toSet());
 
-      assertThat(expandedValues).isEqualTo(
-          Set.of(
-              Map.of("aKey", "aValue"),
-              Map.of("anotherKey", "anotherValue")
-          )
-      );
+        assertThat(expandedValues).isEqualTo(
+            Set.of(
+                Map.of("aKey", "aValue"),
+                Map.of("anotherKey", "anotherValue")
+            )
+        );
+      });
 
     }
   }

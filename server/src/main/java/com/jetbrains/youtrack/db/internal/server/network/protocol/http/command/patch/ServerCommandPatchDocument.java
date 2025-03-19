@@ -45,7 +45,7 @@ public class ServerCommandPatchDocument extends ServerCommandDocumentAbstract {
     try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
       RawPair<Boolean, RID> result =
           db.computeInTx(
-              () -> {
+              transaction -> {
                 RecordId recordId;
 
                 if (urlParts.length > 2) {

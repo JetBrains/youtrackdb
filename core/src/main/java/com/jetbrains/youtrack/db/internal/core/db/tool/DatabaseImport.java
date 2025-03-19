@@ -1233,7 +1233,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       // and then remove left overs
       final var recordsBeforeImport = new HashSet<RID>();
 
-      session.executeInTx(() -> {
+      session.executeInTx(transaction -> {
         for (final var clusterName : session.getClusterNames()) {
           var recordIterator = session.browseCluster(clusterName);
           while (recordIterator.hasNext()) {
@@ -1296,7 +1296,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
 
       // remove all records which were absent in new database but
       // exist in old database
-      session.executeInTx(() -> {
+      session.executeInTx(transaction -> {
         for (final var leftOverRid : recordsBeforeImport) {
           var record = session.load(leftOverRid);
           session.delete(record);
@@ -1540,7 +1540,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
               Integer.MAX_VALUE);
       while (positions.length > 0) {
         for (var position : positions) {
-          session.executeInTx(() -> {
+          session.executeInTx(transaction -> {
             var record = session.load(new RecordId(clusterId, position.clusterPosition));
             if (record instanceof EntityImpl entity) {
               rewriteLinksInDocument(session, entity, brokenRids);

@@ -131,21 +131,21 @@ public class LuceneInsertMultithreadTest {
     public void run() {
 
       try (var db = YOUTRACKDB.open(dbName, "admin", "admin")) {
-        db.begin();
+        var tx = db.begin();
         for (var i = 0; i < cycle; i++) {
-          var doc = ((EntityImpl) db.newEntity("City"));
+          var doc = ((EntityImpl) tx.newEntity("City"));
 
           doc.setProperty("name", "Rome");
 
-          db.begin();
-          db.commit();
+          tx = db.begin();
+          tx.commit();
           var commitBuf = 500;
           if (i % commitBuf == 0) {
-            db.commit();
-            db.begin();
+            tx.commit();
+            tx = db.begin();
           }
         }
-        db.commit();
+        tx.commit();
       }
     }
   }

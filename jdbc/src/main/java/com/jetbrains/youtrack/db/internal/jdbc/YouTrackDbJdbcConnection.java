@@ -152,11 +152,11 @@ public class YouTrackDbJdbcConnection implements Connection {
   }
 
   public void commit() throws SQLException {
-    database.commit();
+    database.getActiveTransaction().commit();
   }
 
   public void rollback() throws SQLException {
-    database.rollback();
+    database.getActiveTransaction().rollback();
   }
 
   public boolean isClosed() throws SQLException {
