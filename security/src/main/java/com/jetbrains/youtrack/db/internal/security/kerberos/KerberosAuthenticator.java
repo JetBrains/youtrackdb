@@ -13,12 +13,12 @@
  */
 package com.jetbrains.youtrack.db.internal.security.kerberos;
 
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.ImmutableUser;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.security.authenticator.SecurityAuthenticatorAbstract;
 import com.jetbrains.youtrack.db.internal.core.security.kerberos.Krb5ClientLoginModuleConfig;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;

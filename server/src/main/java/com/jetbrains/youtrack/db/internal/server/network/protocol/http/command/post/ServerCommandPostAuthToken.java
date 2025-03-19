@@ -2,11 +2,11 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.LockException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.server.TokenHandler;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;

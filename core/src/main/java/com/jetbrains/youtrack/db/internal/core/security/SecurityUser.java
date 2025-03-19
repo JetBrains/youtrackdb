@@ -1,4 +1,4 @@
-package com.jetbrains.youtrack.db.api.security;
+package com.jetbrains.youtrack.db.internal.core.security;
 
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;

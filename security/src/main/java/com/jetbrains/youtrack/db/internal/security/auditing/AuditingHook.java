@@ -19,7 +19,6 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RecordHookAbstract;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.api.session.SessionListener;
 import com.jetbrains.youtrack.db.api.session.Transaction;
 import com.jetbrains.youtrack.db.internal.common.parser.VariableParser;
@@ -30,6 +29,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableCl
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.AuditingOperation;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -296,7 +296,7 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
         String name = entity.getProperty("name");
         var message = String.format("The password for user '%s' has been changed", name);
         log(session, AuditingOperation.CHANGED_PWD, session.getDatabaseName(),
-            session.getCurrentUser(), message);
+            ((DatabaseSessionInternal) session).getCurrentUser(), message);
       }
     }
     if (!onGlobalUpdate) {
@@ -372,7 +372,8 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
     }
 
     var entity =
-        createLogEntry(db, operation, db.getDatabaseName(), db.getCurrentUser(),
+        createLogEntry(db, operation, db.getDatabaseName(),
+            ((DatabaseSessionInternal) db).getCurrentUser(),
             formatNote(iRecord, note));
     entity.put("record", iRecord.getIdentity());
     if (changes != null) {

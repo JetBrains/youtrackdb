@@ -1,13 +1,13 @@
 package com.jetbrains.youtrack.db.internal.core.security.authenticator;
 
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityShared;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.TokenAuthInfo;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.UserPasswordAuthInfo;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.security.TokenSign;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.TokenSecurityException;
 import java.util.Map;

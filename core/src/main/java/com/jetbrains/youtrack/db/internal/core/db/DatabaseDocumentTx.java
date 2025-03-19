@@ -26,7 +26,6 @@ import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.api.session.SessionListener;
 import com.jetbrains.youtrack.db.api.session.Transaction;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
@@ -47,6 +46,7 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.RecordBytes;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
@@ -588,6 +588,11 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   public void freeze(boolean throwException) {
     checkOpenness();
     internal.freeze(throwException);
+  }
+
+  @Override
+  public String getCurrentUserName() {
+    return internal.getCurrentUserName();
   }
 
   public Vertex newVertex(final String iClassName) {

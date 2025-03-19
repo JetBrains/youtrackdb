@@ -20,7 +20,6 @@
 package com.jetbrains.youtrack.db.internal.core.security;
 
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.AuthenticationInfo;
 import java.util.HashMap;
 import java.util.Map;

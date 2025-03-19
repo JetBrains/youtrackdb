@@ -1,6 +1,5 @@
 package com.jetbrains.youtrack.db.internal.server.token;
 
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import org.junit.After;
 import org.junit.Assert;

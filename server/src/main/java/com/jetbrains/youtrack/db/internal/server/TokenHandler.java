@@ -1,9 +1,9 @@
 package com.jetbrains.youtrack.db.internal.server;
 
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
 import com.jetbrains.youtrack.db.internal.core.security.ParsedToken;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.NetworkProtocolData;
 import java.io.IOException;
 import java.security.InvalidKeyException;

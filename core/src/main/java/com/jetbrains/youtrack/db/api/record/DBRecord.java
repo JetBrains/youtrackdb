@@ -51,7 +51,7 @@ public interface DBRecord extends Identifiable {
   void clear();
 
   /**
-   * Returns the record identity as &lt;cluster-id&gt;:&lt;cluster-position&gt;
+   * Returns the record identity.
    */
   @Nonnull
   RID getIdentity();

@@ -20,7 +20,6 @@
 package com.jetbrains.youtrack.db.internal.core.security;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;

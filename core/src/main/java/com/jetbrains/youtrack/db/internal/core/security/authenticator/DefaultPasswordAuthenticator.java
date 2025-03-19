@@ -19,13 +19,13 @@
  */
 package com.jetbrains.youtrack.db.internal.core.security.authenticator;
 
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.ImmutableUser;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityManager;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;

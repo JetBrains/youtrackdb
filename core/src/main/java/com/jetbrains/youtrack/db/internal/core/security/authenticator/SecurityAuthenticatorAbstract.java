@@ -19,11 +19,11 @@
  */
 package com.jetbrains.youtrack.db.internal.core.security.authenticator;
 
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityAuthenticator;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import java.util.Map;
 import javax.security.auth.Subject;
 

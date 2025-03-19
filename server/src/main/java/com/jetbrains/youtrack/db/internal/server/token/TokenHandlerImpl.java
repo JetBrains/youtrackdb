@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.server.token;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.common.exception.SystemException;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
@@ -19,6 +18,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.jwt.TokenHeader
 import com.jetbrains.youtrack.db.internal.core.metadata.security.jwt.YouTrackDBJwtHeader;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.ParsedToken;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.security.TokenSign;
 import com.jetbrains.youtrack.db.internal.core.security.TokenSignImpl;
 import com.jetbrains.youtrack.db.internal.server.ClientConnection;

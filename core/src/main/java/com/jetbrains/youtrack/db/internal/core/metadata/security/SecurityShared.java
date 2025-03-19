@@ -30,8 +30,6 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
-import com.jetbrains.youtrack.db.api.security.SecurityUser.STATUSES;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SystemDatabase;
@@ -48,6 +46,8 @@ import com.jetbrains.youtrack.db.internal.core.metadata.sequence.DBSequence;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.GlobalUser;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser.STATUSES;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBooleanExpression;
 import java.util.ArrayList;
@@ -1823,12 +1823,12 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public boolean isReadRestrictedBySecurityPolicy(DatabaseSession session, String resource) {
-    if (session.getCurrentUser() == null) {
+    var sessionInternal = (DatabaseSessionInternal) session;
+    if (sessionInternal.getCurrentUser() == null) {
       // executeNoAuth
       return false;
     }
 
-    var sessionInternal = (DatabaseSessionInternal) session;
     var predicate =
         SecurityEngine.getPredicateForSecurityResource(
             sessionInternal, this, resource, SecurityPolicy.Scope.READ);
@@ -1923,11 +1923,12 @@ public class SecurityShared implements SecurityInternal {
 
   public boolean couldHaveActivePredicateSecurityRoles(DatabaseSession session,
       String className) {
-    if (session.getCurrentUser() == null) {
+    var sessionInternal = (DatabaseSessionInternal) session;
+    if (sessionInternal.getCurrentUser() == null) {
       return false;
     }
     if (roleHasPredicateSecurityForClass != null) {
-      for (var role : session.getCurrentUser().getRoles()) {
+      for (var role : sessionInternal.getCurrentUser().getRoles()) {
         var roleMap = roleHasPredicateSecurityForClass.get(role.getName(session));
         if (roleMap == null) {
           return false; // TODO hierarchy...?

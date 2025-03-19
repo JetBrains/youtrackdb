@@ -21,7 +21,6 @@ import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.common.console.ConsoleReader;
 import com.jetbrains.youtrack.db.internal.common.console.DefaultConsoleReader;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
@@ -43,6 +42,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.TokenAuthI
 import com.jetbrains.youtrack.db.internal.core.security.InvalidPasswordException;
 import com.jetbrains.youtrack.db.internal.core.security.ParsedToken;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.server.handler.ConfigurableHooksManager;
 import com.jetbrains.youtrack.db.internal.server.network.ServerNetworkListener;
 import com.jetbrains.youtrack.db.internal.server.network.ServerSocketFactory;

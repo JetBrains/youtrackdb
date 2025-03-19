@@ -4,7 +4,6 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
@@ -20,6 +19,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImp
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;

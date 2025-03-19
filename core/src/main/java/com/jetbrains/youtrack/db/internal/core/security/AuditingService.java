@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrack.db.internal.core.security;
 
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.io.IOException;
 import java.util.Map;

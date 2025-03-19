@@ -31,7 +31,6 @@ import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.api.session.SessionListener;
 import com.jetbrains.youtrack.db.api.session.Transaction;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
@@ -414,10 +413,7 @@ public interface DatabaseSession extends AutoCloseable {
    */
   void freeze(boolean throwException);
 
-  /**
-   * Returns the current user logged into the database.
-   */
-  SecurityUser getCurrentUser();
+  String getCurrentUserName();
 
   /**
    * retrieves a class from the schema

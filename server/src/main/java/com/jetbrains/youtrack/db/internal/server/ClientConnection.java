@@ -20,12 +20,12 @@
 package com.jetbrains.youtrack.db.internal.server;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
 import com.jetbrains.youtrack.db.internal.common.exception.SystemException;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
 import com.jetbrains.youtrack.db.internal.core.security.ParsedToken;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.TokenSecurityException;

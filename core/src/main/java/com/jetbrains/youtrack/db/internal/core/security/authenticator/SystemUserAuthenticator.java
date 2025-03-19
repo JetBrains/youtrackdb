@@ -24,7 +24,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityRole;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 
 /**
  * Provides a default password authenticator.
