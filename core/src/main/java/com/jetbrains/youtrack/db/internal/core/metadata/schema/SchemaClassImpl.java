@@ -989,10 +989,11 @@ public abstract class SchemaClassImpl {
       }
     }
 
+    final var oClass = new SchemaClassProxy(this, session);
     final var indexDefinition =
         IndexDefinitionFactory.createIndexDefinition(
-            new SchemaClassProxy(this, session), Arrays.asList(fields),
-            extractFieldTypes(session, fields), null, type
+            oClass, Arrays.asList(fields),
+            oClass.extractFieldTypes(fields), null, type
         );
 
     final var localPolymorphicClusterIds = polymorphicClusterIds;
@@ -1632,22 +1633,6 @@ public abstract class SchemaClassImpl {
     for (var superClass : superClasses) {
       superClass.addPolymorphicClusterIdsWithInheritance(session, iBaseClass);
     }
-  }
-
-  public List<PropertyType> extractFieldTypes(DatabaseSessionInternal db,
-      final String[] fieldNames) {
-    final List<PropertyType> types = new ArrayList<>(fieldNames.length);
-
-    for (var fieldName : fieldNames) {
-      if (!fieldName.equals("@rid")) {
-        types.add(
-            getProperty(db, decodeClassName(IndexDefinitionFactory.extractFieldName(fieldName)))
-                .getType(db));
-      } else {
-        types.add(PropertyType.LINK);
-      }
-    }
-    return types;
   }
 
   protected void setClusterIds(final int[] iClusterIds) {

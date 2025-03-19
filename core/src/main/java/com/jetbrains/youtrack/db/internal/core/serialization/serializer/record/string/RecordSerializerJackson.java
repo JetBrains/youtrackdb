@@ -30,6 +30,7 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -152,8 +153,10 @@ public class RecordSerializerJackson {
     }
 
     var result = createRecordFromJsonAfterMetadata(session, record, recordMetaData, jsonParser);
-    if (jsonParser.nextToken() != null) {
-      throw new SerializationException(session, "End of the JSON object is expected");
+    final var next = jsonParser.nextToken();
+    if (next != null) {
+      throw new SerializationException(session,
+          "End of the JSON object is expected, encountered: " + next);
     }
 
     return new RawPair<>(result, recordMetaData);
@@ -853,7 +856,7 @@ public class RecordSerializerJackson {
       case START_OBJECT -> switch (type) {
         case EMBEDDED -> parseEmbeddedEntity(session, jsonParser, null, schemaProperty);
         case EMBEDDEDMAP -> parseEmbeddedMap(session, entity, jsonParser, null, schemaProperty);
-        case LINKMAP -> parseLinkMap(entity, jsonParser);
+        case LINKMAP -> parseLinkMap(entity, jsonParser, null);
         case LINK -> recordFromJson(session, null, jsonParser);
 
         case null -> {
@@ -868,19 +871,29 @@ public class RecordSerializerJackson {
             yield createRecordFromJsonAfterMetadata(session, null, recordMetaData, jsonParser);
           }
 
-          //we have read the filed name already, so we need to read the value
-          var map = new TrackedMap<>(entity);
           if (jsonParser.currentToken() == JsonToken.END_OBJECT) {
-            yield map;
+            // empty map
+            yield new TrackedMap<>(entity);
           }
 
+          //we have read the filed name already, so we need to read the value
           var fieldName = jsonParser.currentName();
           jsonParser.nextToken();
 
           var value = parseValue(session, null, jsonParser, null, null);
-          map.put(fieldName, value);
 
-          yield parseEmbeddedMap(session, entity, jsonParser, map, schemaProperty);
+          if (value instanceof Identifiable identifiable) {
+
+            final var map = new LinkMap(entity);
+            map.put(fieldName, identifiable);
+
+            yield parseLinkMap(entity, jsonParser, map);
+          } else {
+            final var map = new TrackedMap<>(entity);
+            map.put(fieldName, value);
+
+            yield parseEmbeddedMap(session, entity, jsonParser, map, schemaProperty);
+          }
         }
 
         default -> throw new SerializationException(session, "Unexpected value type: " + type);
@@ -890,8 +903,11 @@ public class RecordSerializerJackson {
     };
   }
 
-  private static LinkMap parseLinkMap(EntityImpl entity, JsonParser jsonParser) throws IOException {
-    var map = new LinkMap(entity);
+  private static LinkMap parseLinkMap(EntityImpl entity, JsonParser jsonParser, LinkMap map)
+      throws IOException {
+    if (map == null) {
+      map = new LinkMap(entity);
+    }
     while (jsonParser.nextToken() != JsonToken.END_OBJECT) {
       var fieldName = jsonParser.currentName();
       jsonParser.nextToken();

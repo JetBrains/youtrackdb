@@ -3531,7 +3531,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     checkForBinding();
     if (!isEmbedded()) {
-      throw new IllegalStateException("This entity is not embedded and can not have an owner");
+      throw new IllegalStateException("Only embedded entities (created using DatabaseSession.newEmbeddedEntity) can have an owner");
     }
     var owner = getOwner();
     if (owner != null && !owner.equals(iOwner)) {

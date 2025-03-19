@@ -51,10 +51,10 @@ public class DefaultCollateFactory implements CollateFactory {
    */
   @Override
   public Collate getCollate(final String name) {
-    return COLLATES.get(name);
+    return COLLATES.get(name.toLowerCase());
   }
 
   private static void register(final Collate iCollate) {
-    COLLATES.put(iCollate.getName(), iCollate);
+    COLLATES.put(iCollate.getName().toLowerCase(), iCollate);
   }
 }
