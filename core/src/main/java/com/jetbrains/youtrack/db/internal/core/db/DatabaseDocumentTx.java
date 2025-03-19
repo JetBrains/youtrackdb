@@ -1620,4 +1620,9 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   public <T> void forEachInTx(Stream<T> stream, BiConsumer<Transaction, T> consumer) {
     internal.forEachInTx(stream, consumer);
   }
+
+  @Override
+  public void closeActiveQueries() {
+    internal.closeActiveQueries();
+  }
 }

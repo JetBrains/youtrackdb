@@ -1963,7 +1963,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   protected void beforeCommitOperations() {
     assert assertIfNotActive();
-    closeActiveQueries();
     for (var listener : browseListeners()) {
       try {
         listener.onBeforeTxCommit(currentTx);
@@ -2009,7 +2008,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   protected void beforeRollbackOperations() {
     assert assertIfNotActive();
-    closeActiveQueries();
     for (var listener : browseListeners()) {
       try {
         listener.onBeforeTxRollback(currentTx);
@@ -2286,7 +2284,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   }
 
-  protected synchronized void closeActiveQueries() {
+  public synchronized void closeActiveQueries() {
     while (!activeQueries.isEmpty()) {
       this.activeQueries
           .values()

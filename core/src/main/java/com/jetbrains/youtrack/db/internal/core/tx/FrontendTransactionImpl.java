@@ -737,6 +737,7 @@ public class FrontendTransactionImpl implements
 
   @Override
   public void close() {
+    session.closeActiveQueries();
     final var dbCache = session.getLocalCache();
     for (var txEntry : recordOperations.values()) {
       var record = txEntry.record;
