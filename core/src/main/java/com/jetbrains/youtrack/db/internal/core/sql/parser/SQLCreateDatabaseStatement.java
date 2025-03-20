@@ -103,7 +103,7 @@ public class SQLCreateDatabaseStatement extends SQLSimpleExecServerStatement {
       }
     }
 
-    return ExecutionStream.singleton(result);
+    return ExecutionStream.singleton(result.detach());
   }
 
   private YouTrackDBConfigBuilderImpl mapYouTrackDbConfig(

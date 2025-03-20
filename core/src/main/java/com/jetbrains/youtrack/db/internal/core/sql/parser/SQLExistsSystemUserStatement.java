@@ -51,7 +51,7 @@ public class SQLExistsSystemUserStatement extends SQLSimpleExecServerStatement {
               result.setProperty("exists", false);
             }
           }
-          return result;
+          return result.detach();
         });
 
     return ExecutionStream.singleton(res);

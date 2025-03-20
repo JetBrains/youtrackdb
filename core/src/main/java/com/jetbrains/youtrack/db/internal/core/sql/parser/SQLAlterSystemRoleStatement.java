@@ -85,7 +85,7 @@ public class SQLAlterSystemRoleStatement extends SQLSimpleExecServerStatement {
                 result.setProperty("result", "failure");
               }
             }
-            rs.add(result);
+            rs.add(result.detach());
           }
           return ExecutionStream.resultIterator(rs.iterator());
         });

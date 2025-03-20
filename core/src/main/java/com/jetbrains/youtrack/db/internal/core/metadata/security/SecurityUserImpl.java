@@ -72,6 +72,8 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
     this.name = userName;
     this.password = userPassword;
     this.status = STATUSES.ACTIVE;
+
+    save(db);
   }
 
   /**
@@ -98,7 +100,7 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
     entity.setProperty(PASSWORD_PROPERTY, password);
     entity.setProperty(STATUS_PROPERTY, status.name());
 
-    var storedRoles = entity.getOrCreateLinkList(ROLES_PROPERTY);
+    var storedRoles = entity.getOrCreateLinkSet(ROLES_PROPERTY);
     storedRoles.clear();
     storedRoles.addAll(roles);
   }
