@@ -39,8 +39,10 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Optional;
@@ -102,7 +104,7 @@ public class CRUDTest extends BaseDBTest {
       account.setProperty("surname", "Gates");
       account.setProperty("birthDate", new Date());
       account.setProperty("salary", (i + 300.10f));
-      account.setProperty("addresses", Collections.singletonList(address));
+      account.setProperty("addresses", session.newLinkList(List.of(address)));
     }
     session.commit();
   }
@@ -125,10 +127,10 @@ public class CRUDTest extends BaseDBTest {
 
   @Test
   public void testSimpleTypes() {
+    session.begin();
     var element = session.newEntity("JavaSimpleTestClass");
     Assert.assertEquals(element.getProperty("text"), "initTest");
 
-    session.begin();
     var date = new Date();
     element.setProperty("text", "test");
     element.setProperty("numberSimple", 12345);
@@ -160,7 +162,8 @@ public class CRUDTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testSimpleTypes")
   public void testSimpleArrayTypes() {
-    var element = session.newInstance("JavaSimpleArraysTestClass");
+    session.begin();
+    var element = session.newInstance("JavaSimpleArrayTestClass");
     var textArray = new String[10];
     var intArray = new int[10];
     var longArray = new long[10];
@@ -202,7 +205,6 @@ public class CRUDTest extends BaseDBTest {
     Assert.assertNotNull(element.getProperty("flagSimple"));
     Assert.assertNotNull(element.getProperty("dateField"));
 
-    session.begin();
     session.commit();
     var id = element.getIdentity();
     session.close();
@@ -327,7 +329,8 @@ public class CRUDTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testSimpleTypes")
   public void testBinaryDataType() {
-    var element = session.newInstance("JavaBinaryDataTestClass");
+    session.begin();
+    var element = session.newInstance("JavaBinaryTestClass");
     var bytes = new byte[10];
     for (var i = 0; i < 10; i++) {
       bytes[i] = (byte) i;
@@ -338,7 +341,6 @@ public class CRUDTest extends BaseDBTest {
     var fieldName = "binaryData";
     Assert.assertNotNull(element.getProperty(fieldName));
 
-    session.begin();
     session.commit();
 
     var id = element.getIdentity();
@@ -528,10 +530,10 @@ public class CRUDTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testSimpleTypes")
   public void testDateInTransaction() {
+    session.begin();
     var element = session.newEntity("JavaSimpleTestClass");
     var date = new Date();
     element.setProperty("dateField", date);
-    session.begin();
     session.commit();
 
     session.begin();
@@ -595,6 +597,7 @@ public class CRUDTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "mapEnumAndInternalObjects")
   public void mapObjectsLinkTest() {
+    session.begin();
     var p = session.newInstance("JavaComplexTestClass");
     p.setProperty("name", "Silvester");
 
@@ -613,7 +616,7 @@ public class CRUDTest extends BaseDBTest {
     var c4 = session.newInstance("Child");
     c4.setProperty("name", "Dean");
 
-    var list = new ArrayList<Identifiable>();
+    var list = session.newLinkList();
     list.add(c1);
     list.add(c2);
     list.add(c3);
@@ -621,11 +624,10 @@ public class CRUDTest extends BaseDBTest {
 
     p.setProperty("list", list);
 
-    var children = new HashMap<String, Entity>();
+    var children = session.newLinkMap();
     children.put("first", c);
     p.setProperty("children", children);
 
-    session.begin();
     session.commit();
 
     session.begin();
@@ -688,7 +690,7 @@ public class CRUDTest extends BaseDBTest {
     // add new information to luke
     session.begin();
     luke = session.bindToSession(luke);
-    var friends = new HashSet<Identifiable>();
+    var friends = session.newLinkSet();
     friends.add(session.bindToSession(hanSolo));
 
     luke.setProperty("friends", friends);
@@ -697,7 +699,7 @@ public class CRUDTest extends BaseDBTest {
     session.begin();
     luke = session.bindToSession(luke);
     Assert.assertEquals(luke.<Set<Identifiable>>getProperty("friends").size(), 1);
-    friends = new HashSet<>();
+    friends = session.newLinkSet();
     friends.add(session.bindToSession(obiWan));
     luke.setProperty("friends", friends);
 
@@ -713,13 +715,12 @@ public class CRUDTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "listObjectsLinkTest")
   public void listObjectsIterationTest() {
+    session.begin();
     var a = session.newInstance("Agenda");
 
     for (var i = 0; i < 10; i++) {
-      a.setProperty("events", Collections.singletonList(session.newInstance("Event")));
+      a.setProperty("events", session.newLinkList(List.of(session.newInstance("Event"))));
     }
-    session.begin();
-    a = a;
     session.commit();
     var rid = a.getIdentity();
 
@@ -730,7 +731,7 @@ public class CRUDTest extends BaseDBTest {
     var agendas = executeQuery("SELECT FROM " + rid);
     var agenda = agendas.getFirst().asEntityOrNull();
     //noinspection unused,StatementWithEmptyBody
-    for (var e : agenda.<List<Entity>>getProperty("events")) {
+    for (var e : agenda.<List<?>>getProperty("events")) {
       // NO NEED TO DO ANYTHING, JUST NEED TO ITERATE THE LIST
     }
 
@@ -745,7 +746,7 @@ public class CRUDTest extends BaseDBTest {
     try {
       for (var i = 0; i < agenda.<List<Entity>>getProperty("events").size(); i++) {
         @SuppressWarnings("unused")
-        var e = agenda.<List<Entity>>getProperty("events").get(i);
+        var e = agenda.getLinkList("events").get(i).getEntity(session);
         // NO NEED TO DO ANYTHING, JUST NEED TO ITERATE THE LIST
       }
     } catch (ConcurrentModificationException cme) {
@@ -782,7 +783,7 @@ public class CRUDTest extends BaseDBTest {
     var c4 = session.newInstance("Child");
     c4.setProperty("name", "Dean");
 
-    var list = new ArrayList<Identifiable>();
+    var list = session.newLinkList();
     list.add(c1);
     list.add(c2);
     list.add(c3);
@@ -986,11 +987,9 @@ public class CRUDTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "mapObjectsLinkTest")
   public void mapObjectsNonExistingKeyTest() {
+    session.begin();
     var p = session.newInstance("JavaComplexTestClass");
     p.setProperty("name", "Silvester");
-
-    session.begin();
-    p = p;
 
     var c1 = session.newInstance("Child");
     c1.setProperty("name", "John");
@@ -998,7 +997,7 @@ public class CRUDTest extends BaseDBTest {
     var c2 = session.newInstance("Child");
     c2.setProperty("name", "Jack");
 
-    var children = new HashMap<String, Entity>();
+    var children = session.newLinkMap();
     children.put("first", c1);
     children.put("second", c2);
 
@@ -1070,11 +1069,9 @@ public class CRUDTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "mapObjectsLinkTest")
   public void mapObjectsLinkTwoSaveTest() {
+    session.begin();
     var p = session.newInstance("JavaComplexTestClass");
     p.setProperty("name", "Silvester");
-
-    session.begin();
-    p = p;
 
     var c1 = session.newInstance("Child");
     c1.setProperty("name", "John");
@@ -1082,7 +1079,7 @@ public class CRUDTest extends BaseDBTest {
     var c2 = session.newInstance("Child");
     c2.setProperty("name", "Jack");
 
-    var children = new HashMap<String, Identifiable>();
+    var children = session.newLinkMap();
     children.put("first", c1);
     children.put("second", c2);
 
@@ -1150,6 +1147,7 @@ public class CRUDTest extends BaseDBTest {
   @Test(dependsOnMethods = "mapObjectsLinkTest")
   public void mapObjectsLinkUpdateDatabaseNewInstanceTest() {
     // TEST WITH NEW INSTANCE
+    session.begin();
     var p = session.newInstance("JavaComplexTestClass");
     p.setProperty("name", "Fringe");
 
@@ -1162,7 +1160,7 @@ public class CRUDTest extends BaseDBTest {
     var c3 = session.newInstance("Child");
     c3.setProperty("name", "Astrid");
 
-    Map<String, Identifiable> children = new HashMap<>();
+    Map<String, Identifiable> children = session.newLinkMap();
     children.put(c.getProperty("name"), c);
     children.put(c1.getProperty("name"), c1);
     children.put(c2.getProperty("name"), c2);
@@ -1170,7 +1168,6 @@ public class CRUDTest extends BaseDBTest {
 
     p.setProperty("children", children);
 
-    session.begin();
     session.commit();
 
     var rid = p.getIdentity();
@@ -1243,7 +1240,7 @@ public class CRUDTest extends BaseDBTest {
 
       children = reloaded.getProperty("children");
       if (children == null) {
-        children = new HashMap<>();
+        children = session.newLinkMap();
         reloaded.setProperty("children", children);
       }
 
@@ -1301,7 +1298,7 @@ public class CRUDTest extends BaseDBTest {
     var c3 = session.newInstance("Child");
     c3.setProperty("name", "Astrid");
 
-    var children = new HashMap<String, Identifiable>();
+    var children = session.newLinkMap();
     children.put(c.getProperty("name"), c);
     children.put(c1.getProperty("name"), c1);
     children.put(c2.getProperty("name"), c2);
@@ -1309,7 +1306,6 @@ public class CRUDTest extends BaseDBTest {
 
     p.setProperty("children", children);
 
-    p = p;
     session.commit();
 
     var rid = p.getIdentity();
@@ -1418,6 +1414,7 @@ public class CRUDTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "mapObjectsLinkUpdateJavaNewInstanceTest")
   public void mapStringTest() {
+    session.begin();
     Map<String, String> relatives = new HashMap<>();
     relatives.put("father", "Mike");
     relatives.put("mother", "Julia");
@@ -1426,7 +1423,7 @@ public class CRUDTest extends BaseDBTest {
     var p = session.newInstance("JavaComplexTestClass");
     p.setProperty("name", "Chuck");
 
-    var stringMap = new HashMap<String, String>();
+    var stringMap = session.newEmbeddedMap();
     stringMap.put("father", "Mike");
     stringMap.put("mother", "Julia");
 
@@ -1437,7 +1434,6 @@ public class CRUDTest extends BaseDBTest {
           entry.getValue(), p.<Map<String, String>>getProperty("stringMap").get(entry.getKey()));
     }
 
-    session.begin();
     session.commit();
 
     var rid = p.getIdentity();
@@ -1482,7 +1478,7 @@ public class CRUDTest extends BaseDBTest {
     // TEST WITH OBJECT DATABASE NEW INSTANCE AND MAP DIRECT SET
     p = session.newInstance("JavaComplexTestClass");
     p.setProperty("name", "Chuck");
-    p.setProperty("stringMap", relatives);
+    p.setProperty("stringMap", session.newEmbeddedMap(relatives));
 
     for (var entry : relatives.entrySet()) {
       Assert.assertEquals(
@@ -1535,14 +1531,13 @@ public class CRUDTest extends BaseDBTest {
     // TEST WITH JAVA CONSTRUCTOR
     p = session.newInstance("JavaComplexTestClass");
     p.setProperty("name", "Chuck");
-    p.setProperty("stringMap", relatives);
+    p.setProperty("stringMap", session.newEmbeddedMap(relatives));
 
     for (var entry : relatives.entrySet()) {
       Assert.assertEquals(
           entry.getValue(), p.<Map<String, String>>getProperty("stringMap").get(entry.getKey()));
     }
 
-    p = p;
     session.commit();
 
     rid = p.getIdentity();
@@ -1593,7 +1588,7 @@ public class CRUDTest extends BaseDBTest {
 
     roles.add("manager");
     roles.add("developer");
-    testClass.setProperty("stringSet", roles);
+    testClass.setProperty("stringSet", session.newEmbeddedSet(roles));
 
     Entity testClassProxy = testClass;
     session.commit();
@@ -1654,6 +1649,7 @@ public class CRUDTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "setStringTest")
   public void mapStringListTest() {
+    session.begin();
     Map<String, List<String>> songAndMovies = new HashMap<>();
     List<String> movies = new ArrayList<>();
     List<String> songs = new ArrayList<>();
@@ -1672,7 +1668,13 @@ public class CRUDTest extends BaseDBTest {
     var p = session.newInstance("JavaComplexTestClass");
     p.setProperty("name", "Chuck");
 
-    p.setProperty("stringListMap", songAndMovies);
+    p.setProperty("stringListMap", session.newEmbeddedMap(
+        songAndMovies.entrySet().stream()
+            .collect(Collectors.toMap(
+                Entry::getKey,
+                e -> session.newEmbeddedList(e.getValue())
+            ))
+    ));
 
     for (var entry : songAndMovies.entrySet()) {
       Assert.assertEquals(
@@ -1680,7 +1682,6 @@ public class CRUDTest extends BaseDBTest {
           p.<Map<String, List<String>>>getProperty("stringListMap").get(entry.getKey()));
     }
 
-    session.begin();
     session.commit();
 
     var rid = p.getIdentity();
@@ -1699,11 +1700,17 @@ public class CRUDTest extends BaseDBTest {
     session.delete(session.bindToSession(loaded));
     session.commit();
 
+    session.begin();
     // TEST WITH OBJECT DATABASE NEW INSTANCE AND MAP DIRECT SET
     p = session.newInstance("JavaComplexTestClass");
-    session.begin();
     p.setProperty("name", "Chuck");
-    p.setProperty("stringListMap", songAndMovies);
+    p.setProperty("stringListMap", session.newEmbeddedMap(
+        songAndMovies.entrySet().stream()
+            .collect(Collectors.toMap(
+                Entry::getKey,
+                e -> session.newEmbeddedList(e.getValue())
+            ))
+    ));
 
     for (var entry : songAndMovies.entrySet()) {
       Assert.assertEquals(
@@ -1745,7 +1752,13 @@ public class CRUDTest extends BaseDBTest {
     stringListMap.get("songs").add("Johnny Cash - Cocaine Blues");
     stringListMap.get("songs").add("Skrillex - Scary Monsters & Nice Sprites");
 
-    p.setProperty("stringListMap", stringListMap);
+    p.setProperty("stringListMap", session.newEmbeddedMap(
+        stringListMap.entrySet().stream()
+            .collect(Collectors.toMap(
+                Entry::getKey,
+                e -> session.newEmbeddedList(e.getValue())
+            ))
+    ));
 
     for (var entry : songAndMovies.entrySet()) {
       Assert.assertEquals(
@@ -1775,7 +1788,13 @@ public class CRUDTest extends BaseDBTest {
     session.begin();
     p = session.newInstance("JavaComplexTestClass");
     p.setProperty("name", "Chuck");
-    p.setProperty("stringListMap", songAndMovies);
+    p.setProperty("stringListMap", session.newEmbeddedMap(
+        songAndMovies.entrySet().stream()
+            .collect(Collectors.toMap(
+                Entry::getKey,
+                e -> session.newEmbeddedList(e.getValue())
+            ))
+    ));
 
     for (var entry : songAndMovies.entrySet()) {
       Assert.assertEquals(
@@ -1783,7 +1802,6 @@ public class CRUDTest extends BaseDBTest {
           p.<Map<String, List<String>>>getProperty("stringListMap").get(entry.getKey()));
     }
 
-    p = p;
     session.commit();
 
     rid = p.getIdentity();
@@ -1815,24 +1833,25 @@ public class CRUDTest extends BaseDBTest {
     relatives.put("number", 10);
     relatives.put("date", cal.getTime());
 
+    session.begin();
     // TEST WITH OBJECT DATABASE NEW INSTANCE AND HANDLER MANAGEMENT
     var p = session.newInstance("JavaComplexTestClass");
     p.setProperty("name", "Chuck");
 
-    var mapObject = new HashMap<String, Object>();
-    mapObject.put("father", "Mike");
-    mapObject.put("mother", "Julia");
-    mapObject.put("number", 10);
-    mapObject.put("date", cal.getTime());
+    var mapObject = Map.of(
+        "father", "Mike",
+        "mother", "Julia",
+        "number", 10,
+        "date", cal.getTime()
+    );
 
-    p.setProperty("mapObject", mapObject);
+    p.setProperty("mapObject", session.newEmbeddedMap(mapObject));
 
     for (var entry : relatives.entrySet()) {
       Assert.assertEquals(
           entry.getValue(), p.<Map<String, Object>>getProperty("mapObject").get(entry.getKey()));
     }
 
-    session.begin();
     session.commit();
 
     var rid = p.getIdentity();
@@ -1878,7 +1897,7 @@ public class CRUDTest extends BaseDBTest {
     session.begin();
     p = session.newInstance("JavaComplexTestClass");
     p.setProperty("name", "Chuck");
-    p.setProperty("mapObject", relatives);
+    p.setProperty("mapObject", session.newEmbeddedMap(relatives));
 
     for (var entry : relatives.entrySet()) {
       Assert.assertEquals(
@@ -1931,7 +1950,7 @@ public class CRUDTest extends BaseDBTest {
 
     p = session.newInstance("JavaComplexTestClass");
     p.setProperty("name", "Chuck");
-    p.setProperty("mapObject", relatives);
+    p.setProperty("mapObject", session.newEmbeddedMap(relatives));
 
     for (var entry : relatives.entrySet()) {
       Assert.assertEquals(
@@ -1984,6 +2003,7 @@ public class CRUDTest extends BaseDBTest {
   @SuppressWarnings({"rawtypes", "unchecked"})
   @Test(dependsOnMethods = "embeddedMapObjectTest")
   public void testNoGenericCollections() {
+    session.begin();
     var p = session.newInstance("JavaNoGenericCollectionsTestClass");
     var c1 = session.newInstance("Child");
     c1.setProperty("name", "1");
@@ -1994,9 +2014,9 @@ public class CRUDTest extends BaseDBTest {
     var c4 = session.newInstance("Child");
     c4.setProperty("name", "4");
 
-    var list = new ArrayList();
-    var set = new HashSet();
-    var map = new HashMap();
+    var list = session.newLinkList();
+    var set = session.newLinkSet();
+    var map = session.newLinkMap();
 
     list.add(c1);
     list.add(c2);
@@ -2017,8 +2037,6 @@ public class CRUDTest extends BaseDBTest {
     p.setProperty("set", set);
     p.setProperty("map", map);
 
-    session.begin();
-    p = p;
     session.commit();
 
     var rid = p.getIdentity();
@@ -2031,15 +2049,13 @@ public class CRUDTest extends BaseDBTest {
     Assert.assertEquals(p.<Set>getProperty("set").size(), 4);
     Assert.assertEquals(p.<Map>getProperty("map").size(), 4);
     for (var i = 0; i < 4; i++) {
-      var o = p.<List>getProperty("list").get(i);
-      Assert.assertTrue(o instanceof Entity);
-      Assert.assertEquals(((Entity) o).getProperty("name"), (i + 1) + "");
-      o = p.<Map>getProperty("map").get((i + 1) + "");
-      Assert.assertTrue(o instanceof Entity);
-      Assert.assertEquals(((Entity) o).getProperty("name"), (i + 1) + "");
+      var o = p.getLinkList("list").get(i).getEntity(session);
+      Assert.assertEquals(o.getProperty("name"), (i + 1) + "");
+      o = p.getLinkMap("map").get((i + 1) + "").getEntity(session);
+      Assert.assertEquals(o.getProperty("name"), (i + 1) + "");
     }
-    for (var o : p.<Set>getProperty("set")) {
-      Assert.assertTrue(o instanceof Entity);
+    for (var r : p.getLinkSet("set")) {
+      var o = r.getEntity(session);
       var nameToInt = Integer.parseInt(((Entity) o).getProperty("name"));
       Assert.assertTrue(nameToInt > 0 && nameToInt < 5);
     }
@@ -2055,35 +2071,28 @@ public class CRUDTest extends BaseDBTest {
     session = createSessionInstance();
     session.begin();
     p = session.load(rid);
-    Assert.assertEquals(p.<List>getProperty("list").size(), 5);
-    var o = p.<List>getProperty("list").get(4);
-    Assert.assertTrue(o instanceof Entity);
-    o = p.<Map>getProperty("map").get("5");
-    Assert.assertTrue(o instanceof Entity);
-    var hasOther = false;
-    for (var obj : p.<Set>getProperty("set")) {
-      hasOther = hasOther || (obj instanceof Entity);
-    }
-    Assert.assertTrue(hasOther);
+    Assert.assertEquals(p.getLinkList("list").size(), 5);
+    Assert.assertEquals(p.getLinkSet("set").size(), 5);
+    Assert.assertEquals(p.getLinkMap("map").size(), 5);
     session.commit();
   }
 
   public void oidentifableFieldsTest() {
+    session.begin();
     var p = session.newInstance("JavaComplexTestClass");
     p.setProperty("name", "Dean Winchester");
 
-    var testEmbeddedDocument = ((EntityImpl) session.newEntity());
+    var testEmbeddedDocument = ((EntityImpl) session.newEmbeddedEntity());
     testEmbeddedDocument.setProperty("testEmbeddedField", "testEmbeddedValue");
 
     p.setProperty("embeddedDocument", testEmbeddedDocument);
-
-    session.begin();
     var testDocument = ((EntityImpl) session.newEntity());
     testDocument.setProperty("testField", "testValue");
 
     session.commit();
 
     session.begin();
+    p = session.bindToSession(p);
     testDocument = session.bindToSession(testDocument);
     p.setProperty("document", testDocument);
 
@@ -2259,13 +2268,12 @@ public class CRUDTest extends BaseDBTest {
 
   @Test
   public void testObjectDelete() {
+    session.begin();
     var media = session.newEntity("Media");
     var testRecord = session.newBlob("This is a test".getBytes());
 
     media.setProperty("content", testRecord);
 
-    session.begin();
-    media = media;
     session.commit();
 
     session.begin();
@@ -2299,7 +2307,7 @@ public class CRUDTest extends BaseDBTest {
             city.setProperty("country", country);
             newAddress.setProperty("city", city);
 
-            var newAddresses = new ArrayList<>(addresses);
+            var newAddresses = this.session.newLinkList();
             newAddresses.addFirst(newAddress);
             a.setProperty("addresses", newAddresses);
           }
@@ -2379,7 +2387,7 @@ public class CRUDTest extends BaseDBTest {
     var trinity = session.newEntity("Profile");
     trinity.setProperty("nick", "Trinity");
 
-    var followers = new HashSet<>();
+    var followers = session.newLinkSet();
     followers.add(trinity);
     followers.add(morpheus);
 
@@ -2579,7 +2587,7 @@ public class CRUDTest extends BaseDBTest {
     var parent = session.newInstance("Parent");
     parent.setProperty("name", "Big Parent");
 
-    var embedded = session.newInstance("EmbeddedChild");
+    var embedded = session.newEmbeddedEntity("EmbeddedChild");
     embedded.setProperty("name", "Little Child");
 
     parent.setProperty("embeddedChild", embedded);
@@ -2591,7 +2599,7 @@ public class CRUDTest extends BaseDBTest {
     Assert.assertEquals(presult.size(), 1);
     Assert.assertEquals(cresult.size(), 0);
 
-    var child = session.newInstance("EmbeddedChild");
+    var child = session.newEmbeddedEntity("EmbeddedChild");
     child.setProperty("name", "Little Child");
     parent.setProperty("child", child);
 
@@ -2704,7 +2712,7 @@ public class CRUDTest extends BaseDBTest {
       presidentSon2.setProperty("surname", "Obama");
       presidentSon2.setProperty("invitedBy", bObama);
 
-      var followers = new ArrayList<>();
+      var followers = session.newLinkList();
       followers.add(presidentSon1);
       followers.add(presidentSon2);
 
@@ -2718,7 +2726,7 @@ public class CRUDTest extends BaseDBTest {
 
   private void createSimpleArrayTestClass() {
     if (session.getSchema().existsClass("JavaSimpleArrayTestClass")) {
-      session.getSchema().dropClass("JavaSimpleSimpleArrayTestClass");
+      session.getSchema().dropClass("JavaSimpleArrayTestClass");
     }
 
     var cls = session.createClass("JavaSimpleArrayTestClass");
@@ -2760,16 +2768,16 @@ public class CRUDTest extends BaseDBTest {
   private void createAgendaClass() {
     if (session.getClass("Agenda") == null) {
       var cls = session.createClass("Agenda");
-      cls.createProperty("events", PropertyType.EMBEDDEDLIST);
+      cls.createProperty("events", PropertyType.LINKLIST);
     }
   }
 
   private void createNonGenericClass() {
     if (session.getClass("JavaNoGenericCollectionsTestClass") == null) {
       var cls = session.createClass("JavaNoGenericCollectionsTestClass");
-      cls.createProperty("list", PropertyType.EMBEDDEDLIST);
-      cls.createProperty("set", PropertyType.EMBEDDEDSET);
-      cls.createProperty("map", PropertyType.EMBEDDEDMAP);
+      cls.createProperty("list", PropertyType.LINKLIST);
+      cls.createProperty("set", PropertyType.LINKSET);
+      cls.createProperty("map", PropertyType.LINKMAP);
     }
   }
 
@@ -2796,7 +2804,7 @@ public class CRUDTest extends BaseDBTest {
     parentCls.createProperty("embeddedChild", PropertyType.EMBEDDED,
         session.getClass("EmbeddedChild"));
 
-    var childCls = session.createClass("EmbeddedChild");
+    var childCls = session.createAbstractClass("EmbeddedChild");
     childCls.createProperty("name", PropertyType.STRING);
   }
 }

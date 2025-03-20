@@ -18,8 +18,6 @@ package com.jetbrains.youtrack.db.auto;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import org.testng.Assert;
@@ -64,7 +62,7 @@ public class CollectionIndexTest extends BaseDBTest {
 
     session.begin();
     var collector = session.newEntity("Collector");
-    collector.setProperty("stringCollection", Arrays.asList("spam", "eggs"));
+    collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "eggs")));
 
     session.commit();
 
@@ -90,7 +88,7 @@ public class CollectionIndexTest extends BaseDBTest {
     try {
       session.begin();
       var collector = session.newEntity("Collector");
-      collector.setProperty("stringCollection", Arrays.asList("spam", "eggs"));
+      collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "eggs")));
       session.commit();
     } catch (Exception e) {
       session.rollback();
@@ -117,9 +115,9 @@ public class CollectionIndexTest extends BaseDBTest {
 
     session.begin();
     var collector = session.newEntity("Collector");
-    collector.setProperty("stringCollection", Arrays.asList("spam", "eggs"));
+    collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "eggs")));
     collector = collector;
-    collector.setProperty("stringCollection", Arrays.asList("spam", "bacon"));
+    collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "bacon")));
     session.commit();
 
     final var index = getIndex("Collector.stringCollection");
@@ -141,15 +139,14 @@ public class CollectionIndexTest extends BaseDBTest {
   public void testIndexCollectionUpdateInTx() {
     checkEmbeddedDB();
 
-    var collector = session.newEntity("Collector");
-    collector.setProperty("stringCollection", Arrays.asList("spam", "eggs"));
     session.begin();
-    collector = collector;
+    var collector = session.newEntity("Collector");
+    collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "eggs")));
     session.commit();
     try {
       session.begin();
       collector = session.bindToSession(collector);
-      collector.setProperty("stringCollection", Arrays.asList("spam", "bacon"));
+      collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "bacon")));
       session.commit();
     } catch (Exception e) {
       session.rollback();
@@ -177,13 +174,13 @@ public class CollectionIndexTest extends BaseDBTest {
 
     session.begin();
     var collector = session.newEntity("Collector");
-    collector.setProperty("stringCollection", Arrays.asList("spam", "eggs"));
+    collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "eggs")));
     collector = collector;
     session.commit();
 
     session.begin();
     collector = session.bindToSession(collector);
-    collector.setProperty("stringCollection", Arrays.asList("spam", "bacon"));
+    collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "bacon")));
     session.rollback();
 
     final var index = getIndex("Collector.stringCollection");
@@ -206,11 +203,10 @@ public class CollectionIndexTest extends BaseDBTest {
   public void testIndexCollectionUpdateAddItem() {
     checkEmbeddedDB();
 
-    var collector = session.newEntity("Collector");
-    collector.setProperty("stringCollection", Arrays.asList("spam", "eggs"));
-
     session.begin();
-    collector = collector;
+    var collector = session.newEntity("Collector");
+    collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "eggs")));
+
     session.commit();
 
     session.begin();
@@ -241,10 +237,9 @@ public class CollectionIndexTest extends BaseDBTest {
   public void testIndexCollectionUpdateAddItemInTx() {
     checkEmbeddedDB();
 
-    var collector = session.newEntity("Collector");
-    collector.setProperty("stringCollection", new ArrayList<>(Arrays.asList("spam", "eggs")));
     session.begin();
-    collector = collector;
+    var collector = session.newEntity("Collector");
+    collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "eggs")));
     session.commit();
 
     try {
@@ -277,10 +272,9 @@ public class CollectionIndexTest extends BaseDBTest {
   public void testIndexCollectionUpdateAddItemInTxRollback() {
     checkEmbeddedDB();
 
-    var collector = session.newEntity("Collector");
-    collector.setProperty("stringCollection", new ArrayList<>(Arrays.asList("spam", "eggs")));
     session.begin();
-    collector = collector;
+    var collector = session.newEntity("Collector");
+    collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "eggs")));
     session.commit();
 
     session.begin();
@@ -307,10 +301,9 @@ public class CollectionIndexTest extends BaseDBTest {
   public void testIndexCollectionUpdateRemoveItemInTx() {
     checkEmbeddedDB();
 
-    var collector = session.newEntity("Collector");
-    collector.setProperty("stringCollection", new ArrayList<>(Arrays.asList("spam", "eggs")));
     session.begin();
-    collector = collector;
+    var collector = session.newEntity("Collector");
+    collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "eggs")));
     session.commit();
 
     try {
@@ -342,10 +335,9 @@ public class CollectionIndexTest extends BaseDBTest {
   public void testIndexCollectionUpdateRemoveItemInTxRollback() {
     checkEmbeddedDB();
 
-    var collector = session.newEntity("Collector");
-    collector.setProperty("stringCollection", new ArrayList<>(Arrays.asList("spam", "eggs")));
     session.begin();
-    collector = collector;
+    var collector = session.newEntity("Collector");
+    collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "eggs")));
     session.commit();
 
     session.begin();
@@ -372,10 +364,9 @@ public class CollectionIndexTest extends BaseDBTest {
   public void testIndexCollectionUpdateRemoveItem() {
     checkEmbeddedDB();
 
-    var collector = session.newEntity("Collector");
-    collector.setProperty("stringCollection", Arrays.asList("spam", "eggs"));
     session.begin();
-    collector = collector;
+    var collector = session.newEntity("Collector");
+    collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "eggs")));
     session.commit();
 
     session.begin();
@@ -402,10 +393,9 @@ public class CollectionIndexTest extends BaseDBTest {
   public void testIndexCollectionRemove() {
     checkEmbeddedDB();
 
-    var collector = session.newEntity("Collector");
-    collector.setProperty("stringCollection", Arrays.asList("spam", "eggs"));
     session.begin();
-    collector = collector;
+    var collector = session.newEntity("Collector");
+    collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "eggs")));
     session.delete(collector);
     session.commit();
 
@@ -417,10 +407,9 @@ public class CollectionIndexTest extends BaseDBTest {
   public void testIndexCollectionRemoveInTx() {
     checkEmbeddedDB();
 
-    var collector = session.newEntity("Collector");
-    collector.setProperty("stringCollection", Arrays.asList("spam", "eggs"));
     session.begin();
-    collector = collector;
+    var collector = session.newEntity("Collector");
+    collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "eggs")));
     session.commit();
     try {
       session.begin();
@@ -439,10 +428,9 @@ public class CollectionIndexTest extends BaseDBTest {
   public void testIndexCollectionRemoveInTxRollback() {
     checkEmbeddedDB();
 
-    var collector = session.newEntity("Collector");
-    collector.setProperty("stringCollection", Arrays.asList("spam", "eggs"));
     session.begin();
-    collector = collector;
+    var collector = session.newEntity("Collector");
+    collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "eggs")));
     session.commit();
 
     session.begin();
@@ -466,17 +454,20 @@ public class CollectionIndexTest extends BaseDBTest {
   }
 
   public void testIndexCollectionSQL() {
-    var collector = session.newEntity("Collector");
-    collector.setProperty("stringCollection", Arrays.asList("spam", "eggs"));
-
     session.begin();
+    var collector = session.newEntity("Collector");
+    collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "eggs")));
     session.commit();
 
+    session.begin();
     var result =
         executeQuery("select * from Collector where stringCollection contains ?", "eggs");
     Assert.assertNotNull(result);
     Assert.assertEquals(result.size(), 1);
     Assert.assertEquals(
-        Arrays.asList("spam", "eggs"), result.get(0).getProperty("stringCollection"));
+        List.of("spam", "eggs"),
+        result.get(0).getProperty("stringCollection")
+    );
+    session.commit();
   }
 }
