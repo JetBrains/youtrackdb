@@ -22,6 +22,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public interface Transaction {
+
   boolean isActive();
 
   Stream<RecordOperation> getRecordOperations();
@@ -70,6 +71,14 @@ public interface Transaction {
   @Nonnull
   Entity loadEntity(RID id) throws DatabaseException, RecordNotFoundException;
 
+  @Nullable
+  Entity loadEntityOrNull(RID id) throws DatabaseException;
+
+  @Nonnull
+  Entity loadEntity(Identifiable identifiable) throws DatabaseException, RecordNotFoundException;
+
+  @Nullable
+  Entity loadEntityOrNull(Identifiable identifiable) throws DatabaseException;
 
   /**
    * Loads a vertex by its id, throws an exception if record is not a vertex or does not exist.
@@ -82,6 +91,15 @@ public interface Transaction {
   @Nonnull
   Vertex loadVertex(RID id) throws DatabaseException, RecordNotFoundException;
 
+  @Nullable
+  Vertex loadVertexOrNull(RID id) throws RecordNotFoundException;
+
+  @Nonnull
+  Vertex loadVertex(Identifiable identifiable) throws DatabaseException, RecordNotFoundException;
+
+  @Nullable
+  Vertex loadVertexOrNull(Identifiable identifiable) throws RecordNotFoundException;
+
   /**
    * Loads an edge by its id, throws an exception if record is not an edge or does not exist.
    *
@@ -91,8 +109,16 @@ public interface Transaction {
    * @throws RecordNotFoundException if the record does not exist
    */
   @Nonnull
-  Edge loadEdge(RID id) throws DatabaseException, RecordNotFoundException;
+  StatefulEdge loadEdge(@Nonnull RID id) throws DatabaseException, RecordNotFoundException;
 
+  @Nullable
+  StatefulEdge loadEdgeOrNull(@Nonnull RID id) throws DatabaseException;
+
+  @Nonnull
+  StatefulEdge loadEdge(@Nonnull Identifiable id) throws DatabaseException, RecordNotFoundException;
+
+  @Nonnull
+  StatefulEdge loadEdgeOrNull(@Nonnull Identifiable id) throws DatabaseException;
 
   /**
    * Loads a blob by its id, throws an exception if record is not a blob or does not exist.
@@ -103,7 +129,16 @@ public interface Transaction {
    * @throws RecordNotFoundException if the record does not exist
    */
   @Nonnull
-  Blob loadBlob(RID id) throws DatabaseException, RecordNotFoundException;
+  Blob loadBlob(@Nonnull RID id) throws DatabaseException, RecordNotFoundException;
+
+  @Nullable
+  Blob loadBlobOrNull(@Nonnull RID id) throws DatabaseException, RecordNotFoundException;
+
+  @Nonnull
+  Blob loadBlob(@Nonnull Identifiable id) throws DatabaseException, RecordNotFoundException;
+
+  @Nonnull
+  Blob loadBlobOrNull(@Nonnull Identifiable id) throws DatabaseException;
 
   /**
    * Create a new instance of a blob containing the given bytes.
@@ -211,7 +246,7 @@ public interface Transaction {
   StatefulEdge newStatefulEdge(Vertex from, Vertex to);
 
   /**
-   * Loads the entity by the Record ID.
+   * Loads the record by the Record ID.
    *
    * @param recordId The unique record id of the entity to load.
    * @return The loaded entity
@@ -220,15 +255,22 @@ public interface Transaction {
   @Nonnull
   <RET extends DBRecord> RET load(RID recordId);
 
+
   /**
-   * Loads the entity by the Record ID, unlike {@link  #load(RID)} method does not throw exception
+   * Loads the record by the Record ID, unlike {@link  #load(RID)} method does not throw exception
    * if record not found but returns <code>null</code> instead.
    *
    * @param recordId The unique record id of the entity to load.
    * @return The loaded entity or <code>null</code> if entity does not exist.
    */
   @Nullable
-  <RET extends DBRecord> RET loadSilently(RID recordId);
+  <RET extends DBRecord> RET loadOrNull(RID recordId);
+
+  @Nonnull
+  <RET extends DBRecord> RET load(Identifiable identifiable);
+
+  @Nullable
+  <RET extends DBRecord> RET loadOrNull(Identifiable identifiable);
 
   /**
    * Checks if record exists in database. That happens in two cases:

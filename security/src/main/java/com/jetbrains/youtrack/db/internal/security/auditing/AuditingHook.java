@@ -266,7 +266,7 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
   }
 
   @Override
-  public void onRecordAfterCreate(final DBRecord iRecord) {
+  public void onRecordCreate(final DBRecord iRecord) {
     if (!onGlobalCreate) {
       return;
     }
@@ -275,7 +275,7 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
   }
 
   @Override
-  public void onRecordAfterRead(final DBRecord iRecord) {
+  public void onRecordRead(final DBRecord iRecord) {
     if (!onGlobalRead) {
       return;
     }
@@ -284,7 +284,7 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
   }
 
   @Override
-  public void onRecordAfterUpdate(final DBRecord iRecord) {
+  public void onRecordUpdate(final DBRecord iRecord) {
 
     var session = iRecord.getBoundedToSession();
     if (iRecord instanceof EntityImpl entity) {
@@ -308,7 +308,7 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
   }
 
   @Override
-  public void onRecordAfterDelete(final DBRecord iRecord) {
+  public void onRecordDelete(final DBRecord iRecord) {
     if (!onGlobalDelete) {
       return;
     }

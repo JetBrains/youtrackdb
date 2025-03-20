@@ -7,12 +7,13 @@ import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.EntityHookAbstract;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrack.db.internal.core.hook.DocumentHookAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrack.db.internal.tools.config.ServerHookConfiguration;
@@ -86,8 +87,7 @@ public class RemoteTransactionHookTest extends DbTestBase {
     session.execute("delete from SomeTx where name='aa'").close();
     session.commit();
 
-    assertEquals(2, calls.getBeforeCreate());
-    assertEquals(2, calls.getAfterCreate());
+    assertEquals(2, calls.getCreate());
   }
 
   @Test
@@ -109,12 +109,9 @@ public class RemoteTransactionHookTest extends DbTestBase {
     tx.execute("delete from SomeTx where name='aa'").close();
     tx.commit();
 
-    assertEquals(2, calls.getBeforeCreate());
-    assertEquals(2, calls.getAfterCreate());
-    assertEquals(1, calls.getBeforeUpdate());
-    assertEquals(1, calls.getAfterUpdate());
-    assertEquals(1, calls.getBeforeDelete());
-    assertEquals(1, calls.getAfterDelete());
+    assertEquals(2, calls.getCreate());
+    assertEquals(1, calls.getUpdate());
+    assertEquals(1, calls.getDelete());
     database.close();
     youTrackDB.close();
     this.session.activateOnCurrentThread();
@@ -133,12 +130,9 @@ public class RemoteTransactionHookTest extends DbTestBase {
     res.close();
     session.execute("delete from SomeTx where name='aa'").close();
     session.commit();
-    assertEquals(2, calls.getBeforeCreate());
-    assertEquals(2, calls.getAfterCreate());
-    assertEquals(1, calls.getBeforeUpdate());
-    assertEquals(1, calls.getAfterUpdate());
-    assertEquals(1, calls.getBeforeDelete());
-    assertEquals(1, calls.getAfterDelete());
+    assertEquals(2, calls.getCreate());
+    assertEquals(1, calls.getUpdate());
+    assertEquals(1, calls.getDelete());
   }
 
   public static class CountCallHookServer extends CountCallHook {
@@ -151,74 +145,42 @@ public class RemoteTransactionHookTest extends DbTestBase {
     public static CountCallHookServer instance;
   }
 
-  public static class CountCallHook extends DocumentHookAbstract {
+  public static class CountCallHook extends EntityHookAbstract {
 
-    private int beforeCreate = 0;
-    private int beforeUpdate = 0;
-    private int beforeDelete = 0;
-    private int afterUpdate = 0;
-    private int afterCreate = 0;
-    private int afterDelete = 0;
+    private int update = 0;
+    private int create = 0;
+    private int delete = 0;
 
     public CountCallHook(DatabaseSession database) {
       super(database);
     }
 
-    @Override
-    public RESULT onRecordBeforeCreate(EntityImpl entity) {
-      beforeCreate++;
-      return RESULT.RECORD_NOT_CHANGED;
-    }
 
     @Override
-    public void onRecordAfterCreate(EntityImpl entity) {
-      afterCreate++;
+    public void onEntityCreate(Entity entity) {
+      create++;
     }
 
     @Override
-    public RESULT onRecordBeforeUpdate(EntityImpl entity) {
-      beforeUpdate++;
-      return RESULT.RECORD_NOT_CHANGED;
+    public void onEntityUpdate(Entity entity) {
+      update++;
     }
 
     @Override
-    public void onRecordAfterUpdate(EntityImpl entity) {
-      afterUpdate++;
+    public void onEntityDelete(Entity entity) {
+      delete++;
     }
 
-    @Override
-    public RESULT onRecordBeforeDelete(EntityImpl entity) {
-      beforeDelete++;
-      return RESULT.RECORD_NOT_CHANGED;
+    public int getCreate() {
+      return create;
     }
 
-    @Override
-    public void onRecordAfterDelete(EntityImpl entity) {
-      afterDelete++;
+    public int getDelete() {
+      return delete;
     }
 
-    public int getAfterCreate() {
-      return afterCreate;
-    }
-
-    public int getAfterDelete() {
-      return afterDelete;
-    }
-
-    public int getAfterUpdate() {
-      return afterUpdate;
-    }
-
-    public int getBeforeCreate() {
-      return beforeCreate;
-    }
-
-    public int getBeforeDelete() {
-      return beforeDelete;
-    }
-
-    public int getBeforeUpdate() {
-      return beforeUpdate;
+    public int getUpdate() {
+      return update;
     }
   }
 }

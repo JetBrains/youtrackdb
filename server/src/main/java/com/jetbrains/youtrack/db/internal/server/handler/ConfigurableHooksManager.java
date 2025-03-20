@@ -78,7 +78,6 @@ public class ConfigurableHooksManager implements DatabaseLifecycleListener {
       var db = session;
       for (var hook : configuredHooks) {
         try {
-          final var pos = RecordHook.HOOK_POSITION.valueOf(hook.position);
           var klass = Class.forName(hook.clazz);
           final RecordHook h;
           Constructor constructor = null;
@@ -108,7 +107,7 @@ public class ConfigurableHooksManager implements DatabaseLifecycleListener {
                       hook.clazz);
             }
           }
-          db.registerHook(h, pos);
+          db.registerHook(h);
         } catch (Exception e) {
           LogManager.instance()
               .error(

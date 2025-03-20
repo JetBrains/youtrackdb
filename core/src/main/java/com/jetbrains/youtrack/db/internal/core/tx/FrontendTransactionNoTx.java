@@ -110,13 +110,13 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
 
   @Nonnull
   @Override
-  public Edge loadEdge(RID id) throws DatabaseException, RecordNotFoundException {
+  public StatefulEdge loadEdge(@Nonnull RID id) throws DatabaseException, RecordNotFoundException {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
   @Nonnull
   @Override
-  public Blob loadBlob(RID id) throws DatabaseException, RecordNotFoundException {
+  public Blob loadBlob(@Nonnull RID id) throws DatabaseException, RecordNotFoundException {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
@@ -213,7 +213,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
 
   @Nullable
   @Override
-  public <RET extends DBRecord> RET loadSilently(RID recordId) {
+  public <RET extends DBRecord> RET loadOrNull(RID recordId) {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
@@ -447,5 +447,92 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   @Override
   public FrontendTransactionIndexChanges getIndexChangesInternal(String indexName) {
     return null;
+  }
+
+  @Nullable
+  @Override
+  public Entity loadEntityOrNull(RID id) throws DatabaseException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nonnull
+  @Override
+  public Entity loadEntity(Identifiable identifiable)
+      throws DatabaseException, RecordNotFoundException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nullable
+  @Override
+  public Entity loadEntityOrNull(Identifiable identifiable) throws DatabaseException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nullable
+  @Override
+  public Vertex loadVertexOrNull(RID id) throws RecordNotFoundException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nonnull
+  @Override
+  public Vertex loadVertex(Identifiable identifiable)
+      throws DatabaseException, RecordNotFoundException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nullable
+  @Override
+  public Vertex loadVertexOrNull(Identifiable identifiable) throws RecordNotFoundException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nullable
+  @Override
+  public StatefulEdge loadEdgeOrNull(@Nonnull RID id) throws DatabaseException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nonnull
+  @Override
+  public StatefulEdge loadEdge(@Nonnull Identifiable id)
+      throws DatabaseException, RecordNotFoundException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nonnull
+  @Override
+  public StatefulEdge loadEdgeOrNull(@Nonnull Identifiable id) throws DatabaseException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nullable
+  @Override
+  public Blob loadBlobOrNull(@Nonnull RID id) throws DatabaseException, RecordNotFoundException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nonnull
+  @Override
+  public Blob loadBlob(@Nonnull Identifiable id) throws DatabaseException, RecordNotFoundException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nonnull
+  @Override
+  public Blob loadBlobOrNull(@Nonnull Identifiable id) throws DatabaseException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nonnull
+  @Override
+  public <RET extends DBRecord> RET load(Identifiable identifiable) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nullable
+  @Override
+  public <RET extends DBRecord> RET loadOrNull(Identifiable identifiable) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
   }
 }

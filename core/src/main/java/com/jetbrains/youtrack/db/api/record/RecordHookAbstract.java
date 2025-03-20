@@ -28,63 +28,21 @@ import javax.annotation.Nonnull;
  * @see RecordHook
  */
 public abstract class RecordHookAbstract implements RecordHook {
-
-  /**
-   * Called on unregistration.
-   */
-  public void onUnregister() {
-  }
-
-  /**
-   * It's called just before to create the new iRecord.
-   *
-   * @param iRecord The iRecord to create
-   * @return True if the iRecord has been modified and a new marshalling is required, otherwise
-   * false
-   */
-  public RESULT onRecordBeforeCreate(final DBRecord iRecord) {
-    return RESULT.RECORD_NOT_CHANGED;
-  }
-
   /**
    * It's called just after the iRecord is created.
    *
    * @param iRecord The iRecord just created
    */
-  public void onRecordAfterCreate(final DBRecord iRecord) {
+  public void onRecordCreate(final DBRecord iRecord) {
   }
 
-  public void onRecordCreateFailed(final DBRecord iRecord) {
-  }
-
-  /**
-   * It's called just before to read the iRecord.
-   *
-   * @param iRecord The iRecord to read
-   */
-  public void onRecordBeforeRead(final DBRecord iRecord) {
-  }
 
   /**
    * It's called just after the iRecord is read.
    *
    * @param iRecord The iRecord just read
    */
-  public void onRecordAfterRead(final DBRecord iRecord) {
-  }
-
-  public void onRecordReadFailed(final DBRecord iRecord) {
-  }
-
-  /**
-   * It's called just before to update the iRecord.
-   *
-   * @param iRecord The iRecord to update
-   * @return True if the iRecord has been modified and a new marshalling is required, otherwise
-   * false
-   */
-  public RESULT onRecordBeforeUpdate(final DBRecord iRecord) {
-    return RESULT.RECORD_NOT_CHANGED;
+  public void onRecordRead(final DBRecord iRecord) {
   }
 
   /**
@@ -92,103 +50,32 @@ public abstract class RecordHookAbstract implements RecordHook {
    *
    * @param iRecord The iRecord just updated
    */
-  public void onRecordAfterUpdate(final DBRecord iRecord) {
+  public void onRecordUpdate(final DBRecord iRecord) {
   }
 
-  public void onRecordUpdateFailed(final DBRecord iRecord) {
-  }
-
-  /**
-   * It's called just before to delete the iRecord.
-   *
-   * @param iRecord The iRecord to delete
-   * @return True if the iRecord has been modified and a new marshalling is required, otherwise
-   * false
-   */
-  public RESULT onRecordBeforeDelete(final DBRecord iRecord) {
-    return RESULT.RECORD_NOT_CHANGED;
-  }
 
   /**
    * It's called just after the iRecord is deleted.
    *
    * @param iRecord The iRecord just deleted
    */
-  public void onRecordAfterDelete(final DBRecord iRecord) {
+  public void onRecordDelete(final DBRecord iRecord) {
   }
 
-  public void onRecordDeleteFailed(final DBRecord iRecord) {
-  }
-
-  public void onRecordFinalizeUpdate(final DBRecord record) {
-  }
-
-  public void onRecordFinalizeCreation(final DBRecord record) {
-  }
-
-  public void onRecordFinalizeDeletion(final DBRecord record) {
-  }
-
-  public RESULT onTrigger(@Nonnull final TYPE iType,
+  public void onTrigger(@Nonnull final TYPE iType,
       @Nonnull final DBRecord record) {
     switch (iType) {
-      case BEFORE_CREATE:
-        return onRecordBeforeCreate(record);
-
-      case AFTER_CREATE:
-        onRecordAfterCreate(record);
+      case READ:
+        onRecordRead(record);
         break;
 
-      case CREATE_FAILED:
-        onRecordCreateFailed(record);
+      case UPDATE:
+        onRecordUpdate(record);
         break;
 
-      case BEFORE_READ:
-        onRecordBeforeRead(record);
-        break;
-
-      case AFTER_READ:
-        onRecordAfterRead(record);
-        break;
-
-      case READ_FAILED:
-        onRecordReadFailed(record);
-        break;
-
-      case BEFORE_UPDATE:
-        return onRecordBeforeUpdate(record);
-
-      case AFTER_UPDATE:
-        onRecordAfterUpdate(record);
-        break;
-
-      case UPDATE_FAILED:
-        onRecordUpdateFailed(record);
-        break;
-
-      case BEFORE_DELETE:
-        return onRecordBeforeDelete(record);
-
-      case AFTER_DELETE:
-        onRecordAfterDelete(record);
-        break;
-
-      case DELETE_FAILED:
-        onRecordDeleteFailed(record);
-        break;
-
-      case FINALIZE_CREATION:
-        onRecordFinalizeCreation(record);
-        break;
-
-      case FINALIZE_UPDATE:
-        onRecordFinalizeUpdate(record);
-        break;
-
-      case FINALIZE_DELETION:
-        onRecordFinalizeDeletion(record);
+      case DELETE:
+        onRecordDelete(record);
         break;
     }
-    return RESULT.RECORD_NOT_CHANGED;
   }
 }

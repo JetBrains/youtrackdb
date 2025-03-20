@@ -17,9 +17,9 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.SessionListener;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.EntityHookAbstract;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
-import com.jetbrains.youtrack.db.internal.core.hook.DocumentHookAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -51,14 +51,14 @@ public class DbListenerTest extends BaseDBTest {
 
   public static class DocumentChangeListener {
 
-    final Map<EntityImpl, List<String>> changes = new HashMap<EntityImpl, List<String>>();
+    final Map<Entity, List<String>> changes = new HashMap<>();
 
     public DocumentChangeListener(final DatabaseSession db) {
       db.registerHook(
-          new DocumentHookAbstract(db) {
+          new EntityHookAbstract(db) {
 
             @Override
-            public void onRecordAfterUpdate(EntityImpl entity) {
+            public void onEntityUpdate(Entity entity) {
               List<String> changedFields = new ArrayList<>(
                   entity.getDirtyPropertiesBetweenCallbacks());
               changes.put(entity, changedFields);
@@ -66,7 +66,7 @@ public class DbListenerTest extends BaseDBTest {
           });
     }
 
-    public Map<EntityImpl, List<String>> getChanges() {
+    public Map<Entity, List<String>> getChanges() {
       return changes;
     }
   }

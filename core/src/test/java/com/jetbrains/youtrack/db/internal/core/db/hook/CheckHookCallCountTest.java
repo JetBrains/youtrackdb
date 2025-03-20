@@ -4,11 +4,12 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.EntityHookAbstract;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.hook.DocumentHookAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.UUID;
 import org.junit.Test;
@@ -70,19 +71,19 @@ public class CheckHookCallCountTest extends DbTestBase {
     session.rollback();
 
     session.registerHook(
-        new DocumentHookAbstract(session) {
+        new EntityHookAbstract(session) {
 
           {
             setIncludeClasses("TestInHook");
           }
 
           @Override
-          public void onRecordAfterCreate(EntityImpl entity) {
-            onRecordAfterRead(entity);
+          public void onEntityCreate(Entity entity) {
+            onEntityRead(entity);
           }
 
           @Override
-          public void onRecordAfterRead(EntityImpl entity) {
+          public void onEntityRead(Entity entity) {
             var script = "select sum(a, b) as value from " + entity.getIdentity();
             try (var calculated = session.getActiveTransaction().query(script)) {
               if (calculated.hasNext()) {
@@ -115,7 +116,7 @@ public class CheckHookCallCountTest extends DbTestBase {
     session.rollback();
   }
 
-  public class TestHook extends DocumentHookAbstract {
+  public class TestHook extends EntityHookAbstract {
 
     public int readCount;
 
@@ -124,7 +125,7 @@ public class CheckHookCallCountTest extends DbTestBase {
     }
 
     @Override
-    public void onRecordAfterRead(EntityImpl entity) {
+    public void onEntityRead(Entity entity) {
       readCount++;
     }
   }

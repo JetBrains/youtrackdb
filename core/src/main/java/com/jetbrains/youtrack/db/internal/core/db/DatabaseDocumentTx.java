@@ -287,9 +287,9 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public RecordHook.RESULT callbackHooks(TYPE type, RecordAbstract id) {
+  public void callbackHooks(TYPE type, RecordAbstract record) {
     checkOpenness();
-    return internal.callbackHooks(type, id);
+    internal.callbackHooks(type, record);
   }
 
   @Nonnull
@@ -368,25 +368,20 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void registerHook(RecordHook iHookImpl) {
+  public void registerHook(@Nonnull RecordHook iHookImpl) {
     checkOpenness();
     internal.registerHook(iHookImpl);
   }
 
-  @Override
-  public void registerHook(RecordHook iHookImpl, RecordHook.HOOK_POSITION iPosition) {
-    checkOpenness();
-    internal.registerHook(iHookImpl, iPosition);
-  }
 
   @Override
-  public Map<RecordHook, RecordHook.HOOK_POSITION> getHooks() {
+  public List<RecordHook> getHooks() {
     checkOpenness();
     return internal.getHooks();
   }
 
   @Override
-  public void unregisterHook(RecordHook iHookImpl) {
+  public void unregisterHook(@Nonnull RecordHook iHookImpl) {
     checkOpenness();
     internal.unregisterHook(iHookImpl);
   }
@@ -1123,11 +1118,16 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
     }
   }
 
-  @Nullable
   @Override
-  public Transaction getActiveTransaction() {
+  public @Nonnull Transaction getActiveTransaction() {
     checkOpenness();
     return internal.getActiveTransaction();
+  }
+
+  @Nullable
+  @Override
+  public Transaction getActiveTransactionOrNull() {
+    return internal.getActiveTransactionOrNull();
   }
 
   @Override
@@ -1438,34 +1438,20 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
     internal.deleteInternal(record);
   }
 
+
   @Override
-  public void beforeCreateOperations(RecordAbstract id, String iClusterName) {
-    internal.beforeCreateOperations(id, iClusterName);
+  public void afterCreateOperations(RecordAbstract id, String clusterName) {
+    internal.afterCreateOperations(id, clusterName);
   }
 
   @Override
-  public void beforeUpdateOperations(RecordAbstract id, String iClusterName) {
-    internal.beforeUpdateOperations(id, iClusterName);
+  public void afterDeleteOperations(RecordAbstract id, java.lang.String clusterName) {
+    internal.afterDeleteOperations(id, clusterName);
   }
 
   @Override
-  public void beforeDeleteOperations(RecordAbstract id, String iClusterName) {
-    internal.beforeDeleteOperations(id, iClusterName);
-  }
-
-  @Override
-  public void afterCreateOperations(RecordAbstract id) {
-    internal.afterCreateOperations(id);
-  }
-
-  @Override
-  public void afterDeleteOperations(RecordAbstract id) {
-    internal.afterDeleteOperations(id);
-  }
-
-  @Override
-  public void afterUpdateOperations(RecordAbstract id) {
-    internal.afterUpdateOperations(id);
+  public void afterUpdateOperations(RecordAbstract id, java.lang.String clusterName) {
+    internal.afterUpdateOperations(id, clusterName);
   }
 
   @Override

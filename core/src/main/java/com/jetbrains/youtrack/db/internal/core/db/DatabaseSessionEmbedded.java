@@ -97,7 +97,6 @@ import java.nio.file.Path;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
@@ -107,6 +106,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TimeZone;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -132,8 +132,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       url = storage.getURL();
       this.storage = storage;
       this.componentsFactory = storage.getComponentsFactory();
-
-      unmodifiableHooks = Collections.unmodifiableMap(hooks);
 
       init();
 
@@ -800,15 +798,32 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     return id;
   }
 
-  @Override
-  public void beforeCreateOperations(RecordAbstract id, String iClusterName) {
+  /**
+   * Deletes a entity. Behavior depends by the current running transaction if any. If no transaction
+   * is running then the record is deleted immediately. If an Optimistic transaction is running then
+   * the record will be deleted at commit time. The current transaction will continue to see the
+   * record as deleted, while others not. If a Pessimistic transaction is running, then an exclusive
+   * lock is acquired against the record. Current transaction will continue to see the record as
+   * deleted, while others cannot access to it since it's locked.
+   *
+   * <p>If MVCC is enabled and the version of the entity is different by the version stored in
+   * the database, then a {@link ConcurrentModificationException} exception is thrown.
+   *
+   * @param record record to delete
+   */
+  public void delete(@Nonnull DBRecord record) {
+    checkOpenness();
     assert assertIfNotActive();
-    checkSecurity(Role.PERMISSION_CREATE, id, iClusterName);
 
-    RecordHook.RESULT triggerChanged = null;
-    var changed = false;
+    record.delete();
+  }
+
+  public void afterCreateOperations(final RecordAbstract id, String clusterName) {
+    assert assertIfNotActive();
+
+    checkSecurity(Role.PERMISSION_CREATE, id, clusterName);
+
     if (id instanceof EntityImpl entity) {
-
       if (!getSharedContext().getSecurity().canCreate(this, entity)) {
         throw new SecurityException(getDatabaseName(),
             "Cannot update record "
@@ -816,53 +831,56 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
                 + ": the resource has restricted access due to security policies");
       }
 
-      SchemaImmutableClass clazz = null;
+      SchemaImmutableClass clazz;
       clazz = entity.getImmutableSchemaClass(this);
-      if (clazz != null) {
-        ensureLinksConsistencyBeforeModification(entity, clazz);
+      ensureLinksConsistencyAfterModification(entity, clazz);
 
+      if (clazz != null) {
         checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, clazz.getName());
         if (clazz.isScheduler()) {
           getSharedContext().getScheduler().initScheduleRecord(entity);
-          changed = true;
         }
         if (clazz.isUser()) {
           entity.validate();
-          changed = SecurityUserImpl.encodePassword(this, entity);
+          SecurityUserImpl.encodePassword(this, entity);
         }
         if (clazz.isTriggered()) {
-          triggerChanged = ClassTrigger.onRecordBeforeCreate(entity, this);
+          ClassTrigger.onRecordBeforeCreate(entity, this);
         }
         if (clazz.isRestricted()) {
-          changed = RestrictedAccessHook.onRecordBeforeCreate(entity, this);
+          RestrictedAccessHook.onRecordBeforeCreate(entity, this);
         }
         if (clazz.isFunction()) {
           FunctionLibraryImpl.validateFunctionRecord(entity);
         }
+
         entity.propertyEncryption = PropertyEncryptionNone.instance();
+
+        if (clazz.isUser() || clazz.isRole() || clazz.isSecurityPolicy()) {
+          sharedContext.getSecurity().incrementVersion(this);
+
+        }
+        if (clazz.isTriggered()) {
+          ClassTrigger.onRecordAfterCreate(entity, this);
+        }
       }
     }
 
-    var res = callbackHooks(RecordHook.TYPE.BEFORE_CREATE, id);
-    if (changed
-        || res == RecordHook.RESULT.RECORD_CHANGED
-        || triggerChanged == RecordHook.RESULT.RECORD_CHANGED) {
-      if (id instanceof EntityImpl) {
-        ((EntityImpl) id).validate();
-      }
-    }
+    callbackHooks(RecordHook.TYPE.CREATE, id);
   }
 
-  @Override
-  public void beforeUpdateOperations(RecordAbstract id, String iClusterName) {
+  public void afterUpdateOperations(final RecordAbstract id, String clusterName) {
     assert assertIfNotActive();
-    checkSecurity(Role.PERMISSION_UPDATE, id, iClusterName);
+
+    checkSecurity(Role.PERMISSION_UPDATE, id, clusterName);
 
     if (id instanceof EntityImpl entity) {
-      var clazz = entity.getImmutableSchemaClass(this);
-      if (clazz != null) {
-        ensureLinksConsistencyBeforeModification(entity, clazz);
 
+      SchemaImmutableClass clazz = null;
+      clazz = entity.getImmutableSchemaClass(this);
+      ensureLinksConsistencyAfterModification(entity, clazz);
+
+      if (clazz != null) {
         if (clazz.isScheduler()) {
           getSharedContext().getScheduler().preHandleUpdateScheduleInTx(this, entity);
         }
@@ -891,39 +909,29 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
                   + ": the resource has restricted access due to security policies");
         }
         entity.propertyEncryption = PropertyEncryptionNone.instance();
+
+        if (clazz.isUser() || clazz.isRole() || clazz.isSecurityPolicy()) {
+          sharedContext.getSecurity().incrementVersion(this);
+        }
+
+        if (clazz.isTriggered()) {
+          ClassTrigger.onRecordAfterUpdate(entity, this);
+        }
       }
     }
-    callbackHooks(RecordHook.TYPE.BEFORE_UPDATE, id);
+
+    callbackHooks(RecordHook.TYPE.UPDATE, id);
   }
 
-  /**
-   * Deletes a entity. Behavior depends by the current running transaction if any. If no transaction
-   * is running then the record is deleted immediately. If an Optimistic transaction is running then
-   * the record will be deleted at commit time. The current transaction will continue to see the
-   * record as deleted, while others not. If a Pessimistic transaction is running, then an exclusive
-   * lock is acquired against the record. Current transaction will continue to see the record as
-   * deleted, while others cannot access to it since it's locked.
-   *
-   * <p>If MVCC is enabled and the version of the entity is different by the version stored in
-   * the database, then a {@link ConcurrentModificationException} exception is thrown.
-   *
-   * @param record record to delete
-   */
-  public void delete(@Nonnull DBRecord record) {
-    checkOpenness();
+  public void afterDeleteOperations(final RecordAbstract id, java.lang.String clusterName) {
     assert assertIfNotActive();
-
-    record.delete();
-  }
-
-  @Override
-  public void beforeDeleteOperations(RecordAbstract id, String iClusterName) {
-    assert assertIfNotActive();
-    checkSecurity(Role.PERMISSION_DELETE, id, iClusterName);
+    checkSecurity(Role.PERMISSION_DELETE, id, clusterName);
 
     if (id instanceof EntityImpl entity) {
-      ensureLinksConsistencyBeforeDeletion(entity);
-      var clazz = entity.getImmutableSchemaClass(this);
+      ensureLinksConsistencyAfterDeletion(entity);
+
+      SchemaImmutableClass clazz = null;
+      clazz = entity.getImmutableSchemaClass(this);
       if (clazz != null) {
         if (clazz.isTriggered()) {
           ClassTrigger.onRecordBeforeDelete(entity, this);
@@ -937,63 +945,13 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
                     + ": the resource has restricted access");
           }
         }
+
         if (!getSharedContext().getSecurity().canDelete(this, entity)) {
           throw new SecurityException(getDatabaseName(),
               "Cannot delete record "
                   + entity.getIdentity()
                   + ": the resource has restricted access due to security policies");
         }
-      }
-    }
-    callbackHooks(RecordHook.TYPE.BEFORE_DELETE, id);
-  }
-
-  public void afterCreateOperations(final RecordAbstract id) {
-    assert assertIfNotActive();
-
-    if (id instanceof EntityImpl entity) {
-      SchemaImmutableClass clazz;
-      clazz = entity.getImmutableSchemaClass(this);
-
-      if (clazz != null) {
-        if (clazz.isUser() || clazz.isRole() || clazz.isSecurityPolicy()) {
-          sharedContext.getSecurity().incrementVersion(this);
-        }
-        if (clazz.isTriggered()) {
-          ClassTrigger.onRecordAfterCreate(entity, this);
-        }
-      }
-    }
-
-    callbackHooks(RecordHook.TYPE.AFTER_CREATE, id);
-  }
-
-  public void afterUpdateOperations(final RecordAbstract id) {
-    assert assertIfNotActive();
-
-    if (id instanceof EntityImpl entity) {
-      SchemaImmutableClass clazz = null;
-      clazz = entity.getImmutableSchemaClass(this);
-      if (clazz != null) {
-        if (clazz.isUser() || clazz.isRole() || clazz.isSecurityPolicy()) {
-          sharedContext.getSecurity().incrementVersion(this);
-        }
-
-        if (clazz.isTriggered()) {
-          ClassTrigger.onRecordAfterUpdate(entity, this);
-        }
-      }
-    }
-
-    callbackHooks(RecordHook.TYPE.AFTER_UPDATE, id);
-  }
-
-  public void afterDeleteOperations(final RecordAbstract id) {
-    assert assertIfNotActive();
-    if (id instanceof EntityImpl entity) {
-      SchemaImmutableClass clazz = null;
-      clazz = entity.getImmutableSchemaClass(this);
-      if (clazz != null) {
         if (clazz.isTriggered()) {
           ClassTrigger.onRecordAfterDelete(entity, this);
         } else if (clazz.isSequence()) {
@@ -1008,7 +966,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       }
     }
 
-    callbackHooks(RecordHook.TYPE.AFTER_DELETE, id);
+    callbackHooks(RecordHook.TYPE.DELETE, id);
   }
 
   @Override
@@ -1023,21 +981,18 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
         }
       }
     }
-    callbackHooks(RecordHook.TYPE.AFTER_READ, identifiable);
+
+    callbackHooks(RecordHook.TYPE.READ, identifiable);
   }
 
   @Override
   public boolean beforeReadOperations(RecordAbstract identifiable) {
     assert assertIfNotActive();
     if (identifiable instanceof EntityImpl entity) {
-      SchemaImmutableClass clazz = null;
-      clazz = entity.getImmutableSchemaClass(this);
+      var clazz = entity.getImmutableSchemaClass(this);
       if (clazz != null) {
         if (clazz.isTriggered()) {
-          var val = ClassTrigger.onRecordBeforeRead(entity, this);
-          if (val == RecordHook.RESULT.SKIP) {
-            return true;
-          }
+          ClassTrigger.onRecordBeforeRead(entity, this);
         }
         if (clazz.isRestricted()) {
           if (!RestrictedAccessHook.isAllowed(this, entity, RestrictedOperation.ALLOW_READ,
@@ -1060,7 +1015,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
         entity.propertyEncryption = PropertyEncryptionNone.instance();
       }
     }
-    return callbackHooks(RecordHook.TYPE.BEFORE_READ, identifiable) == RecordHook.RESULT.SKIP;
+
+    return false;
   }
 
   @Override
@@ -1806,7 +1762,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     return transactionMeters;
   }
 
-  private void ensureLinksConsistencyBeforeDeletion(@Nonnull EntityImpl entity) {
+  private void ensureLinksConsistencyAfterDeletion(@Nonnull EntityImpl entity) {
     var properties = entity.getPropertyNamesInternal(true, false);
 
     for (var propertyName : properties) {
@@ -1887,14 +1843,16 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     }
   }
 
-  private void ensureLinksConsistencyBeforeModification(@Nonnull EntityImpl entity,
-      @Nonnull SchemaImmutableClass clazz) {
+  private void ensureLinksConsistencyAfterModification(@Nonnull EntityImpl entity,
+      @Nullable SchemaImmutableClass clazz) {
     var dirtyProperties = entity.getDirtyPropertiesBetweenCallbacksInternal(false,
         false);
-    if (clazz.isVertexType()) {
-      dirtyProperties = filterVertexProperties(dirtyProperties);
-    } else if (clazz.isEdgeType()) {
-      dirtyProperties = filterEdgeProperties(dirtyProperties);
+    if (clazz != null) {
+      if (clazz.isVertexType()) {
+        dirtyProperties = filterVertexProperties(dirtyProperties);
+      } else if (clazz.isEdgeType()) {
+        dirtyProperties = filterEdgeProperties(dirtyProperties);
+      }
     }
 
     var linksToRemove = new HashSet<RecordId>();

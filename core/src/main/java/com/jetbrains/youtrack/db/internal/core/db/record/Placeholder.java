@@ -88,11 +88,6 @@ public class Placeholder implements Identifiable, Streamable {
     return rid.compareTo(o);
   }
 
-  @Override
-  public int compare(Identifiable o1, Identifiable o2) {
-    return rid.compare(o1, o2);
-  }
-
   public int getVersion() {
     return recordVersion;
   }

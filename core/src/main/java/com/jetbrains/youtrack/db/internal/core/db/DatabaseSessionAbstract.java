@@ -106,10 +106,10 @@ import com.jetbrains.youtrack.db.internal.core.tx.RollbackException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
@@ -134,9 +134,9 @@ import javax.annotation.Nullable;
 public abstract class DatabaseSessionAbstract extends ListenerManger<SessionListener>
     implements DatabaseSessionInternal {
 
-  protected final Map<String, Object> properties = new HashMap<>();
-  protected Map<RecordHook, RecordHook.HOOK_POSITION> unmodifiableHooks;
-  protected final Set<Identifiable> inHook = new HashSet<>();
+  protected final HashMap<String, Object> properties = new HashMap<>();
+  protected final HashSet<Identifiable> inHook = new HashSet<>();
+
   protected RecordSerializer serializer;
   protected String url;
   protected STATUS status;
@@ -144,15 +144,13 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   protected MetadataDefault metadata;
   protected ImmutableUser user;
   protected static final byte recordType = EntityImpl.RECORD_TYPE;
-  protected final Map<RecordHook, RecordHook.HOOK_POSITION> hooks = new LinkedHashMap<>();
+  protected final ArrayList<RecordHook> hooks = new ArrayList<>();
   protected boolean retainRecords = true;
   protected final LocalRecordCache localCache = new LocalRecordCache();
   protected CurrentStorageComponentsFactory componentsFactory;
   protected boolean initialized = false;
   protected FrontendTransaction currentTx;
 
-  protected final RecordHook[][] hooksByScope =
-      new RecordHook[RecordHook.SCOPE.values().length][];
   protected SharedContext sharedContext;
 
   private boolean prefetchRecords;
@@ -472,42 +470,22 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   /**
    * {@inheritDoc}
    */
-  public void registerHook(final RecordHook iHookImpl,
-      final RecordHook.HOOK_POSITION iPosition) {
+  public void registerHook(final @Nonnull RecordHook iHookImpl) {
     checkOpenness();
     assert assertIfNotActive();
 
-    final Map<RecordHook, RecordHook.HOOK_POSITION> tmp =
-        new LinkedHashMap<>(hooks);
-    tmp.put(iHookImpl, iPosition);
-    hooks.clear();
-    for (var p : RecordHook.HOOK_POSITION.values()) {
-      for (var e : tmp.entrySet()) {
-        if (e.getValue() == p) {
-          hooks.put(e.getKey(), e.getValue());
-        }
-      }
+    if (!hooks.contains(iHookImpl)) {
+      hooks.add(iHookImpl);
     }
-    compileHooks();
   }
 
   /**
    * {@inheritDoc}
    */
-  public void registerHook(final RecordHook iHookImpl) {
+  public void unregisterHook(final @Nonnull RecordHook iHookImpl) {
     assert assertIfNotActive();
-    registerHook(iHookImpl, RecordHook.HOOK_POSITION.REGULAR);
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  public void unregisterHook(final RecordHook iHookImpl) {
-    assert assertIfNotActive();
-    if (iHookImpl != null) {
+    if (hooks.remove(iHookImpl)) {
       iHookImpl.onUnregister();
-      hooks.remove(iHookImpl);
-      compileHooks();
     }
   }
 
@@ -540,9 +518,9 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   /**
    * {@inheritDoc}
    */
-  public Map<RecordHook, RecordHook.HOOK_POSITION> getHooks() {
+  public List<RecordHook> getHooks() {
     assert assertIfNotActive();
-    return unmodifiableHooks;
+    return Collections.unmodifiableList(hooks);
   }
 
   @Override
@@ -583,55 +561,24 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   /**
    * Callback the registered hooks if any.
    *
-   * @param type Hook type. Define when hook is called.
-   * @param id   Record received in the callback
-   * @return True if the input record is changed, otherwise false
+   * @param type   Hook type. Define when hook is called.
+   * @param record Record received in the callback
    */
-  public RecordHook.RESULT callbackHooks(final TYPE type, final RecordAbstract id) {
+  public void callbackHooks(final TYPE type, final RecordAbstract record) {
     assert assertIfNotActive();
-    if (id == null || hooks.isEmpty() || id.getIdentity().getClusterId() == 0) {
-      return RecordHook.RESULT.RECORD_NOT_CHANGED;
+    if (record == null || hooks.isEmpty() || record.getIdentity().getClusterId() == 0) {
+      return;
     }
 
-    final var scope = RecordHook.SCOPE.typeToScope(type);
-    final var scopeOrdinal = scope.ordinal();
-
-    var identity = id.getIdentity().copy();
+    var identity = record.getIdentity().copy();
     if (!pushInHook(identity)) {
-      return RecordHook.RESULT.RECORD_NOT_CHANGED;
+      return;
     }
 
     try {
-      final DBRecord rec;
-      try {
-        rec = id.getRecord(this);
-      } catch (RecordNotFoundException e) {
-        return RecordHook.RESULT.RECORD_NOT_CHANGED;
+      for (var hook : hooks) {
+        hook.onTrigger(type, record);
       }
-
-      var recordChanged = false;
-      for (var hook : hooksByScope[scopeOrdinal]) {
-        final var res = hook.onTrigger(type, rec);
-
-        if (res == RecordHook.RESULT.RECORD_CHANGED) {
-          recordChanged = true;
-        } else {
-          if (res == RecordHook.RESULT.SKIP_IO)
-          // SKIP IO OPERATION
-          {
-            return res;
-          } else {
-            if (res == RecordHook.RESULT.SKIP)
-            // SKIP NEXT HOOKS AND RETURN IT
-            {
-              return res;
-            }
-          }
-        }
-      }
-      return recordChanged
-          ? RecordHook.RESULT.RECORD_CHANGED
-          : RecordHook.RESULT.RECORD_NOT_CHANGED;
     } finally {
       popInHook(identity);
     }
@@ -2101,13 +2048,11 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   @Override
   public void resetInitialization() {
     assert assertIfNotActive();
-    for (var h : hooks.keySet()) {
+    for (var h : hooks) {
       h.onUnregister();
     }
 
     hooks.clear();
-    compileHooks();
-
     close();
 
     initialized = false;
@@ -2218,25 +2163,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     return getMetadata().getSchema().getBlobClusters().toIntArray();
   }
 
-  private void compileHooks() {
-    final List<RecordHook>[] intermediateHooksByScope =
-        new List[RecordHook.SCOPE.values().length];
-    for (var scope : RecordHook.SCOPE.values()) {
-      intermediateHooksByScope[scope.ordinal()] = new ArrayList<>();
-    }
-
-    for (var hook : hooks.keySet()) {
-      for (var scope : hook.getScopes()) {
-        intermediateHooksByScope[scope.ordinal()].add(hook);
-      }
-    }
-
-    for (var scope : RecordHook.SCOPE.values()) {
-      final var ordinal = scope.ordinal();
-      final var scopeHooks = intermediateHooksByScope[ordinal];
-      hooksByScope[ordinal] = scopeHooks.toArray(new RecordHook[0]);
-    }
-  }
 
   @Override
   public SharedContext getSharedContext() {
@@ -2719,7 +2645,17 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public Transaction getActiveTransaction() {
+  public @Nonnull Transaction getActiveTransaction() {
+    if (currentTx.isActive()) {
+      return currentTx;
+    }
+
+    throw new DatabaseException(this, "There is no active transaction in session");
+  }
+
+  @Nullable
+  @Override
+  public Transaction getActiveTransactionOrNull() {
     if (currentTx.isActive()) {
       return currentTx;
     }

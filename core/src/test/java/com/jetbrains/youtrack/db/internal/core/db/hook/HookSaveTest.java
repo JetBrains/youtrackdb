@@ -21,25 +21,19 @@ public class HookSaveTest extends DbTestBase {
     session.registerHook(
         new RecordHook() {
           @Override
-          public void onUnregister() {
-          }
-
-          @Override
-          public RESULT onTrigger(@Nonnull TYPE iType,
+          public void onTrigger(@Nonnull TYPE iType,
               @Nonnull DBRecord iRecord) {
-            if (iType != TYPE.BEFORE_CREATE) {
-              return RESULT.RECORD_NOT_CHANGED;
+            if (iType != TYPE.CREATE) {
+              return;
             }
+
             if (iRecord instanceof Entity entity) {
               var cls = entity.getSchemaClass();
               if (cls != null && cls.getName().equals("test")) {
                 var newEntity = session.getActiveTransaction().newEntity("another");
                 entity.setProperty("testNewLinkedRecord", newEntity);
-                return RESULT.RECORD_CHANGED;
               }
             }
-
-            return RESULT.RECORD_NOT_CHANGED;
           }
 
         });
@@ -63,14 +57,10 @@ public class HookSaveTest extends DbTestBase {
     session.registerHook(
         new RecordHook() {
           @Override
-          public void onUnregister() {
-          }
-
-          @Override
-          public RESULT onTrigger(@Nonnull TYPE iType,
+          public void onTrigger(@Nonnull TYPE iType,
               @Nonnull DBRecord iRecord) {
-            if (iType != TYPE.BEFORE_CREATE) {
-              return RESULT.RECORD_NOT_CHANGED;
+            if (iType != TYPE.CREATE) {
+              return;
             }
 
             if (iRecord instanceof Entity entity) {
@@ -80,12 +70,8 @@ public class HookSaveTest extends DbTestBase {
 
                 entity.setProperty("testNewLinkedRecord", newEntity);
                 newEntity.setProperty("backLink", entity);
-
-                return RESULT.RECORD_CHANGED;
               }
             }
-
-            return RESULT.RECORD_NOT_CHANGED;
           }
         });
 
@@ -93,11 +79,11 @@ public class HookSaveTest extends DbTestBase {
     session.getMetadata().getSchema().createClass("another");
 
     session.begin();
-    EntityImpl doc = (EntityImpl) session.newEntity("test");
+    var doc = (EntityImpl) session.newEntity("test");
     session.commit();
 
     session.begin();
-    EntityImpl entity = session.bindToSession(doc);
+    var entity = session.bindToSession(doc);
     EntityImpl newRef = entity.getProperty("testNewLinkedRecord");
     assertNotNull(newRef);
     assertTrue(newRef.getIdentity().isPersistent());

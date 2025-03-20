@@ -21,17 +21,15 @@ public class HookReadTest extends DbTestBase {
           }
 
           @Override
-          public RESULT onTrigger(@Nonnull TYPE iType,
+          public void onTrigger(@Nonnull TYPE iType,
               @Nonnull DBRecord iRecord) {
-            if (iType == TYPE.AFTER_READ
+            if (iType == TYPE.READ
                 && !((EntityImpl) iRecord)
                 .getSchemaClassName()
                 .equalsIgnoreCase(SecurityPolicy.class.getSimpleName())) {
               ((EntityImpl) iRecord).setProperty("read", "test");
             }
-            return RESULT.RECORD_CHANGED;
           }
-
         });
 
     session.getMetadata().getSchema().createClass("TestClass");

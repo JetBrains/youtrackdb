@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrack.db.internal.tools.config;
 
-import com.jetbrains.youtrack.db.api.record.RecordHook;
 import jakarta.xml.bind.annotation.XmlAttribute;
 import jakarta.xml.bind.annotation.XmlElementRef;
 import jakarta.xml.bind.annotation.XmlElementWrapper;
@@ -27,14 +26,11 @@ import jakarta.xml.bind.annotation.XmlRootElement;
 import jakarta.xml.bind.annotation.XmlType;
 
 @XmlRootElement(name = "hook")
-@XmlType(propOrder = {"parameters", "clazz", "position"})
+@XmlType(propOrder = {"parameters", "clazz"})
 public class ServerHookConfiguration {
 
   @XmlAttribute(name = "class", required = true)
   public String clazz;
-
-  @XmlAttribute(name = "position")
-  public String position = RecordHook.HOOK_POSITION.REGULAR.name();
 
   @XmlElementWrapper
   @XmlElementRef(type = ServerParameterConfiguration.class)

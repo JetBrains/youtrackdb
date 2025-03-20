@@ -22,7 +22,6 @@ import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
@@ -69,17 +68,16 @@ public class ClassTrigger {
   public static final String ONAFTER_DELETE = "onAfterDelete";
   public static final String PROP_AFTER_DELETE = ONAFTER_DELETE;
 
-  public static RecordHook.RESULT onRecordBeforeCreate(
+  public static void onRecordBeforeCreate(
       final EntityImpl entity, DatabaseSessionInternal database) {
     var func = checkClzAttribute(entity, ONBEFORE_CREATED, database);
     if (func != null) {
       if (func instanceof Function) {
-        return ClassTrigger.executeFunction(entity, (Function) func, database);
+        ClassTrigger.executeFunction(entity, (Function) func, database);
       } else if (func instanceof Object[]) {
-        return ClassTrigger.executeMethod(database.getDatabaseName(), entity, (Object[]) func);
+        ClassTrigger.executeMethod(database.getDatabaseName(), entity, (Object[]) func);
       }
     }
-    return RecordHook.RESULT.RECORD_NOT_CHANGED;
   }
 
   public static void onRecordAfterCreate(
@@ -94,17 +92,16 @@ public class ClassTrigger {
     }
   }
 
-  public static RecordHook.RESULT onRecordBeforeRead(
+  public static void onRecordBeforeRead(
       final EntityImpl entity, DatabaseSessionInternal database) {
     var func = checkClzAttribute(entity, ONBEFORE_READ, database);
     if (func != null) {
       if (func instanceof Function) {
-        return ClassTrigger.executeFunction(entity, (Function) func, database);
+        ClassTrigger.executeFunction(entity, (Function) func, database);
       } else if (func instanceof Object[]) {
-        return ClassTrigger.executeMethod(database.getDatabaseName(), entity, (Object[]) func);
+        ClassTrigger.executeMethod(database.getDatabaseName(), entity, (Object[]) func);
       }
     }
-    return RecordHook.RESULT.RECORD_NOT_CHANGED;
   }
 
   public static void onRecordAfterRead(
@@ -119,17 +116,16 @@ public class ClassTrigger {
     }
   }
 
-  public static RecordHook.RESULT onRecordBeforeUpdate(
+  public static void onRecordBeforeUpdate(
       final EntityImpl entity, DatabaseSessionInternal database) {
     var func = checkClzAttribute(entity, ONBEFORE_UPDATED, database);
     if (func != null) {
       if (func instanceof Function) {
-        return ClassTrigger.executeFunction(entity, (Function) func, database);
+        ClassTrigger.executeFunction(entity, (Function) func, database);
       } else if (func instanceof Object[]) {
-        return ClassTrigger.executeMethod(database.getDatabaseName(), entity, (Object[]) func);
+        ClassTrigger.executeMethod(database.getDatabaseName(), entity, (Object[]) func);
       }
     }
-    return RecordHook.RESULT.RECORD_NOT_CHANGED;
   }
 
   public static void onRecordAfterUpdate(
@@ -144,17 +140,16 @@ public class ClassTrigger {
     }
   }
 
-  public static RecordHook.RESULT onRecordBeforeDelete(
+  public static void onRecordBeforeDelete(
       final EntityImpl entity, DatabaseSessionInternal database) {
     var func = checkClzAttribute(entity, ONBEFORE_DELETE, database);
     if (func != null) {
       if (func instanceof Function) {
-        return ClassTrigger.executeFunction(entity, (Function) func, database);
+        ClassTrigger.executeFunction(entity, (Function) func, database);
       } else if (func instanceof Object[]) {
-        return ClassTrigger.executeMethod(database.getDatabaseName(), entity, (Object[]) func);
+        ClassTrigger.executeMethod(database.getDatabaseName(), entity, (Object[]) func);
       }
     }
-    return RecordHook.RESULT.RECORD_NOT_CHANGED;
   }
 
   public static void onRecordAfterDelete(
@@ -268,29 +263,23 @@ public class ClassTrigger {
     }
   }
 
-  private static RecordHook.RESULT executeMethod(
+  private static void executeMethod(
       String dbName, final EntityImpl entity, final Object[] clzMethod) {
     if (clzMethod[0] instanceof Class clz && clzMethod[1] instanceof Method method) {
-      String result = null;
       try {
-        result = (String) method.invoke(clz.newInstance(), entity);
+        method.invoke(clz.newInstance(), entity);
       } catch (Exception ex) {
         throw BaseException.wrapException(
             new DatabaseException(dbName, "Failed to invoke method " + method.getName()), ex,
             dbName);
       }
-      if (result == null) {
-        return RecordHook.RESULT.RECORD_NOT_CHANGED;
-      }
-      return RecordHook.RESULT.valueOf(result);
     }
-    return RecordHook.RESULT.RECORD_NOT_CHANGED;
   }
 
-  private static RecordHook.RESULT executeFunction(
+  private static void executeFunction(
       final EntityImpl entity, final Function func, DatabaseSessionInternal database) {
     if (func == null) {
-      return RecordHook.RESULT.RECORD_NOT_CHANGED;
+      return;
     }
 
     final var scriptManager =
@@ -340,11 +329,6 @@ public class ClassTrigger {
       } finally {
         scriptManager.unbind(scriptEngine, binding, null, null);
       }
-      if (result == null) {
-        return RecordHook.RESULT.RECORD_NOT_CHANGED;
-      }
-      return RecordHook.RESULT.valueOf(result);
-
     } finally {
       scriptManager.releaseDatabaseEngine(func.getLanguage(), database.getDatabaseName(),
           scriptEngine);

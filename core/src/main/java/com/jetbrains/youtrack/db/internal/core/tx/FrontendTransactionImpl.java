@@ -34,7 +34,6 @@ import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.record.RecordHook.TYPE;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -685,17 +684,9 @@ public class FrontendTransactionImpl implements
     var clusterName = session.getClusterNameById(record.getIdentity().getClusterId());
     recordOperation.recordCallBackDirtyCounter = dirtyCounter;
 
-    session.beforeDeleteOperations(record, clusterName);
-    try {
-      session.afterDeleteOperations(record);
-      if (record instanceof EntityImpl) {
-        ((EntityImpl) record).clearTrackData();
-      }
-    } catch (Exception e) {
-      session.callbackHooks(TYPE.DELETE_FAILED, record);
-      throw e;
-    } finally {
-      session.callbackHooks(TYPE.FINALIZE_DELETION, record);
+    session.afterDeleteOperations(record, clusterName);
+    if (record instanceof EntityImpl) {
+      ((EntityImpl) record).clearTrackData();
     }
   }
 
@@ -704,34 +695,19 @@ public class FrontendTransactionImpl implements
     var clusterName = session.getClusterNameById(record.getIdentity().getClusterId());
 
     recordOperation.recordCallBackDirtyCounter = dirtyCounter;
-    session.beforeUpdateOperations(record, clusterName);
-    try {
-      session.afterUpdateOperations(record);
-      if (record instanceof EntityImpl) {
-        ((EntityImpl) record).clearTrackData();
-      }
-    } catch (Exception e) {
-      session.callbackHooks(TYPE.UPDATE_FAILED, record);
-      throw e;
-    } finally {
-      session.callbackHooks(TYPE.FINALIZE_UPDATE, record);
+    session.afterUpdateOperations(record, clusterName);
+    if (record instanceof EntityImpl) {
+      ((EntityImpl) record).clearTrackData();
     }
   }
 
   private void processRecordCreation(RecordOperation recordOperation, RecordAbstract record) {
     var clusterName = session.getClusterNameById(record.getIdentity().getClusterId());
     recordOperation.recordCallBackDirtyCounter = record.getDirtyCounter();
-    session.beforeCreateOperations(record, clusterName);
-    try {
-      session.afterCreateOperations(record);
-      if (record instanceof EntityImpl) {
-        ((EntityImpl) record).clearTrackData();
-      }
-    } catch (Exception e) {
-      session.callbackHooks(TYPE.CREATE_FAILED, record);
-      throw e;
-    } finally {
-      session.callbackHooks(TYPE.FINALIZE_CREATION, record);
+    session.afterCreateOperations(record, clusterName);
+
+    if (record instanceof EntityImpl) {
+      ((EntityImpl) record).clearTrackData();
     }
   }
 
@@ -1228,23 +1204,221 @@ public class FrontendTransactionImpl implements
 
   @Nonnull
   @Override
+  public Entity loadEntity(Identifiable identifiable)
+      throws DatabaseException, RecordNotFoundException {
+    checkIfActive();
+
+    if (identifiable instanceof Entity entity) {
+      if (entity.isNotBound(session)) {
+        return loadEntity(entity.getIdentity());
+      }
+
+      return entity;
+    } else if (identifiable instanceof DBRecord) {
+      throw new DatabaseException(session, "Record " + identifiable + "is not an entity.");
+    }
+
+    return session.loadEntity(identifiable.getIdentity());
+  }
+
+  @Nullable
+  @Override
+  public Entity loadEntityOrNull(Identifiable identifiable) throws DatabaseException {
+    checkIfActive();
+    if (identifiable instanceof Entity entity) {
+      if (entity.isNotBound(session)) {
+        return loadEntityOrNull(entity.getIdentity());
+      }
+      return entity;
+    } else if (identifiable instanceof DBRecord) {
+      throw new DatabaseException(session, "Record " + identifiable + "is not an entity.");
+    }
+
+    try {
+      return session.loadEntity(identifiable.getIdentity());
+    } catch (RecordNotFoundException e) {
+      return null;
+    }
+  }
+
+  @Nullable
+  @Override
+  public Entity loadEntityOrNull(RID id) throws DatabaseException {
+    checkIfActive();
+    try {
+      return session.loadEntity(id);
+    } catch (RecordNotFoundException e) {
+      return null;
+    }
+  }
+
+  @Nonnull
+  @Override
   public Vertex loadVertex(RID id) throws DatabaseException, RecordNotFoundException {
     checkIfActive();
     return session.loadVertex(id);
   }
 
-  @Nonnull
+  @Nullable
   @Override
-  public Edge loadEdge(RID id) throws DatabaseException, RecordNotFoundException {
+  public Vertex loadVertexOrNull(RID id) throws RecordNotFoundException {
     checkIfActive();
-    return session.loadEdge(id);
+    try {
+      return session.loadVertex(id);
+    } catch (RecordNotFoundException e) {
+      return null;
+    }
   }
 
   @Nonnull
   @Override
-  public Blob loadBlob(RID id) throws DatabaseException, RecordNotFoundException {
+  public Vertex loadVertex(Identifiable identifiable)
+      throws DatabaseException, RecordNotFoundException {
+    checkIfActive();
+    if (identifiable instanceof Vertex vertex) {
+      if (vertex.isNotBound(session)) {
+        return loadVertex(vertex.getIdentity());
+      }
+
+      return vertex;
+    } else if (identifiable instanceof DBRecord) {
+      throw new DatabaseException(session, "Record " + identifiable + "is not a vertex.");
+    }
+
+    return session.loadVertex(identifiable.getIdentity());
+  }
+
+  @Nullable
+  @Override
+  public Vertex loadVertexOrNull(Identifiable identifiable) throws RecordNotFoundException {
+    checkIfActive();
+    if (identifiable instanceof Vertex vertex) {
+      if (vertex.isNotBound(session)) {
+        return loadVertexOrNull(vertex.getIdentity());
+      }
+      return vertex;
+    } else if (identifiable instanceof DBRecord) {
+      throw new DatabaseException(session, "Record " + identifiable + "is not a vertex.");
+    }
+
+    try {
+      return session.loadVertex(identifiable.getIdentity());
+    } catch (RecordNotFoundException e) {
+      return null;
+    }
+
+  }
+
+  @Nonnull
+  @Override
+  public StatefulEdge loadEdge(@Nonnull RID id) throws DatabaseException, RecordNotFoundException {
+    checkIfActive();
+    return session.loadEdge(id);
+  }
+
+  @Nullable
+  @Override
+  public StatefulEdge loadEdgeOrNull(@Nonnull RID id) throws DatabaseException {
+    checkIfActive();
+    try {
+      return session.loadEdge(id);
+    } catch (RecordNotFoundException e) {
+      return null;
+    }
+  }
+
+  @Nonnull
+  @Override
+  public StatefulEdge loadEdge(@Nonnull Identifiable id)
+      throws DatabaseException, RecordNotFoundException {
+    checkIfActive();
+    if (id instanceof StatefulEdge edge) {
+      if (edge.isNotBound(session)) {
+        return loadEdge(edge.getIdentity());
+      }
+
+      return edge;
+    } else if (id instanceof DBRecord) {
+      throw new DatabaseException(session, "Record " + id + "is not an edge.");
+    }
+
+    return session.loadEdge(id.getIdentity());
+  }
+
+  @Nonnull
+  @Override
+  public StatefulEdge loadEdgeOrNull(@Nonnull Identifiable id) throws DatabaseException {
+    checkIfActive();
+    if (id instanceof StatefulEdge edge) {
+      if (edge.isNotBound(session)) {
+        return loadEdgeOrNull(edge.getIdentity());
+      }
+      return edge;
+    } else if (id instanceof DBRecord) {
+      throw new DatabaseException(session, "Record " + id + "is not an edge.");
+    }
+
+    try {
+      return session.loadEdge(id.getIdentity());
+    } catch (RecordNotFoundException e) {
+      return null;
+    }
+  }
+
+  @Nonnull
+  @Override
+  public Blob loadBlob(@Nonnull RID id) throws DatabaseException, RecordNotFoundException {
     checkIfActive();
     return session.loadBlob(id);
+  }
+
+  @Nullable
+  @Override
+  public Blob loadBlobOrNull(@Nonnull RID id) throws DatabaseException, RecordNotFoundException {
+    checkIfActive();
+    try {
+      return session.loadBlob(id);
+    } catch (RecordNotFoundException e) {
+      return null;
+    }
+  }
+
+  @Nonnull
+  @Override
+  public Blob loadBlob(@Nonnull Identifiable id) throws DatabaseException, RecordNotFoundException {
+    checkIfActive();
+    if (id instanceof Blob blob) {
+      if (blob.isNotBound(session)) {
+        return loadBlob(blob.getIdentity());
+      }
+      return blob;
+    } else if (id instanceof DBRecord) {
+      throw new DatabaseException(session, "Record " + id + "is not a blob.");
+    }
+
+    return session.loadBlob(id.getIdentity());
+  }
+
+  @Nonnull
+  @Override
+  public Blob loadBlobOrNull(@Nonnull Identifiable id) throws DatabaseException {
+    checkIfActive();
+    if (id instanceof Blob blob) {
+      if (blob.isNotBound(session)) {
+        return loadBlobOrNull(blob.getIdentity());
+      }
+
+      return blob;
+    } else if (id instanceof DBRecord) {
+      throw new DatabaseException(session, "Record " + id + "is not a blob.");
+    }
+
+    try {
+      return session.loadBlob(id.getIdentity());
+    } catch (RecordNotFoundException e) {
+      return null;
+    }
+
   }
 
   @Override
@@ -1358,9 +1532,34 @@ public class FrontendTransactionImpl implements
 
   @Nullable
   @Override
-  public <RET extends DBRecord> RET loadSilently(RID recordId) {
+  public <RET extends DBRecord> RET loadOrNull(RID recordId) {
     checkIfActive();
-    return session.loadSilently(recordId);
+    return session.loadOrNull(recordId);
+  }
+
+  @Nonnull
+  @Override
+  public <RET extends DBRecord> RET load(Identifiable identifiable) {
+    checkIfActive();
+
+    if (identifiable instanceof DBRecord record) {
+      //noinspection unchecked
+      return (RET) record;
+    }
+
+    return session.load(identifiable.getIdentity());
+  }
+
+  @Nullable
+  @Override
+  public <RET extends DBRecord> RET loadOrNull(Identifiable identifiable) {
+    checkIfActive();
+    if (identifiable instanceof DBRecord record) {
+      //noinspection unchecked
+      return (RET) record;
+    }
+
+    return session.loadOrNull(identifiable.getIdentity());
   }
 
   @Override

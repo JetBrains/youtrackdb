@@ -18,16 +18,9 @@ public class HookRegisterRemoveTest extends DbTestBase {
         new RecordHook() {
 
           @Override
-          public void onUnregister() {
-          }
-
-          @Override
-          public RESULT onTrigger(@Nonnull TYPE iType,
-              @Nonnull DBRecord iRecord) {
+          public void onTrigger(@Nonnull TYPE iType, @Nonnull DBRecord iRecord) {
             integer.incrementAndGet();
-            return null;
           }
-
         };
     session.registerHook(iHookImpl);
 
@@ -36,13 +29,22 @@ public class HookRegisterRemoveTest extends DbTestBase {
     entity.setProperty("test", "test");
     session.commit();
 
-    assertEquals(3, integer.get());
+    assertEquals(1, integer.get());
     session.unregisterHook(iHookImpl);
 
     session.begin();
     session.newEntity();
     session.commit();
 
+    //create
+    assertEquals(1, integer.get());
+
+    session.registerHook(iHookImpl);
+    var tx = session.begin();
+    tx.delete(tx.bindToSession(entity));
+    tx.commit();
+
+    //read + delete
     assertEquals(3, integer.get());
   }
 }

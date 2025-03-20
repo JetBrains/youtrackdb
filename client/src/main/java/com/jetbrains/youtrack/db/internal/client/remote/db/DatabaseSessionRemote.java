@@ -59,14 +59,11 @@ import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionMan
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendClientServerTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
 
-/**
- *
- */
+
 public class DatabaseSessionRemote extends DatabaseSessionAbstract {
 
   protected StorageRemoteSession sessionMetadata;
@@ -84,8 +81,6 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
       this.storage = storage;
       this.sharedContext = sharedContext;
       this.componentsFactory = storage.getComponentsFactory();
-
-      unmodifiableHooks = Collections.unmodifiableMap(hooks);
 
       init();
 
@@ -464,54 +459,32 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
     }
   }
 
-  @Override
-  public void beforeCreateOperations(RecordAbstract id, String iClusterName) {
-    assert assertIfNotActive();
-    checkSecurity(Role.PERMISSION_CREATE, id, iClusterName);
 
-    callbackHooks(RecordHook.TYPE.BEFORE_CREATE, id);
+  public void afterUpdateOperations(final RecordAbstract id, java.lang.String clusterName) {
+    assert assertIfNotActive();
+    callbackHooks(RecordHook.TYPE.UPDATE, id);
   }
 
-  @Override
-  public void beforeUpdateOperations(RecordAbstract id, String iClusterName) {
+  public void afterCreateOperations(final RecordAbstract id, String clusterName) {
     assert assertIfNotActive();
-    checkSecurity(Role.PERMISSION_UPDATE, id, iClusterName);
-
-    callbackHooks(RecordHook.TYPE.BEFORE_UPDATE, id);
+    callbackHooks(RecordHook.TYPE.CREATE, id);
   }
 
-  @Override
-  public void beforeDeleteOperations(RecordAbstract id, String iClusterName) {
+  public void afterDeleteOperations(final RecordAbstract id, String clusterName) {
     assert assertIfNotActive();
-    checkSecurity(Role.PERMISSION_DELETE, id, iClusterName);
-    callbackHooks(RecordHook.TYPE.BEFORE_DELETE, id);
-  }
-
-  public void afterUpdateOperations(final RecordAbstract id) {
-    assert assertIfNotActive();
-    callbackHooks(RecordHook.TYPE.AFTER_UPDATE, id);
-  }
-
-  public void afterCreateOperations(final RecordAbstract id) {
-    assert assertIfNotActive();
-    callbackHooks(RecordHook.TYPE.AFTER_CREATE, id);
-  }
-
-  public void afterDeleteOperations(final RecordAbstract id) {
-    assert assertIfNotActive();
-    callbackHooks(RecordHook.TYPE.AFTER_DELETE, id);
+    callbackHooks(RecordHook.TYPE.DELETE, id);
   }
 
   @Override
   public boolean beforeReadOperations(RecordAbstract identifiable) {
     assert assertIfNotActive();
-    return callbackHooks(RecordHook.TYPE.BEFORE_READ, identifiable) == RecordHook.RESULT.SKIP;
+    return false;
   }
 
   @Override
   public void afterReadOperations(RecordAbstract identifiable) {
     assert assertIfNotActive();
-    callbackHooks(RecordHook.TYPE.AFTER_READ, identifiable);
+    callbackHooks(RecordHook.TYPE.READ, identifiable);
   }
 
   @Override

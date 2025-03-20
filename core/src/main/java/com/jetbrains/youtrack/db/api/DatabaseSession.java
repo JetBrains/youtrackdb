@@ -43,6 +43,7 @@ import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Stream;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -549,14 +550,14 @@ public interface DatabaseSession extends AutoCloseable {
    *
    * @param iHookImpl RecordHook implementation
    */
-  void registerHook(RecordHook iHookImpl);
+  void registerHook(@Nonnull RecordHook iHookImpl);
 
   /**
    * Unregisters a previously registered hook.
    *
    * @param iHookImpl RecordHook implementation
    */
-  void unregisterHook(RecordHook iHookImpl);
+  void unregisterHook(@Nonnull RecordHook iHookImpl);
 
   /**
    * Retrieves all the registered listeners.
@@ -593,8 +594,11 @@ public interface DatabaseSession extends AutoCloseable {
    */
   void set(ATTRIBUTES iAttribute, Object iValue);
 
-  @Nullable
+  @Nonnull
   Transaction getActiveTransaction();
+
+  @Nullable
+  Transaction getActiveTransactionOrNull();
 
   <T> List<T> newEmbeddedList();
 

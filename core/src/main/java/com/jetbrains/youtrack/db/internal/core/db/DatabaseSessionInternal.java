@@ -129,7 +129,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    */
   RecordSerializer getSerializer();
 
-  void registerHook(final RecordHook iHookImpl, RecordHook.HOOK_POSITION iPosition);
+  void registerHook(final @Nonnull RecordHook iHookImpl);
 
   /**
    * Retrieves all the registered hooks.
@@ -137,7 +137,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * @return A not-null unmodifiable map of RecordHook and position instances. If there are no hooks
    * registered, the Map is empty.
    */
-  Map<RecordHook, RecordHook.HOOK_POSITION> getHooks();
+  List<RecordHook> getHooks();
 
   /**
    * Activate current database instance on current thread.
@@ -170,19 +170,13 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   boolean beforeReadOperations(final RecordAbstract identifiable);
 
-  void beforeCreateOperations(final RecordAbstract id, String iClusterName);
+  void afterUpdateOperations(final RecordAbstract id, java.lang.String clusterName);
 
-  void beforeUpdateOperations(final RecordAbstract id, String iClusterName);
+  void afterCreateOperations(final RecordAbstract id, String clusterName);
 
-  void beforeDeleteOperations(final RecordAbstract id, String iClusterName);
+  void afterDeleteOperations(final RecordAbstract id, java.lang.String clusterName);
 
-  void afterUpdateOperations(final RecordAbstract id);
-
-  void afterCreateOperations(final RecordAbstract id);
-
-  void afterDeleteOperations(final RecordAbstract id);
-
-  RecordHook.RESULT callbackHooks(final TYPE type, final RecordAbstract id);
+  void callbackHooks(final TYPE type, final RecordAbstract record);
 
   @Nullable
   <RET extends RecordAbstract> RawPair<RET, RecordId> loadFirstRecordAndNextRidInCluster(
@@ -979,10 +973,10 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * @throws RecordNotFoundException if the record does not exist
    */
   @Nonnull
-  default Edge loadEdge(RID id) throws DatabaseException, RecordNotFoundException {
+  default StatefulEdge loadEdge(RID id) throws DatabaseException, RecordNotFoundException {
     var record = load(id);
 
-    if (record instanceof Edge edge) {
+    if (record instanceof StatefulEdge edge) {
       return edge;
     }
 
@@ -1142,7 +1136,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * @return The loaded entity or <code>null</code> if entity does not exist.
    */
   @Nullable
-  default <RET extends DBRecord> RET loadSilently(RID recordId) {
+  default <RET extends DBRecord> RET loadOrNull(RID recordId) {
     try {
       return load(recordId);
     } catch (RecordNotFoundException e) {
@@ -1267,8 +1261,8 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   /**
    * Executes a generic (non-idempotent) command, ignoring the produced result. Works in the same
-   * way as {@link DatabaseSessionInternal#execute(String, Object...)}, but doesn't require closing the
-   * result set after usage. <br>
+   * way as {@link DatabaseSessionInternal#execute(String, Object...)}, but doesn't require closing
+   * the result set after usage. <br>
    * <br>
    * Sample usage:
    *
@@ -1285,8 +1279,8 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   /**
    * Executes a generic (non-idempotent) command, ignoring the produced result. Works in the same
-   * way as {@link DatabaseSessionInternal#execute(String, Map)}, but doesn't require closing the result set
-   * after usage. <br>
+   * way as {@link DatabaseSessionInternal#execute(String, Map)}, but doesn't require closing the
+   * result set after usage. <br>
    * <br>
    * Sample usage:
    *

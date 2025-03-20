@@ -88,7 +88,7 @@ public class DbImportStreamExportTest extends BaseDBTest implements CommandOutpu
     final var dbImport =
         new DatabaseImport(database, new FileInputStream(importDir), this);
     // UNREGISTER ALL THE HOOKS
-    for (final var hook : new ArrayList<>(database.getHooks().keySet())) {
+    for (final var hook : new ArrayList<>(database.getHooks())) {
       database.unregisterHook(hook);
     }
 

@@ -97,7 +97,7 @@ public class DbImportExportRidbagTest extends BaseDBTest implements CommandOutpu
     dbImport.setMaxRidbagStringSizeBeforeLazyImport(50);
 
     // UNREGISTER ALL THE HOOKS
-    for (var hook : new ArrayList<RecordHook>(database.getHooks().keySet())) {
+    for (var hook : new ArrayList<RecordHook>(database.getHooks())) {
       database.unregisterHook(hook);
     }
 

@@ -22,7 +22,6 @@ package com.jetbrains.youtrack.db.api.record;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import java.util.Comparator;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -30,7 +29,7 @@ import javax.annotation.Nullable;
  * Base interface for identifiable objects. This abstraction is required to use RID and Record in
  * many points.
  */
-public interface Identifiable extends Comparable<Identifiable>, Comparator<Identifiable> {
+public interface Identifiable extends Comparable<Identifiable> {
   /**
    * Returns the record identity.
    *

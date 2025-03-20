@@ -102,7 +102,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
                 (DatabaseSessionInternal) importDB, testPath + "/" + exportFilePath, this);
         // UNREGISTER ALL THE HOOKS
         for (final var hook : new ArrayList<>(
-            ((DatabaseSessionInternal) importDB).getHooks().keySet())) {
+            ((DatabaseSessionInternal) importDB).getHooks())) {
           session.unregisterHook(hook);
         }
         dbImport.setDeleteRIDMapping(false);

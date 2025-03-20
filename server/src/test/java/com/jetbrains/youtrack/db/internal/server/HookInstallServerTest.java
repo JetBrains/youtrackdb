@@ -2,11 +2,11 @@ package com.jetbrains.youtrack.db.internal.server;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.EntityHookAbstract;
 import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.hook.DocumentHookAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.tools.config.ServerConfigurationManager;
 import com.jetbrains.youtrack.db.internal.tools.config.ServerHookConfiguration;
 import java.io.File;
@@ -26,14 +26,14 @@ public class HookInstallServerTest {
 
   private static final String SERVER_DIRECTORY = "./target/dbfactory";
 
-  public static class MyHook extends DocumentHookAbstract {
+  public static class MyHook extends EntityHookAbstract {
 
     public MyHook(DatabaseSession session) {
       super(session);
     }
 
     @Override
-    public void onRecordAfterCreate(EntityImpl entity) {
+    public void onEntityCreate(Entity entity) {
       count++;
     }
   }

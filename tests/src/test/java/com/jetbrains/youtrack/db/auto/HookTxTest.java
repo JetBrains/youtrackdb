@@ -20,6 +20,7 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RecordHookAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.testng.Assert;
+import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
@@ -27,101 +28,58 @@ import org.testng.annotations.Test;
 @Test
 public class HookTxTest extends BaseDBTest {
 
-  public static final int RECORD_BEFORE_CREATE = 3;
-  public static final int RECORD_AFTER_CREATE = 5;
-  public static final int RECORD_BEFORE_READ = 7;
-  public static final int RECORD_AFTER_READ = 11;
-  public static final int RECORD_BEFORE_UPDATE = 13;
-  public static final int RECORD_AFTER_UPDATE = 17;
-  public static final int RECORD_BEFORE_DELETE = 19;
-  public static final int RECORD_AFTER_DELETE = 23;
-
-  private int callbackCount = 0;
   private Entity profile;
-  private int expectedHookState;
+  private RecordHook recordHook;
 
   private final class RecordHook extends RecordHookAbstract {
 
-    @Override
-    @Test(enabled = false)
-    public RESULT onRecordBeforeCreate(DBRecord iRecord) {
-      if (iRecord instanceof EntityImpl
-          && ((EntityImpl) iRecord).getSchemaClassName() != null
-          && ((EntityImpl) iRecord).getSchemaClassName().equals("Profile")) {
-        callbackCount += RECORD_BEFORE_CREATE;
-      }
-      return RESULT.RECORD_NOT_CHANGED;
-    }
+    private int createCount;
+    private int readCount;
+    private int updateCount;
+    private int deleteCount;
+    private int callbackCount;
 
     @Override
     @Test(enabled = false)
-    public void onRecordAfterCreate(DBRecord iRecord) {
+    public void onRecordCreate(DBRecord iRecord) {
       if (iRecord instanceof EntityImpl
           && ((EntityImpl) iRecord).getSchemaClassName() != null
           && ((EntityImpl) iRecord).getSchemaClassName().equals("Profile")) {
-        callbackCount += RECORD_AFTER_CREATE;
+        createCount++;
+        callbackCount++;
       }
     }
 
     @Override
     @Test(enabled = false)
-    public void onRecordBeforeRead(DBRecord iRecord) {
+    public void onRecordRead(DBRecord iRecord) {
       if (iRecord instanceof EntityImpl
           && ((EntityImpl) iRecord).getSchemaClassName() != null
           && ((EntityImpl) iRecord).getSchemaClassName().equals("Profile")) {
-        callbackCount += RECORD_BEFORE_READ;
+        readCount++;
+        callbackCount++;
       }
     }
 
     @Override
     @Test(enabled = false)
-    public void onRecordAfterRead(DBRecord iRecord) {
+    public void onRecordUpdate(DBRecord iRecord) {
       if (iRecord instanceof EntityImpl
           && ((EntityImpl) iRecord).getSchemaClassName() != null
           && ((EntityImpl) iRecord).getSchemaClassName().equals("Profile")) {
-        callbackCount += RECORD_AFTER_READ;
+        updateCount++;
+        callbackCount++;
       }
     }
 
     @Override
     @Test(enabled = false)
-    public RESULT onRecordBeforeUpdate(DBRecord iRecord) {
+    public void onRecordDelete(DBRecord iRecord) {
       if (iRecord instanceof EntityImpl
           && ((EntityImpl) iRecord).getSchemaClassName() != null
           && ((EntityImpl) iRecord).getSchemaClassName().equals("Profile")) {
-        callbackCount += RECORD_BEFORE_UPDATE;
-      }
-      return RESULT.RECORD_NOT_CHANGED;
-    }
-
-    @Override
-    @Test(enabled = false)
-    public void onRecordAfterUpdate(DBRecord iRecord) {
-      if (iRecord instanceof EntityImpl
-          && ((EntityImpl) iRecord).getSchemaClassName() != null
-          && ((EntityImpl) iRecord).getSchemaClassName().equals("Profile")) {
-        callbackCount += RECORD_AFTER_UPDATE;
-      }
-    }
-
-    @Override
-    @Test(enabled = false)
-    public RESULT onRecordBeforeDelete(DBRecord iRecord) {
-      if (iRecord instanceof EntityImpl
-          && ((EntityImpl) iRecord).getSchemaClassName() != null
-          && ((EntityImpl) iRecord).getSchemaClassName().equals("Profile")) {
-        callbackCount += RECORD_BEFORE_DELETE;
-      }
-      return RESULT.RECORD_NOT_CHANGED;
-    }
-
-    @Override
-    @Test(enabled = false)
-    public void onRecordAfterDelete(DBRecord iRecord) {
-      if (iRecord instanceof EntityImpl
-          && ((EntityImpl) iRecord).getSchemaClassName() != null
-          && ((EntityImpl) iRecord).getSchemaClassName().equals("Profile")) {
-        callbackCount += RECORD_AFTER_DELETE;
+        deleteCount++;
+        callbackCount++;
       }
     }
 
@@ -132,69 +90,62 @@ public class HookTxTest extends BaseDBTest {
     super(remote != null ? remote : false);
   }
 
-  @Test
-  public void testRegisterHook() {
-    session.registerHook(new RecordHook());
+  @BeforeMethod
+  public void beforeMethod() {
+    recordHook = new RecordHook();
+    session.registerHook(recordHook);
   }
 
-  @Test(dependsOnMethods = "testRegisterHook")
+  @Test
   public void testHookCallsCreate() {
-    session.registerHook(new RecordHook());
     profile = session.newInstance("Profile");
     profile.setProperty("nick", "HookTxTest");
     profile.setProperty("value", 0);
 
-    expectedHookState = 0;
-
     // TEST HOOKS ON CREATE
-    Assert.assertEquals(callbackCount, 0);
+    Assert.assertEquals(recordHook.callbackCount, 0);
     session.begin();
     session.commit();
 
-    expectedHookState += RECORD_BEFORE_CREATE + RECORD_AFTER_CREATE;
-    Assert.assertEquals(callbackCount, expectedHookState);
+    Assert.assertEquals(recordHook.createCount, 1);
+    Assert.assertEquals(recordHook.readCount, 1);
+    Assert.assertEquals(recordHook.callbackCount, 2);
   }
 
-  @Test(dependsOnMethods = "testHookCallsCreate")
+  @Test
   public void testHookCallsRead() {
-    session.registerHook(new RecordHook());
     // TEST HOOKS ON READ
     session.begin();
 
-    expectedHookState += RECORD_BEFORE_READ + RECORD_AFTER_READ;
-
     this.profile = session.load(profile.getIdentity());
-    Assert.assertEquals(callbackCount, expectedHookState);
-
-    Assert.assertEquals(callbackCount, expectedHookState);
     session.commit();
+
+    Assert.assertEquals(recordHook.readCount, 1);
+    Assert.assertEquals(recordHook.callbackCount, 1);
   }
 
-  @Test(dependsOnMethods = "testHookCallsRead")
+  @Test
   public void testHookCallsUpdate() {
-    session.registerHook(new RecordHook());
     session.begin();
     profile = session.load(profile.getIdentity());
     // TEST HOOKS ON UPDATE
     profile.setProperty("value", profile.<Integer>getProperty("value") + 1000);
     session.commit();
 
-    expectedHookState +=
-        RECORD_BEFORE_UPDATE + RECORD_AFTER_UPDATE + RECORD_BEFORE_READ + RECORD_AFTER_READ;
-    Assert.assertEquals(callbackCount, expectedHookState);
+    Assert.assertEquals(recordHook.readCount, 1);
+    Assert.assertEquals(recordHook.updateCount, 1);
+    Assert.assertEquals(recordHook.callbackCount, 2);
   }
 
   @Test(dependsOnMethods = "testHookCallsUpdate")
   public void testHookCallsDelete() {
-    session.registerHook(new RecordHook());
-    // TEST HOOKS ON DELETE
     session.begin();
     session.delete(session.bindToSession(profile));
     session.commit();
 
-    expectedHookState +=
-        RECORD_BEFORE_DELETE + RECORD_AFTER_DELETE + RECORD_BEFORE_READ + RECORD_AFTER_READ;
-    Assert.assertEquals(callbackCount, expectedHookState);
+    Assert.assertEquals(recordHook.readCount, 1);
+    Assert.assertEquals(recordHook.deleteCount, 1);
+    Assert.assertEquals(recordHook.callbackCount, 2);
 
     session.unregisterHook(new RecordHook());
   }
