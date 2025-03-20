@@ -298,13 +298,14 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
   }
 
   @Override
-  public Set<SchemaClass> getClassesRelyOnCluster(final String iClusterName) {
-    assert session.assertIfNotActive();
-    var classes = delegate.getClassesRelyOnCluster(session, iClusterName);
+  public Set<SchemaClass> getClassesRelyOnCluster(final String iClusterName,
+      DatabaseSessionInternal session) {
+    assert this.session.assertIfNotActive();
+    var classes = delegate.getClassesRelyOnCluster(this.session, iClusterName);
     var result = new HashSet<SchemaClass>(classes.size());
 
     for (var cls : classes) {
-      result.add(new SchemaClassProxy(cls, session));
+      result.add(new SchemaClassProxy(cls, this.session));
     }
     return result;
   }

@@ -57,12 +57,9 @@ public class ImmutableSchema implements SchemaInternal {
   private final List<GlobalProperty> properties;
   private final ClusterSelectionFactory clusterSelectionFactory;
   private final Map<String, IndexDefinition> indexes;
-  @Nonnull
-  private final DatabaseSessionInternal session;
 
   public ImmutableSchema(@Nonnull SchemaShared schemaShared,
       @Nonnull DatabaseSessionInternal session) {
-    this.session = session;
     version = schemaShared.getVersion();
     identity = schemaShared.getIdentity(session);
     clusterSelectionFactory = schemaShared.getClusterSelectionFactory();
@@ -261,7 +258,8 @@ public class ImmutableSchema implements SchemaInternal {
     return new RecordId(identity);
   }
 
-  public Set<SchemaClass> getClassesRelyOnCluster(String clusterName) {
+  public Set<SchemaClass> getClassesRelyOnCluster(String clusterName,
+      DatabaseSessionInternal session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
 
     final var clusterId = session.getClusterIdByName(clusterName);

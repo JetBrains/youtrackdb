@@ -672,7 +672,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     assert assertIfNotActive();
     // CHECK FOR ORESTRICTED
     final var classes =
-        getMetadata().getImmutableSchemaSnapshot().getClassesRelyOnCluster(iClusterName);
+        getMetadata().getImmutableSchemaSnapshot().getClassesRelyOnCluster(iClusterName, this);
 
     for (var c : classes) {
       if (c.isSubClassOf(SecurityShared.RESTRICTED_CLASSNAME)) {
