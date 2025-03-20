@@ -18,7 +18,6 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37Client;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.result.binary.ResultSerializerNetwork;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
@@ -39,8 +38,7 @@ import javax.annotation.Nullable;
 public class MessageHelper {
 
   public static void writeIdentifiable(
-      DatabaseSessionInternal session, ChannelDataOutput channel, final Identifiable o,
-      RecordSerializer serializer)
+      DatabaseSessionInternal session, ChannelDataOutput channel, final Identifiable o)
       throws IOException {
     if (o == null) {
       channel.writeShort(ChannelBinaryProtocol.RECORD_NULL);
@@ -48,7 +46,12 @@ public class MessageHelper {
       channel.writeShort(ChannelBinaryProtocol.RECORD_RID);
       channel.writeRID((RID) o);
     } else {
-      writeRecord(session, channel, o.getRecord(session), serializer);
+      var record = (RecordAbstract) o;
+      if (record.isEmbedded()) {
+        writeProjection(session, record.asEntity().detach(), channel);
+      }
+
+      writeIdentifiable(session, channel, record.getIdentity());
     }
   }
 
@@ -354,101 +357,42 @@ public class MessageHelper {
     ser.toStream(session, item, channel);
   }
 
-  private static void writeBlob(
-      DatabaseSessionInternal session, Result row, ChannelDataOutput channel,
-      RecordSerializer recordSerializer)
-      throws IOException {
-    channel.writeByte(QueryResponse.RECORD_TYPE_BLOB);
-    writeIdentifiable(session, channel, row.asBlob(), recordSerializer);
-  }
-
-  private static void writeVertex(
-      DatabaseSessionInternal session, Result row, ChannelDataOutput channel,
-      RecordSerializer recordSerializer)
-      throws IOException {
-    channel.writeByte(QueryResponse.RECORD_TYPE_VERTEX);
-    writeDocument(session, channel, row.asEntity().getRecord(session), recordSerializer);
-  }
-
-  private static void writeEntity(
-      DatabaseSessionInternal session, Result row, ChannelDataOutput channel,
-      RecordSerializer recordSerializer)
-      throws IOException {
-    channel.writeByte(QueryResponse.RECORD_TYPE_ELEMENT);
-    writeDocument(session, channel, row.asEntity().getRecord(session), recordSerializer);
-  }
-
-  private static void writeEdge(
-      DatabaseSessionInternal session, Result row, ChannelDataOutput channel,
-      RecordSerializer recordSerializer)
-      throws IOException {
-    channel.writeByte(QueryResponse.RECORD_TYPE_EDGE);
-    writeDocument(session, channel, row.asEntity().getRecord(session), recordSerializer);
-  }
-
-  private static void writeDocument(
-      DatabaseSessionInternal session, ChannelDataOutput channel, EntityImpl entity,
-      RecordSerializer serializer) throws IOException {
-    writeIdentifiable(session, channel, entity, serializer);
-  }
-
   public static void writeResult(
-      DatabaseSessionInternal session, Result row, ChannelDataOutput channel,
-      RecordSerializer recordSerializer)
+      DatabaseSessionInternal session, Result row, ChannelDataOutput channel)
       throws IOException {
     if (row.isBlob()) {
-      writeBlob(session, row, channel, recordSerializer);
+      channel.writeByte(QueryResponse.RECORD_TYPE_RID);
+      writeIdentifiable(session, channel, row.asBlob().getIdentity());
     } else if (row.isVertex()) {
-      writeVertex(session, row, channel, recordSerializer);
+      channel.writeByte(QueryResponse.RECORD_TYPE_RID);
+      writeIdentifiable(session, channel, row.asVertex().getIdentity());
     } else if (row.isStatefulEdge()) {
-      writeEdge(session, row, channel, recordSerializer);
+      channel.writeByte(QueryResponse.RECORD_TYPE_RID);
+      writeIdentifiable(session, channel, row.asStatefulEdge().getIdentity());
     } else if (row.isEntity()) {
-      writeEntity(session, row, channel, recordSerializer);
+      var entity = row.asEntity();
+      if (entity.isEmbedded()) {
+        writeProjection(session, entity.detach(), channel);
+      } else {
+        channel.writeByte(QueryResponse.RECORD_TYPE_RID);
+        writeIdentifiable(session, channel, entity.getIdentity());
+      }
     } else {
       writeProjection(session, row, channel);
     }
   }
 
-  private static ResultInternal readBlob(DatabaseSessionInternal session, ChannelDataInput channel)
-      throws IOException {
-    RecordSerializer serializer = RecordSerializerNetworkV37.INSTANCE;
-    return new ResultInternal(session, readIdentifiable(session, channel, serializer));
-  }
 
   public static ResultInternal readResult(DatabaseSessionInternal session, ChannelDataInput channel)
       throws IOException {
     var type = channel.readByte();
     return switch (type) {
-      case QueryResponse.RECORD_TYPE_BLOB -> readBlob(session, channel);
-      case QueryResponse.RECORD_TYPE_VERTEX -> readVertex(session, channel);
-      case QueryResponse.RECORD_TYPE_EDGE -> readEdge(session, channel);
-      case QueryResponse.RECORD_TYPE_ELEMENT -> readEntityAsResult(session, channel);
       case QueryResponse.RECORD_TYPE_PROJECTION -> readProjection(session, channel);
-      default -> new ResultInternal(session);
+      case QueryResponse.RECORD_TYPE_RID ->
+          new ResultInternal(session, readIdentifiable(session, channel,
+              RecordSerializerNetworkV37.INSTANCE));
+      default -> throw new IllegalStateException("Unknown record type: " + type);
     };
-  }
-
-  private static ResultInternal readEntityAsResult(DatabaseSessionInternal session,
-      ChannelDataInput channel)
-      throws IOException {
-    return new ResultInternal(session, readEntity(session, channel));
-  }
-
-  private static ResultInternal readVertex(DatabaseSessionInternal session,
-      ChannelDataInput channel)
-      throws IOException {
-    return new ResultInternal(session, readEntity(session, channel));
-  }
-
-  private static ResultInternal readEdge(DatabaseSessionInternal session, ChannelDataInput channel)
-      throws IOException {
-    return new ResultInternal(session, readEntity(session, channel));
-  }
-
-  private static DBRecord readEntity(DatabaseSessionInternal session, ChannelDataInput channel)
-      throws IOException {
-    RecordSerializer serializer = RecordSerializerNetworkV37Client.INSTANCE;
-    return (DBRecord) readIdentifiable(session, channel, serializer);
   }
 
   private static ResultInternal readProjection(DatabaseSessionInternal session,

@@ -1,11 +1,10 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.client.remote.RemotePushHandler;
 import com.jetbrains.youtrack.db.internal.client.remote.message.live.LiveQueryResult;
 import com.jetbrains.youtrack.db.internal.common.exception.ErrorCode;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
@@ -61,10 +60,10 @@ public class LiveQueryPushRequest implements BinaryPushRequest {
       for (var event : events) {
         channel.writeByte(event.getEventType());
         MessageHelper.writeResult(session,
-            event.getCurrentValue(), channel, RecordSerializerNetworkV37.INSTANCE);
+            event.getCurrentValue(), channel);
         if (event.getEventType() == LiveQueryResult.UPDATE_EVENT) {
           MessageHelper.writeResult(session,
-              event.getOldValue(), channel, RecordSerializerNetworkV37.INSTANCE);
+              event.getOldValue(), channel);
         }
       }
     }

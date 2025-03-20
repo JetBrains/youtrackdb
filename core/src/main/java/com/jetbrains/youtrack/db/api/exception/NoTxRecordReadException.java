@@ -9,4 +9,8 @@ public class NoTxRecordReadException extends DatabaseException implements HighLe
   public NoTxRecordReadException(String message) {
     super(message);
   }
+
+  public NoTxRecordReadException(NoTxRecordReadException exception) {
+    super(exception);
+  }
 }

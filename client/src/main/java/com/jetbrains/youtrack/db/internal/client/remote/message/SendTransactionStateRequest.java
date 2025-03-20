@@ -4,8 +4,10 @@ import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
+import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
 import com.jetbrains.youtrack.db.internal.core.tx.NetworkRecordOperation;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
@@ -22,13 +24,14 @@ public class SendTransactionStateRequest implements BinaryRequest<SendTransactio
 
   @Nonnull
   private final List<NetworkRecordOperation> operations;
+  private List<RawPair<RecordId, Long>> receivedDirtyCounters;
 
   public SendTransactionStateRequest() {
     operations = new ArrayList<>();
   }
 
   public SendTransactionStateRequest(DatabaseSessionInternal session, long txId,
-      Iterable<RecordOperation> operations) {
+      Iterable<RecordOperation> operations, List<RawPair<RecordId, Long>> receivedDirtyCounters) {
     this.txId = txId;
     this.operations = new ArrayList<>();
 
@@ -36,6 +39,7 @@ public class SendTransactionStateRequest implements BinaryRequest<SendTransactio
       var request = new NetworkRecordOperation(session, txEntry);
       this.operations.add(request);
     }
+    this.receivedDirtyCounters = receivedDirtyCounters;
   }
 
   @Override
@@ -43,13 +47,16 @@ public class SendTransactionStateRequest implements BinaryRequest<SendTransactio
       StorageRemoteSession session) throws IOException {
     network.writeLong(txId);
 
+    network.writeInt(operations.size());
     for (var txEntry : operations) {
-      network.writeByte((byte) 1);
       MessageHelper.writeTransactionEntry(network, txEntry);
     }
 
-    //flag of end of entries
-    network.writeByte((byte) 0);
+    network.writeInt(receivedDirtyCounters.size());
+    for (var entry : receivedDirtyCounters) {
+      network.writeRID(entry.getFirst());
+      network.writeLong(entry.getSecond());
+    }
   }
 
   @Override
@@ -58,17 +65,22 @@ public class SendTransactionStateRequest implements BinaryRequest<SendTransactio
       RecordSerializerNetwork serializer)
       throws IOException {
     txId = channel.readLong();
+
     operations.clear();
+    var operationsSize = channel.readInt();
 
-    byte hasEntry;
-    do {
-      hasEntry = channel.readByte();
-      if (hasEntry == 1) {
-        var entry = MessageHelper.readTransactionEntry(channel);
-        operations.add(entry);
-      }
-    } while (hasEntry == 1);
+    for (var i = 0; i < operationsSize; i++) {
+      var entry = MessageHelper.readTransactionEntry(channel);
+      operations.add(entry);
+    }
 
+    var receivedDirtyCountersSize = channel.readInt();
+    receivedDirtyCounters = new ArrayList<>(receivedDirtyCountersSize);
+    for (var i = 0; i < receivedDirtyCountersSize; i++) {
+      var rid = channel.readRID();
+      var dirtyCounter = channel.readLong();
+      receivedDirtyCounters.add(new RawPair<>(rid, dirtyCounter));
+    }
   }
 
   @Override
@@ -98,5 +110,9 @@ public class SendTransactionStateRequest implements BinaryRequest<SendTransactio
   @Nonnull
   public List<NetworkRecordOperation> getOperations() {
     return operations;
+  }
+
+  public List<RawPair<RecordId, Long>> getReceivedDirtyCounters() {
+    return receivedDirtyCounters;
   }
 }

@@ -4,8 +4,10 @@ import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
+import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
 import com.jetbrains.youtrack.db.internal.core.tx.NetworkRecordOperation;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
@@ -13,6 +15,7 @@ import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataI
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import javax.annotation.Nonnull;
 
@@ -23,13 +26,15 @@ public class Commit38Request implements BinaryRequest<Commit37Response> {
 
   private long txId;
   private List<NetworkRecordOperation> operations;
+  private List<RawPair<RecordId, Long>> receivedDirtyCounters;
 
   public Commit38Request() {
   }
 
   public Commit38Request(
       DatabaseSessionInternal session, long txId,
-      @Nonnull Iterable<RecordOperation> operations) {
+      @Nonnull Collection<RecordOperation> operations,
+      @Nonnull List<RawPair<RecordId, Long>> receivedDirtyCounters) {
     this.txId = txId;
 
     List<NetworkRecordOperation> netOperations = new ArrayList<>();
@@ -38,6 +43,7 @@ public class Commit38Request implements BinaryRequest<Commit37Response> {
       netOperations.add(request);
     }
     this.operations = netOperations;
+    this.receivedDirtyCounters = receivedDirtyCounters;
   }
 
   @Override
@@ -45,13 +51,16 @@ public class Commit38Request implements BinaryRequest<Commit37Response> {
       StorageRemoteSession session) throws IOException {
     // from 3.0 the the serializer is bound to the protocol
     network.writeLong(txId);
+    network.writeInt(operations.size());
     for (var txEntry : operations) {
-      network.writeByte((byte) 1);
       MessageHelper.writeTransactionEntry(network, txEntry);
     }
 
-    // END OF RECORD ENTRIES
-    network.writeByte((byte) 0);
+    network.writeInt(receivedDirtyCounters.size());
+    for (var pair : receivedDirtyCounters) {
+      network.writeRID(pair.getFirst());
+      network.writeLong(pair.getSecond());
+    }
   }
 
   @Override
@@ -60,16 +69,22 @@ public class Commit38Request implements BinaryRequest<Commit37Response> {
       RecordSerializerNetwork serializer)
       throws IOException {
     txId = channel.readLong();
-    operations = new ArrayList<>();
 
-    byte hasEntry;
-    do {
-      hasEntry = channel.readByte();
-      if (hasEntry == 1) {
-        var entry = MessageHelper.readTransactionEntry(channel);
-        operations.add(entry);
-      }
-    } while (hasEntry == 1);
+    var operationsSize = channel.readInt();
+    operations = new ArrayList<>(operationsSize);
+
+    for (var i = 0; i < operationsSize; i++) {
+      var entry = MessageHelper.readTransactionEntry(channel);
+      operations.add(entry);
+    }
+
+    var dirtyCountersSize = channel.readInt();
+    receivedDirtyCounters = new ArrayList<>(dirtyCountersSize);
+    for (var i = 0; i < dirtyCountersSize; i++) {
+      var rid = channel.readRID();
+      var counter = channel.readLong();
+      receivedDirtyCounters.add(new RawPair<>(rid, counter));
+    }
   }
 
   @Override
@@ -98,5 +113,9 @@ public class Commit38Request implements BinaryRequest<Commit37Response> {
 
   public List<NetworkRecordOperation> getOperations() {
     return operations;
+  }
+
+  public List<RawPair<RecordId, Long>> getReceivedDirtyCounters() {
+    return receivedDirtyCounters;
   }
 }

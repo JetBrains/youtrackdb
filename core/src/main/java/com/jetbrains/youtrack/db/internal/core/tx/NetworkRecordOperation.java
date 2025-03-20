@@ -49,9 +49,21 @@ public class NetworkRecordOperation {
       case RecordOperation.UPDATED:
         this.contentChanged = txEntry.record.isContentChanged();
         if (EntityImpl.RECORD_TYPE == txEntry.record.getRecordType()) {
-          this.recordType = DocumentSerializerDelta.DELTA_RECORD_TYPE;
-          var delta = DocumentSerializerDelta.instance();
-          this.record = delta.serializeDelta(session, (EntityImpl) txEntry.record);
+          if (session.isRemote()) {
+            this.recordType = DocumentSerializerDelta.DELTA_RECORD_TYPE;
+            var delta = DocumentSerializerDelta.instance();
+            this.record = delta.serializeDelta(session, (EntityImpl) txEntry.record);
+          } else {
+            if (txEntry.dirtyCounterOnClientSide == 0) {
+              this.recordType = txEntry.record.getRecordType();
+              this.record =
+                  RecordSerializerNetworkV37.INSTANCE.toStream(session, txEntry.record);
+            } else {
+              this.recordType = DocumentSerializerDelta.DELTA_RECORD_TYPE;
+              var delta = DocumentSerializerDelta.instance();
+              this.record = delta.serializeDelta(session, (EntityImpl) txEntry.record);
+            }
+          }
         } else {
           this.recordType = txEntry.record.getRecordType();
           this.record =

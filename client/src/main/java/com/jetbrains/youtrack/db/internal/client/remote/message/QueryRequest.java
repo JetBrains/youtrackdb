@@ -113,7 +113,7 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
         result.setProperty(key, value);
       }
 
-      MessageHelper.writeResult(databaseSession, result, network, serializer);
+      MessageHelper.writeResult(databaseSession, result, network);
     } else {
       network.writeByte((byte) 0);
     }

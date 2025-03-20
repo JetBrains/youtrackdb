@@ -21,14 +21,13 @@ package com.jetbrains.youtrack.db.internal.client.remote.message;
 
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
 import java.io.IOException;
-import java.util.List;
+import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
 
@@ -38,9 +37,8 @@ public final class Commit37Response extends BeginTransactionResponse {
 
   public Commit37Response(
       long txId, Map<RecordId, RecordId> updatedToOldRecordIdMap,
-      List<RecordOperation> recordOperations,
       Map<UUID, BonsaiCollectionPointer> collectionChanges, DatabaseSessionInternal session) {
-    super(txId, updatedToOldRecordIdMap, recordOperations, session);
+    super(txId, updatedToOldRecordIdMap, Collections.emptyList(), session);
 
     this.collectionChanges = collectionChanges;
   }

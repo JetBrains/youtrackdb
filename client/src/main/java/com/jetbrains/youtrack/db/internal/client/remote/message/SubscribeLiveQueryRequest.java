@@ -47,7 +47,7 @@ public class SubscribeLiveQueryRequest implements BinaryRequest<SubscribeLiveQue
     // params
     var paramsResult = new ResultInternal(databaseSession);
     paramsResult.setProperty("params", this.params);
-    MessageHelper.writeResult(databaseSession, paramsResult, network, serializer);
+    MessageHelper.writeResult(databaseSession, paramsResult, network);
     network.writeBoolean(namedParams);
   }
 

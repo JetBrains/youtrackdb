@@ -40,7 +40,7 @@ public class RemoteGraphLiveQueryTest extends BaseServerMemoryDatabase {
 
     var l = new AtomicLong(0);
 
-    db.live(
+    context.live(db.getDatabaseName(), "admin", "adminpwd",
         "select from SecondV",
         new LiveQueryResultListener() {
 

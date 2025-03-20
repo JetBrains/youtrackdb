@@ -98,7 +98,7 @@ public final class ServerQueryRequest implements BinaryRequest<ServerQueryRespon
     var paramsResult = new ResultInternal(databaseSession);
     paramsResult.setProperty("params", params);
 
-    MessageHelper.writeResult(databaseSession, paramsResult, network, serializer);
+    MessageHelper.writeResult(databaseSession, paramsResult, network);
 
     network.writeBoolean(namedParams);
   }

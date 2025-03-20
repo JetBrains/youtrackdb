@@ -117,7 +117,7 @@ public final class CommandResponse implements BinaryResponse {
           channel.writeByte((byte) 2); // CLIENT CACHE RECORD. IT
           // ISN'T PART OF THE
           // RESULT SET
-          MessageHelper.writeIdentifiable(session, channel, rec, serializer);
+          MessageHelper.writeIdentifiable(session, channel, rec);
         }
 
         channel.writeByte((byte) 0); // NO MORE RECORDS
@@ -155,7 +155,7 @@ public final class CommandResponse implements BinaryResponse {
           }
         }
 
-        MessageHelper.writeIdentifiable(db, channel, identifiable, recordSerializer);
+        MessageHelper.writeIdentifiable(db, channel, identifiable);
       } else {
         if (result instanceof IdentityWrapper) {
           // RECORD
@@ -164,10 +164,10 @@ public final class CommandResponse implements BinaryResponse {
           if (listener != null) {
             listener.result(db, entity);
           }
-          MessageHelper.writeIdentifiable(db, channel, entity, recordSerializer);
+          MessageHelper.writeIdentifiable(db, channel, entity);
         } else {
           if (!isRecordResultSet) {
-            writeSimpleValue(db, channel, listener, result, protocolVersion, recordSerializer);
+            writeSimpleValue(db, channel, listener, result, protocolVersion);
           } else {
             if (MultiValue.isMultiValue(result)) {
               final var collectionType = result instanceof Set ? (byte) 's' : (byte) 'l';
@@ -182,11 +182,11 @@ public final class CommandResponse implements BinaryResponse {
                     listener.result(db, o);
                   }
 
-                  MessageHelper.writeIdentifiable(db, channel, (Identifiable) o,
-                      recordSerializer);
+                  MessageHelper.writeIdentifiable(db, channel, (Identifiable) o
+                  );
                 } catch (Exception e) {
                   LogManager.instance().warn(this, "Cannot serialize record: " + o);
-                  MessageHelper.writeIdentifiable(db, channel, null, recordSerializer);
+                  MessageHelper.writeIdentifiable(db, channel, null);
                   // WRITE NULL RECORD TO AVOID BREAKING PROTOCOL
                 }
               }
@@ -205,7 +205,7 @@ public final class CommandResponse implements BinaryResponse {
 
                       channel.writeByte((byte) 1); // ONE MORE RECORD
                       MessageHelper.writeIdentifiable(db,
-                          channel, (Identifiable) o, recordSerializer);
+                          channel, (Identifiable) o);
                     } catch (Exception e) {
                       LogManager.instance().warn(this, "Cannot serialize record: " + o);
                     }
@@ -226,7 +226,7 @@ public final class CommandResponse implements BinaryResponse {
                       }
 
                       MessageHelper.writeIdentifiable(db,
-                          channel, (Identifiable) o, recordSerializer);
+                          channel, (Identifiable) o);
                     } catch (Exception e) {
                       LogManager.instance().warn(this, "Cannot serialize record: " + o);
                     }
@@ -235,8 +235,8 @@ public final class CommandResponse implements BinaryResponse {
 
               } else {
                 // ANY OTHER (INCLUDING LITERALS)
-                writeSimpleValue(db, channel, listener, result, protocolVersion,
-                    recordSerializer);
+                writeSimpleValue(db, channel, listener, result, protocolVersion
+                );
               }
             }
           }
@@ -249,15 +249,14 @@ public final class CommandResponse implements BinaryResponse {
       DatabaseSessionInternal db, ChannelDataOutput channel,
       SimpleValueFetchPlanCommandListener listener,
       Object result,
-      int protocolVersion,
-      RecordSerializer recordSerializer)
+      int protocolVersion)
       throws IOException {
 
     if (protocolVersion >= ChannelBinaryProtocol.PROTOCOL_VERSION_35) {
       channel.writeByte((byte) 'w');
       var entity = db.newEmbeddedEntity();
       entity.setProperty("result", result);
-      MessageHelper.writeIdentifiable(db, channel, entity, recordSerializer);
+      MessageHelper.writeIdentifiable(db, channel, entity);
       if (listener != null) {
         listener.linkdedBySimpleValue(db, (EntityImpl) entity);
       }

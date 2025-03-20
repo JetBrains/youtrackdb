@@ -17,7 +17,6 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
-import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -77,6 +76,13 @@ public class ResultInternal implements Result {
       lightweightEdge = edge;
     } else {
       setIdentifiable(edge.asStatefulEdge());
+    }
+  }
+
+  public void refreshNonPersistentRid() {
+    if (identifiable instanceof RID rid && !rid.isPersistent()) {
+      checkSession();
+      identifiable = session.refreshRid(rid);
     }
   }
 
@@ -1092,51 +1098,6 @@ public class ResultInternal implements Result {
       return content.hashCode();
     } else {
       return super.hashCode();
-    }
-  }
-
-
-  public void bindToCache(DatabaseSessionInternal db) {
-    checkSession();
-    if (identifiable instanceof RecordAbstract record) {
-      var identity = record.getIdentity();
-      var tx = db.getTransactionInternal();
-
-      if (tx.isActive()) {
-        var recordEntry = tx.getRecordEntry(identity);
-        if (recordEntry != null) {
-          if (recordEntry.type == RecordOperation.DELETED) {
-            identifiable = identity;
-            return;
-          }
-
-          identifiable = recordEntry.record;
-          return;
-        }
-      }
-
-      var cached = db.getLocalCache().findRecord(identity);
-
-      if (cached == record) {
-        return;
-      }
-
-      if (cached != null) {
-        if (!cached.isDirty()) {
-          cached.fromStream(record.toStream());
-          cached.setIdentity(record.getIdentity());
-          cached.setVersion(record.getVersion());
-
-          assert !cached.isDirty();
-        }
-        identifiable = cached;
-      } else {
-        if (!identity.isPersistent()) {
-          return;
-        }
-
-        db.getLocalCache().updateRecord(record, session);
-      }
     }
   }
 

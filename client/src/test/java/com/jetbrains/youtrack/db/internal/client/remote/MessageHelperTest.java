@@ -56,7 +56,7 @@ public class MessageHelperTest {
       rec.setVersion(1);
 
       MessageHelper.writeIdentifiable(null,
-          channel, doc, RecordSerializerNetworkFactory.current());
+          channel, doc);
       channel.close();
 
       var newDoc =

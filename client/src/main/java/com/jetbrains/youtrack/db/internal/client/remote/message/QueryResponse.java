@@ -14,20 +14,13 @@ import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataI
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- *
- */
 public class QueryResponse implements BinaryResponse {
 
-  public static final byte RECORD_TYPE_BLOB = 0;
-  public static final byte RECORD_TYPE_VERTEX = 1;
-  public static final byte RECORD_TYPE_EDGE = 2;
-  public static final byte RECORD_TYPE_ELEMENT = 3;
-  public static final byte RECORD_TYPE_PROJECTION = 4;
+  public static final byte RECORD_TYPE_RID = 0;
+  public static final byte RECORD_TYPE_PROJECTION = 1;
 
   private String queryId;
   private boolean txChanges;
@@ -63,15 +56,14 @@ public class QueryResponse implements BinaryResponse {
       throws IOException {
     channel.writeString(queryId);
     channel.writeBoolean(txChanges);
-    writeExecutionPlan(session, executionPlan, channel, serializer);
+    writeExecutionPlan(session, executionPlan, channel);
     // THIS IS A PREFETCHED COLLECTION NOT YET HERE
     channel.writeInt(0);
     channel.writeInt(result.size());
     for (var res : result) {
-      MessageHelper.writeResult(session, res, channel, serializer);
+      MessageHelper.writeResult(session, res, channel);
     }
     channel.writeBoolean(hasNextPage);
-    writeQueryStats(queryStats, channel);
     channel.writeBoolean(reloadMetadata);
   }
 
@@ -89,44 +81,18 @@ public class QueryResponse implements BinaryResponse {
       result.add(MessageHelper.readResult(db, network));
     }
     this.hasNextPage = network.readBoolean();
-    this.queryStats = readQueryStats(network);
     reloadMetadata = network.readBoolean();
-  }
-
-  private void writeQueryStats(Map<String, Long> queryStats, ChannelDataOutput channel)
-      throws IOException {
-    if (queryStats == null) {
-      channel.writeInt(0);
-      return;
-    }
-    channel.writeInt(queryStats.size());
-    for (var entry : queryStats.entrySet()) {
-      channel.writeString(entry.getKey());
-      channel.writeLong(entry.getValue());
-    }
-  }
-
-  private Map<String, Long> readQueryStats(ChannelDataInput channel) throws IOException {
-    Map<String, Long> result = new HashMap<>();
-    var size = channel.readInt();
-    for (var i = 0; i < size; i++) {
-      var key = channel.readString();
-      Long val = channel.readLong();
-      result.put(key, val);
-    }
-    return result;
   }
 
   private static void writeExecutionPlan(
       DatabaseSessionInternal session, ExecutionPlan executionPlan,
-      ChannelDataOutput channel,
-      RecordSerializer recordSerializer)
+      ChannelDataOutput channel)
       throws IOException {
     if (executionPlan != null
         && GlobalConfiguration.QUERY_REMOTE_SEND_EXECUTION_PLAN.getValueAsBoolean()) {
       channel.writeBoolean(true);
-      MessageHelper.writeResult(session, executionPlan.toResult(session), channel,
-          recordSerializer);
+      MessageHelper.writeResult(session, executionPlan.toResult(session), channel
+      );
     } else {
       channel.writeBoolean(false);
     }

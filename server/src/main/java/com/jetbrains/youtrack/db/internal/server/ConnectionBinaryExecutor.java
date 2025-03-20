@@ -129,6 +129,7 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySeria
 import com.jetbrains.youtrack.db.internal.common.serialization.types.ByteSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.NullSerializer;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -138,6 +139,7 @@ import com.jetbrains.youtrack.db.internal.core.fetch.FetchHelper;
 import com.jetbrains.youtrack.db.internal.core.fetch.FetchListener;
 import com.jetbrains.youtrack.db.internal.core.fetch.remote.RemoteFetchContext;
 import com.jetbrains.youtrack.db.internal.core.fetch.remote.RemoteFetchListener;
+import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryHookV2;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -172,6 +174,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import javax.annotation.Nonnull;
 
 public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
 
@@ -1183,7 +1186,9 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     }
 
     var serverTransaction =
-        doExecuteBeginTransaction(request.getTxId(), session, recordOperations);
+        doExecuteBeginTransaction(request.getTxId(), session, recordOperations,
+            request.getReceivedDirtyCounters());
+
     return new BeginTransactionResponse(
         serverTransaction.getId(), serverTransaction.getUpdateToOldRecordIdMap(),
         serverTransaction.getOperationsToSendOnClient(), session);
@@ -1191,13 +1196,14 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
 
   private static FrontendClientServerTransaction doExecuteBeginTransaction(
       long txId, DatabaseSessionInternal database,
-      List<NetworkRecordOperation> recordOperations) {
+      List<NetworkRecordOperation> recordOperations,
+      @Nonnull List<RawPair<RecordId, Long>> receivedDirtyCounters) {
     assert database.activeTxCount() == 0;
 
     database.begin(new FrontendClientServerTransaction(database, txId));
     var serverTransaction = (FrontendClientServerTransaction) database.getTransactionInternal();
 
-    serverTransaction.mergeReceivedTransaction(recordOperations);
+    serverTransaction.mergeReceivedTransaction(recordOperations, receivedDirtyCounters);
 
     return serverTransaction;
   }
@@ -1221,7 +1227,8 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
               + tx.getClass().getName());
     }
 
-    serverTransaction.mergeReceivedTransaction(recordOperations);
+    serverTransaction.mergeReceivedTransaction(recordOperations,
+        request.getReceivedDirtyCounters());
     return new SendTransactionStateResponse(
         tx.getId(), serverTransaction.getUpdateToOldRecordIdMap(),
         serverTransaction.getOperationsToSendOnClient(), session);
@@ -1237,7 +1244,8 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     var started = tx.isActive();
     if (!started) {
       //case when transaction was sent during commit.
-      tx = doExecuteBeginTransaction(request.getTxId(), session, recordOperations);
+      tx = doExecuteBeginTransaction(request.getTxId(), session, recordOperations,
+          request.getReceivedDirtyCounters());
     }
 
     if (tx.getId() != request.getTxId()) {
@@ -1254,7 +1262,8 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
 
     try {
       if (started) {
-        serverTransaction.mergeReceivedTransaction(recordOperations);
+        serverTransaction.mergeReceivedTransaction(recordOperations,
+            request.getReceivedDirtyCounters());
       }
       if (serverTransaction.getTxStartCounter() != 1) {
         throw new DatabaseException(session, "Transaction can be started only once on server");
@@ -1272,7 +1281,6 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
 
         return new Commit37Response(serverTransaction.getId(),
             serverTransaction.getUpdateToOldRecordIdMap(),
-            serverTransaction.getOperationsToSendOnClient(),
             changedIds, session);
       } catch (final RuntimeException e) {
         if (serverTransaction.isActive()) {
@@ -1308,8 +1316,12 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
           "Invalid transaction id, expected " + tx.getId() + " but received " + request.getTxId());
     }
 
-    return new FetchTransaction38Response(tx.getId(), tx.getUpdateToOldRecordIdMap(),
-        tx.getOperationsToSendOnClient(),
+    var operationsToSend = tx.getOperationsToSendOnClient();
+    var updateToOldRecordIdMap = tx.getUpdateToOldRecordIdMap();
+
+    tx.syncDirtyCountersFromClient(request.getReceivedDirtyCounters().stream());
+
+    return new FetchTransaction38Response(tx.getId(), updateToOldRecordIdMap, operationsToSend,
         session
     );
   }

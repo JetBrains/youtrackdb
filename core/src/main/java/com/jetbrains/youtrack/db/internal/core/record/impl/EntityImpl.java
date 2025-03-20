@@ -2772,10 +2772,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-  public void setDirty(long counter) {
-    super.setDirty();
-  }
-
   @Override
   public void setDirtyNoChanged() {
     if (owner != null) {
@@ -2895,6 +2891,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
       ridBagsToDelete = null;
       throw e;
     }
+    internalReset();
+  }
+
+  public void markDeletedInServerTx() {
+    super.markDeletedInServerTx();
+
     internalReset();
   }
 
@@ -3531,7 +3533,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     checkForBinding();
     if (!isEmbedded()) {
-      throw new IllegalStateException("Only embedded entities (created using DatabaseSession.newEmbeddedEntity) can have an owner");
+      throw new IllegalStateException(
+          "Only embedded entities (created using DatabaseSession.newEmbeddedEntity) can have an owner");
     }
     var owner = getOwner();
     if (owner != null && !owner.equals(iOwner)) {

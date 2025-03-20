@@ -5,6 +5,7 @@ import com.jetbrains.youtrack.db.api.exception.TransactionException;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement.STATUS;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
@@ -12,12 +13,12 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.DocumentSerializerDelta;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 
 public class FrontendClientServerTransaction extends FrontendTransactionImpl {
@@ -31,6 +32,13 @@ public class FrontendClientServerTransaction extends FrontendTransactionImpl {
 
   private boolean mergeInProgress = false;
 
+  /**
+   * Dirty counters for records that were received from server. This map is used to synchronize
+   * dirty counters between client and server.
+   */
+  private final HashMap<RecordId, Long> receivedDirtyCounters = new HashMap<>();
+  private final IdentityHashMap<RecordId, Long> receivedDirtyCountersIdentityMap = new IdentityHashMap<>();
+
   public FrontendClientServerTransaction(DatabaseSessionInternal database, long txId) {
     super(database, txId);
     sentToServer = session.isRemote();
@@ -42,23 +50,45 @@ public class FrontendClientServerTransaction extends FrontendTransactionImpl {
     sentToServer = session.isRemote();
   }
 
-  public void mergeReceivedTransaction(@Nonnull List<NetworkRecordOperation> operations) {
+  public void mergeReceivedTransaction(@Nonnull List<NetworkRecordOperation> receivedOperations,
+      @Nonnull List<RawPair<RecordId, Long>> receivedDirtyCounters) {
+    var deletedRecords = new ArrayList<RecordAbstract>(receivedOperations.size());
     try {
       updatedToOldRecordIdMap.clear();
       operationsToSendOnClient.clear();
 
       mergeInProgress = true;
       try {
-        // SORT OPERATIONS BY TYPE TO BE SURE THAT CREATES ARE PROCESSED FIRST
-        operations.sort(Comparator.comparingInt(NetworkRecordOperation::getType).reversed());
+        // sort operations to ensure that created and not represented in tx yet are processed first
+        //that will ensure that all deserialized rids of newly created records be correcly mapped
+        //to instances of record rids registered in tx
+        receivedOperations.sort((operationOne, operationTwo) -> {
+          var typeComparison = -Byte.compare(operationOne.getType(), operationTwo.getType());
+          if (typeComparison == 0) {
+            return Long.compare(operationOne.getDirtyCounter(), operationTwo.getDirtyCounter());
+          }
+
+          return typeComparison;
+        });
+
+        var receivedDirtyCountersMap = new HashMap<RecordId, Long>(receivedDirtyCounters.size());
+        for (var pair : receivedDirtyCounters) {
+          receivedDirtyCountersMap.put(pair.first, pair.second);
+        }
 
         var newRecordsWithNetworkOperations = new ArrayList<RawPair<RecordAbstract, NetworkRecordOperation>>(
-            operations.size());
+            receivedOperations.size());
 
-        for (var recordOperation : operations) {
+        for (var recordOperation : receivedOperations) {
           var txEntry = getRecordEntry(recordOperation.getId());
 
           if (txEntry != null) {
+            var receivedDirtyCounter = receivedDirtyCountersMap.remove(
+                (RecordId) recordOperation.getId());
+            if (receivedDirtyCounter != null) {
+              txEntry.dirtyCounterOnClientSide = receivedDirtyCounter;
+            }
+
             if (txEntry.type == RecordOperation.DELETED) {
               throw new TransactionException(
                   session,
@@ -67,13 +97,16 @@ public class FrontendClientServerTransaction extends FrontendTransactionImpl {
 
             if (recordOperation.getType() == RecordOperation.UPDATED
                 || recordOperation.getType() == RecordOperation.CREATED) {
-              assert recordOperation.getType() == RecordOperation.UPDATED
-                  || recordOperation.getDirtyCounter() > 1;
+              if (recordOperation.getDirtyCounter() == 0) {
+                throw new IllegalStateException(
+                    "Dirty counter is 0 for record: " + txEntry.record + " operation: "
+                        + recordOperation);
+              }
 
               mergeChanges(recordOperation, txEntry.record);
-              syncDirtyCounter(recordOperation, txEntry);
-
               addRecordOperation(txEntry.record, RecordOperation.UPDATED);
+
+              syncDirtyCounter(recordOperation, txEntry);
             } else {
               // DELETED
               throw new TransactionException(
@@ -100,25 +133,58 @@ public class FrontendClientServerTransaction extends FrontendTransactionImpl {
                 }
 
                 var oldRid = record.getIdentity().copy();
-                addRecordOperation(record, RecordOperation.CREATED);
+                var createOperation = addRecordOperation(record, RecordOperation.CREATED);
                 newRecordsWithNetworkOperations.add(new RawPair<>(record, recordOperation));
 
                 if (!oldRid.equals(record.getIdentity())) {
                   updatedToOldRecordIdMap.put(record.getIdentity().copy(), oldRid);
                   originalChangedRecordIdMap.put(oldRid, record.getIdentity());
+                  operationsBetweenCallbacks.put(record.getIdentity(), createOperation);
                 }
               }
               case RecordOperation.UPDATED -> {
-                var record = loadRecordAndCheckVersion(recordOperation);
-                mergeChanges(recordOperation, record);
-                syncDirtyCounter(recordOperation, record.txEntry);
+                if (session.isRemote()) {
+                  var record =
+                      YouTrackDBEnginesManager.instance()
+                          .getRecordFactoryManager()
+                          .newInstance(recordOperation.getRecordType(),
+                              (RecordId) recordOperation.getId(),
+                              session);
+                  record.unsetDirty();
+                  record.recordSerializer = RecordSerializerNetworkV37.INSTANCE;
+                  record.fromStream(recordOperation.getRecord());
+                  record.setDirty();
+
+                  record.recordSerializer = session.getSerializer();
+
+                  addRecordOperation(record, RecordOperation.UPDATED);
+                  syncDirtyCounter(recordOperation, record.txEntry);
+                } else {
+                  var record = loadRecordAndCheckVersion(recordOperation);
+                  mergeChanges(recordOperation, record);
+                  addRecordOperation(record, RecordOperation.UPDATED);
+                  syncDirtyCounter(recordOperation, record.txEntry);
+                }
               }
               case RecordOperation.DELETED -> {
-                var record = loadRecordAndCheckVersion(recordOperation);
-                record.delete();
+                if (session.isRemote()) {
+                  var record =
+                      YouTrackDBEnginesManager.instance()
+                          .getRecordFactoryManager()
+                          .newInstance(recordOperation.getRecordType(),
+                              (RecordId) recordOperation.getId(),
+                              session);
+                  record.setInternalStatus(STATUS.LOADED);
+                  var deletedOperation = addRecordOperation(record, RecordOperation.DELETED);
+                  syncDirtyCounter(recordOperation, deletedOperation);
+                  deletedRecords.add(record);
+                } else {
+                  var record = loadRecordAndCheckVersion(recordOperation);
+                  record.delete();
 
-                var txOperation = getRecordEntry(record.getIdentity());
-                syncDirtyCounter(recordOperation, txOperation);
+                  var txOperation = getRecordEntry(record.getIdentity());
+                  syncDirtyCounter(recordOperation, txOperation);
+                }
               }
               default -> {
                 throw new TransactionException(
@@ -147,18 +213,51 @@ public class FrontendClientServerTransaction extends FrontendTransactionImpl {
           record.recordSerializer = session.getSerializer();
           syncDirtyCounter(recordWithNetworkOperationPair.second, record.txEntry);
         }
+
+        syncDirtyCountersFromClient(receivedDirtyCountersMap.entrySet().stream()
+            .map(entry -> new RawPair<>(entry.getKey(), entry.getValue())));
       } finally {
         mergeInProgress = false;
       }
 
       preProcessRecordsAndExecuteCallCallbacks();
+
+      for (var deletedRecord : deletedRecords) {
+        deletedRecord.markDeletedInServerTx();
+      }
     } catch (Exception e) {
       session.rollback(true);
       throw e;
     }
   }
 
-  private static void syncDirtyCounter(NetworkRecordOperation recordOperation,
+  public void syncDirtyCountersFromClient(Stream<RawPair<RecordId, Long>> dirtyCounters) {
+    dirtyCounters.forEach(receivedEntry -> {
+      var rid = receivedEntry.getFirst();
+      var dirtyCounter = receivedEntry.getSecond();
+      var txEntry = getRecordEntry(rid);
+
+      if (txEntry != null) {
+        txEntry.dirtyCounterOnClientSide = dirtyCounter;
+      }
+    });
+  }
+
+  public void syncDirtyCountersAfterServerMerge() {
+    for (var recordOperation : recordOperations.values()) {
+      var record = recordOperation.record;
+      if (record.getDirtyCounter() > recordOperation.dirtyCounterOnClientSide) {
+        receivedDirtyCounters.put(record.getIdentity(), record.getDirtyCounter());
+        recordOperation.dirtyCounterOnClientSide = record.getDirtyCounter();
+      }
+    }
+  }
+
+  public void clearReceivedDirtyCounters() {
+    receivedDirtyCounters.clear();
+  }
+
+  private void syncDirtyCounter(NetworkRecordOperation recordOperation,
       RecordOperation txEntry) {
     if (txEntry.dirtyCounterOnClientSide
         > recordOperation.getDirtyCounter()) {
@@ -171,8 +270,23 @@ public class FrontendClientServerTransaction extends FrontendTransactionImpl {
           + "client callback dirty counter is " + txEntry.recordCallBackDirtyCounter
           + " and server dirty counter is " + recordOperation.getDirtyCounter());
     }
+
     txEntry.record.setDirty(recordOperation.getDirtyCounter());
     txEntry.dirtyCounterOnClientSide = recordOperation.getDirtyCounter();
+
+    if (txEntry.recordCallBackDirtyCounter < recordOperation.getDirtyCounter()) {
+      operationsBetweenCallbacks.put(txEntry.record.getIdentity(), txEntry);
+    }
+
+    if (session.isRemote()) {
+      var removed = receivedDirtyCounters.put(txEntry.record.getIdentity(),
+          txEntry.dirtyCounterOnClientSide);
+      if (removed != null) {
+        throw new IllegalStateException(
+            "New dirty counter is received for record " + txEntry.record +
+                " while old one was not send to server");
+      }
+    }
   }
 
   private RecordAbstract loadRecordAndCheckVersion(NetworkRecordOperation recordOperation) {
@@ -222,15 +336,29 @@ public class FrontendClientServerTransaction extends FrontendTransactionImpl {
     return new ArrayList<>(operationsToSendOnClient.values());
   }
 
+  public List<RawPair<RecordId, Long>> getReceivedDirtyCounters() {
+    var receivedDirtyCounters = new ArrayList<RawPair<RecordId, Long>>(
+        this.receivedDirtyCounters.size());
+    for (var entry : this.receivedDirtyCounters.entrySet()) {
+      receivedDirtyCounters.add(new RawPair<>(entry.getKey(), entry.getValue()));
+    }
+    return receivedDirtyCounters;
+  }
+
   @Override
   public void onBeforeIdentityChange(Object source) {
     super.onBeforeIdentityChange(source);
 
     var rid = (RecordId) source;
-    var removed = operationsToSendOnClient.remove(source);
+    var removedOperations = operationsToSendOnClient.remove(source);
 
-    if (removed != null) {
-      operationsToSendOnClientIdentityMap.put(rid, removed);
+    if (removedOperations != null) {
+      operationsToSendOnClientIdentityMap.put(rid, removedOperations);
+    }
+
+    var removedCounter = receivedDirtyCounters.remove(source);
+    if (removedCounter != null) {
+      receivedDirtyCountersIdentityMap.put(rid, removedCounter);
     }
 
     updatedToOldRecordIdIdentityMap.put(rid, rid.copy());
@@ -241,9 +369,15 @@ public class FrontendClientServerTransaction extends FrontendTransactionImpl {
     super.onAfterIdentityChange(source);
 
     var rid = (RecordId) source;
-    var removed = operationsToSendOnClientIdentityMap.remove(source);
-    if (removed != null) {
-      operationsToSendOnClient.put(rid, removed);
+
+    var removedOperation = operationsToSendOnClientIdentityMap.remove(source);
+    if (removedOperation != null) {
+      operationsToSendOnClient.put(rid, removedOperation);
+    }
+
+    var removedCounter = receivedDirtyCountersIdentityMap.remove(source);
+    if (removedCounter != null) {
+      receivedDirtyCounters.put(rid, removedCounter);
     }
 
     var originalRid = updatedToOldRecordIdIdentityMap.remove(rid);

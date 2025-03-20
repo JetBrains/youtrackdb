@@ -333,6 +333,15 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     txEntry = null;
   }
 
+  public void markDeletedInServerTx() {
+    checkForBinding();
+
+    source = null;
+    status = STATUS.NOT_LOADED;
+    session = null;
+    txEntry = null;
+  }
+
   public int getSize() {
     return size;
   }

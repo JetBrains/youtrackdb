@@ -40,8 +40,8 @@ public class RemoteResultSet implements ResultSet {
     if (session != null) {
       session.queryStarted(queryId, new QueryDatabaseState(this));
       for (var result : currentPage) {
-        if (result instanceof ResultInternal) {
-          ((ResultInternal) result).bindToCache(session);
+        if (result instanceof ResultInternal resultInternal) {
+          resultInternal.refreshNonPersistentRid();
         }
       }
     }
@@ -81,7 +81,7 @@ public class RemoteResultSet implements ResultSet {
     }
     var internal = currentPage.removeFirst();
 
-    if (internal.isRecord() && session != null && session.getActiveTransaction() != null) {
+    if (internal.isRecord() && session != null && session.isTxActive()) {
       DBRecord record = session.getTransactionInternal().getRecord(internal.getIdentity());
       if (record != null && record != FrontendTransactionImpl.DELETED_RECORD) {
         internal = new ResultInternal(session, record);

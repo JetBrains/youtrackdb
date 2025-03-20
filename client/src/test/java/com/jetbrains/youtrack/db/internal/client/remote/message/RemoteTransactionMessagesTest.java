@@ -29,7 +29,8 @@ public class RemoteTransactionMessagesTest extends DbTestBase {
   @Test
   public void testBeginTransactionEmptyWriteRead() throws IOException {
     var channel = new MockChannel();
-    var request = new BeginTransaction38Request(session, 0, null);
+    var request = new BeginTransaction38Request(session, 0, Collections.emptyList(),
+        Collections.emptyList());
     request.write(session, channel, null);
     channel.close();
     var readRequest = new BeginTransaction38Request();
@@ -43,7 +44,7 @@ public class RemoteTransactionMessagesTest extends DbTestBase {
     operations.add(new RecordOperation(new EntityImpl(session), RecordOperation.CREATED));
     var channel = new MockChannel();
     var request =
-        new BeginTransaction38Request(session, 0, operations);
+        new BeginTransaction38Request(session, 0, operations, Collections.emptyList());
     request.write(session, channel, null);
 
     channel.close();
@@ -61,7 +62,7 @@ public class RemoteTransactionMessagesTest extends DbTestBase {
     Map<String, FrontendTransactionIndexChanges> changes = new HashMap<>();
 
     var channel = new MockChannel();
-    var request = new Commit38Request(session, 0, operations);
+    var request = new Commit38Request(session, 0, operations, Collections.emptyList());
     request.write(session, channel, null);
 
     channel.close();
@@ -85,7 +86,7 @@ public class RemoteTransactionMessagesTest extends DbTestBase {
     updatedRids.put(new RecordId(10, 20), new RecordId(10, 30));
     updatedRids.put(new RecordId(10, 21), new RecordId(10, 31));
 
-    var response = new Commit37Response(0, updatedRids, Collections.emptyList(), changes, session);
+    var response = new Commit37Response(0, updatedRids, changes, session);
     response.write(session, channel, 0, null);
     channel.close();
 
@@ -111,7 +112,7 @@ public class RemoteTransactionMessagesTest extends DbTestBase {
   public void testEmptyCommitTransactionWriteRead() throws IOException {
 
     var channel = new MockChannel();
-    var request = new Commit38Request(session, 0, null);
+    var request = new Commit38Request(session, 0, Collections.emptyList(), Collections.emptyList());
     request.write(session, channel, null);
 
     channel.close();

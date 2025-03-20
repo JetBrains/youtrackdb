@@ -1252,7 +1252,8 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     var transaction = (FrontendClientServerTransaction) tx;
     final var request =
         new Commit38Request(tx.getDatabaseSession(),
-            transaction.getId(), transaction.getOperationsToSendOnClient());
+            transaction.getId(), transaction.getOperationsToSendOnClient(),
+            transaction.getReceivedDirtyCounters());
 
     final var response = networkOperationNoRetry(remoteSession, request,
         "Error on commit");
@@ -2027,7 +2028,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     var request =
         new BeginTransaction38Request(database,
             transaction.getId(),
-            transaction.getRecordOperationsInternal());
+            transaction.getRecordOperationsInternal(), transaction.getReceivedDirtyCounters());
     var response =
         networkOperationNoRetry(database, request, "Error on remote transaction begin");
 
@@ -2037,6 +2038,8 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
 
   private static void updateTxFromResponse(FrontendClientServerTransaction transaction,
       BeginTransactionResponse response) {
+    transaction.clearReceivedDirtyCounters();
+
     for (var pair : response.getOldToUpdatedRids()) {
       var oldRid = pair.first;
       var newRid = pair.second;
@@ -2049,17 +2052,15 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
       assert transaction.assertIdentityChangedAfterCommit(oldRid, newRid);
     }
 
-    transaction.mergeReceivedTransaction(response.getRecordOperations());
-    for (var recordOperation : transaction.getRecordOperationsInternal()) {
-      recordOperation.dirtyCounterOnClientSide = recordOperation.record.getDirtyCounter();
-    }
+    transaction.mergeReceivedTransaction(response.getRecordOperations(), Collections.emptyList());
+    transaction.syncDirtyCountersAfterServerMerge();
   }
 
   public void sendTransactionState(FrontendClientServerTransaction transaction) {
     var database = (DatabaseSessionRemote) transaction.getDatabaseSession();
     var request =
         new SendTransactionStateRequest(database, transaction.getId(),
-            transaction.getRecordOperationsInternal());
+            transaction.getRecordOperationsInternal(), transaction.getReceivedDirtyCounters());
 
     var response =
         networkOperationNoRetry(database, request,
@@ -2072,7 +2073,8 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
 
   public void fetchTransaction(DatabaseSessionRemote remote) {
     var transaction = remote.getActiveTx();
-    var request = new FetchTransaction38Request(transaction.getId());
+    var request = new FetchTransaction38Request(transaction.getId(),
+        transaction.getReceivedDirtyCounters());
     var response =
         networkOperation(remote, request, "Error fetching transaction from server side");
 

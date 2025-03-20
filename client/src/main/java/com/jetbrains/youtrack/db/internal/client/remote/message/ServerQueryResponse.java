@@ -63,12 +63,12 @@ public class ServerQueryResponse implements BinaryResponse {
       throws IOException {
     channel.writeString(queryId);
     channel.writeBoolean(txChanges);
-    writeExecutionPlan(session, executionPlan, channel, serializer);
+    writeExecutionPlan(session, executionPlan, channel);
     // THIS IS A PREFETCHED COLLECTION NOT YET HERE
     channel.writeInt(0);
     channel.writeInt(result.size());
     for (var res : result) {
-      MessageHelper.writeResult(session, res, channel, serializer);
+      MessageHelper.writeResult(session, res, channel);
     }
     channel.writeBoolean(hasNextPage);
     writeQueryStats(queryStats, channel);
@@ -119,14 +119,13 @@ public class ServerQueryResponse implements BinaryResponse {
 
   private void writeExecutionPlan(
       DatabaseSessionInternal session, ExecutionPlan executionPlan,
-      ChannelDataOutput channel,
-      RecordSerializer recordSerializer)
+      ChannelDataOutput channel)
       throws IOException {
     if (executionPlan != null
         && GlobalConfiguration.QUERY_REMOTE_SEND_EXECUTION_PLAN.getValueAsBoolean()) {
       channel.writeBoolean(true);
-      MessageHelper.writeResult(session, executionPlan.toResult(session), channel,
-          recordSerializer);
+      MessageHelper.writeResult(session, executionPlan.toResult(session), channel
+      );
     } else {
       channel.writeBoolean(false);
     }

@@ -27,7 +27,7 @@ public class ListDatabasesResponse implements BinaryResponse {
       throws IOException {
     final var result = new ResultInternal(null);
     result.setProperty("databases", databases);
-    MessageHelper.writeResult(session, result, channel, serializer);
+    MessageHelper.writeResult(session, result, channel);
   }
 
   @Override
