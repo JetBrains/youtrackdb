@@ -635,12 +635,12 @@ public class FrontendTransactionImpl implements
       if (recordOperation.recordCallBackDirtyCounter != record.getDirtyCounter()) {
         if (recordOperation.type == RecordOperation.CREATED) {
           if (recordOperation.recordCallBackDirtyCounter == 0) {
-            if (className != null) {
+            if (className != null && !session.isRemote()) {
               ClassIndexManager.checkIndexesAfterCreate(entityImpl, session);
             }
             processRecordCreation(recordOperation, record);
           } else {
-            if (className != null) {
+            if (className != null && !session.isRemote()) {
               ClassIndexManager.checkIndexesAfterUpdate(entityImpl, session);
             }
             processRecordUpdate(recordOperation, record);
@@ -668,7 +668,7 @@ public class FrontendTransactionImpl implements
           }
         }
         processRecordDelete(recordOperation, record);
-        if (className != null) {
+        if (className != null && !session.isRemote()) {
           ClassIndexManager.checkIndexesAfterDelete(entityImpl, session);
         }
       }

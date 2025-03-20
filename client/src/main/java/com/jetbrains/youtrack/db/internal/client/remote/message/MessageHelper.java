@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement.STATUS;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -324,12 +325,24 @@ public class MessageHelper {
         YouTrackDBEnginesManager.instance()
             .getRecordFactoryManager()
             .newInstance(rec, rid, session);
-    final var rec2 = record;
-    rec2.setVersion(version);
-    serializer.fromStream(session, content, record, null);
-    final var rec1 = record;
-    rec1.unsetDirty();
+    record.setVersion(version);
 
+    var ok = false;
+    record.setInternalStatus(STATUS.UNMARSHALLING);
+    try {
+      serializer.fromStream(session, content, record, null);
+      ok = true;
+    } finally {
+      if (ok) {
+        record.setInternalStatus(STATUS.LOADED);
+      } else {
+        record.setInternalStatus(STATUS.NOT_LOADED);
+      }
+    }
+
+    record.unsetDirty();
+
+    record.recordSerializer = session.getSerializer();
     return record;
   }
 

@@ -3672,7 +3672,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   public boolean checkForProperties(final String... properties) {
     checkForBinding();
-    if (status == RecordElement.STATUS.LOADED) {
+    if (status == RecordElement.STATUS.LOADED || status == RecordElement.STATUS.UNMARSHALLING) {
       if (this.properties == null) {
         this.properties = new HashMap<>();
       }

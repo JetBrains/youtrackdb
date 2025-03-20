@@ -44,6 +44,7 @@ public class SendTransactionStateRequest implements BinaryRequest<SendTransactio
     network.writeLong(txId);
 
     for (var txEntry : operations) {
+      network.writeByte((byte) 1);
       MessageHelper.writeTransactionEntry(network, txEntry);
     }
 

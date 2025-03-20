@@ -14,6 +14,7 @@ import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataO
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nonnull;
 
 /**
  *
@@ -28,7 +29,7 @@ public class Commit38Request implements BinaryRequest<Commit37Response> {
 
   public Commit38Request(
       DatabaseSessionInternal session, long txId,
-      Iterable<RecordOperation> operations) {
+      @Nonnull Iterable<RecordOperation> operations) {
     this.txId = txId;
 
     List<NetworkRecordOperation> netOperations = new ArrayList<>();

@@ -2050,6 +2050,9 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
 
     transaction.mergeReceivedTransaction(response.getRecordOperations());
+    for (var recordOperation : transaction.getRecordOperationsInternal()) {
+      recordOperation.dirtyCounterOnClientSide = recordOperation.record.getDirtyCounter();
+    }
   }
 
   public void sendTransactionState(FrontendClientServerTransaction transaction) {

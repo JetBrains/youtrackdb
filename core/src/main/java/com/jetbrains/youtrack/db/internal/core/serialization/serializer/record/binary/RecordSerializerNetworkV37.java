@@ -835,10 +835,8 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
   public void fromStream(DatabaseSessionInternal db, byte[] iSource,
       @Nonnull RecordAbstract record) {
     if (record instanceof Blob) {
-      final var rec = record;
-      rec.unsetDirty();
-      final var rec1 = record;
-      rec1.fill(record.getIdentity(), record.getVersion(), iSource, true);
+      record.unsetDirty();
+      record.fill(record.getIdentity(), record.getVersion(), iSource, true);
     }
 
     fromStream(db, iSource, record, null);
@@ -858,22 +856,27 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
       record.fromStream(iSource);
     }
 
-    record.recordSerializer = this;
-    var container = new BytesContainer(iSource);
+    var oldSerializer = record.recordSerializer;
     try {
-      if (iFields != null && iFields.length > 0) {
-        deserializePartial(db, (EntityImpl) record, container, iFields);
-      } else {
-        deserialize(db, (EntityImpl) record, container);
+      record.recordSerializer = this;
+      var container = new BytesContainer(iSource);
+      try {
+        if (iFields != null && iFields.length > 0) {
+          deserializePartial(db, (EntityImpl) record, container, iFields);
+        } else {
+          deserialize(db, (EntityImpl) record, container);
+        }
+      } catch (RuntimeException e) {
+        LogManager.instance()
+            .warn(
+                this,
+                "Error deserializing record with id %s send this data for debugging: %s ",
+                record.getIdentity().toString(),
+                Base64.getEncoder().encodeToString(iSource));
+        throw e;
       }
-    } catch (RuntimeException e) {
-      LogManager.instance()
-          .warn(
-              this,
-              "Error deserializing record with id %s send this data for debugging: %s ",
-              record.getIdentity().toString(),
-              Base64.getEncoder().encodeToString(iSource));
-      throw e;
+    } finally {
+      record.recordSerializer = oldSerializer;
     }
   }
 

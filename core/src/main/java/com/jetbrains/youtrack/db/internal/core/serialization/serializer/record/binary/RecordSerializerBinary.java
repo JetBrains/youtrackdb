@@ -95,7 +95,6 @@ public class RecordSerializerBinary implements RecordSerializer {
     }
 
     final var container = new BytesContainer(iSource).skip(1);
-
     try {
       if (iFields != null && iFields.length > 0) {
         serializerByVersion[iSource[0]].deserializePartial(session, (EntityImpl) iRecord, container,

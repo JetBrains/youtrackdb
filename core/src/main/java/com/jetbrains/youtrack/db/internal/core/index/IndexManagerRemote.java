@@ -60,6 +60,9 @@ public class IndexManagerRemote implements IndexManagerAbstract {
 
   private RID identity;
 
+  private final ThreadLocal<boolean[]> ignoreReloadRequest = ThreadLocal.withInitial(
+      () -> new boolean[1]);
+
   public IndexManagerRemote(StorageInfo storage) {
     super();
     this.storage = storage;
@@ -303,17 +306,27 @@ public class IndexManagerRemote implements IndexManagerAbstract {
   }
 
   private void updateIfRequested(@Nonnull DatabaseSessionInternal database) {
+    var ignoreReloadRequest = this.ignoreReloadRequest.get();
+    //stack overflow protection
+    if (ignoreReloadRequest[0]) {
+      return;
+    }
+
     var lockNesting = this.lockNesting.get().value;
     if (lockNesting > 0) {
       return;
     }
 
     while (true) {
-      var updateReqs = updateRequests.get();
+      var updateReqs = updateRequests.getAndSet(0);
 
       if (updateReqs > 0) {
-        reload(database);
-        updateRequests.getAndAdd(-updateReqs);
+        ignoreReloadRequest[0] = true;
+        try {
+          reload(database);
+        } finally {
+          ignoreReloadRequest[0] = false;
+        }
       } else {
         break;
       }

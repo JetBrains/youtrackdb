@@ -48,7 +48,9 @@ public class DBSequenceRemoteTest extends AbstractRemoteTest {
     }
     db.commit();
 
+    db.begin();
     assertThat(db.countClass("Person")).isEqualTo(10);
+    db.commit();
   }
 
   @Test
@@ -70,7 +72,9 @@ public class DBSequenceRemoteTest extends AbstractRemoteTest {
 
     db.commit();
 
+    db.begin();
     assertThat(db.countClass("Person")).isEqualTo(10);
+    db.commit();
   }
 
   @Test
@@ -79,7 +83,9 @@ public class DBSequenceRemoteTest extends AbstractRemoteTest {
     db.execute("CREATE SEQUENCE CircuitSequence TYPE CACHED START 1 INCREMENT 1 CACHE 10;");
     db.commit();
 
-    db.execute("select sequence('CircuitSequence').next() as seq");
+    var tx = db.begin();
+    tx.command("select sequence('CircuitSequence').next() as seq");
+    tx.commit();
   }
 
   @Test
@@ -88,6 +94,8 @@ public class DBSequenceRemoteTest extends AbstractRemoteTest {
     db.execute("CREATE SEQUENCE CircuitSequence TYPE ORDERED;");
     db.commit();
 
-    db.execute("select sequence('CircuitSequence').next() as seq");
+    var tx = db.begin();
+    tx.command("select sequence('CircuitSequence').next() as seq");
+    tx.commit();
   }
 }

@@ -33,7 +33,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * @since 3/2/2015
@@ -42,7 +42,7 @@ public class SequenceLibraryImpl {
 
   public static final String DROPPED_SEQUENCES_MAP = "droppedSequencesMap";
   private final Map<String, DBSequence> sequences = new ConcurrentHashMap<>();
-  private final AtomicBoolean reloadNeeded = new AtomicBoolean(false);
+  private final AtomicLong reloadNeeded = new AtomicLong();
 
   public static void create(DatabaseSessionInternal database) {
     init(database);
@@ -208,13 +208,13 @@ public class SequenceLibraryImpl {
   }
 
   private void reloadIfNeeded(DatabaseSessionInternal database) {
-    if (reloadNeeded.get()) {
+    var reloadRequests = reloadNeeded.getAndSet(0);
+    if (reloadRequests > 0) {
       load(database);
-      reloadNeeded.set(false);
     }
   }
 
   public void update() {
-    reloadNeeded.set(true);
+    reloadNeeded.incrementAndGet();
   }
 }

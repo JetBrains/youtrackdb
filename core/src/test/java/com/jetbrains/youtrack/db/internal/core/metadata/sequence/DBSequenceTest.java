@@ -22,9 +22,6 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-/**
- *
- */
 public class DBSequenceTest {
 
   private static YouTrackDB youTrackDB;

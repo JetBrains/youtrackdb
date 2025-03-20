@@ -43,121 +43,132 @@ public class FrontendClientServerTransaction extends FrontendTransactionImpl {
   }
 
   public void mergeReceivedTransaction(@Nonnull List<NetworkRecordOperation> operations) {
-    updatedToOldRecordIdMap.clear();
-    operationsToSendOnClient.clear();
-
-    mergeInProgress = true;
     try {
-      // SORT OPERATIONS BY TYPE TO BE SURE THAT CREATES ARE PROCESSED FIRST
-      operations.sort(Comparator.comparingInt(NetworkRecordOperation::getType).reversed());
+      updatedToOldRecordIdMap.clear();
+      operationsToSendOnClient.clear();
 
-      var newRecordsWithNetworkOperations = new ArrayList<RawPair<RecordAbstract, NetworkRecordOperation>>(
-          operations.size());
+      mergeInProgress = true;
+      try {
+        // SORT OPERATIONS BY TYPE TO BE SURE THAT CREATES ARE PROCESSED FIRST
+        operations.sort(Comparator.comparingInt(NetworkRecordOperation::getType).reversed());
 
-      for (var recordOperation : operations) {
-        var txEntry = getRecordEntry(recordOperation.getId());
+        var newRecordsWithNetworkOperations = new ArrayList<RawPair<RecordAbstract, NetworkRecordOperation>>(
+            operations.size());
 
-        if (txEntry != null) {
-          if (txEntry.type == RecordOperation.DELETED) {
-            throw new TransactionException(
-                session,
-                "Record " + recordOperation.getId() + " is already deleted in transaction");
-          }
+        for (var recordOperation : operations) {
+          var txEntry = getRecordEntry(recordOperation.getId());
 
-          if (recordOperation.getType() == RecordOperation.UPDATED
-              || recordOperation.getType() == RecordOperation.CREATED) {
-            mergeChanges(recordOperation, txEntry.record);
-
-            syncDirtyCounter(recordOperation, txEntry);
-            addRecordOperation(txEntry.record, recordOperation.getType());
-          } else {
-            // DELETED
-            throw new TransactionException(
-                session,
-                "Invalid operation type " + recordOperation.getType() + " for record "
-                    + recordOperation.getId());
-          }
-        } else {
-          switch (recordOperation.getType()) {
-            case RecordOperation.CREATED -> {
-              var record =
-                  YouTrackDBEnginesManager.instance()
-                      .getRecordFactoryManager()
-                      .newInstance(recordOperation.getRecordType(),
-                          (RecordId) recordOperation.getId(),
-                          session);
-              record.unsetDirty();
-              record.recordSerializer = RecordSerializerNetworkV37.INSTANCE;
-              record.fromStream(recordOperation.getRecord());
-
-              if (recordOperation.getRecordType() == EntityImpl.RECORD_TYPE) {
-                ((EntityImpl) record).setClassNameWithoutPropertiesPostProcessing(
-                    RecordSerializerNetworkV37.deserializeClassName(recordOperation.getRecord()));
-              }
-
-              var oldRid = record.getIdentity().copy();
-              addRecordOperation(record, RecordOperation.CREATED);
-              newRecordsWithNetworkOperations.add(new RawPair<>(record, recordOperation));
-
-              if (!oldRid.equals(record.getIdentity())) {
-                updatedToOldRecordIdMap.put(record.getIdentity().copy(), oldRid);
-                originalChangedRecordIdMap.put(oldRid, record.getIdentity());
-              }
+          if (txEntry != null) {
+            if (txEntry.type == RecordOperation.DELETED) {
+              throw new TransactionException(
+                  session,
+                  "Record " + recordOperation.getId() + " is already deleted in transaction");
             }
-            case RecordOperation.UPDATED -> {
-              var record = loadRecordAndCheckVersion(recordOperation);
-              mergeChanges(recordOperation, record);
 
-              syncDirtyCounter(recordOperation, record.txEntry);
+            if (recordOperation.getType() == RecordOperation.UPDATED
+                || recordOperation.getType() == RecordOperation.CREATED) {
+              assert recordOperation.getType() == RecordOperation.UPDATED
+                  || recordOperation.getDirtyCounter() > 1;
 
-            }
-            case RecordOperation.DELETED -> {
-              var record = loadRecordAndCheckVersion(recordOperation);
-              record.delete();
+              mergeChanges(recordOperation, txEntry.record);
+              syncDirtyCounter(recordOperation, txEntry);
 
-              var txOperation = getRecordEntry(record.getIdentity());
-              syncDirtyCounter(recordOperation, txOperation);
-            }
-            default -> {
+              addRecordOperation(txEntry.record, RecordOperation.UPDATED);
+            } else {
+              // DELETED
               throw new TransactionException(
                   session,
                   "Invalid operation type " + recordOperation.getType() + " for record "
                       + recordOperation.getId());
             }
+          } else {
+            switch (recordOperation.getType()) {
+              case RecordOperation.CREATED -> {
+                var record =
+                    YouTrackDBEnginesManager.instance()
+                        .getRecordFactoryManager()
+                        .newInstance(recordOperation.getRecordType(),
+                            (RecordId) recordOperation.getId(),
+                            session);
+                record.unsetDirty();
+                record.recordSerializer = RecordSerializerNetworkV37.INSTANCE;
+                record.fromStream(recordOperation.getRecord());
+
+                if (recordOperation.getRecordType() == EntityImpl.RECORD_TYPE) {
+                  ((EntityImpl) record).setClassNameWithoutPropertiesPostProcessing(
+                      RecordSerializerNetworkV37.deserializeClassName(recordOperation.getRecord()));
+                }
+
+                var oldRid = record.getIdentity().copy();
+                addRecordOperation(record, RecordOperation.CREATED);
+                newRecordsWithNetworkOperations.add(new RawPair<>(record, recordOperation));
+
+                if (!oldRid.equals(record.getIdentity())) {
+                  updatedToOldRecordIdMap.put(record.getIdentity().copy(), oldRid);
+                  originalChangedRecordIdMap.put(oldRid, record.getIdentity());
+                }
+              }
+              case RecordOperation.UPDATED -> {
+                var record = loadRecordAndCheckVersion(recordOperation);
+                mergeChanges(recordOperation, record);
+                syncDirtyCounter(recordOperation, record.txEntry);
+              }
+              case RecordOperation.DELETED -> {
+                var record = loadRecordAndCheckVersion(recordOperation);
+                record.delete();
+
+                var txOperation = getRecordEntry(record.getIdentity());
+                syncDirtyCounter(recordOperation, txOperation);
+              }
+              default -> {
+                throw new TransactionException(
+                    session,
+                    "Invalid operation type " + recordOperation.getType() + " for record "
+                        + recordOperation.getId());
+              }
+            }
           }
         }
+
+        for (var recordWithNetworkOperationPair : newRecordsWithNetworkOperations) {
+          var record = recordWithNetworkOperationPair.first;
+          if (record.sourceIsParsedByProperties()) {
+            throw new TransactionException("Record " + record.getIdentity()
+                + " is early parsed by properties, that can lead to inconsistent state of link based properties");
+          }
+
+          assert record.recordSerializer == RecordSerializerNetworkV37.INSTANCE;
+          if (record instanceof EntityImpl entity) {
+            //deserialize properties using network serializer and update all links of new records to correct values
+            entity.checkForProperties();
+          }
+
+          //back to normal serializer for entity
+          record.recordSerializer = session.getSerializer();
+          syncDirtyCounter(recordWithNetworkOperationPair.second, record.txEntry);
+        }
+      } finally {
+        mergeInProgress = false;
       }
 
-      for (var recordWithNetworkOperationPair : newRecordsWithNetworkOperations) {
-        var record = recordWithNetworkOperationPair.first;
-        if (record.sourceIsParsedByProperties()) {
-          throw new TransactionException("Record " + record.getIdentity()
-              + " is early parsed by properties, that can lead to inconsistent state of link based properties");
-        }
-
-        assert record.recordSerializer == RecordSerializerNetworkV37.INSTANCE;
-        if (record instanceof EntityImpl entity) {
-          //deserialize properties using network serializer and update all links of new records to correct values
-          entity.checkForProperties();
-        }
-
-        //back to normal serializer for entity
-        record.recordSerializer = session.getSerializer();
-        syncDirtyCounter(recordWithNetworkOperationPair.second, record.txEntry);
-      }
-    } finally {
-      mergeInProgress = false;
+      preProcessRecordsAndExecuteCallCallbacks();
+    } catch (Exception e) {
+      session.rollback(true);
+      throw e;
     }
-
-    preProcessRecordsAndExecuteCallCallbacks();
   }
 
   private static void syncDirtyCounter(NetworkRecordOperation recordOperation,
       RecordOperation txEntry) {
     if (txEntry.dirtyCounterOnClientSide
-        >= recordOperation.getDirtyCounter()) {
+        > recordOperation.getDirtyCounter()) {
       throw new IllegalStateException("Client and server transactions are not synchronized "
           + "client dirty counter is " + txEntry.dirtyCounterOnClientSide
+          + " and server dirty counter is " + recordOperation.getDirtyCounter());
+    }
+    if (txEntry.recordCallBackDirtyCounter > recordOperation.getDirtyCounter()) {
+      throw new IllegalStateException("Client and server transactions are not synchronized "
+          + "client callback dirty counter is " + txEntry.recordCallBackDirtyCounter
           + " and server dirty counter is " + recordOperation.getDirtyCounter());
     }
     txEntry.record.setDirty(recordOperation.getDirtyCounter());
@@ -199,6 +210,7 @@ public class FrontendClientServerTransaction extends FrontendTransactionImpl {
     } else {
       var serializer = RecordSerializerNetworkV37.INSTANCE;
       serializer.fromStream(getDatabaseSession(), operation.getRecord(), record);
+      record.recordSerializer = session.getSerializer();
     }
   }
 
