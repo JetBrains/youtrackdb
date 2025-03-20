@@ -15,6 +15,8 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
+import static org.assertj.core.api.Java6Assertions.assertThat;
+
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -56,7 +58,7 @@ public class AbstractClassTest extends BaseDBTest {
         cause = cause.getCause();
       }
 
-      Assert.assertTrue(cause instanceof SchemaException);
+      assertThat(cause).isInstanceOf(SchemaException.class);
     }
   }
 }

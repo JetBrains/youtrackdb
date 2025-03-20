@@ -22,6 +22,7 @@ package com.jetbrains.youtrack.db.internal.core.record.impl;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
 import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.query.Result;
@@ -156,7 +157,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     var cls = getImmutableSchemaClass(session);
     if (cls != null) {
       if (!isEmbedded() && cls.isAbstract()) {
-        throw new DatabaseException(session,
+        throw new SchemaException(session,
             "Standalone entities can be only of non-abstract classes. Provided class : "
                 + cls.getName(
             ) + " is abstract.");

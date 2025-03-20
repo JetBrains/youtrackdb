@@ -52,7 +52,7 @@ public class BinaryTest extends BaseDBTest {
   @Test
   public void testBasicCreateExternal() {
     session.begin();
-    Blob record = new RecordBytes(session, "This is a test".getBytes());
+    Blob record = session.newBlob("This is a test".getBytes());
     session.commit();
 
     rid = record.getIdentity();
@@ -60,9 +60,11 @@ public class BinaryTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testBasicCreateExternal")
   public void testBasicReadExternal() {
-    RecordAbstract record = session.load(rid);
+    session.executeInTx(tx -> {
+      RecordAbstract record = session.load(rid);
 
-    Assert.assertEquals("This is a test", new String(record.toStream()));
+      Assert.assertEquals("This is a test", new String(record.toStream()));
+    });
   }
 
   @Test(dependsOnMethods = "testBasicReadExternal")
@@ -70,7 +72,7 @@ public class BinaryTest extends BaseDBTest {
     session.begin();
 
     var doc = ((EntityImpl) session.newEntity());
-    doc.setProperty("binary", new RecordBytes(session, "Binary data".getBytes()));
+    doc.setProperty("binary", session.newBlob("Binary data".getBytes()));
 
     session.commit();
 
@@ -79,8 +81,10 @@ public class BinaryTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testMixedCreateExternal")
   public void testMixedReadExternal() {
-    EntityImpl doc = rid.getRecord(session);
-    Assert.assertEquals("Binary data",
-        new String(((RecordAbstract) doc.getProperty("binary")).toStream()));
+    session.executeInTx(tx -> {
+      EntityImpl doc = rid.getRecord(session);
+      Assert.assertEquals("Binary data",
+          new String(((RecordAbstract) doc.getProperty("binary")).toStream()));
+    });
   }
 }
