@@ -32,6 +32,8 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
   public void beforeTest() {
     super.beforeTest();
     db.createClass("Some");
+    db.createVertexClass("SomeVertex");
+    db.createAbstractClass("AbstractSome");
     oldPageSize = QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
     QUERY_REMOTE_RESULTSET_PAGE_SIZE.setValue(10);
   }
@@ -62,25 +64,27 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
       db.commit();
     }
 
-    var res = db.execute("select from Some");
+    var tx = db.begin();
+    var res = tx.execute("select from Some");
     for (var i = 0; i < 150; i++) {
       assertTrue(res.hasNext());
       var item = res.next();
       assertEquals(item.getProperty("prop"), "value");
     }
+    tx.commit();
   }
 
   @Test
   public void testCommandInsertWithPageOverflow() {
     for (var i = 0; i < 150; i++) {
       db.begin();
-      var doc = ((EntityImpl) db.newEntity("Some"));
+      var doc = ((EntityImpl) db.newVertex("SomeVertex"));
       doc.setProperty("prop", "value");
       db.commit();
     }
 
     db.begin();
-    var res = db.execute("insert into V from select from Some");
+    var res = db.execute("insert into V from select from SomeVertex");
     for (var i = 0; i < 150; i++) {
       assertTrue(res.hasNext());
       var item = res.next();
@@ -91,22 +95,23 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
 
   @Test(expected = DatabaseException.class)
   public void testQueryKilledSession() {
+    var tx = db.begin();
     for (var i = 0; i < 150; i++) {
-      var doc = ((EntityImpl) db.newEntity("Some"));
+      var doc = ((EntityImpl) tx.newEntity("Some"));
       doc.setProperty("prop", "value");
     }
-    var res = db.query("select from Some");
+    var res = tx.query("select from Some");
 
     for (var conn : server.getClientConnectionManager().getConnections()) {
       conn.close();
     }
-    db.activateOnCurrentThread();
 
     for (var i = 0; i < 150; i++) {
       assertTrue(res.hasNext());
       var item = res.next();
       assertEquals(item.getProperty("prop"), "value");
     }
+    tx.commit();
   }
 
   @Test
@@ -193,7 +198,7 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
   @Test
   public void testQueryEmbeddedMap() {
     db.begin();
-    var doc = ((EntityImpl) db.newEntity("Some"));
+    var doc = ((EntityImpl) db.newEmbeddedEntity("Some"));
     doc.setProperty("prop", "value");
     var emb = ((EntityImpl) db.newEntity());
     emb.setProperty("one", "value");
@@ -202,13 +207,15 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
     doc.setProperty("map", map, PropertyType.EMBEDDEDMAP);
     db.commit();
 
-    var res = db.query("select map from Some");
+    var tx = db.begin();
+    var res = tx.query("select map from Some");
 
     var item = res.next();
     assertNotNull(item.getProperty("map"));
     assertEquals(((Map<String, Result>) item.getProperty("map")).size(), 1);
     assertEquals(
         ((Map<String, Result>) item.getProperty("map")).get("key").getProperty("one"), "value");
+    tx.commit();
   }
 
   @Test

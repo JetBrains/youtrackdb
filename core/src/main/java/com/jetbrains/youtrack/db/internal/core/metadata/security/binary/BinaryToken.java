@@ -44,17 +44,19 @@ public class BinaryToken implements Token {
 
   @Override
   public SecurityUserImpl getUser(DatabaseSessionInternal session) {
-    if (this.payload.getUserRid() != null) {
-      try {
-        EntityImpl result = session.load(new RecordId(this.payload.getUserRid()));
-        if (result.getSchemaClassName().equals(SecurityUserImpl.CLASS_NAME)) {
-          return new SecurityUserImpl(session, result);
+    return session.computeInTx(transaction -> {
+      if (this.payload.getUserRid() != null) {
+        try {
+          EntityImpl result = transaction.load(new RecordId(this.payload.getUserRid()));
+          if (result.getSchemaClassName().equals(SecurityUserImpl.CLASS_NAME)) {
+            return new SecurityUserImpl(session, result);
+          }
+        } catch (RecordNotFoundException e) {
+          return null;
         }
-      } catch (RecordNotFoundException e) {
-        return null;
       }
-    }
-    return null;
+      return null;
+    });
   }
 
   @Override

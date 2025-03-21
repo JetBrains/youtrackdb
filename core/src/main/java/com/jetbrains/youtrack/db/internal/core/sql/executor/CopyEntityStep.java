@@ -1,6 +1,8 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -32,7 +34,26 @@ public class CopyEntityStep extends AbstractExecutionStep {
   }
 
   private Result mapResult(Result result, CommandContext ctx) {
-    var resultEntity = ctx.getDatabaseSession().newEntity(className);
+    Entity resultEntity;
+    var session = ctx.getDatabaseSession();
+    if (className == null) {
+      resultEntity = session.newEntity();
+    } else {
+      var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
+      var cls = immutableSchema.getClass(className);
+      if (cls == null) {
+        throw new CommandExecutionException("Class " + className + " not found");
+      }
+
+      if (cls.isVertexType()) {
+        resultEntity = session.newVertex(className);
+      } else if (cls.isEdgeType()) {
+        throw new CommandExecutionException(
+            "Class " + className + " is an edge. Please use create edge command instead");
+      } else {
+        resultEntity = session.newEntity(className);
+      }
+    }
     if (result.isEntity()) {
       var docToCopy = (EntityImpl) result.asEntity();
       for (var propName : docToCopy.getPropertyNames()) {
