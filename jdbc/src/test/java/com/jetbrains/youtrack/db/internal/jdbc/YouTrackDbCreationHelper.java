@@ -237,8 +237,7 @@ public class YouTrackDbCreationHelper {
               throw new RuntimeException(e);
             }
 
-            var recordChunk = transaction.newBlob();
-
+            var recordChunk = transaction.newBlob(chunk);
             binaryChuncks.add(recordChunk.getIdentity());
           });
     }

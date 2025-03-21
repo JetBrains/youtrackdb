@@ -262,7 +262,11 @@ public class HelperClasses {
   public static int writeLinkCollection(
       DatabaseSessionInternal db, final BytesContainer bytes,
       final Collection<Identifiable> value) {
-    final var pos = VarIntSerializer.write(bytes, value.size());
+    //embedded
+    var pointer = bytes.alloc(1);
+    bytes.bytes[pointer] = 0;
+
+    VarIntSerializer.write(bytes, value.size());
 
     for (var itemValue : value) {
       // TODO: handle the null links
@@ -273,11 +277,15 @@ public class HelperClasses {
       }
     }
 
-    return pos;
+    return pointer;
   }
 
   public static <T extends TrackedMultiValue<?, Identifiable>> T readLinkCollection(
       final BytesContainer bytes, final T found, boolean justRunThrough) {
+    var embeddedFlag = bytes.bytes[bytes.offset++];
+    if (embeddedFlag != 0) {
+      throw new SerializationException("Expected embedded link collection");
+    }
     final var items = VarIntSerializer.readAsInteger(bytes);
     for (var i = 0; i < items; i++) {
       var id = readOptimizedLink(bytes, justRunThrough);

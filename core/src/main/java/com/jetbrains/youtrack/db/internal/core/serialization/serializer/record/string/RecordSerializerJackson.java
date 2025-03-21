@@ -150,7 +150,8 @@ public class RecordSerializerJackson {
     if (recordMetaData == null) {
       recordMetaData = new RecordMetadata(defaultRecordType,
           record != null ? record.getIdentity() : null,
-          defaultClassName, Collections.emptyMap(), false, null);
+          defaultClassName, Collections.emptyMap(), false,
+          record != null ? record.getVersion() : null, null);
     }
 
     var result = createRecordFromJsonAfterMetadata(session, record, recordMetaData, jsonParser);
@@ -263,8 +264,10 @@ public class RecordSerializerJackson {
     Map<String, String> fieldTypes = new HashMap<>();
     InternalRecordType internalRecordType = null;
     Boolean embeddedFlag = null;
+    Integer recordVersion = null;
 
     var fieldsCount = 0;
+
     while (token != JsonToken.END_OBJECT) {
       if (token == JsonToken.FIELD_NAME) {
         var fieldName = jsonParser.currentName();
@@ -357,6 +360,17 @@ public class RecordSerializerJackson {
             embeddedFlag = jsonParser.getBooleanValue();
             token = jsonParser.nextToken();
           }
+          case EntityHelper.ATTRIBUTE_VERSION -> {
+            token = jsonParser.nextToken();
+            if (token != JsonToken.VALUE_NUMBER_INT) {
+              throw new SerializationException(session,
+                  "Expected field value integer");
+            }
+            recordVersion = jsonParser.getIntValue();
+            token = jsonParser.nextToken();
+          }
+          default -> throw new SerializationException(session,
+              "Unexpected field name: " + fieldName);
         }
       } else {
         throw new SerializationException(session, "Expected field name");
@@ -389,6 +403,7 @@ public class RecordSerializerJackson {
     }
 
     return new RecordMetadata(recordType, recordId, className, fieldTypes, embeddedValue,
+        recordVersion,
         internalRecordType);
   }
 
@@ -429,11 +444,9 @@ public class RecordSerializerJackson {
             record.fromStream(CommonConst.EMPTY_BYTE_ARRAY);
           } else if (record instanceof Blob) {
             // BYTES
-            final var rec = record;
-            rec.unsetDirty();
-            final byte[] iBuffer = jsonParser.getBinaryValue();
-            final var rec1 = record;
-            rec1.fill(record.getIdentity(), record.getVersion(), iBuffer, true);
+            record.unsetDirty();
+            final var iBuffer = jsonParser.getBinaryValue();
+            record.fill(record.getIdentity(), record.getVersion(), iBuffer, true);
           } else {
             throw new SerializationException(session,
                 "Unsupported type of record : " + record.getClass().getName());
@@ -946,7 +959,7 @@ public class RecordSerializerJackson {
         var linkedClass = schemaProperty != null ? schemaProperty.getLinkedClass() : null;
         metadata = new RecordMetadata(EntityImpl.RECORD_TYPE, null,
             linkedClass != null ? linkedClass.getName() : null,
-            Collections.emptyMap(), true, null);
+            Collections.emptyMap(), true, null, null);
       }
     }
 
@@ -1049,6 +1062,7 @@ public class RecordSerializerJackson {
 
   public record RecordMetadata(byte recordType, RecordId recordId, String className,
                                Map<String, String> fieldTypes, boolean isEmbedded,
+                               @Nullable Integer recordVersion,
                                @Nullable InternalRecordType internalRecordType) {
 
   }

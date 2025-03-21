@@ -4823,6 +4823,9 @@ public abstract class AbstractPaginatedStorage
           final byte[] stream;
           try {
             stream = serializer.toStream(transcation.getDatabaseSession(), rec);
+            if (stream == null) {
+              throw new IllegalArgumentException("Record content is null");
+            }
           } catch (RuntimeException e) {
             throw BaseException.wrapException(
                 new CommitSerializationException(db.getDatabaseName(),

@@ -47,7 +47,6 @@ public class MessageHelperTest {
       var bags = new RidBag(db);
       bags.add(new RecordId(id, 0));
       doc.setProperty("bag", bags);
-
       doc.setClassNameWithoutPropertiesPostProcessing("Test");
       final RecordId iIdentity = new RecordId(id, 1);
       final var rec1 = (RecordAbstract) doc;

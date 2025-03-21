@@ -101,7 +101,7 @@ public class RemoteLiveQueryPushTest {
 
     var request =
         new LiveQueryPushRequest(10, LiveQueryPushRequest.END, events);
-    request.execute(null, storage);
+    request.execute(session, storage);
     assertEquals(1, mock.countCreate);
     assertEquals(1, mock.countUpdate);
     assertEquals(1, mock.countDelete);

@@ -49,6 +49,7 @@ public class RecordBytes extends RecordAbstract implements Blob {
 
   public RecordBytes(DatabaseSessionInternal session) {
     super(session);
+    source = EMPTY_SOURCE;
   }
 
   public RecordBytes(final DatabaseSessionInternal iDatabase, final byte[] iSource) {
