@@ -55,6 +55,7 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.IOException;
 import java.io.StringWriter;
+import java.io.UnsupportedEncodingException;
 import java.math.BigDecimal;
 import java.util.Base64;
 import java.util.Collections;
@@ -183,7 +184,19 @@ public class RecordSerializerJackson {
               record = session.newInstance();
             }
           } else {
-            record = session.newInstance(recordMetaData.className);
+            var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
+            var schemaClass = schemaSnapshot.getClass(recordMetaData.className);
+            if (schemaClass == null) {
+              throw new SerializationException(session,
+                  "Class not found: " + recordMetaData.className);
+            }
+            if (schemaClass.isVertexType()) {
+              record = (RecordAbstract) session.newVertex(schemaClass);
+            } else if (schemaClass.isEdgeType()) {
+              throw new UnsupportedEncodingException("Edges can not be created from JSON");
+            } else {
+              record = (RecordAbstract) session.newEntity(schemaClass);
+            }
           }
         } else if (recordMetaData.recordType == Blob.RECORD_TYPE) {
           record = (RecordAbstract) session.newBlob();
@@ -521,6 +534,10 @@ public class RecordSerializerJackson {
       JsonGenerator jsonGenerator,
       RecordAbstract record, FormatSettings formatSettings)
       throws IOException {
+    if (formatSettings.includeVersion) {
+      jsonGenerator.writeFieldName(EntityHelper.ATTRIBUTE_VERSION);
+      jsonGenerator.writeNumber(record.getVersion());
+    }
     if (record instanceof EntityImpl entity) {
       if (!entity.isEmbedded()) {
         if (formatSettings.includeId) {
@@ -1048,6 +1065,7 @@ public class RecordSerializerJackson {
     public boolean includeClazz;
     public boolean keepTypes = true;
     public boolean markEmbeddedDocs = true;
+    public boolean includeVersion = true;
 
     public FormatSettings(final String stringFormat) {
       if (stringFormat == null) {
@@ -1072,6 +1090,7 @@ public class RecordSerializerJackson {
               case "keepTypes" -> keepTypes = true;
               case "internal" -> internalRecords = true;
               case "markEmbeddedDocs" -> markEmbeddedDocs = true;
+              case "includeVersion" -> includeVersion = true;
               default -> LogManager.instance().warn(this, "Unknown format option: %s. "
                   + "Expected: type, rid, class, keepTypes, internal", null, f);
             }

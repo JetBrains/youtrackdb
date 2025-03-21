@@ -33,6 +33,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Arrays;
+import java.util.Objects;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -52,6 +53,7 @@ public class RecordBytes extends RecordAbstract implements Blob {
 
   public RecordBytes(final DatabaseSessionInternal iDatabase, final byte[] iSource) {
     super(iDatabase, iSource);
+    Objects.requireNonNull(iSource);
     dirty = 1;
     contentChanged = true;
   }
@@ -65,6 +67,7 @@ public class RecordBytes extends RecordAbstract implements Blob {
 
   @Override
   public RecordBytes fromStream(final byte[] iRecordBuffer) {
+    Objects.requireNonNull(iRecordBuffer);
     if (dirty > 0) {
       throw new DatabaseException(getSession().getDatabaseName(),
           "Cannot call fromStream() on dirty records");

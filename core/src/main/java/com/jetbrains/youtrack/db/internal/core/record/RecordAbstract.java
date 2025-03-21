@@ -49,7 +49,7 @@ import javax.annotation.Nullable;
 public abstract class RecordAbstract implements DBRecord, RecordElement, SerializableStream,
     ChangeableIdentity {
 
-  public static final String DEFAULT_FORMAT = "rid,version,class,type,keepTypes,markEmbeddedDocs";
+  public static final String DEFAULT_FORMAT = "rid,version,class,type,keepTypes";
 
   @Nonnull
   protected final RecordId recordId;

@@ -17,8 +17,7 @@ public interface HttpResponse {
   String JSON_FORMAT =
       "type,indent:-1,rid,version,attribSameRow,class,keepTypes,alwaysFetchEmbeddedDocuments";
 
-  void send(int iCode, String iReason, String iContentType, Object iContent, String iHeaders)
-      throws IOException;
+  void send(int iCode, String iReason, String iContentType, Object iContent, String iHeaders);
 
   void writeStatus(int iStatus, String iReason) throws IOException;
 
@@ -85,9 +84,9 @@ public interface HttpResponse {
       DatabaseSessionInternal session)
       throws IOException;
 
-  void writeRecord(DBRecord iRecord) throws IOException;
+  void writeRecord(DBRecord iRecord);
 
-  void writeRecord(DBRecord iRecord, String iFetchPlan, String iFormat) throws IOException;
+  void writeRecord(DBRecord iRecord, String iFetchPlan, String iFormat);
 
   void sendStream(int iCode, String iReason, String iContentType, InputStream iContent, long iSize)
       throws IOException;

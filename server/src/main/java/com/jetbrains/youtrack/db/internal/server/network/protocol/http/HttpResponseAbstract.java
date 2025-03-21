@@ -115,8 +115,7 @@ public abstract class HttpResponseAbstract implements HttpResponse {
 
   @Override
   public abstract void send(
-      int iCode, String iReason, String iContentType, Object iContent, String iHeaders)
-      throws IOException;
+      int iCode, String iReason, String iContentType, Object iContent, String iHeaders);
 
   @Override
   public abstract void writeStatus(int iStatus, String iReason) throws IOException;
@@ -534,18 +533,20 @@ public abstract class HttpResponseAbstract implements HttpResponse {
   }
 
   @Override
-  public void writeRecord(final DBRecord iRecord) throws IOException {
+  public void writeRecord(final DBRecord iRecord) {
     writeRecord(iRecord, null, null);
   }
 
   @Override
-  public void writeRecord(final DBRecord iRecord, final String iFetchPlan, String iFormat)
-      throws IOException {
+  public void writeRecord(final DBRecord iRecord, final String iFetchPlan, String iFormat) {
     if (iFormat == null) {
       iFormat = HttpResponse.JSON_FORMAT;
     }
 
-    final var format = iFetchPlan != null ? iFormat + ",fetchPlan:" + iFetchPlan : iFormat;
+    var format = iFetchPlan != null ? iFormat + ",fetchPlan:" + iFetchPlan : iFormat;
+    if (!format.contains("version")) {
+      format += ",version";
+    }
     if (iRecord != null) {
       send(
           HttpUtils.STATUS_OK_CODE,

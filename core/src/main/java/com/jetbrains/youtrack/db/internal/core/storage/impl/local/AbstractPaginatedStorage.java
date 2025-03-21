@@ -37,7 +37,6 @@ import com.jetbrains.youtrack.db.api.exception.StorageDoesNotExistException;
 import com.jetbrains.youtrack.db.api.exception.StorageExistsException;
 import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
 import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.concur.NeedRetryException;
@@ -90,7 +89,6 @@ import com.jetbrains.youtrack.db.internal.core.index.engine.v1.CellBTreeMultiVal
 import com.jetbrains.youtrack.db.internal.core.index.engine.v1.CellBTreeSingleValueIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.query.live.YTLiveQueryMonitorEmbedded;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.RecordVersionHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.impl.index.CompositeKeySerializer;
@@ -1850,34 +1848,34 @@ public abstract class AbstractPaginatedStorage
 
               var session = clientTx.getDatabaseSession();
               for (final var txEntry : newRecords) {
-                final DBRecord rec = txEntry.record;
+                final var rec = txEntry.record;
                 if (!rec.getIdentity().isPersistent()) {
                   if (rec.isDirty()) {
                     // This allocate a position for a new record
-                    final var rid = ((RecordId) rec.getIdentity());
+                    final var rid = rec.getIdentity();
                     final var oldRID = rid.copy();
                     final var cluster = doGetAndCheckCluster(rid.getClusterId());
                     final var ppos =
                         cluster.allocatePosition(
-                            ((RecordAbstract) rec).getRecordType(), atomicOperation);
+                            rec.getRecordType(), atomicOperation);
                     rid.setClusterPosition(ppos.clusterPosition);
                     assert clientTx.assertIdentityChangedAfterCommit(oldRID, rid);
                   }
                 } else {
                   // This allocate position starting from a valid rid, used in distributed for
                   // allocate the same position on other nodes
-                  final var rid = (RecordId) rec.getIdentity();
+                  final var rid = rec.getIdentity();
                   final var cluster =
                       (PaginatedCluster) doGetAndCheckCluster(rid.getClusterId());
                   var recordStatus = cluster.getRecordStatus(rid.getClusterPosition());
                   if (recordStatus == RECORD_STATUS.NOT_EXISTENT) {
                     var ppos =
                         cluster.allocatePosition(
-                            ((RecordAbstract) rec).getRecordType(), atomicOperation);
+                            rec.getRecordType(), atomicOperation);
                     while (ppos.clusterPosition < rid.getClusterPosition()) {
                       ppos =
                           cluster.allocatePosition(
-                              ((RecordAbstract) rec).getRecordType(), atomicOperation);
+                              rec.getRecordType(), atomicOperation);
                     }
                     if (ppos.clusterPosition != rid.getClusterPosition()) {
                       throw new ConcurrentCreateException(session.getDatabaseName(),
@@ -1887,7 +1885,7 @@ public abstract class AbstractPaginatedStorage
                       || recordStatus == RECORD_STATUS.REMOVED) {
                     final var ppos =
                         cluster.allocatePosition(
-                            ((RecordAbstract) rec).getRecordType(), atomicOperation);
+                            rec.getRecordType(), atomicOperation);
                     throw new ConcurrentCreateException(session.getDatabaseName(),
                         rid, new RecordId(rid.getClusterId(), ppos.clusterPosition));
                   }
@@ -2022,7 +2020,7 @@ public abstract class AbstractPaginatedStorage
 
             final Map<RecordOperation, PhysicalPosition> positions = new IdentityHashMap<>(8);
             for (final var recordOperation : newRecords) {
-              final DBRecord rec = recordOperation.record;
+              final var rec = recordOperation.record;
 
               if (allocated) {
                 if (rec.getIdentity().isPersistent()) {
@@ -2035,7 +2033,7 @@ public abstract class AbstractPaginatedStorage
                           + " commit");
                 }
               } else if (rec.isDirty() && !rec.getIdentity().isPersistent()) {
-                final var rid = ((RecordId) rec.getIdentity());
+                final var rid = rec.getIdentity();
                 final var oldRID = rid.copy();
 
                 final var clusterOverride = clusterOverrides.get(recordOperation);
@@ -2046,7 +2044,7 @@ public abstract class AbstractPaginatedStorage
 
                 var physicalPosition =
                     cluster.allocatePosition(
-                        ((RecordAbstract) rec).getRecordType(),
+                        rec.getRecordType(),
                         atomicOperation);
 
                 if (rid.getClusterPosition() > -1) {
@@ -2058,7 +2056,7 @@ public abstract class AbstractPaginatedStorage
                   while (rid.getClusterPosition() > physicalPosition.clusterPosition) {
                     physicalPosition =
                         cluster.allocatePosition(
-                            ((RecordAbstract) rec).getRecordType(),
+                            rec.getRecordType(),
                             atomicOperation);
                   }
 
@@ -4846,28 +4844,24 @@ public abstract class AbstractPaginatedStorage
                     allocated)
                     .getResult();
 
-            final var rec1 = rec;
-            rec1.setVersion(ppos.recordVersion);
+            rec.setVersion(ppos.recordVersion);
           } else {
-            final var rec3 = rec;
             final var updateRes =
                 doUpdateRecord(
                     atomicOperation,
                     rid,
-                    rec3.isContentChanged(),
+                    rec.isContentChanged(),
                     stream,
                     -2,
                     rec.getRecordType(),
                     null,
                     cluster);
             final int iVersion = updateRes.getResult();
-            final var rec1 = rec;
-            rec1.setVersion(iVersion);
+            rec.setVersion(iVersion);
             if (updateRes.getModifiedRecordContent() != null) {
               final int iVersion1 = updateRes.getResult();
-              final byte[] iBuffer = updateRes.getModifiedRecordContent();
-              final var rec2 = rec;
-              rec2.fill(rid, iVersion1, iBuffer, false);
+              final var iBuffer = updateRes.getModifiedRecordContent();
+              rec.fill(rid, iVersion1, iBuffer, false);
             }
           }
           break;
@@ -4883,25 +4877,22 @@ public abstract class AbstractPaginatedStorage
                 e, name);
           }
 
-          final var rec3 = rec;
           final var updateRes =
               doUpdateRecord(
                   atomicOperation,
                   rid,
-                  rec3.isContentChanged(),
+                  rec.isContentChanged(),
                   stream,
                   rec.getVersion(),
                   rec.getRecordType(),
                   null,
                   cluster);
           final int iVersion = updateRes.getResult();
-          final var rec1 = rec;
-          rec1.setVersion(iVersion);
+          rec.setVersion(iVersion);
           if (updateRes.getModifiedRecordContent() != null) {
             final int iVersion1 = updateRes.getResult();
-            final byte[] iBuffer = updateRes.getModifiedRecordContent();
-            final var rec2 = rec;
-            rec2.fill(rid, iVersion1, iBuffer, false);
+            final var iBuffer = updateRes.getModifiedRecordContent();
+            rec.fill(rid, iVersion1, iBuffer, false);
           }
 
           break;
@@ -4926,8 +4917,7 @@ public abstract class AbstractPaginatedStorage
       ((EntityImpl) rec).clearTransactionTrackData();
     }
 
-    final var rec1 = rec;
-    rec1.unsetDirty();
+    rec.unsetDirty();
   }
 
   private void checkClusterSegmentIndexRange(final int iClusterId) {

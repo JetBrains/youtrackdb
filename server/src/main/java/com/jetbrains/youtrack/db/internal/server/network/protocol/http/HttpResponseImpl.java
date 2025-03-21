@@ -1,5 +1,7 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http;
 
+import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
@@ -44,8 +46,7 @@ public class HttpResponseImpl extends HttpResponseAbstract {
       final String iReason,
       final String iContentType,
       final Object iContent,
-      final String iHeaders)
-      throws IOException {
+      final String iHeaders) {
     if (isSendStarted()) {
       // AVOID TO SEND RESPONSE TWICE
       return;
@@ -66,47 +67,52 @@ public class HttpResponseImpl extends HttpResponseAbstract {
 
     final var empty = getContent() == null || getContent().length() == 0;
 
-    if (this.getCode() > 0) {
-      writeStatus(this.getCode(), iReason);
-    } else {
-      writeStatus(empty && iCode == 200 ? 204 : iCode, iReason);
-    }
-    writeHeaders(getContentType(), isKeepAlive());
-
-    if (iHeaders != null) {
-      writeLine(iHeaders);
-    }
-
-    if (getSessionId() != null) {
-      var sameSite = (isSameSiteCookie() ? "SameSite=Strict;" : "");
-      writeLine(
-          "Set-Cookie: "
-              + HttpUtils.OSESSIONID
-              + "="
-              + getSessionId()
-              + "; Path=/; HttpOnly;"
-              + sameSite);
-    }
-
-    byte[] binaryContent = null;
-    if (!empty) {
-      if (getContentEncoding() != null
-          && getContentEncoding().equals(HttpUtils.CONTENT_ACCEPT_GZIP_ENCODED)) {
-        binaryContent = compress(getContent());
+    try {
+      if (this.getCode() > 0) {
+        writeStatus(this.getCode(), iReason);
       } else {
-        binaryContent = getContent().getBytes(utf8);
+        writeStatus(empty && iCode == 200 ? 204 : iCode, iReason);
       }
+      writeHeaders(getContentType(), isKeepAlive());
+
+      if (iHeaders != null) {
+        writeLine(iHeaders);
+      }
+
+      if (getSessionId() != null) {
+        var sameSite = (isSameSiteCookie() ? "SameSite=Strict;" : "");
+        writeLine(
+            "Set-Cookie: "
+                + HttpUtils.OSESSIONID
+                + "="
+                + getSessionId()
+                + "; Path=/; HttpOnly;"
+                + sameSite);
+      }
+
+      byte[] binaryContent = null;
+      if (!empty) {
+        if (getContentEncoding() != null
+            && getContentEncoding().equals(HttpUtils.CONTENT_ACCEPT_GZIP_ENCODED)) {
+          binaryContent = compress(getContent());
+        } else {
+          binaryContent = getContent().getBytes(utf8);
+        }
+      }
+
+      writeLine(HttpUtils.HEADER_CONTENT_LENGTH + (empty ? 0 : binaryContent.length));
+
+      writeLine(null);
+
+      if (binaryContent != null) {
+        getOut().write(binaryContent);
+      }
+
+      flush();
+    } catch (IOException e) {
+      throw BaseException.wrapException(
+          new CommandExecutionException("Error while sending response"), e, (String) null);
     }
-
-    writeLine(HttpUtils.HEADER_CONTENT_LENGTH + (empty ? 0 : binaryContent.length));
-
-    writeLine(null);
-
-    if (binaryContent != null) {
-      getOut().write(binaryContent);
-    }
-
-    flush();
   }
 
   @Override

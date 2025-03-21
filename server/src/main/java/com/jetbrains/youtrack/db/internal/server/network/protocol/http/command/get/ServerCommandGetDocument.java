@@ -41,52 +41,51 @@ public class ServerCommandGetDocument extends ServerCommandAuthenticatedDbAbstra
 
     iRequest.getData().commandInfo = "Load document";
 
-    final DBRecord rec;
-
     final var parametersPos = urlParts[2].indexOf('?');
-    final var rid = parametersPos > -1 ? urlParts[2].substring(0, parametersPos) : urlParts[2];
-
+    var rid = parametersPos > -1 ? urlParts[2].substring(0, parametersPos) : urlParts[2];
     try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
-      try {
-        rec = db.load(new RecordId(rid));
-      } catch (RecordNotFoundException e) {
-        iResponse.send(
-            HttpUtils.STATUS_NOTFOUND_CODE,
-            HttpUtils.STATUS_NOTFOUND_DESCRIPTION,
-            HttpUtils.CONTENT_JSON,
-            "Record with id '" + urlParts[2] + "' was not found.",
-            null);
-        return false;
-      }
-
-      if (iRequest.getHttpMethod().equals("HEAD"))
-      // JUST SEND HTTP CODE 200
-      {
-        iResponse.send(
-            HttpUtils.STATUS_OK_CODE,
-            HttpUtils.STATUS_OK_DESCRIPTION,
-            null,
-            null,
-            HttpUtils.HEADER_ETAG + rec.getVersion());
-      } else {
-        final var ifNoneMatch = iRequest.getHeader("If-None-Match");
-        if (ifNoneMatch != null && Integer.toString(rec.getVersion()).equals(ifNoneMatch)) {
-          // SAME CONTENT, DON'T SEND BACK RECORD
+      return db.computeInTx(transaction -> {
+        final DBRecord rec;
+        try {
+          rec = db.load(new RecordId(rid));
+        } catch (RecordNotFoundException e) {
           iResponse.send(
-              HttpUtils.STATUS_OK_NOMODIFIED_CODE,
-              HttpUtils.STATUS_OK_NOMODIFIED_DESCRIPTION,
+              HttpUtils.STATUS_NOTFOUND_CODE,
+              HttpUtils.STATUS_NOTFOUND_DESCRIPTION,
+              HttpUtils.CONTENT_JSON,
+              "Record with id '" + urlParts[2] + "' was not found.",
+              null);
+          return false;
+        }
+
+        if (iRequest.getHttpMethod().equals("HEAD"))
+        // JUST SEND HTTP CODE 200
+        {
+          iResponse.send(
+              HttpUtils.STATUS_OK_CODE,
+              HttpUtils.STATUS_OK_DESCRIPTION,
               null,
               null,
               HttpUtils.HEADER_ETAG + rec.getVersion());
+        } else {
+          final var ifNoneMatch = iRequest.getHeader("If-None-Match");
+          if (ifNoneMatch != null && Integer.toString(rec.getVersion()).equals(ifNoneMatch)) {
+            // SAME CONTENT, DON'T SEND BACK RECORD
+            iResponse.send(
+                HttpUtils.STATUS_OK_NOMODIFIED_CODE,
+                HttpUtils.STATUS_OK_NOMODIFIED_DESCRIPTION,
+                null,
+                null,
+                HttpUtils.HEADER_ETAG + rec.getVersion());
+          }
+
+          // SEND THE DOCUMENT BACK
+          iResponse.writeRecord(rec, fetchPlan, null);
+
         }
-
-        // SEND THE DOCUMENT BACK
-        iResponse.writeRecord(rec, fetchPlan, null);
-      }
-
+        return false;
+      });
     }
-
-    return false;
   }
 
   @Override

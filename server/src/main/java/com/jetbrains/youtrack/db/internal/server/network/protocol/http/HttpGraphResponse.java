@@ -283,8 +283,7 @@ public class HttpGraphResponse extends HttpResponseAbstract {
       final String iReason,
       final String iContentType,
       final Object iContent,
-      final String iHeaders)
-      throws IOException {
+      final String iHeaders) {
     iWrapped.send(iCode, iReason, iContentType, iContent, iHeaders);
   }
 

@@ -15,7 +15,7 @@ package com.jetbrains.youtrack.db.internal.jdbc;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.record.Blob;
-import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
@@ -26,7 +26,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.List;
 import java.util.Random;
@@ -89,7 +88,7 @@ public class YouTrackDbCreationHelper {
       var articleSerial = 0;
       for (var a = 1; a <= totAuthors; ++a) {
         var author = ((EntityImpl) transaction.newEntity("Author"));
-        List<EntityImpl> articles = new ArrayList<>(totArticles);
+        var articles = db.newLinkList(totArticles);
         author.setProperty("articles", articles);
 
         author.setProperty("uuid", a, PropertyType.DOUBLE);
@@ -207,7 +206,8 @@ public class YouTrackDbCreationHelper {
     });
   }
 
-  private static List<RID> loadFile(DatabaseSession database, String filePath, int bufferSize)
+  private static List<Identifiable> loadFile(DatabaseSession database, String filePath,
+      int bufferSize)
       throws IOException {
     var binaryFile = new File(filePath);
     var binaryFileLength = binaryFile.length();
@@ -216,7 +216,7 @@ public class YouTrackDbCreationHelper {
     if (remainder > 0) {
       numberOfRecords++;
     }
-    List<RID> binaryChuncks = new ArrayList<>(numberOfRecords);
+    var binaryChuncks = database.newLinkList(numberOfRecords);
     var binaryStream = new BufferedInputStream(new FileInputStream(binaryFile));
 
     for (var i = 0; i < numberOfRecords; i++) {

@@ -231,14 +231,16 @@ public class ConsoleDatabaseAppTest {
             + "create vertex V set name = 'foo';\n"
             + "create vertex V set name = 'bar';\n"
             + "commit;\n"
-            + "traverse out() from V;\n"
             + "begin;\n"
+            + "traverse out() from V;\n"
             + "create edge from (select from V where name = 'foo') to (select from V where name ="
             + " 'bar');\n"
             + "commit;\n"
+            + "begin;\n"
             + "traverse out() from V;\n"
             + "profile storage off;\n"
-            + "repair database -v;\n";
+            + "repair database -v;\n"
+            + "commit;\n";
     var c = new ConsoleTest(new String[]{builder});
     var console = c.console();
 

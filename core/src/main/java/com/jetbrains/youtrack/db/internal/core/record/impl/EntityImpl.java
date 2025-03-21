@@ -2701,9 +2701,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       result.setProperty(EntityHelper.ATTRIBUTE_CLASS, className);
     }
     if (!isEmbedded()) {
-      if (recordId.isValidPosition()) {
-        result.setProperty(EntityHelper.ATTRIBUTE_RID, recordId.copy());
-      }
+      result.setProperty(EntityHelper.ATTRIBUTE_RID, recordId);
       result.setProperty(EntityHelper.ATTRIBUTE_VERSION, recordVersion);
     } else {
       result.setProperty(EntityHelper.ATTRIBUTE_EMBEDDED, true);

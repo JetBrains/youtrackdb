@@ -14,7 +14,8 @@ public class HttpDocumentTest extends BaseHttpDatabaseTest {
   @Test
   public void create() throws IOException {
     post("document/" + getDatabaseName())
-        .payload("{@class:'V', name:'Jay', surname:'Miner',age:99, \"@version\":100}", CONTENT.JSON)
+        .payload("{ \"@class\":\"V\", \"name\":\"Jay\", \"surname\":\"Miner\",\"age\":99}",
+            CONTENT.JSON)
         .exec();
 
     var response = getResponse();
@@ -32,7 +33,8 @@ public class HttpDocumentTest extends BaseHttpDatabaseTest {
   @Test
   public void read() throws IOException {
     post("document/" + getDatabaseName())
-        .payload("{@class:'V', name:'Jay', surname:'Miner',age:99}", CONTENT.JSON)
+        .payload("{\"@class\":\"V\", \"name\":\"Jay\", \"surname\":\"Miner\",\"age\":99}",
+            CONTENT.JSON)
         .exec();
     var response = getResponse();
     Assert.assertEquals(response.getReasonPhrase(), 201, response.getCode());
@@ -60,7 +62,8 @@ public class HttpDocumentTest extends BaseHttpDatabaseTest {
   @Test
   public void updateFull() throws IOException {
     post("document/" + getDatabaseName())
-        .payload("{@class:'V', name:'Jay', surname:'Miner',age:0}", CONTENT.JSON)
+        .payload("{\"@class\":\"V\", \"name\":\"Jay\", \"surname\":\"Miner\",\"age\":0}",
+            CONTENT.JSON)
         .exec();
     Assert.assertEquals(201, getResponse().getCode());
 
