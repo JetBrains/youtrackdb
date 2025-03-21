@@ -326,7 +326,11 @@ public class ResultSerializerNetwork {
       DatabaseSessionInternal session) {
     var rid = new RecordId(
         VarIntSerializer.readAsInteger(bytes), VarIntSerializer.readAsLong(bytes));
-    return session.refreshRid(rid);
+    if (!rid.isPersistent()) {
+      return session.refreshRid(rid);
+    }
+
+    return rid;
   }
 
   private Collection<?> readEmbeddedCollection(

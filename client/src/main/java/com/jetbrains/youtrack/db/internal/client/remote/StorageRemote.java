@@ -2128,6 +2128,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
 
 
   public LiveQueryMonitor liveQuery(
+      DatabasePoolInternal sessionPool,
       DatabaseSessionRemote database,
       String query,
       LiveQueryClientListener listener,
@@ -2141,10 +2142,11 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
           "Impossible to start the live query, check server log for additional information");
     }
     registerLiveListener(response.getMonitorId(), listener);
-    return new YTLiveQueryMonitorRemote(database, response.getMonitorId());
+    return new YTLiveQueryMonitorRemote(sessionPool, response.getMonitorId());
   }
 
   public LiveQueryMonitor liveQuery(
+      DatabasePoolInternal sessionPool,
       DatabaseSessionRemote database,
       String query,
       LiveQueryClientListener listener,
@@ -2158,7 +2160,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
           "Impossible to start the live query, check server log for additional information");
     }
     registerLiveListener(response.getMonitorId(), listener);
-    return new YTLiveQueryMonitorRemote(database, response.getMonitorId());
+    return new YTLiveQueryMonitorRemote(sessionPool, response.getMonitorId());
   }
 
   public void unsubscribeLive(DatabaseSessionRemote database, int monitorId) {
@@ -2350,7 +2352,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
   public LiveQueryMonitor live(DatabasePoolInternal sessionPool, String query,
       LiveQueryResultListener listener, Map<String, ?> args) {
     try (var session = (DatabaseSessionRemote) sessionPool.acquire()) {
-      return liveQuery(
+      return liveQuery(sessionPool,
           session, query, new LiveQueryClientListener(sessionPool, listener), args);
     }
   }
@@ -2359,7 +2361,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
   public LiveQueryMonitor live(DatabasePoolInternal sessionPool, String query,
       LiveQueryResultListener listener, Object... args) {
     try (var session = (DatabaseSessionRemote) sessionPool.acquire()) {
-      return liveQuery(
+      return liveQuery(sessionPool,
           session, query, new LiveQueryClientListener(sessionPool, listener), args);
     }
   }

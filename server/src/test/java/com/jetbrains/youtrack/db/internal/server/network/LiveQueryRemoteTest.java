@@ -116,7 +116,8 @@ public class LiveQueryRemoteTest {
     var item = db.newVertex();
     db.commit();
 
-    db.live("LIVE SELECT FROM " + item.getIdentity(), listener);
+    youTrackDB.live(db.getDatabaseName(), db.getCurrentUserName(), "admin",
+        "LIVE SELECT FROM " + item.getIdentity(), listener);
     db.begin();
     item = db.load(item.getIdentity());
     item.setProperty("x", "z");
@@ -133,7 +134,8 @@ public class LiveQueryRemoteTest {
 
     var listener = new MyLiveQueryListener(new CountDownLatch(2));
 
-    var monitor = db.live("select from test", listener);
+    var monitor = youTrackDB.live(db.getDatabaseName(), db.getCurrentUserName(), "admin",
+        "select from test", listener);
     Assert.assertNotNull(monitor);
 
     db.begin();
@@ -252,7 +254,8 @@ public class LiveQueryRemoteTest {
 
     var listener = new MyLiveQueryListener(new CountDownLatch(txSize));
 
-    var monitor = db.live("select from test", listener);
+    var monitor = youTrackDB.live(db.getDatabaseName(), db.getCurrentUserName(), "admin",
+        "select from test", listener);
     Assert.assertNotNull(monitor);
 
     db.begin();
