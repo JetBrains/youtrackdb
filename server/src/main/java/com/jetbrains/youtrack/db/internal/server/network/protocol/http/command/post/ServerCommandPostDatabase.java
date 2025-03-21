@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.post;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
@@ -31,6 +30,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassIntern
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.JSONWriter;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
@@ -68,12 +68,11 @@ public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerA
       if (iRequest.getContent().startsWith("{")) {
         // JSON PAYLOAD
 
-        var objectMapper = new ObjectMapper();
-        var result = objectMapper.readTree(iRequest.getContent());
+        var result = RecordSerializerJackson.mapFromJson(iRequest.getContent());
 
-        if (result.has("adminPassword")) {
+        if (result.containsKey("adminPassword")) {
           createAdmin = true;
-          adminPwd = result.findValue("adminPassword").asText();
+          adminPwd = result.get("adminPassword").toString();
         }
       }
     }
@@ -84,7 +83,6 @@ public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerA
             iResponse,
             HttpUtils.STATUS_CONFLICT_CODE,
             HttpUtils.STATUS_CONFLICT_DESCRIPTION,
-            HttpUtils.CONTENT_TEXT_PLAIN,
             "Database '" + databaseName + "' already exists.",
             null);
       } else {
@@ -187,45 +185,56 @@ public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerA
     }
 
     json.beginCollection(session, 1, false, "users");
-    SecurityUserImpl user;
-    for (var entity : session.getMetadata().getSecurity().getAllUsers()) {
-      user = new SecurityUserImpl(session, entity);
-      json.beginObject(2, true, null);
-      json.writeAttribute(session, 3, false, "name", user.getName(session));
-      json.writeAttribute(session,
-          3,
-          false,
-          "roles", user.getRoles() != null ? Arrays.toString(user.getRoles().toArray()) : "null");
-      json.endObject(2, false);
-    }
-    json.endCollection(1, true);
+    session.executeInTx(transaction -> {
+      try {
+        for (var entity : session.getMetadata().getSecurity().getAllUsers()) {
 
-    json.beginCollection(session, 1, true, "roles");
-    Role role;
-    for (var entity : session.getMetadata().getSecurity().getAllRoles()) {
-      role = new Role(session, entity);
-      json.beginObject(2, true, null);
-      json.writeAttribute(session, 3, false, "name", role.getName(session));
-      json.beginCollection(session, 3, true, "rules");
+          var securityUser = new SecurityUserImpl(session, entity);
 
-      for (var rule : role.getEncodedRules().entrySet()) {
-        json.beginObject(4);
-        json.writeAttribute(session, 4, true, "name", rule.getKey());
-        json.writeAttribute(session, 4, false, "create",
-            role.allow(rule.getKey(), Role.PERMISSION_CREATE));
-        json.writeAttribute(session, 4, false, "read",
-            role.allow(rule.getKey(), Role.PERMISSION_READ));
-        json.writeAttribute(session, 4, false, "update",
-            role.allow(rule.getKey(), Role.PERMISSION_UPDATE));
-        json.writeAttribute(session, 4, false, "delete",
-            role.allow(rule.getKey(), Role.PERMISSION_DELETE));
-        json.endObject(4, true);
+          json.beginObject(2, true, null);
+
+          json.writeAttribute(session, 3, false, "name", securityUser.getName(session));
+          json.writeAttribute(session,
+              3,
+              false,
+              "roles",
+              securityUser.getRoles() != null ? Arrays.toString(securityUser.getRoles().toArray())
+                  : "null");
+          json.endObject(2, false);
+        }
+        json.endCollection(1, true);
+
+        json.beginCollection(session, 1, true, "roles");
+        Role role;
+        for (var entity : session.getMetadata().getSecurity().getAllRoles()) {
+          role = new Role(session, entity);
+          json.beginObject(2, true, null);
+          json.writeAttribute(session, 3, false, "name", role.getName(session));
+          json.beginCollection(session, 3, true, "rules");
+
+          for (var rule : role.getEncodedRules().entrySet()) {
+            json.beginObject(4);
+            json.writeAttribute(session, 4, true, "name", rule.getKey());
+            json.writeAttribute(session, 4, false, "create",
+                role.allow(rule.getKey(), Role.PERMISSION_CREATE));
+            json.writeAttribute(session, 4, false, "read",
+                role.allow(rule.getKey(), Role.PERMISSION_READ));
+            json.writeAttribute(session, 4, false, "update",
+                role.allow(rule.getKey(), Role.PERMISSION_UPDATE));
+            json.writeAttribute(session, 4, false, "delete",
+                role.allow(rule.getKey(), Role.PERMISSION_DELETE));
+            json.endObject(4, true);
+          }
+          json.endCollection(3, false);
+
+          json.endObject(2, true);
+        }
+        json.endCollection(1, true);
+      } catch (Exception e) {
+        throw new CommandExecutionException(
+            session, "Error on exporting users: " + e.getMessage());
       }
-      json.endCollection(3, false);
-
-      json.endObject(2, true);
-    }
-    json.endCollection(1, true);
+    });
 
     json.beginObject(1, true, "config");
 

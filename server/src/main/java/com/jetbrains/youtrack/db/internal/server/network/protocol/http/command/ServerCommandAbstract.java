@@ -19,8 +19,8 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command;
 
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequestException;
@@ -31,7 +31,9 @@ import java.io.IOException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public abstract class ServerCommandAbstract implements ServerCommand {
 
@@ -56,19 +58,18 @@ public abstract class ServerCommandAbstract implements ServerCommand {
     return true;
   }
 
-  protected String[] checkSyntax(
+  protected static String[] checkSyntax(
       final String iURL, final int iArgumentCount, final String iSyntax) {
     final var parts =
         StringSerializerHelper.smartSplit(
             iURL, HttpResponseAbstract.URL_SEPARATOR, 1, -1, true, true, false, false);
-    for (var i = 0; i < parts.size(); i++) {
-      parts.set(i, URLDecoder.decode(parts.get(i), StandardCharsets.UTF_8));
-    }
+    parts.replaceAll(s -> URLDecoder.decode(s, StandardCharsets.UTF_8));
+
     if (parts.size() < iArgumentCount) {
       throw new HttpRequestException(iSyntax);
     }
 
-    return parts.toArray(new String[parts.size()]);
+    return parts.toArray(new String[0]);
   }
 
   public YouTrackDBServer getServer() {
@@ -79,7 +80,7 @@ public abstract class ServerCommandAbstract implements ServerCommand {
     this.server = server;
   }
 
-  protected void setNoCache(final HttpResponse iResponse) {
+  protected static void setNoCache(final HttpResponse iResponse) {
     // DEFAULT = DON'T CACHE
     iResponse.setHeader(
         "Cache-Control: no-cache, no-store, max-age=0, must-revalidate\r\nPragma: no-cache");
@@ -87,27 +88,27 @@ public abstract class ServerCommandAbstract implements ServerCommand {
     iResponse.addHeader("Pragma", "no-cache");
   }
 
-  protected boolean isJsonResponse(HttpResponse response) {
+  protected static boolean isJsonResponse(HttpResponse response) {
     return response.isJsonErrorResponse();
   }
 
-  protected void sendJsonError(
+  protected static void sendJsonError(
       HttpResponse iResponse,
       final int iCode,
       final String iReason,
-      final String iContentType,
       final Object iContent,
       final String iHeaders)
       throws IOException {
-    var response = new EntityImpl(null);
-    var error = new EntityImpl(null);
-    error.setProperty("code", iCode);
-    error.setProperty("reason", iReason);
-    error.setProperty("content", iContent);
-    List<EntityImpl> errors = new ArrayList<EntityImpl>();
+    var response = new HashMap<String, Object>();
+    var error = new HashMap<String, Object>();
+    error.put("code", iCode);
+    error.put("reason", iReason);
+    error.put("content", iContent);
+    List<Map<String, Object>> errors = new ArrayList<>();
     errors.add(error);
-    response.setProperty("errors", errors);
+    response.put("errors", errors);
     iResponse.send(
-        iCode, iReason, HttpUtils.CONTENT_JSON, response.toJSON("prettyPrint"), iHeaders);
+        iCode, iReason, HttpUtils.CONTENT_JSON, RecordSerializerJackson.mapToJson(response),
+        iHeaders);
   }
 }

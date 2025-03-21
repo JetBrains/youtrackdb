@@ -19,9 +19,9 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get;
 
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAbstract;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedDbAbstract;
 import java.io.IOException;
@@ -56,7 +56,6 @@ public class ServerCommandGetDisconnect extends ServerCommandAbstract {
           iResponse,
           HttpUtils.STATUS_AUTH_CODE,
           HttpUtils.STATUS_AUTH_DESCRIPTION,
-          HttpUtils.CONTENT_TEXT_PLAIN,
           "Logged out",
           null);
     } else {

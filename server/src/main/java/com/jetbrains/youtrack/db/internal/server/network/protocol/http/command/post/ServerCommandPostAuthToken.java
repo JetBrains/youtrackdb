@@ -163,7 +163,6 @@ public class ServerCommandPostAuthToken extends ServerCommandAbstract {
           iResponse,
           HttpUtils.STATUS_BADREQ_CODE,
           HttpUtils.STATUS_BADREQ_DESCRIPTION,
-          HttpUtils.CONTENT_TEXT_PLAIN,
           "401 Unauthorized.",
           header);
     } else {

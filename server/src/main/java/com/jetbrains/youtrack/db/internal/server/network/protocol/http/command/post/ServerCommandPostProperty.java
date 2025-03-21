@@ -49,7 +49,7 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
   }
 
   @SuppressWarnings("unused")
-  protected boolean addSingleProperty(
+  protected static boolean addSingleProperty(
       final HttpRequest iRequest, final HttpResponse iResponse,
       final DatabaseSessionInternal db)
       throws InterruptedException, IOException {
@@ -125,7 +125,7 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
   }
 
   @SuppressWarnings({"unchecked", "unused"})
-  protected boolean addMultipreProperties(
+  protected static boolean addMultipreProperties(
       final HttpRequest iRequest, final HttpResponse iResponse,
       final DatabaseSessionInternal db)
       throws IOException {

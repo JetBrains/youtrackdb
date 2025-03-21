@@ -18,14 +18,12 @@
 
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.post;
 
-import com.jetbrains.youtrack.db.internal.server.ClientConnection;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.NetworkProtocolHttpAbstract;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedDbAbstract;
 import java.io.IOException;
-import java.util.List;
 
 public class ServerCommandPostKillDbConnection extends ServerCommandAuthenticatedDbAbstract {
 

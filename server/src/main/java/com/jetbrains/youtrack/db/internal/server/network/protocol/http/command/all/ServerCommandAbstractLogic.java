@@ -104,7 +104,6 @@ public abstract class ServerCommandAbstractLogic extends ServerCommandAuthentica
             iResponse,
             HttpUtils.STATUS_BADREQ_CODE,
             HttpUtils.STATUS_BADREQ_DESCRIPTION,
-            HttpUtils.CONTENT_TEXT_PLAIN,
             msg.toString(),
             null);
       } else {

@@ -267,7 +267,6 @@ public abstract class ServerCommandAuthenticatedDbAbstract extends ServerCommand
           iResponse,
           HttpUtils.STATUS_AUTH_CODE,
           HttpUtils.STATUS_AUTH_DESCRIPTION,
-          HttpUtils.CONTENT_TEXT_PLAIN,
           "401 Unauthorized.",
           header);
     } else {

@@ -1,7 +1,8 @@
 package com.jetbrains.youtrack.db.internal.server.http;
 
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import java.nio.file.Paths;
+import java.util.HashMap;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -20,12 +21,12 @@ public abstract class BaseHttpDatabaseTest extends BaseHttpTest {
             .getCanonicalPath();
 
     super.startServer();
-    var pass = new EntityImpl(null);
-    pass.setProperty("adminPassword", "admin");
+    var pass = new HashMap<String, Object>();
+    pass.put("adminPassword", "admin");
     Assert.assertEquals(
         200,
         post("database/" + getDatabaseName() + "/memory")
-            .payload(pass.toJSON(), CONTENT.JSON)
+            .payload(RecordSerializerJackson.mapToJson(pass), CONTENT.JSON)
             .setUserName("root")
             .setUserPassword("root")
             .getResponse()
