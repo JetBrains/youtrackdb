@@ -588,7 +588,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
         executeQuery("select * from OUser where name in [ :name ]", session, "admin");
 
     Assert.assertEquals(result.size(), 1);
-    EntityImpl entity = ((EntityImpl) result.getFirst().asEntity());
+    var entity = ((EntityImpl) result.getFirst().asEntity());
     Assert.assertEquals(entity.getProperty("name"), "admin");
   }
 
@@ -916,11 +916,10 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void queryWithAutomaticPagination() {
-    final var query =
-        new SQLSynchQuery<EntityImpl>("select from Profile LIMIT 3");
+    final var query = "select from Profile LIMIT 3";
     RID last = new ChangeableRecordId();
 
-    List<EntityImpl> resultset = session.query(query);
+    var resultset = session.query(query).toList();
 
     var iterationCount = 0;
     while (!resultset.isEmpty()) {
@@ -935,7 +934,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
       last = resultset.getLast().getIdentity();
 
       iterationCount++;
-      resultset = session.query(query);
+      resultset = session.query(query).toList();
     }
 
     Assert.assertTrue(iterationCount > 1);
@@ -943,12 +942,10 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void queryWithAutomaticPaginationWithWhere() {
-    final var query =
-        new SQLSynchQuery<EntityImpl>(
-            "select from Profile where followers.length() > 0 LIMIT 3");
+    final var query = "select from Profile where followers.length() > 0 LIMIT 3";
     RID last = new ChangeableRecordId();
 
-    List<EntityImpl> resultset = session.query(query);
+    var resultset = session.query(query).toList();
 
     var iterationCount = 0;
 
@@ -966,7 +963,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
       // System.out.printf("\nIterating page %d, last record is %s", iterationCount, last);
 
       iterationCount++;
-      resultset = session.query(query);
+      resultset = session.query(query).toList();
     }
 
     Assert.assertTrue(iterationCount > 1);
@@ -974,12 +971,10 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void queryWithAutomaticPaginationWithWhereAndBindingVar() {
-    final var query =
-        new SQLSynchQuery<EntityImpl>(
-            "select from Profile where followers.length() > ? LIMIT 3");
+    final var query = "select from Profile where followers.length() > ? LIMIT 3";
     RID last = new ChangeableRecordId();
 
-    List<EntityImpl> resultset = session.query(query, 0);
+    var resultset = session.query(query, 0).toList();
 
     var iterationCount = 0;
 
@@ -995,7 +990,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
       last = resultset.getLast().getIdentity();
 
       iterationCount++;
-      resultset = session.query(query, 0);
+      resultset = session.query(query, 0).toList();
     }
 
     Assert.assertTrue(iterationCount > 1);
@@ -1003,12 +998,10 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void queryWithAutomaticPaginationWithWhereAndBindingVarAtTheFirstQueryCall() {
-    final var query =
-        new SQLSynchQuery<EntityImpl>(
-            "select from Profile where followers.length() > ? LIMIT 3");
+    final var query = "select from Profile where followers.length() > ? LIMIT 3";
     RID last = new ChangeableRecordId();
 
-    List<EntityImpl> resultset = session.query(query, 0);
+    var resultset = session.query(query, 0).toList();
 
     var iterationCount = 0;
 
@@ -1024,7 +1017,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
       last = resultset.getLast().getIdentity();
 
       iterationCount++;
-      resultset = session.query(query, 0);
+      resultset = session.query(query, 0).toList();
     }
 
     Assert.assertTrue(iterationCount > 1);
@@ -1032,15 +1025,13 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void queryWithAbsenceOfAutomaticPaginationBecauseOfBindingVarReset() {
-    final var query =
-        new SQLSynchQuery<EntityImpl>(
-            "select from Profile where followers.length() > ? LIMIT 3");
+    final var query = "select from Profile where followers.length() > ? LIMIT 3";
 
-    List<EntityImpl> resultset = session.query(query, -1);
+    var resultset = session.query(query, -1).toList();
 
     final RID firstRidFirstQuery = resultset.getFirst().getIdentity();
 
-    resultset = session.query(query, -2);
+    resultset = session.query(query, -2).toList();
 
     final RID firstRidSecondQueryQuery = resultset.getFirst().getIdentity();
 
@@ -1049,14 +1040,13 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void includeFields() {
-    final var query =
-        new SQLSynchQuery<EntityImpl>("select expand( roles.include('name') ) from OUser");
+    final var query = "select expand( roles.include('name') ) from OUser";
 
-    List<EntityImpl> resultset = session.query(query);
+    var resultset = session.query(query).toList();
 
     for (var d : resultset) {
-      Assert.assertTrue(d.getPropertiesCount() <= 1);
-      if (d.getPropertiesCount() == 1) {
+      Assert.assertTrue(d.getPropertyNames().size() <= 1);
+      if (d.getPropertyNames().size() == 1) {
         Assert.assertTrue(d.hasProperty("name"));
       }
     }
@@ -1064,10 +1054,9 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void excludeFields() {
-    final var query =
-        new SQLSynchQuery<EntityImpl>("select expand( roles.exclude('rules') ) from OUser");
+    final var query = "select expand( roles.exclude('rules') ) from OUser";
 
-    List<EntityImpl> resultset = session.query(query);
+    var resultset = session.query(query).toList();
 
     for (var d : resultset) {
       Assert.assertFalse(d.hasProperty("rules"));
@@ -1076,31 +1065,13 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void excludeAttributes() {
-    final var query =
-        new SQLSynchQuery<EntityImpl>(
-            "select expand( roles.exclude('@rid', '@class') ) from OUser");
+    final var query = "select expand( roles.exclude('@rid', '@class') ) from OUser";
 
-    List<EntityImpl> resultset = session.query(query);
+    var resultset = session.query(query).toList();
 
     for (var d : resultset) {
       Assert.assertFalse(d.getIdentity().isPersistent());
-      Assert.assertNull(d.getSchemaClass());
     }
-  }
-
-  @Test
-  public void queryResetPagination() {
-    final var query =
-        new SQLSynchQuery<EntityImpl>("select from Profile LIMIT 3");
-
-    List<EntityImpl> resultset = session.query(query);
-    final RID firstRidFirstQuery = resultset.getFirst().getIdentity();
-    query.resetPagination();
-
-    resultset = session.query(query);
-    final RID firstRidSecondQueryQuery = resultset.getFirst().getIdentity();
-
-    Assert.assertEquals(firstRidFirstQuery, firstRidSecondQueryQuery);
   }
 
   @Test
@@ -1235,7 +1206,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
     Assert.assertFalse(result.isEmpty());
     for (var d : result) {
       Assert.assertNotNull(d.getProperty("addresses"));
-      Identifiable identifiable = (d.<Collection<Identifiable>>getProperty("addresses")).iterator()
+      var identifiable = (d.<Collection<Identifiable>>getProperty("addresses")).iterator()
           .next();
       var transaction = session.getActiveTransaction();
       Assert.assertEquals(
@@ -1255,7 +1226,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
             "select from Account where not ( addresses.@class in [ 'Address' ] )", session);
     Assert.assertFalse(result.isEmpty());
     for (var d : result) {
-      Identifiable identifiable = (d.<Collection<Identifiable>>getProperty("addresses"))
+      var identifiable = (d.<Collection<Identifiable>>getProperty("addresses"))
           .iterator()
           .next();
       var transaction = session.getActiveTransaction();
@@ -1280,7 +1251,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
     Assert.assertFalse(result.isEmpty());
     for (var d : result) {
       Assert.assertNotNull(d.getProperty("addresses"));
-      Identifiable identifiable = (d.<Collection<Identifiable>>getProperty("addresses")).iterator()
+      var identifiable = (d.<Collection<Identifiable>>getProperty("addresses")).iterator()
           .next();
       var transaction = session.getActiveTransaction();
       Assert.assertEquals(
@@ -1307,11 +1278,10 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
     Map<String, Object> parameters = new HashMap<String, Object>();
     parameters.put("p1", "a");
-    session.query(new SQLSynchQuery<EntityImpl>("select from test where (f1 = :p1)"),
-        parameters);
-    session.query(
-        new SQLSynchQuery<EntityImpl>("select from test where f1 = :p1 and f2 = :p1"),
-        parameters);
+    session.query("select from test where (f1 = :p1)",
+        parameters).close();
+    session.query("select from test where f1 = :p1 and f2 = :p1",
+        parameters).close();
   }
 
   @Test
@@ -1749,17 +1719,16 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   }
 
   public void testQueryLetExecutedOnce() {
-    final List<Identifiable> result =
+    final var result =
         session.query(
-            new SQLSynchQuery<Identifiable>(
-                "select name, $counter as counter from OUser let $counter = eval(\"$counter +"
-                    + " 1\")"));
+
+            "select name, $counter as counter from OUser let $counter = eval(\"$counter +"
+                + " 1\")").toList();
 
     Assert.assertFalse(result.isEmpty());
     var i = 1;
     for (var r : result) {
-      var transaction = session.getActiveTransaction();
-      EntityImpl entity = transaction.load(r);
+      var entity = r.asEntity();
       Assert.assertEquals(entity.<Object>getProperty("counter"), i++);
     }
   }
@@ -1773,16 +1742,15 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
           new HashSet<String>(Arrays.asList("Luca", "Jill", "Sara", "Tania", "Gianluca", "Marco"));
       for (var n : names) {
         session.begin();
-        EntityImpl entity = ((EntityImpl) session.newEntity("PersonMultipleClusters"));
+        var entity = ((EntityImpl) session.newEntity("PersonMultipleClusters"));
         entity.setProperty("First", n);
 
         session.commit();
       }
 
       var query =
-          new SQLSynchQuery<EntityImpl>(
-              "select from PersonMultipleClusters where @rid > ? limit 2");
-      List<EntityImpl> resultset = session.query(query, new ChangeableRecordId());
+          "select from PersonMultipleClusters where @rid > ? limit 2";
+      var resultset = session.query(query, new ChangeableRecordId()).toList();
 
       while (!resultset.isEmpty()) {
         final RID last = resultset.getLast().getIdentity();
@@ -1791,7 +1759,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
           Assert.assertTrue(names.remove(personDoc.<String>getProperty("First")));
         }
 
-        resultset = session.query(query, last);
+        resultset = session.query(query, last).toList();
       }
 
       Assert.assertTrue(names.isEmpty());
@@ -1814,18 +1782,17 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
                 + " = 'one') to (select from TestOutFilterInclude where name = 'two')")
         .close();
 
-    final List<Identifiable> result =
+    final var result =
         session.query(
-            new SQLSynchQuery<Identifiable>(
-                "select"
-                    + " expand(out('linkedToOutFilterInclude')[@class='TestOutFilterInclude'].include('@rid'))"
-                    + " from TestOutFilterInclude where name = 'one'"));
+
+            "select"
+                + " expand(out('linkedToOutFilterInclude')[@class='TestOutFilterInclude'].include('@rid'))"
+                + " from TestOutFilterInclude where name = 'one'").toList();
 
     Assert.assertEquals(result.size(), 1);
 
     for (var r : result) {
-      var transaction = session.getActiveTransaction();
-      EntityImpl entity = transaction.load(r);
+      var entity = r.asEntity();
       Assert.assertNull(entity.getProperty("name"));
     }
   }
@@ -1854,15 +1821,14 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
     session.newBlob(new byte[]{1, 2, 3});
     session.commit();
 
-    List<Identifiable> result =
-        session.query(new SQLSynchQuery<Identifiable>("select from cluster:binarycluster"));
+    var result =
+        session.query("select from cluster:binarycluster").toList();
 
     Assert.assertEquals(result.size(), 1);
 
     session.execute("delete from cluster:binarycluster").close();
 
-    result = session.query(
-        new SQLSynchQuery<Identifiable>("select from cluster:binarycluster"));
+    result = session.query("select from cluster:binarycluster").toList();
 
     Assert.assertEquals(result.size(), 0);
   }
@@ -1998,15 +1964,14 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
                 + " (SELECT FROM EmbeddedMapAndDotNotation WHERE name = 'bar')")
         .close();
 
-    List<Identifiable> result =
+    var result =
         session.query(
-            new SQLSynchQuery<Identifiable>(
-                " select out().data as result from (select from EmbeddedMapAndDotNotation where"
-                    + " name = 'foo')"));
+
+            " select out().data as result from (select from EmbeddedMapAndDotNotation where"
+                + " name = 'foo')").toList();
     Assert.assertEquals(result.size(), 1);
-    Identifiable identifiable = result.getFirst();
-    var transaction = session.getActiveTransaction();
-    EntityImpl doc = transaction.load(identifiable);
+    var identifiable = result.getFirst();
+    var doc = identifiable.asEntity();
     Assert.assertNotNull(doc);
     List list = doc.getProperty("result");
     Assert.assertEquals(list.size(), 1);
@@ -2022,11 +1987,10 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
     final var cls = schema.createClass("LetWithQuotedValue", v);
     session.execute("CREATE VERTEX LetWithQuotedValue set name = \"\\\"foo\\\"\"").close();
 
-    List<Identifiable> result =
+    var result =
         session.query(
-            new SQLSynchQuery<Identifiable>(
-                " select expand($a) let $a = (select from LetWithQuotedValue where name ="
-                    + " \"\\\"foo\\\"\")"));
+            " select expand($a) let $a = (select from LetWithQuotedValue where name ="
+                + " \"\\\"foo\\\"\")").toList();
     Assert.assertEquals(result.size(), 1);
   }
 

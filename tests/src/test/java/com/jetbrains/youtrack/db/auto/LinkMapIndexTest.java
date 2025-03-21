@@ -5,10 +5,8 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
@@ -1025,11 +1023,10 @@ public class LinkMapIndexTest extends BaseDBTest {
 
     session.commit();
 
-    final List<EntityImpl> resultByKey =
+    var resultByKey =
         session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select * from LinkMapIndexTestClass where linkMap containskey ?"),
-            "key1");
+            "select * from LinkMapIndexTestClass where linkMap containskey ?",
+            "key1").toList();
     Assert.assertNotNull(resultByKey);
     Assert.assertEquals(resultByKey.size(), 1);
 

@@ -2,8 +2,6 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.testng.Assert;
@@ -33,8 +31,7 @@ public class SQLDeleteEdgeTest extends BaseDBTest {
     session.execute("create vertex testFromToV set name = 'Luca'").close();
     session.commit();
 
-    List<Identifiable> result =
-        session.query(new SQLSynchQuery<EntityImpl>("select from testFromToV"));
+    var result = session.query("select from testFromToV").toList();
 
     session.begin();
     session
@@ -87,8 +84,7 @@ public class SQLDeleteEdgeTest extends BaseDBTest {
     session.execute("create vertex testFromV set name = 'Luca'").close();
     session.commit();
 
-    List<Identifiable> result =
-        session.query(new SQLSynchQuery<EntityImpl>("select from testFromV"));
+    var result = session.query("select from testFromV").toList();
 
     session.begin();
     session

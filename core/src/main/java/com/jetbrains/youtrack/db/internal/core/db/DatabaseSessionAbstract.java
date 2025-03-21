@@ -81,7 +81,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityShared;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
-import com.jetbrains.youtrack.db.internal.core.query.Query;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
@@ -259,15 +258,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
           new DatabaseException(
               getDatabaseName(), "Error on command execution"), e, getDatabaseName());
     }
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  public <RET extends List<?>> RET query(final Query<?> iCommand, final Object... iArgs) {
-    assert assertIfNotActive();
-    iCommand.reset();
-    return iCommand.execute(this, iArgs);
   }
 
   @Override

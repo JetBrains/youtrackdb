@@ -609,8 +609,7 @@ public class IndexTest extends BaseDBTest {
       // java.lang.String
       result =
           db.query(
-              new SQLSynchQuery<EntityImpl>(
-                  "select from TestClass where testLink.testString = 'Test Link Class 2'"));
+              "select from TestClass where testLink.testString = 'Test Link Class 2'").toList();
       Assert.assertEquals(result.size(), 1);
     }
   }
@@ -1235,9 +1234,7 @@ public class IndexTest extends BaseDBTest {
 
     final var query = "select from NullHashIndexKeysSupport where nullField is null";
     result =
-        session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from NullHashIndexKeysSupport where nullField is null"));
+        session.query("select from NullHashIndexKeysSupport where nullField is null").toList();
 
     Assert.assertEquals(result.size(), 4);
     for (var document : result) {
@@ -1290,8 +1287,7 @@ public class IndexTest extends BaseDBTest {
     final var query = "select from NullIndexKeysSupportInTx where nullField is null";
     result =
         session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from NullIndexKeysSupportInTx where nullField is null"));
+            "select from NullIndexKeysSupportInTx where nullField is null").toList();
 
     Assert.assertEquals(result.size(), 4);
     for (var document : result) {
@@ -1348,8 +1344,7 @@ public class IndexTest extends BaseDBTest {
     final var query = "select from NullIndexKeysSupportInMiddleTx where nullField is null";
     result =
         session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from NullIndexKeysSupportInMiddleTx where nullField is null"));
+            "select from NullIndexKeysSupportInMiddleTx where nullField is null").toList();
 
     Assert.assertEquals(result.size(), 4);
     for (var document : result) {

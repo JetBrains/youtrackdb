@@ -29,9 +29,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityShared;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import org.testng.Assert;
@@ -443,7 +441,7 @@ public class SchemaTest extends BaseDBTest {
 
       for (var i = 0; i < 6; ++i) {
         session.begin();
-        EntityImpl entity = ((EntityImpl) session.newEntity("multipleclusters"));
+        var entity = ((EntityImpl) session.newEntity("multipleclusters"));
         entity.setProperty("num", i);
 
         session.commit();
@@ -471,7 +469,7 @@ public class SchemaTest extends BaseDBTest {
 
       for (var i = 0; i < 2; ++i) {
         session.begin();
-        EntityImpl entity = ((EntityImpl) session.newEntity("multipleclusters"));
+        var entity = ((EntityImpl) session.newEntity("multipleclusters"));
         entity.setProperty("num", i);
 
         session.commit();
@@ -668,9 +666,9 @@ public class SchemaTest extends BaseDBTest {
         .execute(session);
 
     session.begin();
-    List<EntityImpl> result =
+    var result =
         databaseDocumentTx.query(
-            new SQLSynchQuery<EntityImpl>("select * from TestRenameClusterOriginal"));
+            "select * from TestRenameClusterOriginal").toList();
     Assert.assertEquals(result.size(), 1);
 
     var document = result.getFirst();

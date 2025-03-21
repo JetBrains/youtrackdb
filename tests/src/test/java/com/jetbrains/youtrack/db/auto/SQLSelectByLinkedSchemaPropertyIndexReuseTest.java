@@ -3,12 +3,11 @@ package com.jetbrains.youtrack.db.auto;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.ChainedIndexProxy;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -69,10 +68,9 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
 
     var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
+    var result =
         session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtStudent where group.curator.name = 'Someone'"));
+            "select from lpirtStudent where group.curator.name = 'Someone'").toList();
     assertEquals(result.size(), 1);
     assertEquals(containsDocumentWithFieldValue(result, "name", "John Smith"), 1);
 
@@ -84,10 +82,10 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
 
     var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
+    var result =
         session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtStudent where group.curator.salary = 600"));
+
+            "select from lpirtStudent where group.curator.salary = 600").toList();
     assertEquals(result.size(), 3);
     assertEquals(containsDocumentWithFieldValue(result, "name", "James Bell"), 1);
     assertEquals(containsDocumentWithFieldValue(result, "name", "Roger Connor"), 1);
@@ -101,10 +99,9 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
 
     var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
+    var result =
         session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtStudent where group.curator.name = 'Someone else' limit 1"));
+            "select from lpirtStudent where group.curator.name = 'Someone else' limit 1").toList();
     assertEquals(result.size(), 1);
     assertTrue(
         Arrays.asList("Jane Smith", "James Bell", "Roger Connor", "William James")
@@ -118,10 +115,10 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
 
     var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
+    var result =
         session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtStudent where group.curator.salary < 1000"));
+
+            "select from lpirtStudent where group.curator.salary < 1000").toList();
     assertEquals(result.size(), 4);
     assertEquals(containsDocumentWithFieldValue(result, "name", "Jane Smith"), 1);
     assertEquals(containsDocumentWithFieldValue(result, "name", "James Bell"), 1);
@@ -136,10 +133,9 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
 
     var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
+    var result =
         session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtStudent where group.curator.salary < 1000 limit 2"));
+            "select from lpirtStudent where group.curator.salary < 1000 limit 2").toList();
     assertEquals(result.size(), 2);
 
     final var expectedNames =
@@ -157,9 +153,8 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
 
     var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
-        session.query(
-            new SQLSynchQuery<EntityImpl>("select from lpirtStudent where diploma.GPA <= 4"));
+    var result =
+        session.query("select from lpirtStudent where diploma.GPA <= 4").toList();
     assertEquals(result.size(), 3);
     assertEquals(containsDocumentWithFieldValue(result, "name", "John Smith"), 1);
     assertEquals(containsDocumentWithFieldValue(result, "name", "James Bell"), 1);
@@ -173,10 +168,9 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
 
     var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
+    var result =
         session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtStudent where diploma.GPA <= 4 limit 1"));
+            "select from lpirtStudent where diploma.GPA <= 4 limit 1").toList();
     assertEquals(result.size(), 1);
     assertTrue(
         Arrays.asList("John Smith", "James Bell", "William James")
@@ -190,10 +184,9 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
 
     var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
+    var result =
         session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtStudent where group.curator.salary > 1000"));
+            "select from lpirtStudent where group.curator.salary > 1000").toList();
     assertEquals(result.size(), 1);
     assertEquals(containsDocumentWithFieldValue(result, "name", "John Smith"), 1);
 
@@ -205,10 +198,9 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
 
     var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
+    var result =
         session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtStudent where group.curator.salary > 550 limit 1"));
+            "select from lpirtStudent where group.curator.salary > 550 limit 1").toList();
     assertEquals(result.size(), 1);
     final var expectedNames =
         Arrays.asList("John Smith", "James Bell", "Roger Connor", "William James");
@@ -224,10 +216,9 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
 
     var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
+    var result =
         session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtGroup where curator.salary between 500 and 1000"));
+            "select from lpirtGroup where curator.salary between 500 and 1000").toList();
     assertEquals(result.size(), 2);
     assertEquals(containsDocumentWithFieldValue(result, "name", "PZ-08-2"), 1);
     assertEquals(containsDocumentWithFieldValue(result, "name", "PZ-08-3"), 1);
@@ -240,10 +231,9 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
 
     var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
+    var result =
         session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtGroup where curator.salary between 500 and 1000 limit 1"));
+            "select from lpirtGroup where curator.salary between 500 and 1000 limit 1").toList();
     assertEquals(result.size(), 1);
 
     final var expectedNames = Arrays.asList("PZ-08-2", "PZ-08-3");
@@ -259,10 +249,9 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
 
     var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
+    var result =
         session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtGroup where curator.salary in [500, 600]"));
+            "select from lpirtGroup where curator.salary in [500, 600]").toList();
     assertEquals(result.size(), 2);
     assertEquals(containsDocumentWithFieldValue(result, "name", "PZ-08-2"), 1);
     assertEquals(containsDocumentWithFieldValue(result, "name", "PZ-08-3"), 1);
@@ -275,10 +264,9 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
 
     var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
+    var result =
         session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtGroup where curator.salary in [500, 600] limit 1"));
+            "select from lpirtGroup where curator.salary in [500, 600] limit 1").toList();
     assertEquals(result.size(), 1);
 
     final var expectedNames = Arrays.asList("PZ-08-2", "PZ-08-3");
@@ -297,10 +285,9 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
   public void testUniquePartialSearch() {
     var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
+    var result =
         session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtStudent where diploma.name = 'diploma3'"));
+            "select from lpirtStudent where diploma.name = 'diploma3'").toList();
 
     assertEquals(result.size(), 2);
     final var expectedNames = Arrays.asList("William James", "James Bell");
@@ -315,9 +302,9 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
   public void testHashIndexIsUsedAsBaseIndex() {
     var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
+    var result =
         session.query(
-            new SQLSynchQuery<EntityImpl>("select from lpirtStudent where transcript.id = '1'"));
+            "select from lpirtStudent where transcript.id = '1'").toList();
 
     assertEquals(result.size(), 1);
 
@@ -328,9 +315,9 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
   public void testCompositeIndex() {
     var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
+    var result =
         session.query(
-            new SQLSynchQuery<EntityImpl>("select from lpirtStudent where skill.name = 'math'"));
+            "select from lpirtStudent where skill.name = 'math'").toList();
 
     assertEquals(result.size(), 1);
 
@@ -347,15 +334,15 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
    */
   private void fillDataSet() {
     session.begin();
-    EntityImpl curator1 = session.newInstance("lpirtCurator");
+    var curator1 = session.newInstance("lpirtCurator");
     curator1.setProperty("name", "Someone");
     curator1.setProperty("salary", 2000);
 
-    final EntityImpl group1 = session.newInstance("lpirtGroup");
+    final var group1 = session.newInstance("lpirtGroup");
     group1.setProperty("name", "PZ-08-1");
     group1.setProperty("curator", curator1);
 
-    final EntityImpl diploma1 = session.newInstance("lpirtDiploma");
+    final var diploma1 = session.newInstance("lpirtDiploma");
     diploma1.setProperty("GPA", 3.);
     diploma1.setProperty("name", "diploma1");
     diploma1.setProperty("thesis",
@@ -363,28 +350,28 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
             + " because you student be able to experience the campus, meet the professors, and"
             + " truly understand the traditions of the university.");
 
-    final EntityImpl transcript = session.newInstance("lpirtTranscript");
+    final var transcript = session.newInstance("lpirtTranscript");
     transcript.setProperty("id", "1");
 
-    final EntityImpl skill = session.newInstance("lpirtSkill");
+    final var skill = session.newInstance("lpirtSkill");
     skill.setProperty("name", "math");
 
-    final EntityImpl student1 = session.newInstance("lpirtStudent");
+    final var student1 = session.newInstance("lpirtStudent");
     student1.setProperty("name", "John Smith");
     student1.setProperty("group", group1);
     student1.setProperty("diploma", diploma1);
     student1.setProperty("transcript", transcript);
     student1.setProperty("skill", skill);
 
-    EntityImpl curator2 = session.newInstance("lpirtCurator");
+    var curator2 = session.newInstance("lpirtCurator");
     curator2.setProperty("name", "Someone else");
     curator2.setProperty("salary", 500);
 
-    final EntityImpl group2 = session.newInstance("lpirtGroup");
+    final var group2 = session.newInstance("lpirtGroup");
     group2.setProperty("name", "PZ-08-2");
     group2.setProperty("curator", curator2);
 
-    final EntityImpl diploma2 = session.newInstance("lpirtDiploma");
+    final var diploma2 = session.newInstance("lpirtDiploma");
     diploma2.setProperty("GPA", 5.);
     diploma2.setProperty("name", "diploma2");
     diploma2.setProperty("thesis",
@@ -392,36 +379,36 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
             + " oppression, Northerners focused on the oppression of slaves while Southerners"
             + " defended their own right to self-government.");
 
-    final EntityImpl student2 = session.newInstance("lpirtStudent");
+    final var student2 = session.newInstance("lpirtStudent");
     student2.setProperty("name", "Jane Smith");
     student2.setProperty("group", group2);
     student2.setProperty("diploma", diploma2);
 
-    EntityImpl curator3 = session.newInstance("lpirtCurator");
+    var curator3 = session.newInstance("lpirtCurator");
     curator3.setProperty("name", "Someone else");
     curator3.setProperty("salary", 600);
 
-    final EntityImpl group3 = session.newInstance("lpirtGroup");
+    final var group3 = session.newInstance("lpirtGroup");
     group3.setProperty("name", "PZ-08-3");
     group3.setProperty("curator", curator3);
 
-    final EntityImpl diploma3 = session.newInstance("lpirtDiploma");
+    final var diploma3 = session.newInstance("lpirtDiploma");
     diploma3.setProperty("GPA", 4.);
     diploma3.setProperty("name", "diploma3");
     diploma3.setProperty("thesis",
         "College student shouldn't have to take a required core curriculum, and many core "
             + "courses are graded too stiffly.");
 
-    final EntityImpl student3 = session.newInstance("lpirtStudent");
+    final var student3 = session.newInstance("lpirtStudent");
     student3.setProperty("name", "James Bell");
     student3.setProperty("group", group3);
     student3.setProperty("diploma", diploma3);
 
-    final EntityImpl student4 = session.newInstance("lpirtStudent");
+    final var student4 = session.newInstance("lpirtStudent");
     student4.setProperty("name", "Roger Connor");
     student4.setProperty("group", group3);
 
-    final EntityImpl student5 = session.newInstance("lpirtStudent");
+    final var student5 = session.newInstance("lpirtStudent");
     student5.setProperty("name", "William James");
     student5.setProperty("group", group3);
     student5.setProperty("diploma", diploma3);
@@ -513,9 +500,9 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
   }
 
   private static int containsDocumentWithFieldValue(
-      final List<EntityImpl> docList, final String fieldName, final Object fieldValue) {
+      final List<Result> resultList, final String fieldName, final Object fieldValue) {
     var count = 0;
-    for (final var docItem : docList) {
+    for (final var docItem : resultList) {
       if (fieldValue.equals(docItem.getProperty(fieldName))) {
         count++;
       }

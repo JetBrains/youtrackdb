@@ -19,7 +19,6 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -108,8 +107,8 @@ public class QueryLocalCacheIntegrationTest extends BaseDBTest {
   public void queryTest() {
     final long times = ProfilerStub.INSTANCE.getCounter("Cache.reused");
 
-    List<EntityImpl> resultset =
-        session.query(new SQLSynchQuery<EntityImpl>("select * from FetchClass"));
+    var resultset =
+        session.query("select * from FetchClass").toList();
     Assert.assertEquals(
         ProfilerStub.INSTANCE.getCounter("Cache.reused"), times);
 

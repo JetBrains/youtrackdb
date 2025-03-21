@@ -21,9 +21,6 @@ package com.jetbrains.youtrack.db.internal.core.sql;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
-import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
-import com.jetbrains.youtrack.db.api.exception.RecordDuplicatedException;
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -321,44 +318,7 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
 
     returnHandler.reset();
 
-    session.query(query, queryArgs);
-
-    if (upsertMode && !updated) {
-      // IF UPDATE DOES NOT PRODUCE RESULTS AND UPSERT MODE IS ENABLED, CREATE DOCUMENT AND APPLY
-      // SET/ADD/PUT/MERGE and so on
-      final var entity =
-          subjectName != null ? new EntityImpl(session, subjectName) : new EntityImpl(session);
-      // locks by result(entity)
-      try {
-        result(session, entity);
-      } catch (RecordDuplicatedException e) {
-        if (upsertMode)
-        // UPDATE THE NEW RECORD
-        {
-          session.query(query, queryArgs);
-        } else {
-          throw e;
-        }
-      } catch (RecordNotFoundException e) {
-        if (upsertMode)
-        // UPDATE THE NEW RECORD
-        {
-          session.query(query, queryArgs);
-        } else {
-          throw e;
-        }
-      } catch (ConcurrentModificationException e) {
-        if (upsertMode)
-        // UPDATE THE NEW RECORD
-        {
-          session.query(query, queryArgs);
-        } else {
-          throw e;
-        }
-      }
-    }
-
-    return returnHandler.ret();
+    throw new UnsupportedOperationException();
   }
 
   /**

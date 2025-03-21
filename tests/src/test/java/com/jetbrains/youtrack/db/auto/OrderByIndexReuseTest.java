@@ -5,8 +5,6 @@ import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
-import java.util.List;
 import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
@@ -60,7 +58,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
 
   public void testGreaterThanOrderByAscFirstProperty() {
     var query = "select from OrderByIndexReuse where firstProp > 5 order by firstProp limit 5";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
@@ -82,7 +80,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     var query =
         "select from OrderByIndexReuse where secondProp > 5 order by secondProp asc, thirdProp asc"
             + " limit 5";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
@@ -105,7 +103,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     var query =
         "select from OrderByIndexReuse where secondProp > 5 order by secondProp desc, thirdProp"
             + " desc limit 5";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
@@ -128,7 +126,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     var query =
         "select from OrderByIndexReuse where secondProp > 5 order by secondProp asc, thirdProp desc"
             + " limit 5";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
@@ -154,7 +152,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
   public void testGreaterThanOrderByDescFirstProperty() {
     final var query =
         "select from OrderByIndexReuse where firstProp > 5 order by firstProp desc limit 5";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
@@ -175,7 +173,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
   public void testGTEOrderByAscFirstProperty() {
     final var query =
         "select from OrderByIndexReuse where firstProp >= 5 order by firstProp limit 5";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
@@ -197,7 +195,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where secondProp >= 5 order by secondProp asc, thirdProp asc"
             + " limit 5";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
@@ -227,7 +225,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where secondProp >= 5 order by secondProp desc, thirdProp"
             + " desc limit 5";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
@@ -257,7 +255,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where secondProp >= 5 order by secondProp asc, thirdProp"
             + " desc limit 5";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
@@ -283,7 +281,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
   public void testGTEOrderByDescFirstProperty() {
     final var query =
         "select from OrderByIndexReuse where firstProp >= 5 order by firstProp desc limit 5";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
@@ -304,7 +302,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
   public void testLTOrderByAscFirstProperty() {
     final var query =
         "select from OrderByIndexReuse where firstProp < 5 order by firstProp limit 3";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
@@ -326,7 +324,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where secondProp < 5 order by secondProp asc, thirdProp asc"
             + " limit 3";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
@@ -357,7 +355,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where secondProp < 5 order by secondProp desc, thirdProp"
             + " desc limit 3";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
@@ -388,7 +386,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where secondProp < 5 order by secondProp asc, thirdProp desc"
             + " limit 3";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
@@ -415,7 +413,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
   public void testLTOrderByDescFirstProperty() {
     final var query =
         "select from OrderByIndexReuse where firstProp < 5 order by firstProp desc limit 3";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
@@ -436,7 +434,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
   public void testLTEOrderByAscFirstProperty() {
     final var query =
         "select from OrderByIndexReuse where firstProp <= 5 order by firstProp limit 3";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
@@ -458,7 +456,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where secondProp <= 5 order by secondProp asc, thirdProp asc"
             + " limit 3";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
@@ -489,7 +487,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where secondProp <= 5 order by secondProp desc, thirdProp"
             + " desc limit 3";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
@@ -520,7 +518,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where secondProp <= 5 order by secondProp asc, thirdProp"
             + " desc limit 3";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
@@ -547,7 +545,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
   public void testLTEOrderByDescFirstProperty() {
     final var query =
         "select from OrderByIndexReuse where firstProp <= 5 order by firstProp desc limit 3";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
@@ -568,7 +566,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
   public void testBetweenOrderByAscFirstProperty() {
     final var query =
         "select from OrderByIndexReuse where firstProp between 5 and 15 order by firstProp limit 5";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
@@ -590,7 +588,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where secondProp between 5 and 15 order by secondProp asc,"
             + " thirdProp asc limit 5";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
@@ -621,7 +619,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where secondProp between 5 and 15 order by secondProp desc,"
             + " thirdProp desc limit 5";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
@@ -652,7 +650,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where secondProp between 5 and 15 order by secondProp asc,"
             + " thirdProp desc limit 5";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
@@ -680,7 +678,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where firstProp between 5 and 15 order by firstProp desc"
             + " limit 5";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
@@ -702,7 +700,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where firstProp in [10, 2, 43, 21, 45, 47, 11, 12] order by"
             + " firstProp limit 3";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 3);
 
@@ -729,7 +727,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where firstProp in [10, 2, 43, 21, 45, 47, 11, 12] order by"
             + " firstProp desc limit 3";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 3);
 
@@ -756,7 +754,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     var query =
         "select from OrderByIndexReuse where firstProp > 5 order by firstProp asc, prop4 asc limit"
             + " 5";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
@@ -779,7 +777,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where firstProp > 5 order by firstProp desc, prop4 asc limit"
             + " 5";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
@@ -809,7 +807,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where firstProp >= 5 order by firstProp asc, prop4 asc limit"
             + " 5";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
@@ -840,7 +838,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where firstProp >= 5 order by firstProp desc, prop4 asc"
             + " limit 5";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
@@ -871,7 +869,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where firstProp < 5 order by firstProp asc, prop4 asc limit"
             + " 3";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
@@ -902,7 +900,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where firstProp < 5 order by firstProp desc, prop4 asc limit"
             + " 3";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
@@ -933,7 +931,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where firstProp <= 5 order by firstProp asc, prop4 asc limit"
             + " 3";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
@@ -964,7 +962,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where firstProp <= 5 order by firstProp desc, prop4 asc"
             + " limit 3";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 3);
     for (var i = 0; i < 3; i++) {
@@ -995,7 +993,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where firstProp between 5 and 15 order by firstProp asc,"
             + " prop4 asc limit 5";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
@@ -1026,7 +1024,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where firstProp between 5 and 15 order by firstProp desc,"
             + " prop4 asc limit 5";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 5);
     for (var i = 0; i < 5; i++) {
@@ -1057,7 +1055,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where firstProp in [10, 2, 43, 21, 45, 47, 11, 12] order by"
             + " firstProp asc, prop4 asc limit 3";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 3);
 
@@ -1087,7 +1085,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse where firstProp in [10, 2, 43, 21, 45, 47, 11, 12] order by"
             + " firstProp desc, prop4 asc limit 3";
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 3);
 
@@ -1116,7 +1114,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
   public void testOrderByFirstPropWithLimitAsc() {
     final var query = "select from OrderByIndexReuse order by firstProp offset 10 limit 4";
 
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 4);
 
@@ -1138,7 +1136,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
   public void testOrderByFirstPropWithLimitDesc() {
     final var query = "select from OrderByIndexReuse order by firstProp desc offset 10 limit 4";
 
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 4);
 
@@ -1161,7 +1159,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse order by secondProp asc, thirdProp asc offset 10 limit 4";
 
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 4);
 
@@ -1193,7 +1191,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse order by secondProp desc, thirdProp desc offset 10 limit 4";
 
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 4);
 
@@ -1225,7 +1223,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse order by secondProp asc, thirdProp desc offset 10 limit 4";
 
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 4);
 
@@ -1254,7 +1252,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     final var query =
         "select from OrderByIndexReuse order by secondProp desc, thirdProp asc offset 10 limit 4";
 
-    List<EntityImpl> result = session.query(new SQLSynchQuery<EntityImpl>(query));
+    var result = session.query(query).toList();
 
     Assert.assertEquals(result.size(), 4);
 

@@ -41,7 +41,6 @@ import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
-import com.jetbrains.youtrack.db.internal.core.query.Query;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -729,12 +728,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   public void rollback(boolean force) throws TransactionException {
     checkOpenness();
     internal.rollback(force);
-  }
-
-  @Override
-  public <RET extends List<?>> RET query(Query<?> iCommand, Object... iArgs) {
-    checkOpenness();
-    return internal.query(iCommand, iArgs);
   }
 
   @Override

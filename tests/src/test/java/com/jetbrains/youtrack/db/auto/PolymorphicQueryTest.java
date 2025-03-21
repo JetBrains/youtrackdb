@@ -20,8 +20,6 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
-import java.util.List;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
@@ -133,13 +131,13 @@ public class PolymorphicQueryTest extends BaseDBTest {
     }
     session.commit();
 
-    List<EntityImpl> result =
+    var result =
         session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
-                    + " 'name9999' order by name ASC"));
+
+            "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
+                + " 'name9999' order by name ASC").toList();
     Assert.assertEquals(result.size(), 6);
-    EntityImpl entity1 = result.getFirst();
+    var entity1 = result.getFirst();
     String lastName = entity1.getProperty("name");
 
     for (var i = 1; i < result.size(); i++) {
@@ -155,11 +153,10 @@ public class PolymorphicQueryTest extends BaseDBTest {
 
     result =
         session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
-                    + " 'name9999' order by name DESC"));
+            "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
+                + " 'name9999' order by name DESC").toList();
     Assert.assertEquals(result.size(), 6);
-    EntityImpl entity = result.getFirst();
+    var entity = result.getFirst();
     lastName = entity.getProperty("name");
     for (var i = 1; i < result.size(); i++) {
       var current = result.get(i);
@@ -202,13 +199,13 @@ public class PolymorphicQueryTest extends BaseDBTest {
     }
     session.commit();
 
-    List<EntityImpl> result =
+    var result =
         session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
-                    + " 'name9999' order by name ASC"));
+
+            "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
+                + " 'name9999' order by name ASC").toList();
     Assert.assertEquals(result.size(), 9);
-    EntityImpl entity1 = result.getFirst();
+    var entity1 = result.getFirst();
     String lastName = entity1.getProperty("name");
     for (var i = 1; i < result.size(); i++) {
       var current = result.get(i);
@@ -224,11 +221,10 @@ public class PolymorphicQueryTest extends BaseDBTest {
 
     result =
         session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
-                    + " 'name9999' order by name DESC"));
+            "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
+                + " 'name9999' order by name DESC").toList();
     Assert.assertEquals(result.size(), 9);
-    EntityImpl entity = result.getFirst();
+    var entity = result.getFirst();
     lastName = entity.getProperty("name");
     for (var i = 1; i < result.size(); i++) {
       var current = result.get(i);

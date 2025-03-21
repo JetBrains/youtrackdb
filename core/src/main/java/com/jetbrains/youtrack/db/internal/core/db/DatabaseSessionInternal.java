@@ -57,7 +57,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.MetadataInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
-import com.jetbrains.youtrack.db.internal.core.query.Query;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -705,18 +704,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   RecordMetadata getRecordMetadata(final RID rid);
 
   void rollback(boolean force) throws TransactionException;
-
-  /**
-   * Execute a query against the database. If the Storage used is remote (OStorageRemote) then the
-   * command will be executed remotely and the result returned back to the calling client.
-   *
-   * @param iCommand Query command
-   * @param iArgs    Optional parameters to bind to the query
-   * @return List of POJOs
-   * @deprecated use {@link #query(String, Map)} or {@link #query(String, Object...)} instead
-   */
-  @Deprecated
-  <RET extends List<?>> RET query(final Query<?> iCommand, final Object... iArgs);
 
   /**
    * Creates a command request to run a command against the database (you have to invoke

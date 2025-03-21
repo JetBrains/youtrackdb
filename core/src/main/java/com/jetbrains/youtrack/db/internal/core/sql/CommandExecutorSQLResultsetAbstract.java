@@ -49,7 +49,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLTarget;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionRuntime;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorEquals;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorNotEquals;
-import com.jetbrains.youtrack.db.internal.core.sql.query.LegacyResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.query.SQLAsynchQuery;
 import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
@@ -494,11 +493,7 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
           subQuery.getContext().setParent(context);
           subQuery.getContext().setVariable("parentQuery", this);
           subQuery.getContext().setVariable("current", iRecord);
-          varValue = session.query(subQuery);
-          if (varValue instanceof LegacyResultSet) {
-            varValue = ((LegacyResultSet) varValue).copy();
-          }
-
+          throw new UnsupportedOperationException();
         } else {
           if (letValue instanceof SQLFunctionRuntime f) {
             if (iRecord instanceof Entity entity) {
