@@ -54,7 +54,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.OpenRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.QueryNextPageRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.QueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReadRecordRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.RebeginTransaction38Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.RecordExistsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReleaseDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReloadRequest;
@@ -205,7 +204,6 @@ public class NetworkBinaryProtocolFactory {
   public static BinaryRequest<? extends BinaryResponse> createRequest38(int requestType) {
     return switch (requestType) {
       case ChannelBinaryProtocol.REQUEST_TX_FETCH -> new FetchTransaction38Request();
-      case ChannelBinaryProtocol.REQUEST_TX_REBEGIN -> new RebeginTransaction38Request();
       case ChannelBinaryProtocol.REQUEST_TX_BEGIN -> new BeginTransaction38Request();
       case ChannelBinaryProtocol.REQUEST_SEND_TRANSACTION_STATE ->
           new SendTransactionStateRequest();

@@ -22,7 +22,6 @@ package com.jetbrains.youtrack.db.internal.core.tx;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.transaction.RecordOperationType;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
@@ -35,7 +34,6 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -236,32 +234,6 @@ public interface FrontendTransaction extends Transaction {
   default void preProcessRecordsAndExecuteCallCallbacks() {
   }
 
-  @Override
-  default Stream<com.jetbrains.youtrack.db.api.transaction.RecordOperation> getRecordOperations() {
-    return getRecordOperationsInternal().stream().map(recordOperation ->
-        switch (recordOperation.type) {
-          case RecordOperation.CREATED ->
-              new com.jetbrains.youtrack.db.api.transaction.RecordOperation(recordOperation.record,
-                  RecordOperationType.CREATED);
-          case RecordOperation.UPDATED ->
-              new com.jetbrains.youtrack.db.api.transaction.RecordOperation(recordOperation.record,
-                  RecordOperationType.UPDATED);
-          case RecordOperation.DELETED ->
-              new com.jetbrains.youtrack.db.api.transaction.RecordOperation(recordOperation.record,
-                  RecordOperationType.DELETED);
-          default -> throw new IllegalStateException("Unexpected value: " + recordOperation.type);
-        });
-  }
-
-  @Override
-  default int getRecordOperationsCount() {
-    return getRecordOperationsInternal().size();
-  }
-
-  @Override
-  default int activeTxCount() {
-    return amountOfNestedTxs();
-  }
 
   void internalRollback();
 }

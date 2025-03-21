@@ -48,6 +48,7 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -84,6 +85,21 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   @Override
   public boolean isActive() {
     return false;
+  }
+
+  @Override
+  public Stream<com.jetbrains.youtrack.db.api.transaction.RecordOperation> getRecordOperations() {
+    return Stream.empty();
+  }
+
+  @Override
+  public int getRecordOperationsCount() {
+    return 0;
+  }
+
+  @Override
+  public int activeTxCount() {
+    return 0;
   }
 
   @Override

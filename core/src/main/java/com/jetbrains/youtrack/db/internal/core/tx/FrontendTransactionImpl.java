@@ -38,6 +38,7 @@ import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.api.transaction.RecordOperationType;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
@@ -68,6 +69,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -1186,6 +1188,7 @@ public class FrontendTransactionImpl implements
 
   @Override
   public DatabaseSession getSession() {
+    checkIfActive();
     return session;
   }
 
@@ -1628,6 +1631,37 @@ public class FrontendTransactionImpl implements
           "Transaction is not active and can not be used.");
     }
   }
+
+  @Override
+  public Stream<com.jetbrains.youtrack.db.api.transaction.RecordOperation> getRecordOperations() {
+    checkIfActive();
+    return getRecordOperationsInternal().stream().map(recordOperation ->
+        switch (recordOperation.type) {
+          case RecordOperation.CREATED ->
+              new com.jetbrains.youtrack.db.api.transaction.RecordOperation(recordOperation.record,
+                  RecordOperationType.CREATED);
+          case RecordOperation.UPDATED ->
+              new com.jetbrains.youtrack.db.api.transaction.RecordOperation(recordOperation.record,
+                  RecordOperationType.UPDATED);
+          case RecordOperation.DELETED ->
+              new com.jetbrains.youtrack.db.api.transaction.RecordOperation(recordOperation.record,
+                  RecordOperationType.DELETED);
+          default -> throw new IllegalStateException("Unexpected value: " + recordOperation.type);
+        });
+  }
+
+  @Override
+  public int getRecordOperationsCount() {
+    checkIfActive();
+    return getRecordOperationsInternal().size();
+  }
+
+  @Override
+  public int activeTxCount() {
+    checkIfActive();
+    return amountOfNestedTxs();
+  }
+
 
   private boolean isWriteTransaction() {
     return !recordOperations.isEmpty() || !indexEntries.isEmpty();

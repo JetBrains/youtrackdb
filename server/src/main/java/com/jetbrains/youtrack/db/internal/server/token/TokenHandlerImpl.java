@@ -16,11 +16,11 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.binary.BinaryTo
 import com.jetbrains.youtrack.db.internal.core.metadata.security.jwt.JwtPayload;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.jwt.TokenHeader;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.jwt.YouTrackDBJwtHeader;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.ParsedToken;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.security.TokenSign;
 import com.jetbrains.youtrack.db.internal.core.security.TokenSignImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.ClientConnection;
 import com.jetbrains.youtrack.db.internal.server.TokenHandler;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.NetworkProtocolData;
@@ -31,6 +31,7 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.UUID;
 
 /**
@@ -386,12 +387,12 @@ public class TokenHandlerImpl implements TokenHandler {
   }
 
   protected static YouTrackDBJwtHeader deserializeWebHeader(final byte[] decodedHeader) {
-    final var entity = new EntityImpl(null);
-    entity.updateFromJSON(new String(decodedHeader, StandardCharsets.UTF_8));
+    final var map = RecordSerializerJackson.mapFromJson(
+        new String(decodedHeader, StandardCharsets.UTF_8));
     final var header = new YouTrackDBJwtHeader();
-    header.setType(entity.getProperty("typ"));
-    header.setAlgorithm(entity.getProperty("alg"));
-    header.setKeyId(entity.getProperty("kid"));
+    header.setType((String) map.get("typ"));
+    header.setAlgorithm((String) map.get("alg"));
+    header.setKeyId((String) map.get("kid"));
     return header;
   }
 
@@ -400,21 +401,22 @@ public class TokenHandlerImpl implements TokenHandler {
     if (!"YouTrackDB".equals(type)) {
       throw new SystemException("Payload class not registered:" + type);
     }
-    final var entity = new EntityImpl(null);
-    entity.updateFromJSON(new String(decodedPayload, StandardCharsets.UTF_8));
+    final var map = RecordSerializerJackson.mapFromJson(
+        new String(decodedPayload, StandardCharsets.UTF_8));
     final var payload = new YouTrackDBJwtPayload();
-    payload.setUserName(entity.getProperty("username"));
-    payload.setIssuer(entity.getProperty("iss"));
-    payload.setExpiry(entity.getProperty("exp"));
-    payload.setIssuedAt(entity.getProperty("iat"));
-    payload.setNotBefore(entity.getProperty("nbf"));
-    payload.setDatabase(entity.getProperty("sub"));
-    payload.setAudience(entity.getProperty("aud"));
-    payload.setTokenId(entity.getProperty("jti"));
-    final int cluster = entity.getProperty("uidc");
-    final long pos = entity.getProperty("uidp");
+    payload.setUserName((String) map.get("username"));
+    payload.setIssuer((String) map.get("iss"));
+    payload.setExpiry(((Number) map.get("exp")).longValue());
+    payload.setIssuedAt(((Number) map.get("iat")).longValue());
+    payload.setNotBefore(((Number) map.get("nbf")).longValue());
+    payload.setDatabase((String) map.get("sub"));
+    payload.setAudience((String) map.get("aud"));
+    payload.setTokenId((String) map.get("jti"));
+    final int cluster = (Integer) map.get("uidc");
+    final var pos = ((Number) map.get("uidp")).longValue();
+
     payload.setUserRid(new RecordId(cluster, pos));
-    payload.setDatabaseType(entity.getProperty("bdtyp"));
+    payload.setDatabaseType((String) map.get("bdtyp"));
     return payload;
   }
 
@@ -423,11 +425,12 @@ public class TokenHandlerImpl implements TokenHandler {
       throw new IllegalArgumentException("Token header is null");
     }
 
-    var entity = new EntityImpl(null);
-    entity.setProperty("typ", header.getType());
-    entity.setProperty("alg", header.getAlgorithm());
-    entity.setProperty("kid", header.getKeyId());
-    return entity.toJSON().getBytes(StandardCharsets.UTF_8);
+    var map = new HashMap<String, Object>();
+    map.put("typ", header.getType());
+    map.put("alg", header.getAlgorithm());
+    map.put("kid", header.getKeyId());
+
+    return RecordSerializerJackson.mapToJson(map).getBytes(StandardCharsets.UTF_8);
   }
 
   protected static byte[] serializeWebPayload(final JwtPayload payload) throws Exception {
@@ -435,19 +438,19 @@ public class TokenHandlerImpl implements TokenHandler {
       throw new IllegalArgumentException("Token payload is null");
     }
 
-    final var entity = new EntityImpl(null);
-    entity.setProperty("username", payload.getUserName());
-    entity.setProperty("iss", payload.getIssuer());
-    entity.setProperty("exp", payload.getExpiry());
-    entity.setProperty("iat", payload.getIssuedAt());
-    entity.setProperty("nbf", payload.getNotBefore());
-    entity.setProperty("sub", payload.getDatabase());
-    entity.setProperty("aud", payload.getAudience());
-    entity.setProperty("jti", payload.getTokenId());
-    entity.setProperty("uidc", payload.getUserRid().getClusterId());
-    entity.setProperty("uidp", payload.getUserRid().getClusterPosition());
-    entity.setProperty("bdtyp", payload.getDatabaseType());
-    return entity.toJSON().getBytes(StandardCharsets.UTF_8);
+    final var map = new HashMap<String, Object>();
+    map.put("username", payload.getUserName());
+    map.put("iss", payload.getIssuer());
+    map.put("exp", payload.getExpiry());
+    map.put("iat", payload.getIssuedAt());
+    map.put("nbf", payload.getNotBefore());
+    map.put("sub", payload.getDatabase());
+    map.put("aud", payload.getAudience());
+    map.put("jti", payload.getTokenId());
+    map.put("uidc", payload.getUserRid().getClusterId());
+    map.put("uidp", payload.getUserRid().getClusterPosition());
+    map.put("bdtyp", payload.getDatabaseType());
+    return RecordSerializerJackson.mapToJson(map).getBytes(StandardCharsets.UTF_8);
   }
 
   protected JwtPayload createPayloadServerUser(SecurityUser serverUser) {

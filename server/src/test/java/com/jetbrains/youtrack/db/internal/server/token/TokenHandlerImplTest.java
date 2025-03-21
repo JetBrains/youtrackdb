@@ -36,11 +36,13 @@ public class TokenHandlerImplTest extends BaseMemoryInternalDatabase {
 
     assertTrue(tok.getIsVerified());
 
+    var tx = session.begin();
     var user = tok.getUser(session);
     assertEquals(user.getName(session), original.getName(session));
     var boole = handler.validateToken(tok, "open", session.getDatabaseName());
     assertTrue(boole);
     assertTrue(tok.getIsValid());
+    tx.commit();
   }
 
   @Test(expected = Exception.class)
@@ -129,6 +131,7 @@ public class TokenHandlerImplTest extends BaseMemoryInternalDatabase {
 
     assertNotNull(tok);
 
+    var tx = session.begin();
     assertTrue(tok.getIsVerified());
 
     var user = tok.getUser(session);
@@ -136,6 +139,7 @@ public class TokenHandlerImplTest extends BaseMemoryInternalDatabase {
     var boole = handler.validateBinaryToken(tok);
     assertTrue(boole);
     assertTrue(tok.getIsValid());
+    tx.commit();
   }
 
   @Test
