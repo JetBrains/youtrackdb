@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.internal.test.TestFactory;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicLong;
 import org.testng.Assert;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -101,8 +102,8 @@ public class ConcurrentSchemaTest extends BaseDBTest {
   }
 
   @Parameters(value = "remote")
-  public ConcurrentSchemaTest(boolean remote) {
-    super(remote);
+  public ConcurrentSchemaTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @Test

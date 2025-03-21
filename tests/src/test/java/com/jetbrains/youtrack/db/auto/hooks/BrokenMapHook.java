@@ -10,6 +10,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 public class BrokenMapHook extends RecordHookAbstract implements RecordHook {
@@ -42,7 +43,7 @@ public class BrokenMapHook extends RecordHookAbstract implements RecordHook {
     var oldPropertyNames = oldElement.getPropertyNames();
 
     if (newPropertyNames.contains("myMap") && oldPropertyNames.contains("myMap")) {
-      HashMap<String, Object> newFieldValue = newElement.getProperty("myMap");
+      Map<String, Object> newFieldValue = newElement.getProperty("myMap");
       var oldFieldValue = new HashMap<String, Object>(oldElement.getProperty("myMap"));
 
       var newDate =

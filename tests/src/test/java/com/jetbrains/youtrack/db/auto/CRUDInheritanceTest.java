@@ -43,7 +43,9 @@ public class CRUDInheritanceTest extends BaseDBTest {
 
   @Test
   public void create() {
-    session.execute("delete from Company").close();
+    session.begin();
+    session.command("delete from Company");
+    session.commit();
 
     generateCompanyData();
   }
@@ -55,6 +57,7 @@ public class CRUDInheritanceTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testCreate")
   public void queryByBaseType() {
+    session.begin();
     var resultSet = executeQuery("select from Company where name.length() > 0");
 
     Assert.assertFalse(resultSet.isEmpty());
@@ -73,10 +76,12 @@ public class CRUDInheritanceTest extends BaseDBTest {
     }
 
     Assert.assertEquals(companyRecords, TOT_COMPANY_RECORDS);
+    session.commit();
   }
 
   @Test(dependsOnMethods = "queryByBaseType")
   public void queryPerSuperType() {
+    session.begin();
     var resultSet = executeQuery("select * from Company where name.length() > 0");
 
     Assert.assertEquals(resultSet.size(), TOT_COMPANY_RECORDS);
@@ -86,6 +91,7 @@ public class CRUDInheritanceTest extends BaseDBTest {
       account = entries.asEntity();
       Assert.assertNotSame(account.<String>getProperty("name").length(), 0);
     }
+    session.commit();
   }
 
   @Test(dependsOnMethods = {"queryPerSuperType", "testCreate"})
@@ -125,10 +131,9 @@ public class CRUDInheritanceTest extends BaseDBTest {
   public void testIdFieldInheritanceFirstSubClass() {
     createInheritanceTestClass();
 
+    session.begin();
     var a = session.newInstance("InheritanceTestBaseClass");
     var b = session.newInstance("InheritanceTestClass");
-
-    session.begin();
     session.commit();
 
     var resultSet = executeQuery("select from InheritanceTestBaseClass");
