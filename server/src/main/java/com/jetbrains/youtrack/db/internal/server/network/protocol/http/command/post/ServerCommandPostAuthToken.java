@@ -5,15 +5,17 @@ import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.LockException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.TokenHandler;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAbstract;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  *
@@ -50,9 +52,9 @@ public class ServerCommandPostAuthToken extends ServerCommandAbstract {
     // Parameter names consistent with 4.3.2 (Access Token Request) of RFC 6749
     var content = iRequest.getUrlEncodedContent();
     if (content == null) {
-      var result = new EntityImpl(null);
-      result.setProperty("error", "missing_auth_data");
-      sendError(iRequest, iResponse, result);
+      var result = new HashMap<String, Object>();
+      result.put("error", "missing_auth_data");
+      sendError(iResponse, result);
       return false;
     }
     var signedToken = ""; // signedJWT.serialize();
@@ -61,7 +63,7 @@ public class ServerCommandPostAuthToken extends ServerCommandAbstract {
     var username = content.get("username");
     var password = content.get("password");
     String authenticatedRid;
-    EntityImpl result;
+    Map<String, Object> result;
 
     if (grantType.equals("password")) {
       authenticatedRid = authenticate(username, password, iRequest.getDatabaseName());
@@ -89,20 +91,20 @@ public class ServerCommandPostAuthToken extends ServerCommandAbstract {
         }
 
         // 4.1.4 (Access Token Response) of RFC 6749
-        result = new EntityImpl(null);
-        result.setProperty("access_token", signedToken);
-        result.setProperty("expires_in", 3600);
+        result = new HashMap<>();
+        result.put("access_token", signedToken);
+        result.put("expires_in", 3600);
 
-        iResponse.writeRecord(result, RESPONSE_FORMAT, null);
+        iResponse.writeResult(result, null, null, null);
       } else {
-        result = new EntityImpl(null);
-        result.setProperty("error", "unsupported_grant_type");
-        sendError(iRequest, iResponse, result);
+        result = new HashMap<>();
+        result.put("error", "unsupported_grant_type");
+        sendError(iResponse, result);
       }
     } else {
-      result = new EntityImpl(null);
-      result.setProperty("error", "unsupported_grant_type");
-      sendError(iRequest, iResponse, result);
+      result = new HashMap<>();
+      result.put("error", "unsupported_grant_type");
+      sendError(iResponse, result);
     }
 
     return false;
@@ -133,14 +135,14 @@ public class ServerCommandPostAuthToken extends ServerCommandAbstract {
     return userRid;
   }
 
-  protected void sendError(
-      final HttpRequest iRequest, final HttpResponse iResponse, final EntityImpl error)
+  protected static void sendError(
+      final HttpResponse iResponse, final Map<String, Object> error)
       throws IOException {
     iResponse.send(
         HttpUtils.STATUS_BADREQ_CODE,
         HttpUtils.STATUS_BADREQ_DESCRIPTION,
         HttpUtils.CONTENT_JSON,
-        error.toJSON(),
+        RecordSerializerJackson.mapToJson(error),
         null);
   }
 
