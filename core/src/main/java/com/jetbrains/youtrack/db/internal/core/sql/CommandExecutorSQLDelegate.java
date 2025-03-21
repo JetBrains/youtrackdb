@@ -23,7 +23,6 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandDistributedReplicateRequest;
 import com.jetbrains.youtrack.db.internal.core.command.CommandExecutor;
-import com.jetbrains.youtrack.db.internal.core.command.CommandExecutorNotFoundException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -37,8 +36,6 @@ import java.util.Set;
 public class CommandExecutorSQLDelegate extends CommandExecutorSQLAbstract
     implements CommandDistributedReplicateRequest {
 
-  protected CommandExecutor delegate;
-
   @SuppressWarnings("unchecked")
   public CommandExecutorSQLDelegate parse(DatabaseSessionInternal session,
       final CommandRequest iCommand) {
@@ -50,20 +47,6 @@ public class CommandExecutorSQLDelegate extends CommandExecutorSQLAbstract
 
       final var textUpperCase = SQLPredicate.upperCase(text);
 
-      delegate = SQLEngine.getInstance().getCommand(textUpperCase);
-      if (delegate == null) {
-        throw new CommandExecutorNotFoundException(session.getDatabaseName(),
-            "Cannot find a command executor for the command request: " + iCommand);
-      }
-
-      delegate.setContext(context);
-      delegate.setLimit(iCommand.getLimit());
-      delegate.parse(session, iCommand);
-      delegate.setProgressListener(progressListener);
-      if (delegate.getFetchPlan() != null) {
-        textRequest.setFetchPlan(delegate.getFetchPlan());
-      }
-
     } else {
       throw new CommandExecutionException(session,
           "Cannot find a command executor for the command request: " + iCommand);
@@ -73,44 +56,44 @@ public class CommandExecutorSQLDelegate extends CommandExecutorSQLAbstract
 
 
   public Object execute(DatabaseSessionInternal session, final Map<Object, Object> iArgs) {
-    return delegate.execute(session, iArgs);
+    return null;
   }
 
   @Override
   public CommandContext getContext() {
-    return delegate.getContext();
+    return null;
   }
 
   @Override
   public String toString() {
-    return delegate.toString();
+    return null;
   }
 
   public String getSyntax() {
-    return delegate.getSyntax();
+    return null;
   }
 
   @Override
   public String getFetchPlan() {
-    return delegate.getFetchPlan();
+    return null;
   }
 
   @Override
   public boolean isIdempotent() {
-    return delegate.isIdempotent();
+    return false;
   }
 
   public CommandExecutor getDelegate() {
-    return delegate;
+    return null;
   }
 
   @Override
   public boolean isCacheable() {
-    return delegate.isCacheable();
+    return false;
   }
 
   @Override
   public Set<String> getInvolvedClusters(DatabaseSessionInternal session) {
-    return delegate.getInvolvedClusters(session);
+    return null;
   }
 }

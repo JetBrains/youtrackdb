@@ -89,11 +89,13 @@ public class DateConversionTestCase extends DbTestBase {
 
         session.set(DatabaseSession.ATTRIBUTES.TIMEZONE, "GMT");
 
-        session.begin();
+        var tx = session.begin();
         var doc = (EntityImpl) session.newEntity();
 
         doc.setProperty("dateTime", date);
-        var formatted = doc.eval("dateTime.format('yyyy-MM-dd')").toString();
+        var formatted = tx.query(
+            "select dateTime.format('yyyy-MM-dd') as value from " + doc.getIdentity()
+        ).findFirst(result -> result.getString("value"));
 
         Assert.assertEquals("2016-08-31", formatted);
         session.rollback();

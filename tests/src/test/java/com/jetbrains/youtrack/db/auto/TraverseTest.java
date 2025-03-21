@@ -17,7 +17,6 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -25,9 +24,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandPredicate;
 import com.jetbrains.youtrack.db.internal.core.command.traverse.Traverse;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLPredicate;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
@@ -116,10 +113,9 @@ public class TraverseTest extends BaseDBTest {
   }
 
   public void traverseSQLAllFromActorNoWhere() {
-    List<EntityImpl> result1 =
+    var result1 =
         session
-            .command(new SQLSynchQuery<EntityImpl>("traverse * from " + tomCruise.getIdentity()))
-            .execute(session);
+            .query("traverse * from " + tomCruise.getIdentity()).toList();
     Assert.assertEquals(result1.size(), totalElements);
   }
 
@@ -131,24 +127,19 @@ public class TraverseTest extends BaseDBTest {
 
   @Test
   public void traverseSQLOutFromActor1Depth() {
-    List<EntityImpl> result1 =
+    var result1 =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "traverse out_ from " + tomCruise.getIdentity() + " while $depth <= 1"))
-            .execute(session);
+            .query("traverse out_ from " + tomCruise.getIdentity() + " while $depth <= 1").toList();
 
     Assert.assertFalse(result1.isEmpty());
   }
 
   @Test
   public void traverseSQLMoviesOnly() {
-    List<EntityImpl> result1 =
+    var result1 =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select from ( traverse any() from Movie ) where @class = 'Movie'"))
-            .execute(session);
+            .query("select from ( traverse any() from Movie ) where @class = 'Movie'")
+            .entityStream().toList();
     Assert.assertFalse(result1.isEmpty());
     for (var d : result1) {
       Assert.assertEquals(d.getSchemaClassName(), "Movie");
@@ -157,16 +148,14 @@ public class TraverseTest extends BaseDBTest {
 
   @Test
   public void traverseSQLPerClassFields() {
-    List<EntityImpl> result1 =
+    var result1 =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select from ( traverse out() from "
-                        + tomCruise.getIdentity()
-                        + ") where @class = 'Movie'"))
-            .execute(session);
+            .query(
+                "select from ( traverse out() from "
+                    + tomCruise.getIdentity()
+                    + ") where @class = 'Movie'").entityStream().toList();
     Assert.assertFalse(result1.isEmpty());
-    for (Entity d : result1) {
+    for (var d : result1) {
       Assert.assertEquals(d.getSchemaClassName(), "Movie");
     }
   }
@@ -181,27 +170,23 @@ public class TraverseTest extends BaseDBTest {
                     + " while $depth <= 1 ) where @class = 'Movie'").toList();
     Assert.assertTrue(result1.isEmpty());
 
-    List<EntityImpl> result2 =
+    var result2 =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select from ( traverse * from "
-                        + tomCruise.getIdentity()
-                        + " while $depth <= 2 ) where @class = 'Movie'"))
-            .execute(session);
+            .query(
+                "select from ( traverse * from "
+                    + tomCruise.getIdentity()
+                    + " while $depth <= 2 ) where @class = 'Movie'").entityStream().toList();
     Assert.assertFalse(result2.isEmpty());
     for (var d : result2) {
       Assert.assertEquals(d.getSchemaClassName(), "Movie");
     }
 
-    List<EntityImpl> result3 =
+    var result3 =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select from ( traverse * from "
-                        + tomCruise.getIdentity()
-                        + " ) where @class = 'Movie'"))
-            .execute(session);
+            .query(
+                "select from ( traverse * from "
+                    + tomCruise.getIdentity()
+                    + " ) where @class = 'Movie'").entityStream().toList();
     Assert.assertFalse(result3.isEmpty());
     Assert.assertTrue(result3.size() > result2.size());
     for (var d : result3) {
@@ -211,62 +196,55 @@ public class TraverseTest extends BaseDBTest {
 
   @Test
   public void traverseSelect() {
-    List<EntityImpl> result1 =
+    var result1 =
         session
-            .command(new SQLSynchQuery<EntityImpl>("traverse * from ( select from Movie )"))
-            .execute(session);
+            .query("traverse * from ( select from Movie )").toList();
     Assert.assertEquals(result1.size(), totalElements);
   }
 
   @Test
   public void traverseSQLSelectAndTraverseNested() {
-    List<EntityImpl> result1 =
+    var result1 =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "traverse * from ( select from ( traverse * from "
-                        + tomCruise.getIdentity()
-                        + " while $depth <= 2 ) where @class = 'Movie' )"))
-            .execute(session);
+            .query(
+                "traverse * from ( select from ( traverse * from "
+                    + tomCruise.getIdentity()
+                    + " while $depth <= 2 ) where @class = 'Movie' )").toList();
     Assert.assertEquals(result1.size(), totalElements);
   }
 
   @Test
   public void traverseAPISelectAndTraverseNested() {
-    List<EntityImpl> result1 =
+    var result1 =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "traverse * from ( select from ( traverse * from "
-                        + tomCruise.getIdentity()
-                        + " while $depth <= 2 ) where @class = 'Movie' )"))
-            .execute(session);
+            .query(
+                "traverse * from ( select from ( traverse * from "
+                    + tomCruise.getIdentity()
+                    + " while $depth <= 2 ) where @class = 'Movie' )").toList();
     Assert.assertEquals(result1.size(), totalElements);
   }
 
   @Test
   public void traverseAPISelectAndTraverseNestedDepthFirst() {
-    List<EntityImpl> result1 =
+    var result1 =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "traverse * from ( select from ( traverse * from "
-                        + tomCruise.getIdentity()
-                        + " while $depth <= 2 strategy depth_first ) where @class = 'Movie' )"))
-            .execute(session);
+            .query(
+                "traverse * from ( select from ( traverse * from "
+                    + tomCruise.getIdentity()
+                    + " while $depth <= 2 strategy depth_first ) where @class = 'Movie' )")
+            .toList();
     Assert.assertEquals(result1.size(), totalElements);
   }
 
   @Test
   public void traverseAPISelectAndTraverseNestedBreadthFirst() {
-    List<EntityImpl> result1 =
+    var result1 =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "traverse * from ( select from ( traverse * from "
-                        + tomCruise.getIdentity()
-                        + " while $depth <= 2 strategy breadth_first ) where @class = 'Movie' )"))
-            .execute(session);
+            .query(
+                "traverse * from ( select from ( traverse * from "
+                    + tomCruise.getIdentity()
+                    + " while $depth <= 2 strategy breadth_first ) where @class = 'Movie' )")
+            .toList();
     Assert.assertEquals(result1.size(), totalElements);
   }
 
@@ -326,30 +304,21 @@ public class TraverseTest extends BaseDBTest {
 
   @Test
   public void traverseSelectNoInfluence() {
-    List<EntityImpl> result1 =
+    var result1 =
         session
-            .command(new SQLSynchQuery<EntityImpl>("traverse any() from Movie while $depth < 2"))
-            .execute(session);
-    List<EntityImpl> result2 =
+            .query("traverse any() from Movie while $depth < 2").toList();
+    var result2 =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select from ( traverse any() from Movie while $depth < 2 )"))
-            .execute(session);
-    List<EntityImpl> result3 =
+            .query("select from ( traverse any() from Movie while $depth < 2 )").toList();
+    var result3 =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select from ( traverse any() from Movie while $depth < 2 ) where true"))
-            .execute(session);
-    List<EntityImpl> result4 =
+            .query("select from ( traverse any() from Movie while $depth < 2 ) where true")
+            .toList();
+    var result4 =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select from ( traverse any() from Movie while $depth < 2 and ( true = true ) )"
-                        + " where true"))
-            .execute(session);
-
+            .query(
+                "select from ( traverse any() from Movie while $depth < 2 and ( true = true ) )"
+                    + " where true").toList();
     Assert.assertEquals(result1, result2);
     Assert.assertEquals(result1, result3);
     Assert.assertEquals(result1, result4);
@@ -357,25 +326,21 @@ public class TraverseTest extends BaseDBTest {
 
   @Test
   public void traverseNoConditionLimit1() {
-    List<EntityImpl> result1 =
+    var result1 =
         session
-            .command(new SQLSynchQuery<EntityImpl>("traverse any() from Movie limit 1"))
-            .execute(session);
-
+            .query("traverse any() from Movie limit 1").toList();
     Assert.assertEquals(result1.size(), 1);
   }
 
   @Test
   public void traverseAndFilterByAttributeThatContainsDotInValue() {
     // issue #4952
-    List<EntityImpl> result1 =
+    var result1 =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select from ( traverse out_married, in[attributeWithDotValue = 'a.b']  from "
-                        + tomCruise.getIdentity()
-                        + ")"))
-            .execute(session);
+            .query(
+                "select from ( traverse out_married, in[attributeWithDotValue = 'a.b']  from "
+                    + tomCruise.getIdentity()
+                    + ")").toList();
     Assert.assertFalse(result1.isEmpty());
     var found = false;
     for (var doc : result1) {
@@ -393,14 +358,12 @@ public class TraverseTest extends BaseDBTest {
     // issue #5225
     Map<String, Object> params = new HashMap<String, Object>();
     params.put("param1", "a.b");
-    List<EntityImpl> result1 =
+    var result1 =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
+            .query(
                     "select from (traverse out_married, in[attributeWithDotValue = :param1]  from "
                         + tomCruise.getIdentity()
-                        + ")"))
-            .execute(session, params);
+                        + ")", params).toList();
     Assert.assertFalse(result1.isEmpty());
     var found = false;
     for (var doc : result1) {
@@ -434,12 +397,12 @@ public class TraverseTest extends BaseDBTest {
   public void traverseAndCheckReturn() {
     var q = "traverse in('married')  from " + nicoleKidman.getIdentity();
     var db = this.session.copy();
-    List<Object> result1 = db.command(new SQLSynchQuery<EntityImpl>(q)).execute(this.session);
+    var result1 = db.query(q).toList();
     Assert.assertEquals(result1.size(), 2);
     var found = false;
     Integer i = 0;
     for (var doc : result1) {
-      Assert.assertTrue(((Entity) doc).isVertex());
+      Assert.assertTrue(doc.isVertex());
     }
   }
 }

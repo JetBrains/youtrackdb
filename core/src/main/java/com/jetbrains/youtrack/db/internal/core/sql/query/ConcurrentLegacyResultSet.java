@@ -33,7 +33,6 @@ import java.util.NoSuchElementException;
  * ResultSet implementation that allows concurrent population.
  *
  * @param <T>
- * @see SQLAsynchQuery
  */
 public class ConcurrentLegacyResultSet<T> implements LegacyResultSet<T> {
 

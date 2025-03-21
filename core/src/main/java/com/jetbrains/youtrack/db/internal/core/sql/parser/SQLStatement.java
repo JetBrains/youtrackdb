@@ -7,13 +7,10 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLAsynchQuery;
 import java.util.Map;
 
 public class SQLStatement extends SimpleNode {
@@ -50,12 +47,6 @@ public class SQLStatement extends SimpleNode {
     return builder.toString();
   }
 
-  public Object execute(
-      SQLAsynchQuery<EntityImpl> request,
-      CommandContext context,
-      ProgressListener progressListener) {
-    throw new UnsupportedOperationException("Unsupported command: " + getClass().getSimpleName());
-  }
 
   public ResultSet execute(DatabaseSessionInternal session, Object[] args) {
     return execute(session, args, true);

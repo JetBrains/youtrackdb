@@ -41,7 +41,6 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLAsynchQuery;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -67,7 +66,6 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
   private String clusterName = null;
   private String indexName = null;
   private List<Map<String, Object>> newRecords;
-  private SQLAsynchQuery<Identifiable> subQuery = null;
   private final AtomicLong saved = new AtomicLong(0);
   private Object returnExpression = null;
   private List<EntityImpl> queryResult = null;
@@ -205,9 +203,6 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
       if (!sourceClauseProcessed) {
         if (parserGetLastWord().equals(KEYWORD_FROM)) {
           newRecords = null;
-          subQuery =
-              new SQLAsynchQuery<Identifiable>(
-                  parserText.substring(parserGetCurrentPosition()), this);
         }
       }
 
@@ -222,7 +217,7 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
    * Execute the INSERT and return the EntityImpl object created.
    */
   public Object execute(DatabaseSessionInternal session, final Map<Object, Object> iArgs) {
-    if (newRecords == null && content == null && subQuery == null) {
+    if (newRecords == null && content == null) {
       throw new CommandExecutionException(session,
           "Cannot execute the command because it has not been parsed yet");
     }
@@ -282,13 +277,6 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
         final var entity =
             className != null ? new EntityImpl(session, className) : new EntityImpl(session);
         throw new UnsupportedOperationException();
-      } else if (subQuery != null) {
-        subQuery.execute(session);
-        if (queryResult != null) {
-          return prepareReturnResult(session, queryResult);
-        }
-
-        return saved.longValue();
       }
     }
     return null;

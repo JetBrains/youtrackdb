@@ -38,7 +38,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorAnd;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorNot;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorOr;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -157,10 +156,7 @@ public class SQLPredicate extends BaseParser implements CommandPredicate {
     if (word.length() > 0
         && (word.equalsIgnoreCase("SELECT") || word.equalsIgnoreCase("TRAVERSE"))) {
       // SUB QUERY
-      final var embedded = new StringBuilder(256);
-      StringSerializerHelper.getEmbedded(parserText, oldPosition - 1, -1, embedded);
-      parserSetCurrentPosition(oldPosition + embedded.length() + 1);
-      return new SQLSynchQuery<Object>(embedded.toString());
+      throw new UnsupportedOperationException("Sub-queries in body are not supported");
     }
 
     parserSetCurrentPosition(oldPosition);

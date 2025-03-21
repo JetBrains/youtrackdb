@@ -6,7 +6,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransaction
 import com.jetbrains.youtrack.db.internal.client.remote.message.CeilingPhysicalPositionsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseQueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CommandRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Commit38Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Connect37Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ConnectRequest;
@@ -100,8 +99,6 @@ public interface BinaryRequestExecutor {
   BinaryResponse executeLowerPosition(LowerPhysicalPositionsRequest request);
 
   BinaryResponse executeFloorPosition(FloorPhysicalPositionsRequest request);
-
-  BinaryResponse executeCommand(CommandRequest request);
 
   BinaryResponse executeGetGlobalConfiguration(GetGlobalConfigurationRequest request);
 

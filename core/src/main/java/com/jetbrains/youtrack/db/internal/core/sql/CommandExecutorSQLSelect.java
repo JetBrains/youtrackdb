@@ -61,7 +61,6 @@ import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClusters;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityShared;
@@ -91,7 +90,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLOrderByItem;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.query.LegacyResultSet;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLQuery;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -266,10 +264,6 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
     return groupByFields != null && groupByFields.size() > 0;
   }
 
-  @Override
-  protected boolean isUseCache() {
-    return !noCache && request.isUseCache();
-  }
 
   private static EntityImpl createIndexEntryAsEntity(
       DatabaseSessionInternal db, final Object iKey, final Identifiable iValue) {
@@ -541,9 +535,6 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
         + " none|record] [NOCACHE]";
   }
 
-  public String getFetchPlan() {
-    return fetchPlan != null ? fetchPlan : request.getFetchPlan();
-  }
 
   protected void executeSearch(DatabaseSessionInternal db, final Map<Object, Object> iArgs) {
     assignTarget(db, iArgs);
@@ -762,11 +753,6 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
     var result = true;
     if (allowsStreamedResult()) {
       // SEND THE RESULT INLINE
-      if (request.getResultListener() != null) {
-        for (var iRes : allResults) {
-          result = pushResult(iContext.getDatabaseSession(), iRes);
-        }
-      }
     } else {
 
       // COLLECT ALL THE RECORDS AND ORDER THEM AT THE END
@@ -1287,8 +1273,6 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
       fetchPlan = IOUtils.getStringContent(parserText.substring(start, end));
     }
 
-    request.setFetchPlan(fetchPlan);
-
     return true;
   }
 
@@ -1669,19 +1653,6 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
   }
 
   private boolean canScanStorageCluster(DatabaseSessionInternal db, final int[] clusterIds) {
-    if (clusterIds != null && request.isIdempotent() && !db.getTransactionInternal().isActive()) {
-      final var schema = db.getMetadata().getImmutableSchemaSnapshot();
-      for (var clusterId : clusterIds) {
-        final var cls = (SchemaImmutableClass) schema.getClassByClusterId(
-            clusterId);
-        if (cls != null) {
-          if (cls.isRestricted() || cls.isUser() || cls.isRole()) {
-            return false;
-          }
-        }
-      }
-      return true;
-    }
     return false;
   }
 
@@ -1910,21 +1881,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
       sqlLimit = -1;
     }
 
-    if (request.getLimit() > -1) {
-      requestLimit = request.getLimit();
-    } else {
-      requestLimit = -1;
-    }
-
-    if (sqlLimit == -1) {
-      return requestLimit;
-    }
-
-    if (requestLimit == -1) {
-      return sqlLimit;
-    }
-
-    return Math.min(sqlLimit, requestLimit);
+    return Math.min(sqlLimit, 0);
   }
 
   private Stream<RawPair<Object, RID>> tryGetOptimizedSortStream(
@@ -2098,16 +2055,10 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
           for (final var fieldName :
               indexDefinition.getFields().subList(0, searchResultFieldsCount)) {
             final var fieldValue = searchResult.fieldValuePairs.get(fieldName);
-            if (fieldValue instanceof SQLQuery<?>) {
-              return null;
-            }
 
             if (fieldValue != null) {
               keyParams.add(fieldValue);
             } else {
-              if (searchResult.lastValue instanceof SQLQuery<?>) {
-                return null;
-              }
 
               keyParams.add(searchResult.lastValue);
             }
@@ -2144,7 +2095,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
                         + " Now executing query using cluster scan",
                     e,
                     index.getName(),
-                    request != null && request.getText() != null ? request.getText() : "");
+                    "");
 
             fullySortedByIndex = false;
             cursors.clear();
@@ -2264,16 +2215,10 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
             for (final var fieldName :
                 indexDefinition.getFields().subList(0, searchResultFieldsCount)) {
               final var fieldValue = searchResult.fieldValuePairs.get(fieldName);
-              if (fieldValue instanceof SQLQuery<?>) {
-                return false;
-              }
 
               if (fieldValue != null) {
                 keyParams.add(fieldValue);
               } else {
-                if (searchResult.lastValue instanceof SQLQuery<?>) {
-                  return false;
-                }
 
                 keyParams.add(searchResult.lastValue);
               }
@@ -2311,7 +2256,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
                           + " Now executing query using cluster scan",
                       e,
                       index.getName(),
-                      request != null && request.getText() != null ? request.getText() : "");
+                      "");
 
               fullySortedByIndex = false;
               streams.clear();

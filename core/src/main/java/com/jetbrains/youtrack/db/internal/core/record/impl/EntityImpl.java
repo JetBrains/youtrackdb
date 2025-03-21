@@ -41,8 +41,6 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
@@ -56,7 +54,6 @@ import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
-import com.jetbrains.youtrack.db.internal.core.exception.QueryParsingException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchemaProperty;
@@ -70,7 +67,6 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.RecordVersionHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLPredicate;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -2114,44 +2110,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     return new Object[0];
-  }
-
-  /**
-   * Evaluates a SQL expression against current entity. Example: <code> long amountPlusVat =
-   * entity.eval("amount * 120 / 100");</code>
-   *
-   * @param iExpression SQL expression to evaluate.
-   * @return The result of expression
-   * @throws QueryParsingException in case the expression is not valid
-   */
-  public Object eval(final String iExpression) {
-    checkForBinding();
-
-    var context = new BasicCommandContext();
-    context.setDatabaseSession(session);
-
-    return eval(iExpression, context);
-  }
-
-  /**
-   * Evaluates a SQL expression against current entity by passing a context. The expression can
-   * refer to the variables contained in the context. Example: <code> CommandContext context = new
-   * BasicCommandContext().setVariable("vat", 20); long amountPlusVat = entity.eval("amount *
-   * (100+$vat) / 100", context); </code>
-   *
-   * @param iExpression SQL expression to evaluate.
-   * @return The result of expression
-   * @throws QueryParsingException in case the expression is not valid
-   */
-  public Object eval(final String iExpression, @Nonnull final CommandContext iContext) {
-    checkForBinding();
-
-    if (iContext.getDatabaseSession() != session) {
-      throw new DatabaseException(getSession().getDatabaseName(),
-          "The context is bound to a different database instance, use the context from the same database instance");
-    }
-
-    return new SQLPredicate(iContext, iExpression).evaluate(this, null, iContext);
   }
 
   public EntityImpl setPropertyInChain(final String iFieldName, Object iPropertyValue) {

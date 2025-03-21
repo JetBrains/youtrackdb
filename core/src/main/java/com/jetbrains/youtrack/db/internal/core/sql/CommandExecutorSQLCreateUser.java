@@ -146,7 +146,7 @@ public class CommandExecutorSQLCreateUser extends CommandExecutorSQLAbstract
       }
     }
     sb.append("])");
-    return session.command(new CommandSQL(sb.toString())).execute(session);
+    throw new UnsupportedOperationException();
   }
 
   @Override

@@ -23,16 +23,11 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
-import com.jetbrains.youtrack.db.internal.core.command.CommandResultListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLAsynchQuery;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
@@ -43,8 +38,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
-import javax.annotation.Nonnull;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Parameters;
@@ -1029,11 +1022,11 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
     var resultset = session.query(query, -1).toList();
 
-    final RID firstRidFirstQuery = resultset.getFirst().getIdentity();
+    final var firstRidFirstQuery = resultset.getFirst().getIdentity();
 
     resultset = session.query(query, -2).toList();
 
-    final RID firstRidSecondQueryQuery = resultset.getFirst().getIdentity();
+    final var firstRidSecondQueryQuery = resultset.getFirst().getIdentity();
 
     Assert.assertEquals(firstRidFirstQuery, firstRidSecondQueryQuery);
   }
@@ -1528,168 +1521,6 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   }
 
   @Test
-  public void queryAsynch() {
-    final var sqlOne = "select * from company where id between 4 and 7";
-    final var sqlTwo =
-        "select $names let $names = (select EXPAND( addresses.city ) as city from Account where"
-            + " addresses.size() > 0 )";
-
-    final List<EntityImpl> synchResultOne =
-        session.command(new SQLSynchQuery<EntityImpl>(sqlOne)).execute(session);
-    final List<EntityImpl> synchResultTwo =
-        session.command(new SQLSynchQuery<EntityImpl>(sqlTwo)).execute(session);
-
-    Assert.assertFalse(synchResultOne.isEmpty());
-    Assert.assertFalse(synchResultTwo.isEmpty());
-
-    final List<EntityImpl> asynchResultOne = new ArrayList<EntityImpl>();
-    final List<EntityImpl> asynchResultTwo = new ArrayList<EntityImpl>();
-    final var endOneCalled = new AtomicBoolean();
-    final var endTwoCalled = new AtomicBoolean();
-
-    session
-        .command(
-            new SQLAsynchQuery<EntityImpl>(
-                sqlOne,
-                new CommandResultListener() {
-                  @Override
-                  public boolean result(@Nonnull DatabaseSessionInternal session, Object iRecord) {
-                    asynchResultOne.add((EntityImpl) iRecord);
-                    return true;
-                  }
-
-                  @Override
-                  public void end(@Nonnull DatabaseSessionInternal db) {
-                    endOneCalled.set(true);
-
-                    SQLSelectTestNewTest.this.session
-                        .command(
-                            new SQLAsynchQuery<EntityImpl>(
-                                sqlTwo,
-                                new CommandResultListener() {
-                                  @Override
-                                  public boolean result(@Nonnull DatabaseSessionInternal session,
-                                      Object iRecord) {
-                                    asynchResultTwo.add((EntityImpl) iRecord);
-                                    return true;
-                                  }
-
-                                  @Override
-                                  public void end(@Nonnull DatabaseSessionInternal session) {
-                                    endTwoCalled.set(true);
-                                  }
-
-                                  @Override
-                                  public Object getResult() {
-                                    return null;
-                                  }
-                                }))
-                        .execute(SQLSelectTestNewTest.this.session);
-                  }
-
-                  @Override
-                  public Object getResult() {
-                    return null;
-                  }
-                }))
-        .execute(session);
-
-    Assert.assertTrue(endOneCalled.get());
-    Assert.assertTrue(endTwoCalled.get());
-
-    Assert.assertTrue(
-        EntityHelper.compareCollections(
-            session, synchResultTwo, session, asynchResultTwo, null),
-        "synchResultTwo=" + synchResultTwo.size() + " asynchResultTwo=" + asynchResultTwo.size());
-    Assert.assertTrue(
-        EntityHelper.compareCollections(
-            session, synchResultOne, session, asynchResultOne, null),
-        "synchResultOne=" + synchResultOne.size() + " asynchResultOne=" + asynchResultOne.size());
-  }
-
-  @Test
-  public void queryAsynchHalfForheFirstQuery() {
-    final var sqlOne = "select * from company where id between 4 and 7";
-    final var sqlTwo =
-        "select $names let $names = (select EXPAND( addresses.city ) as city from Account where"
-            + " addresses.size() > 0 )";
-
-    final List<EntityImpl> synchResultOne =
-        session.command(new SQLSynchQuery<EntityImpl>(sqlOne)).execute(session);
-    final List<EntityImpl> synchResultTwo =
-        session.command(new SQLSynchQuery<EntityImpl>(sqlTwo)).execute(session);
-
-    Assert.assertFalse(synchResultOne.isEmpty());
-    Assert.assertFalse(synchResultTwo.isEmpty());
-
-    final List<EntityImpl> asynchResultOne = new ArrayList<EntityImpl>();
-    final List<EntityImpl> asynchResultTwo = new ArrayList<EntityImpl>();
-    final var endOneCalled = new AtomicBoolean();
-    final var endTwoCalled = new AtomicBoolean();
-
-    session
-        .command(
-            new SQLAsynchQuery<EntityImpl>(
-                sqlOne,
-                new CommandResultListener() {
-                  @Override
-                  public boolean result(@Nonnull DatabaseSessionInternal session, Object iRecord) {
-                    asynchResultOne.add((EntityImpl) iRecord);
-                    return asynchResultOne.size() < synchResultOne.size() / 2;
-                  }
-
-                  @Override
-                  public void end(@Nonnull DatabaseSessionInternal db) {
-                    endOneCalled.set(true);
-
-                    SQLSelectTestNewTest.this.session
-                        .command(
-                            new SQLAsynchQuery<EntityImpl>(
-                                sqlTwo,
-                                new CommandResultListener() {
-                                  @Override
-                                  public boolean result(@Nonnull DatabaseSessionInternal session,
-                                      Object iRecord) {
-                                    asynchResultTwo.add((EntityImpl) iRecord);
-                                    return true;
-                                  }
-
-                                  @Override
-                                  public void end(@Nonnull DatabaseSessionInternal session) {
-                                    endTwoCalled.set(true);
-                                  }
-
-                                  @Override
-                                  public Object getResult() {
-                                    return null;
-                                  }
-                                }))
-                        .execute(SQLSelectTestNewTest.this.session);
-                  }
-
-                  @Override
-                  public Object getResult() {
-                    return null;
-                  }
-                }))
-        .execute(session);
-
-    Assert.assertTrue(endOneCalled.get());
-    Assert.assertTrue(endTwoCalled.get());
-
-    Assert.assertTrue(
-        EntityHelper.compareCollections(
-            session,
-            synchResultOne.subList(0, synchResultOne.size() / 2),
-            session,
-            asynchResultOne,
-            null));
-    Assert.assertTrue(
-        EntityHelper.compareCollections(
-            session, synchResultTwo, session, asynchResultTwo, null));
-  }
-
-  @Test
   public void queryOrderByRidDesc() {
     var resultSet = executeQuery("select from OUser order by @rid desc", session);
 
@@ -1705,9 +1536,8 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
       lastRid = rid;
     }
 
-    EntityImpl res =
-        session.command(new CommandSQL("explain select from OUser order by @rid desc"))
-            .execute(session);
+    var res =
+        session.query("explain select from OUser order by @rid desc").findFirst(Result::detach);
     Assert.assertNull(res.getProperty("orderByElapsed"));
   }
 
@@ -1753,7 +1583,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
       var resultset = session.query(query, new ChangeableRecordId()).toList();
 
       while (!resultset.isEmpty()) {
-        final RID last = resultset.getLast().getIdentity();
+        final var last = resultset.getLast().getIdentity();
         for (var personDoc : resultset) {
           Assert.assertTrue(names.contains(personDoc.<String>getProperty("First")));
           Assert.assertTrue(names.remove(personDoc.<String>getProperty("First")));

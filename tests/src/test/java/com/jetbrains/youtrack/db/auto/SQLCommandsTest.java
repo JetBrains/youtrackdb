@@ -16,10 +16,10 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.internal.core.command.script.CommandScript;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrack.db.internal.core.storage.cluster.ClusterPositionMap;
@@ -107,14 +107,13 @@ public class SQLCommandsTest extends BaseDBTest {
     cmd += "commit;";
     cmd += "return $a;";
 
-    var result = session.command(new CommandScript("sql", cmd)).execute(session);
+    var result = session.runScript("sql", cmd).findFirst(Result::asEntity);
 
-    Assert.assertTrue(result instanceof Identifiable);
     var transaction1 = session.getActiveTransaction();
-    Assert.assertTrue(transaction1.load(((Identifiable) result)) instanceof EntityImpl);
+    Assert.assertTrue(transaction1.load(result) instanceof EntityImpl);
     var transaction = session.getActiveTransaction();
     EntityImpl entity = session.bindToSession(
-        transaction.load(((Identifiable) result)));
+        transaction.load(result));
     Assert.assertTrue(
         entity.getProperty("script"));
   }

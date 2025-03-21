@@ -31,7 +31,6 @@ import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
-import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
@@ -728,12 +727,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   public void rollback(boolean force) throws TransactionException {
     checkOpenness();
     internal.rollback(force);
-  }
-
-  @Override
-  public <RET extends CommandRequest> RET command(CommandRequest iCommand) {
-    checkOpenness();
-    return internal.command(iCommand);
   }
 
   @Override

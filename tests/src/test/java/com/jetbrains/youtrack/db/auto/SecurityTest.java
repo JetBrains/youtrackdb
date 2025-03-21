@@ -20,7 +20,6 @@ import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
 import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;
 import java.io.IOException;
 import java.util.Date;
 import java.util.stream.Collectors;
@@ -282,7 +281,7 @@ public class SecurityTest extends BaseDBTest {
     session = createSessionInstance("reader", "reader");
 
     try {
-      session.command(new CommandSQL("select from ouser")).execute(session);
+      session.query("select from ouser").close();
     } catch (SecurityException e) {
     }
 
@@ -308,7 +307,7 @@ public class SecurityTest extends BaseDBTest {
     session = createSessionInstance("writer", "writer");
 
     try {
-      session.command(new CommandSQL("alter class Protected superclass OUser")).execute(session);
+      session.command("alter class Protected superclass OUser");
       Assert.fail();
     } catch (SecurityException e) {
     } finally {

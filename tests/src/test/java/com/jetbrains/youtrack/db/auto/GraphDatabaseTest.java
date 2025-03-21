@@ -21,7 +21,6 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.stream.Collectors;
@@ -237,7 +236,7 @@ public class GraphDatabaseTest extends BaseDBTest {
 
   public void testInsertOfEdgeWithInsertCommand() {
     try {
-      session.command(new CommandSQL("insert into E set a = 33")).execute(session);
+      session.command("insert into E set a = 33");
       Assert.fail();
     } catch (CommandExecutionException e) {
       Assert.assertTrue(true);

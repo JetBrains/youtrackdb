@@ -26,7 +26,6 @@ import java.util.List;
  * ResultSet interface that extends List interface for retro compatibility.
  *
  * @param <T>
- * @see SQLAsynchQuery
  */
 public interface LegacyResultSet<T> extends List<T>, Externalizable {
 

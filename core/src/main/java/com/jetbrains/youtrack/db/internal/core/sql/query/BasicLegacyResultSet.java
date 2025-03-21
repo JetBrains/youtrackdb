@@ -34,7 +34,6 @@ import java.util.NoSuchElementException;
  * ResultSet class that implements List interface for retro compatibility.
  *
  * @param <T>
- * @see SQLAsynchQuery
  */
 public class BasicLegacyResultSet<T> implements LegacyResultSet<T> {
 

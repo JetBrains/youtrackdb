@@ -23,8 +23,11 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestTextAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.MemoryStream;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
+import java.util.List;
+import javax.annotation.Nonnull;
 import javax.script.CompiledScript;
 
 /**
@@ -51,6 +54,11 @@ public class CommandScript extends CommandRequestTextAbstract {
 
   public CommandScript(final String iText) {
     this("sql", iText);
+  }
+
+  @Override
+  public List<EntityImpl> execute(@Nonnull DatabaseSessionInternal querySession, Object... iArgs) {
+    return List.of();
   }
 
   public boolean isIdempotent() {

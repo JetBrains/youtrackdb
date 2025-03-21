@@ -16,6 +16,7 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.exception.ValidationException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -23,7 +24,6 @@ import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -442,10 +442,10 @@ public class SQLInsertTest extends BaseDBTest {
     }
 
     // RETURN with $current.
-    EntityImpl doc =
+    var doc =
         session
-            .command(new CommandSQL("INSERT INTO Actor2 SET FirstName=\"FFFF\" RETURN $current"))
-            .execute(session);
+            .execute("INSERT INTO Actor2 SET FirstName=\"FFFF\" RETURN $current").findFirst(
+                Result::asEntity);
     Assert.assertNotNull(doc);
     Assert.assertEquals(doc.getSchemaClassName(), "Actor2");
     // RETURN with @rid
@@ -471,7 +471,7 @@ public class SQLInsertTest extends BaseDBTest {
                 + ","
                 + another
                 + "]";
-        List res3 = session.command(new CommandSQL(sql)).execute(session);
+        var res3 = session.execute(sql).entityStream().toList();
         Assert.assertEquals(res3.size(), 2);
         Assert.assertTrue(((List<?>) res3).getFirst() instanceof EntityImpl);
         final var res3doc = (EntityImpl) res3.getFirst();

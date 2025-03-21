@@ -46,7 +46,6 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
-import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -704,20 +703,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   RecordMetadata getRecordMetadata(final RID rid);
 
   void rollback(boolean force) throws TransactionException;
-
-  /**
-   * Creates a command request to run a command against the database (you have to invoke
-   * .execute(parameters) to actually execute it). A command can be a SQL statement or a Procedure.
-   * If the Storage used is remote (OStorageRemote) then the command will be executed remotely and
-   * the result returned back to the calling client.
-   *
-   * @param iCommand Command request to execute.
-   * @return The same Command request received as parameter.
-   * @deprecated use {@link #execute(String, Map)}, {@link #execute(String, Object...)},
-   * {@link #runScript(String, String, Map)}, {@link #runScript(String, String, Object...)} instead
-   */
-  @Deprecated
-  <RET extends CommandRequest> RET command(CommandRequest iCommand);
 
   /**
    * Returns if the Multi Version Concurrency Control is enabled or not. If enabled the version of

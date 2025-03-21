@@ -82,7 +82,6 @@ import com.jetbrains.youtrack.db.internal.common.thread.ThreadPoolExecutors;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
@@ -981,13 +980,6 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
         networkOperation((DatabaseSessionRemote) session,
             request, "Error on read record count in clusters: " + Arrays.toString(iClusterIds));
     return response.getCount();
-  }
-
-  /**
-   * Execute the command remotely and get the results back.
-   */
-  public Object command(DatabaseSessionInternal db, final CommandRequestText iCommand) {
-    throw new UnsupportedOperationException();
   }
 
   public void stickToSession(DatabaseSessionRemote database) {

@@ -28,7 +28,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassIntern
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityShared;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
@@ -372,7 +371,7 @@ public class SchemaTest extends BaseDBTest {
   public void invalidClusterWrongClusterId() {
 
     try {
-      session.command(new CommandSQL("create class Antani cluster 212121")).execute(session);
+      session.command("create class Antani cluster 212121");
       Assert.fail();
     } catch (Exception e) {
       Assert.assertTrue(e instanceof ClusterDoesNotExistException);
@@ -382,7 +381,7 @@ public class SchemaTest extends BaseDBTest {
   @Test
   public void invalidClusterWrongClusterName() {
     try {
-      session.command(new CommandSQL("create class Antani cluster blaaa")).execute(session);
+      session.command("create class Antani cluster blaaa");
       Assert.fail();
 
     } catch (Exception e) {
@@ -394,8 +393,7 @@ public class SchemaTest extends BaseDBTest {
   public void invalidClusterWrongKeywords() {
 
     try {
-      session.command(new CommandSQL("create class Antani the pen is on the table"))
-          .execute(session);
+      session.command("create class Antani the pen is on the table");
       Assert.fail();
     } catch (Exception e) {
       Assert.assertTrue(e instanceof CommandSQLParsingException);
@@ -429,7 +427,7 @@ public class SchemaTest extends BaseDBTest {
   }
 
   public void testMinimumClustersAndClusterSelection() {
-    session.command(new CommandSQL("alter database minimum_clusters 3")).execute(session);
+    session.command("alter database minimum_clusters 3");
     try {
       session.execute("create class multipleclusters").close();
 
@@ -662,8 +660,7 @@ public class SchemaTest extends BaseDBTest {
     databaseDocumentTx.execute("DROP CLUSTER TestRenameClusterOriginal").close();
     databaseDocumentTx
         .command(
-            new CommandSQL("ALTER CLUSTER TestRenameClusterNew name TestRenameClusterOriginal"))
-        .execute(session);
+            "ALTER CLUSTER TestRenameClusterNew name TestRenameClusterOriginal");
 
     session.begin();
     var result =

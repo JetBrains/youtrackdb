@@ -40,7 +40,6 @@ import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLAsynchQuery;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -97,10 +96,7 @@ public class CommandExecutorSQLDeleteVertex extends CommandExecutorSQLAbstract
           final var newPos =
               StringSerializerHelper.getEmbedded(parserText, parserGetCurrentPosition(), -1, q);
 
-          query = database.command(new SQLAsynchQuery<EntityImpl>(q.toString(), this));
-
-          parserSetCurrentPosition(newPos);
-
+          throw new UnsupportedOperationException();
         } else if (word.equals(KEYWORD_WHERE)) {
           if (clazz == null)
           // ASSIGN DEFAULT CLASS
@@ -112,11 +108,7 @@ public class CommandExecutorSQLDeleteVertex extends CommandExecutorSQLAbstract
               parserGetCurrentPosition() > -1
                   ? " " + parserText.substring(parserGetPreviousPosition())
                   : "";
-          query =
-              database.command(
-                  new SQLAsynchQuery<EntityImpl>(
-                      "select from `" + clazz.getName() + "`" + where, this));
-          break;
+          throw new UnsupportedOperationException();
 
         } else if (word.equals(KEYWORD_LIMIT)) {
           word = parseOptionalWord(session.getDatabaseName(), true);
@@ -172,7 +164,7 @@ public class CommandExecutorSQLDeleteVertex extends CommandExecutorSQLAbstract
         if (limit > -1) {
           queryString.append(" LIMIT ").append(limit);
         }
-        query = database.command(new SQLAsynchQuery<EntityImpl>(queryString.toString(), this));
+        throw new UnsupportedOperationException();
       }
     } finally {
       textRequest.setText(originalQuery);

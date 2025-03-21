@@ -23,11 +23,9 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
-import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.parser.BaseParser;
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
@@ -36,7 +34,6 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExportException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -273,9 +270,7 @@ public class SQLHelper {
     } else if (iValue.charAt(0) == StringSerializerHelper.EMBEDDED_BEGIN
         && iValue.charAt(iValue.length() - 1) == StringSerializerHelper.EMBEDDED_END) {
       // SUB-COMMAND
-      fieldValue = new CommandSQL(iValue.substring(1, iValue.length() - 1));
-      ((CommandSQL) fieldValue).getContext().setParent(context);
-
+      throw new UnsupportedOperationException();
     } else if (RecordId.isA(iValue))
     // RID
     {
@@ -525,82 +520,9 @@ public class SQLHelper {
       return null;
     }
 
-    var session = iContext.getDatabaseSession();
-    // BIND VALUES
     for (var field : iFields) {
       final var fieldName = field.getKey();
       var fieldValue = field.getValue();
-
-      if (fieldValue != null) {
-        if (fieldValue instanceof CommandSQL cmd) {
-          cmd.getContext().setParent(iContext);
-          fieldValue = session.command(cmd)
-              .execute(iContext.getDatabaseSession());
-
-          // CHECK FOR CONVERSIONS
-          SchemaImmutableClass immutableClass = null;
-          if (e != null) {
-            immutableClass = e.getImmutableSchemaClass(session);
-          }
-          if (immutableClass != null) {
-            final var prop = immutableClass.getProperty(fieldName);
-            if (prop != null) {
-              if (prop.getType() == PropertyType.LINK) {
-                if (MultiValue.isMultiValue(fieldValue)) {
-                  final var size = MultiValue.getSize(fieldValue);
-                  if (size == 1)
-                  // GET THE FIRST ITEM AS UNIQUE LINK
-                  {
-                    fieldValue = MultiValue.getFirstValue(fieldValue);
-                  } else if (size == 0)
-                  // NO ITEMS, SET IT AS NULL
-                  {
-                    fieldValue = null;
-                  }
-                }
-              }
-            } else if (immutableClass.isEdgeType()
-                && ("out".equals(fieldName) || "in".equals(fieldName))
-                && (fieldValue instanceof List lst)) {
-              if (lst.size() == 1) {
-                fieldValue = lst.get(0);
-              }
-            }
-          }
-
-          if (MultiValue.isMultiValue(fieldValue)) {
-            final List<Object> tempColl = new ArrayList<Object>(MultiValue.getSize(fieldValue));
-
-            String singleFieldName = null;
-            for (var o : MultiValue.getMultiValueIterable(fieldValue)) {
-              if (o instanceof Identifiable && !((Identifiable) o).getIdentity()
-                  .isPersistent()) {
-                // TEMPORARY / EMBEDDED
-                var transaction = session.getActiveTransaction();
-                var rec = transaction.load(((Identifiable) o));
-                if (rec != null && rec instanceof EntityImpl entity) {
-                  // CHECK FOR ONE FIELD ONLY
-                  if (entity.getPropertiesCount() == 1) {
-                    singleFieldName = entity.propertyNames()[0];
-                    tempColl.add(entity.getProperty(singleFieldName));
-                  } else {
-                    // TRANSFORM IT IN EMBEDDED
-                    entity.getIdentity().reset();
-                    entity.setOwner(e);
-                    entity.setOwner(e);
-                    tempColl.add(entity);
-                  }
-                }
-              } else {
-                tempColl.add(o);
-              }
-            }
-
-            fieldValue = tempColl;
-          }
-        }
-      }
-
       e.setProperty(fieldName,
           resolveFieldValue(iContext.getDatabaseSession(), e, fieldName, fieldValue, iArguments,
               iContext));

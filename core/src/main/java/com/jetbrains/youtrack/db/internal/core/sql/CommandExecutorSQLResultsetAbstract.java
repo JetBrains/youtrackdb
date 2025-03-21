@@ -49,8 +49,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLTarget;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionRuntime;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorEquals;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorNotEquals;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLAsynchQuery;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -85,7 +83,6 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
   protected static final String KEYWORD_FROM_2FIND = " " + KEYWORD_FROM + " ";
   protected static final String KEYWORD_LET_2FIND = " " + KEYWORD_LET + " ";
 
-  protected SQLAsynchQuery<EntityImpl> request;
   protected SQLTarget parsedTarget;
   protected SQLFilter compiledFilter;
   protected Map<String, Object> let = null;
@@ -147,19 +144,6 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
 
     init(session, textRequest);
 
-    if (iRequest instanceof SQLSynchQuery) {
-      request = (SQLSynchQuery<EntityImpl>) iRequest;
-    } else {
-      if (iRequest instanceof SQLAsynchQuery) {
-        request = (SQLAsynchQuery<EntityImpl>) iRequest;
-      } else {
-        // BUILD A QUERY OBJECT FROM THE COMMAND REQUEST
-        request = new SQLSynchQuery<EntityImpl>(textRequest.getText());
-        if (textRequest.getResultListener() != null) {
-          request.setResultListener(textRequest.getResultListener());
-        }
-      }
-    }
     return this;
   }
 
@@ -200,12 +184,7 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
             if (parsedTarget.getTargetRecords() != null) {
               if (!lazyIteration && parsedTarget.getTargetQuery() != null) {
                 // EXECUTE THE QUERY TO ALLOW DISTRIB EXECUTION
-                target =
-                    ((Iterable<? extends Identifiable>)
-                        session
-                            .command(new CommandSQL(parsedTarget.getTargetQuery()))
-                            .execute(session, iArgs))
-                        .iterator();
+                throw new UnsupportedOperationException();
               } else {
                 if (parsedTarget.getTargetRecords() instanceof IterableRecordSource) {
                   target =
@@ -245,48 +224,40 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
   }
 
   protected Object getResultInstance() {
-    if (request instanceof SQLSynchQuery) {
-      return ((SQLSynchQuery<EntityImpl>) request).getResult();
-    }
-
-    return request.getResultListener().getResult();
+    return null;
   }
 
   protected Object getResult(DatabaseSessionInternal session) {
-    try {
-      if (tempResult != null) {
-        var fetched = 0;
+    if (tempResult != null) {
+      var fetched = 0;
 
-        for (Object d : tempResult) {
-          if (d != null) {
-            if (!(d instanceof Identifiable))
-            // NON-DOCUMENT AS RESULT, COMES FROM EXPAND? CREATE A DOCUMENT AT THE FLY
-            {
-              var e = session.newEmbeddedEntity();
-              e.setProperty("value", d);
-              d = e;
-            } else {
-              var transaction = session.getActiveTransaction();
-              d = transaction.load(((Identifiable) d));
-            }
-
-            if (limit > -1 && fetched >= limit) {
-              break;
-            }
-
-            if (!pushResult(session, d)) {
-              break;
-            }
-
-            ++fetched;
+      for (Object d : tempResult) {
+        if (d != null) {
+          if (!(d instanceof Identifiable))
+          // NON-DOCUMENT AS RESULT, COMES FROM EXPAND? CREATE A DOCUMENT AT THE FLY
+          {
+            var e = session.newEmbeddedEntity();
+            e.setProperty("value", d);
+            d = e;
+          } else {
+            var transaction = session.getActiveTransaction();
+            d = transaction.load(((Identifiable) d));
           }
+
+          if (limit > -1 && fetched >= limit) {
+            break;
+          }
+
+          if (!pushResult(session, d)) {
+            break;
+          }
+
+          ++fetched;
         }
       }
-
-      return getResultInstance();
-    } finally {
-      request.getResultListener().end(session);
     }
+
+    return getResultInstance();
   }
 
   protected boolean pushResult(DatabaseSessionInternal session, Object rec) {
@@ -306,23 +277,12 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
       }
     }
 
-    return request.getResultListener().result(session, rec);
+    return false;
   }
 
   protected boolean handleResult(final Identifiable iRecord, final CommandContext iContext) {
     if (iRecord != null) {
       resultCount++;
-
-      var identifiable =
-          iRecord instanceof DBRecord ? ((DBRecord) iRecord) : iRecord.getIdentity();
-
-      // CALL THE LISTENER NOW
-      if (identifiable != null && request.getResultListener() != null) {
-        final var result = pushResult(iContext.getDatabaseSession(), identifiable);
-        if (!result) {
-          return false;
-        }
-      }
 
       // BREAK THE EXECUTION
       return limit <= -1 || resultCount < limit;
@@ -351,13 +311,7 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
       if (func != null) {
         letValue = func;
       } else {
-        if (letValueAsString.startsWith("(")) {
-          letValue =
-              new SQLSynchQuery<Object>(
-                  letValueAsString.substring(1, letValueAsString.length() - 1));
-        } else {
-          letValue = letValueAsString;
-        }
+        letValue = letValueAsString;
       }
 
       let.put(letName, letValue);
@@ -486,15 +440,7 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
         final var letValue = entry.getValue();
 
         Object varValue;
-        if (letValue instanceof SQLSynchQuery<?>) {
-          final var subQuery = (SQLSynchQuery<Object>) letValue;
-          subQuery.reset();
-          subQuery.resetPagination();
-          subQuery.getContext().setParent(context);
-          subQuery.getContext().setVariable("parentQuery", this);
-          subQuery.getContext().setVariable("current", iRecord);
-          throw new UnsupportedOperationException();
-        } else {
+        {
           if (letValue instanceof SQLFunctionRuntime f) {
             if (iRecord instanceof Entity entity) {
               if (f.getFunction().aggregateResults()) {
@@ -551,10 +497,6 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
     } else {
       return new RecordIteratorClass(db, iCls.getName(), iPolymorphic, false);
     }
-  }
-
-  protected boolean isUseCache() {
-    return request.isUseCache();
   }
 
   protected void searchInClusters(DatabaseSessionInternal session) {
@@ -732,8 +674,8 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
     this.target = target;
   }
 
-  public void setRequest(final SQLAsynchQuery<EntityImpl> request) {
-    this.request = request;
+  public void setRequest(final Object request) {
+
   }
 
   public void setParsedTarget(final SQLTarget parsedTarget) {

@@ -19,8 +19,6 @@ import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
-import java.util.List;
 import org.testng.Assert;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
@@ -92,18 +90,15 @@ public class GEOTest extends BaseDBTest {
   public void queryDistance() {
     Assert.assertEquals(session.countClass("MapPoint"), 10000);
 
-    List<EntityImpl> result =
+    var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select from MapPoint where distance(x, y,52.20472, 0.14056 ) <= 30"))
-            .execute(session);
-
+            .query(
+                "select from MapPoint where distance(x, y,52.20472, 0.14056 ) <= 30").toList();
     Assert.assertFalse(result.isEmpty());
 
     for (var d : result) {
-      Assert.assertEquals(d.getSchemaClassName(), "MapPoint");
-      Assert.assertEquals(d.getRecordType(), EntityImpl.RECORD_TYPE);
+      Assert.assertEquals(d.asEntity().getSchemaClassName(), "MapPoint");
+      Assert.assertEquals(((EntityImpl) d.asEntity()).getRecordType(), EntityImpl.RECORD_TYPE);
     }
   }
 

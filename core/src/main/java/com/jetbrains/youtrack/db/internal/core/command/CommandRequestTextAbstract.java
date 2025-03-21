@@ -20,7 +20,6 @@
 package com.jetbrains.youtrack.db.internal.core.command;
 
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.ExecutionThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -33,7 +32,6 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.s
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import javax.annotation.Nonnull;
 
 /**
  * Text based Command Request abstract class.
@@ -55,24 +53,6 @@ public abstract class CommandRequestTextAbstract extends CommandRequestAbstract
     text = iText.trim();
   }
 
-  /**
-   * Delegates the execution to the configured command executor.
-   */
-  @SuppressWarnings("unchecked")
-  public <RET> RET execute(@Nonnull DatabaseSessionInternal querySession, final Object... iArgs) {
-    setParameters(iArgs);
-
-    ExecutionThreadLocal.INSTANCE.get().onAsyncReplicationOk = onAsyncReplicationOk;
-    ExecutionThreadLocal.INSTANCE.get().onAsyncReplicationError = onAsyncReplicationError;
-
-    if (context == null) {
-      context = new BasicCommandContext();
-    }
-
-    context.setDatabaseSession(querySession);
-    return (RET) querySession.getStorage()
-        .command(querySession, this);
-  }
 
   public String getText() {
     return text;

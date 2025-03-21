@@ -24,16 +24,12 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.parser.BaseParser;
-import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.QueryParsingException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.CommandExecutorSQLAbstract;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandExecutorSQLResultsetDelegate;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandSQLResultset;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -51,7 +47,7 @@ public class SQLTarget extends BaseParser {
   protected final CommandContext context;
   protected String targetVariable;
   protected String targetQuery;
-  protected Iterable<? extends Identifiable> targetRecords;
+  protected Iterable<Identifiable> targetRecords;
   protected Map<String, String> targetClusters;
   protected Map<String, String> targetClasses;
 
@@ -98,7 +94,7 @@ public class SQLTarget extends BaseParser {
     return targetClasses;
   }
 
-  public Iterable<? extends Identifiable> getTargetRecords() {
+  public Iterable<Identifiable> getTargetRecords() {
     return targetRecords;
   }
 
@@ -176,31 +172,6 @@ public class SQLTarget extends BaseParser {
       parserSetCurrentPosition(
           StringSerializerHelper.getEmbedded(parserText, parserGetCurrentPosition(), -1, subText)
               + 1);
-      final CommandSQL subCommand = new CommandSQLResultset(subText.toString());
-
-      final var executor =
-          (CommandExecutorSQLResultsetDelegate)
-              session.getSharedContext()
-                  .getYouTrackDB()
-                  .getScriptManager()
-                  .getCommandManager()
-                  .getExecutor(subCommand);
-      executor.setContext(context);
-      var commandContext = new BasicCommandContext();
-      context.setChild(commandContext);
-
-      subCommand.setContext(commandContext);
-      executor.setProgressListener(subCommand.getProgressListener());
-      executor.parse(session, subCommand);
-      var childContext = executor.getContext();
-      if (childContext != null) {
-        childContext.setParent(context);
-      }
-
-
-      targetQuery = subText.toString();
-      targetRecords = executor.toIterable(session, null);
-
     } else if (c == StringSerializerHelper.LIST_BEGIN) {
       // COLLECTION OF RIDS
       final List<String> rids = new ArrayList<String>();

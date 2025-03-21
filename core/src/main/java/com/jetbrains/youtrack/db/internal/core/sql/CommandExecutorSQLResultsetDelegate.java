@@ -35,7 +35,7 @@ public class CommandExecutorSQLResultsetDelegate extends CommandExecutorSQLDeleg
   @Override
   public Iterator<Identifiable> iterator(DatabaseSessionInternal session,
       final Map<Object, Object> iArgs) {
-    return ((IterableRecordSource) delegate).iterator(session, iArgs);
+    return null;
   }
 
   public Iterable<Identifiable> toIterable(DatabaseSessionInternal session,
@@ -44,7 +44,7 @@ public class CommandExecutorSQLResultsetDelegate extends CommandExecutorSQLDeleg
       @Override
       @Nonnull
       public Iterator<Identifiable> iterator() {
-        return ((IterableRecordSource) delegate).iterator(session, iArgs);
+        return null;
       }
     };
   }

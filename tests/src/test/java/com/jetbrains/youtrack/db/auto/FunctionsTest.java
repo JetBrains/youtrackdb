@@ -16,9 +16,9 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -40,11 +40,9 @@ public class FunctionsTest extends BaseDBTest {
   public void createFunctionBug2415() {
     Identifiable result =
         session
-            .command(
-                new CommandSQL(
+            .execute(
                     "create function FunctionsTest \"return a + b\" PARAMETERS [a,b] IDEMPOTENT"
-                        + " true LANGUAGE Javascript"))
-            .execute(session);
+                        + " true LANGUAGE Javascript").findFirst(Result::getIdentity);
 
     session.begin();
     var transaction = session.getActiveTransaction();
@@ -68,8 +66,8 @@ public class FunctionsTest extends BaseDBTest {
   public void testFunctionCacheAndReload() {
     Identifiable f =
         session
-            .command(new CommandSQL("create function testCache \"return 1;\" LANGUAGE Javascript"))
-            .execute(session);
+            .execute("create function testCache \"return 1;\" LANGUAGE Javascript")
+            .findFirst(Result::getIdentity);
     Assert.assertNotNull(f);
 
     try (var res1 = session.execute("select testCache() as testCache")) {

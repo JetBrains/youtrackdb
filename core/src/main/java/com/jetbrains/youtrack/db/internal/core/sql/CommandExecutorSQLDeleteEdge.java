@@ -38,9 +38,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandResultListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilter;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLAsynchQuery;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -191,14 +189,11 @@ public class CommandExecutorSQLDeleteEdge extends CommandExecutorSQLSetAware
         if (clazz == null)
         // DELETE ALL THE EDGES
         {
-          query = session.command(new SQLAsynchQuery<EntityImpl>("select from E" + where, this));
+          throw new UnsupportedOperationException();
         } else
         // DELETE EDGES OF CLASS X
         {
-          query =
-              session.command(
-                  new SQLAsynchQuery<EntityImpl>(
-                      "select from `" + clazz.getName() + "` " + where, this));
+          throw new UnsupportedOperationException();
         }
       }
 

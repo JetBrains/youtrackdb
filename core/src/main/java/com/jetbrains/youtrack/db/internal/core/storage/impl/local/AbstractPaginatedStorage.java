@@ -24,7 +24,6 @@ import com.google.common.util.concurrent.Striped;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.ClusterDoesNotExistException;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommitSerializationException;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentCreateException;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
@@ -57,10 +56,7 @@ import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
-import com.jetbrains.youtrack.db.internal.core.command.CommandExecutor;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrack.db.internal.core.config.StorageClusterConfiguration;
@@ -76,7 +72,6 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBagDeleter;
 import com.jetbrains.youtrack.db.internal.core.exception.InternalErrorException;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidInstanceIdException;
-import com.jetbrains.youtrack.db.internal.core.exception.RetryQueryException;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
@@ -94,7 +89,6 @@ import com.jetbrains.youtrack.db.internal.core.index.engine.V1IndexEngine;
 import com.jetbrains.youtrack.db.internal.core.index.engine.v1.CellBTreeMultiValueIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.index.engine.v1.CellBTreeSingleValueIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
-import com.jetbrains.youtrack.db.internal.core.query.QueryAbstract;
 import com.jetbrains.youtrack.db.internal.core.query.live.YTLiveQueryMonitorEmbedded;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.RecordVersionHelper;
@@ -3605,76 +3599,6 @@ public abstract class AbstractPaginatedStorage
       throw logAndPrepareForRethrow(ee);
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t);
-    }
-  }
-
-  /**
-   * Executes the command request and return the result back.
-   */
-  @Override
-  public final Object command(DatabaseSessionInternal session,
-      final CommandRequestText command) {
-    try {
-      assert session.assertIfNotActive();
-
-      while (true) {
-        try {
-          final var executor =
-              session.getSharedContext()
-                  .getYouTrackDB()
-                  .getScriptManager()
-                  .getCommandManager()
-                  .getExecutor(command);
-          // COPY THE CONTEXT FROM THE REQUEST
-          var context = (BasicCommandContext) command.getContext();
-          context.setDatabaseSession(session);
-          executor.setContext(command.getContext());
-          executor.setProgressListener(command.getProgressListener());
-          executor.parse(session, command);
-          return executeCommand(session, command, executor);
-        } catch (final RetryQueryException ignore) {
-          if (command instanceof QueryAbstract<?> query) {
-            query.reset();
-          }
-        }
-      }
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee, false);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t, false);
-    }
-  }
-
-  public final Object executeCommand(
-      DatabaseSessionInternal session, final CommandRequestText iCommand,
-      final CommandExecutor executor) {
-    try {
-      if (iCommand.isIdempotent() && !executor.isIdempotent()) {
-        throw new CommandExecutionException(session.getDatabaseName(),
-            "Cannot execute non idempotent command");
-      }
-      try {
-        // EXECUTE THE COMMAND
-        final var params = iCommand.getParameters();
-        return executor.execute(session, params);
-
-      } catch (final BaseException e) {
-        // PASS THROUGH
-        throw e;
-      } catch (final Exception e) {
-        throw BaseException.wrapException(
-            new CommandExecutionException(session.getDatabaseName(),
-                "Error on execution of command: " + iCommand), e, name);
-
-      }
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee, false);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t, false);
     }
   }
 

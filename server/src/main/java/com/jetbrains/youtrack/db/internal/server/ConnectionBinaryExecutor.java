@@ -24,8 +24,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.CeilingPhysicalP
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseQueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseQueryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CommandRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CommandResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Commit37Response;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Commit38Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Connect37Request;
@@ -131,7 +129,6 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.NullSeriali
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
-import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
 import com.jetbrains.youtrack.db.internal.core.fetch.FetchContext;
@@ -145,20 +142,14 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLAsynchQuery;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.TreeInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendClientServerTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.NetworkRecordOperation;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.AbstractCommandResultListener;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.AsyncCommandResultListener;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.HandshakeInfo;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.LiveCommandResultListener;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.NetworkProtocolBinary;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.SyncCommandResultListener;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -450,97 +441,6 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
             .floorPhysicalPositions(db, request.getClusterId(), request.getPhysicalPosition(),
                 request.getLimit());
     return new FloorPhysicalPositionsResponse(previousPositions);
-  }
-
-  @Override
-  public BinaryResponse executeCommand(CommandRequest request) {
-    final var live = request.isLive();
-    final var asynch = request.isAsynch();
-
-    var command = request.getQuery();
-
-    final var params = command.getParameters();
-
-    if (asynch && command instanceof SQLSynchQuery) {
-      // CONVERT IT IN ASYNCHRONOUS QUERY
-      final var asynchQuery = new SQLAsynchQuery(command.getText());
-      asynchQuery.setFetchPlan(command.getFetchPlan());
-      asynchQuery.setLimit(command.getLimit());
-      asynchQuery.setTimeout(command.getTimeoutTime(), command.getTimeoutStrategy());
-      asynchQuery.setUseCache(((SQLSynchQuery) command).isUseCache());
-      command = asynchQuery;
-    }
-
-    connection.getData().commandDetail = command.getText();
-
-    connection.getData().command = command;
-    AbstractCommandResultListener listener = null;
-    LiveCommandResultListener liveListener = null;
-
-    var cmdResultListener = command.getResultListener();
-
-    if (live) {
-      liveListener = new LiveCommandResultListener(server, connection, cmdResultListener);
-      listener = new SyncCommandResultListener(null);
-      command.setResultListener(liveListener);
-    } else {
-      if (asynch) {
-        listener = new AsyncCommandResultListener(connection, cmdResultListener);
-        command.setResultListener(listener);
-      } else {
-        listener = new SyncCommandResultListener(null);
-      }
-    }
-
-    final var serverTimeout =
-        connection
-            .getDatabaseSession()
-            .getConfiguration()
-            .getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
-
-    if (serverTimeout > 0 && command.getTimeoutTime() > serverTimeout)
-    // FORCE THE SERVER'S TIMEOUT
-    {
-      command.setTimeout(serverTimeout, command.getTimeoutStrategy());
-    }
-
-    // REQUEST CAN'T MODIFY THE RESULT, SO IT'S CACHEABLE
-    command.setCacheableResult(true);
-
-    // ASSIGNED THE PARSED FETCHPLAN
-    var db = connection.getDatabaseSession();
-    final CommandRequestText commandRequest = db.command(command);
-    listener.setFetchPlan(commandRequest.getFetchPlan());
-    CommandResponse response;
-    if (asynch) {
-      // In case of async it execute the request during the write of the response
-      response =
-          new CommandResponse(
-              null, listener, false, asynch, connection.getDatabaseSession(), command, params);
-    } else {
-      // SYNCHRONOUS
-      final Object result;
-      if (params == null) {
-        result = commandRequest.execute(db);
-      } else {
-        result = commandRequest.execute(db, params);
-      }
-
-      // FETCHPLAN HAS TO BE ASSIGNED AGAIN, because it can be changed by SQL statement
-      listener.setFetchPlan(commandRequest.getFetchPlan());
-      var isRecordResultSet = true;
-      isRecordResultSet = command.isRecordResultSet();
-      response =
-          new CommandResponse(
-              result,
-              listener,
-              isRecordResultSet,
-              asynch,
-              connection.getDatabaseSession(),
-              command,
-              params);
-    }
-    return response;
   }
 
   @Override

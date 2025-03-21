@@ -34,7 +34,6 @@ import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryHook;
 import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryListener;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.query.LegacyResultSet;
-import com.jetbrains.youtrack.db.internal.core.sql.query.LiveResultListener;
 import java.util.Map;
 import java.util.Random;
 
@@ -54,40 +53,34 @@ public class CommandExecutorSQLLiveSelect extends CommandExecutorSQLSelect
   }
 
   public Object execute(DatabaseSessionInternal session, final Map<Object, Object> iArgs) {
-    try {
-      execInSeparateDatabase(
-          iArgument -> execDb = session.copy());
+    execInSeparateDatabase(
+        iArgument -> execDb = session.copy());
 
-      synchronized (random) {
-        token = random.nextInt(); // TODO do something better ;-)!
-      }
+    synchronized (random) {
+      token = random.nextInt(); // TODO do something better ;-)!
+    }
 
-      subscribeToLiveQuery(token, session);
-      bindDefaultContextVariables(session);
+    subscribeToLiveQuery(token, session);
+    bindDefaultContextVariables(session);
 
-      if (iArgs != null)
-      // BIND ARGUMENTS INTO CONTEXT TO ACCESS FROM ANY POINT (EVEN FUNCTIONS)
-      {
-        for (var arg : iArgs.entrySet()) {
-          context.setVariable(arg.getKey().toString(), arg.getValue());
-        }
-      }
-
-      if (timeoutMs > 0) {
-        getContext().beginExecution(timeoutMs, timeoutStrategy);
-      }
-
-      var result = new EntityImpl(session);
-      // TODO change this name...?
-      result.setProperty("token", token);
-
-      ((LegacyResultSet) getResult(session)).add(result);
-      return getResult(session);
-    } finally {
-      if (request != null && request.getResultListener() != null) {
-        request.getResultListener().end(session);
+    if (iArgs != null)
+    // BIND ARGUMENTS INTO CONTEXT TO ACCESS FROM ANY POINT (EVEN FUNCTIONS)
+    {
+      for (var arg : iArgs.entrySet()) {
+        context.setVariable(arg.getKey().toString(), arg.getValue());
       }
     }
+
+    if (timeoutMs > 0) {
+      getContext().beginExecution(timeoutMs, timeoutStrategy);
+    }
+
+    var result = new EntityImpl(session);
+    // TODO change this name...?
+    result.setProperty("token", token);
+
+    ((LegacyResultSet) getResult(session)).add(result);
+    return getResult(session);
   }
 
   private void subscribeToLiveQuery(Integer token, DatabaseSessionInternal db) {
@@ -104,16 +97,6 @@ public class CommandExecutorSQLLiveSelect extends CommandExecutorSQLSelect
       return;
     }
     if (!checkSecurity(value)) {
-      return;
-    }
-    final var listener = request.getResultListener();
-    if (listener instanceof LiveResultListener) {
-      execInSeparateDatabase(
-          iArgument -> {
-            execDb.activateOnCurrentThread();
-            ((LiveResultListener) listener).onLiveResult(execDb, token, iOp);
-            return null;
-          });
     }
   }
 
@@ -194,10 +177,6 @@ public class CommandExecutorSQLLiveSelect extends CommandExecutorSQLSelect
   }
 
   public void onLiveResultEnd() {
-    if (request.getResultListener() instanceof LiveResultListener) {
-      ((LiveResultListener) request.getResultListener()).onUnsubscribe(token);
-    }
-
     if (execDb != null) {
       execDb.close();
     }

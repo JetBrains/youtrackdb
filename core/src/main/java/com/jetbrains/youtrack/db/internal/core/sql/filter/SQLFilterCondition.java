@@ -42,7 +42,6 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.b
 import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorMatches;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLQuery;
 import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -86,22 +85,10 @@ public class SQLFilterCondition {
             && iCurrentRecord != null && iCurrentRecord.isEntity()
             && iCurrentRecord.getIdentity().isPersistent();
 
-    if (left instanceof SQLQuery<?>)
-    // EXECUTE SUB QUERIES ONLY ONCE
-    {
-      left = ((SQLQuery<?>) left).setContext(iContext).execute(iContext.getDatabaseSession());
-    }
-
     var l = evaluate(iCurrentRecord, iCurrentResult, left, iContext, binaryEvaluation);
 
     if (operator == null || operator.canShortCircuit(l)) {
       return l;
-    }
-
-    if (right instanceof SQLQuery<?>)
-    // EXECUTE SUB QUERIES ONLY ONCE
-    {
-      right = ((SQLQuery<?>) right).setContext(iContext).execute(iContext.getDatabaseSession());
     }
 
     var r = evaluate(iCurrentRecord, iCurrentResult, right, iContext, binaryEvaluation);

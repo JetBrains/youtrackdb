@@ -204,14 +204,8 @@ public class SchedulerImpl {
 
       if (event != null) {
         // UPDATED EVENT
-        final Set<String> dirtyFields;
         var dirtyProperties = entity.getDirtyPropertiesBetweenCallbacksInternal(false, false);
-
-        if (dirtyProperties instanceof Set<String> dirtyFieldsSet) {
-          dirtyFields = dirtyFieldsSet;
-        } else {
-          dirtyFields = new HashSet<>(dirtyProperties);
-        }
+        var dirtyFields = new HashSet<>(dirtyProperties);
 
         if (dirtyFields.contains(ScheduledEvent.PROP_NAME)) {
           throw new ValidationException(session.getDatabaseName(),

@@ -10,7 +10,6 @@ import com.jetbrains.youtrack.db.internal.core.index.PropertyIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.PropertyListIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.PropertyMapIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.PropertyRidBagIndexDefinition;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;
 import java.util.Arrays;
 import java.util.List;
 import org.testng.Assert;
@@ -456,7 +455,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
             + EXPECTED_PROP1_TYPE;
 
     try {
-      session.command(new CommandSQL(query)).execute(session);
+      session.command(query);
       Assert.fail();
     } catch (CommandExecutionException e) {
       Assert.assertTrue(

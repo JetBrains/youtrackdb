@@ -2,13 +2,9 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLAsynchQuery;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.util.Map;
 
 public class SQLProfileStorageStatement extends SQLSimpleExecStatement {
@@ -34,26 +30,7 @@ public class SQLProfileStorageStatement extends SQLSimpleExecStatement {
     return ExecutionStream.singleton(result);
   }
 
-  // old execution logic
-  @Override
-  public Object execute(
-      SQLAsynchQuery<EntityImpl> request,
-      CommandContext context,
-      ProgressListener progressListener) {
-    try {
-      return getResult(request);
-    } finally {
-      if (request.getResultListener() != null) {
-        request.getResultListener().end(context.getDatabaseSession());
-      }
-    }
-  }
-
-  protected static Object getResult(SQLAsynchQuery<EntityImpl> request) {
-    if (request instanceof SQLSynchQuery) {
-      return ((SQLSynchQuery<EntityImpl>) request).getResult();
-    }
-
+  protected static Object getResult(Object request) {
     return null;
   }
 

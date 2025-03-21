@@ -24,7 +24,6 @@ import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
@@ -172,11 +171,6 @@ public interface Storage extends Backupable, StorageInfo {
   String getCreatedAtVersion();
 
   void synch();
-
-  /**
-   * Execute the command request and return the result back.
-   */
-  Object command(DatabaseSessionInternal db, CommandRequestText iCommand);
 
   PhysicalPosition[] higherPhysicalPositions(DatabaseSessionInternal session, int clusterId,
       PhysicalPosition physicalPosition, int limit);

@@ -4,9 +4,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -27,7 +25,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.PatternEdge;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.PatternNode;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLTarget;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLAsynchQuery;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -48,6 +45,8 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
   static final String DEFAULT_ALIAS_PREFIX = "$YOUTRACKDB_DEFAULT_ALIAS_";
 
   public static final String KEYWORD_MATCH = "MATCH";
+  private static final java.util.regex.Pattern CURRENT_PATTERN = java.util.regex.Pattern.compile(
+      "\\$currentMatch");
   // parsed data
   private List<SQLMatchExpression> matchExpressions = new ArrayList<>();
   private List<SQLMatchExpression> notMatchExpressions = new ArrayList<>();
@@ -68,8 +67,6 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
 
   // execution data
   private CommandContext context;
-
-  long threshold = 20;
 
   public List<SQLNestedProjection> getReturnNestedProjections() {
     return returnNestedProjections;
@@ -135,13 +132,6 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
       this.edge = edge;
       this.out = out;
     }
-  }
-
-  public static class MatchExecutionPlan {
-
-    public List<EdgeTraversal> sortedEdges;
-    public Map<String, Long> preFetchedAliases = new HashMap<String, Long>();
-    public String rootAlias;
   }
 
   public SQLMatchStatement() {
@@ -486,394 +476,6 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
   }
 
 
-  private boolean calculateMatch(
-      Pattern pattern,
-      Map<String, Long> estimatedRootEntries,
-      MatchContext matchContext,
-      Map<String, String> aliasClasses,
-      Map<String, SQLWhereClause> aliasFilters,
-      CommandContext iCommandContext,
-      SQLAsynchQuery<EntityImpl> request,
-      MatchExecutionPlan executionPlan) {
-
-    var db = iCommandContext.getDatabaseSession();
-    var rootFound = false;
-    // find starting nodes with few entries
-    for (var entryPoint : estimatedRootEntries.entrySet()) {
-      if (entryPoint.getValue() < threshold) {
-        var nextAlias = entryPoint.getKey();
-        var matches =
-            fetchAliasCandidates(nextAlias, aliasFilters, iCommandContext, aliasClasses);
-
-        if (!matches.iterator().hasNext()) {
-          if (pattern.get(nextAlias).isOptionalNode()) {
-            continue;
-          }
-          return true;
-        }
-
-        matchContext.candidates.put(nextAlias, matches);
-        executionPlan.preFetchedAliases.put(nextAlias, entryPoint.getValue());
-        rootFound = true;
-      }
-    }
-    // no nodes under threshold, guess the smallest one
-    if (!rootFound) {
-      var nextAlias = getNextAlias(estimatedRootEntries, matchContext);
-      var matches =
-          fetchAliasCandidates(nextAlias, aliasFilters, iCommandContext, aliasClasses);
-      if (!matches.iterator().hasNext()) {
-        return true;
-      }
-      matchContext.candidates.put(nextAlias, matches);
-      executionPlan.preFetchedAliases.put(nextAlias, estimatedRootEntries.get(nextAlias));
-    }
-
-    // pick first edge (as sorted before)
-    var firstEdge =
-        executionPlan.sortedEdges.isEmpty() ? null : executionPlan.sortedEdges.getFirst();
-    String smallestAlias = null;
-    // and choose the most convenient starting point (the most convenient traversal direction)
-    if (firstEdge != null) {
-      smallestAlias = firstEdge.out ? firstEdge.edge.out.alias : firstEdge.edge.in.alias;
-    } else {
-      smallestAlias = pattern.aliasToNode.values().iterator().next().alias;
-    }
-    executionPlan.rootAlias = smallestAlias;
-    var allCandidates = matchContext.candidates.get(smallestAlias);
-
-    if (allCandidates == null) {
-      var select =
-          buildSelectStatement(aliasClasses.get(smallestAlias), aliasFilters.get(smallestAlias));
-      allCandidates = db.query(select.toString()).stream().map(Result::getIdentity)
-          .collect(Collectors.toList());
-    }
-
-    return processContextFromCandidates(
-        pattern,
-        executionPlan,
-        matchContext,
-        aliasClasses,
-        aliasFilters,
-        iCommandContext,
-        request,
-        allCandidates,
-        smallestAlias,
-        0);
-  }
-
-  private boolean processContextFromCandidates(
-      Pattern pattern,
-      MatchExecutionPlan executionPlan,
-      MatchContext matchContext,
-      Map<String, String> aliasClasses,
-      Map<String, SQLWhereClause> aliasFilters,
-      CommandContext iCommandContext,
-      SQLAsynchQuery<EntityImpl> request,
-      Iterable<Identifiable> candidates,
-      String alias,
-      int startFromEdge) {
-    for (var id : candidates) {
-      var childContext = matchContext.copy(alias, id);
-      childContext.currentEdgeNumber = startFromEdge;
-      if (!processContext(
-          pattern,
-          executionPlan,
-          childContext,
-          aliasClasses,
-          aliasFilters,
-          iCommandContext,
-          request)) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  private static Iterable<Identifiable> fetchAliasCandidates(
-      String nextAlias,
-      Map<String, SQLWhereClause> aliasFilters,
-      CommandContext iCommandContext,
-      Map<String, String> aliasClasses) {
-    var it =
-        query(aliasClasses.get(nextAlias), aliasFilters.get(nextAlias), iCommandContext);
-    Set<Identifiable> result = new HashSet<Identifiable>();
-    while (it.hasNext()) {
-      result.add(it.next().getIdentity());
-    }
-
-    return result;
-  }
-
-  private boolean processContext(
-      Pattern pattern,
-      MatchExecutionPlan executionPlan,
-      MatchContext matchContext,
-      Map<String, String> aliasClasses,
-      Map<String, SQLWhereClause> aliasFilters,
-      CommandContext iCommandContext,
-      SQLAsynchQuery<EntityImpl> request) {
-
-    var db = iCommandContext.getDatabaseSession();
-    iCommandContext.setVariable("$matched", matchContext.matched);
-
-    if (pattern.getNumOfEdges() == matchContext.matchedEdges.size()
-        && allNodesCalculated(matchContext, pattern)) {
-      // false if limit reached
-      return addResult(matchContext, request, iCommandContext);
-    }
-    if (executionPlan.sortedEdges.size() == matchContext.currentEdgeNumber) {
-      // false if limit reached
-      return expandCartesianProduct(
-          pattern, matchContext, aliasClasses, aliasFilters, iCommandContext, request);
-    }
-    var currentEdge = executionPlan.sortedEdges.get(matchContext.currentEdgeNumber);
-    var rootNode = currentEdge.out ? currentEdge.edge.out : currentEdge.edge.in;
-
-    if (currentEdge.out) {
-      var outEdge = currentEdge.edge;
-
-      if (!matchContext.matchedEdges.containsKey(outEdge)) {
-
-        var startingPoint = matchContext.matched.get(outEdge.out.alias);
-        if (startingPoint == null) {
-          // restart from candidates (disjoint patterns? optional? just could not proceed from last
-          // node?)
-          var rightCandidates = matchContext.candidates.get(outEdge.out.alias);
-          if (rightCandidates != null) {
-            return processContextFromCandidates(
-                pattern,
-                executionPlan,
-                matchContext,
-                aliasClasses,
-                aliasFilters,
-                iCommandContext,
-                request,
-                rightCandidates,
-                outEdge.out.alias,
-                matchContext.currentEdgeNumber);
-          }
-          return true;
-        }
-        Object rightValues =
-            outEdge.executeTraversal(matchContext, iCommandContext, startingPoint, 0);
-
-        if (outEdge.in.isOptionalNode()
-            && (isEmptyResult(rightValues)
-            || !contains(rightValues, matchContext.matched.get(outEdge.in.alias)))) {
-          var childContext = matchContext.copy(outEdge.in.alias, null);
-          childContext.matched.put(outEdge.in.alias, null);
-          childContext.currentEdgeNumber =
-              matchContext.currentEdgeNumber + 1; // TODO testOptional 3 match passa con +1
-          childContext.matchedEdges.put(outEdge, true);
-
-          if (!processContext(
-              pattern,
-              executionPlan,
-              childContext,
-              aliasClasses,
-              aliasFilters,
-              iCommandContext,
-              request)) {
-            return false;
-          }
-        }
-        if (!(rightValues instanceof Iterable)) {
-          rightValues = Collections.singleton(rightValues);
-        }
-        var rightClassName = aliasClasses.get(outEdge.in.alias);
-        var rightClass = db.getMetadata().getSchema().getClass(rightClassName);
-        for (var rightValue : (Iterable<Identifiable>) rightValues) {
-          if (rightValue == null) {
-            continue; // broken graph?, null reference
-          }
-
-          if (rightClass != null && !matchesClass(db, rightValue, rightClass)) {
-            continue;
-          }
-          Iterable<Identifiable> prevMatchedRightValues =
-              matchContext.candidates.get(outEdge.in.alias);
-
-          if (matchContext.matched.containsKey(outEdge.in.alias)) {
-            if (matchContext
-                .matched
-                .get(outEdge.in.alias)
-                .getIdentity()
-                .equals(rightValue.getIdentity())) {
-              var childContext =
-                  matchContext.copy(outEdge.in.alias, rightValue.getIdentity());
-              childContext.currentEdgeNumber = matchContext.currentEdgeNumber + 1;
-              childContext.matchedEdges.put(outEdge, true);
-              if (!processContext(
-                  pattern,
-                  executionPlan,
-                  childContext,
-                  aliasClasses,
-                  aliasFilters,
-                  iCommandContext,
-                  request)) {
-                return false;
-              }
-              break;
-            }
-          } else if (prevMatchedRightValues != null
-              && prevMatchedRightValues.iterator().hasNext()) { // just matching against
-            // known
-            // values
-            for (var id : prevMatchedRightValues) {
-              if (id.getIdentity().equals(rightValue.getIdentity())) {
-                var childContext = matchContext.copy(outEdge.in.alias, id);
-                childContext.currentEdgeNumber = matchContext.currentEdgeNumber + 1;
-                childContext.matchedEdges.put(outEdge, true);
-                if (!processContext(
-                    pattern,
-                    executionPlan,
-                    childContext,
-                    aliasClasses,
-                    aliasFilters,
-                    iCommandContext,
-                    request)) {
-                  return false;
-                }
-              }
-            }
-          } else { // searching for neighbors
-            var childContext =
-                matchContext.copy(outEdge.in.alias, rightValue.getIdentity());
-            childContext.currentEdgeNumber = matchContext.currentEdgeNumber + 1;
-            childContext.matchedEdges.put(outEdge, true);
-            if (!processContext(
-                pattern,
-                executionPlan,
-                childContext,
-                aliasClasses,
-                aliasFilters,
-                iCommandContext,
-                request)) {
-              return false;
-            }
-          }
-        }
-      }
-    } else {
-      var inEdge = currentEdge.edge;
-      if (!matchContext.matchedEdges.containsKey(inEdge)) {
-        if (!inEdge.item.isBidirectional()) {
-          throw new RuntimeException("Invalid pattern to match!");
-        }
-        if (!matchContext.matchedEdges.containsKey(inEdge)) {
-          var leftValues =
-              inEdge.item.method.executeReverse(
-                  matchContext.matched.get(inEdge.in.alias), iCommandContext);
-          if (inEdge.out.isOptionalNode()
-              && (isEmptyResult(leftValues)
-              || !contains(leftValues, matchContext.matched.get(inEdge.out.alias)))) {
-            var childContext = matchContext.copy(inEdge.out.alias, null);
-            childContext.matched.put(inEdge.out.alias, null);
-            childContext.currentEdgeNumber = matchContext.currentEdgeNumber + 1;
-            childContext.matchedEdges.put(inEdge, true);
-            if (!processContext(
-                pattern,
-                executionPlan,
-                childContext,
-                aliasClasses,
-                aliasFilters,
-                iCommandContext,
-                request)) {
-              return false;
-            }
-          }
-          if (leftValues instanceof Identifiable || !(leftValues instanceof Iterable)) {
-            leftValues = Collections.singleton(leftValues);
-          }
-
-          var leftClassName = aliasClasses.get(inEdge.out.alias);
-          var leftClass = db.getMetadata().getSchema().getClass(leftClassName);
-
-          for (var leftValue : (Iterable<Identifiable>) leftValues) {
-            if (leftValue == null) {
-              continue; // broken graph? null reference
-            }
-
-            if (leftClass != null && !matchesClass(db, leftValue, leftClass)) {
-              continue;
-            }
-            Iterable<Identifiable> prevMatchedRightValues =
-                matchContext.candidates.get(inEdge.out.alias);
-
-            if (matchContext.matched.containsKey(inEdge.out.alias)) {
-              if (matchContext
-                  .matched
-                  .get(inEdge.out.alias)
-                  .getIdentity()
-                  .equals(leftValue.getIdentity())) {
-                var childContext =
-                    matchContext.copy(inEdge.out.alias, leftValue.getIdentity());
-                childContext.currentEdgeNumber = matchContext.currentEdgeNumber + 1;
-                childContext.matchedEdges.put(inEdge, true);
-                if (!processContext(
-                    pattern,
-                    executionPlan,
-                    childContext,
-                    aliasClasses,
-                    aliasFilters,
-                    iCommandContext,
-                    request)) {
-                  return false;
-                }
-                break;
-              }
-            } else if (prevMatchedRightValues != null
-                && prevMatchedRightValues.iterator().hasNext()) { // just matching against
-              // known
-              // values
-              for (var id : prevMatchedRightValues) {
-                if (id.getIdentity().equals(leftValue.getIdentity())) {
-                  var childContext = matchContext.copy(inEdge.out.alias, id);
-                  childContext.currentEdgeNumber = matchContext.currentEdgeNumber + 1;
-                  childContext.matchedEdges.put(inEdge, true);
-
-                  if (!processContext(
-                      pattern,
-                      executionPlan,
-                      childContext,
-                      aliasClasses,
-                      aliasFilters,
-                      iCommandContext,
-                      request)) {
-                    return false;
-                  }
-                }
-              }
-            } else { // searching for neighbors
-              var where = aliasFilters.get(inEdge.out.alias);
-              var className = aliasClasses.get(inEdge.out.alias);
-              var oClass = db.getMetadata().getSchema().getClass(className);
-              if ((oClass == null || matchesClass(db, leftValue, oClass))
-                  && (where == null || where.matchesFilters(leftValue, iCommandContext))) {
-                var childContext =
-                    matchContext.copy(inEdge.out.alias, leftValue.getIdentity());
-                childContext.currentEdgeNumber = matchContext.currentEdgeNumber + 1;
-                childContext.matchedEdges.put(inEdge, true);
-                if (!processContext(
-                    pattern,
-                    executionPlan,
-                    childContext,
-                    aliasClasses,
-                    aliasFilters,
-                    iCommandContext,
-                    request)) {
-                  return false;
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-    return true;
-  }
-
   private static boolean matchesClass(DatabaseSessionInternal session, Identifiable identifiable,
       SchemaClass oClass) {
     if (identifiable == null) {
@@ -895,211 +497,6 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
     } catch (RecordNotFoundException rnf) {
       return false;
     }
-  }
-
-  private boolean contains(Object rightValues, Identifiable oIdentifiable) {
-    if (oIdentifiable == null) {
-      return true;
-    }
-    if (rightValues == null) {
-      return false;
-    }
-    if (rightValues instanceof Identifiable) {
-      return ((Identifiable) rightValues).getIdentity().equals(oIdentifiable.getIdentity());
-    }
-    Iterator iterator = null;
-    if (rightValues instanceof Iterable) {
-      iterator = ((Iterable) rightValues).iterator();
-    }
-    if (rightValues instanceof Iterator) {
-      iterator = (Iterator) rightValues;
-    }
-    if (iterator != null) {
-      while (iterator.hasNext()) {
-        var next = iterator.next();
-        if (next instanceof Identifiable) {
-          if (((Identifiable) next).getIdentity().equals(oIdentifiable.getIdentity())) {
-            return true;
-          }
-        }
-      }
-    }
-    return false;
-  }
-
-  private boolean isEmptyResult(Object rightValues) {
-    if (rightValues == null) {
-      return true;
-    }
-    if (rightValues instanceof Iterable) {
-      var iterator = ((Iterable) rightValues).iterator();
-      if (!iterator.hasNext()) {
-        return true;
-      }
-      while (iterator.hasNext()) {
-        var nextElement = iterator.next();
-        if (nextElement != null) {
-          return false;
-        }
-      }
-      return true;
-    }
-    return false;
-  }
-
-  private boolean expandCartesianProduct(
-      Pattern pattern,
-      MatchContext matchContext,
-      Map<String, String> aliasClasses,
-      Map<String, SQLWhereClause> aliasFilters,
-      CommandContext iCommandContext,
-      SQLAsynchQuery<EntityImpl> request) {
-    for (var alias : pattern.aliasToNode.keySet()) {
-      if (!matchContext.matched.containsKey(alias)) {
-        var target = aliasClasses.get(alias);
-        if (target == null) {
-          throw new CommandExecutionException(iCommandContext.getDatabaseSession(),
-              "Cannot execute MATCH statement on alias " + alias + ": class not defined");
-        }
-
-        var values =
-            fetchAliasCandidates(alias, aliasFilters, iCommandContext, aliasClasses);
-        for (var id : values) {
-          var childContext = matchContext.copy(alias, id);
-          if (allNodesCalculated(childContext, pattern)) {
-            // false if limit reached
-            var added = addResult(childContext, request, iCommandContext);
-            if (!added) {
-              return false;
-            }
-          } else {
-            // false if limit reached
-            var added =
-                expandCartesianProduct(
-                    pattern, childContext, aliasClasses, aliasFilters, iCommandContext, request);
-            if (!added) {
-              return false;
-            }
-          }
-        }
-        break;
-      }
-    }
-    return true;
-  }
-
-  private boolean allNodesCalculated(MatchContext matchContext, Pattern pattern) {
-    for (var alias : pattern.aliasToNode.keySet()) {
-      if (!matchContext.matched.containsKey(alias)) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  private boolean addResult(
-      MatchContext matchContext, SQLAsynchQuery<EntityImpl> request, CommandContext ctx) {
-
-    var session = ctx.getDatabaseSession();
-    ResultInternal result = null;
-    if (returnsElements()) {
-      for (var entry : matchContext.matched.entrySet()) {
-        if (isExplicitAlias(entry.getKey()) && entry.getValue() != null) {
-          try {
-            var transaction = session.getActiveTransaction();
-            var record = transaction.load(entry.getValue());
-            if (request.getResultListener() != null) {
-              if (!addSingleResult(request, (BasicCommandContext) ctx, record)) {
-                return false;
-              }
-            }
-          } catch (RecordNotFoundException rnf) {
-            return false;
-          }
-        }
-      }
-    } else if (returnsPathElements()) {
-      for (var entry : matchContext.matched.entrySet()) {
-        if (entry.getValue() != null) {
-          try {
-            var transaction = session.getActiveTransaction();
-            var record = transaction.load(entry.getValue());
-            if (request.getResultListener() != null) {
-              if (!addSingleResult(request, (BasicCommandContext) ctx, record)) {
-                return false;
-              }
-            }
-          } catch (RecordNotFoundException rnf) {
-            return false;
-          }
-        }
-      }
-    } else if (returnsPatterns()) {
-      result = new ResultInternal(session);
-      for (var entry : matchContext.matched.entrySet()) {
-        if (isExplicitAlias(entry.getKey())) {
-          result.setProperty(entry.getKey(), entry.getValue());
-        }
-      }
-    } else if (returnsPaths()) {
-      result = new ResultInternal(session);
-      for (var entry : matchContext.matched.entrySet()) {
-        result.setProperty(entry.getKey(), entry.getValue());
-      }
-    } else if (returnsJson()) {
-      result = jsonToResult(matchContext, ctx);
-    } else {
-      result = new ResultInternal(session);
-      var i = 0;
-
-      var mapDoc = new ResultInternal(session);
-      for (var entry : matchContext.matched.entrySet()) {
-        result.setProperty(entry.getKey(), entry.getValue());
-      }
-
-      ctx.setVariable("$current", mapDoc);
-      for (var item : returnItems) {
-        var returnAliasIdentifier = returnAliases.get(i);
-        SQLIdentifier returnAlias;
-        if (returnAliasIdentifier == null) {
-          returnAlias = item.getDefaultAlias();
-        } else {
-          returnAlias = returnAliasIdentifier;
-        }
-        var executed = item.execute(mapDoc, ctx);
-        // Force Embedded Document
-        if (executed instanceof EntityImpl && !((EntityImpl) executed).getIdentity()
-            .isValidPosition()) {
-          result.setProperty(returnAlias.getStringValue(), executed);
-        } else {
-          result.setProperty(returnAlias.getStringValue(), executed);
-        }
-        i++;
-      }
-    }
-
-    if (request.getResultListener() != null && result != null) {
-      return addSingleResult(request, (BasicCommandContext) ctx, result);
-    }
-
-    return true;
-  }
-
-  /**
-   * @return false if limit was reached
-   */
-  private boolean addSingleResult(
-      SQLAsynchQuery<EntityImpl> request, BasicCommandContext ctx, Object record) {
-    if (((BasicCommandContext) context).addToUniqueResult(record)) {
-      request.getResultListener().result(ctx.getDatabaseSession(), record);
-      var currentCount = ctx.getResultsProcessed().incrementAndGet();
-      long limitValue = -1;
-      if (limit != null) {
-        limitValue = limit.num.getValue().longValue();
-      }
-      return limitValue <= -1 || limitValue > currentCount;
-    }
-    return true;
   }
 
   public boolean returnsPathElements() {
@@ -1189,28 +586,31 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
           "(select from "
               + className
               + " where "
-              + builder.toString().replaceAll("\\$currentMatch", "@this")
+              + CURRENT_PATTERN.matcher(builder.toString()).replaceAll("@this")
               + ")";
       //        replaceIdentifier(oWhereClause, "@this", "$currentMatch");
       //      }
     }
     var target = new SQLTarget(text, ctx);
-    Iterable targetResult = target.getTargetRecords();
-    if (targetResult == null) {
-      return null;
-    }
-
-    if (targetResult instanceof CommandExecutorSQLSelect) {
-      ((CommandExecutorSQLSelect) targetResult)
+    var targetResult = target.getTargetRecords();
+    switch (targetResult) {
+      case null -> {
+        return null;
+      }
+      case CommandExecutorSQLSelect commandExecutorSQLSelect -> commandExecutorSQLSelect
           .getContext()
           .setRecordingMetrics(ctx.isRecordingMetrics());
-    } else if (targetResult instanceof CommandExecutorSQLResultsetDelegate) {
-      var delegate =
-          ((CommandExecutorSQLResultsetDelegate) targetResult).getDelegate();
-      if (delegate instanceof CommandExecutorSQLSelect) {
-        delegate.getContext().setRecordingMetrics(ctx.isRecordingMetrics());
+      case CommandExecutorSQLResultsetDelegate commandExecutorSQLResultsetDelegate -> {
+        var delegate =
+            commandExecutorSQLResultsetDelegate.getDelegate();
+        if (delegate instanceof CommandExecutorSQLSelect) {
+          delegate.getContext().setRecordingMetrics(ctx.isRecordingMetrics());
+        }
+      }
+      default -> {
       }
     }
+
     return targetResult.iterator();
   }
 
@@ -1227,80 +627,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
   //
   //  }
 
-  private SQLSelectStatement buildSelectStatement(String className, SQLWhereClause oWhereClause) {
-    var stm = new SQLSelectStatement(-1);
-    stm.whereClause = oWhereClause;
-    stm.target = new SQLFromClause(-1);
-    stm.target.item = new SQLFromItem(-1);
-    stm.target.item.identifier = new SQLIdentifier(className);
-    return stm;
-  }
-
-  private Iterable<DBRecord> fetchFromIndex(SchemaClass schemaClass, SQLWhereClause oWhereClause) {
-    return null; // TODO
-  }
-
-  private String getNextAlias(Map<String, Long> estimatedRootEntries, MatchContext matchContext) {
-    Map.Entry<String, Long> lowerValue = null;
-    for (var entry : estimatedRootEntries.entrySet()) {
-      if (matchContext.matched.containsKey(entry.getKey())) {
-        continue;
-      }
-      if (lowerValue == null) {
-        lowerValue = entry;
-      } else if (lowerValue.getValue() > entry.getValue()) {
-        lowerValue = entry;
-      }
-    }
-
-    if (lowerValue == null) {
-      throw new CommandExecutionException(
-          "Cannot calculate this pattern (maybe a circular dependency on $matched conditions)");
-    }
-    return lowerValue.getKey();
-  }
-
-  private Map<String, Long> estimateRootEntries(
-      Map<String, String> aliasClasses,
-      Map<String, SQLWhereClause> aliasFilters,
-      CommandContext ctx) {
-    Set<String> allAliases = new LinkedHashSet<String>();
-    allAliases.addAll(aliasClasses.keySet());
-    allAliases.addAll(aliasFilters.keySet());
-
-    var db = ctx.getDatabaseSession();
-    var schema = db.getMetadata().getImmutableSchemaSnapshot();
-
-    Map<String, Long> result = new LinkedHashMap<String, Long>();
-    for (var alias : allAliases) {
-      var className = aliasClasses.get(alias);
-      if (className == null) {
-        continue;
-      }
-
-      if (!schema.existsClass(className)) {
-        throw new CommandExecutionException("class not defined: " + className);
-      }
-      var oClass = schema.getClassInternal(className);
-      long upperBound;
-      var filter = aliasFilters.get(alias);
-      if (filter != null) {
-        var aliasesOnPattern = filter.baseExpression.getMatchPatternInvolvedAliases();
-        if (aliasesOnPattern != null && !aliasesOnPattern.isEmpty()) {
-          // skip root nodes that have a condition on $matched, because they have to be calculated
-          // as downstream
-          continue;
-        }
-        upperBound = filter.estimate(oClass, this.threshold, ctx);
-      } else {
-        upperBound = oClass.count(ctx.getDatabaseSession());
-      }
-      result.put(alias, upperBound);
-    }
-    return result;
-  }
-
-  private void addAliases(
+  private static void addAliases(
       SQLMatchExpression expr,
       Map<String, SQLWhereClause> aliasFilters,
       Map<String, String> aliasClasses,
@@ -1313,7 +640,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
     }
   }
 
-  private void addAliases(
+  private static void addAliases(
       SQLMatchFilter matchFilter,
       Map<String, SQLWhereClause> aliasFilters,
       Map<String, String> aliasClasses,
@@ -1330,7 +657,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
           aliasFilters.put(alias, previousFilter);
         }
         var filterBlock = (SQLAndBlock) previousFilter.baseExpression;
-        if (filter != null && filter.baseExpression != null) {
+        if (filter.baseExpression != null) {
           filterBlock.subBlocks.add(filter.baseExpression);
         }
       }
@@ -1358,7 +685,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
     }
   }
 
-  private String getLowerSubclass(DatabaseSessionInternal session, String className1,
+  private static String getLowerSubclass(DatabaseSessionInternal session, String className1,
       String className2) {
     Schema schema = session.getMetadata().getSchema();
     var class1 = schema.getClass(className1);

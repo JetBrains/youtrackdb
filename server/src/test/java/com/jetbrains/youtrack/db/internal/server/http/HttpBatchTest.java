@@ -147,7 +147,7 @@ public class HttpBatchTest extends BaseHttpDatabaseTest {
     doc.updateFromJSON(string);
 
     stream.close();
-    var iterable = (Iterable) doc.eval("result.value");
+    var iterable = (Iterable) doc.getProperty("result.value");
 
     System.out.println(iterable);
     var iterator = iterable.iterator();

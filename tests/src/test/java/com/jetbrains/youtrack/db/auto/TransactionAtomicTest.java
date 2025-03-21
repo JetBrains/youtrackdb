@@ -24,7 +24,6 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;
 import java.io.IOException;
 import org.testng.Assert;
 import org.testng.annotations.Optional;
@@ -182,39 +181,5 @@ public class TransactionAtomicTest extends BaseDBTest {
     }
 
     Assert.assertEquals(session.countClusterElements("Fruit"), 0);
-  }
-
-  @Test
-  public void testTransactionalSQL() {
-    var prev = session.countClass("Account");
-
-    session.begin();
-    session
-        .command(new CommandSQL("transactional insert into Account set name = 'txTest1'"))
-        .execute(session);
-    session.commit();
-
-    Assert.assertEquals(session.countClass("Account"), prev + 1);
-  }
-
-  @Test
-  public void testTransactionalSQLJoinTx() {
-    var prev = session.countClass("Account");
-
-    session.begin();
-    session
-        .command(new CommandSQL("transactional insert into Account set name = 'txTest2'"))
-        .execute(session);
-
-    Assert.assertNotNull(session.getActiveTransaction());
-
-    if (!remoteDB) {
-      Assert.assertEquals(session.countClass("Account"), prev + 1);
-    }
-
-    session.commit();
-
-    Assert.assertNull(session.getActiveTransaction());
-    Assert.assertEquals(session.countClass("Account"), prev + 1);
   }
 }

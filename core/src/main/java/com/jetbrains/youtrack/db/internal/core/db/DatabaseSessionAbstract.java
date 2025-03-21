@@ -54,8 +54,6 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
-import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
-import com.jetbrains.youtrack.db.internal.core.command.CommandRequestInternal;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
@@ -241,23 +239,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
       return (RET) iIdentifiable;
     }
     return load(iIdentifiable.getIdentity());
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  public CommandRequest command(final CommandRequest iCommand) {
-    checkSecurity(Rule.ResourceGeneric.COMMAND, Role.PERMISSION_READ);
-    assert assertIfNotActive();
-    final var command = (CommandRequestInternal) iCommand;
-    try {
-      command.reset();
-      return command;
-    } catch (Exception e) {
-      throw BaseException.wrapException(
-          new DatabaseException(
-              getDatabaseName(), "Error on command execution"), e, getDatabaseName());
-    }
   }
 
   @Override

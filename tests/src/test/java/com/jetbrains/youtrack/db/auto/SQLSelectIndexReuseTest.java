@@ -1,16 +1,18 @@
 package com.jetbrains.youtrack.db.auto;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
@@ -22,6 +24,8 @@ import org.testng.annotations.Test;
 @Test
 @Ignore("Rewrite these tests for the new SQL engine")
 public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
+
+  private static final Logger log = LoggerFactory.getLogger(SQLSelectIndexReuseTest.class);
 
   @Parameters(value = "remote")
   public SQLSelectIndexReuseTest(@Optional Boolean remote) {
@@ -195,12 +199,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 = 2"))
-            .execute(session);
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 = 2")
+            .toList();
 
     Assert.assertEquals(result.size(), 1);
 
@@ -218,13 +220,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
   public void testCompositeSearchHasChainOperatorsEquals() {
     var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1.asInteger() = 1 and"
-                        + " prop2 = 2"))
-            .execute(session);
+            .query(
+                "select * from sqlSelectIndexReuseTestClass where prop1.asInteger() = 1 and"
+                    + " prop2 = 2").toList();
 
     Assert.assertEquals(result.size(), 1);
 
@@ -255,12 +255,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed21 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 = 1"))
-            .execute(session);
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1").toList();
 
     Assert.assertEquals(result.size(), 10);
 
@@ -302,13 +299,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed21 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop3 = 18"
-                        + " limit 1"))
-            .execute(session);
+            .query(
+                "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop3 = 18"
+                    + " limit 1").toList();
 
     Assert.assertEquals(result.size(), 1);
 
@@ -349,13 +344,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed21 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where fEmbeddedMapTwo containsKey"
-                        + " 'key11'"))
-            .execute(session);
+            .query(
+                "select * from sqlSelectIndexReuseTestClass where fEmbeddedMapTwo containsKey"
+                    + " 'key11'").toList();
 
     Assert.assertEquals(result.size(), 10);
 
@@ -404,13 +397,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed22 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass "
-                        + "where prop8 = 1 and fEmbeddedMapTwo containsKey 'key11'"))
-            .execute(session);
+            .query(
+                "select * from sqlSelectIndexReuseTestClass "
+                    + "where prop8 = 1 and fEmbeddedMapTwo containsKey 'key11'").toList();
 
     final Map<String, Integer> embeddedMap = new HashMap<String, Integer>();
 
@@ -456,13 +447,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed21 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass "
-                        + "where fEmbeddedMapTwo containsValue 22"))
-            .execute(session);
+            .query(
+                "select * from sqlSelectIndexReuseTestClass "
+                    + "where fEmbeddedMapTwo containsValue 22").toList();
 
     final Map<String, Integer> embeddedMap = new HashMap<String, Integer>();
 
@@ -510,13 +499,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed22 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass "
-                        + "where prop8 = 1 and fEmbeddedMapTwo containsValue 22"))
-            .execute(session);
+            .query(
+                "select * from sqlSelectIndexReuseTestClass "
+                    + "where prop8 = 1 and fEmbeddedMapTwo containsValue 22").toList();
 
     final Map<String, Integer> embeddedMap = new HashMap<String, Integer>();
 
@@ -563,13 +550,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed22 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass "
-                        + "where prop8 = 1 and fEmbeddedSetTwo contains 12"))
-            .execute(session);
+            .query(
+                "select * from sqlSelectIndexReuseTestClass "
+                    + "where prop8 = 1 and fEmbeddedSetTwo contains 12").toList();
 
     final Set<Integer> embeddedSet = new HashSet<Integer>();
     embeddedSet.add(10);
@@ -620,13 +605,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed33 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass "
-                        + "where prop9 = 0 and fEmbeddedSetTwo contains 92 and prop8 > 2"))
-            .execute(session);
+            .query(
+                "select * from sqlSelectIndexReuseTestClass "
+                    + "where prop9 = 0 and fEmbeddedSetTwo contains 92 and prop8 > 2").toList();
 
     final Set<Integer> embeddedSet = new HashSet<Integer>(3);
     embeddedSet.add(90);
@@ -677,12 +660,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed21 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where fEmbeddedListTwo contains 4"))
-            .execute(session);
+            .query("select * from sqlSelectIndexReuseTestClass where fEmbeddedListTwo contains 4")
+            .toList();
 
     Assert.assertEquals(result.size(), 10);
 
@@ -728,13 +709,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed22 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where"
-                        + " prop8 = 1 and fEmbeddedListTwo contains 4"))
-            .execute(session);
+            .query(
+                "select * from sqlSelectIndexReuseTestClass where"
+                    + " prop8 = 1 and fEmbeddedListTwo contains 4").toList();
 
     Assert.assertEquals(result.size(), 1);
 
@@ -761,12 +740,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
   public void testNoCompositeSearchEquals() {
     var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop2 = 1"))
-            .execute(session);
+            .query("select * from sqlSelectIndexReuseTestClass where prop2 = 1").toList();
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage);
     Assert.assertEquals(result.size(), 10);
@@ -796,12 +772,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 = ?"))
-            .execute(session, 1, 2);
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 = ?", 1, 2)
+            .toList();
 
     Assert.assertEquals(result.size(), 1);
 
@@ -831,12 +805,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 = ?"))
-            .execute(session, 1);
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 = ?", 1).toList();
 
     Assert.assertEquals(result.size(), 10);
 
@@ -859,12 +830,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
   public void testNoCompositeSearchEqualsWithArgs() {
     var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop2 = ?"))
-            .execute(session, 1);
+            .query("select * from sqlSelectIndexReuseTestClass where prop2 = ?", 1).toList();
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage);
     Assert.assertEquals(result.size(), 10);
@@ -894,13 +862,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 > 2"))
-            .execute(session);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 > 2")
+            .toList();
     Assert.assertEquals(result.size(), 7);
 
     for (var i = 3; i < 10; i++) {
@@ -934,12 +899,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 > 7"))
-            .execute(session);
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 > 7").toList();
 
     Assert.assertEquals(result.size(), 20);
 
@@ -964,12 +926,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
   public void testCompositeSearchGTOneFieldNoSearch() {
     var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop2 > 7"))
-            .execute(session);
+            .query("select * from sqlSelectIndexReuseTestClass where prop2 > 7").toList();
 
     Assert.assertEquals(result.size(), 20);
 
@@ -1002,13 +961,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 > ?"))
-            .execute(session, 1, 2);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 > ?", 1, 2)
+            .toList();
     Assert.assertEquals(result.size(), 7);
 
     for (var i = 3; i < 10; i++) {
@@ -1042,12 +998,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 > ?"))
-            .execute(session, 7);
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 > ?", 7).toList();
 
     Assert.assertEquals(result.size(), 20);
 
@@ -1072,13 +1025,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
   public void testCompositeSearchGTOneFieldNoSearchWithArgs() {
     var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop2 > ?"))
-            .execute(session, 7);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop2 > ?", 7).toList();
     Assert.assertEquals(result.size(), 20);
 
     for (var i = 8; i < 10; i++) {
@@ -1110,13 +1059,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 >= 2"))
-            .execute(session);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 >= 2")
+            .toList();
     Assert.assertEquals(result.size(), 8);
 
     for (var i = 2; i < 10; i++) {
@@ -1150,13 +1096,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 >= 7"))
-            .execute(session);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 >= 7").toList();
     Assert.assertEquals(result.size(), 30);
 
     for (var i = 7; i < 10; i++) {
@@ -1180,13 +1122,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
   public void testCompositeSearchGTQOneFieldNoSearch() {
     var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop2 >= 7"))
-            .execute(session);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop2 >= 7").toList();
     Assert.assertEquals(result.size(), 30);
 
     for (var i = 7; i < 10; i++) {
@@ -1218,13 +1156,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 >= ?"))
-            .execute(session, 1, 2);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 >= ?",
+                1, 2).toList();
     Assert.assertEquals(result.size(), 8);
 
     for (var i = 2; i < 10; i++) {
@@ -1258,13 +1193,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 >= ?"))
-            .execute(session, 7);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 >= ?", 7).toList();
     Assert.assertEquals(result.size(), 30);
 
     for (var i = 7; i < 10; i++) {
@@ -1288,13 +1219,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
   public void testCompositeSearchGTQOneFieldNoSearchWithArgs() {
     var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop2 >= ?"))
-            .execute(session, 7);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop2 >= ?", 7).toList();
     Assert.assertEquals(result.size(), 30);
 
     for (var i = 7; i < 10; i++) {
@@ -1326,13 +1253,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 <= 2"))
-            .execute(session);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 <= 2")
+            .toList();
     Assert.assertEquals(result.size(), 3);
 
     for (var i = 0; i <= 2; i++) {
@@ -1366,13 +1290,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 <= 7"))
-            .execute(session);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 <= 7").toList();
     Assert.assertEquals(result.size(), 80);
 
     for (var i = 0; i <= 7; i++) {
@@ -1396,13 +1316,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
   public void testCompositeSearchLTQOneFieldNoSearch() {
     var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop2 <= 7"))
-            .execute(session);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop2 <= 7").toList();
     Assert.assertEquals(result.size(), 80);
 
     for (var i = 0; i <= 7; i++) {
@@ -1434,12 +1350,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 <= ?"))
-            .execute(session, 1, 2);
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 <= ?", 1,
+                2).toList();
 
     Assert.assertEquals(result.size(), 3);
 
@@ -1474,13 +1388,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 <= ?"))
-            .execute(session, 7);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 <= ?", 7).toList();
     Assert.assertEquals(result.size(), 80);
 
     for (var i = 0; i <= 7; i++) {
@@ -1504,12 +1414,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
   public void testCompositeSearchLTQOneFieldNoSearchWithArgs() {
     var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop2 <= ?"))
-            .execute(session, 7);
+            .query("select * from sqlSelectIndexReuseTestClass where prop2 <= ?", 7).toList();
 
     Assert.assertEquals(result.size(), 80);
 
@@ -1542,12 +1449,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 < 2"))
-            .execute(session);
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 < 2")
+            .toList();
 
     Assert.assertEquals(result.size(), 2);
 
@@ -1582,13 +1487,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 < 7"))
-            .execute(session);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 < 7").toList();
     Assert.assertEquals(result.size(), 70);
 
     for (var i = 0; i < 7; i++) {
@@ -1612,13 +1513,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
   public void testCompositeSearchLTOneFieldNoSearch() {
     var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop2 < 7"))
-            .execute(session);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop2 < 7").toList();
     Assert.assertEquals(result.size(), 70);
 
     for (var i = 0; i < 7; i++) {
@@ -1650,13 +1547,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 < ?"))
-            .execute(session, 1, 2);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 < ?", 1, 2)
+            .toList();
     Assert.assertEquals(result.size(), 2);
 
     for (var i = 0; i < 2; i++) {
@@ -1690,13 +1584,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 < ?"))
-            .execute(session, 7);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 < ?", 7).toList();
     Assert.assertEquals(result.size(), 70);
 
     for (var i = 0; i < 7; i++) {
@@ -1720,13 +1610,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
   public void testCompositeSearchLTOneFieldNoSearchWithArgs() {
     var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop2 < ?"))
-            .execute(session, 7);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop2 < ?", 7).toList();
     Assert.assertEquals(result.size(), 70);
 
     for (var i = 0; i < 7; i++) {
@@ -1758,14 +1644,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 between 1"
-                        + " and 3"))
-            .execute(session);
-
+            .query(
+                "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 between 1"
+                    + " and 3").toList();
     Assert.assertEquals(result.size(), 3);
 
     for (var i = 1; i <= 3; i++) {
@@ -1799,13 +1682,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 between 1 and 3"))
-            .execute(session);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 between 1 and 3")
+            .toList();
     Assert.assertEquals(result.size(), 30);
 
     for (var i = 1; i <= 3; i++) {
@@ -1829,13 +1709,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
   public void testCompositeSearchBetweenOneFieldNoSearch() {
     var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop2 between 1 and 3"))
-            .execute(session);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop2 between 1 and 3")
+            .toList();
     Assert.assertEquals(result.size(), 30);
 
     for (var i = 1; i <= 3; i++) {
@@ -1867,13 +1744,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 between ?"
-                        + " and ?"))
-            .execute(session, 1, 3);
+            .query(
+                "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 between ?"
+                    + " and ?", 1, 3).toList();
 
     Assert.assertEquals(result.size(), 3);
 
@@ -1908,13 +1783,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 between ? and ?"))
-            .execute(session, 1, 3);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 between ? and ?", 1, 3)
+            .toList();
     Assert.assertEquals(result.size(), 30);
 
     for (var i = 1; i <= 3; i++) {
@@ -1938,13 +1810,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
   public void testCompositeSearchBetweenOneFieldNoSearchWithArgs() {
     var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop2 between ? and ?"))
-            .execute(session, 1, 3);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop2 between ? and ?", 1, 3)
+            .toList();
     Assert.assertEquals(result.size(), 30);
 
     for (var i = 1; i <= 3; i++) {
@@ -1969,13 +1838,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldIndexUsage = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop3 = 1"))
-            .execute(session);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop3 = 1").toList();
     Assert.assertEquals(result.size(), 1);
 
     final var document = result.get(0);
@@ -1994,13 +1859,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldIndexUsage = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop3 = ?"))
-            .execute(session, 1);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop3 = ?", 1).toList();
     Assert.assertEquals(result.size(), 1);
 
     final var document = result.get(0);
@@ -2019,13 +1880,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldIndexUsage = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop3 > 90"))
-            .execute(session);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop3 > 90").toList();
     Assert.assertEquals(result.size(), 9);
 
     for (var i = 91; i < 100; i++) {
@@ -2048,13 +1905,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldIndexUsage = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop3 > ?"))
-            .execute(session, 90);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop3 > ?", 90).toList();
     Assert.assertEquals(result.size(), 9);
 
     for (var i = 91; i < 100; i++) {
@@ -2077,13 +1930,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldIndexUsage = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop3 >= 90"))
-            .execute(session);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop3 >= 90").toList();
     Assert.assertEquals(result.size(), 10);
 
     for (var i = 90; i < 100; i++) {
@@ -2106,13 +1955,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldIndexUsage = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop3 >= ?"))
-            .execute(session, 90);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop3 >= ?", 90).toList();
     Assert.assertEquals(result.size(), 10);
 
     for (var i = 90; i < 100; i++) {
@@ -2135,13 +1980,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldIndexUsage = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop3 <= 10"))
-            .execute(session);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop3 <= 10").toList();
     Assert.assertEquals(result.size(), 11);
 
     for (var i = 0; i <= 10; i++) {
@@ -2164,13 +2005,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldIndexUsage = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop3 <= ?"))
-            .execute(session, 10);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop3 <= ?", 10).toList();
     Assert.assertEquals(result.size(), 11);
 
     for (var i = 0; i <= 10; i++) {
@@ -2193,13 +2030,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldIndexUsage = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop3 < 10"))
-            .execute(session);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop3 < 10").toList();
     Assert.assertEquals(result.size(), 10);
 
     for (var i = 0; i < 10; i++) {
@@ -2222,13 +2055,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldIndexUsage = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop3 < ?"))
-            .execute(session, 10);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop3 < ?", 10).toList();
     Assert.assertEquals(result.size(), 10);
 
     for (var i = 0; i < 10; i++) {
@@ -2251,13 +2080,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldIndexUsage = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop3 between 1 and 10"))
-            .execute(session);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop3 between 1 and 10")
+            .toList();
     Assert.assertEquals(result.size(), 10);
 
     for (var i = 1; i <= 10; i++) {
@@ -2280,12 +2106,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldIndexUsage = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop3 between ? and ?"))
-            .execute(session, 1, 10);
+            .query("select * from sqlSelectIndexReuseTestClass where prop3 between ? and ?", 1, 10)
+            .toList();
 
     Assert.assertEquals(result.size(), 10);
 
@@ -2309,13 +2133,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldIndexUsage = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop3 in [0, 5, 10]"))
-            .execute(session);
-
+            .query("select * from sqlSelectIndexReuseTestClass where prop3 in [0, 5, 10]").toList();
     Assert.assertEquals(result.size(), 3);
 
     for (var i = 0; i <= 10; i += 5) {
@@ -2338,12 +2158,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldIndexUsage = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop3 in [?, ?, ?]"))
-            .execute(session, 0, 5, 10);
+            .query("select * from sqlSelectIndexReuseTestClass where prop3 in [?, ?, ?]", 0, 5, 10)
+            .toList();
 
     Assert.assertEquals(result.size(), 3);
 
@@ -2374,13 +2192,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 = 1 and"
-                        + " prop3 = 11"))
-            .execute(session);
+            .query(
+                "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 = 1 and"
+                    + " prop3 = 11").toList();
 
     Assert.assertEquals(result.size(), 1);
 
@@ -2412,14 +2228,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed3 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 = 1 and"
-                        + " prop4 >= 1"))
-            .execute(session);
-
+            .query(
+                "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 = 1 and"
+                    + " prop4 >= 1").toList();
     Assert.assertEquals(result.size(), 1);
 
     final var document = result.get(0);
@@ -2450,13 +2263,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 = 1 and"
-                        + " prop5 >= 1"))
-            .execute(session);
+            .query(
+                "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 = 1 and"
+                    + " prop5 >= 1").toList();
 
     Assert.assertEquals(result.size(), 1);
 
@@ -2488,12 +2299,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop4 >= 1"))
-            .execute(session);
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop4 >= 1")
+            .toList();
 
     Assert.assertEquals(result.size(), 10);
 
@@ -2529,12 +2338,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed3 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop4 = 1"))
-            .execute(session);
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop4 = 1")
+            .toList();
 
     Assert.assertEquals(result.size(), 10);
 
@@ -2570,12 +2377,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed3 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop6 <= 1 and prop4 < 1"))
-            .execute(session);
+            .query("select * from sqlSelectIndexReuseTestClass where prop6 <= 1 and prop4 < 1")
+            .toList();
 
     Assert.assertEquals(result.size(), 2);
 
@@ -2610,12 +2415,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 + 1 = 3"))
-            .execute(session);
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 + 1 = 3")
+            .toList();
 
     Assert.assertEquals(result.size(), 1);
 
@@ -2639,13 +2442,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldIndexUsage = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where fEmbeddedMap containskey"
-                        + " 'key12'"))
-            .execute(session);
+            .query(
+                "select * from sqlSelectIndexReuseTestClass where fEmbeddedMap containskey"
+                    + " 'key12'").toList();
 
     Assert.assertEquals(result.size(), 10);
 
@@ -2679,14 +2480,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldIndexUsage = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where ( fEmbeddedMap containskey"
-                        + " 'key12' ) and ( fEmbeddedMap['key12'] = 12 )"))
-            .execute(session);
-
+            .query(
+                "select * from sqlSelectIndexReuseTestClass where ( fEmbeddedMap containskey"
+                    + " 'key12' ) and ( fEmbeddedMap['key12'] = 12 )").toList();
     Assert.assertEquals(result.size(), 10);
 
     final var document = ((EntityImpl) session.newEntity());
@@ -2719,14 +2517,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldIndexUsage = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where fEmbeddedMap containsvalue"
-                        + " 11"))
-            .execute(session);
-
+            .query(
+                "select * from sqlSelectIndexReuseTestClass where fEmbeddedMap containsvalue"
+                    + " 11").toList();
     Assert.assertEquals(result.size(), 10);
 
     final var document = ((EntityImpl) session.newEntity());
@@ -2759,12 +2554,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldIndexUsage = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where fEmbeddedList contains 7"))
-            .execute(session);
+            .query("select * from sqlSelectIndexReuseTestClass where fEmbeddedList contains 7")
+            .toList();
 
     final List<Integer> embeddedList = new ArrayList<Integer>(3);
     embeddedList.add(6);
@@ -2799,13 +2592,12 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2  = 2 and"
-                        + " ( prop4 = 3 or prop4 = 1 )"))
-            .execute(session);
+            .query(
+                "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2  = 2 and"
+                    + " ( prop4 = 3 or prop4 = 1 )")
+            .toList();
 
     Assert.assertEquals(result.size(), 1);
 
@@ -2827,13 +2619,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldIndexUsage = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where ( prop1 = 1 and prop2 = 2 )"
-                        + " or ( prop4  = 1 and prop6 = 2 )"))
-            .execute(session);
+            .query(
+                "select * from sqlSelectIndexReuseTestClass where ( prop1 = 1 and prop2 = 2 )"
+                    + " or ( prop4  = 1 and prop6 = 2 )").toList();
 
     Assert.assertEquals(result.size(), 1);
 
@@ -2862,13 +2652,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed2 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop1 = 1777 and prop2  ="
-                        + " 2777"))
-            .execute(session);
+            .query(
+                "select * from sqlSelectIndexReuseTestClass where prop1 = 1777 and prop2  ="
+                    + " 2777").toList();
 
     Assert.assertEquals(result.size(), 0);
 
@@ -2910,13 +2698,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
     session.commit();
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestChildClass where prop0 = 0 and prop1 ="
-                        + " 1"))
-            .execute(session);
+            .query(
+                "select * from sqlSelectIndexReuseTestChildClass where prop0 = 0 and prop1 ="
+                    + " 1").toList();
 
     Assert.assertEquals(result.size(), 1);
 
@@ -2947,11 +2733,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     e2.setProperty("a", "a");
     e1.setProperty("b", "b");
 
-    EntityImpl entity = session
+    var entity = session
         .newInstance("CountFunctionWithNotUniqueIndexTest");
     entity.setProperty("a", "a");
 
-    EntityImpl entity1 = session
+    var entity1 = session
         .newInstance("CountFunctionWithNotUniqueIndexTest");
     entity1.setProperty("a", "c");
     entity.setProperty("b", "c");
@@ -2978,23 +2764,23 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     }
 
     session.begin();
-    EntityImpl entity4 = session
+    var entity4 = session
         .newInstance("CountFunctionWithUniqueIndexTest");
     entity4.setProperty("a", "a");
     entity4.setProperty("b", "c");
 
-    EntityImpl entity3 = session
+    var entity3 = session
         .newInstance("CountFunctionWithUniqueIndexTest");
     entity3.setProperty("a", "a");
-    EntityImpl entity2 = entity3;
+    var entity2 = entity3;
     entity2.setProperty("b", "c");
 
-    EntityImpl entity1 = session
+    var entity1 = session
         .newInstance("CountFunctionWithUniqueIndexTest");
     entity1.setProperty("a", "a");
     entity1.setProperty("b", "e");
 
-    EntityImpl entity = session
+    var entity = session
         .newInstance("CountFunctionWithUniqueIndexTest");
     entity.setProperty("a", "a");
     entity.setProperty("b", "b");
@@ -3017,10 +2803,10 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     session.commit();
   }
 
-  private static int containsDocument(final List<EntityImpl> docList,
+  private static int containsDocument(final List<Result> resultList,
       final EntityImpl document) {
     var count = 0;
-    for (final var docItem : docList) {
+    for (final var docItem : resultList) {
       var containsAllFields = true;
       for (final var fieldName : document.propertyNames()) {
         if (!document.getProperty(fieldName).equals(docItem.getProperty(fieldName))) {
@@ -3055,13 +2841,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed33 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop4 = 1 and prop1 = 1 and"
-                        + " prop3 in [13, 113]"))
-            .execute(session);
+            .query(
+                "select * from sqlSelectIndexReuseTestClass where prop4 = 1 and prop1 = 1 and"
+                    + " prop3 in [13, 113]").toDetachedList();
 
     Assert.assertEquals(result.size(), 1);
 
@@ -3099,13 +2883,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed33 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop4 = 1 and prop1 in [1, 2]"
-                        + " and prop3 = 13"))
-            .execute(session);
+            .query(
+                "select * from sqlSelectIndexReuseTestClass where prop4 = 1 and prop1 in [1, 2]"
+                    + " and prop3 = 13").toDetachedList();
 
     Assert.assertEquals(result.size(), 1);
 
@@ -3143,13 +2925,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed33 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop4 = 1 and prop1 in [1, 2]"
-                        + " and prop3 in [13, 15]"))
-            .execute(session);
+            .query(
+                "select * from sqlSelectIndexReuseTestClass where prop4 = 1 and prop1 in [1, 2]"
+                    + " and prop3 in [13, 15]").toDetachedList();
 
     Assert.assertEquals(result.size(), 2);
 
@@ -3189,13 +2969,11 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       oldcompositeIndexUsed33 = 0;
     }
 
-    final List<EntityImpl> result =
+    final var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select * from sqlSelectIndexReuseTestClass where prop4 in [1, 2] and prop1 = 1"
-                        + " and prop3 = 13"))
-            .execute(session);
+            .query(
+                "select * from sqlSelectIndexReuseTestClass where prop4 in [1, 2] and prop1 = 1"
+                    + " and prop3 = 13").toDetachedList();
 
     Assert.assertEquals(result.size(), 1);
 

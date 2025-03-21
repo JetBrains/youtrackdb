@@ -27,7 +27,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransaction
 import com.jetbrains.youtrack.db.internal.client.remote.message.CeilingPhysicalPositionsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseQueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CommandRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Commit38Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Connect37Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ConnectRequest;
@@ -125,7 +124,6 @@ public class NetworkBinaryProtocolFactory {
       case ChannelBinaryProtocol.REQUEST_POSITIONS_CEILING -> new CeilingPhysicalPositionsRequest();
       case ChannelBinaryProtocol.REQUEST_POSITIONS_LOWER -> new LowerPhysicalPositionsRequest();
       case ChannelBinaryProtocol.REQUEST_POSITIONS_FLOOR -> new FloorPhysicalPositionsRequest();
-      case ChannelBinaryProtocol.REQUEST_COMMAND -> new CommandRequest();
       case ChannelBinaryProtocol.REQUEST_SERVER_QUERY -> new ServerQueryRequest();
       case ChannelBinaryProtocol.REQUEST_QUERY -> new QueryRequest();
       case ChannelBinaryProtocol.REQUEST_CLOSE_QUERY -> new CloseQueryRequest();
@@ -176,7 +174,6 @@ public class NetworkBinaryProtocolFactory {
       case ChannelBinaryProtocol.REQUEST_POSITIONS_CEILING -> new CeilingPhysicalPositionsRequest();
       case ChannelBinaryProtocol.REQUEST_POSITIONS_LOWER -> new LowerPhysicalPositionsRequest();
       case ChannelBinaryProtocol.REQUEST_POSITIONS_FLOOR -> new FloorPhysicalPositionsRequest();
-      case ChannelBinaryProtocol.REQUEST_COMMAND -> new CommandRequest();
       case ChannelBinaryProtocol.REQUEST_SERVER_QUERY -> new ServerQueryRequest();
       case ChannelBinaryProtocol.REQUEST_QUERY -> new QueryRequest();
       case ChannelBinaryProtocol.REQUEST_CLOSE_QUERY -> new CloseQueryRequest();

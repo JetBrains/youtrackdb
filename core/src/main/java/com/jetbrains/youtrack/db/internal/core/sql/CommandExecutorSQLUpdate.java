@@ -38,13 +38,11 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Security;
-import com.jetbrains.youtrack.db.internal.core.query.Query;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilter;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItem;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLUpdateStatement;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLAsynchQuery;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -76,7 +74,6 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
       new ArrayList<Pair<String, Object>>();
   private EntityImpl merge = null;
   private ReturnHandler returnHandler = new RecordCountHandler();
-  private Query<?> query;
   private SQLFilter compiledFilter;
   private String subjectName;
   private CommandParameters parameters;
@@ -112,8 +109,6 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
       incrementEntries.clear();
       content = null;
       merge = null;
-
-      query = null;
 
       parserRequiredKeyword(session.getDatabaseName(), KEYWORD_UPDATE);
 
@@ -204,21 +199,7 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
 
       if (subjectName.startsWith("(")) {
         subjectName = subjectName.trim();
-        query =
-            session.command(
-                new SQLAsynchQuery<EntityImpl>(
-                    subjectName.substring(1, subjectName.length() - 1), this)
-                    .setContext(context));
-
-        if (additionalStatement.equals(CommandExecutorSQLAbstract.KEYWORD_WHERE)
-            || additionalStatement.equals(CommandExecutorSQLAbstract.KEYWORD_LIMIT)) {
-          compiledFilter =
-              SQLEngine
-                  .parseCondition(
-                      parserText.substring(parserGetCurrentPosition()),
-                      getContext(),
-                      KEYWORD_WHERE);
-        }
+        throw new UnsupportedOperationException();
 
       } else if (additionalStatement.equals(CommandExecutorSQLAbstract.KEYWORD_WHERE)
           || additionalStatement.equals(CommandExecutorSQLAbstract.KEYWORD_LIMIT)
@@ -242,17 +223,7 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
             updateStm.timeout.toString(params, selectString);
           }
 
-          query = new SQLAsynchQuery<EntityImpl>(selectString.toString(), this);
         } else {
-          query =
-              new SQLAsynchQuery<EntityImpl>(
-                  "select from "
-                      + getSelectTarget()
-                      + " "
-                      + additionalStatement
-                      + " "
-                      + parserText.substring(parserGetCurrentPosition()),
-                  this);
         }
 
         isUpsertAllowed =
@@ -262,7 +233,6 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
         throwSyntaxErrorException(session.getDatabaseName(),
             "Invalid keyword " + additionalStatement);
       } else {
-        query = new SQLAsynchQuery<EntityImpl>("select from " + getSelectTarget(), this);
       }
 
       if (upsertMode && !isUpsertAllowed) {
@@ -314,7 +284,6 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
       queryArgs = iArgs;
     }
 
-    query.setContext(context);
 
     returnHandler.reset();
 

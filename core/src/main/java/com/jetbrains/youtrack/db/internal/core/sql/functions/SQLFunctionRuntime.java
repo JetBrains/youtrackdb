@@ -29,11 +29,9 @@ import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.parser.BaseParser;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.command.CommandExecutorNotFoundException;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemAbstract;
@@ -98,23 +96,6 @@ public class SQLFunctionRuntime extends SQLFilterItemAbstract {
         runtimeParameters[i] =
             ((SQLFilterItemVariable) configuredParameters[i])
                 .getValue(iCurrentRecord, iCurrentResult, iContext);
-      } else if (configuredParameters[i] instanceof CommandSQL) {
-        try {
-          runtimeParameters[i] =
-              ((CommandSQL) configuredParameters[i]).setContext(iContext)
-                  .execute(iContext.getDatabaseSession());
-        } catch (CommandExecutorNotFoundException ignore) {
-          // TRY WITH SIMPLE CONDITION
-          final var text = ((CommandSQL) configuredParameters[i]).getText();
-          final var pred = new SQLPredicate(iContext, text);
-          runtimeParameters[i] =
-              pred.evaluate(
-                  iCurrentRecord,
-                  (EntityImpl) iCurrentResult,
-                  iContext);
-          // REPLACE ORIGINAL PARAM
-          configuredParameters[i] = pred;
-        }
       } else if (configuredParameters[i] instanceof SQLPredicate) {
         runtimeParameters[i] =
             ((SQLPredicate) configuredParameters[i])

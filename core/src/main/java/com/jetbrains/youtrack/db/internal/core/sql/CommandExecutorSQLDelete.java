@@ -32,17 +32,13 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandResultListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
-import com.jetbrains.youtrack.db.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilter;
-import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLDeleteStatement;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLAsynchQuery;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLQuery;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -58,7 +54,6 @@ public class CommandExecutorSQLDelete extends CommandExecutorSQLAbstract
   public static final String KEYWORD_DELETE = "DELETE";
   private static final String VALUE_NOT_FOUND = "_not_found_";
 
-  private SQLQuery<EntityImpl> query;
   private String indexName = null;
   private int recordCount = 0;
   private String returning = "COUNT";
@@ -83,7 +78,6 @@ public class CommandExecutorSQLDelete extends CommandExecutorSQLAbstract
 
       init(session, (CommandRequestText) iRequest);
 
-      query = null;
       recordCount = 0;
 
       if (parserTextUpperCase.endsWith(KEYWORD_UNSAFE)) {
@@ -135,31 +129,8 @@ public class CommandExecutorSQLDelete extends CommandExecutorSQLAbstract
 
       } else if (subjectName.startsWith("(")) {
         subjectName = subjectName.trim();
-        query =
-            session.command(
-                new SQLAsynchQuery<EntityImpl>(
-                    subjectName.substring(1, subjectName.length() - 1), this));
-        parserNextWord(true);
-        if (!parserIsEnded()) {
-          while (!parserIsEnded()) {
-            final var word = parserGetLastWord();
 
-            if (word.equals(KEYWORD_RETURN)) {
-              returning = parseReturn();
-            } else if (word.equals(KEYWORD_UNSAFE)) {
-              unsafe = true;
-            } else if (word.equalsIgnoreCase(KEYWORD_WHERE)) {
-              compiledFilter =
-                  SQLEngine
-                      .parseCondition(
-                          parserText.substring(parserGetCurrentPosition()),
-                          getContext(),
-                          KEYWORD_WHERE);
-            }
-
-            parserNextWord(true);
-          }
-        }
+        throw new UnsupportedOperationException();
       } else {
         parserNextWord(true);
 
@@ -180,10 +151,7 @@ public class CommandExecutorSQLDelete extends CommandExecutorSQLAbstract
             parserGetCurrentPosition() > -1
                 ? " " + parserText.substring(parserGetCurrentPosition())
                 : "";
-        query =
-            session.command(
-                new SQLAsynchQuery<EntityImpl>(
-                    "select from " + getSelectTarget(subjectName) + condition, this));
+        throw new UnsupportedOperationException();
       }
     } finally {
       textRequest.setText(originalQuery);
@@ -200,122 +168,7 @@ public class CommandExecutorSQLDelete extends CommandExecutorSQLAbstract
   }
 
   public Object execute(DatabaseSessionInternal session, final Map<Object, Object> iArgs) {
-    if (query == null && indexName == null) {
-      throw new CommandExecutionException(session,
-          "Cannot execute the command because it has not been parsed yet");
-    }
-
-    if (!returning.equalsIgnoreCase("COUNT")) {
-      allDeletedRecords = new ArrayList<>();
-    }
-
-    if (query != null) {
-      // AGAINST CLUSTERS AND CLASSES
-      query.setContext(getContext());
-
-      var prevLockValue = query.getContext().getVariable("$locking");
-
-      query.execute(session, iArgs);
-
-      query.getContext().setVariable("$locking", prevLockValue);
-
-      if (returning.equalsIgnoreCase("COUNT"))
-      // RETURNS ONLY THE COUNT
-      {
-        return recordCount;
-      } else
-      // RETURNS ALL THE DELETED RECORDS
-      {
-        return allDeletedRecords;
-      }
-
-    } else {
-      // AGAINST INDEXES
-      if (compiledFilter != null) {
-        compiledFilter.bindParameters(iArgs);
-      }
-      final var index =
-          session
-              .getMetadata()
-              .getIndexManagerInternal()
-              .getIndex(session, indexName);
-      if (index == null) {
-        throw new CommandExecutionException(session, "Target index '" + indexName + "' not found");
-      }
-
-      IndexAbstract.manualIndexesWarning(session.getDatabaseName());
-
-      Object key = null;
-      Object value = VALUE_NOT_FOUND;
-
-      if (compiledFilter == null || compiledFilter.getRootCondition() == null) {
-        if (returning.equalsIgnoreCase("COUNT")) {
-          // RETURNS ONLY THE COUNT
-          final var total = index.size(session);
-          index.clear(session);
-          return total;
-        } else {
-          // RETURNS ALL THE DELETED RECORDS
-          var cursor = index.stream(session).iterator();
-
-          while (cursor.hasNext()) {
-            final var entry = cursor.next();
-            Identifiable rec = entry.second;
-            var transaction = session.getActiveTransaction();
-            rec = transaction.load(rec);
-            if (rec != null) {
-              allDeletedRecords.add((DBRecord) rec);
-            }
-          }
-
-          index.clear(session);
-
-          return allDeletedRecords;
-        }
-
-      } else {
-        if (KEYWORD_KEY.equalsIgnoreCase(compiledFilter.getRootCondition().getLeft().toString()))
-        // FOUND KEY ONLY
-        {
-          key =
-              getIndexKey(
-                  session, index.getDefinition(), compiledFilter.getRootCondition().getRight());
-        } else if (KEYWORD_RID.equalsIgnoreCase(
-            compiledFilter.getRootCondition().getLeft().toString())) {
-          // BY RID
-          value = SQLHelper.getValue(compiledFilter.getRootCondition().getRight());
-
-        } else if (compiledFilter.getRootCondition().getLeft()
-            instanceof SQLFilterCondition leftCondition) {
-          // KEY AND VALUE
-          if (KEYWORD_KEY.equalsIgnoreCase(leftCondition.getLeft().toString())) {
-            key = getIndexKey(session, index.getDefinition(), leftCondition.getRight());
-          }
-
-          final var rightCondition =
-              (SQLFilterCondition) compiledFilter.getRootCondition().getRight();
-          if (KEYWORD_RID.equalsIgnoreCase(rightCondition.getLeft().toString())) {
-            value = SQLHelper.getValue(rightCondition.getRight());
-          }
-        }
-
-        final boolean result;
-        if (value != VALUE_NOT_FOUND) {
-          assert key != null;
-          result = index.remove(session, key, (Identifiable) value);
-        } else {
-          result = index.remove(session, key);
-        }
-
-        if (returning.equalsIgnoreCase("COUNT")) {
-          return result ? 1 : 0;
-        } else
-        // TODO: REFACTOR INDEX TO RETURN DELETED ITEMS
-        {
-          throw new UnsupportedOperationException();
-        }
-      }
-    }
+    return null;
   }
 
 

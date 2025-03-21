@@ -207,25 +207,21 @@ public class CommandExecutorSQLTraverse extends CommandExecutorSQLResultsetAbstr
           "No source found in query: specify class, cluster(s) or single record(s)");
     }
 
-    try {
-      if (traverse == null) {
-        traverse = new Traverse(session);
-      }
-
-      // BROWSE ALL THE RECORDS AND COLLECTS RESULT
-      final var result = traverse.execute(session);
-      for (var r : result) {
-        if (!handleResult(r, context))
-        // LIMIT REACHED
-        {
-          break;
-        }
-      }
-
-      return getResult(session);
-    } finally {
-      request.getResultListener().end(session);
+    if (traverse == null) {
+      traverse = new Traverse(session);
     }
+
+    // BROWSE ALL THE RECORDS AND COLLECTS RESULT
+    final var result = traverse.execute(session);
+    for (var r : result) {
+      if (!handleResult(r, context))
+      // LIMIT REACHED
+      {
+        break;
+      }
+    }
+
+    return getResult(session);
   }
 
   @Override

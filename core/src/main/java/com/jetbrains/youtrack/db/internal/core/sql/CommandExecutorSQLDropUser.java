@@ -51,7 +51,7 @@ public class CommandExecutorSQLDropUser extends CommandExecutorSQLAbstract
         "DELETE FROM " + USER_CLASS + " WHERE " + USER_FIELD_NAME + "='" + this.userName + "'";
 
     //
-    return session.command(new CommandSQL(sb)).execute(session);
+    throw new UnsupportedOperationException();
   }
 
   @Override

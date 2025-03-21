@@ -18,6 +18,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCloseable {
+
   @Override
   boolean hasNext();
 
@@ -370,6 +371,45 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
   default void forEachStatefulEdge(Consumer<? super StatefulEdge> action) {
     statefulEdgeStream().forEach(action);
   }
+
+  default Stream<Result> detachedStream() {
+    return StreamSupport.stream(
+            new Spliterator<Result>() {
+              @Override
+              public boolean tryAdvance(Consumer<? super Result> action) {
+                while (hasNext()) {
+                  var nextElem = next();
+                  if (nextElem != null) {
+                    action.accept(nextElem.detach());
+                    return true;
+                  }
+                }
+                return false;
+              }
+
+              @Override
+              public Spliterator<Result> trySplit() {
+                return null;
+              }
+
+              @Override
+              public long estimateSize() {
+                return Long.MAX_VALUE;
+              }
+
+              @Override
+              public int characteristics() {
+                return ORDERED;
+              }
+            },
+            false)
+        .onClose(this::close);
+  }
+
+  default List<Result> toDetachedList() {
+    return detachedStream().toList();
+  }
+
 
   @Override
   void forEachRemaining(Consumer<? super Result> action);

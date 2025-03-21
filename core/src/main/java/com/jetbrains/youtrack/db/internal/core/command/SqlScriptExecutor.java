@@ -1,12 +1,16 @@
 package com.jetbrains.youtrack.db.internal.core.command;
 
+import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.internal.core.command.script.CommandExecutorFunction;
-import com.jetbrains.youtrack.db.internal.core.command.script.CommandFunction;
+import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
+import com.jetbrains.youtrack.db.internal.core.command.script.CommandExecutorUtility;
 import com.jetbrains.youtrack.db.internal.core.command.traverse.AbstractScriptExecutor;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
+import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.RetryExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.RetryStep;
@@ -21,6 +25,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import javax.script.Invocable;
+import javax.script.ScriptContext;
+import javax.script.ScriptException;
 
 /**
  *
@@ -35,7 +42,7 @@ public class SqlScriptExecutor extends AbstractScriptExecutor {
   public ResultSet execute(DatabaseSessionInternal database, String script, Object... args)
       throws CommandSQLParsingException, CommandExecutionException {
 
-    if (!script.trim().endsWith(";")) {
+    if (!(!script.trim().isEmpty() && script.trim().charAt(script.trim().length() - 1) == ';')) {
       script += ";";
     }
     var statements = SQLEngine.parseScript(script, database);
@@ -55,7 +62,7 @@ public class SqlScriptExecutor extends AbstractScriptExecutor {
 
   @Override
   public ResultSet execute(DatabaseSessionInternal database, String script, Map params) {
-    if (!script.trim().endsWith(";")) {
+    if (!(!script.trim().isEmpty() && script.trim().charAt(script.trim().length() - 1) == ';')) {
       script += ";";
     }
     var statements = SQLEngine.parseScript(script, database);
@@ -63,12 +70,14 @@ public class SqlScriptExecutor extends AbstractScriptExecutor {
     CommandContext scriptContext = new BasicCommandContext();
     scriptContext.setDatabaseSession(database);
 
-    scriptContext.setInputParameters(params);
+    //noinspection unchecked
+    scriptContext.setInputParameters((Map<Object, Object>) params);
 
     return executeInternal(statements, scriptContext);
   }
 
-  private ResultSet executeInternal(List<SQLStatement> statements, CommandContext scriptContext) {
+  private static ResultSet executeInternal(List<SQLStatement> statements,
+      CommandContext scriptContext) {
     var plan = new ScriptExecutionPlan(scriptContext);
 
     plan.setStatement(
@@ -134,9 +143,63 @@ public class SqlScriptExecutor extends AbstractScriptExecutor {
   @Override
   public Object executeFunction(
       CommandContext context, final String functionName, final Map<Object, Object> iArgs) {
+    var session = context.getDatabaseSession();
+    final var f = session.getMetadata().getFunctionLibrary().getFunction(session, functionName);
 
-    final var command = new CommandExecutorFunction();
-    command.parse(context.getDatabaseSession(), new CommandFunction(functionName));
-    return command.executeInContext(context, iArgs);
+    session.checkSecurity(Rule.ResourceGeneric.FUNCTION, Role.PERMISSION_READ, f.getName());
+    final var scriptManager = session.getSharedContext().getYouTrackDB().getScriptManager();
+
+    final var scriptEngine =
+        scriptManager.acquireDatabaseEngine(session, f.getLanguage());
+    try {
+      final var binding =
+          scriptManager.bindContextVariables(
+              scriptEngine,
+              scriptEngine.getBindings(ScriptContext.ENGINE_SCOPE),
+              session,
+              context,
+              iArgs);
+      try {
+        final Object result;
+
+        if (scriptEngine instanceof Invocable invocableEngine) {
+          // INVOKE AS FUNCTION. PARAMS ARE PASSED BY POSITION
+          Object[] args = null;
+          if (iArgs != null) {
+            args = new Object[iArgs.size()];
+            var i = 0;
+            for (var arg : iArgs.entrySet()) {
+              args[i++] = arg.getValue();
+            }
+          } else {
+            args = CommonConst.EMPTY_OBJECT_ARRAY;
+          }
+          result = invocableEngine.invokeFunction(functionName, args);
+
+        } else {
+          // INVOKE THE CODE SNIPPET
+          final var args = iArgs == null ? null : iArgs.values().toArray();
+          result = scriptEngine.eval(scriptManager.getFunctionInvoke(session, f, args), binding);
+        }
+        return CommandExecutorUtility.transformResult(
+            scriptManager.handleResult(f.getLanguage(), result, scriptEngine, binding, session));
+
+      } catch (ScriptException e) {
+        throw BaseException.wrapException(
+            new CommandScriptException(session.getDatabaseName(),
+                "Error on execution of the function", functionName, e.getColumnNumber()),
+            e, session);
+      } catch (NoSuchMethodException e) {
+        throw BaseException.wrapException(
+            new CommandScriptException(session.getDatabaseName(),
+                "Error on execution of the function",
+                functionName, 0),
+            e, session);
+      } finally {
+        scriptManager.unbind(scriptEngine, binding, context, iArgs);
+      }
+    } finally {
+      scriptManager.releaseDatabaseEngine(f.getLanguage(), session.getDatabaseName(), scriptEngine);
+    }
   }
 }

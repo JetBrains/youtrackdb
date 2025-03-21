@@ -22,7 +22,6 @@ package com.jetbrains.youtrack.db.internal.core.db.record;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Test;
@@ -90,32 +89,4 @@ public class DocumentTest extends DbTestBase {
     session.rollback();
   }
 
-  @Test
-  public void testEval() {
-    session.begin();
-    var doc = (EntityImpl) session.newEntity();
-
-    doc.setProperty("amount", 300);
-
-    var amountPlusVat = (Number) doc.eval("amount * 120 / 100");
-
-    Assert.assertEquals(360L, amountPlusVat.longValue());
-    session.rollback();
-  }
-
-  @Test
-  public void testEvalInContext() {
-    session.begin();
-    var doc = (EntityImpl) session.newEntity();
-
-    doc.setProperty("amount", 300);
-
-    var context = new BasicCommandContext();
-    context.setVariable("vat", 20);
-    context.setDatabaseSession(session);
-    var amountPlusVat = (Number) doc.eval("amount * (100 + $vat) / 100", context);
-
-    Assert.assertEquals(360L, amountPlusVat.longValue());
-    session.rollback();
-  }
 }

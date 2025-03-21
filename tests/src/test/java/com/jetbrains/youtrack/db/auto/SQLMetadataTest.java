@@ -16,9 +16,6 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.internal.core.exception.QueryParsingException;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
-import java.util.List;
 import org.testng.Assert;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
@@ -36,36 +33,30 @@ public class SQLMetadataTest extends BaseDBTest {
 
   @Test
   public void querySchemaClasses() {
-    List<EntityImpl> result =
+    var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>("select expand(classes) from metadata:schema"))
-            .execute(session);
+            .query("select expand(classes) from metadata:schema").toList();
 
     Assert.assertTrue(result.size() != 0);
   }
 
   @Test
   public void querySchemaProperties() {
-    List<EntityImpl> result =
+    var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select expand(properties) from (select expand(classes) from metadata:schema)"
-                        + " where name = 'OUser'"))
-            .execute(session);
+            .query(
+                "select expand(properties) from (select expand(classes) from metadata:schema)"
+                    + " where name = 'OUser'").toList();
 
     Assert.assertTrue(result.size() != 0);
   }
 
   @Test
   public void queryIndexes() {
-    List<EntityImpl> result =
+    var result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select expand(indexes) from metadata:indexmanager"))
-            .execute(session);
+            .query(
+                "select expand(indexes) from metadata:indexmanager").toList();
 
     Assert.assertTrue(result.size() != 0);
   }
@@ -74,8 +65,7 @@ public class SQLMetadataTest extends BaseDBTest {
   public void queryMetadataNotSupported() {
     try {
       session
-          .command(new SQLSynchQuery<EntityImpl>("select expand(indexes) from metadata:blaaa"))
-          .execute(session);
+          .query("select expand(indexes) from metadata:blaaa").toList();
       Assert.fail();
     } catch (QueryParsingException e) {
     }

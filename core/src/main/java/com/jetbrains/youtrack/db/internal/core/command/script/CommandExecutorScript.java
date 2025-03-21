@@ -40,7 +40,6 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandExecutorAbstract;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.TemporaryRidGenerator;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLPredicate;
@@ -547,13 +546,10 @@ public class CommandExecutorScript extends CommandExecutorAbstract
   }
 
   private Object executeCommand(final String lastCommand, final DatabaseSession db) {
-    final var command = new CommandSQL(lastCommand);
     var database = (DatabaseSessionInternal) db;
     var result =
         database
-            .command(command.setContext(getContext()))
-            .execute(database, toMap(parameters));
-    request.setFetchPlan(command.getFetchPlan());
+            .execute(lastCommand, toMap(parameters)).toList();
     return result;
   }
 

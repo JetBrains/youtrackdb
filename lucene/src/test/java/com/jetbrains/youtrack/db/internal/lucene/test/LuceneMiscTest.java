@@ -20,7 +20,6 @@ package com.jetbrains.youtrack.db.internal.lucene.test;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -148,8 +147,7 @@ public class LuceneMiscTest extends BaseLuceneTest {
     Assert.assertEquals(results.stream().count(), 1);
 
     List<?> results1 =
-        session.command(new CommandSQL("select from AuthorOf where in.title lucene 'hurricane'"))
-            .execute(session);
+        session.query("select from AuthorOf where in.title lucene 'hurricane'").toList();
 
     Assert.assertEquals(results1.size(), 1);
   }

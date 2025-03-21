@@ -37,8 +37,6 @@ public class CommandExecutorSQLTransactional extends CommandExecutorSQLDelegate 
   @Override
   public CommandExecutorSQLTransactional parse(DatabaseSessionInternal session,
       CommandRequest iCommand) {
-    var cmd = ((CommandSQL) iCommand).getText();
-    super.parse(session, new CommandSQL(cmd.substring(KEYWORD_TRANSACTIONAL.length())));
     return this;
   }
 

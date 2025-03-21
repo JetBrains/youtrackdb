@@ -17,6 +17,7 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -30,9 +31,7 @@ import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.FetchFromIndexStep;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -65,21 +64,21 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testDuplicatedIndexOnUnique() {
+    session.begin();
     var jayMiner = session.newEntity("Profile");
     jayMiner.setProperty("nick", "Jay");
     jayMiner.setProperty("name", "Jay");
     jayMiner.setProperty("surname", "Miner");
 
-    session.begin();
     session.commit();
 
+    session.begin();
     var jacobMiner = session.newEntity("Profile");
     jacobMiner.setProperty("nick", "Jay");
     jacobMiner.setProperty("name", "Jacob");
     jacobMiner.setProperty("surname", "Miner");
 
     try {
-      session.begin();
       session.commit();
 
       // IT SHOULD GIVE ERROR ON DUPLICATED KEY
@@ -431,26 +430,21 @@ public class IndexTest extends BaseDBTest {
               .isEmpty());
     }
 
-    List<EntityImpl> result =
+    var result =
         session
-            .command(new SQLSynchQuery<EntityImpl>("SELECT FROM Profile WHERE nick = 'Jay'"))
-            .execute(session);
+            .query("SELECT FROM Profile WHERE nick = 'Jay'").toList();
     Assert.assertEquals(result.size(), 2);
 
     result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "SELECT FROM Profile WHERE nick = 'Jay' AND name = 'Jay'"))
-            .execute(session);
+            .query(
+                "SELECT FROM Profile WHERE nick = 'Jay' AND name = 'Jay'").toList();
     Assert.assertEquals(result.size(), 1);
 
     result =
         session
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "SELECT FROM Profile WHERE nick = 'Jay' AND name = 'Nick'"))
-            .execute(session);
+            .query(
+                "SELECT FROM Profile WHERE nick = 'Jay' AND name = 'Nick'").toList();
     Assert.assertEquals(result.size(), 1);
   }
 
@@ -559,8 +553,9 @@ public class IndexTest extends BaseDBTest {
         testLinkClass.createProperty("testBoolean", PropertyType.BOOLEAN);
         testLinkClass.createProperty("testString", PropertyType.STRING);
       }
-      var testClassDocument = db.newInstance("TestClass");
+
       db.begin();
+      var testClassDocument = db.newInstance("TestClass");
       testClassDocument.setProperty("name", "Test Class 1");
       var testLinkClassDocument = ((EntityImpl) db.newEntity("TestLinkClass"));
       testLinkClassDocument.setProperty("testString", "Test Link Class 1");
@@ -837,9 +832,7 @@ public class IndexTest extends BaseDBTest {
     }
 
     Assert.assertEquals(
-        ((List<EntityImpl>)
-            db.command(new CommandSQL("select from TransactionUniqueIndexWithDotTest"))
-                .execute(db))
+        db.query("select from TransactionUniqueIndexWithDotTest").toList()
             .size(),
         countClassBefore);
 
@@ -1141,6 +1134,7 @@ public class IndexTest extends BaseDBTest {
       session.commit();
     }
 
+    var tx = session.begin();
     var resultSet =
         executeQuery("select from IndexWithLimitAndOffsetClass where val = 1 offset 5 limit 2");
     Assert.assertEquals(resultSet.size(), 2);
@@ -1150,6 +1144,7 @@ public class IndexTest extends BaseDBTest {
       Assert.assertEquals(result.<Object>getProperty("val"), 1);
       Assert.assertEquals(result.<Object>getProperty("index"), 15 + i);
     }
+    tx.commit();
   }
 
   public void testNullIndexKeysSupport() {
@@ -1192,8 +1187,7 @@ public class IndexTest extends BaseDBTest {
       Assert.assertNull(result.getProperty("nullField"));
     }
 
-    final EntityImpl explain = session.command(new CommandSQL("explain " + query))
-        .execute(session);
+    var explain = session.query("explain " + query).findFirst(Result::detach);
     Assert.assertTrue(
         explain.<Set<String>>getProperty("involvedIndexes").contains("NullIndexKeysSupportIndex"));
   }
@@ -1241,8 +1235,7 @@ public class IndexTest extends BaseDBTest {
       Assert.assertNull(document.getProperty("nullField"));
     }
 
-    final EntityImpl explain = session.command(new CommandSQL("explain " + query))
-        .execute(session);
+    final var explain = session.query("explain " + query).findFirst(Result::detach);
     Assert.assertTrue(
         explain.<Set<String>>getProperty("involvedIndexes")
             .contains("NullHashIndexKeysSupportIndex"));
@@ -1294,8 +1287,7 @@ public class IndexTest extends BaseDBTest {
       Assert.assertNull(document.getProperty("nullField"));
     }
 
-    final EntityImpl explain = session.command(new CommandSQL("explain " + query))
-        .execute(session);
+    final var explain = session.query("explain " + query).findFirst(Result::detach);
     Assert.assertTrue(
         explain.<Set<String>>getProperty("involvedIndexes")
             .contains("NullIndexKeysSupportInTxIndex"));
@@ -1351,8 +1343,7 @@ public class IndexTest extends BaseDBTest {
       Assert.assertNull(document.getProperty("nullField"));
     }
 
-    final EntityImpl explain = session.command(new CommandSQL("explain " + query))
-        .execute(session);
+    final var explain = session.query("explain " + query).findFirst(Result::detach);
     Assert.assertTrue(
         explain.<Set<String>>getProperty("involvedIndexes")
             .contains("NullIndexKeysSupportInMiddleTxIndex"));
@@ -1381,6 +1372,7 @@ public class IndexTest extends BaseDBTest {
 
     session.commit();
 
+    var tx = session.begin();
     final var queryOne = "select from TestCreateIndexAbstractClass where value = 'val1'";
 
     var resultOne = executeQuery(queryOne);
@@ -1400,12 +1392,13 @@ public class IndexTest extends BaseDBTest {
       Assert.assertEquals(resultTwo.size(), 1);
       Assert.assertEquals(resultTwo.getFirst().getIdentity(), docTwo.getIdentity());
 
-      explain = session.command(new CommandSQL("explain " + queryTwo)).execute(session);
+      explain = session.query("explain " + queryTwo).findFirst(Result::detach);
       Assert.assertTrue(
           explain
               .<Collection<String>>getProperty("involvedIndexes")
               .contains("TestCreateIndexAbstractClass.value"));
     }
+    session.commit();
   }
 
   @Test(enabled = false)
