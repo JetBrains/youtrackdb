@@ -29,6 +29,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Edge;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -341,6 +342,19 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return getPropertyInternal(propertyName);
   }
 
+  @Nullable
+  @Override
+  public EmbeddedEntity getEmbeddedEntity(@Nonnull String name) {
+    var propertyValue = getProperty(name);
+    if (propertyValue == null) {
+      return null;
+    }
+    if (propertyValue instanceof EmbeddedEntity entity) {
+      return entity;
+    }
+
+    throw new DatabaseException("Property " + name + " does not contain an embedded entity");
+  }
 
   @Nullable
   public Entity getEntity(@Nonnull String name) {

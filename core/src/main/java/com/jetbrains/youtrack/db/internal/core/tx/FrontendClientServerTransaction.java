@@ -66,7 +66,17 @@ public class FrontendClientServerTransaction extends FrontendTransactionImpl {
         receivedOperations.sort((operationOne, operationTwo) -> {
           var typeComparison = -Byte.compare(operationOne.getType(), operationTwo.getType());
           if (typeComparison == 0) {
-            return Long.compare(operationOne.getDirtyCounter(), operationTwo.getDirtyCounter());
+            //not existing records should be processed first
+            var txEntryOne = getRecordEntry(operationOne.getId());
+            var txEntryTwo = getRecordEntry(operationTwo.getId());
+
+            if (txEntryOne == null) {
+              return -1;
+            } else if (txEntryTwo == null) {
+              return 1;
+            }
+
+            return 0;
           }
 
           return typeComparison;

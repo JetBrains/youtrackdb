@@ -55,7 +55,6 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
   private final String serverURL;
   private byte currentStatus;
   private int currentSessionId;
-  private byte currentMessage;
   private volatile long lastUse;
   private volatile boolean inUse;
 
@@ -223,7 +222,8 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
         tokenBytes = null;
       }
 
-      currentMessage = readByte();
+      //current message
+      readByte();
       handleStatus(db, currentStatus, currentSessionId);
       return tokenBytes;
     } catch (LockException e) {

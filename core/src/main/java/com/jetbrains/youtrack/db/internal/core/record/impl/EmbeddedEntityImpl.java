@@ -1,10 +1,11 @@
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import java.lang.ref.WeakReference;
 
-public class EmbeddedEntityImpl extends EntityImpl {
+public class EmbeddedEntityImpl extends EntityImpl implements EmbeddedEntity {
 
   public EmbeddedEntityImpl(String clazz, DatabaseSessionInternal session) {
     super(session, clazz);

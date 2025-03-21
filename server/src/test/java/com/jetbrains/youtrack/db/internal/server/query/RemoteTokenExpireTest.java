@@ -52,19 +52,21 @@ public class RemoteTokenExpireTest {
     youTrackDB.execute(
         "create database ? memory users (admin identified by 'admin' role admin)",
         RemoteTokenExpireTest.class.getSimpleName());
+
     session = youTrackDB.open(RemoteTokenExpireTest.class.getSimpleName(), "admin", "admin");
     session.createClass("Some");
-    oldPageSize = QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
-    QUERY_REMOTE_RESULTSET_PAGE_SIZE.setValue(10);
 
     session.close();
     youTrackDB.close();
 
     var config =
         YouTrackDBConfig.builder()
-            .addGlobalConfigurationParameter(GlobalConfiguration.NETWORK_SOCKET_RETRY, 0).build();
+            .addGlobalConfigurationParameter(GlobalConfiguration.NETWORK_SOCKET_RETRY, 0)
+            .addGlobalConfigurationParameter(QUERY_REMOTE_RESULTSET_PAGE_SIZE, 1).build();
+
     youTrackDB = new YouTrackDBImpl("remote:localhost", "root", "root", config);
-    session = youTrackDB.open(RemoteTokenExpireTest.class.getSimpleName(), "admin", "admin");
+    session = youTrackDB.open(RemoteTokenExpireTest.class.getSimpleName(), "admin", "admin",
+        config);
   }
 
   private void clean() {
@@ -132,20 +134,18 @@ public class RemoteTokenExpireTest {
   @Test
   public void itShouldFailWithQueryNext() throws InterruptedException {
 
-    QUERY_REMOTE_RESULTSET_PAGE_SIZE.setValue(1);
+    try {
+      session.executeInTx(transaction -> {
+        try (var res = transaction.query("select from ORole")) {
+          waitAndClean();
+          Assert.assertEquals(3, res.stream().count());
+          Assert.fail("It should get an exception");
+        } catch (TokenSecurityException e) {
+        }
+      });
+    } catch (TokenSecurityException e) {
+    }
 
-    session.executeInTx(transaction -> {
-      try (var res = transaction.query("select from ORole")) {
-
-        waitAndClean();
-        Assert.assertEquals(3, res.stream().count());
-
-      } catch (TokenSecurityException e) {
-      } finally {
-        QUERY_REMOTE_RESULTSET_PAGE_SIZE.setValue(10);
-      }
-    });
-    Assert.fail("It should get an exception");
   }
 
   @Test
@@ -168,7 +168,6 @@ public class RemoteTokenExpireTest {
   public void itShouldFailAtBeingAndQuery() {
 
     var tx = session.begin();
-
     tx.newEntity("Some");
     try (var resultSet = tx.query("select from Some")) {
       Assert.assertEquals(1, resultSet.stream().count());
@@ -176,18 +175,14 @@ public class RemoteTokenExpireTest {
     waitAndClean();
 
     try {
-      tx.query("select from Some").close();
+      tx.query("select from Some").stream().count();
+      Assert.fail("It should not get the expire exception");
     } catch (TokenSecurityException e) {
-      tx.rollback();
-      return;
     }
-
-    Assert.fail("It should not get the expire exception");
   }
 
   @Test
   public void itShouldNotFailWithRoundRobin() {
-
     SessionPool pool =
         new SessionPoolImpl(
             youTrackDB,
@@ -212,8 +207,9 @@ public class RemoteTokenExpireTest {
         try (var resultSet = transaction.query("select from Some")) {
           Assert.assertEquals(0, resultSet.stream().count());
         }
-      } catch (TokenSecurityException e) {
         Assert.fail("It should  get the expire exception");
+      } catch (TokenSecurityException e) {
+        //expected
       }
     });
     pool.close();

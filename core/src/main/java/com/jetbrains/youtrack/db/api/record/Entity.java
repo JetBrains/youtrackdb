@@ -56,6 +56,9 @@ public interface Entity extends DBRecord, Result {
   @Nullable
   PropertyType getPropertyType(final String propertyName);
 
+  @Nullable
+  EmbeddedEntity getEmbeddedEntity(@Nonnull String name);
+
   /**
    * Sets a property value
    *
@@ -125,7 +128,7 @@ public interface Entity extends DBRecord, Result {
     setProperty(name, value, PropertyType.LINK);
   }
 
-  default void setEmbeddedEntity(@Nonnull String name, @Nullable Entity value) {
+  default void setEmbeddedEntity(@Nonnull String name, @Nullable EmbeddedEntity value) {
     if (value != null && !value.isEmbedded()) {
       throw new IllegalArgumentException("Entity is not embedded");
     }

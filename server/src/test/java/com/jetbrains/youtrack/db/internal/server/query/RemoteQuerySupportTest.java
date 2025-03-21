@@ -5,17 +5,15 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.server.BaseServerMemoryDatabase;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -31,9 +29,9 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
 
   public void beforeTest() {
     super.beforeTest();
-    db.createClass("Some");
-    db.createVertexClass("SomeVertex");
-    db.createAbstractClass("AbstractSome");
+    session.createClass("Some");
+    session.createVertexClass("SomeVertex");
+    session.createAbstractClass("AbstractSome");
     oldPageSize = QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
     QUERY_REMOTE_RESULTSET_PAGE_SIZE.setValue(10);
   }
@@ -41,35 +39,35 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
   @Test
   public void testQuery() {
     for (var i = 0; i < 150; i++) {
-      db.begin();
-      var doc = ((EntityImpl) db.newEntity("Some"));
+      session.begin();
+      var doc = ((EntityImpl) session.newEntity("Some"));
       doc.setProperty("prop", "value");
-      db.commit();
+      session.commit();
     }
 
-    var res = db.query("select from Some");
+    var res = session.query("select from Some");
     for (var i = 0; i < 150; i++) {
       assertTrue(res.hasNext());
       var item = res.next();
-      assertEquals(item.getProperty("prop"), "value");
+      assertEquals("value", item.getProperty("prop"));
     }
   }
 
   @Test
   public void testCommandSelect() {
     for (var i = 0; i < 150; i++) {
-      db.begin();
-      var doc = ((EntityImpl) db.newEntity("Some"));
+      session.begin();
+      var doc = ((EntityImpl) session.newEntity("Some"));
       doc.setProperty("prop", "value");
-      db.commit();
+      session.commit();
     }
 
-    var tx = db.begin();
+    var tx = session.begin();
     var res = tx.execute("select from Some");
     for (var i = 0; i < 150; i++) {
       assertTrue(res.hasNext());
       var item = res.next();
-      assertEquals(item.getProperty("prop"), "value");
+      assertEquals("value", item.getProperty("prop"));
     }
     tx.commit();
   }
@@ -77,25 +75,25 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
   @Test
   public void testCommandInsertWithPageOverflow() {
     for (var i = 0; i < 150; i++) {
-      db.begin();
-      var doc = ((EntityImpl) db.newVertex("SomeVertex"));
+      session.begin();
+      var doc = ((EntityImpl) session.newVertex("SomeVertex"));
       doc.setProperty("prop", "value");
-      db.commit();
+      session.commit();
     }
 
-    db.begin();
-    var res = db.execute("insert into V from select from SomeVertex");
+    session.begin();
+    var res = session.execute("insert into V from select from SomeVertex");
     for (var i = 0; i < 150; i++) {
       assertTrue(res.hasNext());
       var item = res.next();
-      assertEquals(item.getProperty("prop"), "value");
+      assertEquals("value", item.getProperty("prop"));
     }
-    db.commit();
+    session.commit();
   }
 
   @Test(expected = DatabaseException.class)
   public void testQueryKilledSession() {
-    var tx = db.begin();
+    var tx = session.begin();
     for (var i = 0; i < 150; i++) {
       var doc = ((EntityImpl) tx.newEntity("Some"));
       doc.setProperty("prop", "value");
@@ -109,187 +107,202 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
     for (var i = 0; i < 150; i++) {
       assertTrue(res.hasNext());
       var item = res.next();
-      assertEquals(item.getProperty("prop"), "value");
+      assertEquals("value", item.getProperty("prop"));
     }
     tx.commit();
   }
 
   @Test
   public void testQueryEmbedded() {
-    db.begin();
-    var doc = ((EntityImpl) db.newEntity("Some"));
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity("Some"));
     doc.setProperty("prop", "value");
-    var emb = ((EntityImpl) db.newEntity());
+    var emb = ((EntityImpl) session.newEmbeddedEntity());
     emb.setProperty("one", "value");
     doc.setProperty("emb", emb, PropertyType.EMBEDDED);
-    db.commit();
+    session.commit();
 
-    var res = db.query("select emb from Some");
+    var tx = session.begin();
+    var res = tx.query("select emb from Some");
 
     var item = res.next();
     assertNotNull(item.getProperty("emb"));
-    assertEquals(((Result) item.getProperty("emb")).getProperty("one"), "value");
+    assertEquals("value", ((Result) item.getProperty("emb")).getProperty("one"));
+    tx.commit();
   }
 
   @Test
   public void testQueryDoubleEmbedded() {
-    db.begin();
-    var doc = ((EntityImpl) db.newEntity("Some"));
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity("Some"));
     doc.setProperty("prop", "value");
-    var emb1 = ((EntityImpl) db.newEntity());
+    var emb1 = ((EntityImpl) session.newEmbeddedEntity());
     emb1.setProperty("two", "value");
-    var emb = ((EntityImpl) db.newEntity());
+    var emb = ((EntityImpl) session.newEmbeddedEntity());
     emb.setProperty("one", "value");
     emb.setProperty("secEmb", emb1, PropertyType.EMBEDDED);
 
     doc.setProperty("emb", emb, PropertyType.EMBEDDED);
-    db.commit();
+    session.commit();
 
-    var res = db.query("select emb from Some");
+    var tx = session.begin();
+    var res = session.query("select emb from Some");
 
     var item = res.next();
     assertNotNull(item.getProperty("emb"));
     Result resEmb = item.getProperty("emb");
-    assertEquals(resEmb.getProperty("one"), "value");
-    assertEquals(((Result) resEmb.getProperty("secEmb")).getProperty("two"), "value");
+    assertEquals("value", resEmb.getProperty("one"));
+    assertEquals("value", ((Result) resEmb.getProperty("secEmb")).getProperty("two"));
+    tx.commit();
   }
 
   @Test
   public void testQueryEmbeddedList() {
-    db.begin();
-    var doc = ((EntityImpl) db.newEntity("Some"));
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity("Some"));
     doc.setProperty("prop", "value");
-    var emb = ((EntityImpl) db.newEntity());
+    var emb = ((EntityImpl) session.newEmbeddedEntity());
     emb.setProperty("one", "value");
-    List<Object> list = new ArrayList<>();
+
+    List<Entity> list = session.newEmbeddedList();
     list.add(emb);
     doc.setProperty("list", list, PropertyType.EMBEDDEDLIST);
-    db.commit();
+    session.commit();
 
-    var res = db.query("select list from Some");
+    var tx = session.begin();
+    var res = session.query("select list from Some");
 
     var item = res.next();
     assertNotNull(item.getProperty("list"));
-    assertEquals(((List<Result>) item.getProperty("list")).size(), 1);
-    assertEquals(((List<Result>) item.getProperty("list")).get(0).getProperty("one"), "value");
+    assertEquals(1, ((List<Result>) item.getProperty("list")).size());
+    assertEquals("value", ((List<Result>) item.getProperty("list")).get(0).getProperty("one"));
+    tx.commit();
   }
 
   @Test
   public void testQueryEmbeddedSet() {
-    db.begin();
-    var doc = ((EntityImpl) db.newEntity("Some"));
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity("Some"));
     doc.setProperty("prop", "value");
-    var emb = ((EntityImpl) db.newEntity());
+    var emb = ((EntityImpl) session.newEmbeddedEntity());
     emb.setProperty("one", "value");
-    Set<EntityImpl> set = new HashSet<>();
+    Set<EntityImpl> set = session.newEmbeddedSet();
     set.add(emb);
     doc.setProperty("set", set, PropertyType.EMBEDDEDSET);
-    db.commit();
+    session.commit();
 
-    var res = db.query("select set from Some");
+    var tx = session.begin();
+    var res = session.query("select set from Some");
 
     var item = res.next();
     assertNotNull(item.getProperty("set"));
-    assertEquals(((Set<Result>) item.getProperty("set")).size(), 1);
+    assertEquals(1, ((Set<Result>) item.getProperty("set")).size());
     assertEquals(
-        ((Set<Result>) item.getProperty("set")).iterator().next().getProperty("one"), "value");
+        "value", ((Set<Result>) item.getProperty("set")).iterator().next().getProperty("one"));
+    tx.commit();
   }
+
 
   @Test
   public void testQueryEmbeddedMap() {
-    db.begin();
-    var doc = ((EntityImpl) db.newEmbeddedEntity("Some"));
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity("Some"));
     doc.setProperty("prop", "value");
-    var emb = ((EntityImpl) db.newEntity());
+    var emb = ((EntityImpl) session.newEmbeddedEntity());
     emb.setProperty("one", "value");
-    Map<String, EntityImpl> map = new HashMap<>();
+    Map<String, EntityImpl> map = session.newEmbeddedMap();
     map.put("key", emb);
     doc.setProperty("map", map, PropertyType.EMBEDDEDMAP);
-    db.commit();
+    session.commit();
 
-    var tx = db.begin();
+    var tx = session.begin();
     var res = tx.query("select map from Some");
 
     var item = res.next();
     assertNotNull(item.getProperty("map"));
-    assertEquals(((Map<String, Result>) item.getProperty("map")).size(), 1);
+    assertEquals(1, ((Map<String, Result>) item.getProperty("map")).size());
     assertEquals(
-        ((Map<String, Result>) item.getProperty("map")).get("key").getProperty("one"), "value");
+        "value", ((Map<String, Result>) item.getProperty("map")).get("key").getProperty("one"));
     tx.commit();
   }
 
   @Test
   public void testCommandWithTX() {
 
-    db.begin();
+    session.begin();
 
-    db.execute("insert into Some set prop = 'value'");
+    session.execute("insert into Some set prop = 'value'");
 
     DBRecord record;
 
-    try (var resultSet = db.execute("insert into Some set prop = 'value'")) {
+    try (var resultSet = session.execute("insert into Some set prop = 'value'")) {
       record = resultSet.next().asRecord();
     }
 
-    db.commit();
+    session.commit();
 
     Assert.assertTrue(record.getIdentity().isPersistent());
   }
 
-  @Test(expected = SerializationException.class)
+  @Test(expected = CommandExecutionException.class)
   public void testBrokenParameter() {
     try {
-      db.query("select from Some where prop= ?", new Object()).close();
+      var tx = session.begin();
+      tx.query("select from Some where prop= ?", new Object()).close();
     } catch (RuntimeException e) {
+      Assert.assertFalse(session.isTxActive());
       // should be possible to run a query after without getting the server stuck
-      db.query("select from Some where prop= ?", new RecordId(10, 10)).close();
+      var tx = session.begin();
+      tx.query("select from Some where prop= ?", new RecordId(10, 10)).close();
+      tx.commit();
       throw e;
     }
   }
 
   @Test
   public void testScriptWithRidbags() {
-    db.execute("create class testScriptWithRidbagsV extends V");
-    db.execute("create class testScriptWithRidbagsE extends E");
+    session.execute("create class testScriptWithRidbagsV extends V");
+    session.execute("create class testScriptWithRidbagsE extends E");
 
-    db.begin();
-    db.execute("create vertex testScriptWithRidbagsV set name = 'a'");
-    db.execute("create vertex testScriptWithRidbagsV set name = 'b'");
+    session.begin();
+    session.execute("create vertex testScriptWithRidbagsV set name = 'a'");
+    session.execute("create vertex testScriptWithRidbagsV set name = 'b'");
 
-    db.execute(
+    session.execute(
         "create edge testScriptWithRidbagsE from (select from testScriptWithRidbagsV where name ="
             + " 'a') TO (select from testScriptWithRidbagsV where name = 'b');");
-    db.commit();
+    session.commit();
 
     var script = "";
-    script += "BEGIN;";
     script += "LET q1 = SELECT * FROM testScriptWithRidbagsV WHERE name = 'a';";
     script += "LET q2 = SELECT * FROM testScriptWithRidbagsV WHERE name = 'b';";
-    script += "COMMIT ;";
     script += "RETURN [$q1,$q2]";
 
-    var rs = db.runScript("sql", script);
+    session.begin();
+    var rs = session.runScript("sql", script);
 
-    rs.forEachRemaining(System.out::println);
+    rs.stream().count();
     rs.close();
+    session.commit();
   }
 
   @Test
   public void testLetOut() {
-    db.execute("create class letVertex extends V");
-    db.execute("create class letEdge extends E");
+    session.execute("create class letVertex extends V");
+    session.execute("create class letEdge extends E");
 
-    db.begin();
-    db.execute("create vertex letVertex set name = 'a'");
-    db.execute("create vertex letVertex set name = 'b'");
-    db.execute(
+    session.begin();
+    session.execute("create vertex letVertex set name = 'a'");
+    session.execute("create vertex letVertex set name = 'b'");
+    session.execute(
         "create edge letEdge from (select from letVertex where name = 'a') TO (select from"
             + " letVertex where name = 'b');");
-    db.commit();
+    session.commit();
 
     var rs =
-        db.query("select $someNode.in('letEdge') from letVertex LET $someNode =out('letEdge');");
-    assertEquals(rs.stream().count(), 2);
+        session.query(
+            "select $someNode.in('letEdge') from letVertex LET $someNode =out('letEdge');");
+    assertEquals(2, rs.stream().count());
   }
 
   public void afterTest() {

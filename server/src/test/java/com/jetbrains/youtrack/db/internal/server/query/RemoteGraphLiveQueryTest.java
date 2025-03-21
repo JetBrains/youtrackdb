@@ -16,31 +16,32 @@ public class RemoteGraphLiveQueryTest extends BaseServerMemoryDatabase {
 
   public void beforeTest() {
     super.beforeTest();
-    db.createClassIfNotExist("FirstV", "V");
-    db.createClassIfNotExist("SecondV", "V");
-    db.createClassIfNotExist("TestEdge", "E");
+    session.createClassIfNotExist("FirstV", "V");
+    session.createClassIfNotExist("SecondV", "V");
+    session.createClassIfNotExist("TestEdge", "E");
   }
 
   @Test
   public void testLiveQuery() throws InterruptedException {
 
-    db.begin();
-    db.execute("create vertex FirstV set id = '1'").close();
-    db.execute("create vertex SecondV set id = '2'").close();
-    db.commit();
+    session.begin();
+    session.execute("create vertex FirstV set id = '1'").close();
+    session.execute("create vertex SecondV set id = '2'").close();
+    session.commit();
 
-    db.begin();
+    session.begin();
     try (var resultSet =
-        db.execute("create edge TestEdge  from (select from FirstV) to (select from SecondV)")) {
+        session.execute(
+            "create edge TestEdge  from (select from FirstV) to (select from SecondV)")) {
       var result = resultSet.stream().iterator().next();
 
       Assert.assertTrue(result.isStatefulEdge());
     }
-    db.commit();
+    session.commit();
 
     var l = new AtomicLong(0);
 
-    context.live(db.getDatabaseName(), "admin", "adminpwd",
+    context.live(session.getDatabaseName(), "admin", "adminpwd",
         "select from SecondV",
         new LiveQueryResultListener() {
 
@@ -68,9 +69,9 @@ public class RemoteGraphLiveQueryTest extends BaseServerMemoryDatabase {
         },
         new HashMap<String, String>());
 
-    db.begin();
-    db.execute("update SecondV set id = 3");
-    db.commit();
+    session.begin();
+    session.execute("update SecondV set id = 3");
+    session.commit();
 
     Thread.sleep(100);
 

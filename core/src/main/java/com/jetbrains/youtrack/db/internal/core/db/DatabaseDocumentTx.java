@@ -18,6 +18,7 @@ import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Edge;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -229,17 +230,17 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public Entity newEmbeddedEntity(SchemaClass schemaClass) {
+  public EmbeddedEntity newEmbeddedEntity(SchemaClass schemaClass) {
     return internal.newEmbeddedEntity(schemaClass);
   }
 
   @Override
-  public Entity newEmbeddedEntity(String schemaClass) {
+  public EmbeddedEntity newEmbeddedEntity(String schemaClass) {
     return internal.newEmbeddedEntity(schemaClass);
   }
 
   @Override
-  public Entity newEmbeddedEntity() {
+  public EmbeddedEntity newEmbeddedEntity() {
     return internal.newEmbeddedEntity();
   }
 

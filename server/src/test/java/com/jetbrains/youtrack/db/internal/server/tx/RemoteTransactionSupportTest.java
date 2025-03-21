@@ -24,44 +24,44 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     GlobalConfiguration.CLASS_MINIMUM_CLUSTERS.setValue(1);
     super.beforeTest();
 
-    db.createClass("SomeTx");
-    db.createClass("SomeTx2");
+    session.createClass("SomeTx");
+    session.createClass("SomeTx2");
 
-    var klass = db.createClass("IndexedTx");
+    var klass = session.createClass("IndexedTx");
     klass.createProperty("name", PropertyType.STRING)
         .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
-    var uniqueClass = db.createClass("UniqueIndexedTx");
+    var uniqueClass = session.createClass("UniqueIndexedTx");
     uniqueClass.createProperty("name", PropertyType.STRING)
         .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
   }
 
   @Test
   public void testQueryUpdateUpdatedInTxTransaction() {
-    db.begin();
-    var doc = ((EntityImpl) db.newEntity("SomeTx"));
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity("SomeTx"));
     doc.setProperty("name", "Joe");
-    db.commit();
+    session.commit();
 
-    db.begin();
-    EntityImpl doc2 = db.load(((Identifiable) doc).getIdentity());
+    session.begin();
+    EntityImpl doc2 = session.load(((Identifiable) doc).getIdentity());
     doc2.setProperty("name", "Jane");
-    var result = db.execute("update SomeTx set name='July' where name = 'Jane' ");
+    var result = session.execute("update SomeTx set name='July' where name = 'Jane' ");
     assertEquals(1L, (long) result.next().getProperty("count"));
-    EntityImpl doc3 = db.load(((Identifiable) doc).getIdentity());
+    EntityImpl doc3 = session.load(((Identifiable) doc).getIdentity());
     assertEquals("July", doc3.getProperty("name"));
-    db.rollback();
+    session.rollback();
   }
 
   @Test
   public void testResetUpdatedInTxTransaction() {
-    db.begin();
+    session.begin();
 
-    var doc1 = ((EntityImpl) db.newEntity());
+    var doc1 = ((EntityImpl) session.newEntity());
     doc1.setProperty("name", "Jane");
-    var doc2 = ((EntityImpl) db.newEntity("SomeTx"));
+    var doc2 = ((EntityImpl) session.newEntity("SomeTx"));
     doc2.setProperty("name", "Jane");
-    var result = db.execute("update SomeTx set name='July' where name = 'Jane' ");
+    var result = session.execute("update SomeTx set name='July' where name = 'Jane' ");
     assertEquals(1L, (long) result.next().getProperty("count"));
     assertEquals("July", doc2.getProperty("name"));
     result.close();
@@ -69,17 +69,17 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
 
   @Test
   public void testQueryUpdateCreatedInTxTransaction() {
-    db.begin();
-    var doc1 = ((EntityImpl) db.newEntity("SomeTx"));
+    session.begin();
+    var doc1 = ((EntityImpl) session.newEntity("SomeTx"));
     doc1.setProperty("name", "Jane");
 
-    var docx = ((EntityImpl) db.newEntity("SomeTx2"));
+    var docx = ((EntityImpl) session.newEntity("SomeTx2"));
     docx.setProperty("name", "Jane");
 
-    var result = db.execute("update SomeTx set name='July' where name = 'Jane' ");
+    var result = session.execute("update SomeTx set name='July' where name = 'Jane' ");
     assertTrue(result.hasNext());
     assertEquals(1L, (long) result.next().getProperty("count"));
-    EntityImpl doc2 = db.load(((Identifiable) doc1).getIdentity());
+    EntityImpl doc2 = session.load(((Identifiable) doc1).getIdentity());
     assertEquals("July", doc2.getProperty("name"));
     assertFalse(result.hasNext());
     result.close();
@@ -87,22 +87,22 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
 
   @Test
   public void testRollbackTxTransaction() {
-    db.begin();
-    var doc = ((EntityImpl) db.newEntity("SomeTx"));
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity("SomeTx"));
     doc.setProperty("name", "Jane");
-    db.commit();
+    session.commit();
 
-    db.begin();
-    var doc1 = ((EntityImpl) db.newEntity("SomeTx"));
+    session.begin();
+    var doc1 = ((EntityImpl) session.newEntity("SomeTx"));
     doc1.setProperty("name", "Jane");
 
-    var result = db.execute("update SomeTx set name='July' where name = 'Jane' ");
+    var result = session.execute("update SomeTx set name='July' where name = 'Jane' ");
     assertTrue(result.hasNext());
     assertEquals(2L, (long) result.next().getProperty("count"));
     result.close();
-    db.rollback();
+    session.rollback();
 
-    var tx = db.begin();
+    var tx = session.begin();
     var result1 = tx.query("select count(*) from SomeTx where name='Jane'");
     assertTrue(result1.hasNext());
     assertEquals(1L, (long) result1.next().getProperty("count(*)"));
@@ -112,26 +112,26 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
 
   @Test
   public void testRollbackTxCheckStatusTransaction() {
-    db.begin();
-    var doc = ((EntityImpl) db.newEntity("SomeTx"));
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity("SomeTx"));
     doc.setProperty("name", "Jane");
-    db.commit();
+    session.commit();
 
-    db.begin();
-    var doc1 = ((EntityImpl) db.newEntity("SomeTx"));
+    session.begin();
+    var doc1 = ((EntityImpl) session.newEntity("SomeTx"));
     doc1.setProperty("name", "Jane");
 
-    var result = db.execute("select count(*) from SomeTx where name='Jane' ");
+    var result = session.execute("select count(*) from SomeTx where name='Jane' ");
     assertTrue(result.hasNext());
     assertEquals(2L, (long) result.next().getProperty("count(*)"));
 
-    assertTrue(db.getTransactionInternal().isActive());
+    assertTrue(session.getTransactionInternal().isActive());
     result.close();
-    db.rollback();
+    session.rollback();
 
-    assertFalse(db.getTransactionInternal().isActive());
+    assertFalse(session.getTransactionInternal().isActive());
 
-    var tx = db.begin();
+    var tx = session.begin();
     var result1 = tx.query("select count(*) from SomeTx where name='Jane'");
     assertTrue(result1.hasNext());
     assertEquals(1L, (long) result1.next().getProperty("count(*)"));
@@ -142,45 +142,45 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
 
   @Test
   public void testDownloadTransactionAtStart() {
-    db.begin();
+    session.begin();
 
-    db.execute("insert into SomeTx set name ='Jane' ").close();
-    assertEquals(1, db.getTransactionInternal().getEntryCount());
-    db.commit();
+    session.execute("insert into SomeTx set name ='Jane' ").close();
+    assertEquals(1, session.getTransactionInternal().getEntryCount());
+    session.commit();
   }
 
   @Test
   public void testQueryUpdateCreatedInTxSQLTransaction() {
-    db.begin();
+    session.begin();
 
-    db.execute("insert into SomeTx set name ='Jane' ").close();
+    session.execute("insert into SomeTx set name ='Jane' ").close();
 
-    var result = db.execute("update SomeTx set name='July' where name = 'Jane' ");
+    var result = session.execute("update SomeTx set name='July' where name = 'Jane' ");
     assertTrue(result.hasNext());
     assertEquals(1L, (long) result.next().getProperty("count"));
     result.close();
-    var result1 = db.query("select from SomeTx where name='July'");
+    var result1 = session.query("select from SomeTx where name='July'");
     assertTrue(result1.hasNext());
     assertEquals("July", result1.next().getProperty("name"));
     assertFalse(result.hasNext());
     result1.close();
 
-    db.commit();
+    session.commit();
   }
 
   @Test
   public void testQueryDeleteTxSQLTransaction() {
-    db.begin();
-    var someTx = db.newEntity("SomeTx");
+    session.begin();
+    var someTx = session.newEntity("SomeTx");
     someTx.setProperty("name", "foo");
-    db.commit();
+    session.commit();
 
-    db.begin();
-    db.execute("delete from SomeTx");
-    db.commit();
+    session.begin();
+    session.execute("delete from SomeTx");
+    session.commit();
 
-    var tx = db.begin();
-    var result = db.execute("select from SomeTx");
+    var tx = session.begin();
+    var result = session.execute("select from SomeTx");
     assertFalse(result.hasNext());
     result.close();
     tx.commit();
@@ -188,53 +188,53 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
 
   @Test
   public void testDoubleSaveTransaction() {
-    db.begin();
-    var someTx = db.newEntity("SomeTx");
+    session.begin();
+    var someTx = session.newEntity("SomeTx");
     someTx.setProperty("name", "foo");
-    assertEquals(1, db.getTransactionInternal().getEntryCount());
-    assertEquals(1, db.countClass("SomeTx"));
-    db.commit();
-    var tx = db.begin();
-    assertEquals(1, db.countClass("SomeTx"));
+    assertEquals(1, session.getTransactionInternal().getEntryCount());
+    assertEquals(1, session.countClass("SomeTx"));
+    session.commit();
+    var tx = session.begin();
+    assertEquals(1, session.countClass("SomeTx"));
     tx.commit();
   }
 
   @Test
   public void testDoubleSaveDoubleFlushTransaction() {
-    db.begin();
-    var someTx = db.newEntity("SomeTx");
+    session.begin();
+    var someTx = session.newEntity("SomeTx");
     someTx.setProperty("name", "foo");
-    var result = db.query("select from SomeTx");
+    var result = session.query("select from SomeTx");
     assertEquals(1, result.stream().count());
     result.close();
-    result = db.query("select from SomeTx");
+    result = session.query("select from SomeTx");
     assertEquals(1, result.stream().count());
     result.close();
-    assertEquals(1, db.getTransactionInternal().getEntryCount());
-    assertEquals(1, db.countClass("SomeTx"));
-    db.commit();
-    var tx = db.begin();
-    assertEquals(1, db.countClass("SomeTx"));
+    assertEquals(1, session.getTransactionInternal().getEntryCount());
+    assertEquals(1, session.countClass("SomeTx"));
+    session.commit();
+    var tx = session.begin();
+    assertEquals(1, session.countClass("SomeTx"));
     tx.commit();
   }
 
   @Test
   public void testRefFlushedInTransaction() {
-    db.begin();
-    var someTx = db.newEntity("SomeTx");
+    session.begin();
+    var someTx = session.newEntity("SomeTx");
     someTx.setProperty("name", "foo");
 
-    var oneMore = db.newEntity("SomeTx");
+    var oneMore = session.newEntity("SomeTx");
     oneMore.setProperty("name", "bar");
     oneMore.setProperty("ref", someTx);
 
-    var result = db.query("select from SomeTx");
+    var result = session.query("select from SomeTx");
     assertEquals(2, result.stream().count());
     result.close();
-    db.commit();
+    session.commit();
 
-    var tx = db.begin();
-    var result1 = db.query("select ref from SomeTx where name='bar'");
+    var tx = session.begin();
+    var result1 = session.query("select ref from SomeTx where name='bar'");
     assertTrue(result1.hasNext());
     assertEquals(someTx.getIdentity(), result1.next().getProperty("ref"));
     result1.close();
@@ -243,38 +243,38 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
 
   @Test
   public void testDoubleRefFlushedInTransaction() {
-    db.begin();
-    var someTx = db.newEntity("SomeTx");
+    session.begin();
+    var someTx = session.newEntity("SomeTx");
     someTx.setProperty("name", "foo");
 
-    var oneMore = db.newEntity("SomeTx");
+    var oneMore = session.newEntity("SomeTx");
     oneMore.setProperty("name", "bar");
     oneMore.setProperty("ref", someTx.getIdentity());
 
-    var result = db.query("select from SomeTx");
+    var result = session.query("select from SomeTx");
     assertEquals(2, result.stream().count());
     result.close();
 
-    var ref2 = db.newEntity("SomeTx");
+    var ref2 = session.newEntity("SomeTx");
     ref2.setProperty("name", "other");
 
     oneMore.setProperty("ref2", ref2.getIdentity());
 
-    result = db.query("select from SomeTx");
+    result = session.query("select from SomeTx");
     assertEquals(3, result.stream().count());
     result.close();
 
-    var result1 = db.query("select ref,ref2 from SomeTx where name='bar'");
+    var result1 = session.query("select ref,ref2 from SomeTx where name='bar'");
     assertTrue(result1.hasNext());
     var next = result1.next();
     assertEquals(someTx.getIdentity(), next.getProperty("ref"));
     assertEquals(ref2.getIdentity(), next.getProperty("ref2"));
     result1.close();
 
-    db.commit();
+    session.commit();
 
-    var tx = db.begin();
-    result1 = db.query("select ref,ref2 from SomeTx where name='bar'");
+    var tx = session.begin();
+    result1 = session.query("select ref,ref2 from SomeTx where name='bar'");
     assertTrue(result1.hasNext());
     next = result1.next();
     assertEquals(someTx.getIdentity(), next.getProperty("ref"));
@@ -285,46 +285,46 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
 
   @Test
   public void testGenerateIdCounterTransaction() {
-    db.begin();
+    session.begin();
 
-    var doc = ((EntityImpl) db.newEntity("SomeTx"));
+    var doc = ((EntityImpl) session.newEntity("SomeTx"));
     doc.setProperty("name", "Jane");
 
-    db.execute("insert into SomeTx set name ='Jane1' ").close();
-    db.execute("insert into SomeTx set name ='Jane2' ").close();
+    session.execute("insert into SomeTx set name ='Jane1' ").close();
+    session.execute("insert into SomeTx set name ='Jane2' ").close();
 
-    var doc1 = ((EntityImpl) db.newEntity("SomeTx"));
+    var doc1 = ((EntityImpl) session.newEntity("SomeTx"));
     doc1.setProperty("name", "Jane3");
 
-    doc1 = ((EntityImpl) db.newEntity("SomeTx"));
+    doc1 = ((EntityImpl) session.newEntity("SomeTx"));
     doc1.setProperty("name", "Jane4");
-    db.execute("insert into SomeTx set name ='Jane2' ").close();
+    session.execute("insert into SomeTx set name ='Jane2' ").close();
 
-    var result = db.execute("select count(*) from SomeTx");
+    var result = session.execute("select count(*) from SomeTx");
 
     assertTrue(result.hasNext());
     assertEquals(6L, (long) result.next().getProperty("count(*)"));
     result.close();
-    assertTrue(db.getTransactionInternal().isActive());
+    assertTrue(session.getTransactionInternal().isActive());
 
-    db.commit();
+    session.commit();
 
-    var tx = db.begin();
-    var result1 = db.execute("select count(*) from SomeTx ");
+    var tx = session.begin();
+    var result1 = session.execute("select count(*) from SomeTx ");
     assertTrue(result1.hasNext());
     assertEquals(6L, (long) result1.next().getProperty("count(*)"));
     result1.close();
     tx.commit();
 
-    assertFalse(db.getTransactionInternal().isActive());
+    assertFalse(session.getTransactionInternal().isActive());
   }
 
   @Test
   public void testGraphInTx() {
-    db.createVertexClass("MyV");
-    db.createEdgeClass("MyE");
+    session.createVertexClass("MyV");
+    session.createEdgeClass("MyE");
 
-    var tx = db.begin();
+    var tx = session.begin();
     var v1 = tx.newVertex("MyV");
     var v2 = tx.newVertex("MyV");
     var edge = v1.addStateFulEdge(v2, "MyE");
@@ -340,11 +340,11 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
 
   @Test
   public void testRidbagsTx() {
-    var tx = db.begin();
+    var tx = session.begin();
     var v1 = tx.newEntity("SomeTx");
     var v2 = tx.newEntity("SomeTx");
 
-    var ridbag = new RidBag(db);
+    var ridbag = new RidBag(session);
     ridbag.add(v2.getIdentity());
     v1.setProperty("rids", ridbag);
 
@@ -366,22 +366,22 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
 
   @Test
   public void testProperIndexingOnDoubleInternalBegin() {
-    db.begin();
+    session.begin();
 
-    var idx = db.newEntity("IndexedTx");
+    var idx = session.newEntity("IndexedTx");
     idx.setProperty("name", FIELD_VALUE);
 
-    var someTx = db.newEntity("SomeTx");
+    var someTx = session.newEntity("SomeTx");
     someTx.setProperty("name", "foo");
 
     var id = (DBRecord) someTx;
-    try (var rs = db.query("select from ?", id)) {
+    try (var rs = session.query("select from ?", id)) {
       assertEquals(1, rs.stream().count());
     }
 
-    db.commit();
+    session.commit();
 
-    var tx = db.begin();
+    var tx = session.begin();
     try (var rs = tx.query("select * from IndexedTx where name = ?", FIELD_VALUE)) {
       assertEquals(1, rs.stream().count());
     }
@@ -390,13 +390,13 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
 
   @Test(expected = RecordDuplicatedException.class)
   public void testDuplicateIndexTx() {
-    db.begin();
+    session.begin();
 
-    var v1 = db.newEntity("UniqueIndexedTx");
+    var v1 = session.newEntity("UniqueIndexedTx");
     v1.setProperty("name", "a");
 
-    var v2 = db.newEntity("UniqueIndexedTx");
+    var v2 = session.newEntity("UniqueIndexedTx");
     v2.setProperty("name", "a");
-    db.commit();
+    session.commit();
   }
 }

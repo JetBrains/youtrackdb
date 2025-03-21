@@ -16,25 +16,25 @@ public class RemoteDropClusterTest extends BaseServerMemoryDatabase {
 
   @Test
   public void simpleDropCluster() {
-    var cl = db.addCluster("one");
-    db.dropCluster(cl);
+    var cl = session.addCluster("one");
+    session.dropCluster(cl);
   }
 
   @Test
   public void simpleDropClusterTruncate() {
-    var cl = db.addCluster("one");
-    db.dropCluster(cl);
+    var cl = session.addCluster("one");
+    session.dropCluster(cl);
   }
 
   @Test
   public void simpleDropClusterName() {
-    db.addCluster("one");
-    db.dropCluster("one");
+    session.addCluster("one");
+    session.dropCluster("one");
   }
 
   @Test
   public void simpleDropClusterNameTruncate() {
-    db.addCluster("one");
-    db.dropCluster("one");
+    session.addCluster("one");
+    session.dropCluster("one");
   }
 }

@@ -464,7 +464,7 @@ public class SQLPredicate extends BaseParser implements CommandPredicate {
     final var param = new SQLFilterItemParameter(name);
 
     if (parameterItems == null) {
-      parameterItems = new ArrayList<SQLFilterItemParameter>();
+      parameterItems = new ArrayList<>();
     }
 
     parameterItems.add(param);

@@ -35,6 +35,7 @@ import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Edge;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -999,11 +1000,11 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   Entity newEntity();
 
-  Entity newEmbeddedEntity(SchemaClass schemaClass);
+  EmbeddedEntity newEmbeddedEntity(SchemaClass schemaClass);
 
-  Entity newEmbeddedEntity(String schemaClass);
+  EmbeddedEntity newEmbeddedEntity(String schemaClass);
 
-  Entity newEmbeddedEntity();
+  EmbeddedEntity newEmbeddedEntity();
 
   <T extends DBRecord> T createOrLoadRecordFromJson(String json);
 

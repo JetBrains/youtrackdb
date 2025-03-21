@@ -13,31 +13,31 @@ public class RemoteGraphTXTest extends BaseServerMemoryDatabase {
 
   public void beforeTest() {
     super.beforeTest();
-    db.createClassIfNotExist("FirstV", "V");
-    db.createClassIfNotExist("SecondV", "V");
-    db.createClassIfNotExist("TestEdge", "E");
+    session.createClassIfNotExist("FirstV", "V");
+    session.createClassIfNotExist("SecondV", "V");
+    session.createClassIfNotExist("TestEdge", "E");
   }
 
   @Test
   public void itShouldDeleteEdgesInTx() {
-    db.begin();
-    db.execute("create vertex FirstV set id = '1'").close();
-    db.execute("create vertex SecondV set id = '2'").close();
-    db.commit();
+    session.begin();
+    session.execute("create vertex FirstV set id = '1'").close();
+    session.execute("create vertex SecondV set id = '2'").close();
+    session.commit();
 
-    db.begin();
+    session.begin();
     try (var resultSet =
-        db.execute(
+        session.execute(
             "create edge TestEdge  from ( select from FirstV where id = '1') to ( select from"
                 + " SecondV where id = '2')")) {
       var result = resultSet.stream().iterator().next();
 
       Assert.assertTrue(result.isStatefulEdge());
     }
-    db.commit();
+    session.commit();
 
-    db.begin();
-    db
+    session.begin();
+    session
         .execute(
             "delete edge TestEdge from (select from FirstV where id = :param1) to (select from"
                 + " SecondV where id = :param2)",
@@ -49,16 +49,17 @@ public class RemoteGraphTXTest extends BaseServerMemoryDatabase {
             })
         .stream()
         .collect(Collectors.toList());
-    db.commit();
+    session.commit();
 
-    db.begin();
-    Assert.assertEquals(0, db.query("select from TestEdge").stream().count());
+    session.begin();
+    Assert.assertEquals(0, session.query("select from TestEdge").stream().count());
     var results =
-        db.query("select bothE().size() as count from V").stream().collect(Collectors.toList());
+        session.query("select bothE().size() as count from V").stream()
+            .collect(Collectors.toList());
 
     for (var result : results) {
       Assert.assertEquals(0, (int) result.getProperty("count"));
     }
-    db.commit();
+    session.commit();
   }
 }

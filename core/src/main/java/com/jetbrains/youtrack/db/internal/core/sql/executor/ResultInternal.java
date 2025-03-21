@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Blob;
@@ -335,7 +336,7 @@ public class ResultInternal implements Result {
       }
 
       default -> {
-        throw new IllegalArgumentException(
+        throw new CommandExecutionException(
             "Invalid property value for Result: " + value + " - " + value.getClass().getName());
       }
     }
