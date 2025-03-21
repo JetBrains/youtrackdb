@@ -94,7 +94,8 @@ public class SQLMethodInclude extends AbstractSQLMethod {
     if (iParams[0] != null) {
       if (iThis instanceof Identifiable) {
         try {
-          iThis = ((Identifiable) iThis).getRecord(session);
+          var transaction = session.getActiveTransaction();
+          iThis = transaction.load(((Identifiable) iThis));
         } catch (RecordNotFoundException rnf) {
           return null;
         }
@@ -113,7 +114,8 @@ public class SQLMethodInclude extends AbstractSQLMethod {
         for (var o : MultiValue.getMultiValueIterable(iThis)) {
           if (o instanceof Identifiable) {
             try {
-              var record = ((Identifiable) o).getRecord(session);
+              var transaction = session.getActiveTransaction();
+              var record = transaction.load(((Identifiable) o));
               result.add(copy((EntityImpl) record, iParams, session));
             } catch (RecordNotFoundException rnf) {
               // IGNORE IT

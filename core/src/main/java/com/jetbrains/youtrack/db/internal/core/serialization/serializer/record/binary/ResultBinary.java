@@ -202,6 +202,11 @@ public class ResultBinary implements Result {
     return toEntityImpl();
   }
 
+  @Override
+  public boolean isVertex() {
+    return false;
+  }
+
 
   @Override
   public boolean isBlob() {

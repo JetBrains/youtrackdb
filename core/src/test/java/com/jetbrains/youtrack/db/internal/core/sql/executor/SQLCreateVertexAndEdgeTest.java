@@ -18,6 +18,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
@@ -93,7 +94,9 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    EntityImpl e3 = edges.next().getIdentity().getRecord(session);
+    Identifiable identifiable2 = edges.next().getIdentity();
+    var transaction2 = session.getActiveTransaction();
+    EntityImpl e3 = transaction2.load(identifiable2);
     Assert.assertEquals("E", e3.getSchemaClassName());
     Assert.assertEquals(e3.getPropertyInternal("out"), session.bindToSession(v1));
     Assert.assertEquals(e3.getPropertyInternal("in"), session.bindToSession(v4));
@@ -108,7 +111,9 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
                 + " set weight = 10");
     session.commit();
     session.begin();
-    EntityImpl e4 = edges.next().getIdentity().getRecord(session);
+    Identifiable identifiable1 = edges.next().getIdentity();
+    var transaction1 = session.getActiveTransaction();
+    EntityImpl e4 = transaction1.load(identifiable1);
     Assert.assertEquals("E1", e4.getSchemaClassName());
     Assert.assertEquals(e4.getPropertyInternal("out"), session.bindToSession(v2));
     Assert.assertEquals(e4.getPropertyInternal("in"), session.bindToSession(v3));
@@ -122,7 +127,9 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
                 + v5.getIdentity()
                 + " set weight = 17");
 
-    EntityImpl e5 = edges.next().getIdentity().getRecord(session);
+    Identifiable identifiable = edges.next().getIdentity();
+    var transaction = session.getActiveTransaction();
+    EntityImpl e5 = transaction.load(identifiable);
     Assert.assertEquals("E1", e5.getSchemaClassName());
     session.commit();
   }

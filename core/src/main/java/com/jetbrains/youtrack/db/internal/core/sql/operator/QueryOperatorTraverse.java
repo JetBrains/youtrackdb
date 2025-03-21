@@ -105,7 +105,8 @@ public class QueryOperatorTraverse extends QueryOperatorEqualityNotNulls {
       }
 
       // TRANSFORM THE RID IN ODOCUMENT
-      iTarget = ((Identifiable) iTarget).getRecord(iContext.getDatabaseSession());
+      var transaction = iContext.getDatabaseSession().getActiveTransaction();
+      iTarget = transaction.load(((Identifiable) iTarget));
     }
 
     if (iTarget instanceof EntityImpl target) {

@@ -430,7 +430,8 @@ public class SecurityShared implements SecurityInternal {
   public Role getRole(final DatabaseSession session, final Identifiable iRole) {
     try {
       var sessionInternal = (DatabaseSessionInternal) session;
-      final EntityImpl entity = iRole.getRecord(sessionInternal);
+      var transaction = sessionInternal.getActiveTransaction();
+      final EntityImpl entity = transaction.load(iRole);
       SchemaImmutableClass clazz = null;
       clazz = entity.getImmutableSchemaClass(sessionInternal);
 
@@ -1363,7 +1364,8 @@ public class SecurityShared implements SecurityInternal {
                   for (var policyEntry : policies.entrySet()) {
                     var res = SecurityResource.getInstance(policyEntry.getKey());
                     try {
-                      Entity policy = policyEntry.getValue().getRecord(session);
+                      var transaction1 = session.getActiveTransaction();
+                      Entity policy = transaction1.load(policyEntry.getValue());
 
                       for (var clazz : allClasses) {
                         if (isClassInvolved(session, clazz, res)
@@ -1695,7 +1697,8 @@ public class SecurityShared implements SecurityInternal {
 
   private static ResultInternal calculateOriginalValue(DBRecord record,
       DatabaseSessionInternal db) {
-    return calculateBefore(record.getRecord(db), db);
+    var transaction = db.getActiveTransaction();
+    return calculateBefore(transaction.load(record), db);
   }
 
   public static ResultInternal calculateBefore(EntityImpl entity,
@@ -1795,8 +1798,10 @@ public class SecurityShared implements SecurityInternal {
       return true;
     }
 
+    Identifiable identifiable = function.getIdentity();
+    var transaction = session.getActiveTransaction();
     return SecurityEngine.evaluateSecuirtyPolicyPredicate(
-        session, predicate, (DBRecord) function.getIdentity().getEntity(session));
+        session, predicate, (DBRecord) transaction.loadEntity(identifiable));
   }
 
   protected SQLBooleanExpression getPredicateFromCache(String roleName, String key) {
@@ -1901,7 +1906,8 @@ public class SecurityShared implements SecurityInternal {
             try {
               var res = SecurityResource.getInstance(policyEntry.getKey());
               if (res instanceof SecurityResourceProperty) {
-                final Entity element = policyEntry.getValue().getRecord(db);
+                var transaction = db.getActiveTransaction();
+                final Entity element = transaction.load(policyEntry.getValue());
                 final SecurityPolicy policy =
                     new ImmutableSecurityPolicy(db, new SecurityPolicyImpl(element));
                 final var readRule = policy.getReadRule(db);

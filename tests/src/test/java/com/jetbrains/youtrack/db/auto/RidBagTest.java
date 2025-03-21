@@ -1067,7 +1067,8 @@ public abstract class RidBagTest extends BaseDBTest {
     Set<Identifiable> docs = Collections.newSetFromMap(new IdentityHashMap<>());
     for (Identifiable id : ridBag) {
       // cache record inside session
-      docs.add(id.getRecord(session));
+      var transaction = session.getActiveTransaction();
+      docs.add(transaction.load(id));
     }
 
     ridBag = document.getProperty("ridBag");
@@ -1099,13 +1100,15 @@ public abstract class RidBagTest extends BaseDBTest {
 
     assertEmbedded(ridBag.isEmbedded());
     for (Identifiable identifiable : ridBag) {
-      Assert.assertTrue(docs.remove(identifiable.getRecord(session)));
+      var transaction1 = session.getActiveTransaction();
+      Assert.assertTrue(docs.remove(transaction1.load(identifiable)));
       ridBag.remove(identifiable.getIdentity());
       Assert.assertEquals(ridBag.size(), docs.size());
 
       var counter = 0;
       for (Identifiable id : ridBag) {
-        Assert.assertTrue(docs.contains(id.getRecord(session)));
+        var transaction = session.getActiveTransaction();
+        Assert.assertTrue(docs.contains(transaction.load(id)));
         counter++;
       }
 
@@ -1484,7 +1487,8 @@ public abstract class RidBagTest extends BaseDBTest {
     }
 
     for (var i = 5; i < 10; i++) {
-      EntityImpl docToAdd = docsToAdd.get(i).getRecord(session);
+      var transaction = session.getActiveTransaction();
+      EntityImpl docToAdd = transaction.load(docsToAdd.get(i));
 
     }
 

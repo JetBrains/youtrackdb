@@ -49,7 +49,8 @@ public class LuceneSearchOnFieldsFunction extends LuceneSearchFunctionTemplate {
     var session = ctx.getDatabaseSession();
     if (iThis instanceof RID) {
       try {
-        iThis = ((RID) iThis).getRecord(session);
+        var transaction = session.getActiveTransaction();
+        iThis = transaction.load(((RID) iThis));
       } catch (RecordNotFoundException rnf) {
         return false;
       }

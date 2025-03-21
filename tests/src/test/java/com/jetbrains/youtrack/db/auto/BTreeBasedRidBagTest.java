@@ -174,7 +174,8 @@ public class BTreeBasedRidBagTest extends RidBagTest {
 
     Set<EntityImpl> result = new HashSet<>();
     for (Identifiable identifiable : bag) {
-      result.add(identifiable.getRecord(session));
+      var transaction = session.getActiveTransaction();
+      result.add(transaction.load(identifiable));
     }
 
     Assert.assertEquals(result, expectedResult);

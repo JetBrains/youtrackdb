@@ -293,14 +293,18 @@ public class EntitySchemalessSerializationTest extends DbTestBase {
 
     List<Identifiable> ser = extr.getProperty("embeddedList");
     assertEquals(1, ser.size());
-    var inList = ser.getFirst().getEntity(session);
+    Identifiable identifiable1 = ser.getFirst();
+    var transaction1 = session.getActiveTransaction();
+    var inList = transaction1.loadEntity(identifiable1);
     assertNotNull(inList);
     assertEquals(inList.<String>getProperty("name"), embeddedInList.getProperty("name"));
     assertEquals(inList.<String>getProperty("surname"), embeddedInList.getProperty("surname"));
 
     Set<Identifiable> setEmb = extr.getProperty("embeddedSet");
     assertEquals(1, setEmb.size());
-    var inSet = setEmb.iterator().next().getEntity(session);
+    Identifiable identifiable = setEmb.iterator().next();
+    var transaction = session.getActiveTransaction();
+    var inSet = transaction.loadEntity(identifiable);
     assertNotNull(inSet);
     assertEquals(inSet.<String>getProperty("name"), embeddedInSet.getProperty("name"));
     assertEquals(inSet.<String>getProperty("surname"), embeddedInSet.getProperty("surname"));

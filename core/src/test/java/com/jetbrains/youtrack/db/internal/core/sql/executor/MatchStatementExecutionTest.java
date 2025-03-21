@@ -272,7 +272,8 @@ public class MatchStatementExecutionTest extends DbTestBase {
     for (var doc : qResult) {
       assertEquals(1, doc.getPropertyNames().size());
       Identifiable personId = doc.getProperty("person");
-      EntityImpl person = personId.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      EntityImpl person = transaction.load(personId);
       String name = person.getProperty("name");
       assertTrue(!name.isEmpty() && name.charAt(0) == 'n');
     }
@@ -290,7 +291,8 @@ public class MatchStatementExecutionTest extends DbTestBase {
     for (var doc : qResult) {
       assertEquals(1, doc.getPropertyNames().size());
       Identifiable personId = doc.getProperty("person");
-      EntityImpl person = personId.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      EntityImpl person = transaction.load(personId);
       String name = person.getProperty("name");
       assertTrue(name.equals("n1") || name.equals("n2"));
     }
@@ -345,7 +347,8 @@ public class MatchStatementExecutionTest extends DbTestBase {
     for (var doc : qResult) {
       assertEquals(1, doc.getPropertyNames().size());
       Identifiable personId = doc.getProperty("person");
-      EntityImpl person = personId.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      EntityImpl person = transaction.load(personId);
       String name = person.getProperty("name");
       assertTrue(name.equals("n1") || name.equals("n2"));
     }
@@ -818,7 +821,9 @@ public class MatchStatementExecutionTest extends DbTestBase {
     session.begin();
     var managedByA = getManagedBy("a");
     assertEquals(1, managedByA.size());
-    assertEquals("p1", ((EntityImpl) managedByA.getFirst().getRecord(session)).getProperty("name"));
+    Identifiable identifiable = managedByA.getFirst();
+    var transaction1 = session.getActiveTransaction();
+    assertEquals("p1", ((EntityImpl) transaction1.load(identifiable)).getProperty("name"));
 
     var managedByB = getManagedBy("b");
     assertEquals(5, managedByB.size());
@@ -830,7 +835,8 @@ public class MatchStatementExecutionTest extends DbTestBase {
     expectedNames.add("p11");
     Set<String> names = new HashSet<String>();
     for (var id : managedByB) {
-      EntityImpl doc = id.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      EntityImpl doc = transaction.load(id);
       String name = doc.getProperty("name");
       names.add(name);
     }
@@ -863,7 +869,9 @@ public class MatchStatementExecutionTest extends DbTestBase {
     session.begin();
     var managedByA = getManagedByArrows("a");
     assertEquals(1, managedByA.size());
-    assertEquals("p1", ((EntityImpl) managedByA.getFirst().getRecord(session)).getProperty("name"));
+    Identifiable identifiable = managedByA.getFirst();
+    var transaction1 = session.getActiveTransaction();
+    assertEquals("p1", ((EntityImpl) transaction1.load(identifiable)).getProperty("name"));
 
     var managedByB = getManagedByArrows("b");
     assertEquals(5, managedByB.size());
@@ -875,7 +883,8 @@ public class MatchStatementExecutionTest extends DbTestBase {
     expectedNames.add("p11");
     Set<String> names = new HashSet<String>();
     for (var id : managedByB) {
-      EntityImpl doc = id.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      EntityImpl doc = transaction.load(id);
       String name = doc.getProperty("name");
       names.add(name);
     }
@@ -906,7 +915,9 @@ public class MatchStatementExecutionTest extends DbTestBase {
     session.begin();
     var managedByA = getManagedBy2("a");
     assertEquals(1, managedByA.size());
-    assertEquals("p1", ((EntityImpl) managedByA.getFirst().getRecord(session)).getProperty("name"));
+    Identifiable identifiable = managedByA.getFirst();
+    var transaction1 = session.getActiveTransaction();
+    assertEquals("p1", ((EntityImpl) transaction1.load(identifiable)).getProperty("name"));
 
     var managedByB = getManagedBy2("b");
     assertEquals(5, managedByB.size());
@@ -918,7 +929,8 @@ public class MatchStatementExecutionTest extends DbTestBase {
     expectedNames.add("p11");
     Set<String> names = new HashSet<String>();
     for (var id : managedByB) {
-      EntityImpl doc = id.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      EntityImpl doc = transaction.load(id);
       String name = doc.getProperty("name");
       names.add(name);
     }
@@ -951,7 +963,9 @@ public class MatchStatementExecutionTest extends DbTestBase {
     session.begin();
     var managedByA = getManagedBy2Arrows("a");
     assertEquals(1, managedByA.size());
-    assertEquals("p1", ((EntityImpl) managedByA.getFirst().getRecord(session)).getProperty("name"));
+    Identifiable identifiable = managedByA.getFirst();
+    var transaction1 = session.getActiveTransaction();
+    assertEquals("p1", ((EntityImpl) transaction1.load(identifiable)).getProperty("name"));
 
     var managedByB = getManagedBy2Arrows("b");
     assertEquals(5, managedByB.size());
@@ -963,7 +977,8 @@ public class MatchStatementExecutionTest extends DbTestBase {
     expectedNames.add("p11");
     Set<String> names = new HashSet<String>();
     for (var id : managedByB) {
-      EntityImpl doc = id.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      EntityImpl doc = transaction.load(id);
       String name = doc.getProperty("name");
       names.add(name);
     }
@@ -1033,9 +1048,15 @@ public class MatchStatementExecutionTest extends DbTestBase {
     var result = session.query(query).toList();
     assertEquals(1, result.size());
     var doc = result.getFirst();
-    EntityImpl friend1 = ((Identifiable) doc.getProperty("friend1")).getRecord(session);
-    EntityImpl friend2 = ((Identifiable) doc.getProperty("friend2")).getRecord(session);
-    EntityImpl friend3 = ((Identifiable) doc.getProperty("friend3")).getRecord(session);
+    Identifiable identifiable2 = doc.getProperty("friend1");
+    var transaction2 = session.getActiveTransaction();
+    EntityImpl friend1 = transaction2.load(identifiable2);
+    Identifiable identifiable1 = doc.getProperty("friend2");
+    var transaction1 = session.getActiveTransaction();
+    EntityImpl friend2 = transaction1.load(identifiable1);
+    Identifiable identifiable = doc.getProperty("friend3");
+    var transaction = session.getActiveTransaction();
+    EntityImpl friend3 = transaction.load(identifiable);
     assertEquals(0, friend1.<Object>getProperty("uid"));
     assertEquals(1, friend2.<Object>getProperty("uid"));
     assertEquals(2, friend3.<Object>getProperty("uid"));
@@ -1057,9 +1078,15 @@ public class MatchStatementExecutionTest extends DbTestBase {
     var result = session.query(query).toList();
     assertEquals(1, result.size());
     var doc = result.getFirst();
-    EntityImpl friend1 = ((Identifiable) doc.getProperty("friend1")).getRecord(session);
-    EntityImpl friend2 = ((Identifiable) doc.getProperty("friend2")).getRecord(session);
-    EntityImpl friend3 = ((Identifiable) doc.getProperty("friend3")).getRecord(session);
+    Identifiable identifiable2 = doc.getProperty("friend1");
+    var transaction2 = session.getActiveTransaction();
+    EntityImpl friend1 = transaction2.load(identifiable2);
+    Identifiable identifiable1 = doc.getProperty("friend2");
+    var transaction1 = session.getActiveTransaction();
+    EntityImpl friend2 = transaction1.load(identifiable1);
+    Identifiable identifiable = doc.getProperty("friend3");
+    var transaction = session.getActiveTransaction();
+    EntityImpl friend3 = transaction.load(identifiable);
     assertEquals(0, friend1.<Object>getProperty("uid"));
     assertEquals(1, friend2.<Object>getProperty("uid"));
     assertEquals(2, friend3.<Object>getProperty("uid"));
@@ -1081,9 +1108,15 @@ public class MatchStatementExecutionTest extends DbTestBase {
     var result = session.query(query).toList();
     assertEquals(1, result.size());
     var doc = result.getFirst();
-    EntityImpl friend1 = ((Identifiable) doc.getProperty("friend1")).getRecord(session);
-    EntityImpl friend2 = ((Identifiable) doc.getProperty("friend2")).getRecord(session);
-    EntityImpl friend3 = ((Identifiable) doc.getProperty("friend3")).getRecord(session);
+    Identifiable identifiable2 = doc.getProperty("friend1");
+    var transaction2 = session.getActiveTransaction();
+    EntityImpl friend1 = transaction2.load(identifiable2);
+    Identifiable identifiable1 = doc.getProperty("friend2");
+    var transaction1 = session.getActiveTransaction();
+    EntityImpl friend2 = transaction1.load(identifiable1);
+    Identifiable identifiable = doc.getProperty("friend3");
+    var transaction = session.getActiveTransaction();
+    EntityImpl friend3 = transaction.load(identifiable);
     assertEquals(0, friend1.<Object>getProperty("uid"));
     assertEquals(1, friend2.<Object>getProperty("uid"));
     assertEquals(2, friend3.<Object>getProperty("uid"));
@@ -1300,7 +1333,9 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertNotNull(foo);
 
     assertEquals(1, foo.size());
-    var resultVertex = foo.getFirst().getVertex(session);
+    Identifiable identifiable = foo.getFirst();
+    var transaction = session.getActiveTransaction();
+    var resultVertex = transaction.loadVertex(identifiable);
     assertEquals(2, resultVertex.<Object>getProperty("uid"));
     session.commit();
   }
@@ -1422,7 +1457,8 @@ public class MatchStatementExecutionTest extends DbTestBase {
     expectedNames.add("p11");
     Set<String> names = new HashSet<String>();
     for (var id : managedByB) {
-      EntityImpl doc = id.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      EntityImpl doc = transaction.load(id);
       String name = doc.getProperty("name");
       names.add(name);
     }
@@ -1461,7 +1497,8 @@ public class MatchStatementExecutionTest extends DbTestBase {
     expectedNames.add("p11");
     Set<String> names = new HashSet<String>();
     for (var id : managedByB) {
-      EntityImpl doc = id.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      EntityImpl doc = transaction.load(id);
       String name = doc.getProperty("name");
       names.add(name);
     }
@@ -1479,7 +1516,8 @@ public class MatchStatementExecutionTest extends DbTestBase {
     for (var doc : qResult) {
       assertEquals(2, doc.getPropertyNames().size());
       Identifiable personId = doc.getProperty("person");
-      EntityImpl person = personId.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      EntityImpl person = transaction.load(personId);
       String name = person.getProperty("name");
       assertTrue(!name.isEmpty() && name.charAt(0) == 'n');
     }
@@ -1496,7 +1534,8 @@ public class MatchStatementExecutionTest extends DbTestBase {
     for (var doc : qResult) {
       assertEquals(2, doc.getPropertyNames().size());
       Identifiable personId = doc.getProperty("person");
-      EntityImpl person = personId.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      EntityImpl person = transaction.load(personId);
       String name = person.getProperty("name");
       assertTrue(!name.isEmpty() && name.charAt(0) == 'n');
     }

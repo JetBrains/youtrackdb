@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
@@ -67,8 +68,10 @@ public class UpdateEdgeStatementExecutionTest extends DbTestBase {
     Assert.assertTrue(edges.hasNext());
     var edge = edges.next();
     Assert.assertFalse(edges.hasNext());
+    Identifiable identifiable = edge.asEntityOrNull();
+    var transaction = session.getActiveTransaction();
     Assert.assertEquals("E1",
-        ((EntityImpl) edge.asEntityOrNull().getRecord(session)).getSchemaClassName());
+        ((EntityImpl) transaction.load(identifiable)).getSchemaClassName());
     edges.close();
     session.commit();
     session.begin();

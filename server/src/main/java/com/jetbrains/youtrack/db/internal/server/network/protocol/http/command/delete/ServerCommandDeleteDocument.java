@@ -53,7 +53,8 @@ public class ServerCommandDeleteDocument extends ServerCommandDocumentAbstract {
 
       session.executeInTx(
           transaction -> {
-            final EntityImpl entity = recordId.getRecord(session);
+            var transaction1 = session.getActiveTransaction();
+            final EntityImpl entity = transaction1.load(recordId);
 
             // UNMARSHALL DOCUMENT WITH REQUEST CONTENT
             if (iRequest.getContent() != null)

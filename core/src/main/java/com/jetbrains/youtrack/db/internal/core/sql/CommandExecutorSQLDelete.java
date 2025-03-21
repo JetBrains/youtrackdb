@@ -261,7 +261,8 @@ public class CommandExecutorSQLDelete extends CommandExecutorSQLAbstract
           while (cursor.hasNext()) {
             final var entry = cursor.next();
             Identifiable rec = entry.second;
-            rec = rec.getRecord(session);
+            var transaction = session.getActiveTransaction();
+            rec = transaction.load(rec);
             if (rec != null) {
               allDeletedRecords.add((DBRecord) rec);
             }
@@ -322,7 +323,8 @@ public class CommandExecutorSQLDelete extends CommandExecutorSQLAbstract
    * Deletes the current record.
    */
   public boolean result(@Nonnull DatabaseSessionInternal session, final Object iRecord) {
-    final RecordAbstract record = ((Identifiable) iRecord).getRecord(session);
+    var transaction = session.getActiveTransaction();
+    final RecordAbstract record = transaction.load(((Identifiable) iRecord));
 
     if (record instanceof EntityImpl entity
         && compiledFilter != null

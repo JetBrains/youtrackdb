@@ -144,7 +144,8 @@ public class SQLMethodCall extends SimpleNode {
       Object val,
       List<Object> paramValues) {
     if (val instanceof Identifiable identifiable) {
-      val = identifiable.getEntity(ctx.getDatabaseSession());
+      var transaction = ctx.getDatabaseSession().getActiveTransaction();
+      val = transaction.loadEntity(identifiable);
     }
     return method.execute(
         targetObjects, (Result) val, ctx, targetObjects, paramValues.toArray());

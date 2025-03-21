@@ -100,7 +100,8 @@ public class SyncCommandResultListener extends AbstractCommandResultListener
               FetchContext iContext)
               throws FetchException {
             if (!(iLinked instanceof RecordId)) {
-              sendRecord(iLinked.getRecord(db));
+              var transaction = db.getActiveTransaction();
+              sendRecord(transaction.load(iLinked));
             }
           }
 
@@ -114,7 +115,8 @@ public class SyncCommandResultListener extends AbstractCommandResultListener
               throws FetchException {
 
             if (!(iLinked instanceof RecordId)) {
-              sendRecord(iLinked.getRecord(db));
+              var transaction = db.getActiveTransaction();
+              sendRecord(transaction.load(iLinked));
             }
           }
         };

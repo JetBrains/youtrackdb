@@ -108,8 +108,9 @@ public class LiveCommandResultListener extends AbstractCommandResultListener
           });
       alreadySent.add(((Identifiable) iRecord).getIdentity());
       protocol.channel.writeByte((byte) 1); // ONE MORE RECORD
+      var transaction = session.getActiveTransaction();
       NetworkProtocolBinary.writeIdentifiable(
-          protocol.channel, connection, ((Identifiable) iRecord).getRecord(session));
+          protocol.channel, connection, transaction.load(((Identifiable) iRecord)));
       protocol.channel.flush();
     } catch (IOException e) {
       return false;

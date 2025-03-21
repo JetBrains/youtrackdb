@@ -233,8 +233,10 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
       Assert.assertTrue(r.hasProperty("a0"));
 
       final EntityImpl a0doc = r.getProperty("a0");
+      Identifiable identifiable = r.<Iterable<Identifiable>>getProperty("a").iterator().next();
+      var transaction = session.getActiveTransaction();
       final EntityImpl firstADoc =
-          r.<Iterable<Identifiable>>getProperty("a").iterator().next().getRecord(session);
+          transaction.load(identifiable);
 
       Assert.assertTrue(
           EntityHelper.hasSameContentOf(a0doc, session, firstADoc, session, null));

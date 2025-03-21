@@ -67,7 +67,8 @@ public class SQLMethodField extends AbstractSQLMethod {
     if (ioResult != null) {
       if (ioResult instanceof Identifiable) {
         try {
-          ioResult = ((Identifiable) ioResult).getRecord(session);
+          var transaction = session.getActiveTransaction();
+          ioResult = transaction.load(((Identifiable) ioResult));
         } catch (RecordNotFoundException rnf) {
           LogManager.instance()
               .error(this, "Error on reading rid with value '%s'", null, ioResult);
@@ -80,7 +81,9 @@ public class SQLMethodField extends AbstractSQLMethod {
       }
       if (ioResult instanceof String) {
         try {
-          ioResult = new RecordId((String) ioResult).getRecord(session);
+          RecordId recordId = new RecordId((String) ioResult);
+          var transaction = session.getActiveTransaction();
+          ioResult = transaction.load(recordId);
         } catch (Exception e) {
           LogManager.instance().error(this, "Error on reading rid with value '%s'", e, ioResult);
           ioResult = null;

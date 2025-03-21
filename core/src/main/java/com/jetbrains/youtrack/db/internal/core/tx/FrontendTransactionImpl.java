@@ -563,9 +563,10 @@ public class FrontendTransactionImpl implements
     status = TXSTATUS.COMPLETED;
   }
 
-  public void preProcessRecordsAndExecuteCallCallbacks() {
+  @Nullable
+  public List<RecordId> preProcessRecordsAndExecuteCallCallbacks() {
     if (operationsBetweenCallbacks.isEmpty()) {
-      return;
+      return null;
     }
 
     var serializer = session.getSerializer();
@@ -601,6 +602,8 @@ public class FrontendTransactionImpl implements
     }
 
     assert operationsBetweenCallbacks.isEmpty();
+
+    return newDeletedRecords;
   }
 
   private void preProcessRecordOperationAndExecuteCallbacks(RecordOperation recordOperation,

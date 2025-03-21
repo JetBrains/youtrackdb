@@ -58,7 +58,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.function.FunctionLibrary
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.ImmutableUser;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyAccess;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyEncryptionNone;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.RestrictedAccessHook;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.RestrictedOperation;
@@ -548,23 +547,29 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   public ResultSet query(String query, Object[] args) {
     checkOpenness();
     assert assertIfNotActive();
-    beginReadOnly();
-    currentTx.preProcessRecordsAndExecuteCallCallbacks();
-    getSharedContext().getYouTrackDB().startCommand(Optional.empty());
-    preQueryStart();
     try {
-      var statement = SQLEngine.parse(query, this);
-      if (!statement.isIdempotent()) {
-        throw new CommandExecutionException(getDatabaseName(),
-            "Cannot execute query on non idempotent statement: " + query);
+      beginReadOnly();
+
+      currentTx.preProcessRecordsAndExecuteCallCallbacks();
+      getSharedContext().getYouTrackDB().startCommand(Optional.empty());
+      preQueryStart();
+      try {
+        var statement = SQLEngine.parse(query, this);
+        if (!statement.isIdempotent()) {
+          throw new CommandExecutionException(getDatabaseName(),
+              "Cannot execute query on non idempotent statement: " + query);
+        }
+        var original = statement.execute(this, args, true);
+        var result = new LocalResultSetLifecycleDecorator(original);
+        queryStarted(result);
+        return result;
+      } finally {
+        cleanQueryState();
+        getSharedContext().getYouTrackDB().endCommand();
       }
-      var original = statement.execute(this, args, true);
-      var result = new LocalResultSetLifecycleDecorator(original);
-      queryStarted(result);
-      return result;
-    } finally {
-      cleanQueryState();
-      getSharedContext().getYouTrackDB().endCommand();
+    } catch (Exception e) {
+      rollback(true);
+      throw e;
     }
   }
 
@@ -573,22 +578,27 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     checkOpenness();
     assert assertIfNotActive();
     beginReadOnly();
-    currentTx.preProcessRecordsAndExecuteCallCallbacks();
-    getSharedContext().getYouTrackDB().startCommand(Optional.empty());
-    preQueryStart();
     try {
-      var statement = SQLEngine.parse(query, this);
-      if (!statement.isIdempotent()) {
-        throw new CommandExecutionException(getDatabaseName(),
-            "Cannot execute query on non idempotent statement: " + query);
+      currentTx.preProcessRecordsAndExecuteCallCallbacks();
+      getSharedContext().getYouTrackDB().startCommand(Optional.empty());
+      preQueryStart();
+      try {
+        var statement = SQLEngine.parse(query, this);
+        if (!statement.isIdempotent()) {
+          throw new CommandExecutionException(getDatabaseName(),
+              "Cannot execute query on non idempotent statement: " + query);
+        }
+        var original = statement.execute(this, args, true);
+        var result = new LocalResultSetLifecycleDecorator(original);
+        queryStarted(result);
+        return result;
+      } finally {
+        cleanQueryState();
+        getSharedContext().getYouTrackDB().endCommand();
       }
-      var original = statement.execute(this, args, true);
-      var result = new LocalResultSetLifecycleDecorator(original);
-      queryStarted(result);
-      return result;
-    } finally {
-      cleanQueryState();
-      getSharedContext().getYouTrackDB().endCommand();
+    } catch (Exception e) {
+      rollback(true);
+      throw e;
     }
   }
 
@@ -597,29 +607,34 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     checkOpenness();
     assert assertIfNotActive();
 
-    currentTx.preProcessRecordsAndExecuteCallCallbacks();
-    getSharedContext().getYouTrackDB().startCommand(Optional.empty());
-    preQueryStart();
     try {
-      var statement = SQLEngine.parse(query, this);
-      var original = statement.execute(this, args, true);
-      LocalResultSetLifecycleDecorator result;
-      if (!statement.isIdempotent()) {
-        // fetch all, close and detach
-        var prefetched = new InternalResultSet(this);
-        original.forEachRemaining(prefetched::add);
-        original.close();
-        queryCompleted();
-        result = new LocalResultSetLifecycleDecorator(prefetched);
-      } else {
-        // stream, keep open and attach to the current DB
-        result = new LocalResultSetLifecycleDecorator(original);
-        queryStarted(result);
+      currentTx.preProcessRecordsAndExecuteCallCallbacks();
+      getSharedContext().getYouTrackDB().startCommand(Optional.empty());
+      preQueryStart();
+      try {
+        var statement = SQLEngine.parse(query, this);
+        var original = statement.execute(this, args, true);
+        LocalResultSetLifecycleDecorator result;
+        if (!statement.isIdempotent()) {
+          // fetch all, close and detach
+          var prefetched = new InternalResultSet(this);
+          original.forEachRemaining(prefetched::add);
+          original.close();
+          queryCompleted();
+          result = new LocalResultSetLifecycleDecorator(prefetched);
+        } else {
+          // stream, keep open and attach to the current DB
+          result = new LocalResultSetLifecycleDecorator(original);
+          queryStarted(result);
+        }
+        return result;
+      } finally {
+        cleanQueryState();
+        getSharedContext().getYouTrackDB().endCommand();
       }
-      return result;
-    } finally {
-      cleanQueryState();
-      getSharedContext().getYouTrackDB().endCommand();
+    } catch (Exception e) {
+      rollback(true);
+      throw e;
     }
   }
 
@@ -628,32 +643,37 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     checkOpenness();
     assert assertIfNotActive();
 
-    currentTx.preProcessRecordsAndExecuteCallCallbacks();
-    getSharedContext().getYouTrackDB().startCommand(Optional.empty());
     try {
-      preQueryStart();
+      currentTx.preProcessRecordsAndExecuteCallCallbacks();
+      getSharedContext().getYouTrackDB().startCommand(Optional.empty());
+      try {
+        preQueryStart();
 
-      var statement = SQLEngine.parse(query, this);
-      var original = statement.execute(this, args, true);
-      LocalResultSetLifecycleDecorator result;
-      if (!statement.isIdempotent()) {
-        // fetch all, close and detach
-        var prefetched = new InternalResultSet(this);
-        original.forEachRemaining(prefetched::add);
-        original.close();
-        queryCompleted();
-        result = new LocalResultSetLifecycleDecorator(prefetched);
-      } else {
-        // stream, keep open and attach to the current DB
-        result = new LocalResultSetLifecycleDecorator(original);
+        var statement = SQLEngine.parse(query, this);
+        var original = statement.execute(this, args, true);
+        LocalResultSetLifecycleDecorator result;
+        if (!statement.isIdempotent()) {
+          // fetch all, close and detach
+          var prefetched = new InternalResultSet(this);
+          original.forEachRemaining(prefetched::add);
+          original.close();
+          queryCompleted();
+          result = new LocalResultSetLifecycleDecorator(prefetched);
+        } else {
+          // stream, keep open and attach to the current DB
+          result = new LocalResultSetLifecycleDecorator(original);
 
-        queryStarted(result);
+          queryStarted(result);
+        }
+
+        return result;
+      } finally {
+        cleanQueryState();
+        getSharedContext().getYouTrackDB().endCommand();
       }
-
-      return result;
-    } finally {
-      cleanQueryState();
-      getSharedContext().getYouTrackDB().endCommand();
+    } catch (Exception e) {
+      rollback(true);
+      throw e;
     }
   }
 
@@ -661,33 +681,38 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   public ResultSet runScript(String language, String script, Object... args) {
     checkOpenness();
     assert assertIfNotActive();
-    if (!"sql".equalsIgnoreCase(language)) {
-      checkSecurity(Rule.ResourceGeneric.COMMAND, Role.PERMISSION_EXECUTE, language);
-    }
-    currentTx.preProcessRecordsAndExecuteCallCallbacks();
-    getSharedContext().getYouTrackDB().startCommand(Optional.empty());
     try {
-      preQueryStart();
-      var executor =
-          getSharedContext()
-              .getYouTrackDB()
-              .getScriptManager()
-              .getCommandManager()
-              .getScriptExecutor(language);
-
-      ((AbstractPaginatedStorage) this.storage).pauseConfigurationUpdateNotifications();
-      ResultSet original;
-      try {
-        original = executor.execute(this, script, args);
-      } finally {
-        ((AbstractPaginatedStorage) this.storage).fireConfigurationUpdateNotifications();
+      if (!"sql".equalsIgnoreCase(language)) {
+        checkSecurity(Rule.ResourceGeneric.COMMAND, Role.PERMISSION_EXECUTE, language);
       }
-      var result = new LocalResultSetLifecycleDecorator(original);
-      queryStarted(result);
-      return result;
-    } finally {
-      cleanQueryState();
-      getSharedContext().getYouTrackDB().endCommand();
+      currentTx.preProcessRecordsAndExecuteCallCallbacks();
+      getSharedContext().getYouTrackDB().startCommand(Optional.empty());
+      try {
+        preQueryStart();
+        var executor =
+            getSharedContext()
+                .getYouTrackDB()
+                .getScriptManager()
+                .getCommandManager()
+                .getScriptExecutor(language);
+
+        ((AbstractPaginatedStorage) this.storage).pauseConfigurationUpdateNotifications();
+        ResultSet original;
+        try {
+          original = executor.execute(this, script, args);
+        } finally {
+          ((AbstractPaginatedStorage) this.storage).fireConfigurationUpdateNotifications();
+        }
+        var result = new LocalResultSetLifecycleDecorator(original);
+        queryStarted(result);
+        return result;
+      } finally {
+        cleanQueryState();
+        getSharedContext().getYouTrackDB().endCommand();
+      }
+    } catch (Exception e) {
+      rollback(true);
+      throw e;
     }
   }
 
@@ -718,53 +743,66 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     if (!"sql".equalsIgnoreCase(language)) {
       checkSecurity(Rule.ResourceGeneric.COMMAND, Role.PERMISSION_EXECUTE, language);
     }
-    currentTx.preProcessRecordsAndExecuteCallCallbacks();
-    getSharedContext().getYouTrackDB().startCommand(Optional.empty());
+
     try {
-      preQueryStart();
-      var executor =
-          sharedContext
-              .getYouTrackDB()
-              .getScriptManager()
-              .getCommandManager()
-              .getScriptExecutor(language);
-      ResultSet original;
-
-      ((AbstractPaginatedStorage) this.storage).pauseConfigurationUpdateNotifications();
+      currentTx.preProcessRecordsAndExecuteCallCallbacks();
+      getSharedContext().getYouTrackDB().startCommand(Optional.empty());
       try {
-        original = executor.execute(this, script, args);
-      } finally {
-        ((AbstractPaginatedStorage) this.storage).fireConfigurationUpdateNotifications();
-      }
+        preQueryStart();
+        var executor =
+            sharedContext
+                .getYouTrackDB()
+                .getScriptManager()
+                .getCommandManager()
+                .getScriptExecutor(language);
+        ResultSet original;
 
-      var result = new LocalResultSetLifecycleDecorator(original);
-      queryStarted(result);
-      return result;
-    } finally {
-      cleanQueryState();
-      getSharedContext().getYouTrackDB().endCommand();
+        ((AbstractPaginatedStorage) this.storage).pauseConfigurationUpdateNotifications();
+        try {
+          original = executor.execute(this, script, args);
+        } finally {
+          ((AbstractPaginatedStorage) this.storage).fireConfigurationUpdateNotifications();
+        }
+
+        var result = new LocalResultSetLifecycleDecorator(original);
+        queryStarted(result);
+        return result;
+      } finally {
+        cleanQueryState();
+        getSharedContext().getYouTrackDB().endCommand();
+      }
+    } catch (Exception e) {
+      rollback(true);
+      throw e;
     }
+
   }
 
   public LocalResultSetLifecycleDecorator query(ExecutionPlan plan, Map<Object, Object> params) {
     checkOpenness();
     assert assertIfNotActive();
-    currentTx.preProcessRecordsAndExecuteCallCallbacks();
-    getSharedContext().getYouTrackDB().startCommand(Optional.empty());
+
     try {
-      preQueryStart();
-      var ctx = new BasicCommandContext();
-      ctx.setDatabaseSession(this);
-      ctx.setInputParameters(params);
+      currentTx.preProcessRecordsAndExecuteCallCallbacks();
+      getSharedContext().getYouTrackDB().startCommand(Optional.empty());
+      try {
+        preQueryStart();
+        var ctx = new BasicCommandContext();
+        ctx.setDatabaseSession(this);
+        ctx.setInputParameters(params);
 
-      var result = new LocalResultSet(this, (InternalExecutionPlan) plan);
-      var decorator = new LocalResultSetLifecycleDecorator(result);
-      queryStarted(decorator);
+        var result = new LocalResultSet(this, (InternalExecutionPlan) plan);
+        var decorator = new LocalResultSetLifecycleDecorator(result);
+        queryStarted(decorator);
 
-      return decorator;
-    } finally {
-      cleanQueryState();
-      getSharedContext().getYouTrackDB().endCommand();
+        return decorator;
+      } finally {
+        cleanQueryState();
+        getSharedContext().getYouTrackDB().endCommand();
+      }
+    } catch (Exception e) {
+      rollback(true);
+      throw e;
     }
   }
 
@@ -1010,9 +1048,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
           return true;
         }
 
-        entity.propertyAccess = new PropertyAccess(this, entity,
-            getSharedContext().getSecurity());
-        entity.propertyEncryption = PropertyEncryptionNone.instance();
+        entity.initPropertyAccess();
       }
     }
 
@@ -1770,7 +1806,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
         var oppositeLinksContainer = (RidBag) entity.getPropertyInternal(propertyName);
 
         for (var link : oppositeLinksContainer) {
-          var oppositeEntity = (EntityImpl) link.getEntitySilently(this);
+          var transaction = getActiveTransaction();
+          var oppositeEntity = (EntityImpl) transaction.loadEntityOrNull(link);
           //skip self-links and already deleted entities
           if (oppositeEntity == null || oppositeEntity.equals(entity)) {
             continue;

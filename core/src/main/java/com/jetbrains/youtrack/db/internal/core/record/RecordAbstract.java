@@ -98,11 +98,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     return null;
   }
 
-  @Nonnull
-  public RecordAbstract getRecord(@Nonnull DatabaseSession session) {
-    return this;
-  }
-
   public void clear() {
     checkForBinding();
 
@@ -370,7 +365,8 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
             && recordVersion == recordAbstract.recordVersion;
       }
       case Identifiable identifiable -> {
-        var record = (RecordAbstract) identifiable.getRecord(session);
+        var transaction = session.getActiveTransaction();
+        var record = (RecordAbstract) transaction.load(identifiable);
         return recordId.equals(record.recordId) && recordVersion == record.recordVersion;
       }
       case null, default -> {

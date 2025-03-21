@@ -175,7 +175,9 @@ public class CreateEdgesStep extends AbstractExecutionStep {
     try (var stream = uniqueIndex.getRids(db, key)) {
       iterator = stream.iterator();
       if (iterator.hasNext()) {
-        return iterator.next().getRecord(db);
+        Identifiable identifiable = iterator.next();
+        var transaction = db.getActiveTransaction();
+        return transaction.load(identifiable);
       }
     }
 
@@ -184,7 +186,8 @@ public class CreateEdgesStep extends AbstractExecutionStep {
 
   private static Vertex asVertex(DatabaseSessionInternal session, Object currentFrom) {
     if (currentFrom instanceof RID) {
-      currentFrom = ((RID) currentFrom).getRecord(session);
+      var transaction = session.getActiveTransaction();
+      currentFrom = transaction.load(((RID) currentFrom));
     }
     if (currentFrom instanceof Result) {
       currentFrom =

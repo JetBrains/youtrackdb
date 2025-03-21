@@ -101,7 +101,8 @@ public class JSONWriter {
           buffer.append("{}");
         } else {
           try {
-            var rec = linked.getRecord(db);
+            var transaction = db.getActiveTransaction();
+            var rec = transaction.load(linked);
             final var embeddedFormat =
                 iFormat != null && iFormat.isEmpty()
                     ? "indent:" + iIndentLevel

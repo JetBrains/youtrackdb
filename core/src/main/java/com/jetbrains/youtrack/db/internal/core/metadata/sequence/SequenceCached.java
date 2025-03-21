@@ -55,7 +55,8 @@ public class SequenceCached extends DBSequence {
     var currentParams = params;
     db.executeInTx(
         transaction -> {
-          var entity = (EntityImpl) entityRid.getRecord(db);
+          var transaction1 = db.getActiveTransaction();
+          var entity = (EntityImpl) transaction1.load(entityRid);
 
           setCacheSize(entity, currentParams.cacheSize);
           cacheStart = cacheEnd = 0L;
@@ -117,11 +118,12 @@ public class SequenceCached extends DBSequence {
   }
 
   private void checkSecurity(DatabaseSessionInternal db) {
+    var transaction = db.getActiveTransaction();
     db
         .checkSecurity(
             Rule.ResourceGeneric.CLASS,
             Role.PERMISSION_UPDATE,
-            this.entityRid.<EntityImpl>getRecord(db).getSchemaClassName());
+            transaction.<EntityImpl>load(this.entityRid).getSchemaClassName());
   }
 
   @Override

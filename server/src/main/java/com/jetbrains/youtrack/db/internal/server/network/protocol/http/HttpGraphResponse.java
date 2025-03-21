@@ -113,12 +113,14 @@ public class HttpGraphResponse extends HttpResponseAbstract {
         }
 
         try {
-          entry = ((Identifiable) entry).getRecord(session);
+          var transaction = session.getActiveTransaction();
+          entry = transaction.load(((Identifiable) entry));
         } catch (Exception e) {
           // IGNORE IT
           continue;
         }
-        entry = ((Identifiable) entry).getRecord(session);
+        var transaction = session.getActiveTransaction();
+        entry = transaction.load(((Identifiable) entry));
 
         if (entry instanceof Entity element) {
           if (element.isVertex()) {
@@ -199,7 +201,8 @@ public class HttpGraphResponse extends HttpResponseAbstract {
       } else {
         for (var edgeRid : edgeRids) {
           try {
-            Entity elem = edgeRid.getRecord(session);
+            var transaction = session.getActiveTransaction();
+            Entity elem = transaction.load(edgeRid);
             var edge = elem.asStatefulEdgeOrNull();
 
             if (edge != null) {

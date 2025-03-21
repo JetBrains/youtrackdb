@@ -174,7 +174,8 @@ public abstract class CommandExecutorSQLSetAware extends CommandExecutorSQLAbstr
                       createEntityFromMap(session, embeddedType, (Map<String, Object>) o);
                   set.add(entity);
                 } else if (o instanceof Identifiable) {
-                  set.add(((Identifiable) o).getRecord(session));
+                  var transaction = session.getActiveTransaction();
+                  set.add(transaction.load(((Identifiable) o)));
                 } else {
                   set.add(o);
                 }
@@ -197,7 +198,8 @@ public abstract class CommandExecutorSQLSetAware extends CommandExecutorSQLAbstr
                       createEntityFromMap(session, embeddedType, (Map<String, Object>) o);
                   set.add(entity);
                 } else if (o instanceof Identifiable) {
-                  set.add(((Identifiable) o).getRecord(session));
+                  var transaction = session.getActiveTransaction();
+                  set.add(transaction.load(((Identifiable) o)));
                 } else {
                   set.add(o);
                 }
@@ -219,7 +221,8 @@ public abstract class CommandExecutorSQLSetAware extends CommandExecutorSQLAbstr
                           (Map<String, Object>) entry.getValue());
                   map.put(entry.getKey(), entity);
                 } else if (entry.getValue() instanceof Identifiable) {
-                  map.put(entry.getKey(), ((Identifiable) entry.getValue()).getRecord(session));
+                  var transaction = session.getActiveTransaction();
+                  map.put(entry.getKey(), transaction.load(((Identifiable) entry.getValue())));
                 } else {
                   map.put(entry.getKey(), entry.getValue());
                 }

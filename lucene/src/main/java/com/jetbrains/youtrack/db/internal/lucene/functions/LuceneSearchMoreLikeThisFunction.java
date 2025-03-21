@@ -106,7 +106,10 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
                   recordId = recordId.copy();
                   return recordId;
                 })
-            .<DBRecord>map(recordId1 -> recordId1.getRecord(db))
+            .<DBRecord>map(recordId1 -> {
+              var transaction = db.getActiveTransaction();
+              return transaction.load(recordId1);
+            })
             .toList();
 
     var mlt = buildMoreLikeThis(index, searcher, metadata);

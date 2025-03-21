@@ -104,7 +104,8 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
           final var record = ((TraverseRecordProcess) o).getTarget();
 
           SchemaImmutableClass result1 = null;
-          final EntityImpl entity = record.getRecord(session);
+          var transaction = session.getActiveTransaction();
+          final EntityImpl entity = transaction.load(record);
           result1 = entity.getImmutableSchemaClass(session);
           if (iClassName == null
               || result1
@@ -124,7 +125,8 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
         } else if (o instanceof Identifiable record) {
 
           SchemaImmutableClass result1 = null;
-          final EntityImpl entity = record.getRecord(session);
+          var transaction = session.getActiveTransaction();
+          final EntityImpl entity = transaction.load(record);
           if (entity != null) {
             result1 = entity.getImmutableSchemaClass(session);
           }
@@ -154,7 +156,8 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
           final var record = ((TraverseRecordProcess) o).getTarget();
 
           SchemaImmutableClass result1 = null;
-          final EntityImpl entity = record.getRecord(session);
+          var transaction = session.getActiveTransaction();
+          final EntityImpl entity = transaction.load(record);
           if (entity != null) {
             result1 = entity.getImmutableSchemaClass(session);
           }
@@ -176,7 +179,8 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
         } else if (o instanceof Identifiable record) {
 
           SchemaImmutableClass result1 = null;
-          final EntityImpl entity = record.getRecord(session);
+          var transaction = session.getActiveTransaction();
+          final EntityImpl entity = transaction.load(record);
           if (entity != null) {
             result1 = entity.getImmutableSchemaClass(session);
           }

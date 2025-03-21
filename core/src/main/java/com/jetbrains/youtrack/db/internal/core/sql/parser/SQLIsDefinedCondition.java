@@ -32,7 +32,8 @@ public class SQLIsDefinedCondition extends SQLBooleanExpression implements
     var db = ctx.getDatabaseSession();
     Object elem;
     try {
-      elem = currentRecord.getRecord(db);
+      var transaction = db.getActiveTransaction();
+      elem = transaction.load(currentRecord);
     } catch (RecordNotFoundException rnf) {
       return false;
     }

@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class FrontendClientServerTransaction extends FrontendTransactionImpl {
 
@@ -387,6 +388,23 @@ public class FrontendClientServerTransaction extends FrontendTransactionImpl {
       throw new IllegalStateException("Record " + rid
           + " is already registered in transaction with original id " + removedRid);
     }
+  }
+
+  @Override
+  @Nullable
+  public List<RecordId> preProcessRecordsAndExecuteCallCallbacks() {
+    var newRecordsToDelete = super.preProcessRecordsAndExecuteCallCallbacks();
+
+    if (newRecordsToDelete != null) {
+      for (var newRecord : newRecordsToDelete) {
+        updatedToOldRecordIdMap.remove(newRecord);
+        operationsToSendOnClient.remove(newRecord);
+      }
+
+      return newRecordsToDelete;
+    }
+
+    return null;
   }
 }
 

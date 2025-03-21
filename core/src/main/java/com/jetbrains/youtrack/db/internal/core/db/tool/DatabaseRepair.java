@@ -157,7 +157,8 @@ public class DatabaseRepair extends DatabaseTool {
       if (((RecordId) id).isValidPosition()) {
         if (id.isPersistent()) {
           try {
-            ((Identifiable) fieldValue).getRecord(db);
+            var transaction = db.getActiveTransaction();
+            transaction.load(((Identifiable) fieldValue));
           } catch (RecordNotFoundException rnf) {
             return true;
           }

@@ -366,7 +366,8 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
    */
   @SuppressWarnings("unchecked")
   public boolean result(@Nonnull DatabaseSessionInternal session, final Object iRecord) {
-    final EntityImpl record = ((Identifiable) iRecord).getRecord(session);
+    var transaction = session.getActiveTransaction();
+    final EntityImpl record = transaction.load(((Identifiable) iRecord));
 
     if (updateEdge && !isRecordInstanceOf(session, iRecord, "E")) {
       throw new CommandExecutionException(session,
@@ -418,7 +419,8 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
     if (!(iRecord instanceof Identifiable)) {
       return false;
     }
-    EntityImpl record = ((Identifiable) iRecord).getRecord(session);
+    var transaction = session.getActiveTransaction();
+    EntityImpl record = transaction.load(((Identifiable) iRecord));
     SchemaImmutableClass result;
     result = record.getImmutableSchemaClass(session);
     return (result.isSubClassOf(youTrackDbClass));
@@ -465,7 +467,8 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
         edgeClassName = "";
       }
       var vertexFieldName = direction + "_" + edgeClassName;
-      EntityImpl prevOutDoc = prevVertex.getRecord(db);
+      var transaction1 = db.getActiveTransaction();
+      EntityImpl prevOutDoc = transaction1.load(prevVertex);
       RidBag prevBag = prevOutDoc.getProperty(vertexFieldName);
 
       if (prevBag != null) {
@@ -473,7 +476,8 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
 
       }
 
-      EntityImpl currentVertexDoc = currentVertex.getRecord(db);
+      var transaction = db.getActiveTransaction();
+      EntityImpl currentVertexDoc = transaction.load(currentVertex);
       RidBag currentBag = currentVertexDoc.getProperty(vertexFieldName);
       if (currentBag == null) {
         currentBag = new RidBag(db);

@@ -144,10 +144,12 @@ public class SQLFunctionCall extends SimpleNode {
       ctx.setVariable("aggregation", false);
       var session = ctx.getDatabaseSession();
       return switch (record) {
-        case Identifiable identifiable ->
-            function.execute(targetObjects, identifiable.getEntity(session), null,
-                paramValues.toArray(),
-                ctx);
+        case Identifiable identifiable -> {
+          var transaction = session.getActiveTransaction();
+          yield function.execute(targetObjects, transaction.loadEntity(identifiable), null,
+              paramValues.toArray(),
+              ctx);
+        }
         case Result result -> function.execute(
             targetObjects,
             result,

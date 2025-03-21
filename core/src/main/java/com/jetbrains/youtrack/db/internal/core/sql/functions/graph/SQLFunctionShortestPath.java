@@ -93,7 +93,8 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
     }
     source = SQLHelper.getValue(source, record, iContext);
     if (source instanceof Identifiable) {
-      Entity elem = ((Identifiable) source).getRecord(session);
+      var transaction = session.getActiveTransaction();
+      Entity elem = transaction.load(((Identifiable) source));
       if (!elem.isVertex()) {
         throw new IllegalArgumentException("The sourceVertex must be a vertex record");
       }
@@ -109,7 +110,8 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
     }
     dest = SQLHelper.getValue(dest, record, iContext);
     if (dest instanceof Identifiable) {
-      Entity elem = ((Identifiable) dest).getRecord(session);
+      var transaction = session.getActiveTransaction();
+      Entity elem = transaction.load(((Identifiable) dest));
       if (elem == null || !elem.isVertex()) {
         throw new IllegalArgumentException("The destinationVertex must be a vertex record");
       }
@@ -237,7 +239,8 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
     if (additionalParams instanceof Map) {
       mapParams = (Map) additionalParams;
     } else if (additionalParams instanceof Identifiable) {
-      mapParams = ((EntityImpl) ((Identifiable) additionalParams).getRecord(db)).toMap();
+      var transaction = db.getActiveTransaction();
+      mapParams = ((EntityImpl) transaction.load(((Identifiable) additionalParams))).toMap();
     }
     if (mapParams != null) {
       ctx.maxDepth = integer(mapParams.get("maxDepth"));

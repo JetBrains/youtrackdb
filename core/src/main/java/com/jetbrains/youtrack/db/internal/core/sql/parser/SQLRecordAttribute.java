@@ -146,7 +146,8 @@ public class SQLRecordAttribute extends SimpleNode {
       return iCurrentRecord.getSchemaClassName();
     } else if (name.equalsIgnoreCase("@version")) {
       try {
-        var record = iCurrentRecord.getRecord(session);
+        var transaction = session.getActiveTransaction();
+        var record = transaction.load(iCurrentRecord);
         return record.getVersion();
       } catch (RecordNotFoundException e) {
         return null;

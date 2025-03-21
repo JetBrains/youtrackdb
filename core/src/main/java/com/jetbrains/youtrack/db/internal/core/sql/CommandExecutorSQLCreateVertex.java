@@ -144,7 +144,7 @@ public class CommandExecutorSQLCreateVertex extends CommandExecutorSQLSetAware
       throw new UnsupportedOperationException();
     }
 
-    return vertex.getRecord(session);
+    return vertex;
   }
 
   @Override

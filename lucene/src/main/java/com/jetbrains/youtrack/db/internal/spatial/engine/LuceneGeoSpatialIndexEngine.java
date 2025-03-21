@@ -122,7 +122,8 @@ public class LuceneGeoSpatialIndexEngine extends LuceneSpatialIndexEngineAbstrac
 
     if (key instanceof Identifiable) {
       openIfClosed(db.getStorage());
-      EntityImpl location = ((Identifiable) key).getRecord(db);
+      var transaction = db.getActiveTransaction();
+      EntityImpl location = transaction.load(((Identifiable) key));
       updateLastAccess();
       addDocument(newGeoDocument((Identifiable) value, factory.fromDoc(location), location));
     }
@@ -148,7 +149,8 @@ public class LuceneGeoSpatialIndexEngine extends LuceneSpatialIndexEngineAbstrac
   @Override
   public Document buildDocument(DatabaseSessionInternal session, Object key,
       Identifiable value) {
-    EntityImpl location = ((Identifiable) key).getRecord(session);
+    var transaction = session.getActiveTransaction();
+    EntityImpl location = transaction.load(((Identifiable) key));
     return newGeoDocument(value, factory.fromDoc(location), location);
   }
 

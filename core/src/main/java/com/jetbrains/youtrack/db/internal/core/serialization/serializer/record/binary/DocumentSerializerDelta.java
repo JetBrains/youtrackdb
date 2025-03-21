@@ -237,7 +237,8 @@ public class DocumentSerializerDelta {
         deserializeDeltaEmbeddedMap(session, bytes, (TrackedMap<Object>) toUpdate);
         break;
       case EMBEDDED:
-        deserializeDelta(session, bytes, ((DBRecord) toUpdate).getRecord(session));
+        var transaction = session.getActiveTransaction();
+        deserializeDelta(session, bytes, transaction.load(((DBRecord) toUpdate)));
         break;
       case LINKLIST:
         deserializeDeltaLinkList(session, bytes, (LinkList) toUpdate);
@@ -642,7 +643,8 @@ public class DocumentSerializerDelta {
         serializeDeltaEmbeddedMap(session, bytes, (TrackedMap<Object>) value);
         break;
       case EMBEDDED:
-        serializeDelta(session, bytes, ((DBRecord) value).getRecord(session));
+        var transaction = session.getActiveTransaction();
+        serializeDelta(session, bytes, transaction.load(((DBRecord) value)));
         break;
       case LINKLIST:
         serializeDeltaLinkList(session, bytes, (LinkList) value);
@@ -1089,7 +1091,8 @@ public class DocumentSerializerDelta {
           cur.setProperty(EntitySerializable.CLASS_NAME, value.getClass().getName());
           serialize(session, cur, bytes);
         } else {
-          serialize(session, ((DBRecord) value).getRecord(session), bytes);
+          var transaction = session.getActiveTransaction();
+          serialize(session, transaction.load(((DBRecord) value)), bytes);
         }
         break;
       case EMBEDDEDSET:

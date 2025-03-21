@@ -626,14 +626,16 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       Direction direction) {
     if (prevInVertex != null) {
       var inFieldName = Vertex.getEdgeLinkFieldName(direction, edgeClass);
-      var prevRecord = prevInVertex.<EntityImpl>getRecord(db);
+      var transaction1 = db.getActiveTransaction();
+      var prevRecord = transaction1.<EntityImpl>load(prevInVertex);
 
       var prevLink = prevRecord.getPropertyInternal(inFieldName);
       if (prevLink != null) {
         removeVertexLink(prevRecord, inFieldName, prevLink, edgeClass, edge);
       }
 
-      var currentRecord = currentInVertex.<EntityImpl>getRecord(db);
+      var transaction = db.getActiveTransaction();
+      var currentRecord = transaction.<EntityImpl>load(currentInVertex);
       createLink(db, currentRecord, edge, inFieldName);
 
     }
@@ -748,7 +750,8 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       case RidBag bag -> {
         // ADD THE LINK TO THE COLLECTION
         out = null;
-        bag.add(to.getRecord(session).getIdentity());
+        var transaction = session.getActiveTransaction();
+        bag.add(transaction.load(to).getIdentity());
       }
       case Collection<?> ignored -> {
         // USE THE FOUND COLLECTION

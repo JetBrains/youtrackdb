@@ -47,7 +47,8 @@ public class FunctionsTest extends BaseDBTest {
             .execute(session);
 
     session.begin();
-    final EntityImpl record = result.getRecord(session);
+    var transaction = session.getActiveTransaction();
+    final EntityImpl record = transaction.load(result);
     final List<String> parameters = record.getProperty("parameters");
 
     Assert.assertNotNull(parameters);
@@ -76,7 +77,8 @@ public class FunctionsTest extends BaseDBTest {
     }
 
     session.begin();
-    EntityImpl func = f.getRecord(session);
+    var transaction = session.getActiveTransaction();
+    EntityImpl func = transaction.load(f);
     func.setProperty("code", "return 2;");
 
     session.commit();

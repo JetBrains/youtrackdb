@@ -231,7 +231,9 @@ public interface FrontendTransaction extends Transaction {
 
   boolean isDeletedInTx(@Nonnull RID rid);
 
-  default void preProcessRecordsAndExecuteCallCallbacks() {
+  @Nullable
+  default List<RecordId> preProcessRecordsAndExecuteCallCallbacks() {
+    return null;
   }
 
 

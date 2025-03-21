@@ -120,7 +120,10 @@ public class IndexTxAwareOneValueGetValuesTest extends BaseDBTest {
     session.begin();
 
     try (var rids = index.getRids(session, 1)) {
-      rids.map(rid -> rid.getRecord(session)).forEach(record -> ((EntityImpl) record).delete());
+      rids.map(rid -> {
+        var transaction = session.getActiveTransaction();
+        return transaction.load(rid);
+      }).forEach(record -> ((EntityImpl) record).delete());
     }
 
     Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
@@ -164,7 +167,10 @@ public class IndexTxAwareOneValueGetValuesTest extends BaseDBTest {
     session.begin();
 
     try (var ridStream = index.getRids(session, 1)) {
-      ridStream.map(rid -> rid.getRecord(session))
+      ridStream.map(rid -> {
+            var transaction = session.getActiveTransaction();
+            return transaction.load(rid);
+          })
           .forEach(record -> ((EntityImpl) record).delete());
     }
     session.newEntity(CLASS_NAME).setProperty(FIELD_NAME, 1);
@@ -264,7 +270,10 @@ public class IndexTxAwareOneValueGetValuesTest extends BaseDBTest {
     session.newEntity(CLASS_NAME).setProperty(FIELD_NAME, 2);
 
     try (var ridStream = index.getRids(session, 1)) {
-      ridStream.map(rid -> rid.getRecord(session))
+      ridStream.map(rid -> {
+            var transaction = session.getActiveTransaction();
+            return transaction.load(rid);
+          })
           .forEach(record -> ((EntityImpl) record).delete());
     }
 
@@ -298,7 +307,10 @@ public class IndexTxAwareOneValueGetValuesTest extends BaseDBTest {
     session.newEntity(CLASS_NAME).setProperty(FIELD_NAME, 2);
 
     try (var ridStream = index.getRids(session, 1)) {
-      ridStream.map(rid -> rid.getRecord(session))
+      ridStream.map(rid -> {
+            var transaction = session.getActiveTransaction();
+            return transaction.load(rid);
+          })
           .forEach(record -> ((EntityImpl) record).delete());
     }
 
@@ -332,7 +344,10 @@ public class IndexTxAwareOneValueGetValuesTest extends BaseDBTest {
     session.newEntity(CLASS_NAME).setProperty(FIELD_NAME, 2);
 
     try (var ridStream = index.getRids(session, 1)) {
-      ridStream.map(rid -> rid.getRecord(session))
+      ridStream.map(rid -> {
+            var transaction = session.getActiveTransaction();
+            return transaction.load(rid);
+          })
           .forEach(record -> ((EntityImpl) record).delete());
     }
     session.newEntity(CLASS_NAME).setProperty(FIELD_NAME, 1);

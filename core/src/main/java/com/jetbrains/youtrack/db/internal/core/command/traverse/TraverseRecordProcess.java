@@ -60,8 +60,10 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
     }
 
     if (command.getPredicate() != null) {
+      var transaction = session.getActiveTransaction();
       final var conditionResult =
-          command.getPredicate().evaluate(target.getEntity(session), null, command.getContext());
+          command.getPredicate()
+              .evaluate(transaction.loadEntity(target), null, command.getContext());
       if (conditionResult != Boolean.TRUE) {
         return drop();
       }
@@ -75,7 +77,8 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
       // SKIP IT
       pop();
     } else {
-      var targetRec = target.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      var targetRec = transaction.load(target);
       if (!(targetRec instanceof EntityImpl targeEntity))
       // SKIP IT
       {
@@ -163,7 +166,8 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
   }
 
   private void processFields(Iterator<Object> target) {
-    EntityImpl entity = this.target.getRecord(session);
+    var transaction2 = session.getActiveTransaction();
+    EntityImpl entity = transaction2.load(this.target);
     var database = command.getContext().getDatabaseSession();
     if (entity.isNotBound(database)) {
       entity = database.bindToSession(entity);
@@ -184,6 +188,7 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
       if (fieldValue != null) {
         final TraverseAbstractProcess<?> subProcess;
 
+        var transaction1 = session.getActiveTransaction();
         if (fieldValue instanceof Iterator<?> || MultiValue.isMultiValue(fieldValue)) {
           final var coll = MultiValue.getMultiValueIterator(fieldValue);
 
@@ -191,11 +196,12 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
               new TraverseMultiValueProcess(
                   command, (Iterator<Object>) coll, path.appendField(field.toString()), session);
         } else if (fieldValue instanceof Identifiable
-            && ((Identifiable) fieldValue).getRecord(session) instanceof EntityImpl) {
+            && transaction1.load(((Identifiable) fieldValue)) instanceof EntityImpl) {
+          var transaction = session.getActiveTransaction();
           subProcess =
               new TraverseRecordProcess(
                   command,
-                  ((Identifiable) fieldValue).getRecord(session),
+                  transaction.load(((Identifiable) fieldValue)),
                   path.appendField(field.toString()), session);
         } else {
           continue;

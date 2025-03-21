@@ -880,7 +880,8 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
       return false;
     }
     try {
-      var record = identifiable.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      var record = transaction.load(identifiable);
       if (record instanceof EntityImpl) {
         SchemaImmutableClass result;
         result = ((EntityImpl) record).getImmutableSchemaClass(session);
@@ -1005,7 +1006,8 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
       for (var entry : matchContext.matched.entrySet()) {
         if (isExplicitAlias(entry.getKey()) && entry.getValue() != null) {
           try {
-            var record = entry.getValue().getRecord(session);
+            var transaction = session.getActiveTransaction();
+            var record = transaction.load(entry.getValue());
             if (request.getResultListener() != null) {
               if (!addSingleResult(request, (BasicCommandContext) ctx, record)) {
                 return false;
@@ -1020,7 +1022,8 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
       for (var entry : matchContext.matched.entrySet()) {
         if (entry.getValue() != null) {
           try {
-            var record = entry.getValue().getRecord(session);
+            var transaction = session.getActiveTransaction();
+            var record = transaction.load(entry.getValue());
             if (request.getResultListener() != null) {
               if (!addSingleResult(request, (BasicCommandContext) ctx, record)) {
                 return false;

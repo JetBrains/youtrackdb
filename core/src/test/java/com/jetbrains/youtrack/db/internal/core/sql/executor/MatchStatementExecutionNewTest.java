@@ -290,7 +290,8 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
       Assert.assertEquals(1, item.getPropertyNames().size());
       Entity personId = session.load(item.getProperty("person"));
 
-      EntityImpl person = personId.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      EntityImpl person = transaction.load(personId);
       String name = person.getProperty("name");
       Assert.assertTrue(name.equals("n1") || name.equals("n2"));
     }
@@ -962,7 +963,9 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     var item = qResult.next();
     Assert.assertFalse(qResult.hasNext());
     qResult.close();
-    return item.asEntity().getRecord(session);
+    Identifiable identifiable = item.asEntity();
+    var transaction = session.getActiveTransaction();
+    return transaction.load(identifiable);
   }
 
   private EntityImpl getManagerArrows(String personName) {
@@ -984,7 +987,9 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     var item = qResult.next();
     Assert.assertFalse(qResult.hasNext());
     qResult.close();
-    return item.asEntity().getRecord(session);
+    Identifiable identifiable = item.asEntity();
+    var transaction = session.getActiveTransaction();
+    return transaction.load(identifiable);
   }
 
   @Test
@@ -1650,7 +1655,9 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     var foo = doc.getLinkList("foo");
     Assert.assertNotNull(foo);
     Assert.assertEquals(1, (foo).size());
-    var resultVertex = foo.getFirst().getVertex(session);
+    Identifiable identifiable = foo.getFirst();
+    var transaction = session.getActiveTransaction();
+    var resultVertex = transaction.loadVertex(identifiable);
     Assert.assertEquals(2, resultVertex.<Object>getProperty("uid"));
     result.close();
     session.commit();
@@ -2325,22 +2332,28 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
         Assert.assertEquals(0, thePath.size());
       } else if (bname.equals("aaa")) {
         Assert.assertEquals(1, thePath.size());
+        var transaction = session.getActiveTransaction();
         Assert.assertEquals("bbb",
-            ((Entity) thePath.get(0).getRecord(session)).getProperty("name"));
+            ((Entity) transaction.load(thePath.get(0))).getProperty("name"));
       } else if (bname.equals("ccc")) {
         Assert.assertEquals(2, thePath.size());
+        var transaction1 = session.getActiveTransaction();
         Assert.assertEquals("bbb",
-            ((Entity) thePath.get(0).getRecord(session)).getProperty("name"));
+            ((Entity) transaction1.load(thePath.get(0))).getProperty("name"));
+        var transaction = session.getActiveTransaction();
         Assert.assertEquals("ccc",
-            ((Entity) thePath.get(1).getRecord(session)).getProperty("name"));
+            ((Entity) transaction.load(thePath.get(1))).getProperty("name"));
       } else if (bname.equals("ddd")) {
         Assert.assertEquals(3, thePath.size());
+        var transaction2 = session.getActiveTransaction();
         Assert.assertEquals("bbb",
-            ((Entity) thePath.get(0).getRecord(session)).getProperty("name"));
+            ((Entity) transaction2.load(thePath.get(0))).getProperty("name"));
+        var transaction1 = session.getActiveTransaction();
         Assert.assertEquals("ccc",
-            ((Entity) thePath.get(1).getRecord(session)).getProperty("name"));
+            ((Entity) transaction1.load(thePath.get(1))).getProperty("name"));
+        var transaction = session.getActiveTransaction();
         Assert.assertEquals("ddd",
-            ((Entity) thePath.get(2).getRecord(session)).getProperty("name"));
+            ((Entity) transaction.load(thePath.get(2))).getProperty("name"));
       }
     }
     Assert.assertFalse(result.hasNext());

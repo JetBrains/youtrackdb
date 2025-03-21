@@ -344,7 +344,6 @@ public class MessageHelper {
     }
 
     record.unsetDirty();
-
     record.recordSerializer = session.getSerializer();
     return record;
   }
@@ -370,13 +369,8 @@ public class MessageHelper {
       channel.writeByte(QueryResponse.RECORD_TYPE_RID);
       writeIdentifiable(session, channel, row.asStatefulEdge().getIdentity());
     } else if (row.isEntity()) {
-      var entity = row.asEntity();
-      if (entity.isEmbedded()) {
-        writeProjection(session, entity.detach(), channel);
-      } else {
-        channel.writeByte(QueryResponse.RECORD_TYPE_RID);
-        writeIdentifiable(session, channel, entity.getIdentity());
-      }
+      channel.writeByte(QueryResponse.RECORD_TYPE_RID);
+      writeIdentifiable(session, channel, row.getIdentity());
     } else {
       writeProjection(session, row, channel);
     }

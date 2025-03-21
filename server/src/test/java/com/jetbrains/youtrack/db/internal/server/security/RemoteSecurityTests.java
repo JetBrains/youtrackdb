@@ -388,8 +388,7 @@ public class RemoteSecurityTests {
     db.close();
     try (var filteredSession = youTrackDB.open(DB_NAME, "reader", "reader")) {
       tx = filteredSession.begin();
-      try (var rs =
-          tx.query("select count(*) as count from Person where name = 'bar'")) {
+      try (var rs = tx.query("select count(*) as count from Person where name = 'bar'")) {
         Assert.assertEquals(0L, (long) rs.next().getProperty("count"));
       }
 
@@ -513,8 +512,8 @@ public class RemoteSecurityTests {
         var doc = item.asEntity();
         doc.setProperty("name", "bar");
 
+        tx.commit();
         Assert.fail();
-        tx.rollback();
       } catch (Exception e) {
       }
     }

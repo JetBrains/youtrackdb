@@ -90,7 +90,8 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered {
         result.add(
             stream
                 .map((rid) -> {
-                  EntityImpl entity = rid.getRecord(session);
+                  var transaction = session.getActiveTransaction();
+                  EntityImpl entity = transaction.load(rid);
                   return entity.getProperty("in");
                 })
                 .collect(Collectors.toSet()));

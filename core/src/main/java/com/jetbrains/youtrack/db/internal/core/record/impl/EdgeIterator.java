@@ -87,7 +87,8 @@ public class EdgeIterator extends LazyWrapperIterator<Edge> {
 
     final DBRecord record;
     try {
-      record = rec.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      record = transaction.load(rec);
     } catch (RecordNotFoundException rnf) {
       // SKIP IT
       LogManager.instance().warn(this, "Record (%s) is null", rec);

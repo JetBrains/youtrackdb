@@ -19,8 +19,6 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
@@ -63,11 +61,6 @@ public class Placeholder implements Identifiable, Streamable {
     return rid;
   }
 
-  @Nonnull
-  @Override
-  public <T extends DBRecord> T getRecord(@Nonnull DatabaseSession session) {
-    return rid.getRecord(session);
-  }
 
   @Override
   public boolean equals(final Object obj) {

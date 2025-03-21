@@ -403,17 +403,7 @@ public interface Result {
   @Nullable
   Entity asEntityOrNull();
 
-  default boolean isVertex() {
-    if (!isEntity()) {
-      return false;
-    }
-
-    var entity = asEntityOrNull();
-    if (entity == null) {
-      return false;
-    }
-    return entity.isVertex();
-  }
+  boolean isVertex();
 
   @Nonnull
   default Vertex asVertex() {

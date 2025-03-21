@@ -119,10 +119,20 @@ public class SortedMultiIterator<T extends Identifiable> implements Iterator<T> 
       return false;
     }
 
-    var leftEntity =
-        (left instanceof EntityImpl) ? (EntityImpl) left : (EntityImpl) left.getRecord(db);
-    var rightEntity =
-        (right instanceof EntityImpl) ? (EntityImpl) right : (EntityImpl) right.getRecord(db);
+    EntityImpl leftEntity;
+    if ((left instanceof EntityImpl)) {
+      leftEntity = (EntityImpl) left;
+    } else {
+      var transaction = db.getActiveTransaction();
+      leftEntity = transaction.load(left);
+    }
+    EntityImpl rightEntity;
+    if ((right instanceof EntityImpl)) {
+      rightEntity = (EntityImpl) right;
+    } else {
+      var transaction = db.getActiveTransaction();
+      rightEntity = transaction.load(right);
+    }
 
     for (var orderItem : orderBy.getItems()) {
       var leftVal = leftEntity.getProperty(orderItem.getRecordAttr());

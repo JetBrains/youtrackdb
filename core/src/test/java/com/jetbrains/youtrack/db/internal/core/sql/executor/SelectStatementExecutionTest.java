@@ -4458,9 +4458,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
         }
         Assert.fail();
       } catch (CommandExecutionException ex) {
+        session.rollback();
         //ignore
       }
-      session.commit();
     } finally {
       GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(oldValue);
     }

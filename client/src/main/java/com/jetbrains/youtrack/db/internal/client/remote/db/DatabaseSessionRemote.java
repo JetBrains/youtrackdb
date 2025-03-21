@@ -290,14 +290,20 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
     checkOpenness();
     assert assertIfNotActive();
     beginReadOnly();
-    checkAndSendTransaction();
 
-    var result = storage.query(this, query, args);
-    if (result.isReloadMetadata()) {
-      reload();
+    try {
+      checkAndSendTransaction();
+
+      var result = storage.query(this, query, args);
+      if (result.isReloadMetadata()) {
+        reload();
+      }
+
+      return result.getResult();
+    } catch (Exception e) {
+      rollback(true);
+      throw e;
     }
-
-    return result.getResult();
   }
 
   @Override
@@ -305,28 +311,40 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
     checkOpenness();
     assert assertIfNotActive();
     beginReadOnly();
-    checkAndSendTransaction();
 
-    var result = storage.query(this, query, args);
-    if (result.isReloadMetadata()) {
-      reload();
+    try {
+      checkAndSendTransaction();
+
+      var result = storage.query(this, query, args);
+      if (result.isReloadMetadata()) {
+        reload();
+      }
+
+      return result.getResult();
+    } catch (Exception e) {
+      rollback(true);
+      throw e;
     }
-
-    return result.getResult();
   }
 
   @Override
   public ResultSet execute(String query, Object... args) {
     checkOpenness();
     assert assertIfNotActive();
-    checkAndSendTransaction();
 
-    var result = storage.command(this, query, args);
-    if (result.isReloadMetadata()) {
-      reload();
+    try {
+      checkAndSendTransaction();
+
+      var result = storage.command(this, query, args);
+      if (result.isReloadMetadata()) {
+        reload();
+      }
+
+      return result.getResult();
+    } catch (Exception e) {
+      rollback(true);
+      throw e;
     }
-
-    return result.getResult();
   }
 
   @Override
@@ -335,13 +353,18 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
     assert assertIfNotActive();
 
     checkAndSendTransaction();
-    var result = storage.command(this, query, args);
+    try {
+      var result = storage.command(this, query, args);
 
-    if (result.isReloadMetadata()) {
-      reload();
+      if (result.isReloadMetadata()) {
+        reload();
+      }
+
+      return result.getResult();
+    } catch (Exception e) {
+      rollback(true);
+      throw e;
     }
-
-    return result.getResult();
   }
 
   @Override
@@ -373,14 +396,20 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
       throws CommandExecutionException, CommandScriptException {
     checkOpenness();
     assert assertIfNotActive();
-    checkAndSendTransaction();
-    var result = storage.execute(this, language, script, args);
 
-    if (result.isReloadMetadata()) {
-      reload();
+    try {
+      checkAndSendTransaction();
+      var result = storage.execute(this, language, script, args);
+
+      if (result.isReloadMetadata()) {
+        reload();
+      }
+
+      return result.getResult();
+    } catch (Exception e) {
+      rollback(true);
+      throw e;
     }
-
-    return result.getResult();
   }
 
   @Override
@@ -388,15 +417,21 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
       throws CommandExecutionException, CommandScriptException {
     checkOpenness();
     assert assertIfNotActive();
-    checkAndSendTransaction();
 
-    var result = storage.execute(this, language, script, args);
+    try {
+      checkAndSendTransaction();
 
-    if (result.isReloadMetadata()) {
-      reload();
+      var result = storage.execute(this, language, script, args);
+
+      if (result.isReloadMetadata()) {
+        reload();
+      }
+
+      return result.getResult();
+    } catch (Exception e) {
+      rollback(true);
+      throw e;
     }
-
-    return result.getResult();
   }
 
   public void closeQuery(String queryId) {

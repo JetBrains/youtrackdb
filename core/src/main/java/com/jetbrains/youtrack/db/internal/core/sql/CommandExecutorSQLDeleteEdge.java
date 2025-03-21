@@ -360,7 +360,8 @@ public class CommandExecutorSQLDeleteEdge extends CommandExecutorSQLSetAware
 
     if (compiledFilter != null) {
       // ADDITIONAL FILTERING
-      if (!(Boolean) compiledFilter.evaluate(id.getRecord(session), null, context)) {
+      var transaction = session.getActiveTransaction();
+      if (!(Boolean) compiledFilter.evaluate(transaction.load(id), null, context)) {
         return true;
       }
     }

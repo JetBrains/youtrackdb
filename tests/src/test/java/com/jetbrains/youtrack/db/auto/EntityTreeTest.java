@@ -131,9 +131,11 @@ public class EntityTreeTest extends BaseDBTest {
       final Collection<Identifiable> followers = profile.getProperty("followers");
       if (followers != null) {
         for (var follower : followers) {
+          var transaction = session.getActiveTransaction();
           Assert.assertTrue(
               ((Collection<Identifiable>)
-                  Objects.requireNonNull(follower.getEntity(session).getProperty("followings")))
+                  Objects.requireNonNull(
+                      transaction.loadEntity(follower).getProperty("followings")))
                   .contains(profile));
         }
       }
@@ -166,7 +168,8 @@ public class EntityTreeTest extends BaseDBTest {
     test = session.load(rid);
     Assert.assertNotNull(test.<Set<Identifiable>>getProperty("set"));
     for (var identifiable : test.<Set<Identifiable>>getProperty("set")) {
-      var child = identifiable.getEntity(session);
+      var transaction = session.getActiveTransaction();
+      var child = transaction.loadEntity(identifiable);
       Assert.assertNotNull(child.<String>getProperty("name"));
       Assert.assertTrue(Integer.parseInt(child.getProperty("name")) < 100);
       Assert.assertTrue(Integer.parseInt(child.getProperty("name")) >= 0);
@@ -260,9 +263,13 @@ public class EntityTreeTest extends BaseDBTest {
     session.begin();
     var rid = p.getIdentity();
     p = session.load(rid);
-    sat = p.<List<Identifiable>>getProperty("satellites").getFirst().getEntity(session);
+    Identifiable identifiable3 = p.<List<Identifiable>>getProperty("satellites").getFirst();
+    var transaction3 = session.getActiveTransaction();
+    sat = transaction3.loadEntity(identifiable3);
     near = sat.getEntity("near");
-    satNear = near.<List<Identifiable>>getProperty("satellites").getFirst().getEntity(session);
+    Identifiable identifiable2 = near.<List<Identifiable>>getProperty("satellites").getFirst();
+    var transaction2 = session.getActiveTransaction();
+    satNear = transaction2.loadEntity(identifiable2);
     Assert.assertEquals(satNear.<Long>getProperty("diameter"), 10);
 
     satNear.setProperty("diameter", 100);
@@ -271,9 +278,13 @@ public class EntityTreeTest extends BaseDBTest {
 
     session.begin();
     p = session.load(rid);
-    sat = p.<List<Identifiable>>getProperty("satellites").getFirst().getEntity(session);
+    Identifiable identifiable1 = p.<List<Identifiable>>getProperty("satellites").getFirst();
+    var transaction1 = session.getActiveTransaction();
+    sat = transaction1.loadEntity(identifiable1);
     near = sat.getEntity("near");
-    satNear = near.<List<Identifiable>>getProperty("satellites").getFirst().getEntity(session);
+    Identifiable identifiable = near.<List<Identifiable>>getProperty("satellites").getFirst();
+    var transaction = session.getActiveTransaction();
+    satNear = transaction.loadEntity(identifiable);
     Assert.assertEquals(satNear.<Long>getProperty("diameter"), 100);
     session.commit();
   }
@@ -299,7 +310,10 @@ public class EntityTreeTest extends BaseDBTest {
     var rid = p.getIdentity();
 
     p = session.load(rid);
-    sat = p.<Map<String, Identifiable>>getProperty("satellitesMap").get("Moon").getEntity(session);
+    Identifiable identifiable1 = p.<Map<String, Identifiable>>getProperty("satellitesMap")
+        .get("Moon");
+    var transaction1 = session.getActiveTransaction();
+    sat = transaction1.loadEntity(identifiable1);
     Assert.assertEquals(p.<Integer>getProperty("distanceSun"), 1000);
     Assert.assertEquals(p.getProperty("name"), "Earth");
     Assert.assertEquals(sat.<Long>getProperty("diameter"), 50);
@@ -309,7 +323,10 @@ public class EntityTreeTest extends BaseDBTest {
 
     session.begin();
     p = session.load(rid);
-    sat = p.<Map<String, Identifiable>>getProperty("satellitesMap").get("Moon").getEntity(session);
+    Identifiable identifiable = p.<Map<String, Identifiable>>getProperty("satellitesMap")
+        .get("Moon");
+    var transaction = session.getActiveTransaction();
+    sat = transaction.loadEntity(identifiable);
     Assert.assertEquals(sat.<Long>getProperty("diameter"), 500);
     Assert.assertEquals(p.<Integer>getProperty("distanceSun"), 1000);
     Assert.assertEquals(p.getProperty("name"), "Earth");
@@ -345,17 +362,19 @@ public class EntityTreeTest extends BaseDBTest {
     session.begin();
     var rid = jupiter.getIdentity();
     jupiter = session.load(rid);
+    Identifiable identifiable3 = jupiter
+        .<Map<String, Identifiable>>getProperty("satellitesMap")
+        .get("JupiterMoon");
+    var transaction3 = session.getActiveTransaction();
     jupiterMoon =
-        jupiter
-            .<Map<String, Identifiable>>getProperty("satellitesMap")
-            .get("JupiterMoon")
-            .getEntity(session);
+        transaction3.loadEntity(identifiable3);
     mercury = jupiterMoon.getEntity("near");
+    Identifiable identifiable2 = mercury
+        .<Map<String, Identifiable>>getProperty("satellitesMap")
+        .get("MercuryMoon");
+    var transaction2 = session.getActiveTransaction();
     mercuryMoon =
-        mercury
-            .<Map<String, Identifiable>>getProperty("satellitesMap")
-            .get("MercuryMoon")
-            .getEntity(session);
+        transaction2.loadEntity(identifiable2);
     Assert.assertEquals(mercuryMoon.<Long>getProperty("diameter"), 10);
     Assert.assertEquals(mercuryMoon.getProperty("name"), "MercuryMoon");
     Assert.assertEquals(jupiterMoon.<Long>getProperty("diameter"), 50);
@@ -372,17 +391,19 @@ public class EntityTreeTest extends BaseDBTest {
 
     session.begin();
     jupiter = session.load(rid);
+    Identifiable identifiable1 = jupiter
+        .<Map<String, Identifiable>>getProperty("satellitesMap")
+        .get("JupiterMoon");
+    var transaction1 = session.getActiveTransaction();
     jupiterMoon =
-        jupiter
-            .<Map<String, Identifiable>>getProperty("satellitesMap")
-            .get("JupiterMoon")
-            .getEntity(session);
+        transaction1.loadEntity(identifiable1);
     mercury = jupiterMoon.getEntity("near");
+    Identifiable identifiable = mercury
+        .<Map<String, Identifiable>>getProperty("satellitesMap")
+        .get("MercuryMoon");
+    var transaction = session.getActiveTransaction();
     mercuryMoon =
-        mercury
-            .<Map<String, Identifiable>>getProperty("satellitesMap")
-            .get("MercuryMoon")
-            .getEntity(session);
+        transaction.loadEntity(identifiable);
     Assert.assertEquals(mercuryMoon.<Long>getProperty("diameter"), 100);
     Assert.assertEquals(mercuryMoon.getProperty("name"), "MercuryMoon");
     Assert.assertEquals(jupiterMoon.<Long>getProperty("diameter"), 50);

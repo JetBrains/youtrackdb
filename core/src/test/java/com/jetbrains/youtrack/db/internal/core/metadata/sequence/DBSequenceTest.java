@@ -665,7 +665,8 @@ public class DBSequenceTest {
     db.commit();
 
     db.begin();
-    var newSeq = new SequenceCached(myseq.entityRid.getRecord(db));
+    var transaction1 = db.getActiveTransaction();
+    var newSeq = new SequenceCached(transaction1.load(myseq.entityRid));
     var val = newSeq.current(db);
     assertThat(val).isEqualTo(5);
     db.commit();

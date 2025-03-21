@@ -787,7 +787,8 @@ public class NetworkProtocolBinary extends NetworkProtocol {
       channel.writeShort(ChannelBinaryProtocol.RECORD_RID);
       channel.writeRID((RID) o);
     } else {
-      writeRecord(channel, connection, o.getRecord(connection.getDatabaseSession()));
+      var transaction = connection.getDatabaseSession().getActiveTransaction();
+      writeRecord(channel, connection, transaction.load(o));
     }
   }
 

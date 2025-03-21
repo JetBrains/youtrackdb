@@ -268,7 +268,8 @@ public class MatchEdgeTraverser {
     if (origin instanceof EntityImpl EntityImpl) {
       entity = EntityImpl;
     } else if (origin != null) {
-      var record = origin.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      var record = transaction.load(origin);
       if (record instanceof EntityImpl EntityImpl) {
         entity = EntityImpl;
       }

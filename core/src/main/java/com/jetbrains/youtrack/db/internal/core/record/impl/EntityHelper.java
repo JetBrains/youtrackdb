@@ -197,8 +197,13 @@ public class EntityHelper {
         }
 
         if (value instanceof Identifiable) {
-          final var record =
-              currentRecord instanceof Identifiable ? currentRecord.getRecord(session) : null;
+          final DBRecord record;
+          if (currentRecord instanceof Identifiable) {
+            var transaction = session.getActiveTransaction();
+            record = transaction.load(currentRecord);
+          } else {
+            record = null;
+          }
 
           final var index = getIndexPart(iContext, indexPart);
           final var indexAsString = index != null ? index.toString() : null;
@@ -399,7 +404,8 @@ public class EntityHelper {
 
             for (var v : MultiValue.getMultiValueIterable(value)) {
               if (v instanceof Identifiable identifiable) {
-                var entity = identifiable.getEntity(session);
+                var transaction = session.getActiveTransaction();
+                var entity = transaction.loadEntity(identifiable);
                 var result =
                     pred.evaluate(entity, (EntityImpl) entity, iContext);
                 if (Boolean.TRUE.equals(result)) {
@@ -445,8 +451,10 @@ public class EntityHelper {
             var method =
                 SQLEngine.getMethod(fieldName.substring(0, fieldName.length() - 2));
             if (method != null) {
+              var transaction = session.getActiveTransaction();
               value = method.execute(value,
-                  currentRecord != null ? currentRecord.getEntity(session) : null, iContext, value,
+                  currentRecord != null ? transaction.loadEntity(currentRecord) : null, iContext,
+                  value,
                   new Object[]{});
               executedMethod = true;
             }
@@ -619,7 +627,8 @@ public class EntityHelper {
     if (iValue instanceof Identifiable) {
       final DBRecord rec;
       try {
-        rec = ((Identifiable) iValue).getRecord(db);
+        var transaction = db.getActiveTransaction();
+        rec = transaction.load(((Identifiable) iValue));
       } catch (RecordNotFoundException rnf) {
         return null;
       }
@@ -707,7 +716,8 @@ public class EntityHelper {
     }
 
     try {
-      final EntityImpl entity = current.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      final EntityImpl entity = transaction.load(current);
       return entity.accessProperty(iFieldName);
     } catch (RecordNotFoundException rnf) {
       return null;
@@ -721,7 +731,8 @@ public class EntityHelper {
       if (begin == '@') {
         // RETURN AN ATTRIBUTE
         if (iFieldName.equalsIgnoreCase(ATTRIBUTE_THIS)) {
-          return current.getRecord(session);
+          var transaction = session.getActiveTransaction();
+          return transaction.load(current);
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_RID)) {
           return current.getIdentity();
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_RID_ID)) {
@@ -729,21 +740,27 @@ public class EntityHelper {
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_RID_POS)) {
           return current.getIdentity().getClusterPosition();
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_VERSION)) {
-          return current.getRecord(session).getVersion();
+          var transaction = session.getActiveTransaction();
+          return transaction.load(current).getVersion();
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_CLASS)) {
-          return ((EntityImpl) current.getRecord(session)).getSchemaClassName();
+          var transaction = session.getActiveTransaction();
+          return ((EntityImpl) transaction.load(current)).getSchemaClassName();
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_TYPE)) {
+          var transaction = session.getActiveTransaction();
           return YouTrackDBEnginesManager.instance()
               .getRecordFactoryManager()
               .getRecordTypeName(
-                  current.<RecordAbstract>getRecord(session).getRecordType());
+                  transaction.<RecordAbstract>load(current).getRecordType());
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_SIZE)) {
-          final var stream = ((RecordAbstract) current.getRecord(session)).toStream();
+          var transaction = session.getActiveTransaction();
+          final var stream = ((RecordAbstract) transaction.load(current)).toStream();
           return stream != null ? stream.length : 0;
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_FIELDS)) {
-          return ((EntityImpl) current.getRecord(session)).propertyNames();
+          var transaction = session.getActiveTransaction();
+          return ((EntityImpl) transaction.load(current)).propertyNames();
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_RAW)) {
-          return new String(((RecordAbstract) current.getRecord(session)).toStream());
+          var transaction = session.getActiveTransaction();
+          return new String(((RecordAbstract) transaction.load(current)).toStream());
         }
       }
       return null;
@@ -1065,8 +1082,10 @@ public class EntityHelper {
       }
 
       if (myEntry.getValue() instanceof EntityImpl entity) {
+        Identifiable identifiable = ((Identifiable) otherFieldValue.get(myEntry.getKey()));
+        var transaction = iOtherDb.getActiveTransaction();
         if (!hasSameContentOf(entity, iMyDb,
-            ((Identifiable) otherFieldValue.get(myEntry.getKey())).getRecord(iOtherDb),
+            transaction.load(identifiable),
             iOtherDb,
             ridMapper)) {
           return false;

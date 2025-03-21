@@ -68,10 +68,16 @@ public class ByteArrayKeyTest extends BaseDBTest {
     var index =
         session.getMetadata().getIndexManagerInternal().getIndex(session, "byteArrayKeyIndex");
     try (var stream = index.getRids(session, key1)) {
-      Assert.assertEquals(stream.findAny().map(rid -> rid.getRecord(session)).orElse(null), doc1);
+      Assert.assertEquals(stream.findAny().map(rid -> {
+        var transaction = session.getActiveTransaction();
+        return transaction.load(rid);
+      }).orElse(null), doc1);
     }
     try (var stream = index.getRids(session, key2)) {
-      Assert.assertEquals(stream.findAny().map(rid -> rid.getRecord(session)).orElse(null), doc2);
+      Assert.assertEquals(stream.findAny().map(rid -> {
+        var transaction = session.getActiveTransaction();
+        return transaction.load(rid);
+      }).orElse(null), doc2);
     }
   }
 
@@ -98,10 +104,16 @@ public class ByteArrayKeyTest extends BaseDBTest {
             .getIndexManagerInternal()
             .getIndex(session, "compositeByteArrayKey");
     try (var stream = index.getRids(session, new CompositeKey(key1, 1))) {
-      Assert.assertEquals(stream.findAny().map(rid -> rid.getRecord(session)).orElse(null), doc1);
+      Assert.assertEquals(stream.findAny().map(rid -> {
+        var transaction = session.getActiveTransaction();
+        return transaction.load(rid);
+      }).orElse(null), doc1);
     }
     try (var stream = index.getRids(session, new CompositeKey(key2, 2))) {
-      Assert.assertEquals(stream.findAny().map(rid -> rid.getRecord(session)).orElse(null), doc2);
+      Assert.assertEquals(stream.findAny().map(rid -> {
+        var transaction = session.getActiveTransaction();
+        return transaction.load(rid);
+      }).orElse(null), doc2);
     }
   }
 
@@ -128,10 +140,16 @@ public class ByteArrayKeyTest extends BaseDBTest {
             .getIndexManagerInternal()
             .getIndex(session, "compositeByteArrayKey");
     try (var stream = index.getRids(session, new CompositeKey(key1, 1))) {
-      Assert.assertEquals(stream.findAny().map(rid -> rid.getRecord(session)).orElse(null), doc1);
+      Assert.assertEquals(stream.findAny().map(rid -> {
+        var transaction = session.getActiveTransaction();
+        return transaction.load(rid);
+      }).orElse(null), doc1);
     }
     try (var stream = index.getRids(session, new CompositeKey(key2, 2))) {
-      Assert.assertEquals(stream.findAny().map(rid -> rid.getRecord(session)).orElse(null), doc2);
+      Assert.assertEquals(stream.findAny().map(rid -> {
+        var transaction = session.getActiveTransaction();
+        return transaction.load(rid);
+      }).orElse(null), doc2);
     }
   }
 

@@ -576,7 +576,8 @@ public class SQLHelper {
               if (o instanceof Identifiable && !((Identifiable) o).getIdentity()
                   .isPersistent()) {
                 // TEMPORARY / EMBEDDED
-                var rec = ((Identifiable) o).getRecord(session);
+                var transaction = session.getActiveTransaction();
+                var rec = transaction.load(((Identifiable) o));
                 if (rec != null && rec instanceof EntityImpl entity) {
                   // CHECK FOR ONE FIELD ONLY
                   if (entity.getPropertiesCount() == 1) {

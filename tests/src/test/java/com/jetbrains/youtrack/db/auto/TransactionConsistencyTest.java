@@ -793,15 +793,18 @@ public class TransactionConsistencyTest extends BaseDBTest {
     RID orid = doc.getIdentity();
     session.begin();
     Assert.assertTrue(session.getTransactionInternal().isActive());
-    doc = orid.getRecord(session);
+    var transaction2 = session.getActiveTransaction();
+    doc = transaction2.load(orid);
     Assert.assertEquals(doc.getProperty("name"), "test1");
     doc.setProperty("name", "test2");
-    doc = orid.getRecord(session);
+    var transaction1 = session.getActiveTransaction();
+    doc = transaction1.load(orid);
     Assert.assertEquals(doc.getProperty("name"), "test2");
     // There is NO SAVE!
     session.commit();
 
-    doc = orid.getRecord(session);
+    var transaction = session.getActiveTransaction();
+    doc = transaction.load(orid);
     Assert.assertEquals(doc.getProperty("name"), "test2");
   }
 }

@@ -58,7 +58,10 @@ public class JSScriptTest extends DbTestBase {
 
     var linkList = results.getFirst().getLinkList("value");
     linkList.stream()
-        .map(identifiable -> identifiable.getEntity(session))
+        .map(identifiable -> {
+          var transaction = session.getActiveTransaction();
+          return transaction.loadEntity(identifiable);
+        })
         .forEach(
             entity -> {
               Assert.assertEquals("OUser", entity.getSchemaClassName());

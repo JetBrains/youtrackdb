@@ -282,7 +282,8 @@ public class StorageBackupMTTest {
               final var num = random.nextInt();
               if (!ids.isEmpty() && i % 8 == 0) {
                 var id = ids.removeFirst();
-                session.getActiveTransaction().delete(id.getEntity(session));
+                var transaction = session.getActiveTransaction();
+                session.getActiveTransaction().delete(transaction.loadEntity(id));
               } else if (!ids.isEmpty() && i % 4 == 0) {
                 var id = ids.removeFirst();
                 final EntityImpl document = session.getActiveTransaction().load(id);

@@ -412,12 +412,12 @@ public class SecurityEngine {
           .getYouTrackDB()
           .executeNoAuthorizationSync(
               session,
-              (db -> {
+              (db -> db.computeInTx(transaction -> {
                 var ctx = new BasicCommandContext();
                 ctx.setDatabaseSession(db);
-                ctx.setDynamicVariable("$currentUser", (inContext) -> user.getRecordSilently(db));
+                ctx.setDynamicVariable("$currentUser", (inContext) -> transaction.loadOrNull(user));
                 return predicate.evaluate(record, ctx);
-              }));
+              })));
     } catch (Exception e) {
       throw BaseException.wrapException(
           new SecurityException(session.getDatabaseName(), "Cannot execute security predicate"), e,
@@ -436,8 +436,10 @@ public class SecurityEngine {
     try {
       // Create a new instance of EntityImpl with a user record id, this will lazy load the user data
       // at the first access with the same execution permission of the policy
-      final EntityImpl user = session.getCurrentUser().getIdentity()
-          .getRecordSilently(session);
+      var identifiable = session.getCurrentUser().getIdentity();
+      var transaction = session.getActiveTransaction();
+      final EntityImpl user = transaction.loadOrNull(identifiable);
+
       return session
           .getSharedContext()
           .getYouTrackDB()
@@ -451,12 +453,14 @@ public class SecurityEngine {
                     (inContext) -> {
                       return user;
                     });
-                var detached = record.detach();
-                if (detached instanceof ResultInternal resultInternal) {
-                  resultInternal.setSession(noAuthSession);
-                }
 
-                return predicate.evaluate(detached, ctx);
+                return noAuthSession.computeInTx(noAuthTx -> {
+                  if (record instanceof ResultInternal resultInternal) {
+                    resultInternal.setSession(noAuthSession);
+                  }
+
+                  return predicate.evaluate(record, ctx);
+                });
               }))
           .get();
     } catch (Exception e) {

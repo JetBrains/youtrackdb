@@ -158,7 +158,8 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
       return null;
     }
 
-    final EntityImpl rec = iRecord.getRecord(session);
+    var transaction = session.getActiveTransaction();
+    final EntityImpl rec = transaction.load(iRecord);
     var encryption = rec.propertyEncryption;
     var serialized = new BytesContainer(rec.toStream());
     var version = serialized.bytes[serialized.offset++];
@@ -258,13 +259,15 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
     }
     var chain = getFieldChain();
     try {
-      EntityImpl lastDoc = ((Identifiable) object).getRecord(session);
+      var transaction1 = session.getActiveTransaction();
+      EntityImpl lastDoc = transaction1.load(((Identifiable) object));
       for (var i = 0; i < chain.getItemCount() - 1; i++) {
         var nextDoc = lastDoc.getProperty(chain.getItemName(i));
         if (!(nextDoc instanceof Identifiable)) {
           return null;
         }
-        lastDoc = ((Identifiable) nextDoc).getRecord(session);
+        var transaction = session.getActiveTransaction();
+        lastDoc = transaction.load(((Identifiable) nextDoc));
       }
       var schemaClass = lastDoc.getImmutableSchemaClass(session);
       if (schemaClass == null) {

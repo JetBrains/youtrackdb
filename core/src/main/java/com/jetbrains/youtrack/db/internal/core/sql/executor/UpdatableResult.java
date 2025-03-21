@@ -182,7 +182,8 @@ public class UpdatableResult extends ResultInternal {
       this.identifiable = identifiable;
     } else {
       checkSessionForRecords();
-      this.identifiable = identifiable.getEntity(session);
+      var transaction = session.getActiveTransaction();
+      this.identifiable = transaction.loadEntity(identifiable);
     }
   }
 

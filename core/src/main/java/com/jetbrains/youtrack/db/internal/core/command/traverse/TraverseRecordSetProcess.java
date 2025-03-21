@@ -45,7 +45,8 @@ public class TraverseRecordSetProcess extends TraverseAbstractProcess<Iterator<I
       record = target.next();
       index++;
 
-      var rec = record.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      var rec = transaction.load(record);
       if (rec instanceof EntityImpl entity) {
         if (!entity.getIdentity().isPersistent() && entity.getPropertiesCount() == 1) {
           // EXTRACT THE FIELD CONTEXT

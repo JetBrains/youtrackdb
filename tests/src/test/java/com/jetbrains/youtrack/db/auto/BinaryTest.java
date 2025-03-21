@@ -19,7 +19,6 @@ import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.RecordBytes;
 import org.testng.Assert;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
@@ -82,7 +81,8 @@ public class BinaryTest extends BaseDBTest {
   @Test(dependsOnMethods = "testMixedCreateExternal")
   public void testMixedReadExternal() {
     session.executeInTx(tx -> {
-      EntityImpl doc = rid.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      EntityImpl doc = transaction.load(rid);
       Assert.assertEquals("Binary data",
           new String(((RecordAbstract) doc.getProperty("binary")).toStream()));
     });

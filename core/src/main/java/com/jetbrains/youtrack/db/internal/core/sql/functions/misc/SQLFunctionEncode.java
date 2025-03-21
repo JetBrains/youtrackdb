@@ -57,7 +57,8 @@ public class SQLFunctionEncode extends SQLFunctionAbstract {
       data = (byte[]) candidate;
     } else if (candidate instanceof RecordId) {
       try {
-        final RecordAbstract rec = ((RecordId) candidate).getRecord(context.getDatabaseSession());
+        var transaction = context.getDatabaseSession().getActiveTransaction();
+        final RecordAbstract rec = transaction.load(((RecordId) candidate));
         if (rec instanceof Blob) {
           data = rec.toStream();
         }

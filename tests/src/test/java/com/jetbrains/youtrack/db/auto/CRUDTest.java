@@ -562,23 +562,27 @@ public class CRUDTest extends BaseDBTest {
       Assert.assertEquals(a.getProperty("surname"), "Gates");
       Assert.assertEquals(a.<Float>getProperty("salary"), id + 300.1f);
       Assert.assertEquals(a.<List<Identifiable>>getProperty("addresses").size(), 1);
+      Identifiable identifiable2 = a.<List<Identifiable>>getProperty("addresses")
+          .getFirst();
+      var transaction3 = session.getActiveTransaction();
       Assert.assertEquals(
-          a.<List<Identifiable>>getProperty("addresses")
-              .getFirst()
-              .<Entity>getRecord(session)
+          transaction3.<Entity>load(identifiable2)
               .getEntity("city")
               .getProperty("name"),
           rome.<String>getProperty("name"));
+      var transaction = session.getActiveTransaction();
+      Identifiable identifiable = transaction.<Entity>load(rome)
+          .getProperty("country");
+      var transaction1 = session.getActiveTransaction();
+      Identifiable identifiable1 = a.<List<Identifiable>>getProperty("addresses")
+          .getFirst();
+      var transaction2 = session.getActiveTransaction();
       Assert.assertEquals(
-          a.<List<Identifiable>>getProperty("addresses")
-              .getFirst()
-              .<Entity>getRecord(session)
+          transaction2.<Entity>load(identifiable1)
               .getEntity("city")
               .getEntity("country")
               .getProperty("name"),
-          rome.<Entity>getRecord(session)
-              .<Identifiable>getProperty("country")
-              .<Entity>getRecord(session)
+          transaction1.<Entity>load(identifiable)
               .<String>getProperty("name"));
     }
 
@@ -645,26 +649,34 @@ public class CRUDTest extends BaseDBTest {
 
     list = loaded.getProperty("list");
     Assert.assertEquals(list.size(), 4);
+    var transaction7 = session.getActiveTransaction();
     Assert.assertEquals(
-        Objects.requireNonNull(list.get(0).<Entity>getRecord(session).getSchemaClass()).getName(
+        Objects.requireNonNull(transaction7.<Entity>load(list.get(0)).getSchemaClass()).getName(
         ),
         "Child");
+    var transaction6 = session.getActiveTransaction();
     Assert.assertEquals(
-        Objects.requireNonNull(list.get(1).<Entity>getRecord(session).getSchemaClass()).getName(
+        Objects.requireNonNull(transaction6.<Entity>load(list.get(1)).getSchemaClass()).getName(
         ),
         "Child");
+    var transaction5 = session.getActiveTransaction();
     Assert.assertEquals(
-        Objects.requireNonNull(list.get(2).<Entity>getRecord(session).getSchemaClass()).getName(
+        Objects.requireNonNull(transaction5.<Entity>load(list.get(2)).getSchemaClass()).getName(
         ),
         "Child");
+    var transaction4 = session.getActiveTransaction();
     Assert.assertEquals(
-        Objects.requireNonNull(list.get(3).<Entity>getRecord(session).getSchemaClass()).getName(
+        Objects.requireNonNull(transaction4.<Entity>load(list.get(3)).getSchemaClass()).getName(
         ),
         "Child");
-    Assert.assertEquals(list.get(0).<Entity>getRecord(session).getProperty("name"), "Jack");
-    Assert.assertEquals(list.get(1).<Entity>getRecord(session).getProperty("name"), "Bob");
-    Assert.assertEquals(list.get(2).<Entity>getRecord(session).getProperty("name"), "Sam");
-    Assert.assertEquals(list.get(3).<Entity>getRecord(session).getProperty("name"), "Dean");
+    var transaction3 = session.getActiveTransaction();
+    Assert.assertEquals(transaction3.<Entity>load(list.get(0)).getProperty("name"), "Jack");
+    var transaction2 = session.getActiveTransaction();
+    Assert.assertEquals(transaction2.<Entity>load(list.get(1)).getProperty("name"), "Bob");
+    var transaction1 = session.getActiveTransaction();
+    Assert.assertEquals(transaction1.<Entity>load(list.get(2)).getProperty("name"), "Sam");
+    var transaction = session.getActiveTransaction();
+    Assert.assertEquals(transaction.<Entity>load(list.get(3)).getProperty("name"), "Dean");
     session.commit();
   }
 
@@ -745,8 +757,9 @@ public class CRUDTest extends BaseDBTest {
     agenda = session.bindToSession(agenda);
     try {
       for (var i = 0; i < agenda.<List<Entity>>getProperty("events").size(); i++) {
+        var transaction = session.getActiveTransaction();
         @SuppressWarnings("unused")
-        var e = agenda.getLinkList("events").get(i).getEntity(session);
+        var e = transaction.loadEntity(agenda.getLinkList("events").get(i));
         // NO NEED TO DO ANYTHING, JUST NEED TO ITERATE THE LIST
       }
     } catch (ConcurrentModificationException cme) {
@@ -811,39 +824,39 @@ public class CRUDTest extends BaseDBTest {
     Assert.assertTrue(loaded.<List<Entity>>getProperty("embeddedList").get(1).isEmbedded());
     Assert.assertTrue(loaded.<List<Entity>>getProperty("embeddedList").get(2).isEmbedded());
     Assert.assertTrue(loaded.<List<Entity>>getProperty("embeddedList").get(3).isEmbedded());
+    var transaction3 = session.getActiveTransaction();
     Assert.assertEquals(
         Objects.requireNonNull(
-                loaded
-                    .<List<Entity>>getProperty("embeddedList")
-                    .get(0)
-                    .<Entity>getRecord(session)
+                transaction3.<Entity>load(loaded
+                        .<List<Entity>>getProperty("embeddedList")
+                        .get(0))
                     .getSchemaClass())
             .getName(),
         "Child");
+    var transaction2 = session.getActiveTransaction();
     Assert.assertEquals(
         Objects.requireNonNull(
-                loaded
-                    .<List<Entity>>getProperty("embeddedList")
-                    .get(1)
-                    .<Entity>getRecord(session)
+                transaction2.<Entity>load(loaded
+                        .<List<Entity>>getProperty("embeddedList")
+                        .get(1))
                     .getSchemaClass())
             .getName(),
         "Child");
+    var transaction1 = session.getActiveTransaction();
     Assert.assertEquals(
         Objects.requireNonNull(
-                loaded
-                    .<List<Entity>>getProperty("embeddedList")
-                    .get(2)
-                    .getEntity(session)
+                transaction1.loadEntity(loaded
+                        .<List<Entity>>getProperty("embeddedList")
+                        .get(2))
                     .getSchemaClass())
             .getName(),
         "Child");
+    var transaction = session.getActiveTransaction();
     Assert.assertEquals(
         Objects.requireNonNull(
-                loaded
-                    .<List<Entity>>getProperty("embeddedList")
-                    .get(3)
-                    .getEntity(session)
+                transaction.loadEntity(loaded
+                        .<List<Entity>>getProperty("embeddedList")
+                        .get(3))
                     .getSchemaClass())
             .getName(),
         "Child");
@@ -1035,32 +1048,36 @@ public class CRUDTest extends BaseDBTest {
 
     Entity loaded = session.load(rid);
 
+    Identifiable identifiable3 = loaded
+        .<Map<String, Identifiable>>getProperty("children")
+        .get("first");
+    var transaction3 = session.getActiveTransaction();
     Assert.assertEquals(
-        loaded
-            .<Map<String, Identifiable>>getProperty("children")
-            .get("first")
-            .getEntity(session)
+        transaction3.loadEntity(identifiable3)
             .getProperty("name"),
         c1.<String>getProperty("name"));
+    Identifiable identifiable2 = loaded
+        .<Map<String, Identifiable>>getProperty("children")
+        .get("second");
+    var transaction2 = session.getActiveTransaction();
     Assert.assertEquals(
-        loaded
-            .<Map<String, Identifiable>>getProperty("children")
-            .get("second")
-            .getEntity(session)
+        transaction2.loadEntity(identifiable2)
             .getProperty("name"),
         c2.<String>getProperty("name"));
+    Identifiable identifiable1 = loaded
+        .<Map<String, Identifiable>>getProperty("children")
+        .get("third");
+    var transaction1 = session.getActiveTransaction();
     Assert.assertEquals(
-        loaded
-            .<Map<String, Identifiable>>getProperty("children")
-            .get("third")
-            .getEntity(session)
+        transaction1.loadEntity(identifiable1)
             .getProperty("name"),
         c3.<String>getProperty("name"));
+    Identifiable identifiable = loaded
+        .<Map<String, Identifiable>>getProperty("children")
+        .get("fourth");
+    var transaction = session.getActiveTransaction();
     Assert.assertEquals(
-        loaded
-            .<Map<String, Identifiable>>getProperty("children")
-            .get("fourth")
-            .getEntity(session)
+        transaction.loadEntity(identifiable)
             .getProperty("name"),
         c4.<String>getProperty("name"));
     Assert.assertNull(loaded.<Map<String, Identifiable>>getProperty("children").get("fifth"));
@@ -1113,32 +1130,36 @@ public class CRUDTest extends BaseDBTest {
     c3 = session.bindToSession(c3);
     c4 = session.bindToSession(c4);
 
+    Identifiable identifiable3 = loaded
+        .<Map<String, Identifiable>>getProperty("children")
+        .get("first");
+    var transaction3 = session.getActiveTransaction();
     Assert.assertEquals(
-        loaded
-            .<Map<String, Identifiable>>getProperty("children")
-            .get("first")
-            .getEntity(session)
+        transaction3.loadEntity(identifiable3)
             .getProperty("name"),
         c1.<String>getProperty("name"));
+    Identifiable identifiable2 = loaded
+        .<Map<String, Identifiable>>getProperty("children")
+        .get("second");
+    var transaction2 = session.getActiveTransaction();
     Assert.assertEquals(
-        loaded
-            .<Map<String, Identifiable>>getProperty("children")
-            .get("second")
-            .getEntity(session)
+        transaction2.loadEntity(identifiable2)
             .getProperty("name"),
         c2.<String>getProperty("name"));
+    Identifiable identifiable1 = loaded
+        .<Map<String, Identifiable>>getProperty("children")
+        .get("third");
+    var transaction1 = session.getActiveTransaction();
     Assert.assertEquals(
-        loaded
-            .<Map<String, Identifiable>>getProperty("children")
-            .get("third")
-            .getEntity(session)
+        transaction1.loadEntity(identifiable1)
             .getProperty("name"),
         c3.<String>getProperty("name"));
+    Identifiable identifiable = loaded
+        .<Map<String, Identifiable>>getProperty("children")
+        .get("fourth");
+    var transaction = session.getActiveTransaction();
     Assert.assertEquals(
-        loaded
-            .<Map<String, Identifiable>>getProperty("children")
-            .get("fourth")
-            .getEntity(session)
+        transaction.loadEntity(identifiable)
             .getProperty("name"),
         c4.<String>getProperty("name"));
     session.commit();
@@ -1184,49 +1205,63 @@ public class CRUDTest extends BaseDBTest {
               || key.equals("Walter")
               || key.equals("Olivia")
               || key.equals("Astrid"));
+      Identifiable identifiable2 = loaded
+          .<Map<String, Identifiable>>getProperty("children")
+          .get(key);
+      var transaction2 = session.getActiveTransaction();
       Assert.assertEquals(
-          loaded
-              .<Map<String, Identifiable>>getProperty("children")
-              .get(key)
-              .getEntity(session)
+          transaction2.loadEntity(identifiable2)
               .getSchemaClassName(),
           "Child");
+      Identifiable identifiable1 = loaded
+          .<Map<String, Identifiable>>getProperty("children")
+          .get(key);
+      var transaction1 = session.getActiveTransaction();
       Assert.assertEquals(
           key,
-          loaded
-              .<Map<String, Identifiable>>getProperty("children")
-              .get(key)
-              .getEntity(session)
+          transaction1.loadEntity(identifiable1)
               .getProperty("name"));
       switch (key) {
-        case "Peter" -> Assert.assertEquals(
-            loaded
-                .<Map<String, Identifiable>>getProperty("children")
-                .get(key)
-                .getEntity(session)
-                .getProperty("name"),
-            "Peter");
-        case "Walter" -> Assert.assertEquals(
-            loaded
-                .<Map<String, Identifiable>>getProperty("children")
-                .get(key)
-                .getEntity(session)
-                .getProperty("name"),
-            "Walter");
-        case "Olivia" -> Assert.assertEquals(
-            loaded
-                .<Map<String, Identifiable>>getProperty("children")
-                .get(key)
-                .getEntity(session)
-                .getProperty("name"),
-            "Olivia");
-        case "Astrid" -> Assert.assertEquals(
-            loaded
-                .<Map<String, Identifiable>>getProperty("children")
-                .get(key)
-                .getEntity(session)
-                .getProperty("name"),
-            "Astrid");
+        case "Peter" -> {
+          Identifiable identifiable = loaded
+              .<Map<String, Identifiable>>getProperty("children")
+              .get(key);
+          var transaction = session.getActiveTransaction();
+          Assert.assertEquals(
+              transaction.loadEntity(identifiable)
+                  .getProperty("name"),
+              "Peter");
+        }
+        case "Walter" -> {
+          Identifiable identifiable = loaded
+              .<Map<String, Identifiable>>getProperty("children")
+              .get(key);
+          var transaction = session.getActiveTransaction();
+          Assert.assertEquals(
+              transaction.loadEntity(identifiable)
+                  .getProperty("name"),
+              "Walter");
+        }
+        case "Olivia" -> {
+          Identifiable identifiable = loaded
+              .<Map<String, Identifiable>>getProperty("children")
+              .get(key);
+          var transaction = session.getActiveTransaction();
+          Assert.assertEquals(
+              transaction.loadEntity(identifiable)
+                  .getProperty("name"),
+              "Olivia");
+        }
+        case "Astrid" -> {
+          Identifiable identifiable = loaded
+              .<Map<String, Identifiable>>getProperty("children")
+              .get(key);
+          var transaction = session.getActiveTransaction();
+          Assert.assertEquals(
+              transaction.loadEntity(identifiable)
+                  .getProperty("name"),
+              "Astrid");
+        }
       }
     }
     session.commit();
@@ -1260,11 +1295,12 @@ public class CRUDTest extends BaseDBTest {
               .containsKey("The Observer"));
       Assert.assertNotNull(
           reloaded.<Map<String, Identifiable>>getProperty("children").get("The Observer"));
+      Identifiable identifiable = reloaded
+          .<Map<String, Identifiable>>getProperty("children")
+          .get("The Observer");
+      var transaction = session.getActiveTransaction();
       Assert.assertEquals(
-          reloaded
-              .<Map<String, Identifiable>>getProperty("children")
-              .get("The Observer")
-              .getEntity(session)
+          transaction.loadEntity(identifiable)
               .getProperty("name"),
           "The Observer");
       Assert.assertTrue(
@@ -1322,49 +1358,63 @@ public class CRUDTest extends BaseDBTest {
               || key.equals("Walter")
               || key.equals("Olivia")
               || key.equals("Astrid"));
+      Identifiable identifiable2 = loaded
+          .<Map<String, Identifiable>>getProperty("children")
+          .get(key);
+      var transaction2 = session.getActiveTransaction();
       Assert.assertEquals(
-          loaded
-              .<Map<String, Identifiable>>getProperty("children")
-              .get(key)
-              .getEntity(session)
+          transaction2.loadEntity(identifiable2)
               .getSchemaClassName(),
           "Child");
+      Identifiable identifiable1 = loaded
+          .<Map<String, Identifiable>>getProperty("children")
+          .get(key);
+      var transaction1 = session.getActiveTransaction();
       Assert.assertEquals(
           key,
-          loaded
-              .<Map<String, Identifiable>>getProperty("children")
-              .get(key)
-              .getEntity(session)
+          transaction1.loadEntity(identifiable1)
               .getProperty("name"));
       switch (key) {
-        case "Peter" -> Assert.assertEquals(
-            loaded
-                .<Map<String, Identifiable>>getProperty("children")
-                .get(key)
-                .getEntity(session)
-                .getProperty("name"),
-            "Peter");
-        case "Walter" -> Assert.assertEquals(
-            loaded
-                .<Map<String, Identifiable>>getProperty("children")
-                .get(key)
-                .getEntity(session)
-                .getProperty("name"),
-            "Walter");
-        case "Olivia" -> Assert.assertEquals(
-            loaded
-                .<Map<String, Identifiable>>getProperty("children")
-                .get(key)
-                .getEntity(session)
-                .getProperty("name"),
-            "Olivia");
-        case "Astrid" -> Assert.assertEquals(
-            loaded
-                .<Map<String, Identifiable>>getProperty("children")
-                .get(key)
-                .getEntity(session)
-                .getProperty("name"),
-            "Astrid");
+        case "Peter" -> {
+          Identifiable identifiable = loaded
+              .<Map<String, Identifiable>>getProperty("children")
+              .get(key);
+          var transaction = session.getActiveTransaction();
+          Assert.assertEquals(
+              transaction.loadEntity(identifiable)
+                  .getProperty("name"),
+              "Peter");
+        }
+        case "Walter" -> {
+          Identifiable identifiable = loaded
+              .<Map<String, Identifiable>>getProperty("children")
+              .get(key);
+          var transaction = session.getActiveTransaction();
+          Assert.assertEquals(
+              transaction.loadEntity(identifiable)
+                  .getProperty("name"),
+              "Walter");
+        }
+        case "Olivia" -> {
+          Identifiable identifiable = loaded
+              .<Map<String, Identifiable>>getProperty("children")
+              .get(key);
+          var transaction = session.getActiveTransaction();
+          Assert.assertEquals(
+              transaction.loadEntity(identifiable)
+                  .getProperty("name"),
+              "Olivia");
+        }
+        case "Astrid" -> {
+          Identifiable identifiable = loaded
+              .<Map<String, Identifiable>>getProperty("children")
+              .get(key);
+          var transaction = session.getActiveTransaction();
+          Assert.assertEquals(
+              transaction.loadEntity(identifiable)
+                  .getProperty("name"),
+              "Astrid");
+        }
       }
     }
 
@@ -1390,11 +1440,12 @@ public class CRUDTest extends BaseDBTest {
               .containsKey("The Observer"));
       Assert.assertNotNull(
           reloaded.<Map<String, Identifiable>>getProperty("children").get("The Observer"));
+      Identifiable identifiable = reloaded
+          .<Map<String, Identifiable>>getProperty("children")
+          .get("The Observer");
+      var transaction = session.getActiveTransaction();
       Assert.assertEquals(
-          reloaded
-              .<Map<String, Identifiable>>getProperty("children")
-              .get("The Observer")
-              .getEntity(session)
+          transaction.loadEntity(identifiable)
               .getProperty("name"),
           "The Observer");
       Assert.assertTrue(
@@ -2049,14 +2100,18 @@ public class CRUDTest extends BaseDBTest {
     Assert.assertEquals(p.<Set>getProperty("set").size(), 4);
     Assert.assertEquals(p.<Map>getProperty("map").size(), 4);
     for (var i = 0; i < 4; i++) {
-      var o = p.getLinkList("list").get(i).getEntity(session);
+      var transaction1 = session.getActiveTransaction();
+      var o = transaction1.loadEntity(p.getLinkList("list").get(i));
       Assert.assertEquals(o.getProperty("name"), (i + 1) + "");
-      o = p.getLinkMap("map").get((i + 1) + "").getEntity(session);
+      Identifiable identifiable = p.getLinkMap("map").get((i + 1) + "");
+      var transaction = session.getActiveTransaction();
+      o = transaction.loadEntity(identifiable);
       Assert.assertEquals(o.getProperty("name"), (i + 1) + "");
     }
     for (var r : p.getLinkSet("set")) {
-      var o = r.getEntity(session);
-      var nameToInt = Integer.parseInt(((Entity) o).getProperty("name"));
+      var transaction = session.getActiveTransaction();
+      var o = transaction.loadEntity(r);
+      var nameToInt = Integer.parseInt(o.getProperty("name"));
       Assert.assertTrue(nameToInt > 0 && nameToInt < 5);
     }
 
@@ -2327,27 +2382,35 @@ public class CRUDTest extends BaseDBTest {
       a = iterator.next().asEntityOrNull();
 
       if (i % 2 == 0) {
+        Identifiable identifiable3 = a.<List<Identifiable>>getProperty("addresses")
+            .getFirst();
+        var transaction3 = session.getActiveTransaction();
+        Identifiable identifiable1 = transaction3.<Entity>load(identifiable3)
+            .getProperty("city");
+        var transaction1 = session.getActiveTransaction();
+        Identifiable identifiable2 = transaction1.<Entity>load(identifiable1);
+        var transaction2 = session.getActiveTransaction();
+        Identifiable identifiable = transaction2.<Entity>load(identifiable2)
+            .getProperty("country");
+        var transaction = session.getActiveTransaction();
         Assert.assertEquals(
-            a.<List<Identifiable>>getProperty("addresses")
-                .getFirst()
-                .<Entity>getRecord(session)
-                .<Identifiable>getProperty("city")
-                .<Entity>getRecord(session)
-                .<Entity>getRecord(session)
-                .<Identifiable>getProperty("country")
-                .<Entity>getRecord(session)
+            transaction.<Entity>load(identifiable)
                 .getProperty("name"),
             "Spain");
       } else {
+        Identifiable identifiable = a.<List<Identifiable>>getProperty("addresses")
+            .getFirst();
+        var transaction = session.getActiveTransaction();
+        Identifiable identifiable3 = transaction.<Entity>load(identifiable)
+            .getProperty("city");
+        var transaction3 = session.getActiveTransaction();
+        Identifiable identifiable2 = transaction3.<Entity>load(identifiable3);
+        var transaction2 = session.getActiveTransaction();
+        Identifiable identifiable1 = transaction2.<Entity>load(identifiable2)
+            .getProperty("country");
+        var transaction1 = session.getActiveTransaction();
         Assert.assertEquals(
-            a.<List<Identifiable>>getProperty("addresses")
-                .getFirst()
-                .<Entity>getRecord(session)
-                .<Identifiable>getProperty("city")
-                .<Entity>getRecord(session)
-                .<Entity>getRecord(session)
-                .<Identifiable>getProperty("country")
-                .<Entity>getRecord(session)
+            transaction1.<Entity>load(identifiable1)
                 .getProperty("name"),
             "Italy");
       }
@@ -2407,11 +2470,12 @@ public class CRUDTest extends BaseDBTest {
       Assert.assertTrue(followersList == null || followersList instanceof LinkSet);
       if (obj.<String>getProperty("nick").equals("Neo")) {
         Assert.assertEquals(obj.<Set<Identifiable>>getProperty("followers").size(), 2);
+        Identifiable identifiable = obj.<Set<Identifiable>>getProperty("followers")
+            .iterator()
+            .next();
+        var transaction = session.getActiveTransaction();
         Assert.assertEquals(
-            obj.<Set<Identifiable>>getProperty("followers")
-                .iterator()
-                .next()
-                .getEntity(session)
+            transaction.loadEntity(identifiable)
                 .getSchemaClassName(),
             "Profile");
       } else if (obj.<String>getProperty("nick").equals("Morpheus")
@@ -2448,15 +2512,19 @@ public class CRUDTest extends BaseDBTest {
     Entity profile;
     for (var entries : resultSet) {
       profile = entries.asEntityOrNull();
+      Identifiable identifiable3 = profile
+          .getEntity("location");
+      var transaction3 = session.getActiveTransaction();
+      Identifiable identifiable = transaction3.<Entity>load(identifiable3)
+          .getProperty("city");
+      var transaction = session.getActiveTransaction();
+      Identifiable identifiable1 = transaction.<Entity>load(identifiable);
+      var transaction1 = session.getActiveTransaction();
+      Identifiable identifiable2 = transaction1.<Entity>load(identifiable1)
+          .getProperty("country");
+      var transaction2 = session.getActiveTransaction();
       Assert.assertEquals(
-          profile
-              .getEntity("location")
-              .<Entity>getRecord(session)
-              .<Identifiable>getProperty("city")
-              .<Entity>getRecord(session)
-              .<Entity>getRecord(session)
-              .<Identifiable>getProperty("country")
-              .<Entity>getRecord(session)
+          transaction2.<Entity>load(identifiable2)
               .getProperty("name"),
           "Spain");
     }

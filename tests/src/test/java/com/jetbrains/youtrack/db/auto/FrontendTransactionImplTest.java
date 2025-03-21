@@ -253,19 +253,25 @@ public class FrontendTransactionImplTest extends BaseDBTest {
     Assert.assertNotNull(jackFollowings);
     Assert.assertEquals(jackFollowings.size(), 1);
 
-    var loadedKim = jackFollowings.iterator().next().getEntity(session);
+    Identifiable identifiable2 = jackFollowings.iterator().next();
+    var transaction2 = session.getActiveTransaction();
+    var loadedKim = transaction2.loadEntity(identifiable2);
     Assert.assertEquals(loadedKim.getProperty("name"), "Kim");
     Collection<Identifiable> kimFollowings = loadedKim.getProperty("following");
     Assert.assertNotNull(kimFollowings);
     Assert.assertEquals(kimFollowings.size(), 1);
 
-    var loadedTeri = kimFollowings.iterator().next().getEntity(session);
+    Identifiable identifiable1 = kimFollowings.iterator().next();
+    var transaction1 = session.getActiveTransaction();
+    var loadedTeri = transaction1.loadEntity(identifiable1);
     Assert.assertEquals(loadedTeri.getProperty("name"), "Teri");
     Collection<Identifiable> teriFollowings = loadedTeri.getProperty("following");
     Assert.assertNotNull(teriFollowings);
     Assert.assertEquals(teriFollowings.size(), 1);
 
-    Assert.assertEquals(teriFollowings.iterator().next().getEntity(session).getProperty("name"),
+    Identifiable identifiable = teriFollowings.iterator().next();
+    var transaction = session.getActiveTransaction();
+    Assert.assertEquals(transaction.loadEntity(identifiable).getProperty("name"),
         "Jack");
 
     session.close();

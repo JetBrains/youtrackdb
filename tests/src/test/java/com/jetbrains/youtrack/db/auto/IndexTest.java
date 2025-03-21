@@ -571,18 +571,15 @@ public class IndexTest extends BaseDBTest {
       // THIS WILL THROW A java.lang.ClassCastException:
       // com.orientechnologies.core.id.RecordId cannot be cast to
       // java.lang.Boolean
-      List<EntityImpl> result =
-          db.query(
-              new SQLSynchQuery<EntityImpl>(
-                  "select from TestClass where testLink.testBoolean = true"));
+      var result =
+          db.query("select from TestClass where testLink.testBoolean = true").toList();
       Assert.assertEquals(result.size(), 1);
       // THIS WILL THROW A java.lang.ClassCastException:
       // com.orientechnologies.core.id.RecordId cannot be cast to
       // java.lang.String
       result =
-          db.query(
-              new SQLSynchQuery<EntityImpl>(
-                  "select from TestClass where testLink.testString = 'Test Link Class 1'"));
+          db.query("select from TestClass where testLink.testString = 'Test Link Class 1'")
+              .toList();
       Assert.assertEquals(result.size(), 1);
     }
   }
@@ -603,10 +600,9 @@ public class IndexTest extends BaseDBTest {
       // THIS WILL THROW A java.lang.ClassCastException:
       // com.orientechnologies.core.id.RecordId cannot be cast to
       // java.lang.Boolean
-      List<EntityImpl> result =
+      var result =
           db.query(
-              new SQLSynchQuery<EntityImpl>(
-                  "select from TestClass where testLink.testBoolean = true"));
+              "select from TestClass where testLink.testBoolean = true").toList();
       Assert.assertEquals(result.size(), 2);
       // THIS WILL THROW A java.lang.ClassCastException:
       // com.orientechnologies.core.id.RecordId cannot be cast to
@@ -904,7 +900,8 @@ public class IndexTest extends BaseDBTest {
       key = pair.first;
 
       session.begin();
-      pair.second.getRecord(session).delete();
+      var transaction = session.getActiveTransaction();
+      transaction.load(pair.second).delete();
       session.commit();
     }
 
@@ -1228,13 +1225,12 @@ public class IndexTest extends BaseDBTest {
       session.commit();
     }
 
-    List<EntityImpl> result =
+    var result =
         session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from NullHashIndexKeysSupport where nullField = 'val3'"));
+            "select from NullHashIndexKeysSupport where nullField = 'val3'").toList();
     Assert.assertEquals(result.size(), 1);
 
-    EntityImpl entity = result.getFirst();
+    var entity = result.getFirst();
     Assert.assertEquals(entity.getProperty("nullField"), "val3");
 
     final var query = "select from NullHashIndexKeysSupport where nullField is null";
@@ -1284,13 +1280,11 @@ public class IndexTest extends BaseDBTest {
 
     session.commit();
 
-    List<EntityImpl> result =
-        session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from NullIndexKeysSupportInTx where nullField = 'val3'"));
+    var result = session.query(
+        "select from NullIndexKeysSupportInTx where nullField = 'val3'").toList();
     Assert.assertEquals(result.size(), 1);
 
-    EntityImpl entity = result.getFirst();
+    var entity = result.getFirst();
     Assert.assertEquals(entity.getProperty("nullField"), "val3");
 
     final var query = "select from NullIndexKeysSupportInTx where nullField is null";
@@ -1342,13 +1336,13 @@ public class IndexTest extends BaseDBTest {
       }
     }
 
-    List<EntityImpl> result =
+    var result =
         session.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from NullIndexKeysSupportInMiddleTx where nullField = 'val3'"));
+
+            "select from NullIndexKeysSupportInMiddleTx where nullField = 'val3'").toList();
     Assert.assertEquals(result.size(), 1);
 
-    EntityImpl entity = result.getFirst();
+    var entity = result.getFirst();
     Assert.assertEquals(entity.getProperty("nullField"), "val3");
 
     final var query = "select from NullIndexKeysSupportInMiddleTx where nullField is null";

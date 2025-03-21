@@ -207,11 +207,15 @@ public class CommandExecutorSQLCreateEdge extends CommandExecutorSQLSetAware
           {
             for (final var f : fields) {
               if (f.getValue() instanceof SQLFunctionRuntime) {
-                f.setValue(((SQLFunctionRuntime) f.getValue()).getValue(to.getEntity(session), null,
+                var transaction = session.getActiveTransaction();
+                f.setValue(
+                    ((SQLFunctionRuntime) f.getValue()).getValue(transaction.loadEntity(to), null,
                     context));
               } else if (f.getValue() instanceof SQLFilterItem) {
+                var transaction = session.getActiveTransaction();
                 f.setValue(
-                    ((SQLFilterItem) f.getValue()).getValue(to.getEntity(session), null, context));
+                    ((SQLFilterItem) f.getValue()).getValue(transaction.loadEntity(to), null,
+                        context));
               }
             }
           }

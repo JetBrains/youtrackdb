@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.metadata.security;
 
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collections;
@@ -75,7 +76,9 @@ public class SecuritySystemUserImpl extends SecurityUserImpl {
     systemRoles.clear();
 
     for (var role : roles) {
-      var entity = role.getIdentity().getEntity(databaseSession);
+      Identifiable identifiable = role.getIdentity();
+      var transaction = databaseSession.getActiveTransaction();
+      var entity = transaction.loadEntity(identifiable);
       // If databaseName is set, then only allow roles with the same databaseName.
       if (databaseName != null && !databaseName.isEmpty()) {
         List<String> dbNames = entity.getProperty(SystemRole.DB_FILTER);

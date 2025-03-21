@@ -89,7 +89,8 @@ public class SQLSuffixIdentifier extends SimpleNode {
           }
         }
         try {
-          Entity rec = iCurrentRecord.getRecord(db);
+          var transaction = db.getActiveTransaction();
+          Entity rec = transaction.load(iCurrentRecord);
           if (rec.isUnloaded()) {
             rec = ctx.getDatabaseSession().bindToSession(rec);
           }
@@ -107,10 +108,13 @@ public class SQLSuffixIdentifier extends SimpleNode {
     }
     if (recordAttribute != null && iCurrentRecord != null) {
       try {
-        Entity rec =
-            iCurrentRecord instanceof Entity
-                ? (Entity) iCurrentRecord
-                : iCurrentRecord.getRecord(db);
+        Entity rec;
+        if (iCurrentRecord instanceof Entity) {
+          rec = (Entity) iCurrentRecord;
+        } else {
+          var transaction = db.getActiveTransaction();
+          rec = transaction.load(iCurrentRecord);
+        }
         return recordAttribute.evaluate(rec, ctx);
       } catch (RecordNotFoundException rnf) {
         return null;
@@ -368,7 +372,8 @@ public class SQLSuffixIdentifier extends SimpleNode {
       entity = (Entity) target;
     } else {
       try {
-        var rec = target.getRecord(ctx.getDatabaseSession());
+        var transaction = ctx.getDatabaseSession().getActiveTransaction();
+        var rec = transaction.load(target);
         if (rec instanceof Entity) {
           entity = (Entity) rec;
         }
@@ -473,7 +478,8 @@ public class SQLSuffixIdentifier extends SimpleNode {
 
   public boolean isDefinedFor(DatabaseSessionInternal db, Entity currentRecord) {
     if (identifier != null) {
-      EntityImpl entity = currentRecord.getRecord(db);
+      var transaction = db.getActiveTransaction();
+      EntityImpl entity = transaction.load(currentRecord);
       return entity.hasProperty(identifier.getStringValue());
     }
     return true;

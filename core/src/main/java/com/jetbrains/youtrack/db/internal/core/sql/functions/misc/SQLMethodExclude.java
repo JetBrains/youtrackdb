@@ -95,7 +95,8 @@ public class SQLMethodExclude extends AbstractSQLMethod {
     if (iThis != null) {
       if (iThis instanceof RecordId) {
         try {
-          iThis = ((RecordId) iThis).getRecord(db);
+          var transaction = db.getActiveTransaction();
+          iThis = transaction.load(((RecordId) iThis));
         } catch (RecordNotFoundException rnf) {
           return null;
         }
@@ -118,7 +119,8 @@ public class SQLMethodExclude extends AbstractSQLMethod {
             for (var o : MultiValue.getMultiValueIterable(iThis)) {
               if (o instanceof Identifiable) {
                 try {
-                  var rec = ((Identifiable) o).getRecord(db);
+                  var transaction = db.getActiveTransaction();
+                  var rec = transaction.load(((Identifiable) o));
                   result.add(copy(db, (EntityImpl) rec, iParams));
                 } catch (RecordNotFoundException rnf) {
                   // IGNORE IT

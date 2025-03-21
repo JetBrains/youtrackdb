@@ -193,14 +193,19 @@ public class FindReferencesStep extends AbstractExecutionStep {
     List<String> result = new ArrayList<>();
     if (iSourceRIDs.contains(value.getIdentity())) {
       result.add(prefix);
-    } else if (!((RecordId) value.getIdentity()).isValidPosition()
-        && value.getRecord(db) instanceof EntityImpl) {
-      // embedded document
-      var entity = (EntityImpl) value.getEntity(db);
-      for (var fieldName : entity.propertyNames()) {
-        var fieldValue = entity.getProperty(fieldName);
-        result.addAll(
-            checkObject(db, iSourceRIDs, fieldValue, iRootObject, prefix + "." + fieldName));
+    } else {
+      if (!((RecordId) value.getIdentity()).isValidPosition()) {
+        var transaction1 = db.getActiveTransaction();
+        if (transaction1.load(value) instanceof EntityImpl) {
+          // embedded document
+          var transaction = db.getActiveTransaction();
+          var entity = (EntityImpl) transaction.loadEntity(value);
+          for (var fieldName : entity.propertyNames()) {
+            var fieldValue = entity.getProperty(fieldName);
+            result.addAll(
+                checkObject(db, iSourceRIDs, fieldValue, iRootObject, prefix + "." + fieldName));
+          }
+        }
       }
     }
     return result;

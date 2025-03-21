@@ -172,7 +172,8 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
 
         for (final var rid : ridsToDelete) {
           session.begin();
-          rid.getRecord(session).delete();
+          var transaction = session.getActiveTransaction();
+          transaction.load(rid).delete();
           session.commit();
         }
 
@@ -220,7 +221,8 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
           final RecordId link = embeddedDocument.getProperty("link");
 
           Assert.assertNotNull(link);
-          Assert.assertNotNull(link.getRecord(session));
+          var transaction = session.getActiveTransaction();
+          Assert.assertNotNull(transaction.load(link));
         }
       }
     }

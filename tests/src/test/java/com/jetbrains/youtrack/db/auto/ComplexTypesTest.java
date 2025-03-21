@@ -122,11 +122,14 @@ public class ComplexTypesTest extends BaseDBTest {
         ((List<Identifiable>) loadedDoc.getProperty(
             "linkedList")).getFirst() instanceof Identifiable);
 
-    EntityImpl d = ((List<Identifiable>) loadedDoc.getProperty("linkedList")).getFirst().getRecord(
-        session);
+    Identifiable identifiable = ((List<Identifiable>) loadedDoc.getProperty(
+        "linkedList")).getFirst();
+    var transaction1 = session.getActiveTransaction();
+    EntityImpl d = transaction1.load(identifiable);
     Assert.assertTrue(d.getIdentity().isValidPosition());
     Assert.assertEquals(d.getProperty("name"), "Luca");
-    d = ((List<Identifiable>) loadedDoc.getProperty("linkedList")).get(1).getRecord(session);
+    var transaction = session.getActiveTransaction();
+    d = transaction.load(((List<Identifiable>) loadedDoc.getProperty("linkedList")).get(1));
     Assert.assertEquals(d.getSchemaClassName(), "Account");
     Assert.assertEquals(d.getProperty("name"), "Marcus");
     session.commit();
@@ -158,7 +161,9 @@ public class ComplexTypesTest extends BaseDBTest {
 
     var tot = 0;
     while (it.hasNext()) {
-      var d = it.next().getEntity(session);
+      Identifiable identifiable = it.next();
+      var transaction = session.getActiveTransaction();
+      var d = transaction.loadEntity(identifiable);
 
       if (d.getProperty("name").equals("Marcus")) {
         Assert.assertEquals(d.getSchemaClassName(), "Account");
@@ -202,7 +207,9 @@ public class ComplexTypesTest extends BaseDBTest {
 
     var tot = 0;
     while (it.hasNext()) {
-      var d = it.next().getEntity(session);
+      Identifiable identifiable = it.next();
+      var transaction = session.getActiveTransaction();
+      var d = transaction.loadEntity(identifiable);
 
       if (Objects.equals(d.getProperty("name"), "Marcus")) {
         Assert.assertEquals(d.getSchemaClassName(), "Account");
@@ -239,13 +246,19 @@ public class ComplexTypesTest extends BaseDBTest {
     Assert.assertTrue(loadedDoc.hasProperty("linkMap"));
     Assert.assertTrue(loadedDoc.getProperty("linkMap") instanceof Map<?, ?>);
 
-    var d = loadedDoc.getLinkMap("linkMap").get("Luca").getEntity(session);
+    Identifiable identifiable2 = loadedDoc.getLinkMap("linkMap").get("Luca");
+    var transaction2 = session.getActiveTransaction();
+    var d = transaction2.loadEntity(identifiable2);
     Assert.assertEquals(d.getProperty("name"), "Luca");
 
-    d = loadedDoc.getLinkMap("linkMap").get("Marcus").getEntity(session);
+    Identifiable identifiable1 = loadedDoc.getLinkMap("linkMap").get("Marcus");
+    var transaction1 = session.getActiveTransaction();
+    d = transaction1.loadEntity(identifiable1);
     Assert.assertEquals(d.getProperty("name"), "Marcus");
 
-    d = loadedDoc.getLinkMap("linkMap").get("Cesare").getEntity(session);
+    Identifiable identifiable = loadedDoc.getLinkMap("linkMap").get("Cesare");
+    var transaction = session.getActiveTransaction();
+    d = transaction.loadEntity(identifiable);
     Assert.assertEquals(d.getProperty("name"), "Cesare");
     Assert.assertEquals(d.getSchemaClassName(), "Account");
     session.commit();
@@ -310,17 +323,23 @@ public class ComplexTypesTest extends BaseDBTest {
         ((Map<String, Identifiable>) loadedDoc.getProperty("linkedMap")).values().iterator().next()
             instanceof Identifiable);
 
+    Identifiable identifiable2 = ((Map<String, Identifiable>) loadedDoc.getProperty(
+        "linkedMap")).get("Luca");
+    var transaction2 = session.getActiveTransaction();
     EntityImpl d =
-        ((Map<String, Identifiable>) loadedDoc.getProperty("linkedMap")).get("Luca")
-            .getRecord(session);
+        transaction2.load(identifiable2);
     Assert.assertEquals(d.getProperty("name"), "Luca");
 
-    d = ((Map<String, Identifiable>) loadedDoc.getProperty("linkedMap")).get("Marcus")
-        .getRecord(session);
+    Identifiable identifiable1 = ((Map<String, Identifiable>) loadedDoc.getProperty(
+        "linkedMap")).get("Marcus");
+    var transaction1 = session.getActiveTransaction();
+    d = transaction1.load(identifiable1);
     Assert.assertEquals(d.getProperty("name"), "Marcus");
 
-    d = ((Map<String, Identifiable>) loadedDoc.getProperty("linkedMap")).get("Cesare")
-        .getRecord(session);
+    Identifiable identifiable = ((Map<String, Identifiable>) loadedDoc.getProperty(
+        "linkedMap")).get("Cesare");
+    var transaction = session.getActiveTransaction();
+    d = transaction.load(identifiable);
     Assert.assertEquals(d.getProperty("name"), "Cesare");
     Assert.assertEquals(d.getSchemaClassName(), "Account");
     session.commit();

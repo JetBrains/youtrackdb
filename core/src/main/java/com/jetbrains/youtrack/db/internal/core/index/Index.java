@@ -482,7 +482,8 @@ public interface Index extends Comparable<Index> {
     var security = session.getSharedContext().getSecurity();
     if (isReadRestrictedBySecurityPolicy(indexClass, session, security)) {
       try {
-        item = item.getRecord(session);
+        var transaction = session.getActiveTransaction();
+        item = transaction.load(item);
       } catch (RecordNotFoundException e) {
         item = null;
       }
@@ -494,7 +495,8 @@ public interface Index extends Comparable<Index> {
       var indexProp = idx.getDefinition().getFields().getFirst();
       if (isLabelSecurityDefined(session, security, indexClass, indexProp)) {
         try {
-          item = item.getRecord(session);
+          var transaction = session.getActiveTransaction();
+          item = transaction.load(item);
         } catch (RecordNotFoundException e) {
           item = null;
         }

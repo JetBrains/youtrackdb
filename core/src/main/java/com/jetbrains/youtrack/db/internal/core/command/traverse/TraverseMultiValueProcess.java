@@ -45,7 +45,8 @@ public class TraverseMultiValueProcess extends TraverseAbstractProcess<Iterator<
       if (value instanceof Identifiable) {
 
         if (value instanceof RID) {
-          value = ((Identifiable) value).getRecord(session);
+          var transaction = session.getActiveTransaction();
+          value = transaction.load(((Identifiable) value));
         }
         final TraverseAbstractProcess<Identifiable> subProcess =
             new TraverseRecordProcess(command, (Identifiable) value, getPath(), session);

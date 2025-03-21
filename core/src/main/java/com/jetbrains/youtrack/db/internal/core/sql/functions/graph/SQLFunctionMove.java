@@ -76,7 +76,8 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
       final String[] iLabels) {
     if (iRecord != null) {
       try {
-        Entity rec = iRecord.getRecord(graph);
+        var transaction = graph.getActiveTransaction();
+        Entity rec = transaction.load(iRecord);
         if (rec.isVertex()) {
           return rec.asVertex().getVertices(iDirection, iLabels);
         } else {
@@ -97,7 +98,8 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
       final String[] iLabels) {
     if (iRecord != null) {
       try {
-        Entity rec = iRecord.getRecord(graph);
+        var transaction = graph.getActiveTransaction();
+        Entity rec = transaction.load(iRecord);
         if (rec.isVertex()) {
           return rec.asVertex().getEdges(iDirection, iLabels);
         } else {
@@ -119,7 +121,8 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
     if (iRecord != null) {
 
       try {
-        Entity rec = iRecord.getRecord(graph);
+        var transaction = graph.getActiveTransaction();
+        Entity rec = transaction.load(iRecord);
         if (rec.isEdge()) {
           if (iDirection == Direction.BOTH) {
             List results = new ArrayList();

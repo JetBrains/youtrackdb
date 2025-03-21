@@ -181,7 +181,8 @@ public class FetchHelper {
           final var nextLevel = isEmbedded ? iLevelFromRoot : iLevelFromRoot + 1;
 
           if (fieldValue instanceof RecordId) {
-            fieldValue = ((RecordId) fieldValue).getRecord(db);
+            var transaction = db.getActiveTransaction();
+            fieldValue = transaction.load(((RecordId) fieldValue));
           }
 
           fetchRidMap(db,
@@ -284,7 +285,8 @@ public class FetchHelper {
     for (var d : linked) {
       if (d != null) {
         // GO RECURSIVELY
-        d = d.getRecord(db);
+        var transaction = db.getActiveTransaction();
+        d = transaction.load(d);
 
         updateRidMap(db,
             iFetchPlan,
@@ -743,7 +745,8 @@ public class FetchHelper {
       final var o = linked.get(key.toString());
 
       if (o instanceof Identifiable identifiable) {
-        var r = identifiable.getRecord(db);
+        var transaction = db.getActiveTransaction();
+        var r = transaction.load(identifiable);
         if (r instanceof EntityImpl d) {
           // GO RECURSIVELY
           final var fieldDepthLevel = parsedRecords.getInt(d.getIdentity());
@@ -876,7 +879,8 @@ public class FetchHelper {
               || (fieldDepthLevel > -1 && fieldDepthLevel == iLevelFromRoot)) {
             removeParsedFromMap(parsedRecords, identifiable);
             try {
-              identifiable = identifiable.getRecord(db);
+              var transaction = db.getActiveTransaction();
+              identifiable = transaction.load(identifiable);
               if (!(identifiable instanceof EntityImpl)) {
                 iListener.processStandardField(db,
                     null, identifiable, fieldName, context, iUserObject, "", null);
@@ -975,7 +979,8 @@ public class FetchHelper {
     if (!((RecordId) fieldValue.getIdentity()).isValidPosition()
         || (fieldDepthLevel > -1 && fieldDepthLevel == iLevelFromRoot)) {
       removeParsedFromMap(parsedRecords, fieldValue);
-      final EntityImpl linked = fieldValue.getRecord(db);
+      var transaction = db.getActiveTransaction();
+      final EntityImpl linked = transaction.load(fieldValue);
 
       iContext.onBeforeDocument(db, iRootRecord, linked, fieldName, iUserObject);
       var userObject =

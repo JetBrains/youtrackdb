@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -30,8 +31,10 @@ public class UpdateMergeStep extends AbstractExecutionStep {
   private Result mapResult(Result result, CommandContext ctx) {
     if (result instanceof ResultInternal) {
       if (result.isEntity()) {
+        Identifiable identifiable = result.asEntity();
+        var transaction = ctx.getDatabaseSession().getActiveTransaction();
         ((ResultInternal) result).setIdentifiable(
-            result.asEntity().getRecord(ctx.getDatabaseSession()));
+            transaction.load(identifiable));
       }
       if (!result.isEntity()) {
         return result;

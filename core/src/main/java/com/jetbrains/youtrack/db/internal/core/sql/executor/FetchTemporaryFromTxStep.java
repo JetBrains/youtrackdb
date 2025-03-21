@@ -85,7 +85,8 @@ public class FetchTemporaryFromTxStep extends AbstractExecutionStep {
 
   private static boolean matchesClass(DatabaseSessionInternal session, DBRecord record,
       String className) {
-    if (!(record.getRecord(session) instanceof EntityImpl entity)) {
+    var transaction = session.getActiveTransaction();
+    if (!(transaction.load(record) instanceof EntityImpl entity)) {
       return false;
     }
 

@@ -181,7 +181,8 @@ public class GraphRepair {
               } else {
                 EntityImpl outVertex;
                 try {
-                  outVertex = out.getRecord(session);
+                  var transaction1 = session.getActiveTransaction();
+                  outVertex = transaction1.load(out);
                 } catch (RecordNotFoundException e) {
                   outVertex = null;
                 }
@@ -230,7 +231,8 @@ public class GraphRepair {
 
                 EntityImpl inVertex;
                 try {
-                  inVertex = in.getRecord(session);
+                  var transaction1 = session.getActiveTransaction();
+                  inVertex = transaction1.load(in);
                 } catch (RecordNotFoundException e) {
                   inVertex = null;
                 }
@@ -522,7 +524,9 @@ public class GraphRepair {
     } else {
       EntityImpl record = null;
       try {
-        record = edgeRID.getIdentity().getRecord(session);
+        Identifiable identifiable = edgeRID.getIdentity();
+        var transaction = session.getActiveTransaction();
+        record = transaction.load(identifiable);
       } catch (RecordNotFoundException e) {
         broken = true;
       }

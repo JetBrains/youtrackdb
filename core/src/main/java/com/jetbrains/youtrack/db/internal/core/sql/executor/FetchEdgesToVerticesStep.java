@@ -89,7 +89,8 @@ public class FetchEdgesToVerticesStep extends AbstractExecutionStep {
       from = ((Result) from).asEntityOrNull();
     }
     if (from instanceof Identifiable && !(from instanceof Entity)) {
-      from = ((Identifiable) from).getRecord(session);
+      var transaction = session.getActiveTransaction();
+      from = transaction.load(((Identifiable) from));
     }
     if (from instanceof Entity && ((Entity) from).isVertex()) {
       var vertex = ((Entity) from).asVertex();

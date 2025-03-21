@@ -77,9 +77,10 @@ public class Function extends IdentityWrapper {
    *
    * @param iRid RID of the function to load
    */
-  public Function(DatabaseSessionInternal db, final RecordId iRid) {
-    super((EntityImpl) iRid.getEntity(db));
-    var entity = iRid.getEntity(db);
+  public Function(DatabaseSessionInternal session, final RecordId iRid) {
+    super((EntityImpl) session.getActiveTransaction().loadEntity(iRid));
+    var transaction = session.getActiveTransaction();
+    var entity = transaction.loadEntity(iRid);
     fromEntity(entity);
   }
 

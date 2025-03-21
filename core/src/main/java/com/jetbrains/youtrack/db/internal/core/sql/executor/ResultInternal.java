@@ -81,7 +81,7 @@ public class ResultInternal implements Result {
 
   public void refreshNonPersistentRid() {
     if (identifiable instanceof RID rid && !rid.isPersistent()) {
-      checkSession();
+      checkSessionForRecords();
       identifiable = session.refreshRid(rid);
     }
   }
@@ -405,7 +405,8 @@ public class ResultInternal implements Result {
     }
 
     if (result instanceof Identifiable id) {
-      result = id.getEntity(session);
+      var transaction = session.getActiveTransaction();
+      result = transaction.loadEntity(id);
     }
 
     if (result instanceof Entity entity) {
@@ -458,7 +459,8 @@ public class ResultInternal implements Result {
     }
 
     if (result instanceof Identifiable id) {
-      return id.getVertex(session);
+      var transaction = session.getActiveTransaction();
+      return transaction.loadVertex(id);
     }
 
     if (result == null) {
@@ -482,7 +484,8 @@ public class ResultInternal implements Result {
     }
 
     if (result instanceof Identifiable id) {
-      return id.getEdge(session);
+      var transaction = session.getActiveTransaction();
+      return transaction.loadEdge(id);
     }
 
     if (result instanceof Edge edge) {
@@ -510,7 +513,8 @@ public class ResultInternal implements Result {
     }
 
     if (result instanceof Identifiable id) {
-      return id.getBlob(session);
+      var transaction = session.getActiveTransaction();
+      return transaction.loadBlob(id);
     }
 
     if (result == null) {
@@ -650,7 +654,8 @@ public class ResultInternal implements Result {
     }
 
     if (isEntity()) {
-      this.identifiable = identifiable.getEntity(session);
+      var transaction = session.getActiveTransaction();
+      this.identifiable = transaction.loadEntity(identifiable);
       return asEntity();
     }
 
@@ -676,7 +681,8 @@ public class ResultInternal implements Result {
     }
 
     if (isEntity()) {
-      this.identifiable = identifiable.getEntity(session);
+      var transaction = session.getActiveTransaction();
+      this.identifiable = transaction.loadEntity(identifiable);
       return asEntityOrNull();
     }
 
@@ -716,7 +722,8 @@ public class ResultInternal implements Result {
       return (DBRecord) identifiable;
     }
 
-    this.identifiable = identifiable.getRecord(session);
+    var transaction = session.getActiveTransaction();
+    this.identifiable = transaction.load(identifiable);
     return asRecord();
   }
 
@@ -733,7 +740,8 @@ public class ResultInternal implements Result {
       return (DBRecord) identifiable;
     }
 
-    this.identifiable = this.identifiable.getRecord(session);
+    var transaction = session.getActiveTransaction();
+    this.identifiable = transaction.load(this.identifiable);
     return asRecordOrNull();
   }
 
@@ -765,7 +773,8 @@ public class ResultInternal implements Result {
     }
 
     if (isBlob()) {
-      this.identifiable = this.identifiable.getBlob(session);
+      var transaction = session.getActiveTransaction();
+      this.identifiable = transaction.loadBlob(this.identifiable);
       return asBlob();
     }
 
@@ -786,7 +795,8 @@ public class ResultInternal implements Result {
     }
 
     if (isBlob()) {
-      this.identifiable = this.identifiable.getBlob(session);
+      var transaction = session.getActiveTransaction();
+      this.identifiable = transaction.loadBlob(this.identifiable);
       return asBlobOrNull();
     }
 
@@ -831,6 +841,13 @@ public class ResultInternal implements Result {
 
   public void setIdentifiable(Identifiable identifiable) {
     checkSession();
+
+    if (identifiable instanceof Entity entity && entity.isEmbedded()) {
+      var map = entity.toMap();
+      for (var entry : map.entrySet()) {
+        setProperty(entry.getKey(), entry.getValue());
+      }
+    }
 
     this.lightweightEdge = null;
     this.content = null;
@@ -898,9 +915,6 @@ public class ResultInternal implements Result {
       case StatefulEdge statefulEdge -> {
         return true;
       }
-      case Entity entity -> {
-        return asEntity().isStatefulEdge();
-      }
       default -> {
       }
     }
@@ -911,6 +925,29 @@ public class ResultInternal implements Result {
     var cls = schemaSnapshot.getClassByClusterId(identifiable.getIdentity().getClusterId());
 
     return cls != null && !cls.isAbstract() && cls.isEdgeType();
+  }
+
+  @Override
+  public boolean isVertex() {
+    checkSession();
+
+    switch (identifiable) {
+      case null -> {
+        return false;
+      }
+      case Vertex statefulEdge -> {
+        return true;
+      }
+      default -> {
+      }
+    }
+
+    checkSessionForRecords();
+
+    var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
+    var cls = schemaSnapshot.getClassByClusterId(identifiable.getIdentity().getClusterId());
+
+    return cls != null && !cls.isAbstract() && cls.isVertexType();
   }
 
   @Nonnull

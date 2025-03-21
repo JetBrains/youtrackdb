@@ -101,7 +101,8 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
     }
     source = SQLHelper.getValue(source, record, iContext);
     if (source instanceof Identifiable) {
-      Entity elem = ((Identifiable) source).getRecord(db);
+      var transaction = db.getActiveTransaction();
+      Entity elem = transaction.load(((Identifiable) source));
       if (!elem.isVertex()) {
         throw new IllegalArgumentException("The sourceVertex must be a vertex record");
       }
@@ -122,7 +123,8 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
     }
     dest = SQLHelper.getValue(dest, record, iContext);
     if (dest instanceof Identifiable) {
-      Entity elem = ((Identifiable) dest).getRecord(db);
+      var transaction = db.getActiveTransaction();
+      Entity elem = transaction.load(((Identifiable) dest));
       if (!elem.isVertex()) {
         throw new IllegalArgumentException("The destinationVertex must be a vertex record");
       }
@@ -218,7 +220,8 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
       return null;
     }
     if (!(outVertex instanceof Entity)) {
-      outVertex = outVertex.getRecord(db);
+      var transaction = db.getActiveTransaction();
+      outVertex = transaction.load(outVertex);
     }
     return ((Entity) outVertex).asVertexOrNull();
   }
@@ -247,7 +250,8 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
     if (additionalParams instanceof Map) {
       mapParams = (Map) additionalParams;
     } else if (additionalParams instanceof Identifiable) {
-      mapParams = ((EntityImpl) ((Identifiable) additionalParams).getRecord(db)).toMap();
+      var transaction = db.getActiveTransaction();
+      mapParams = ((EntityImpl) transaction.load(((Identifiable) additionalParams))).toMap();
     }
     if (mapParams != null) {
       ctx.paramEdgeTypeNames = stringArray(mapParams.get(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES));

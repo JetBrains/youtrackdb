@@ -406,8 +406,10 @@ public class SQLSelectTest extends AbstractSelectTest {
 
       races = record.getProperty("races");
       for (var race : races) {
-        if (Objects.equals(race.getEntity(session).getProperty("name"), "European")
-            || Objects.equals(race.getEntity(session).getProperty("name"), "Asiatic")) {
+        var transaction = session.getActiveTransaction();
+        var transaction1 = session.getActiveTransaction();
+        if (Objects.equals(transaction1.loadEntity(race).getProperty("name"), "European")
+            || Objects.equals(transaction.loadEntity(race).getProperty("name"), "Asiatic")) {
           found = true;
           break;
         }
@@ -430,8 +432,10 @@ public class SQLSelectTest extends AbstractSelectTest {
 
       races = record.getProperty("races");
       for (var race : races) {
-        if (Objects.equals(race.getEntity(session).getProperty("name"), "European")
-            || Objects.equals(race.getEntity(session).getProperty("name"), "Asiatic")) {
+        var transaction = session.getActiveTransaction();
+        var transaction1 = session.getActiveTransaction();
+        if (Objects.equals(transaction1.loadEntity(race).getProperty("name"), "European")
+            || Objects.equals(transaction.loadEntity(race).getProperty("name"), "Asiatic")) {
           found = true;
           break;
         }
@@ -1035,13 +1039,14 @@ public class SQLSelectTest extends AbstractSelectTest {
     Assert.assertFalse(result.isEmpty());
     for (var d : result) {
       Assert.assertNotNull(d.getProperty("addresses"));
+      Identifiable identifiable = ((Collection<Identifiable>) d.getProperty("addresses"))
+          .iterator()
+          .next();
+      var transaction = session.getActiveTransaction();
       Assert.assertEquals(
           Objects.requireNonNull(
                   ((EntityImpl)
-                      ((Collection<Identifiable>) d.getProperty("addresses"))
-                          .iterator()
-                          .next()
-                          .getRecord(session))
+                      transaction.load(identifiable))
                       .getSchemaClass())
               .getName(),
           "Address");
@@ -1055,15 +1060,16 @@ public class SQLSelectTest extends AbstractSelectTest {
         executeQuery("select from Account where not ( addresses.@class in [ 'Address' ] )");
     Assert.assertFalse(result.isEmpty());
     for (var d : result) {
+      Identifiable identifiable = ((Collection<Identifiable>) d.getProperty("addresses"))
+          .iterator()
+          .next();
+      var transaction = session.getActiveTransaction();
       Assert.assertTrue(
           d.getProperty("addresses") == null
               || ((Collection<Identifiable>) d.getProperty("addresses")).isEmpty()
               || !Objects.requireNonNull(
                   ((EntityImpl)
-                      ((Collection<Identifiable>) d.getProperty("addresses"))
-                          .iterator()
-                          .next()
-                          .getRecord(session))
+                      transaction.load(identifiable))
                       .getSchemaClass())
               .getName()
               .equals("Address"));

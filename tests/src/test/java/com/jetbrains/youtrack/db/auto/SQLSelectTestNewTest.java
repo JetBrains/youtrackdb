@@ -1235,10 +1235,12 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
     Assert.assertFalse(result.isEmpty());
     for (var d : result) {
       Assert.assertNotNull(d.getProperty("addresses"));
+      Identifiable identifiable = (d.<Collection<Identifiable>>getProperty("addresses")).iterator()
+          .next();
+      var transaction = session.getActiveTransaction();
       Assert.assertEquals(
           ((EntityImpl)
-              (d.<Collection<Identifiable>>getProperty("addresses")).iterator().next()
-                  .getRecord(session))
+              transaction.load(identifiable))
               .getSchemaClass()
               .getName(),
           "Address");
@@ -1253,14 +1255,15 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
             "select from Account where not ( addresses.@class in [ 'Address' ] )", session);
     Assert.assertFalse(result.isEmpty());
     for (var d : result) {
+      Identifiable identifiable = (d.<Collection<Identifiable>>getProperty("addresses"))
+          .iterator()
+          .next();
+      var transaction = session.getActiveTransaction();
       Assert.assertTrue(
           d.getProperty("addresses") == null
               || (d.<Collection<Identifiable>>getProperty("addresses")).isEmpty()
               || !((EntityImpl)
-              (d.<Collection<Identifiable>>getProperty("addresses"))
-                  .iterator()
-                  .next()
-                  .getRecord(session))
+              transaction.load(identifiable))
               .getSchemaClass()
               .getName()
               .equals("Address"));
@@ -1277,10 +1280,12 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
     Assert.assertFalse(result.isEmpty());
     for (var d : result) {
       Assert.assertNotNull(d.getProperty("addresses"));
+      Identifiable identifiable = (d.<Collection<Identifiable>>getProperty("addresses")).iterator()
+          .next();
+      var transaction = session.getActiveTransaction();
       Assert.assertEquals(
           ((EntityImpl)
-              (d.<Collection<Identifiable>>getProperty("addresses")).iterator().next()
-                  .getRecord(session))
+              transaction.load(identifiable))
               .getSchemaClass()
               .getName(),
           "Address");
@@ -1753,7 +1758,8 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
     Assert.assertFalse(result.isEmpty());
     var i = 1;
     for (var r : result) {
-      EntityImpl entity = r.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      EntityImpl entity = transaction.load(r);
       Assert.assertEquals(entity.<Object>getProperty("counter"), i++);
     }
   }
@@ -1818,7 +1824,8 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
     Assert.assertEquals(result.size(), 1);
 
     for (var r : result) {
-      EntityImpl entity = r.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      EntityImpl entity = transaction.load(r);
       Assert.assertNull(entity.getProperty("name"));
     }
   }
@@ -1997,7 +2004,9 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
                 " select out().data as result from (select from EmbeddedMapAndDotNotation where"
                     + " name = 'foo')"));
     Assert.assertEquals(result.size(), 1);
-    EntityImpl doc = result.getFirst().getRecord(session);
+    Identifiable identifiable = result.getFirst();
+    var transaction = session.getActiveTransaction();
+    EntityImpl doc = transaction.load(identifiable);
     Assert.assertNotNull(doc);
     List list = doc.getProperty("result");
     Assert.assertEquals(list.size(), 1);

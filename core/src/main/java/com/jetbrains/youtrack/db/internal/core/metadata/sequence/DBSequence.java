@@ -471,7 +471,8 @@ public abstract class DBSequence {
                   try {
                     return dbCopy.computeInTx(
                         transaction -> {
-                          var entity = entityRid.<EntityImpl>getRecord(dbCopy);
+                          var transaction1 = dbCopy.getActiveTransaction();
+                          var entity = transaction1.<EntityImpl>load(entityRid);
 
                           return callable.call(dbCopy, entity);
                         });
@@ -522,7 +523,8 @@ public abstract class DBSequence {
                 try {
                   return dbCopy.computeInTx(
                       transaction -> {
-                        var entity = entityRid.<EntityImpl>getRecord(dbCopy);
+                        var transaction1 = dbCopy.getActiveTransaction();
+                        var entity = transaction1.<EntityImpl>load(entityRid);
 
                         return callable.call(dbCopy, entity);
                       });

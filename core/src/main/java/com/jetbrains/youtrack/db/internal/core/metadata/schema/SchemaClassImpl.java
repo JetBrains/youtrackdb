@@ -554,7 +554,8 @@ public abstract class SchemaClassImpl {
 
     if (storedProperties != null) {
       for (Identifiable id : storedProperties) {
-        EntityImpl p = id.getRecord(session);
+        var transaction = session.getActiveTransaction();
+        EntityImpl p = transaction.load(id);
         String name = p.getProperty("name");
         // To lower case ?
         if (properties.containsKey(name)) {
@@ -1375,7 +1376,8 @@ public abstract class SchemaClassImpl {
     }
     if (x instanceof RID) {
       try {
-        x = ((RID) x).getRecord(db);
+        var transaction = db.getActiveTransaction();
+        x = transaction.load(((RID) x));
       } catch (RecordNotFoundException e) {
         return true;
       }

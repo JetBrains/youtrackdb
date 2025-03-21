@@ -552,7 +552,8 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
       if (let != null)
       // EXECUTE ONCE TO ASSIGN THE LET
       {
-        assignLetClauses(db, lastRecord != null ? lastRecord.getRecord(db) : null);
+        var transaction = db.getActiveTransaction();
+        assignLetClauses(db, lastRecord != null ? transaction.load(lastRecord) : null);
       }
 
       // SEARCH WITHOUT USING TARGET (USUALLY WHEN LET/INDEXES ARE INVOLVED)
@@ -793,7 +794,8 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
     if (groupByFields != null && !groupByFields.isEmpty()) {
       if (groupByFields.size() > 1) {
         // MULTI-FIELD GROUP BY
-        final EntityImpl entity = iRecord.getRecord(iContext.getDatabaseSession());
+        var transaction = iContext.getDatabaseSession().getActiveTransaction();
+        final EntityImpl entity = transaction.load(iRecord);
         final var fields = new Object[groupByFields.size()];
         for (var i = 0; i < groupByFields.size(); ++i) {
           final var field = groupByFields.get(i);
@@ -810,7 +812,8 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
           if (field.startsWith("$")) {
             fieldValue = iContext.getVariable(field);
           } else {
-            EntityImpl entity = iRecord.getRecord(iContext.getDatabaseSession());
+            var transaction = iContext.getDatabaseSession().getActiveTransaction();
+            EntityImpl entity = transaction.load(iRecord);
             fieldValue = entity.getProperty(field);
           }
         }
@@ -861,7 +864,8 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
     if (iRecord instanceof EntityImpl) {
       entity = (EntityImpl) iRecord;
     } else {
-      entity = iRecord.getRecord(iContext.getDatabaseSession());
+      var transaction = iContext.getDatabaseSession().getActiveTransaction();
+      entity = transaction.load(iRecord);
     }
     if (unwindFields.size() == 0) {
       final RecordId iIdentity = new RecordId(-2, getTemporaryRIDCounter(iContext));
@@ -2659,7 +2663,8 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
         for (var id : tempResult) {
           Object fieldValue;
           if (expandTarget instanceof SQLFilterItem) {
-            fieldValue = ((SQLFilterItem) expandTarget).getValue(id.getRecord(session), null,
+            var transaction = session.getActiveTransaction();
+            fieldValue = ((SQLFilterItem) expandTarget).getValue(transaction.load(id), null,
                 context);
           } else if (expandTarget instanceof SQLFunctionRuntime) {
             fieldValue = ((SQLFunctionRuntime) expandTarget).getResult(

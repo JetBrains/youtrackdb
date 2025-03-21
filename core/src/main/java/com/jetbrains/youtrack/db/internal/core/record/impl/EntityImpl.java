@@ -65,6 +65,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Identity;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyAccess;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyEncryption;
+import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyEncryptionNone;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.RecordVersionHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
@@ -352,7 +353,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return switch (property) {
       case null -> null;
       case Entity entity -> entity;
-      case Identifiable identifiable -> identifiable.getEntity(session);
+      case Identifiable identifiable -> {
+        var transaction = session.getActiveTransaction();
+        yield transaction.loadEntity(identifiable);
+      }
       default -> throw new DatabaseException(session.getDatabaseName(),
           "Property "
               + name
@@ -373,7 +377,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return switch (property) {
       case null -> null;
       case Blob blob -> blob;
-      case Identifiable identifiable -> identifiable.getBlob(session);
+      case Identifiable identifiable -> {
+        var transaction = session.getActiveTransaction();
+        yield transaction.loadBlob(identifiable);
+      }
       default -> throw new DatabaseException(session.getDatabaseName(),
           "Property "
               + propertyName
@@ -619,10 +626,18 @@ public class EntityImpl extends RecordAbstract implements Entity {
    * @param propertyValue The property value
    */
   public void setProperty(final @Nonnull String propertyName, @Nullable Object propertyValue) {
+    validatePropertyUpdate(propertyName, propertyValue);
+
+    setPropertyInternal(propertyName, propertyValue);
+  }
+
+  private void validatePropertyUpdate(String propertyName, Object propertyValue) {
     validatePropertyName(propertyName, false);
     validatePropertyValue(propertyName, propertyValue);
 
-    setPropertyInternal(propertyName, propertyValue);
+    if (!filterPropertyAccess(propertyName)) {
+      throw new SecurityException("Property " + propertyName + " is not accessible");
+    }
   }
 
 
@@ -1184,19 +1199,17 @@ public class EntityImpl extends RecordAbstract implements Entity {
    */
   public void setProperty(@Nonnull String propertyName, Object propertyValue,
       @Nonnull PropertyType type) {
-    validatePropertyName(propertyName, true);
-    validatePropertyValue(propertyName, propertyValue);
+    validatePropertyUpdate(propertyName, propertyValue);
 
     setPropertyInternal(propertyName, propertyValue, type);
   }
 
 
-  public void setProperty(@Nonnull String propertyName, @Nullable Object value,
+  public void setProperty(@Nonnull String propertyName, @Nullable Object propertyValue,
       @Nonnull PropertyType propertyType, @Nonnull PropertyType linkedType) {
-    validatePropertyName(propertyName, true);
-    validatePropertyValue(propertyName, value);
+    validatePropertyUpdate(propertyName, propertyValue);
 
-    setPropertyInternal(propertyName, value, propertyType, linkedType);
+    setPropertyInternal(propertyName, propertyValue, propertyType, linkedType);
   }
 
   public void compareAndSetPropertyInternal(String name, Object value, PropertyType type) {
@@ -1468,7 +1481,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       EntityImpl iRecord)
       throws ValidationException {
     iRecord.checkForBinding();
-    iRecord = (EntityImpl) iRecord.getRecord(session);
+    iRecord = iRecord;
 
     var security = session.getSharedContext().getSecurity();
 
@@ -1491,7 +1504,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       ImmutableSchemaProperty p)
       throws ValidationException {
     iRecord.checkForBinding();
-    iRecord = (EntityImpl) iRecord.getRecord(session);
+    iRecord = iRecord;
 
     final Object propertyValue;
     var entry = iRecord.properties.get(p.getName());
@@ -1911,7 +1924,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
                   + propertyValue);
         }
 
-        final var embeddedRecord = embedded.getRecord(session);
+        var transaction = session.getActiveTransaction();
+        final var embeddedRecord = transaction.load(embedded);
         if (embeddedRecord instanceof EntityImpl entity) {
           final var embeddedClass = p.getLinkedClass();
           if (entity.isVertex()) {
@@ -2940,6 +2954,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     super.reset();
 
+    propertyAccess = null;
     className = null;
     immutableClazz = null;
     immutableSchemaVersion = -1;
@@ -3117,9 +3132,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     status = RecordElement.STATUS.UNMARSHALLING;
     try {
-      if (properties == null) {
-        properties = new HashMap<>();
-      }
+      checkForProperties();
       recordSerializer.fromStream(session, source, this, propertyNames);
     } finally {
       status = RecordElement.STATUS.LOADED;
@@ -3157,14 +3170,18 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   public void setClassNameIfExists(final String iClassName) {
+    if (Objects.equals(className, iClassName)) {
+      return;
+    }
+
     checkForBinding();
 
     immutableClazz = null;
     immutableSchemaVersion = -1;
-
     className = iClassName;
 
     if (iClassName == null) {
+      initPropertyAccess();
       return;
     }
 
@@ -3202,6 +3219,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   public void setClassNameWithoutPropertiesPostProcessing(@Nullable final String className) {
+    if (Objects.equals(className, this.className)) {
+      return;
+    }
+
     immutableClazz = null;
     immutableSchemaVersion = -1;
 
@@ -3691,6 +3712,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return false;
   }
 
+  public void initPropertyAccess() {
+    propertyAccess = new PropertyAccess(session, this,
+        session.getSharedContext().getSecurity());
+    propertyEncryption = PropertyEncryptionNone.instance();
+  }
+
   Object accessProperty(final String property) {
     checkForBinding();
 
@@ -3765,17 +3792,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
         if (clazz != null) {
           className = clazz.getName();
         }
-      }
-    }
-  }
-
-  public void autoConvertPropertiesToClass(final DatabaseSessionInternal database) {
-    checkForBinding();
-
-    if (className != null) {
-      var c = database.getMetadata().getImmutableSchemaSnapshot().getClass(className);
-      if (c != null) {
-        convertPropertiesToClassAndInitDefaultValues(c);
       }
     }
   }

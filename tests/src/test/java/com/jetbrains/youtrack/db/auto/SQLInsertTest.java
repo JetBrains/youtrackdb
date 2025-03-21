@@ -387,7 +387,8 @@ public class SQLInsertTest extends BaseDBTest {
     session.commit();
     Assert.assertNotNull(result);
 
-    EntityImpl record = result.getRecord(session);
+    var transaction = session.getActiveTransaction();
+    EntityImpl record = transaction.load(result);
 
     record = session.bindToSession(record);
     Assert.assertEquals(record.<Object>getProperty("id"), 3232);
@@ -501,7 +502,8 @@ public class SQLInsertTest extends BaseDBTest {
               + "return $var2";
       try (var resSql3ResultSet = session.execute(sql3)) {
         var res_sql3 = resSql3ResultSet.next().<Identifiable>getProperty("$var2");
-        final EntityImpl sql3doc = res_sql3.getRecord(session);
+        var transaction = session.getActiveTransaction();
+        final EntityImpl sql3doc = transaction.load(res_sql3);
         Assert.assertEquals(sql3doc.<Object>getProperty("Bingo"), 1);
         Assert.assertEquals(sql3doc.getProperty("Name"), "Bingo owner");
       }

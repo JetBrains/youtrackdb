@@ -143,7 +143,8 @@ public final class CommandResponse implements BinaryResponse {
         // RECORD
         channel.writeByte((byte) 'r');
         if (load && result instanceof RecordId) {
-          result = ((RecordId) result).getRecord(db);
+          var transaction = db.getActiveTransaction();
+          result = transaction.load(((RecordId) result));
         }
 
         if (listener != null) {
@@ -160,7 +161,9 @@ public final class CommandResponse implements BinaryResponse {
         if (result instanceof IdentityWrapper) {
           // RECORD
           channel.writeByte((byte) 'r');
-          var entity = ((IdentityWrapper) result).getIdentity().getEntity(db);
+          Identifiable identifiable = ((IdentityWrapper) result).getIdentity();
+          var transaction = db.getActiveTransaction();
+          var entity = transaction.loadEntity(identifiable);
           if (listener != null) {
             listener.result(db, entity);
           }
@@ -176,7 +179,8 @@ public final class CommandResponse implements BinaryResponse {
               for (var o : MultiValue.getMultiValueIterable(result)) {
                 try {
                   if (load && o instanceof RecordId) {
-                    o = ((RecordId) o).getRecord(db);
+                    var transaction = db.getActiveTransaction();
+                    o = transaction.load(((RecordId) o));
                   }
                   if (listener != null) {
                     listener.result(db, o);
@@ -197,7 +201,8 @@ public final class CommandResponse implements BinaryResponse {
                   for (var o : MultiValue.getMultiValueIterable(result)) {
                     try {
                       if (load && o instanceof RecordId) {
-                        o = ((RecordId) o).getRecord(db);
+                        var transaction = db.getActiveTransaction();
+                        o = transaction.load(((RecordId) o));
                       }
                       if (listener != null) {
                         listener.result(db, o);
@@ -219,7 +224,8 @@ public final class CommandResponse implements BinaryResponse {
                   for (var o : MultiValue.getMultiValueIterable(result)) {
                     try {
                       if (load && o instanceof RecordId) {
-                        o = ((RecordId) o).getRecord(db);
+                        var transaction = db.getActiveTransaction();
+                        o = transaction.load(((RecordId) o));
                       }
                       if (listener != null) {
                         listener.result(db, o);

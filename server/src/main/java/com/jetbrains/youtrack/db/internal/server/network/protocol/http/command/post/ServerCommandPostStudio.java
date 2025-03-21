@@ -370,7 +370,9 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
         throw new IllegalArgumentException("Record ID not found in request");
       }
 
-      final EntityImpl entity = new RecordId(rid).getRecord(session);
+      RecordId recordId = new RecordId(rid);
+      var transaction = session.getActiveTransaction();
+      final EntityImpl entity = transaction.load(recordId);
       entity.delete();
       iResponse.send(
           HttpUtils.STATUS_OK_CODE,

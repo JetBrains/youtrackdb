@@ -90,7 +90,8 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered {
         result.add(
             stream
                 .map((edge) -> {
-                  EntityImpl entity = edge.getRecord(session);
+                  var transaction = session.getActiveTransaction();
+                  EntityImpl entity = transaction.load(edge);
                   return entity.getProperty("out");
                 })
                 .collect(Collectors.toSet()));

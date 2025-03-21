@@ -110,9 +110,11 @@ public class SQLCommandsTest extends BaseDBTest {
     var result = session.command(new CommandScript("sql", cmd)).execute(session);
 
     Assert.assertTrue(result instanceof Identifiable);
-    Assert.assertTrue(((Identifiable) result).getRecord(session) instanceof EntityImpl);
+    var transaction1 = session.getActiveTransaction();
+    Assert.assertTrue(transaction1.load(((Identifiable) result)) instanceof EntityImpl);
+    var transaction = session.getActiveTransaction();
     EntityImpl entity = session.bindToSession(
-        ((Identifiable) result).getRecord(session));
+        transaction.load(((Identifiable) result)));
     Assert.assertTrue(
         entity.getProperty("script"));
   }

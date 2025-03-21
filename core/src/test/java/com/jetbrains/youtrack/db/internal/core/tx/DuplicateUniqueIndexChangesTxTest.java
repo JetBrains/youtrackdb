@@ -75,7 +75,10 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
 
   private EntityImpl fetchDocumentFromIndex(String o) {
     try (var stream = index.getRids(session, o)) {
-      return (EntityImpl) stream.findFirst().map(rid -> rid.getRecord(session)).orElse(null);
+      return (EntityImpl) stream.findFirst().map(rid -> {
+        var transaction = session.getActiveTransaction();
+        return transaction.load(rid);
+      }).orElse(null);
     }
   }
 

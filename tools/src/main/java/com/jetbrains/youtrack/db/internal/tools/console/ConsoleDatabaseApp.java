@@ -2965,7 +2965,8 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     currentResultSet = new ArrayList<>();
     while (it.hasNext() && currentResultSet.size() <= limit) {
       var identifialble = it.next();
-      var record = identifialble.getRecord(currentDatabaseSession);
+      var transaction = currentDatabaseSession.getActiveTransaction();
+      var record = transaction.load(identifialble);
       if (record instanceof Entity entity) {
         currentResultSet.add(new RawPair<>(identifialble.getIdentity(), entity.toMap()));
       } else if (record instanceof Blob blob) {

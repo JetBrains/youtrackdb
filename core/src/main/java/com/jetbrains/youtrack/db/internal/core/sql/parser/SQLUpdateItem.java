@@ -234,7 +234,8 @@ public class SQLUpdateItem extends SimpleNode {
           Vertex toVertex;
           if (EdgeInternal.isInEdgeConnectionProperty(propertyName)) {
             if (newValue instanceof Identifiable identifiable) {
-              toVertex = identifiable.getVertex(session);
+              var transaction = session.getActiveTransaction();
+              toVertex = transaction.loadVertex(identifiable);
             } else {
               throw new IllegalArgumentException(
                   "Cannot assign a non-vertex to an edge connection");
@@ -245,7 +246,8 @@ public class SQLUpdateItem extends SimpleNode {
           Vertex fromVertex;
           if (EdgeInternal.isOutEdgeConnectionProperty(propertyName)) {
             if (newValue instanceof Identifiable identifiable) {
-              fromVertex = identifiable.getVertex(session);
+              var transaction = session.getActiveTransaction();
+              fromVertex = transaction.loadVertex(identifiable);
             } else {
               throw new IllegalArgumentException(
                   "Cannot assign a non-vertex to an edge connection");

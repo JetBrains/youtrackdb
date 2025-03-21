@@ -158,13 +158,18 @@ public class FindReferenceHelper {
       final DBRecord iRootObject) {
     if (iSourceRIDs.contains(value.getIdentity())) {
       map.get(value.getIdentity()).add(iRootObject.getIdentity());
-    } else if (!((RecordId) value.getIdentity()).isValidPosition()
-        && value.getRecord(db) instanceof EntityImpl) {
-      // embedded entity
-      EntityImpl entity = value.getRecord(db);
-      for (var fieldName : entity.propertyNames()) {
-        var fieldValue = entity.getProperty(fieldName);
-        checkObject(db, iSourceRIDs, map, fieldValue, iRootObject);
+    } else {
+      if (!((RecordId) value.getIdentity()).isValidPosition()) {
+        var transaction1 = db.getActiveTransaction();
+        if (transaction1.load(value) instanceof EntityImpl) {
+          // embedded entity
+          var transaction = db.getActiveTransaction();
+          EntityImpl entity = transaction.load(value);
+          for (var fieldName : entity.propertyNames()) {
+            var fieldValue = entity.getProperty(fieldName);
+            checkObject(db, iSourceRIDs, map, fieldValue, iRootObject);
+          }
+        }
       }
     }
   }

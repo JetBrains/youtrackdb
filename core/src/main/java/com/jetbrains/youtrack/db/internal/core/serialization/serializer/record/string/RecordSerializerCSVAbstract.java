@@ -101,7 +101,8 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
       }
 
       // RECORD
-      var iLinkedRecord = ((Identifiable) iLinked).getRecord(session);
+      var transaction = session.getActiveTransaction();
+      var iLinkedRecord = transaction.load(((Identifiable) iLinked));
       rid = (RecordId) iLinkedRecord.getIdentity();
 
       assert ((RecordId) rid.getIdentity()).isValidPosition() || session.isRemote()
@@ -806,7 +807,8 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
       }
 
       if (linkedType == PropertyType.EMBEDDED && o instanceof Identifiable) {
-        toString(session, ((Identifiable) o).getRecord(session), iOutput, null);
+        var transaction = session.getActiveTransaction();
+        toString(session, transaction.load(((Identifiable) o)), iOutput, null);
       } else if (linkedType != PropertyType.LINK && (linkedClass != null || entity != null)) {
         toString(session, entity, iOutput, null, true);
       } else {

@@ -20,6 +20,7 @@
 package com.jetbrains.youtrack.db.internal.core.security;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
@@ -421,10 +422,12 @@ public class DefaultSecuritySystem implements SecuritySystem {
               (resultset, session) -> {
                 var sessionInternal = (DatabaseSessionInternal) session;
                 if (resultset != null && resultset.hasNext()) {
+                  Identifiable identifiable = resultset.next().asEntity();
+                  var transaction = session.getActiveTransaction();
                   return new ImmutableUser(sessionInternal,
                       0,
                       new SecuritySystemUserImpl(sessionInternal,
-                          resultset.next().asEntity().getRecord(session), dbName));
+                          transaction.load(identifiable), dbName));
                 }
                 return null;
               },

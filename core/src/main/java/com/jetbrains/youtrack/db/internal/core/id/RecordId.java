@@ -19,14 +19,10 @@
  */
 package com.jetbrains.youtrack.db.internal.core.id;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.util.PatternConst;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.BinaryProtocol;
 import com.jetbrains.youtrack.db.internal.core.serialization.MemoryStream;
 import com.jetbrains.youtrack.db.internal.core.serialization.SerializableStream;
@@ -40,6 +36,7 @@ import java.io.Serial;
 import javax.annotation.Nonnull;
 
 public class RecordId implements RID, SerializableStream {
+
   @Serial
   private static final long serialVersionUID = 247070594054408657L;
   // INT TO AVOID JVM PENALTY, BUT IT'S STORED AS SHORT
@@ -291,15 +288,6 @@ public class RecordId implements RID, SerializableStream {
   @Nonnull
   public RID getIdentity() {
     return this;
-  }
-
-  @Nonnull
-  public <T extends DBRecord> T getRecord(@Nonnull DatabaseSession session) {
-    if (!isValidPosition()) {
-      throw new RecordNotFoundException(session.getDatabaseName(), this);
-    }
-
-    return ((DatabaseSessionInternal) session).load(this);
   }
 
   private void checkClusterLimits() {

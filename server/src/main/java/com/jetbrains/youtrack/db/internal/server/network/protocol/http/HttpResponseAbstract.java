@@ -338,7 +338,8 @@ public abstract class HttpResponseAbstract implements HttpResponse {
                   colNames.addAll(result.getPropertyNames());
                 } else if (r instanceof Identifiable) {
                   try {
-                    var rec = ((Identifiable) r).getRecord(session);
+                    var transaction = session.getActiveTransaction();
+                    var rec = transaction.load(((Identifiable) r));
                     if (rec instanceof EntityImpl entity) {
                       records.add(entity);
                       Collections.addAll(colNames, entity.propertyNames());
@@ -518,7 +519,8 @@ public abstract class HttpResponseAbstract implements HttpResponse {
             buffer.append(objectJson);
           } else if (entry instanceof Identifiable identifiable) {
             try {
-              var rec = identifiable.getRecord(session);
+              var transaction = session.getActiveTransaction();
+              var rec = transaction.load(identifiable);
               if (rec.isNotBound(session)) {
                 rec = session.bindToSession(rec);
               }

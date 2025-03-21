@@ -117,7 +117,8 @@ public class GraphRecoveringTest {
             tx.query("select from E").stream()
                 .map(Result::asStatefulEdge)
                 .toList()) {
-          e.<EntityImpl>getRecord(session).removePropertyInternal("out");
+          var transaction = session.getActiveTransaction();
+          transaction.<EntityImpl>load(e).removePropertyInternal("out");
         }
         tx.commit();
 
@@ -155,10 +156,12 @@ public class GraphRecoveringTest {
                 .filter(Objects::nonNull)
                 .map(Entity::asVertex)
                 .toList()) {
-          for (var f : v.<EntityImpl>getRecord(session).getPropertyNamesInternal(false,
+          var transaction1 = session.getActiveTransaction();
+          for (var f : transaction1.<EntityImpl>load(v).getPropertyNamesInternal(false,
               true)) {
             if (f.startsWith(Vertex.DIRECTION_OUT_PREFIX)) {
-              v.<EntityImpl>getRecord(session).removePropertyInternal(f);
+              var transaction = session.getActiveTransaction();
+              transaction.<EntityImpl>load(v).removePropertyInternal(f);
             }
           }
         }

@@ -156,7 +156,8 @@ public class RestrictedTest extends BaseDBTest {
     session = createSessionInstance("writer", "writer");
     try {
       session.begin();
-      session.delete(adminRecordId.getRecord(session));
+      var transaction = session.getActiveTransaction();
+      session.delete(transaction.load(adminRecordId));
       session.commit();
     } catch (SecurityException | RecordNotFoundException e) {
       // OK AS EXCEPTION

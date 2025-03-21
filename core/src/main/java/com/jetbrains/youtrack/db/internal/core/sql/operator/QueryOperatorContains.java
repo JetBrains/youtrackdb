@@ -73,12 +73,16 @@ public class QueryOperatorContains extends QueryOperatorEqualityNotNulls {
         for (final var o : iterable) {
           final Result id;
           switch (o) {
-            case Identifiable identifiable -> id = identifiable.getEntity(session);
+            case Identifiable identifiable -> {
+              var transaction = session.getActiveTransaction();
+              id = transaction.loadEntity(identifiable);
+            }
             case Map<?, ?> map -> {
               final var iter = map.values().iterator();
               final var v = iter.hasNext() ? iter.next() : null;
               if (v instanceof Identifiable identifiable) {
-                id = identifiable.getEntity(session);
+                var transaction = session.getActiveTransaction();
+                id = transaction.loadEntity(identifiable);
               } else {
                 id = new ResultInternal(session, (Map<String, ?>) o);
               }
@@ -86,7 +90,13 @@ public class QueryOperatorContains extends QueryOperatorEqualityNotNulls {
             }
             case Iterable<?> objects -> {
               final var iter = objects.iterator();
-              id = iter.hasNext() ? ((Identifiable) iter.next()).getEntity(session) : null;
+              if (iter.hasNext()) {
+                Identifiable identifiable = ((Identifiable) iter.next());
+                var transaction = session.getActiveTransaction();
+                id = transaction.loadEntity(identifiable);
+              } else {
+                id = null;
+              }
             }
             case null, default -> {
               continue;
@@ -132,7 +142,8 @@ public class QueryOperatorContains extends QueryOperatorEqualityNotNulls {
 
       if (condition != null) {
         for (final var o : iterable) {
-          if (condition.evaluate(o.getEntity(session), null, iContext) == Boolean.TRUE) {
+          var transaction = session.getActiveTransaction();
+          if (condition.evaluate(transaction.loadEntity(o), null, iContext) == Boolean.TRUE) {
             return true;
           }
         }

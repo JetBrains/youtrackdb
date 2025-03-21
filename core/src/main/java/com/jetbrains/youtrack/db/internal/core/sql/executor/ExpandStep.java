@@ -57,7 +57,8 @@ public class ExpandStep extends AbstractExecutionStep {
         }
         DBRecord rec;
         try {
-          rec = identifiable.getRecord(db);
+          var transaction = db.getActiveTransaction();
+          rec = transaction.load(identifiable);
         } catch (RecordNotFoundException rnf) {
           return ExecutionStream.empty();
         }

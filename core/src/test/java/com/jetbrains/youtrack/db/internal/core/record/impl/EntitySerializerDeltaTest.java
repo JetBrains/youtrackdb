@@ -337,7 +337,9 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     entity = session.bindToSession(entity);
 
     originalValue = entity.getProperty(fieldName);
-    var d1 = originalValue.getFirst().getFirst().getEntity(session);
+    Identifiable identifiable = originalValue.getFirst().getFirst();
+    var transaction = session.getActiveTransaction();
+    var d1 = transaction.loadEntity(identifiable);
     d1.setProperty(variableField, "two");
 
     // test serialization/deserialization
@@ -684,9 +686,10 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.begin();
     entity = session.bindToSession(entity);
 
+    var transaction1 = session.getActiveTransaction();
     @SuppressWarnings("unchecked")
-    EntityImpl testDoc = ((List<Identifiable>) entity.getProperty(fieldName)).get(1)
-        .getRecord(session);
+    EntityImpl testDoc = transaction1.load(
+        ((List<Identifiable>) entity.getProperty(fieldName)).get(1));
     testDoc.removeProperty(variableField);
     // test serialization/deserialization
     var serializerDelta = DocumentSerializerDelta.instance();
@@ -697,7 +700,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     entity = session.bindToSession(entity);
     serializerDelta.deserializeDelta(session, bytes, entity);
     List<Identifiable> checkList = entity.getProperty(fieldName);
-    EntityImpl checkDoc = checkList.get(1).getRecord(session);
+    var transaction = session.getActiveTransaction();
+    EntityImpl checkDoc = transaction.load(checkList.get(1));
     assertEquals(constValue, checkDoc.getProperty(constantField));
     assertFalse(checkDoc.hasProperty(variableField));
     session.rollback();

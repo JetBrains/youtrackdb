@@ -17,6 +17,7 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
@@ -181,7 +182,9 @@ public class NewTraverseTest extends BaseDBTest {
     Assert.assertTrue(result2.hasNext());
     var size2 = 0;
     while (result2.hasNext()) {
-      EntityImpl d = result2.next().asEntity().getRecord(session);
+      Identifiable identifiable = result2.next().asEntity();
+      var transaction = session.getActiveTransaction();
+      EntityImpl d = transaction.load(identifiable);
       Assert.assertEquals(d.getSchemaClassName(), "Movie");
       size2++;
     }
@@ -194,7 +197,9 @@ public class NewTraverseTest extends BaseDBTest {
     Assert.assertTrue(result3.hasNext());
     var size3 = 0;
     while (result3.hasNext()) {
-      EntityImpl d = result3.next().asEntity().getRecord(session);
+      Identifiable identifiable = result3.next().asEntity();
+      var transaction = session.getActiveTransaction();
+      EntityImpl d = transaction.load(identifiable);
       Assert.assertEquals(d.getSchemaClassName(), "Movie");
       size3++;
     }

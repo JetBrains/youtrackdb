@@ -253,7 +253,8 @@ public class CollateTest extends BaseDBTest {
 
         Assert.assertEquals(value.size(), 5);
         for (var identifiable : value) {
-          final EntityImpl record = identifiable.getRecord(session);
+          var transaction = session.getActiveTransaction();
+          final EntityImpl record = transaction.load(identifiable);
           Assert.assertEquals(record.getProperty("csp"), "VAL");
           Assert.assertEquals((record.<String>getProperty("cip")).toUpperCase(Locale.ENGLISH),
               "VAL");

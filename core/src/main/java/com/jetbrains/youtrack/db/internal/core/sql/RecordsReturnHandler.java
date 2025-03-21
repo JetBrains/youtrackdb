@@ -67,9 +67,10 @@ public abstract class RecordsReturnHandler implements ReturnHandler {
       context.setVariable("current", record);
 
       var session = context.getDatabaseSession();
+      var transaction = session.getActiveTransaction();
       itemResult =
           SQLHelper.getValue(returnExpression,
-              ((Identifiable) record).getRecord(session), context);
+              transaction.load(record), context);
       if (itemResult instanceof Identifiable) {
         return itemResult;
       }

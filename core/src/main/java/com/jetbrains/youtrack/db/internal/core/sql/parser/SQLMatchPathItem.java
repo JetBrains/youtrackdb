@@ -165,7 +165,8 @@ public class SQLMatchPathItem extends SimpleNode {
       return false;
     }
     try {
-      var record = identifiable.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      var record = transaction.load(identifiable);
       if (record instanceof EntityImpl) {
         SchemaImmutableClass result;
         result = ((EntityImpl) record).getImmutableSchemaClass(session);

@@ -93,8 +93,10 @@ public class SymmetricKeySecurity implements SecurityInternal {
     }
 
     try {
+      Identifiable identifiable = user.getIdentity();
+      var transaction = session.getActiveTransaction();
       var userConfig = new UserSymmetricKeyConfig(
-          user.getIdentity().getEntity(session).toMap(false));
+          transaction.loadEntity(identifiable).toMap(false));
 
       var sk = SymmetricKey.fromConfig(userConfig);
 

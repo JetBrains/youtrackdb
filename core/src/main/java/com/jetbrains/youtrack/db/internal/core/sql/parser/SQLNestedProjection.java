@@ -136,7 +136,8 @@ public class SQLNestedProjection extends SimpleNode {
     if (input instanceof Entity) {
       elem = (Entity) input;
     } else {
-      var e = input.getRecord(db);
+      var transaction = db.getActiveTransaction();
+      var e = transaction.load(input);
       if (e instanceof Entity) {
         elem = (Entity) e;
       } else {

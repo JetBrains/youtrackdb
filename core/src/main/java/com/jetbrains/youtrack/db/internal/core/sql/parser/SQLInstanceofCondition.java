@@ -40,7 +40,8 @@ public class SQLInstanceofCondition extends SQLBooleanExpression {
     DBRecord record;
     var session = ctx.getDatabaseSession();
     try {
-      record = currentRecord.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      record = transaction.load(currentRecord);
     } catch (RecordNotFoundException rnf) {
       return false;
     }
@@ -72,7 +73,9 @@ public class SQLInstanceofCondition extends SQLBooleanExpression {
     }
 
     var session = ctx.getDatabaseSession();
-    var record = currentRecord.asEntity().getRecord(session);
+    Identifiable identifiable = currentRecord.asEntity();
+    var transaction = session.getActiveTransaction();
+    var record = transaction.load(identifiable);
     if (!(record instanceof EntityImpl entity)) {
       return false;
     }

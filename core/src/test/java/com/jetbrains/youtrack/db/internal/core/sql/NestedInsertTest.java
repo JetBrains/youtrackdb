@@ -24,7 +24,9 @@ public class NestedInsertTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    final EntityImpl res = ((Identifiable) result.next().getProperty("@this")).getRecord(session);
+    Identifiable identifiable = result.next().getProperty("@this");
+    var transaction = session.getActiveTransaction();
+    final EntityImpl res = transaction.load(identifiable);
     final EntityImpl embedded = res.getProperty("meta");
     Assert.assertNotNull(embedded);
 
@@ -49,7 +51,9 @@ public class NestedInsertTest extends DbTestBase {
 
     session.commit();
     session.begin();
-    final EntityImpl res = ((Identifiable) result.next().getProperty("@this")).getRecord(session);
+    Identifiable identifiable = result.next().getProperty("@this");
+    var transaction = session.getActiveTransaction();
+    final EntityImpl res = transaction.load(identifiable);
     final EntityImpl ln = res.getProperty("some");
     Assert.assertNotNull(ln);
     Assert.assertTrue(ln.getIdentity().isPersistent());

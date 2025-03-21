@@ -416,7 +416,8 @@ public class YouTrackDbJdbcResultSet implements java.sql.ResultSet {
       var value = result.getProperty(columnLabel);
 
       if (value instanceof RID) {
-        value = ((RID) value).getRecord(statement.session);
+        var transaction = statement.session.getActiveTransaction();
+        value = transaction.load(((RID) value));
       }
 
       if (value instanceof Blob) {

@@ -60,7 +60,8 @@ public class QueryOperatorInstanceof extends QueryOperatorEqualityNotNulls {
     SchemaClass cls = null;
     if (iLeft instanceof Identifiable) {
       // GET THE RECORD'S CLASS
-      var record = ((Identifiable) iLeft).getRecord(iContext.getDatabaseSession());
+      var transaction = iContext.getDatabaseSession().getActiveTransaction();
+      var record = transaction.load(((Identifiable) iLeft));
       if (record instanceof EntityImpl) {
         SchemaImmutableClass result = null;
         if (record != null) {

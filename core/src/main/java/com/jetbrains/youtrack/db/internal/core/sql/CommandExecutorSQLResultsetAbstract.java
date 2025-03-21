@@ -267,7 +267,8 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
               e.setProperty("value", d);
               d = e;
             } else {
-              d = ((Identifiable) d).getRecord(session);
+              var transaction = session.getActiveTransaction();
+              d = transaction.load(((Identifiable) d));
             }
 
             if (limit > -1 && fetched >= limit) {

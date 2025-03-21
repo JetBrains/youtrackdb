@@ -108,7 +108,8 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
           elem = result.asEntity();
         }
         if (elem instanceof Identifiable && !(elem instanceof Entity)) {
-          elem = ((Identifiable) elem).getRecord(session);
+          var transaction = session.getActiveTransaction();
+          elem = transaction.load(((Identifiable) elem));
         }
         if (!(elem instanceof Entity)) {
           throw new CommandExecutionException(session, "Invalid vertex: " + elem);
@@ -148,7 +149,8 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
       from = result.asEntityOrNull();
     }
     if (from instanceof Identifiable && !(from instanceof Entity)) {
-      from = ((Identifiable) from).getRecord(session);
+      var transaction = session.getActiveTransaction();
+      from = transaction.load(((Identifiable) from));
     }
     if (from instanceof Entity && ((Entity) from).isVertex()) {
       var vertex = ((Entity) from).asVertex();

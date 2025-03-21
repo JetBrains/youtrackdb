@@ -124,18 +124,23 @@ public class CommandExecutorSQLLiveSelect extends CommandExecutorSQLSelect
   private boolean checkSecurity(Identifiable value) {
     try {
       // TODO check this!
+      var transaction = execDb.getActiveTransaction();
       execDb.checkSecurity(
           Rule.ResourceGeneric.CLASS,
           Role.PERMISSION_READ,
-          ((EntityImpl) value.getRecord(execDb)).getSchemaClassName());
+          ((EntityImpl) transaction.load(value)).getSchemaClassName());
     } catch (SecurityException ignore) {
       return false;
     }
     var security = execDb.getSharedContext().getSecurity();
-    var allowedByPolicy = security.canRead(execDb, value.getRecord(execDb));
-    return allowedByPolicy
-        && RestrictedAccessHook.isAllowed(
-        execDb, value.getRecord(execDb), RestrictedOperation.ALLOW_READ, false);
+    var transaction1 = execDb.getActiveTransaction();
+    var allowedByPolicy = security.canRead(execDb, transaction1.load(value));
+    if (!allowedByPolicy) {
+      return false;
+    }
+    var transaction = execDb.getActiveTransaction();
+    return RestrictedAccessHook.isAllowed(
+        execDb, transaction.load(value), RestrictedOperation.ALLOW_READ, false);
   }
 
   private boolean matchesFilters(Identifiable value) {
@@ -143,8 +148,9 @@ public class CommandExecutorSQLLiveSelect extends CommandExecutorSQLSelect
       return true;
     }
 
+    var transaction = execDb.getActiveTransaction();
     return !(Boolean.FALSE.equals(
-        compiledFilter.evaluate(value.getEntity(execDb), (EntityImpl) value, getContext())));
+        compiledFilter.evaluate(transaction.loadEntity(value), (EntityImpl) value, getContext())));
   }
 
   private boolean matchesTarget(Identifiable value) {

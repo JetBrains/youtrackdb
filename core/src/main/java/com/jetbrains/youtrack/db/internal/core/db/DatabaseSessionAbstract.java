@@ -860,7 +860,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     assert assertIfNotActive();
 
     // unwrap the record if wrapper is passed
-    record = record.getRecord(this);
+    var transaction = getActiveTransaction();
+    record = transaction.load(record);
 
     var txRecord = currentTx.getRecord(rid);
     if (txRecord == record) {
@@ -1679,23 +1680,28 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
     if (createLightweightEdge) {
       var lightWeightEdge = newLightweightEdgeInternal(className, toVertex, inVertex);
-      VertexEntityImpl.createLink(this, toVertex.getRecord(this), inVertex.getRecord(this),
+      var transaction2 = getActiveTransaction();
+      var transaction3 = getActiveTransaction();
+      VertexEntityImpl.createLink(this, transaction3.load(toVertex), transaction2.load(inVertex),
           outFieldName);
-      VertexEntityImpl.createLink(this, inVertex.getRecord(this), toVertex.getRecord(this),
+      var transaction = getActiveTransaction();
+      var transaction1 = getActiveTransaction();
+      VertexEntityImpl.createLink(this, transaction1.load(inVertex), transaction.load(toVertex),
           inFieldName);
       edge = lightWeightEdge;
     } else {
       var statefulEdge = newStatefulEdgeInternal(className);
-      statefulEdge.setPropertyInternal(EdgeInternal.DIRECTION_OUT, toVertex.getRecord(this));
-      statefulEdge.setPropertyInternal(Edge.DIRECTION_IN, inEntity.getRecord(this));
+      var transaction = getActiveTransaction();
+      statefulEdge.setPropertyInternal(EdgeInternal.DIRECTION_OUT, transaction.load(toVertex));
+      statefulEdge.setPropertyInternal(Edge.DIRECTION_IN, inEntity);
 
       if (!outEntityModified) {
         // OUT-VERTEX ---> IN-VERTEX/EDGE
-        VertexEntityImpl.createLink(this, outEntity, statefulEdge.getRecord(this), outFieldName);
+        VertexEntityImpl.createLink(this, outEntity, statefulEdge, outFieldName);
       }
 
       // IN-VERTEX ---> OUT-VERTEX/EDGE
-      VertexEntityImpl.createLink(this, inEntity, statefulEdge.getRecord(this), inFieldName);
+      VertexEntityImpl.createLink(this, inEntity, statefulEdge, inFieldName);
       edge = statefulEdge;
     }
     // OK
@@ -1705,8 +1711,10 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   private boolean checkDeletedInTx(Vertex currentVertex) {
     RID id;
-    if (!currentVertex.getRecord(this).exists()) {
-      id = currentVertex.getRecord(this).getIdentity();
+    var transaction1 = getActiveTransaction();
+    if (!transaction1.load(currentVertex).exists()) {
+      var transaction = getActiveTransaction();
+      id = transaction.load(currentVertex).getIdentity();
     } else {
       return false;
     }

@@ -30,7 +30,8 @@ public class SQLIsNotDefinedCondition extends SQLBooleanExpression {
   public boolean evaluate(Identifiable currentRecord, CommandContext ctx) {
     try {
       var db = ctx.getDatabaseSession();
-      Object elem = currentRecord.getRecord(db);
+      var transaction = db.getActiveTransaction();
+      Object elem = transaction.load(currentRecord);
       if (elem instanceof Entity) {
         return !expression.isDefinedFor(db, (Entity) elem);
       }

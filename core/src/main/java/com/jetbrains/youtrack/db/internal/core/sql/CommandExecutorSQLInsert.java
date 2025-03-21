@@ -319,7 +319,8 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
   @Override
   public boolean result(@Nonnull DatabaseSessionInternal session, final Object iRecord) {
     SchemaClass oldClass = null;
-    RecordAbstract rec = ((Identifiable) iRecord).getRecord(session);
+    var transaction1 = session.getActiveTransaction();
+    RecordAbstract rec = transaction1.load(((Identifiable) iRecord));
 
     if (rec instanceof EntityImpl) {
       if (className != null) {
@@ -342,7 +343,8 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
           if (field.startsWith("out_") || field.startsWith("in_")) {
             var edges = entity.getPropertyInternal(field);
             if (edges instanceof Identifiable) {
-              EntityImpl edgeRec = ((Identifiable) edges).getRecord(session);
+              var transaction = session.getActiveTransaction();
+              EntityImpl edgeRec = transaction.load(((Identifiable) edges));
               SchemaImmutableClass result = null;
               if (edgeRec != null) {
                 result = edgeRec.getImmutableSchemaClass(session);
@@ -354,7 +356,8 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
             } else if (edges instanceof Iterable) {
               for (var edge : (Iterable) edges) {
                 if (edge instanceof Identifiable identifiable) {
-                  var edgeRec = (EntityImpl) identifiable.getEntity(session);
+                  var transaction = session.getActiveTransaction();
+                  var edgeRec = (EntityImpl) transaction.loadEntity(identifiable);
                   var schemaClass = edgeRec.getImmutableSchemaClass(session);
                   if (schemaClass != null
                       && schemaClass.isSubClassOf("E")) {

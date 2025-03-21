@@ -1084,7 +1084,8 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     rootDoc = db.bindToSession(rootDoc);
     RidBag ridBag = rootDoc.getProperty("ridBag");
     for (Identifiable identifiable : ridBag) {
-      EntityImpl doc = identifiable.getRecord(db);
+      var transaction = db.getActiveTransaction();
+      EntityImpl doc = transaction.load(identifiable);
       if (level + 1 < levels) {
         deleteDocsForLevel(db, amountOfDeletedDocsPerLevel, level + 1, levels, doc, rnd);
       }
@@ -1119,7 +1120,8 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     RidBag ridBag = rootDoc.getProperty("ridBag");
 
     for (Identifiable identifiable : ridBag) {
-      EntityImpl doc = identifiable.getRecord(db);
+      var transaction = db.getActiveTransaction();
+      EntityImpl doc = transaction.load(identifiable);
       if (level + 1 < levels) {
         addDocsForLevel(db, amountOfAddedDocsAfterSavePerLevel, level + 1, levels, doc);
       }
@@ -1145,7 +1147,8 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
             addedDocPerLevel.get(new LevelKey(rootDoc.getIdentity(), level)));
 
     for (Identifiable identifiable : ridBag) {
-      EntityImpl doc = identifiable.getRecord(session);
+      var transaction = session.getActiveTransaction();
+      EntityImpl doc = transaction.load(identifiable);
       if (level + 1 < levels) {
         assertDocsAfterRollback(level + 1, levels, addedDocPerLevel, doc);
       } else {

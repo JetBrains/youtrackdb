@@ -61,8 +61,10 @@ public class BonsaiTreeRepair {
           final var outVertexName =
               VertexEntityImpl.getEdgeLinkFieldName(Direction.OUT, label, true);
 
-          final EntityImpl inVertex = inId.getRecord(db);
-          final EntityImpl outVertex = outId.getRecord(db);
+          var transaction1 = db.getActiveTransaction();
+          final EntityImpl inVertex = transaction1.load(inId);
+          var transaction = db.getActiveTransaction();
+          final EntityImpl outVertex = transaction.load(outId);
 
           var inVertexes = processedVertexes.computeIfAbsent(inVertexName, k -> new HashSet<>());
           var outVertexes = processedVertexes.computeIfAbsent(outVertexName, k -> new HashSet<>());
