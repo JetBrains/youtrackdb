@@ -24,7 +24,7 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.DDLStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLLimit;
@@ -71,15 +71,14 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
       // CONTENT REPLACES TEXT
       if (iRequest.getContent().startsWith("{")) {
         // JSON PAYLOAD
-        final var entity = new EntityImpl(null);
-        entity.updateFromJSON(iRequest.getContent());
-        text = entity.getProperty("command");
-        params = entity.getProperty("parameters");
-        if (entity.hasProperty("mode")) {
-          mode = entity.getProperty("mode");
+        final var map = RecordSerializerJackson.mapFromJson(iRequest.getContent());
+        text = (String) map.get("command");
+        params = map.get("parameters");
+        if (map.containsKey("mode")) {
+          mode = map.get("mode").toString();
         }
 
-        if ("false".equalsIgnoreCase("" + entity.getProperty("returnExecutionPlan"))) {
+        if ("false".equalsIgnoreCase("" + map.get("returnExecutionPlan"))) {
           returnExecutionPlan = false;
         }
 
