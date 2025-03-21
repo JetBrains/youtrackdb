@@ -61,25 +61,12 @@ public interface HttpResponse {
       throws IOException;
 
   void writeRecords(
-      Object iRecords, String iFetchPlan, DatabaseSessionInternal session)
-      throws IOException;
-
-  void writeRecords(
-      Object iRecords,
-      String iFetchPlan,
-      String iFormat,
-      String accept,
-      DatabaseSessionInternal session)
-      throws IOException;
-
-  void writeRecords(
       Object iRecords,
       String iFetchPlan,
       String iFormat,
       String accept,
       Map<String, Object> iAdditionalProperties,
-      DatabaseSessionInternal session)
-      throws IOException;
+      DatabaseSessionInternal session);
 
   void writeRecords(
       Object iRecords,

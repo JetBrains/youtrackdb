@@ -31,8 +31,8 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.SocketChannel;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.NetworkProtocolException;
@@ -109,6 +109,7 @@ import java.util.IllegalFormatException;
 import java.util.InputMismatchException;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
 
@@ -547,27 +548,25 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
       writeLine(iHeaders);
     }
 
-    var response = new EntityImpl(null);
-    var error = new EntityImpl(null);
+    var response = new HashMap<String, Object>();
+    var error = new HashMap<String, Object>();
 
-    error.setProperty("code", iCode);
-    error.setProperty("reason", iCode);
-    error.setProperty("content", iContent);
+    error.put("code", iCode);
+    error.put("reason", iCode);
+    error.put("content", iContent);
 
-    List<EntityImpl> errors = new ArrayList<EntityImpl>();
+    List<Map<String, Object>> errors = new ArrayList<>();
     errors.add(error);
 
-    response.setProperty("errors", errors);
+    response.put("errors", errors);
 
-    binaryContent = response.toJSON("prettyPrint").getBytes(utf8);
+    binaryContent = RecordSerializerJackson.mapToJson(response).getBytes(utf8);
 
     writeLine(
-        HttpUtils.HEADER_CONTENT_LENGTH + (binaryContent != null ? binaryContent.length : 0));
+        HttpUtils.HEADER_CONTENT_LENGTH + binaryContent.length);
     writeLine(null);
 
-    if (binaryContent != null) {
-      channel.writeBytes(binaryContent);
-    }
+    channel.writeBytes(binaryContent);
     channel.flush();
   }
 

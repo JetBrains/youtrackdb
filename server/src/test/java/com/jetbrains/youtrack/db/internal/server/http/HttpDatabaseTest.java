@@ -2,10 +2,11 @@ package com.jetbrains.youtrack.db.internal.server.http;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import org.apache.hc.core5.http.HttpResponse;
 import org.junit.After;
 import org.junit.Assert;
@@ -42,14 +43,14 @@ public class HttpDatabaseTest extends BaseHttpTest {
   @Test
   public void testCreateAndGetDatabase() throws IOException {
 
-    var pass = new EntityImpl(null);
-    pass.setProperty("adminPassword", "admin");
+    var pass = new HashMap<String, Object>();
+    pass.put("adminPassword", "admin");
     Assert.assertEquals(
         200,
         setUserName("root")
             .setUserPassword("root")
             .post("database/" + getDatabaseName() + "/memory")
-            .payload(pass.toJSON(), CONTENT.JSON)
+            .payload(RecordSerializerJackson.mapToJson(pass), CONTENT.JSON)
             .getResponse()
             .getCode());
 
@@ -70,14 +71,14 @@ public class HttpDatabaseTest extends BaseHttpTest {
 
   @Test
   public void testCreateQueryAndDropDatabase() throws Exception {
-    var pass = new EntityImpl(null);
-    pass.setProperty("adminPassword", "admin");
+    var pass = new HashMap<String, Object>();
+    pass.put("adminPassword", "admin");
     Assert.assertEquals(
         200,
         setUserName("root")
             .setUserPassword("root")
             .post("database/" + getDatabaseName() + "/memory")
-            .payload(pass.toJSON(), CONTENT.JSON)
+            .payload(RecordSerializerJackson.mapToJson(pass), CONTENT.JSON)
             .getResponse()
             .getCode());
 

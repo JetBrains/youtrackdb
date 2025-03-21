@@ -20,6 +20,8 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
@@ -243,29 +245,8 @@ public abstract class HttpResponseAbstract implements HttpResponse {
 
   @Override
   public void writeRecords(final Object iRecords,
-      DatabaseSessionInternal session)
-      throws IOException {
+      DatabaseSessionInternal session) {
     writeRecords(iRecords, null, null, null, null, session);
-  }
-
-  @Override
-  public void writeRecords(
-      final Object iRecords,
-      final String iFetchPlan,
-      DatabaseSessionInternal session)
-      throws IOException {
-    writeRecords(iRecords, iFetchPlan, null, null, null, session);
-  }
-
-  @Override
-  public void writeRecords(
-      final Object iRecords,
-      final String iFetchPlan,
-      String iFormat,
-      final String accept,
-      DatabaseSessionInternal session)
-      throws IOException {
-    writeRecords(iRecords, iFetchPlan, iFormat, accept, null, session);
   }
 
   @Override
@@ -275,8 +256,7 @@ public abstract class HttpResponseAbstract implements HttpResponse {
       String iFormat,
       final String accept,
       final Map<String, Object> iAdditionalProperties,
-      DatabaseSessionInternal session)
-      throws IOException {
+      DatabaseSessionInternal session) {
     writeRecords(
         iRecords,
         iFetchPlan,
@@ -295,164 +275,168 @@ public abstract class HttpResponseAbstract implements HttpResponse {
       final String accept,
       final Map<String, Object> iAdditionalProperties,
       final String mode,
-      DatabaseSessionInternal session)
-      throws IOException {
-    if (iRecords == null) {
-      send(HttpUtils.STATUS_OK_NOCONTENT_CODE, "", HttpUtils.CONTENT_TEXT_PLAIN, null, null);
-      return;
-    }
-    final var it = MultiValue.getMultiValueIterator(iRecords);
-    if (accept != null && accept.contains("text/csv")) {
-      sendStream(
-          HttpUtils.STATUS_OK_CODE,
-          HttpUtils.STATUS_OK_DESCRIPTION,
-          HttpUtils.CONTENT_CSV,
-          "data.csv",
-          new CallableFunction<>() {
-            @Override
-            public Void call(final ChunkedResponse iArgument) {
-              final var colNames = new LinkedHashSet<String>();
-              final List<Entity> records = new ArrayList<>();
-              final List<Map<String, ?>> maps = new ArrayList<>();
-
-              // BROWSE ALL THE RECORD TO HAVE THE COMPLETE COLUMN
-              // NAMES LIST
-              while (it.hasNext()) {
-                final var r = it.next();
-
-                if (r instanceof Result result) {
-                  if (result.isEntity()) {
-                    var entity = (EntityImpl) result.asEntityOrNull();
-                    var schema = entity.getImmutableSchemaClass(session);
-
-                    if (schema != null) {
-                      schema.properties()
-                          .forEach(prop -> colNames.add(prop.getName()));
-                    }
-
-                    records.add(entity);
-                  } else {
-                    maps.add(result.toMap());
-                  }
-
-                  colNames.addAll(result.getPropertyNames());
-                } else if (r instanceof Identifiable) {
-                  try {
-                    var transaction = session.getActiveTransaction();
-                    var rec = transaction.load(((Identifiable) r));
-                    if (rec instanceof EntityImpl entity) {
-                      records.add(entity);
-                      Collections.addAll(colNames, entity.propertyNames());
-                    }
-                  } catch (RecordNotFoundException rnf) {
-                    // IGNORE IT
-                  }
-                } else if (r instanceof Map<?, ?>) {
-                  //noinspection unchecked
-                  maps.add((Map<String, ?>) r);
-                }
-              }
-
-              final List<String> orderedColumns = new ArrayList<>(colNames);
-
-              try {
-                // WRITE THE HEADER
-                for (var col = 0; col < orderedColumns.size(); ++col) {
-                  if (col > 0) {
-                    iArgument.write(',');
-                  }
-
-                  iArgument.write(orderedColumns.get(col).getBytes());
-                }
-                iArgument.write(HttpUtils.EOL);
-
-                // WRITE EACH RECORD
-                for (var entity : records) {
-                  for (var col = 0; col < orderedColumns.size(); ++col) {
-                    if (col > 0) {
-                      iArgument.write(',');
-                    }
-
-                    var value = entity.getProperty(orderedColumns.get(col));
-                    if (value != null) {
-                      if (!(value instanceof Number)) {
-                        value = "\"" + value + "\"";
-                      }
-
-                      iArgument.write(value.toString().getBytes());
-                    }
-                  }
-                  iArgument.write(HttpUtils.EOL);
-                }
-
-                for (var entity : maps) {
-                  for (var col = 0; col < orderedColumns.size(); ++col) {
-                    if (col > 0) {
-                      iArgument.write(',');
-                    }
-
-                    var value = entity.get(orderedColumns.get(col));
-                    if (value != null) {
-                      if (!(value instanceof Number)) {
-                        value = "\"" + value + "\"";
-                      }
-
-                      iArgument.write(value.toString().getBytes());
-                    }
-                  }
-                  iArgument.write(HttpUtils.EOL);
-                }
-
-                iArgument.flush();
-              } catch (IOException e) {
-                LogManager.instance().error(this, "HTTP response: error on writing records", e);
-              }
-
-              return null;
-            }
-          });
-    } else {
-      if (iFormat == null) {
-        iFormat = HttpResponse.JSON_FORMAT;
-      } else {
-        iFormat = HttpResponse.JSON_FORMAT + "," + iFormat;
+      DatabaseSessionInternal session) {
+    try {
+      if (iRecords == null) {
+        send(HttpUtils.STATUS_OK_NOCONTENT_CODE, "", HttpUtils.CONTENT_TEXT_PLAIN, null, null);
+        return;
       }
-
-      final var sendFormat = iFormat;
-      if (streaming) {
+      final var it = MultiValue.getMultiValueIterator(iRecords);
+      if (accept != null && accept.contains("text/csv")) {
         sendStream(
             HttpUtils.STATUS_OK_CODE,
             HttpUtils.STATUS_OK_DESCRIPTION,
-            HttpUtils.CONTENT_JSON,
-            null,
-            iArgument -> {
-              try {
-                var writer = new OutputStreamWriter(iArgument);
-                writeRecordsOnStream(
-                    iFetchPlan,
-                    sendFormat,
-                    iAdditionalProperties,
-                    it,
-                    writer,
-                    session);
-                writer.flush();
-              } catch (IOException e) {
-                LogManager.instance()
-                    .error(this, "Error during writing of records to the HTTP response", e);
+            HttpUtils.CONTENT_CSV,
+            "data.csv",
+            new CallableFunction<>() {
+              @Override
+              public Void call(final ChunkedResponse iArgument) {
+                final var colNames = new LinkedHashSet<String>();
+                final List<Entity> records = new ArrayList<>();
+                final List<Map<String, ?>> maps = new ArrayList<>();
+
+                // BROWSE ALL THE RECORD TO HAVE THE COMPLETE COLUMN
+                // NAMES LIST
+                while (it.hasNext()) {
+                  final var r = it.next();
+
+                  if (r instanceof Result result) {
+                    if (result.isEntity()) {
+                      var entity = (EntityImpl) result.asEntityOrNull();
+                      var schema = entity.getImmutableSchemaClass(session);
+
+                      if (schema != null) {
+                        schema.properties()
+                            .forEach(prop -> colNames.add(prop.getName()));
+                      }
+
+                      records.add(entity);
+                    } else {
+                      maps.add(result.toMap());
+                    }
+
+                    colNames.addAll(result.getPropertyNames());
+                  } else if (r instanceof Identifiable) {
+                    try {
+                      var transaction = session.getActiveTransaction();
+                      var rec = transaction.load(((Identifiable) r));
+                      if (rec instanceof EntityImpl entity) {
+                        records.add(entity);
+                        Collections.addAll(colNames, entity.propertyNames());
+                      }
+                    } catch (RecordNotFoundException rnf) {
+                      // IGNORE IT
+                    }
+                  } else if (r instanceof Map<?, ?>) {
+                    //noinspection unchecked
+                    maps.add((Map<String, ?>) r);
+                  }
+                }
+
+                final List<String> orderedColumns = new ArrayList<>(colNames);
+
+                try {
+                  // WRITE THE HEADER
+                  for (var col = 0; col < orderedColumns.size(); ++col) {
+                    if (col > 0) {
+                      iArgument.write(',');
+                    }
+
+                    iArgument.write(orderedColumns.get(col).getBytes());
+                  }
+                  iArgument.write(HttpUtils.EOL);
+
+                  // WRITE EACH RECORD
+                  for (var entity : records) {
+                    for (var col = 0; col < orderedColumns.size(); ++col) {
+                      if (col > 0) {
+                        iArgument.write(',');
+                      }
+
+                      var value = entity.getProperty(orderedColumns.get(col));
+                      if (value != null) {
+                        if (!(value instanceof Number)) {
+                          value = "\"" + value + "\"";
+                        }
+
+                        iArgument.write(value.toString().getBytes());
+                      }
+                    }
+                    iArgument.write(HttpUtils.EOL);
+                  }
+
+                  for (var entity : maps) {
+                    for (var col = 0; col < orderedColumns.size(); ++col) {
+                      if (col > 0) {
+                        iArgument.write(',');
+                      }
+
+                      var value = entity.get(orderedColumns.get(col));
+                      if (value != null) {
+                        if (!(value instanceof Number)) {
+                          value = "\"" + value + "\"";
+                        }
+
+                        iArgument.write(value.toString().getBytes());
+                      }
+                    }
+                    iArgument.write(HttpUtils.EOL);
+                  }
+
+                  iArgument.flush();
+                } catch (IOException e) {
+                  LogManager.instance().error(this, "HTTP response: error on writing records", e);
+                }
+
+                return null;
               }
-              return null;
             });
       } else {
-        final var buffer = new StringWriter();
-        writeRecordsOnStream(
-            iFetchPlan, iFormat, iAdditionalProperties, it, buffer, session);
-        send(
-            HttpUtils.STATUS_OK_CODE,
-            HttpUtils.STATUS_OK_DESCRIPTION,
-            HttpUtils.CONTENT_JSON,
-            buffer.toString(),
-            null);
+        if (iFormat == null) {
+          iFormat = HttpResponse.JSON_FORMAT;
+        } else {
+          iFormat = HttpResponse.JSON_FORMAT + "," + iFormat;
+        }
+
+        final var sendFormat = iFormat;
+        if (streaming) {
+          sendStream(
+              HttpUtils.STATUS_OK_CODE,
+              HttpUtils.STATUS_OK_DESCRIPTION,
+              HttpUtils.CONTENT_JSON,
+              null,
+              iArgument -> {
+                try {
+                  var writer = new OutputStreamWriter(iArgument);
+                  writeRecordsOnStream(
+                      iFetchPlan,
+                      sendFormat,
+                      iAdditionalProperties,
+                      it,
+                      writer,
+                      session);
+                  writer.flush();
+                } catch (IOException e) {
+                  LogManager.instance()
+                      .error(this, "Error during writing of records to the HTTP response", e);
+                }
+                return null;
+              });
+        } else {
+          final var buffer = new StringWriter();
+          writeRecordsOnStream(
+              iFetchPlan, iFormat, iAdditionalProperties, it, buffer, session);
+          send(
+              HttpUtils.STATUS_OK_CODE,
+              HttpUtils.STATUS_OK_DESCRIPTION,
+              HttpUtils.CONTENT_JSON,
+              buffer.toString(),
+              null);
+        }
       }
+    } catch (IOException e) {
+      throw BaseException.wrapException(new CommandExecutionException(session,
+          "Error during writing of records to the HTTP response"), e, session);
     }
   }
 

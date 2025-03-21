@@ -19,6 +19,8 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http;
 
+import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Direction;
@@ -70,8 +72,7 @@ public class HttpGraphResponse extends HttpResponseAbstract {
       final String accept,
       final Map<String, Object> iAdditionalProperties,
       final String mode,
-      DatabaseSessionInternal session)
-      throws IOException {
+      DatabaseSessionInternal session) {
     if (iRecords == null) {
       return;
     }
@@ -243,6 +244,11 @@ public class HttpGraphResponse extends HttpResponseAbstract {
           HttpUtils.CONTENT_JSON,
           buffer.toString(),
           null);
+    } catch (IOException e) {
+      throw BaseException.wrapException(
+          new CommandExecutionException(session, "Error during writing records to JSON response"),
+          e, session);
+
     } finally {
       session.close();
     }
