@@ -19,11 +19,14 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get;
 
+import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedDbAbstract;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -48,17 +51,26 @@ public class ServerCommandGetCluster extends ServerCommandAuthenticatedDbAbstrac
         final var limit = urlParts.length > 3 ? Integer.parseInt(urlParts[3]) : 20;
 
         final List<Identifiable> response = new ArrayList<Identifiable>();
-        var recordIterator = db.browseCluster(urlParts[2]);
-        while (recordIterator.hasNext()) {
-          final var rec = recordIterator.next();
-          if (limit > 0 && response.size() >= limit) {
-            break;
+        db.executeInTx(transaction -> {
+          var recordIterator = db.browseCluster(urlParts[2]);
+          while (recordIterator.hasNext()) {
+            final var rec = recordIterator.next();
+            if (limit > 0 && response.size() >= limit) {
+              break;
+            }
+
+            response.add(rec);
           }
 
-          response.add(rec);
-        }
+          try {
+            iResponse.writeRecords(response, db);
+          } catch (IOException e) {
+            throw BaseException.wrapException(
+                new CommandExecutionException(db, "Error during writing of response"), e, db);
+          }
+        });
 
-        iResponse.writeRecords(response, db);
+
       } else {
         iResponse.send(HttpUtils.STATUS_NOTFOUND_CODE, null, null, null, null);
       }

@@ -20,6 +20,7 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.post;
 
 import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
@@ -231,8 +232,8 @@ public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerA
         }
         json.endCollection(1, true);
       } catch (Exception e) {
-        throw new CommandExecutionException(
-            session, "Error on exporting users: " + e.getMessage());
+        throw BaseException.wrapException(new CommandExecutionException(
+            session, "Error on exporting users: " + e.getMessage()), e, session);
       }
     });
 
