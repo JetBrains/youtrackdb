@@ -3,20 +3,30 @@ package com.jetbrains.youtrack.db.api.config;
 import com.jetbrains.youtrack.db.api.DatabaseSession.ATTRIBUTES;
 import com.jetbrains.youtrack.db.api.SessionListener;
 import java.util.Map;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public interface YouTrackDBConfigBuilder {
 
+  @Nonnull
   YouTrackDBConfigBuilder fromGlobalConfigurationParameters(
-      Map<GlobalConfiguration, Object> values);
+      @Nonnull Map<GlobalConfiguration, Object> values);
 
-  YouTrackDBConfigBuilder fromMap(Map<String, Object> values);
+  @Nonnull
+  YouTrackDBConfigBuilder fromMap(@Nonnull Map<String, Object> values);
 
-  YouTrackDBConfigBuilder addSessionListener(SessionListener listener);
+  @Nonnull
+  YouTrackDBConfigBuilder addSessionListener(@Nonnull SessionListener listener);
 
-  YouTrackDBConfigBuilder addAttribute(final ATTRIBUTES attribute, final Object value);
+  @Nonnull
+  YouTrackDBConfigBuilder addAttribute(@Nonnull final ATTRIBUTES attribute,
+      @Nonnull final Object value);
 
-  YouTrackDBConfigBuilder addGlobalConfigurationParameter(GlobalConfiguration configuration,
-      Object value);
+  @Nonnull
+  YouTrackDBConfigBuilder addGlobalConfigurationParameter(
+      @Nonnull GlobalConfiguration configuration,
+      @Nullable Object value);
 
+  @Nonnull
   YouTrackDBConfig build();
 }

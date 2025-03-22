@@ -104,7 +104,8 @@ public interface Edge {
    * @return the vertex connected to this edge in the specified direction, or null if no vertex is
    * connected
    */
-  default Vertex getVertex(Direction dir) {
+  @Nullable
+  default Vertex getVertex(@Nonnull Direction dir) {
     if (dir == Direction.IN) {
       return getTo();
     } else if (dir == Direction.OUT) {
@@ -121,7 +122,8 @@ public interface Edge {
    * @return the identifiable object of the vertex connected to this edge in the specified
    * direction, or null if no vertex is connected
    */
-  default Identifiable getVertexLink(Direction dir) {
+  @Nullable
+  default Identifiable getVertexLink(@Nonnull Direction dir) {
     if (dir == Direction.IN) {
       return getToLink();
     } else if (dir == Direction.OUT) {
@@ -136,7 +138,7 @@ public interface Edge {
    * @param labels the labels to check
    * @return true if the labels match, false otherwise
    */
-  boolean isLabeled(String[] labels);
+  boolean isLabeled(@Nonnull String[] labels);
 
   /**
    * Retrieves the schema class associated with this edge.

@@ -59,7 +59,7 @@ import java.util.TimeZone;
 import java.util.UUID;
 import javax.annotation.Nonnull;
 
-public class DocumentSerializerDelta {
+public class EntitySerializerDelta {
 
   protected static final byte CREATED = 1;
   protected static final byte REPLACED = 2;
@@ -67,13 +67,13 @@ public class DocumentSerializerDelta {
   protected static final byte REMOVED = 4;
   public static final byte DELTA_RECORD_TYPE = 10;
 
-  private static final DocumentSerializerDelta INSTANCE = new DocumentSerializerDelta();
+  private static final EntitySerializerDelta INSTANCE = new EntitySerializerDelta();
 
-  public static DocumentSerializerDelta instance() {
+  public static EntitySerializerDelta instance() {
     return INSTANCE;
   }
 
-  protected DocumentSerializerDelta() {
+  protected EntitySerializerDelta() {
   }
 
   public byte[] serialize(DatabaseSessionInternal session, EntityImpl entity) {

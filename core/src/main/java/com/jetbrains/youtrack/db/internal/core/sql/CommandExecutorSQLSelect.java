@@ -617,8 +617,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
       return true;
     }
     iContext.getDatabaseSession();
-    if (record.getRecordType()
-        != EntityImpl.RECORD_TYPE
+    if (!EntityHelper.isEntity(record.getRecordType())
         && checkSkipBlob())
     // SKIP binary records in case of projection.
     {

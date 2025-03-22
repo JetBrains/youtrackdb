@@ -53,6 +53,8 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.StatefullEdgeEntityImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.UnsupportedEncodingException;
@@ -138,7 +140,7 @@ public class RecordSerializerJackson {
 
     String defaultClassName;
 
-    var defaultRecordType = record != null ? record.getRecordType() : EntityImpl.RECORD_TYPE;
+    var defaultRecordType = record != null ? record.getRecordType() : null;
     if (record instanceof EntityImpl entity) {
       defaultClassName = entity.getSchemaClassName();
     } else {
@@ -177,7 +179,7 @@ public class RecordSerializerJackson {
       if (recordMetaData.recordId != null) {
         record = session.load(recordMetaData.recordId);
       } else {
-        if (recordMetaData.recordType == EntityImpl.RECORD_TYPE) {
+        if (EntityHelper.isEntity(recordMetaData.recordType)) {
           if (recordMetaData.className == null) {
             if (recordMetaData.internalRecordType != null) {
               record = session.newInternalInstance();
@@ -254,7 +256,7 @@ public class RecordSerializerJackson {
   @Nullable
   private static RecordMetadata parseRecordMetadata(@Nonnull DatabaseSessionInternal session,
       @Nullable JsonParser jsonParser,
-      @Nullable String defaultClassName, byte defaultRecordType, boolean asValue)
+      @Nullable String defaultClassName, Byte defaultRecordType, boolean asValue)
       throws IOException {
 
     var token = jsonParser.nextToken();
@@ -381,12 +383,36 @@ public class RecordSerializerJackson {
       return null;
     }
 
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    SchemaClass schemaClass = null;
     if (className == null && defaultClassName == null && recordId != null) {
-      var schema = session.getMetadata().getSchema();
-      var schemaClass = schema.getClassByClusterId(recordId.getClusterId());
+      schemaClass = schema.getClassByClusterId(recordId.getClusterId());
 
       if (schemaClass != null) {
         className = schemaClass.getName();
+      }
+    }
+
+    if (recordType == null) {
+      if (schemaClass == null && className != null) {
+        schemaClass = schema.getClass(className);
+
+        if (schemaClass == null) {
+          throw new SerializationException(session,
+              "Class not found: " + className);
+        }
+      }
+
+      if (schemaClass != null) {
+        if (schemaClass.isVertexType()) {
+          recordType = VertexEntityImpl.RECORD_TYPE;
+        } else if (schemaClass.isEdgeType()) {
+          recordType = StatefullEdgeEntityImpl.RECORD_TYPE;
+        } else {
+          recordType = EntityImpl.RECORD_TYPE;
+        }
+      } else {
+        recordType = EntityImpl.RECORD_TYPE;
       }
     }
 
@@ -891,7 +917,7 @@ public class RecordSerializerJackson {
 
         case null -> {
           var recordMetaData = parseRecordMetadata(session, jsonParser, null,
-              EntityImpl.RECORD_TYPE, true);
+              null, true);
 
           if (recordMetaData != null) {
             if (recordMetaData.isEmbedded) {
@@ -953,7 +979,7 @@ public class RecordSerializerJackson {
       SchemaProperty schemaProperty) throws IOException {
 
     if (metadata == null) {
-      metadata = parseRecordMetadata(db, jsonParser, null, EntityImpl.RECORD_TYPE, true);
+      metadata = parseRecordMetadata(db, jsonParser, null, null, true);
 
       if (metadata == null) {
         var linkedClass = schemaProperty != null ? schemaProperty.getLinkedClass() : null;

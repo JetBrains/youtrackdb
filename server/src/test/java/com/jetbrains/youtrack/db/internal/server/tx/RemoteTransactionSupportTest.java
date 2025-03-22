@@ -329,11 +329,12 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     var v2 = tx.newVertex("MyV");
     var edge = v1.addStateFulEdge(v2, "MyE");
     edge.setProperty("some", "value");
-    var result1 = tx.query("select out_MyE from MyV  where out_MyE is not null");
+    var result1 = tx.query("select outE('MyE') as edges from MyV where outE('MyE').size() > 0");
     assertTrue(result1.hasNext());
     var val = new ArrayList<>();
     val.add(edge.getIdentity());
-    assertEquals(result1.next().getProperty("out_MyE"), val);
+    var edges = result1.next().getLinkList("edges");
+    assertEquals(tx.loadEdge(edges.getFirst()).getProperty("some"), "value");
     result1.close();
     tx.commit();
   }

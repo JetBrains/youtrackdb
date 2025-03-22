@@ -13,7 +13,7 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.DocumentSerializerDelta;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializerDelta;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -53,7 +53,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     doc.setProperty(fieldName, testValue);
     doc.removeProperty(removeField);
     // test serialization/deserialization
-    var delta = DocumentSerializerDelta.instance();
+    var delta = EntitySerializerDelta.instance();
     var bytes = delta.serializeDelta(session, doc);
     session.rollback();
 
@@ -98,7 +98,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     doc.setProperty(nestedDocField, nestedDoc, PropertyType.EMBEDDED);
 
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
 
     var bytes = serializerDelta.serializeDelta(session, doc);
     // test serialization/deserialization
@@ -134,7 +134,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     newArray.remove("toRemove");
 
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var bytes = serializerDelta.serializeDelta(session, doc);
     session.rollback();
     session.begin();
@@ -169,7 +169,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     newArray.remove("toRemove");
 
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
 
     var bytes = serializerDelta.serializeDelta(session, doc);
     session.rollback();
@@ -209,7 +209,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     newSet.add("three");
 
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var bytes = serializerDelta.serializeDelta(session, doc);
     session.rollback();
 
@@ -251,7 +251,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     newList.set(1, "three");
 
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
 
     var bytes = serializerDelta.serializeDelta(session, doc);
     session.rollback();
@@ -293,7 +293,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     testDoc.setProperty(variableField, "two");
 
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var bytes = serializerDelta.serializeDelta(session, doc);
     session.rollback();
 
@@ -343,7 +343,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     d1.setProperty(variableField, "two");
 
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var bytes = serializerDelta.serializeDelta(session, entity);
     session.rollback();
 
@@ -386,7 +386,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     innerList.set(0, "changed");
 
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
 
     var bytes = serializerDelta.serializeDelta(session, entity);
     session.rollback();
@@ -433,7 +433,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     List<String> currentList = testDoc.getProperty(variableField);
     currentList.set(0, "changed");
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
 
     var bytes = serializerDelta.serializeDelta(session, entity);
     session.rollback();
@@ -469,7 +469,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     newArray.add("three");
 
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
 
     var bytes = serializerDelta.serializeDelta(session, entity);
     session.rollback();
@@ -507,7 +507,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     newArray.add("three");
 
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var bytes = serializerDelta.serializeDelta(session, entity);
     session.rollback();
 
@@ -544,7 +544,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     newArray.removeFirst();
 
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var bytes = serializerDelta.serializeDelta(session, doc);
     session.rollback();
 
@@ -576,7 +576,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     entity.setProperty(fieldName, testValue);
 
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var bytes = serializerDelta.serializeDelta(session, entity);
     session.rollback();
 
@@ -609,7 +609,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     entity.setProperty("other", "new");
 
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var bytes = serializerDelta.serializeDelta(session, entity);
     session.rollback();
 
@@ -650,7 +650,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     entity.removeProperty(fieldName);
 
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var bytes = serializerDelta.serializeDelta(session, rootDoc);
     session.rollback();
 
@@ -692,7 +692,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
         ((List<Identifiable>) entity.getProperty(fieldName)).get(1));
     testDoc.removeProperty(variableField);
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var bytes = serializerDelta.serializeDelta(session, entity);
     session.rollback();
 
@@ -726,7 +726,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     containedMap.put("first", "changed");
 
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
 
     var bytes = serializerDelta.serializeDelta(session, entity);
     session.rollback();
@@ -766,7 +766,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var containedMap = ((List<Map<String, String>>) doc.getProperty(fieldName)).getFirst();
     containedMap.put("first", "changed");
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
 
     var bytes = serializerDelta.serializeDelta(session, doc);
     session.rollback();
@@ -808,7 +808,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     changeDoc.setProperty("f1", "changed");
 
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var bytes = serializerDelta.serializeDelta(session, entity);
     session.rollback();
 
@@ -854,7 +854,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
         fieldName).getFirst();
     containedMap.put("first", "changed");
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var bytes = serializerDelta.serializeDelta(session, doc);
     session.rollback();
     session.begin();
@@ -900,7 +900,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     doc = session.bindToSession(doc);
     doc.setProperty(fieldName, ridBag, PropertyType.LINKBAG);
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
 
     var bytes = serializerDelta.serializeDelta(session, doc);
     originalDoc = session.bindToSession(originalDoc);
@@ -949,7 +949,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     entity.setProperty(fieldName, ridBag, PropertyType.LINKBAG);
 
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var bytes = serializerDelta.serializeDelta(session, entity);
     session.rollback();
 
@@ -992,7 +992,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     ridBag.add(third.getIdentity());
 
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var bytes = serializerDelta.serializeDelta(session, entity);
     session.rollback();
 
@@ -1029,7 +1029,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     ridBag.remove(third.getIdentity());
 
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var bytes = serializerDelta.serializeDelta(session, entity);
     session.rollback();
 
@@ -1068,7 +1068,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     doc.setProperty(fieldName, ridBag, PropertyType.LINKBAG);
 
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var bytes = serializerDelta.serializeDelta(session, doc);
     session.rollback();
 
@@ -1110,7 +1110,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     doc.<Set<Identifiable>>getProperty("linkSet").add(null);
     doc.<Map<String, Identifiable>>getProperty("linkMap").put("nullValue", null);
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
 
     var bytes = serializerDelta.serializeDelta(session, doc);
     session.rollback();
@@ -1160,7 +1160,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     doc.<Map<String, Identifiable>>getProperty("linkMap").put("three", link2);
     doc.<Map<String, Identifiable>>getProperty("linkMap").remove("two");
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var bytes = serializerDelta.serializeDelta(session, doc);
     session.rollback();
     session.begin();
@@ -1221,7 +1221,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
         .get("nest")
         .put("other", "value");
     // test serialization/deserialization
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var bytes = serializerDelta.serializeDelta(session, doc);
     session.rollback();
     session.begin();
@@ -1284,7 +1284,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     document.setProperty("utf8String", "A" + "ê" + "ñ" + "ü" + "C");
     document.setProperty("recordId", new RecordId(10, 10));
 
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var res = serializerDelta.serialize(session, document);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
@@ -1390,7 +1390,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     listMixed.add((byte) 10);
     document.setProperty("listMixed", listMixed);
 
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var res = serializerDelta.serialize(session, document);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
@@ -1479,7 +1479,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     listMixed.add((byte) 10);
     document.setProperty("listMixed", listMixed);
 
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var res = serializerDelta.serialize(session, document);
 
     var extr = (EntityImpl) session.newEntity();
@@ -1516,7 +1516,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     linkList.add(new RecordId(11, 22));
     document.setProperty("linkList", linkList, PropertyType.LINKLIST);
 
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var res = serializerDelta.serialize(session, document);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
@@ -1541,7 +1541,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     embedded.setProperty("surname", "something");
     document.setProperty("embed", embedded, PropertyType.EMBEDDED);
 
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var res = serializerDelta.serialize(session, document);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
@@ -1606,7 +1606,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     mapWithNulls.put("key1", null);
     document.setProperty("bytesMap", mapWithNulls);
 
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var res = serializerDelta.serialize(session, document);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
@@ -1635,7 +1635,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     document.setEmbeddedList("complexList", list);
 
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var res = serializerDelta.serialize(session, document);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
@@ -1661,7 +1661,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     coll.add(map);
     coll.add(map2);
     document.setProperty("list", coll);
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var res = serializerDelta.serialize(session, document);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
@@ -1683,7 +1683,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     Map<String, EntityImpl> map = document.newEmbeddedMap("map");
     map.put("embedded", embeddedInMap);
 
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var res = serializerDelta.serialize(session, document);
     session.rollback();
 
@@ -1711,7 +1711,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var map = document.newLinkMap("map");
     map.put("link", new RecordId(0, 0));
 
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var res = serializerDelta.serialize(session, document);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
@@ -1729,7 +1729,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.begin();
     var document = (EntityImpl) session.newEntity("TestClass");
     document.setProperty("test", "test");
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var res = serializerDelta.serialize(session, document);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
@@ -1774,7 +1774,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     embeddedSet.add((EntityImpl) session.newEmbeddedEntity());
     entity.newEmbeddedSet("embeddedSet").addAll(embeddedSet);
 
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var res = serializerDelta.serialize(session, (EntityImpl) entity);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
@@ -1812,7 +1812,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var document = (EntityImpl) session.newEntity();
     document.properties("a", 1, "b", 2, "c", 3);
 
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var res = serializerDelta.serialize(session, document);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
@@ -1837,7 +1837,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     document.setProperty("oldAge", (long) 20);
     document.removeProperty("oldAge");
 
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var res = serializerDelta.serialize(session, document);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
@@ -1864,7 +1864,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     mappa.put("prop", "val");
     lista.add(mappa);
 
-    var serializerDelta = DocumentSerializerDelta.instance();
+    var serializerDelta = EntitySerializerDelta.instance();
     var res = serializerDelta.serialize(session, entity);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);

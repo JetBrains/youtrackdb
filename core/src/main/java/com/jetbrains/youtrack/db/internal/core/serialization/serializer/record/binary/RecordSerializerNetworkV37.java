@@ -783,7 +783,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
   }
 
   private static PropertyType getFieldType(final EntityEntry entry) {
-    return DocumentSerializerDelta.getFieldType(entry);
+    return EntitySerializerDelta.getFieldType(entry);
   }
 
   private static PropertyType getTypeFromValueEmbedded(final Object fieldValue) {

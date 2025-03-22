@@ -101,7 +101,7 @@ public class EdgeImpl implements EdgeInternal {
     return lightweightEdgeType.getName();
   }
 
-  public boolean isLabeled(String[] labels) {
+  public boolean isLabeled(@Nonnull String[] labels) {
     if (labels == null) {
       return true;
     }

@@ -10,10 +10,16 @@ public interface LinkTrackedMultiValue<K> extends TrackedMultiValue<K, Identifia
     if (e == null) {
       return null;
     }
+
+    var rid = e.getIdentity();
+    if (rid.isPersistent()) {
+      return rid;
+    }
+
     var session = getSession();
     if (session == null) {
       throw new IllegalStateException(
-          "Cannot add a record to a set that is not attached to a session");
+          "Cannot add an identifiable to collection that is not attached to a session");
     }
     e = session.refreshRid(e.getIdentity());
     return e;

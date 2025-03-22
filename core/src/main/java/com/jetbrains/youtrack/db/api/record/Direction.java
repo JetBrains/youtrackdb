@@ -19,6 +19,8 @@
  */
 package com.jetbrains.youtrack.db.api.record;
 
+import javax.annotation.Nonnull;
+
 /**
  *
  */
@@ -27,6 +29,7 @@ public enum Direction {
   IN,
   BOTH;
 
+  @Nonnull
   public Direction opposite() {
     if (this.equals(OUT)) {
       return IN;

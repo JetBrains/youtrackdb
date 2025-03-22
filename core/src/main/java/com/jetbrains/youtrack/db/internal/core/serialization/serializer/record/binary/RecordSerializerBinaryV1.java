@@ -399,7 +399,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
 
       final PropertyType type;
       if (value != null) {
-        type = DocumentSerializerDelta.getFieldType(field.getValue());
+        type = EntitySerializerDelta.getFieldType(field.getValue());
         if (type == null) {
           throw new SerializationException(session.getDatabaseName(),
               "Impossible serialize value of type "

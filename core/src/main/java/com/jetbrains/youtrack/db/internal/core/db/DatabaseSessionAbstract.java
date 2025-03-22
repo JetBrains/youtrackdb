@@ -2253,7 +2253,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public void executeInTx(Consumer<Transaction> code) {
+  public void executeInTx(@Nonnull Consumer<Transaction> code) {
     var ok = false;
     assert assertIfNotActive();
     var tx = begin();
@@ -2373,7 +2373,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Override
   public <T> void executeInTxBatches(
-      Iterator<T> iterator, int batchSize, BiConsumer<Transaction, T> consumer) {
+      @Nonnull Iterator<T> iterator, int batchSize, BiConsumer<Transaction, T> consumer) {
     var ok = false;
     assert assertIfNotActive();
     var counter = 0;

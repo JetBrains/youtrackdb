@@ -1151,6 +1151,11 @@ public class EntityHelper {
     return true;
   }
 
+  public static boolean isEntity(byte recordType) {
+    return (recordType == EntityImpl.RECORD_TYPE || recordType == VertexEntityImpl.RECORD_TYPE ||
+        recordType == StatefullEdgeEntityImpl.RECORD_TYPE);
+  }
+
   public static boolean compareBags(
       DatabaseSessionInternal iMyDb,
       RidBag myFieldValue,

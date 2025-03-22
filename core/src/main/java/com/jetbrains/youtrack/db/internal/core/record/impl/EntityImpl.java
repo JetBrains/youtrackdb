@@ -445,11 +445,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return getPropertyOnLoadValueInternal(name);
   }
 
-  public List<String> getDirtyProperties() {
+  public @Nonnull List<String> getDirtyProperties() {
     return getDirtyPropertiesInternal(false, true);
   }
 
-  public List<String> getDirtyPropertiesBetweenCallbacks() {
+  public @Nonnull List<String> getDirtyPropertiesBetweenCallbacks() {
     return getDirtyPropertiesBetweenCallbacksInternal(false, true);
   }
 
@@ -695,7 +695,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nonnull
-  public <T> List<T> newEmbeddedList(@Nonnull String name, PropertyType linkedType) {
+  public <T> List<T> newEmbeddedList(@Nonnull String name, @Nonnull PropertyType linkedType) {
     validatePropertyName(name, false);
 
     var value = new TrackedList<T>(this);
@@ -704,7 +704,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nonnull
-  public <T> List<T> newEmbeddedList(@Nonnull String name, List<T> source) {
+  public <T> List<T> newEmbeddedList(@Nonnull String name, @Nonnull List<T> source) {
     validatePropertyName(name, false);
     var value = new TrackedList<T>(source.size());
     value.addAll(source);
@@ -713,8 +713,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nonnull
-  public <T> List<T> newEmbeddedList(@Nonnull String name, List<T> source,
-      PropertyType linkedType) {
+  public <T> List<T> newEmbeddedList(@Nonnull String name, @Nonnull List<T> source,
+      @Nonnull PropertyType linkedType) {
     validatePropertyName(name, false);
     var value = new TrackedList<T>(source.size());
     value.addAll(source);
@@ -2576,6 +2576,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return dirtyFields;
   }
 
+  @Nonnull
   public List<String> getDirtyPropertiesInternal(boolean includeSystemProperties,
       boolean checkAccess) {
     checkForBinding();
@@ -2806,7 +2807,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
    * @param propertyName name of property to check
    */
   @Nullable
-  public PropertyType getPropertyType(final String propertyName) {
+  public PropertyType getPropertyType(final @Nonnull String propertyName) {
     checkForBinding();
     validatePropertyName(propertyName, false);
 

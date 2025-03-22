@@ -54,7 +54,7 @@ public interface Entity extends DBRecord, Result {
   <RET> RET getPropertyOnLoadValue(@Nonnull String name);
 
   @Nullable
-  PropertyType getPropertyType(final String propertyName);
+  PropertyType getPropertyType(@Nonnull final String propertyName);
 
   @Nullable
   EmbeddedEntity getEmbeddedEntity(@Nonnull String name);
@@ -167,13 +167,14 @@ public interface Entity extends DBRecord, Result {
   <T> List<T> newEmbeddedList(@Nonnull String name);
 
   @Nonnull
-  <T> List<T> newEmbeddedList(@Nonnull String name, PropertyType linkedType);
+  <T> List<T> newEmbeddedList(@Nonnull String name, @Nonnull PropertyType linkedType);
 
   @Nonnull
-  <T> List<T> newEmbeddedList(@Nonnull String name, List<T> source);
+  <T> List<T> newEmbeddedList(@Nonnull String name, @Nonnull List<T> source);
 
   @Nonnull
-  <T> List<T> newEmbeddedList(@Nonnull String name, List<T> source, PropertyType linkedType);
+  <T> List<T> newEmbeddedList(@Nonnull String name, @Nonnull List<T> source,
+      @Nonnull PropertyType linkedType);
 
   @Nonnull
   <T> List<T> newEmbeddedList(@Nonnull String name, T[] source);
@@ -322,8 +323,10 @@ public interface Entity extends DBRecord, Result {
   @Nonnull
   Map<String, Object> toMap(boolean includeMetadata);
 
+  @Nonnull
   List<String> getDirtyProperties();
 
+  @Nonnull
   List<String> getDirtyPropertiesBetweenCallbacks();
 
   @Nonnull

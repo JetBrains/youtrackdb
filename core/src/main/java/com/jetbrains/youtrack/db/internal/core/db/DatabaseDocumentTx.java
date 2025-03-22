@@ -1507,13 +1507,13 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void executeInTx(Consumer<Transaction> code) {
+  public void executeInTx(@Nonnull Consumer<Transaction> code) {
     internal.executeInTx(code);
   }
 
   @Override
   public <T> void executeInTxBatches(
-      Iterator<T> iterator, int batchSize, BiConsumer<Transaction, T> consumer) {
+      @Nonnull Iterator<T> iterator, int batchSize, BiConsumer<Transaction, T> consumer) {
     internal.executeInTxBatches(iterator, batchSize, consumer);
   }
 

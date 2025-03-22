@@ -3,7 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 
-public class DocumentSerializerDeltaDistributed extends DocumentSerializerDelta {
+public class DocumentSerializerDeltaDistributed extends EntitySerializerDelta {
 
   private static final DocumentSerializerDeltaDistributed INSTANCE =
       new DocumentSerializerDeltaDistributed();

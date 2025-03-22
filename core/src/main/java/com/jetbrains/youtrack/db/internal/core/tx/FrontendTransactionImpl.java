@@ -365,7 +365,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public boolean exists(RID rid) {
+  public boolean exists(@Nonnull RID rid) {
     checkTransactionValid();
 
     final DBRecord txRecord = getRecord(rid);
@@ -1191,7 +1191,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public DatabaseSession getSession() {
+  public @Nonnull DatabaseSession getSession() {
     checkIfActive();
     return session;
   }
@@ -1429,7 +1429,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public Blob newBlob(byte[] bytes) {
+  public Blob newBlob(@Nonnull byte[] bytes) {
     checkIfActive();
     return session.newBlob(bytes);
   }
@@ -1637,7 +1637,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public Stream<com.jetbrains.youtrack.db.api.transaction.RecordOperation> getRecordOperations() {
+  public @Nonnull Stream<com.jetbrains.youtrack.db.api.transaction.RecordOperation> getRecordOperations() {
     checkIfActive();
     return getRecordOperationsInternal().stream().map(recordOperation ->
         switch (recordOperation.type) {

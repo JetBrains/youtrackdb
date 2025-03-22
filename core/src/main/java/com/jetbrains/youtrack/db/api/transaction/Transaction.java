@@ -24,15 +24,16 @@ import javax.annotation.Nullable;
 
 @SuppressWarnings("unused")
 public interface Transaction {
-
   boolean isActive();
 
+  @Nonnull
   Stream<RecordOperation> getRecordOperations();
 
   int getRecordOperationsCount();
 
   int activeTxCount();
 
+  @Nonnull
   DatabaseSession getSession();
 
   /**
@@ -148,7 +149,7 @@ public interface Transaction {
    * @param bytes content of the Blob
    * @return the Blob instance.
    */
-  Blob newBlob(byte[] bytes);
+  Blob newBlob(@Nonnull byte[] bytes);
 
 
   /**
@@ -285,7 +286,7 @@ public interface Transaction {
    * @param rid Record id to check.
    * @return True if record exists, otherwise false.
    */
-  boolean exists(RID rid);
+  boolean exists(@Nonnull RID rid);
 
   /**
    * Deletes an entity from the database in synchronous mode.

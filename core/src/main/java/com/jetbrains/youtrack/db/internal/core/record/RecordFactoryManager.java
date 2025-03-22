@@ -52,21 +52,19 @@ public class RecordFactoryManager {
   public RecordFactoryManager() {
     declareRecordType(
         EntityImpl.RECORD_TYPE,
-        "document",
-        EntityImpl.class,
-        (rid, database) -> {
-          var cluster = rid.getClusterId();
-          if (database != null && cluster >= 0) {
-            if (database.isClusterVertex(cluster)) {
-              return new VertexEntityImpl(database, rid);
-            } else if (database.isClusterEdge(cluster)) {
-              return new StatefullEdgeEntityImpl(database, rid);
-            }
-          }
-          return new EntityImpl(database, rid);
-        });
+        "entity",
+        EntityImpl.class, (rid, database) -> new EntityImpl(database, rid));
+    declareRecordType(VertexEntityImpl.RECORD_TYPE,
+        "vertex",
+        VertexEntityImpl.class,
+        (rid, database) -> new VertexEntityImpl(database, rid));
+    declareRecordType(StatefullEdgeEntityImpl.RECORD_TYPE,
+        "statefulEdge",
+        StatefullEdgeEntityImpl.class,
+        (rid, database) -> new StatefullEdgeEntityImpl(database, rid));
     declareRecordType(
-        Blob.RECORD_TYPE, "bytes", Blob.class, (rid, database) -> new RecordBytes(database, rid));
+        Blob.RECORD_TYPE, "blob",
+        Blob.class, (rid, database) -> new RecordBytes(database, rid));
   }
 
   public String getRecordTypeName(final byte iRecordType) {

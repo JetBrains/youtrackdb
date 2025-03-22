@@ -15,6 +15,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37;
@@ -82,7 +83,7 @@ public class MessageHelper {
     if (session != null) {
       dbSerializerName = session.getSerializer().toString();
     }
-    if (iRecord.getRecordType() == EntityImpl.RECORD_TYPE
+    if (EntityHelper.isEntity(iRecord.getRecordType())
         && (dbSerializerName == null || !dbSerializerName.equals(serializer.toString()))) {
       ((EntityImpl) iRecord).deserializeProperties();
       stream = serializer.toStream(session, iRecord);

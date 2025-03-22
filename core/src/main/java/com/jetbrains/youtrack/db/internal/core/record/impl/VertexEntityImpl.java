@@ -28,6 +28,8 @@ import org.apache.commons.collections4.IterableUtils;
 
 public class VertexEntityImpl extends EntityImpl implements Vertex {
 
+  public static final byte RECORD_TYPE = 'v';
+
   public VertexEntityImpl(DatabaseSessionInternal database, RID rid) {
     super(database, (RecordId) rid);
   }
@@ -303,6 +305,11 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   public Iterable<Edge> getEdges(Direction direction, String... labels) {
     checkForBinding();
     return getEdgesInternal(direction, labels);
+  }
+
+  @Override
+  public byte getRecordType() {
+    return RECORD_TYPE;
   }
 
   private Iterable<Edge> getEdgesInternal(Direction direction, String[] labels) {

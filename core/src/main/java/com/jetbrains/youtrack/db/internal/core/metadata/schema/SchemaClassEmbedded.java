@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.ArrayUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -130,36 +131,46 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
-  protected void addSuperClassInternal(DatabaseSessionInternal database,
+  protected void addSuperClassInternal(DatabaseSessionInternal session,
       final SchemaClassImpl superClass) {
-    acquireSchemaWriteLock(database);
+    acquireSchemaWriteLock(session);
     try {
       final SchemaClassImpl cls;
       cls = superClass;
 
       if (cls != null) {
 
+        if (superClass.getName(session).equals(SchemaClassProxy.VERTEX_CLASS_NAME) ||
+            superClass.getName(session).equals(SchemaClassProxy.EDGE_CLASS_NAME)) {
+          throw new SchemaException(session.getDatabaseName(),
+              "Cannot add the class '"
+                  + superClass.getName(session)
+                  + "' as superclass of the class '"
+                  + this.getName(session)
+                  + "'. Addition of graph classes is not allowed");
+        }
+
         // CHECK THE USER HAS UPDATE PRIVILEGE AGAINST EXTENDING CLASS
-        final var user = database.getCurrentUser();
+        final var user = session.getCurrentUser();
         if (user != null) {
-          user.allow(database, Rule.ResourceGeneric.CLASS, cls.getName(database),
+          user.allow(session, Rule.ResourceGeneric.CLASS, cls.getName(session),
               Role.PERMISSION_UPDATE);
         }
 
         if (superClasses.contains(superClass)) {
-          throw new SchemaException(database.getDatabaseName(),
+          throw new SchemaException(session.getDatabaseName(),
               "Class: '"
-                  + this.getName(database)
+                  + this.getName(session)
                   + "' already has the class '"
-                  + superClass.getName(database)
+                  + superClass.getName(session)
                   + "' as superclass");
         }
 
-        cls.addBaseClass(database, this);
+        cls.addBaseClass(session, this);
         superClasses.add(cls);
       }
     } finally {
-      releaseSchemaWriteLock(database);
+      releaseSchemaWriteLock(session);
     }
   }
 
@@ -178,6 +189,16 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       final SchemaClassImpl superClass) {
     acquireSchemaWriteLock(session);
     try {
+      if (superClass.getName(session).equals(SchemaClassProxy.VERTEX_CLASS_NAME) ||
+          superClass.getName(session).equals(SchemaClassProxy.EDGE_CLASS_NAME)) {
+        throw new SchemaException(session.getDatabaseName(),
+            "Cannot remove the class '"
+                + superClass.getName(session)
+                + "' as superclass of the class '"
+                + this.getName(session)
+                + "'. Removal of graph classes is not allowed");
+      }
+
       final SchemaClassImpl cls;
       cls = superClass;
 
@@ -214,6 +235,21 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   @Override
   protected void setSuperClassesInternal(DatabaseSessionInternal session,
       final List<SchemaClassImpl> classes) {
+    if (!name.equals(SchemaClass.EDGE_CLASS_NAME) && isEdgeType(session)) {
+      if (!classes.contains(owner.getClass(session, SchemaClass.EDGE_CLASS_NAME))) {
+        throw new IllegalArgumentException(
+            "Edge class must have super class " + SchemaClass.EDGE_CLASS_NAME
+                + ", its removal is not allowed.");
+      }
+    }
+    if (!name.equals(SchemaClass.VERTEX_CLASS_NAME) && isVertexType(session)) {
+      if (!classes.contains(owner.getClass(session, SchemaClass.VERTEX_CLASS_NAME))) {
+        throw new IllegalArgumentException(
+            "Vertex class must have super class " + SchemaClass.VERTEX_CLASS_NAME
+                + ", its removal is not allowed.");
+      }
+    }
+
     List<SchemaClassImpl> newSuperClasses = new ArrayList<SchemaClassImpl>();
     SchemaClassImpl cls;
     for (var superClass : classes) {

@@ -10,6 +10,8 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.RecordBytes;
+import com.jetbrains.youtrack.db.internal.core.record.impl.StatefullEdgeEntityImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
@@ -107,9 +109,13 @@ public class SQLRecordAttribute extends SimpleNode {
         ctx.getDatabaseSession();
         var recordType = ((RecordAbstract) r).getRecordType();
         if (recordType == EntityImpl.RECORD_TYPE) {
-          return "document";
+          return "entity";
         } else if (recordType == RecordBytes.RECORD_TYPE) {
-          return "bytes";
+          return "blob";
+        } else if (recordType == VertexEntityImpl.RECORD_TYPE) {
+          return "vertex";
+        } else if (recordType == StatefullEdgeEntityImpl.RECORD_TYPE) {
+          return "edge";
         } else {
           return "unknown";
         }

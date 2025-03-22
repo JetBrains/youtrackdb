@@ -28,11 +28,13 @@ import com.jetbrains.youtrack.db.internal.core.security.GlobalUser;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityConfig;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nonnull;
 
 /**
  *
@@ -48,7 +50,7 @@ public class YouTrackDBConfigImpl implements YouTrackDBConfig {
 
   public YouTrackDBConfigImpl() {
     configuration = new ContextConfiguration();
-    attributes = new HashMap<>();
+    attributes = new EnumMap<>(ATTRIBUTES.class);
     listeners = new HashSet<>();
     classLoader = this.getClass().getClassLoader();
     this.securityConfig = new DefaultSecurityConfig();
@@ -79,7 +81,7 @@ public class YouTrackDBConfigImpl implements YouTrackDBConfig {
   }
 
   @Override
-  public Set<SessionListener> getListeners() {
+  public @Nonnull Set<SessionListener> getListeners() {
     return listeners;
   }
 
@@ -88,7 +90,7 @@ public class YouTrackDBConfigImpl implements YouTrackDBConfig {
   }
 
   @Override
-  public Map<ATTRIBUTES, Object> getAttributes() {
+  public @Nonnull Map<ATTRIBUTES, Object> getAttributes() {
     return attributes;
   }
 

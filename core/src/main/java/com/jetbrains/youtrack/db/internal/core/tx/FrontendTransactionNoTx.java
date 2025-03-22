@@ -89,7 +89,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public Stream<com.jetbrains.youtrack.db.api.transaction.RecordOperation> getRecordOperations() {
+  public @Nonnull Stream<com.jetbrains.youtrack.db.api.transaction.RecordOperation> getRecordOperations() {
     return Stream.empty();
   }
 
@@ -104,7 +104,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public DatabaseSession getSession() {
+  public @Nonnull DatabaseSession getSession() {
     return session;
   }
 
@@ -138,7 +138,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public Blob newBlob(byte[] bytes) {
+  public Blob newBlob(@Nonnull byte[] bytes) {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
@@ -248,7 +248,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public boolean exists(RID rid) {
+  public boolean exists(@Nonnull RID rid) {
     throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
   }
 

@@ -19,6 +19,8 @@ import javax.annotation.Nullable;
 
 public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal, StatefulEdge {
 
+  public static final byte RECORD_TYPE = 'e';
+
   public StatefullEdgeEntityImpl(@Nonnull DatabaseSessionInternal session, String iClassName) {
     super(session, iClassName);
   }
@@ -43,7 +45,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
   }
 
   @Override
-  public boolean isLabeled(String[] labels) {
+  public boolean isLabeled(@Nonnull String[] labels) {
     if (labels == null) {
       return true;
     }
@@ -237,5 +239,10 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     if (to != null) {
       VertexEntityImpl.removeIncomingEdge(db, to, delegate);
     }
+  }
+
+  @Override
+  public byte getRecordType() {
+    return RECORD_TYPE;
   }
 }

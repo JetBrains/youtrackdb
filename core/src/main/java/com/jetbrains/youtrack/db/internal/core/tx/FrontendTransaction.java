@@ -67,7 +67,7 @@ public interface FrontendTransaction extends Transaction {
   LoadRecordResult loadRecord(RID rid)
       throws RecordNotFoundException;
 
-  boolean exists(RID rid);
+  boolean exists(@Nonnull RID rid);
 
   TXSTATUS getStatus();
 

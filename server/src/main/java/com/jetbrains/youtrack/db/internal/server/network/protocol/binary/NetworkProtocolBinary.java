@@ -45,6 +45,7 @@ import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
@@ -816,7 +817,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
 
     var dbSerializerName = session.getSerializer().toString();
     var name = connection.getData().getSerializationImpl();
-    if (iRecord.getRecordType() == EntityImpl.RECORD_TYPE
+    if (EntityHelper.isEntity(iRecord.getRecordType())
         && (dbSerializerName == null || !dbSerializerName.equals(name))) {
       ((EntityImpl) iRecord).deserializeProperties();
       var ser = RecordSerializerFactory.instance().getFormat(name);

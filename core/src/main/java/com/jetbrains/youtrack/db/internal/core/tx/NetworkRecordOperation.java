@@ -3,8 +3,9 @@ package com.jetbrains.youtrack.db.internal.core.tx;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.DocumentSerializerDelta;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializerDelta;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37Client;
 
@@ -35,9 +36,9 @@ public class NetworkRecordOperation {
           this.record =
               RecordSerializerNetworkV37Client.INSTANCE.toStream(session, txEntry.record);
         } else {
-          if (EntityImpl.RECORD_TYPE == txEntry.record.getRecordType()) {
-            this.recordType = DocumentSerializerDelta.DELTA_RECORD_TYPE;
-            var delta = DocumentSerializerDelta.instance();
+          if (EntityHelper.isEntity(txEntry.record.getRecordType())) {
+            this.recordType = EntitySerializerDelta.DELTA_RECORD_TYPE;
+            var delta = EntitySerializerDelta.instance();
             this.record = delta.serializeDelta(session, (EntityImpl) txEntry.record);
           } else {
             this.recordType = txEntry.record.getRecordType();
@@ -48,10 +49,10 @@ public class NetworkRecordOperation {
         break;
       case RecordOperation.UPDATED:
         this.contentChanged = txEntry.record.isContentChanged();
-        if (EntityImpl.RECORD_TYPE == txEntry.record.getRecordType()) {
+        if (EntityHelper.isEntity(txEntry.record.getRecordType())) {
           if (session.isRemote()) {
-            this.recordType = DocumentSerializerDelta.DELTA_RECORD_TYPE;
-            var delta = DocumentSerializerDelta.instance();
+            this.recordType = EntitySerializerDelta.DELTA_RECORD_TYPE;
+            var delta = EntitySerializerDelta.instance();
             this.record = delta.serializeDelta(session, (EntityImpl) txEntry.record);
           } else {
             if (txEntry.dirtyCounterOnClientSide == 0) {
@@ -59,8 +60,8 @@ public class NetworkRecordOperation {
               this.record =
                   RecordSerializerNetworkV37.INSTANCE.toStream(session, txEntry.record);
             } else {
-              this.recordType = DocumentSerializerDelta.DELTA_RECORD_TYPE;
-              var delta = DocumentSerializerDelta.instance();
+              this.recordType = EntitySerializerDelta.DELTA_RECORD_TYPE;
+              var delta = EntitySerializerDelta.instance();
               this.record = delta.serializeDelta(session, (EntityImpl) txEntry.record);
             }
           }

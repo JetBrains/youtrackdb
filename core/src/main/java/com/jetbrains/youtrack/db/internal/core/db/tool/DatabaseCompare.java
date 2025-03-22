@@ -751,7 +751,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                   ++differences;
 
                 } else {
-                  if (buffer1.recordType == EntityImpl.RECORD_TYPE) {
+                  if (EntityHelper.isEntity(buffer1.recordType)) {
                     // ENTITY: TRY TO INSTANTIATE AND COMPARE
 
                     final var rec1 = (RecordAbstract) entity1;
@@ -802,7 +802,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                                 + " <-> "
                                 + buffer2.buffer.length);
 
-                        if (buffer2.recordType == EntityImpl.RECORD_TYPE) {
+                        if (EntityHelper.isEntity(buffer2.recordType)) {
                           listener.onMessage("\n--- REC2: " + rec2);
                         }
 

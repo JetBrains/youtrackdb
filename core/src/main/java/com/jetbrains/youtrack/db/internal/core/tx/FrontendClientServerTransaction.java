@@ -9,8 +9,9 @@ import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement.STATUS;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.DocumentSerializerDelta;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializerDelta;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -138,7 +139,8 @@ public class FrontendClientServerTransaction extends FrontendTransactionImpl {
                 record.recordSerializer = RecordSerializerNetworkV37.INSTANCE;
                 record.fromStream(recordOperation.getRecord());
 
-                if (recordOperation.getRecordType() == EntityImpl.RECORD_TYPE) {
+                var recordType = recordOperation.getRecordType();
+                if (EntityHelper.isEntity(recordType)) {
                   ((EntityImpl) record).setClassNameWithoutPropertiesPostProcessing(
                       RecordSerializerNetworkV37.deserializeClassName(recordOperation.getRecord()));
                 }
@@ -326,8 +328,8 @@ public class FrontendClientServerTransaction extends FrontendTransactionImpl {
 
   private void mergeChanges(NetworkRecordOperation operation, RecordAbstract record) {
     if (record instanceof EntityImpl entity) {
-      if (operation.getRecordType() == DocumentSerializerDelta.DELTA_RECORD_TYPE) {
-        var delta = DocumentSerializerDelta.instance();
+      if (operation.getRecordType() == EntitySerializerDelta.DELTA_RECORD_TYPE) {
+        var delta = EntitySerializerDelta.instance();
         delta.deserializeDelta(getDatabaseSession(), operation.getRecord(), entity);
       } else {
         throw new UnsupportedOperationException("Only delta serialization is supported");

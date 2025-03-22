@@ -63,7 +63,7 @@ public interface DatabaseSession extends AutoCloseable {
    *
    * @param code Code to execute in transaction
    */
-  void executeInTx(Consumer<Transaction> code);
+  void executeInTx(@Nonnull Consumer<Transaction> code);
 
   /**
    * Splits data provided by iterator in batches and execute every batch in separate transaction.
@@ -77,7 +77,7 @@ public interface DatabaseSession extends AutoCloseable {
    * @param consumer  Consumer to process data
    */
   <T> void executeInTxBatches(
-      Iterator<T> iterator, int batchSize, BiConsumer<Transaction, T> consumer);
+      @Nonnull Iterator<T> iterator, int batchSize, BiConsumer<Transaction, T> consumer);
 
   /**
    * Splits data by batches, size of each batch is specified by parameter
