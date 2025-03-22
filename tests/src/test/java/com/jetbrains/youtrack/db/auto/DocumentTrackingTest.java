@@ -2,12 +2,12 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent.ChangeType;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeTimeLine;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
@@ -810,7 +810,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     final Set<String> trackedSet = document.getProperty("embeddedset");
     trackedSet.add("value2");
 
-    final Set<String> newTrackedSet = new TrackedSet<>(document);
+    final Set<String> newTrackedSet = new EmbeddedSetImpl<>(document);
     document.setProperty("embeddedset", newTrackedSet);
     newTrackedSet.add("value3");
 

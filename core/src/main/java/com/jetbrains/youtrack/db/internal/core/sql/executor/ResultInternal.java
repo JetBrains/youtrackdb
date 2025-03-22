@@ -14,9 +14,12 @@ import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
+import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -39,7 +42,6 @@ import javax.annotation.Nullable;
 
 
 public class ResultInternal implements Result {
-
   protected Map<String, Object> content;
   protected Map<String, Object> temporaryContent;
   protected Map<String, Object> metadata;
@@ -122,7 +124,7 @@ public class ResultInternal implements Result {
         yield list;
       }
 
-      case LinkSet linkSet -> {
+      case LinkSetImpl linkSet -> {
         Set<RID> set = new HashSet<>(linkSet.size());
         for (var item : linkSet) {
           set.add(item.getIdentity());
@@ -270,7 +272,7 @@ public class ResultInternal implements Result {
         return result;
       }
       case List<?> collection -> {
-        var listCopy = new ArrayList<>(collection.size());
+        List<Object> listCopy = null;
         var allIdentifiable = false;
 
         for (var o : collection) {
@@ -278,38 +280,62 @@ public class ResultInternal implements Result {
 
           if (res instanceof Identifiable) {
             allIdentifiable = true;
-          } else if (allIdentifiable) {
-            throw new IllegalArgumentException(
-                "Invalid property value, if list contains identifiables, it should contain only them");
+            if (listCopy == null) {
+              //noinspection unchecked,rawtypes
+              listCopy = (List<Object>) (List) new LinkList(session);
+            }
+          } else {
+            if (allIdentifiable) {
+              throw new IllegalArgumentException(
+                  "Invalid property value, if list contains identifiables, it should contain only them");
+            }
+            if (listCopy == null) {
+              listCopy = new TrackedList<>();
+            }
           }
 
           listCopy.add(res);
         }
 
+        if (listCopy == null) {
+          listCopy = new TrackedList<>();
+        }
         return listCopy;
       }
       case Set<?> set -> {
-        var setCopy = new HashSet<>(set.size());
+        Set<Object> setCopy = null;
+
         var allIdentifiable = false;
 
         for (var o : set) {
           var res = convertPropertyValue(o);
-
           if (res instanceof Identifiable) {
+            if (setCopy == null) {
+              //noinspection unchecked,rawtypes
+              setCopy = (Set<Object>) (Set) new LinkSetImpl(session);
+            }
             allIdentifiable = true;
-          } else if (allIdentifiable) {
-            throw new IllegalArgumentException(
-                "Invalid property value, if set contains identifiables, it should contain only them");
+          } else {
+            if (allIdentifiable) {
+              throw new IllegalArgumentException(
+                  "Invalid property value, if set contains identifiables, it should contain only them");
+            }
+            if (setCopy == null) {
+              setCopy = new EmbeddedSetImpl<>();
+            }
           }
 
           setCopy.add(res);
         }
 
+        if (setCopy == null) {
+          setCopy = new EmbeddedSetImpl<>();
+        }
         return setCopy;
       }
 
       case Map<?, ?> map -> {
-        var mapCopy = new HashMap<String, Object>(map.size());
+        Map<String, Object> mapCopy = null;
         var allIdentifiable = false;
 
         for (var entry : map.entrySet()) {
@@ -324,12 +350,26 @@ public class ResultInternal implements Result {
           var res = convertPropertyValue(entry.getValue());
           if (res instanceof Identifiable) {
             allIdentifiable = true;
-          } else if (allIdentifiable) {
-            throw new IllegalArgumentException(
-                "Invalid property value, if map contains identifiables, it should contain only them");
+            if (mapCopy == null) {
+              //noinspection unchecked,rawtypes
+              mapCopy = (Map<String, Object>) (Map) new LinkMap(session);
+            }
+          } else {
+            if (allIdentifiable) {
+              throw new IllegalArgumentException(
+                  "Invalid property value, if map contains identifiables, it should contain only them");
+
+            }
+            if (mapCopy == null) {
+              mapCopy = new TrackedMap<>();
+            }
           }
 
           mapCopy.put(stringKey, res);
+        }
+
+        if (mapCopy == null) {
+          mapCopy = new TrackedMap<>();
         }
 
         return mapCopy;
@@ -1104,6 +1144,7 @@ public class ResultInternal implements Result {
     if (this == obj) {
       return true;
     }
+
     if (!(obj instanceof ResultInternal resultObj)) {
       return false;
     }

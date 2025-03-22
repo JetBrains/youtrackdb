@@ -30,13 +30,13 @@ import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionItera
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
@@ -462,8 +462,8 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         if (!(iValue instanceof StringWriterSerializable coll)) {
           final Collection<Identifiable> coll;
           // FIRST TIME: CONVERT THE ENTIRE COLLECTION
-          if (!(iValue instanceof LinkSet)) {
-            final var set = new LinkSet(iRecord);
+          if (!(iValue instanceof LinkSetImpl)) {
+            final var set = new LinkSetImpl(iRecord);
             set.addAll((Collection<Identifiable>) iValue);
             iRecord.setProperty(iName, set);
             coll = set;
@@ -663,10 +663,10 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
       coll =
           iType == PropertyTypeInternal.EMBEDDEDLIST
               ? new TrackedList<Object>(e)
-              : new TrackedSet<Object>(e);
+              : new EmbeddedSetImpl<>(e);
     }
 
-    if (value.length() == 0) {
+    if (value.isEmpty()) {
       return coll;
     }
 
@@ -882,9 +882,9 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
     return coll;
   }
 
-  private LinkSet unserializeSet(DatabaseSessionInternal db, final EntityImpl iSourceRecord,
+  private LinkSetImpl unserializeSet(DatabaseSessionInternal db, final EntityImpl iSourceRecord,
       final String value) {
-    final var coll = new LinkSet(iSourceRecord);
+    final var coll = new LinkSetImpl(iSourceRecord);
     final var items =
         StringSerializerHelper.smartSplit(value, StringSerializerHelper.RECORD_SEPARATOR);
     for (var item : items) {

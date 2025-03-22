@@ -48,7 +48,7 @@ import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrack.db.internal.core.db.record.ClassTrigger;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -1839,7 +1839,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
                         + " from opposite entity because it does not exist in the list");
               }
             }
-            case LinkSet linkSet -> {
+            case LinkSetImpl linkSet -> {
               var removed = linkSet.remove(entity);
               if (!removed) {
                 throw new IllegalStateException(
@@ -1902,7 +1902,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       if (originalValue == currentPropertyValue) {
         var timeLine = entity.getCollectionTimeLine(propertyName);
         if (timeLine != null) {
-          if (originalValue instanceof LinkList || originalValue instanceof LinkSet) {
+          if (originalValue instanceof LinkList || originalValue instanceof LinkSetImpl) {
             for (var event : timeLine.getMultiValueChangeEvents()) {
               switch (event.getChangeType()) {
                 case ADD -> {
@@ -1996,7 +1996,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
           links.add((RecordId) link);
         }
       }
-      case LinkSet linkSet -> {
+      case LinkSetImpl linkSet -> {
         for (var link : linkSet) {
           links.add((RecordId) link);
         }

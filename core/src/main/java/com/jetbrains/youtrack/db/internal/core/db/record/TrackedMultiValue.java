@@ -21,12 +21,13 @@ package com.jetbrains.youtrack.db.internal.core.db.record;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.Iterator;
@@ -73,12 +74,13 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
             "Cannot add a RID or a non-embedded entity to a embedded data container");
       }
 
-      if (PropertyTypeInternal.isSingleValueType(value) || (value instanceof Entity)) {
+      if (PropertyTypeInternal.isSingleValueType(value) || ((value instanceof Entity entity)
+          && entity.isEmbedded())) {
         return;
       }
 
       if (value instanceof Collection<?>) {
-        if (value instanceof TrackedList<?> || value instanceof TrackedSet<?>) {
+        if (value instanceof TrackedList<?> || value instanceof EmbeddedSetImpl<?>) {
           return;
         }
       }
@@ -91,11 +93,14 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
 
       if ((value instanceof Collection<?>) || (value instanceof Map<?, ?>)) {
         throw new SchemaException(
-            "Cannot add a non tracked collection to a embedded data container. Please use "
+            "Cannot add a non embedded collection to a embedded data container. Please use "
                 + DatabaseSession.class.getName() +
                 " factory methods instead : "
-                + "newEmbeddedList(), newEmbeddedSet(), newEmbeddedMap(), newLinkMap(), "
-                + "newLinkList(), newLinkSet().");
+                + "newEmbeddedList(), newEmbeddedSet(), newEmbeddedMap().");
+      }
+      //case whew we use it inside query result set, fail later on validation and serialization
+      if (value instanceof Result) {
+        return;
       }
 
       throw new SchemaException("Value " + value + " is not supported by data container.");

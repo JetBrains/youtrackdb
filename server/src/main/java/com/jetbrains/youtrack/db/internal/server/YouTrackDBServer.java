@@ -92,8 +92,8 @@ public class YouTrackDBServer {
   protected Map<String, ServerSocketFactory> networkSocketFactories =
       new HashMap<String, ServerSocketFactory>();
   protected List<ServerNetworkListener> networkListeners = new ArrayList<ServerNetworkListener>();
-  protected List<OServerLifecycleListener> lifecycleListeners =
-      new ArrayList<OServerLifecycleListener>();
+  protected List<ServerLifecycleListener> lifecycleListeners =
+      new ArrayList<ServerLifecycleListener>();
   protected ServerPluginManager pluginManager;
   protected ConfigurableHooksManager hookManager;
   private final Map<String, Object> variables = new HashMap<String, Object>();
@@ -393,8 +393,8 @@ public class YouTrackDBServer {
       databases = YouTrackDBInternal.embedded(this.databaseDirectory, config);
     }
 
-    if (databases instanceof OServerAware) {
-      ((OServerAware) databases).init(this);
+    if (databases instanceof ServerAware) {
+      ((ServerAware) databases).init(this);
     }
 
     context = databases.newYouTrackDb();
@@ -557,7 +557,7 @@ public class YouTrackDBServer {
         shutdownHook.cancel();
       }
 
-      for (OServerLifecycleListener l : lifecycleListeners) {
+      for (ServerLifecycleListener l : lifecycleListeners) {
         l.onBeforeDeactivate();
       }
 
@@ -820,12 +820,12 @@ public class YouTrackDBServer {
     databases.getSecuritySystem().addTemporaryUser(iName, iPassword, iPermissions);
   }
 
-  public YouTrackDBServer registerLifecycleListener(final OServerLifecycleListener iListener) {
+  public YouTrackDBServer registerLifecycleListener(final ServerLifecycleListener iListener) {
     lifecycleListeners.add(iListener);
     return this;
   }
 
-  public YouTrackDBServer unregisterLifecycleListener(final OServerLifecycleListener iListener) {
+  public YouTrackDBServer unregisterLifecycleListener(final ServerLifecycleListener iListener) {
     lifecycleListeners.remove(iListener);
     return this;
   }

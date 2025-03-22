@@ -2,9 +2,9 @@ package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
+import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
@@ -964,13 +964,13 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedSet = new TrackedSet<String>(doc);
+    final var embeddedSet = new EmbeddedSetImpl<String>(doc);
 
-    trackedSet.enableTracking(doc);
-    trackedSet.add("l1");
-    trackedSet.add("l2");
-    trackedSet.add("l3");
-    trackedSet.remove("l2");
+    embeddedSet.enableTracking(doc);
+    embeddedSet.add("l1");
+    embeddedSet.add("l2");
+    embeddedSet.add("l3");
+    embeddedSet.remove("l2");
 
     var keysToAdd = new Object2IntOpenHashMap<CompositeKey>();
     keysToAdd.defaultReturnValue(-1);
@@ -979,7 +979,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     keysToRemove.defaultReturnValue(-1);
 
     for (var multiValueChangeEvent :
-        trackedSet.getTimeLine().getMultiValueChangeEvents()) {
+        embeddedSet.getTimeLine().getMultiValueChangeEvents()) {
       compositeIndexDefinition.processChangeEvent(
           session, multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
     }
@@ -1010,16 +1010,16 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedMap = new TrackedSet<String>(doc);
+    final var embeddedSet = new EmbeddedSetImpl<String>(doc);
 
-    trackedMap.add("l1");
-    trackedMap.add("l2");
-    trackedMap.add("l3");
-    trackedMap.remove("l2");
+    embeddedSet.add("l1");
+    embeddedSet.add("l2");
+    embeddedSet.add("l3");
+    embeddedSet.remove("l2");
 
-    trackedMap.enableTracking(doc);
-    trackedMap.add("l4");
-    trackedMap.remove("l1");
+    embeddedSet.enableTracking(doc);
+    embeddedSet.add("l4");
+    embeddedSet.remove("l1");
 
     var keysToAdd = new Object2IntOpenHashMap<CompositeKey>();
     keysToAdd.defaultReturnValue(-1);
@@ -1028,7 +1028,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     keysToRemove.defaultReturnValue(-1);
 
     for (var multiValueChangeEvent :
-        trackedMap.getTimeLine().getMultiValueChangeEvents()) {
+        embeddedSet.getTimeLine().getMultiValueChangeEvents()) {
       compositeIndexDefinition.processChangeEvent(
           session, multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
     }

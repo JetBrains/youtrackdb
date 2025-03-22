@@ -21,7 +21,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
@@ -2467,7 +2467,7 @@ public class CRUDTest extends BaseDBTest {
     while (entityIterator.hasNext()) {
       var obj = entityIterator.next();
       var followersList = obj.<Set<Identifiable>>getProperty("followers");
-      Assert.assertTrue(followersList == null || followersList instanceof LinkSet);
+      Assert.assertTrue(followersList == null || followersList instanceof LinkSetImpl);
       if (obj.<String>getProperty("nick").equals("Neo")) {
         Assert.assertEquals(obj.<Set<Identifiable>>getProperty("followers").size(), 2);
         Identifiable identifiable = obj.<Set<Identifiable>>getProperty("followers")

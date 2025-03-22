@@ -26,18 +26,19 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
@@ -528,7 +529,7 @@ public enum PropertyTypeInternal {
     }
   },
 
-  EMBEDDEDSET("EmbeddedSet", 11, TrackedSet.class, new Class<?>[]{Set.class}) {
+  EMBEDDEDSET("EmbeddedSet", 11, EmbeddedSet.class, new Class<?>[]{Set.class}) {
     @Override
     public Set<Object> convert(Object value, PropertyTypeInternal linkedType,
         SchemaClass linkedClass,
@@ -537,7 +538,7 @@ public enum PropertyTypeInternal {
         case null -> {
           return null;
         }
-        case TrackedSet<?> trackedSet -> {
+        case EmbeddedSetImpl<?> trackedSet -> {
           //noinspection unchecked
           return (Set<Object>) trackedSet;
         }
@@ -581,7 +582,7 @@ public enum PropertyTypeInternal {
 
     @Override
     public boolean isTypeInstance(Object value) {
-      if (value instanceof LinkSet) {
+      if (value instanceof LinkSetImpl) {
         return false;
       }
       return super.isTypeInstance(value);
@@ -589,7 +590,7 @@ public enum PropertyTypeInternal {
 
     @Override
     public boolean isConvertibleFrom(Object value) {
-      if (value instanceof LinkSet) {
+      if (value instanceof LinkSetImpl) {
         return false;
       }
       return super.isConvertibleFrom(value);
@@ -602,7 +603,7 @@ public enum PropertyTypeInternal {
         return null;
       }
 
-      var trackedSet = (TrackedSet<?>) value;
+      var trackedSet = (EmbeddedSetImpl<?>) value;
       var copy = session.newEmbeddedSet(trackedSet.size());
 
       for (var item : trackedSet) {
@@ -932,7 +933,7 @@ public enum PropertyTypeInternal {
     }
   },
 
-  LINKSET("LinkSet", 15, LinkSet.class, new Class<?>[]{Set.class}) {
+  LINKSET("LinkSet", 15, LinkSetImpl.class, new Class<?>[]{Set.class}) {
     @Override
     public Set<Identifiable> convert(Object value, PropertyTypeInternal linkedType,
         SchemaClass linkedClass,
@@ -941,7 +942,7 @@ public enum PropertyTypeInternal {
         case null -> {
           return null;
         }
-        case LinkSet linkSet -> {
+        case LinkSetImpl linkSet -> {
           return linkSet;
         }
         case Collection<?> collection -> {
@@ -1001,7 +1002,7 @@ public enum PropertyTypeInternal {
         return null;
       }
 
-      var linkSet = (LinkSet) value;
+      var linkSet = (LinkSetImpl) value;
       var copy = session.newLinkSet(linkSet.size());
       copy.addAll(linkSet);
 
@@ -1260,8 +1261,8 @@ public enum PropertyTypeInternal {
     TYPES_BY_CLASS.put(RecordId.class, LINK);
     TYPES_BY_CLASS.put(BigDecimal.class, DECIMAL);
     TYPES_BY_CLASS.put(RidBag.class, LINKBAG);
-    TYPES_BY_CLASS.put(TrackedSet.class, EMBEDDEDSET);
-    TYPES_BY_CLASS.put(LinkSet.class, LINKSET);
+    TYPES_BY_CLASS.put(EmbeddedSet.class, EMBEDDEDSET);
+    TYPES_BY_CLASS.put(LinkSetImpl.class, LINKSET);
     TYPES_BY_CLASS.put(TrackedList.class, EMBEDDEDLIST);
     TYPES_BY_CLASS.put(LinkList.class, LINKLIST);
     TYPES_BY_CLASS.put(TrackedMap.class, EMBEDDEDMAP);
@@ -1577,7 +1578,7 @@ public enum PropertyTypeInternal {
         return (T) DOUBLE.convert(value, null, null, session);
       } else if (targetClass.equals(Boolean.TYPE) || targetClass.equals(Boolean.class)) {
         return (T) BOOLEAN.convert(value, null, null, session);
-      } else if (LinkSet.class.isAssignableFrom(targetClass)) {
+      } else if (LinkSetImpl.class.isAssignableFrom(targetClass)) {
         return (T) LINKSET.convert(value, null, null, session);
       } else if (Set.class.isAssignableFrom(targetClass)) {
         return (T) EMBEDDEDSET.convert(value, null, null, session);

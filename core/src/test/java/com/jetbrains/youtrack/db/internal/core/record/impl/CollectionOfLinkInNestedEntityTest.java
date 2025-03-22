@@ -8,7 +8,7 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
 import java.util.Set;
 import org.apache.commons.collections4.SetUtils;
 import org.junit.Test;
@@ -23,7 +23,7 @@ public class CollectionOfLinkInNestedEntityTest extends DbTestBase {
     var doc2 = (EntityImpl) session.newEntity();
     doc2.setProperty("value", "item 2");
     var nested = (EntityImpl) session.newEmbeddedEntity();
-    var set = new LinkSet(nested);
+    var set = new LinkSetImpl(nested);
     set.add(doc1);
     set.add(doc2);
 

@@ -1,6 +1,6 @@
 package com.jetbrains.youtrack.db.internal.server;
 
-public interface OServerAware {
+public interface ServerAware {
 
   void init(YouTrackDBServer server);
 }

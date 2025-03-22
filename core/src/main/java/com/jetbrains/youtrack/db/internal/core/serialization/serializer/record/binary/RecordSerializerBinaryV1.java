@@ -35,12 +35,12 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.DecimalSeri
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
@@ -897,9 +897,9 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         }
         break;
       case LINKSET:
-        LinkSet collectionSet = null;
+        LinkSetImpl collectionSet = null;
         if (!justRunThrough) {
-          collectionSet = new LinkSet(owner);
+          collectionSet = new LinkSetImpl(owner);
         }
         value = readLinkCollection(bytes, collectionSet, justRunThrough);
         break;
@@ -1200,14 +1200,15 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return new ResultBinary(db, schema, bytes.bytes, startOffset, valueLength, this);
   }
 
-  protected Collection<?> readEmbeddedSet(DatabaseSessionInternal db, final BytesContainer bytes,
+  protected EmbeddedSetImpl<?> readEmbeddedSet(DatabaseSessionInternal db,
+      final BytesContainer bytes,
       final RecordElement owner) {
 
     final var items = VarIntSerializer.readAsInteger(bytes);
     var type = readOType(bytes, false);
 
     if (type != null) {
-      var found = new TrackedSet<>(owner);
+      var found = new EmbeddedSetImpl<>(owner);
       for (var i = 0; i < items; i++) {
         var itemType = readOType(bytes, false);
         if (itemType == null) {

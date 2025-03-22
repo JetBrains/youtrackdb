@@ -15,7 +15,6 @@ import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Map;
-import java.util.Set;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -186,7 +185,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     var entity = session.newEntity(clazz);
     entity.setInt("int", 30);
     entity.setLong("long", 30L);
-    final Set<Entity> embeddedSet = session.newEmbeddedSet();
+    final var embeddedSet = session.newEmbeddedSet();
     entity.setEmbeddedSet("embeddedSet", embeddedSet);
 
     var embeddedInSet = session.newEmbeddedEntity("EmbeddedValidation");
@@ -652,7 +651,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     var entity = session.newEntity(clazz);
     var list = Arrays.asList(1, 2);
     entity.newEmbeddedSet("embeddedList").addAll(list);
-    Set<Integer> set = session.newEmbeddedSet();
+    var set = session.<Integer>newEmbeddedSet();
     set.addAll(list);
     entity.setEmbeddedSet("embeddedSet", set);
 

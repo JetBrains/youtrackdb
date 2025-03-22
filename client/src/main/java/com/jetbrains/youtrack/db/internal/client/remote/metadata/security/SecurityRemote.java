@@ -5,7 +5,7 @@ import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
+import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.RestrictedOperation;
@@ -100,7 +100,7 @@ public class SecurityRemote implements SecurityInternal {
       Identifiable iId) {
     Set<Identifiable> field = entity.getProperty(iAllowFieldName);
     if (field == null) {
-      field = new TrackedSet<>(entity);
+      field = new EmbeddedSetImpl<>(entity);
       entity.setProperty(iAllowFieldName, field);
     }
     field.add(iId);

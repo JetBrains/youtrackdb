@@ -26,6 +26,7 @@ import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.api.record.RecordHook.TYPE;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
@@ -1196,19 +1197,19 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public <T> Set<T> newEmbeddedSet() {
+  public <T> EmbeddedSet<T> newEmbeddedSet() {
     checkOpenness();
     return internal.newEmbeddedSet();
   }
 
   @Override
-  public <T> Set<T> newEmbeddedSet(int size) {
+  public <T> EmbeddedSet<T> newEmbeddedSet(int size) {
     checkOpenness();
     return internal.newEmbeddedSet(size);
   }
 
   @Override
-  public <T> Set<T> newEmbeddedSet(Set<T> set) {
+  public <T> EmbeddedSet<T> newEmbeddedSet(Collection<T> set) {
     checkOpenness();
     return internal.newEmbeddedSet(set);
   }

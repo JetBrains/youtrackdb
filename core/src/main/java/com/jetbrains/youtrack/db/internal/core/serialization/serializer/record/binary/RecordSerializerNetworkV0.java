@@ -31,13 +31,13 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.DecimalSeri
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -394,7 +394,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
 
         break;
       case EMBEDDEDSET:
-        var set = new TrackedSet<Object>(owner);
+        var set = new EmbeddedSetImpl<>(owner);
         value = readEmbeddedCollection(session, bytes, set, set);
         break;
       case EMBEDDEDLIST:
@@ -402,7 +402,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
         value = readEmbeddedCollection(session, bytes, list, list);
         break;
       case LINKSET:
-        value = readLinkCollection(bytes, new LinkSet(owner));
+        value = readLinkCollection(bytes, new LinkSetImpl(owner));
         break;
       case LINKLIST:
         value = readLinkCollection(bytes, new LinkList(owner));

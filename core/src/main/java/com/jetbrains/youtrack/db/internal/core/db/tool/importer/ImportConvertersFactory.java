@@ -2,12 +2,12 @@ package com.jetbrains.youtrack.db.internal.core.db.tool.importer;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 
@@ -34,10 +34,10 @@ public final class ImportConvertersFactory {
       return new EmbeddedListConverter(converterData);
     }
 
-    if (value instanceof LinkSet) {
+    if (value instanceof LinkSetImpl) {
       return new LinkSetConverter(converterData);
     }
-    if (value instanceof TrackedSet<?>) {
+    if (value instanceof EmbeddedSetImpl<?>) {
       return new EmbeddedSetConverter(converterData);
     }
 

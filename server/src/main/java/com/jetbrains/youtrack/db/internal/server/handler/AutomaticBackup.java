@@ -33,8 +33,8 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
-import com.jetbrains.youtrack.db.internal.server.plugin.OServerPluginConfigurable;
 import com.jetbrains.youtrack.db.internal.server.plugin.ServerPluginAbstract;
+import com.jetbrains.youtrack.db.internal.server.plugin.ServerPluginConfigurable;
 import com.jetbrains.youtrack.db.internal.tools.config.ServerParameterConfiguration;
 import java.io.File;
 import java.io.IOException;
@@ -57,7 +57,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * also to create incremental backup and export of databases. If you need a mix of different modes,
  * configure more instances of the same component.
  */
-public class AutomaticBackup extends ServerPluginAbstract implements OServerPluginConfigurable {
+public class AutomaticBackup extends ServerPluginAbstract implements ServerPluginConfigurable {
 
   private EntityImpl configuration;
 

@@ -20,9 +20,11 @@
 package com.jetbrains.youtrack.db.api.record;
 
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import java.math.BigDecimal;
+import java.util.Collection;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -129,9 +131,6 @@ public interface Entity extends DBRecord, Result {
   }
 
   default void setEmbeddedEntity(@Nonnull String name, @Nullable EmbeddedEntity value) {
-    if (value != null && !value.isEmbedded()) {
-      throw new IllegalArgumentException("Entity is not embedded");
-    }
     setProperty(name, value, PropertyType.EMBEDDED);
   }
 
@@ -143,7 +142,7 @@ public interface Entity extends DBRecord, Result {
     setProperty(name, value, PropertyType.EMBEDDEDLIST);
   }
 
-  default <T> void setEmbeddedSet(@Nonnull String name, @Nullable Set<T> value) {
+  default <T> void setEmbeddedSet(@Nonnull String name, @Nullable EmbeddedSet<T> value) {
     setProperty(name, value, PropertyType.EMBEDDEDSET);
   }
 
@@ -201,16 +200,17 @@ public interface Entity extends DBRecord, Result {
   List<Double> newEmbeddedList(@Nonnull String name, double[] source);
 
   @Nonnull
-  <T> Set<T> newEmbeddedSet(@Nonnull String name);
+  <T> EmbeddedSet<T> newEmbeddedSet(@Nonnull String name);
 
   @Nonnull
-  <T> Set<T> newEmbeddedSet(@Nonnull String name, @Nonnull PropertyType linkedType);
+  <T> EmbeddedSet<T> newEmbeddedSet(@Nonnull String name, @Nonnull PropertyType linkedType);
 
   @Nonnull
-  <T> Set<T> newEmbeddedSet(@Nonnull String name, @Nonnull Set<T> source);
+  <T> EmbeddedSet<T> newEmbeddedSet(@Nonnull String name, @Nonnull Collection<T> source);
 
   @Nonnull
-  <T> Set<T> newEmbeddedSet(@Nonnull String name, Set<T> source, @Nonnull PropertyType linkedType);
+  <T> EmbeddedSet<T> newEmbeddedSet(@Nonnull String name, Collection<T> source,
+      @Nonnull PropertyType linkedType);
 
   @Nonnull
   <T> Map<String, T> newEmbeddedMap(@Nonnull String name);
@@ -253,7 +253,7 @@ public interface Entity extends DBRecord, Result {
   <T> Set<T> getOrCreateEmbeddedSet(@Nonnull String name);
 
   @Nonnull
-  <T> Set<T> getOrCreateEmbeddedSet(@Nonnull String name, @Nonnull PropertyType linkedType);
+  <T> EmbeddedSet<T> getOrCreateEmbeddedSet(@Nonnull String name, @Nonnull PropertyType linkedType);
 
   @Nonnull
   <T> Map<String, T> getOrCreateEmbeddedMap(@Nonnull String name);

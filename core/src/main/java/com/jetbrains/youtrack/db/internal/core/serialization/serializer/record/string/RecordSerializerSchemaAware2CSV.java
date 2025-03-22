@@ -27,7 +27,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
@@ -485,7 +485,7 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
                     }
 
                     if (type == null) {
-                      if (fieldValue instanceof LinkSet) {
+                      if (fieldValue instanceof LinkSetImpl) {
                         type = PropertyTypeInternal.LINKSET;
                       } else if (fieldValue instanceof Set<?>) {
                         type = PropertyTypeInternal.EMBEDDEDSET;

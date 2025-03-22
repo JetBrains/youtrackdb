@@ -1,15 +1,17 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
+import static org.junit.Assert.assertEquals;
+
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
@@ -27,7 +29,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import static org.junit.Assert.assertEquals;
 import org.junit.Test;
 
 public class TestSchemaPropertyTypeDetection extends DbTestBase {
@@ -105,7 +106,7 @@ public class TestSchemaPropertyTypeDetection extends DbTestBase {
         PropertyTypeInternal.getTypeByClass(HashSet.class));
 
     assertEquals(PropertyTypeInternal.EMBEDDEDSET,
-        PropertyTypeInternal.getTypeByClass(TrackedSet.class));
+        PropertyTypeInternal.getTypeByClass(EmbeddedSetImpl.class));
 
     assertEquals(PropertyTypeInternal.EMBEDDEDMAP, PropertyTypeInternal.getTypeByClass(Map.class));
 
@@ -115,7 +116,8 @@ public class TestSchemaPropertyTypeDetection extends DbTestBase {
     assertEquals(PropertyTypeInternal.EMBEDDEDMAP,
         PropertyTypeInternal.getTypeByClass(TrackedMap.class));
 
-    assertEquals(PropertyTypeInternal.LINKSET, PropertyTypeInternal.getTypeByClass(LinkSet.class));
+    assertEquals(PropertyTypeInternal.LINKSET,
+        PropertyTypeInternal.getTypeByClass(LinkSetImpl.class));
 
     assertEquals(PropertyTypeInternal.LINKLIST,
         PropertyTypeInternal.getTypeByClass(LinkList.class));
@@ -190,7 +192,7 @@ public class TestSchemaPropertyTypeDetection extends DbTestBase {
         PropertyTypeInternal.getTypeByValue(new HashMap<Object, Object>()));
 
     assertEquals(PropertyTypeInternal.LINKSET,
-        PropertyTypeInternal.getTypeByValue(new LinkSet((EntityImpl) session.newEntity())));
+        PropertyTypeInternal.getTypeByValue(new LinkSetImpl((EntityImpl) session.newEntity())));
 
     assertEquals(PropertyTypeInternal.LINKLIST,
         PropertyTypeInternal.getTypeByValue(new LinkList((EntityImpl) session.newEntity())));

@@ -9,10 +9,10 @@ import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
@@ -197,7 +197,7 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
               } else {
                 if (txLinkType != null) {
                   if (txLinkType == PropertyTypeInternal.LINKSET) {
-                    value = new LinkSet(target);
+                    value = new LinkSetImpl(target);
                     ((Set<Identifiable>) value).add(entity);
                   } else if (txLinkType == PropertyTypeInternal.LINKLIST) {
                     value = new LinkList(target);

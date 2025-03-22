@@ -35,6 +35,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
@@ -44,16 +45,16 @@ import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent.ChangeType;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeTimeLine;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
@@ -599,15 +600,15 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nullable
-  public <T> Set<T> getEmbeddedSet(@Nonnull String name) {
+  public <T> EmbeddedSet<T> getEmbeddedSet(@Nonnull String name) {
     var value = getProperty(name);
 
     if (value == null) {
       return null;
     }
 
-    if (value instanceof TrackedSet<?> set) {
-      return (Set<T>) set;
+    if (value instanceof EmbeddedSetImpl<?> set) {
+      return (EmbeddedSet<T>) set;
     }
 
     throw new DatabaseException(
@@ -622,7 +623,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       return null;
     }
 
-    if (value instanceof LinkSet set) {
+    if (value instanceof LinkSetImpl set) {
       return set;
     }
 
@@ -805,10 +806,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
 
-  public @Nonnull <T> Set<T> getOrCreateEmbeddedSet(@Nonnull String name) {
-    var value = this.<Set<T>>getProperty(name);
+  public @Nonnull <T> EmbeddedSet<T> getOrCreateEmbeddedSet(@Nonnull String name) {
+    var value = this.<EmbeddedSet<T>>getProperty(name);
     if (value == null) {
-      value = new TrackedSet<>(this);
+      value = new EmbeddedSetImpl<>(this);
       setProperty(name, value, PropertyType.EMBEDDEDSET);
     }
 
@@ -816,11 +817,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nonnull
-  public <T> Set<T> getOrCreateEmbeddedSet(@Nonnull String name,
+  public <T> EmbeddedSet<T> getOrCreateEmbeddedSet(@Nonnull String name,
       @Nonnull PropertyType linkedType) {
-    var value = this.<Set<T>>getProperty(name);
+    var value = this.<EmbeddedSet<T>>getProperty(name);
     if (value == null) {
-      value = new TrackedSet<>(this);
+      value = new EmbeddedSetImpl<>(this);
       setProperty(name, value, PropertyType.EMBEDDEDSET, linkedType);
     } else {
       var linkedTypeProperty = PropertyTypeInternal.getTypeByValue(value);
@@ -834,31 +835,31 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nonnull
-  public <T> Set<T> newEmbeddedSet(@Nonnull String name) {
-    var value = new TrackedSet<T>(this);
+  public <T> EmbeddedSet<T> newEmbeddedSet(@Nonnull String name) {
+    var value = new EmbeddedSetImpl<T>(this);
     setProperty(name, value, PropertyType.EMBEDDEDSET);
     return value;
   }
 
   @Nonnull
-  public <T> Set<T> newEmbeddedSet(@Nonnull String name, @Nonnull PropertyType linkedType) {
-    var value = new TrackedSet<T>(this);
+  public <T> EmbeddedSet<T> newEmbeddedSet(@Nonnull String name, @Nonnull PropertyType linkedType) {
+    var value = new EmbeddedSetImpl<T>(this);
     setProperty(name, value, PropertyType.EMBEDDEDSET, linkedType);
     return value;
   }
 
   @Nonnull
-  public <T> Set<T> newEmbeddedSet(@Nonnull String name, @Nonnull Set<T> source) {
-    var value = new TrackedSet<T>(source.size());
+  public <T> EmbeddedSet<T> newEmbeddedSet(@Nonnull String name, @Nonnull Collection<T> source) {
+    var value = new EmbeddedSetImpl<T>(source.size());
     value.addAll(source);
     setProperty(name, value, PropertyType.EMBEDDEDSET);
     return value;
   }
 
   @Nonnull
-  public <T> Set<T> newEmbeddedSet(@Nonnull String name, Set<T> source,
+  public <T> EmbeddedSet<T> newEmbeddedSet(@Nonnull String name, Collection<T> source,
       @Nonnull PropertyType linkedType) {
-    var value = new TrackedSet<T>(source.size());
+    var value = new EmbeddedSetImpl<T>(source.size());
     value.addAll(source);
     setProperty(name, value, PropertyType.EMBEDDEDSET, linkedType);
     return value;
@@ -955,7 +956,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   public Set<Identifiable> getOrCreateLinkSet(@Nonnull String name) {
     var value = this.<Set<Identifiable>>getProperty(name);
     if (value == null) {
-      value = new LinkSet(this);
+      value = new LinkSetImpl(this);
       setProperty(name, value, PropertyType.LINKSET);
     }
 
@@ -964,14 +965,14 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Nonnull
   public Set<Identifiable> newLinkSet(@Nonnull String name) {
-    var value = new LinkSet(this);
+    var value = new LinkSetImpl(this);
     setProperty(name, value, PropertyType.LINKSET);
     return value;
   }
 
   @Nonnull
   public Set<Identifiable> newLinkSet(@Nonnull String name, Set<Identifiable> source) {
-    var value = new LinkSet(this);
+    var value = new LinkSetImpl(this);
     value.addAll(source);
     setProperty(name, value, PropertyType.LINKSET);
     return value;
@@ -1511,7 +1512,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
           validateLinkCollection(session, schema, p, (Collection<Object>) propertyValue, entry);
           break;
         case LINKSET:
-          if (!(propertyValue instanceof LinkSet)) {
+          if (!(propertyValue instanceof LinkSetImpl)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The property '"
                     + p.getFullName()
@@ -1567,7 +1568,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
           }
           break;
         case EMBEDDEDSET:
-          if (!(propertyValue instanceof TrackedSet<?>)) {
+          if (!(propertyValue instanceof EmbeddedSetImpl<?>)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The property '"
                     + p.getFullName()
@@ -2326,7 +2327,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       }
       value = trackedList;
     } else if (value instanceof Set<?> set) {
-      var trackedSet = new TrackedSet<>(this);
+      var trackedSet = new EmbeddedSetImpl<>(this);
       for (var item : set) {
         trackedSet.add(convertMapValue(session, item));
       }
@@ -2368,7 +2369,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   private void updateEmbeddedSetFromMapValue(DatabaseSessionInternal session,
       Object value, String key) {
     if (value instanceof Collection<?> collection) {
-      var embeddedSet = new TrackedSet<>(this);
+      var embeddedSet = new EmbeddedSetImpl<>(this);
       for (var item : collection) {
         embeddedSet.add(convertMapValue(session, item));
       }
@@ -2436,7 +2437,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   private void updateLinkSetFromMapValue(Object value, String key) {
     if (value instanceof Collection<?> collection) {
-      var linkSet = new LinkSet(this);
+      var linkSet = new LinkSetImpl(this);
       for (var item : collection) {
         if (item instanceof Identifiable identifiable) {
           linkSet.add(identifiable);
@@ -3473,7 +3474,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
           }
           break;
         case EMBEDDEDSET:
-          if (propertyValue instanceof Set<?> && !(propertyValue instanceof TrackedSet)) {
+          if (propertyValue instanceof Set<?> && !(propertyValue instanceof EmbeddedSetImpl<?>)) {
             throw new DatabaseException(session.getDatabaseName(),
                 "Property " + propertyEntry.getKey() + " is supposed to be TrackedSet but is "
                     + propertyValue.getClass());
@@ -3495,7 +3496,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
           }
           break;
         case LINKSET:
-          if (propertyValue instanceof Set<?> && !(propertyValue instanceof LinkSet)) {
+          if (propertyValue instanceof Set<?> && !(propertyValue instanceof LinkSetImpl)) {
             throw new DatabaseException(session.getDatabaseName(),
                 "Property " + propertyEntry.getKey() + " is supposed to be LinkSet but is "
                     + propertyValue.getClass());

@@ -33,7 +33,7 @@ public class DBRecordLazySetTest extends DbTestBase {
   @Test
   public void testDocumentNotEmbedded() {
     session.begin();
-    var set = new LinkSet((EntityImpl) session.newEntity());
+    var set = new LinkSetImpl((EntityImpl) session.newEntity());
     var doc = (EntityImpl) session.newEntity();
     set.add(doc);
     assertFalse(doc.isEmbedded());
@@ -43,7 +43,7 @@ public class DBRecordLazySetTest extends DbTestBase {
   @Test()
   public void testSetAddRemove() {
     session.begin();
-    var set = new LinkSet((EntityImpl) session.newEntity());
+    var set = new LinkSetImpl((EntityImpl) session.newEntity());
     var doc = (EntityImpl) session.newEntity();
     set.add(doc);
     set.remove(doc);
@@ -54,7 +54,7 @@ public class DBRecordLazySetTest extends DbTestBase {
   @Test
   public void testSetRemoveNotPersistent() {
     session.begin();
-    var set = new LinkSet((EntityImpl) session.newEntity());
+    var set = new LinkSetImpl((EntityImpl) session.newEntity());
     doc1 = session.bindToSession(doc1);
     doc2 = session.bindToSession(doc2);
 
@@ -79,7 +79,7 @@ public class DBRecordLazySetTest extends DbTestBase {
 
     session.begin();
     var doc = (EntityImpl) session.newEntity(test);
-    var set = new LinkSet(doc);
+    var set = new LinkSetImpl(doc);
     set.add(stubEntity.getIdentity());
     doc.setProperty("fi", set);
     session.commit();

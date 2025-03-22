@@ -5,11 +5,11 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import org.junit.Test;
 
 /**
@@ -22,7 +22,7 @@ public class DocumentTrackingNestedCollectionsTest extends DbTestBase {
     session.begin();
     RID orid;
     var entity = (EntityImpl) session.newEntity();
-    var objects = entity.<Set<Object>>newEmbeddedSet("objects");
+    var objects = entity.<EmbeddedSet<Object>>newEmbeddedSet("objects");
 
     var subObjects = session.newEmbeddedSet();
     objects.add(subObjects);
@@ -67,7 +67,7 @@ public class DocumentTrackingNestedCollectionsTest extends DbTestBase {
     session.begin();
     document = session.bindToSession(document);
     objects = document.getProperty("objects");
-    subObjects = (Set) objects.iterator().next();
+    subObjects = (EmbeddedSet<Object>) objects.iterator().next();
     subObjects.add("one");
 
     assertTrue(document.isDirty());

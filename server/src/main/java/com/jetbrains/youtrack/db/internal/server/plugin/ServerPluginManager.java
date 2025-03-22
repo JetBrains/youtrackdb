@@ -58,8 +58,8 @@ public class ServerPluginManager implements Service {
   private volatile TimerTask autoReloadTimerTask;
   private String directory;
 
-  protected List<OPluginLifecycleListener> pluginListeners =
-      new ArrayList<OPluginLifecycleListener>();
+  protected List<PluginLifecycleListener> pluginListeners =
+      new ArrayList<PluginLifecycleListener>();
 
   public void config(YouTrackDBServer iServer) {
     server = iServer;
@@ -441,13 +441,13 @@ public class ServerPluginManager implements Service {
     }
   }
 
-  public ServerPluginManager registerLifecycleListener(final OPluginLifecycleListener iListener) {
+  public ServerPluginManager registerLifecycleListener(final PluginLifecycleListener iListener) {
     pluginListeners.add(iListener);
     return this;
   }
 
   public ServerPluginManager unregisterLifecycleListener(
-      final OPluginLifecycleListener iListener) {
+      final PluginLifecycleListener iListener) {
     pluginListeners.remove(iListener);
     return this;
   }

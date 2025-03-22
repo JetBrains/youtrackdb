@@ -11,7 +11,7 @@ import java.util.Set;
 import org.junit.Assert;
 import org.junit.Test;
 
-public class TrackedSetTest extends DbTestBase {
+public class EmbeddedSetTest extends DbTestBase {
 
   @Test
   public void testAddOne() {
@@ -21,7 +21,7 @@ public class TrackedSetTest extends DbTestBase {
     rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedSet = new TrackedSet<String>(doc);
+    final var trackedSet = new EmbeddedSetImpl<String>(doc);
     trackedSet.enableTracking(doc);
     var event =
         new MultiValueChangeEvent<Object, Object>(
@@ -41,7 +41,7 @@ public class TrackedSetTest extends DbTestBase {
     rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedSet = new TrackedSet<String>(doc);
+    final var trackedSet = new EmbeddedSetImpl<String>(doc);
     doc.setPropertyInternal("tracked", trackedSet);
     trackedSet.add("value1");
     Assert.assertTrue(doc.isDirty());
@@ -56,7 +56,7 @@ public class TrackedSetTest extends DbTestBase {
     rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedSet = new TrackedSet<String>(doc);
+    final var trackedSet = new EmbeddedSetImpl<String>(doc);
     trackedSet.enableTracking(doc);
     trackedSet.addInternal("value1");
 
@@ -73,7 +73,7 @@ public class TrackedSetTest extends DbTestBase {
     rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedSet = new TrackedSet<String>(doc);
+    final var trackedSet = new EmbeddedSetImpl<String>(doc);
 
     trackedSet.add("value1");
 
@@ -98,7 +98,7 @@ public class TrackedSetTest extends DbTestBase {
     rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedSet = new TrackedSet<String>(doc);
+    final var trackedSet = new EmbeddedSetImpl<String>(doc);
     trackedSet.add("value1");
     trackedSet.add("value2");
     trackedSet.add("value3");
@@ -126,7 +126,7 @@ public class TrackedSetTest extends DbTestBase {
     rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedSet = new TrackedSet<String>(doc);
+    final var trackedSet = new EmbeddedSetImpl<String>(doc);
     doc.setPropertyInternal("tracked", trackedSet);
     trackedSet.add("value1");
     trackedSet.add("value2");
@@ -149,7 +149,7 @@ public class TrackedSetTest extends DbTestBase {
     rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedSet = new TrackedSet<String>(doc);
+    final var trackedSet = new EmbeddedSetImpl<String>(doc);
     trackedSet.add("value1");
     trackedSet.add("value2");
     trackedSet.add("value3");
@@ -173,7 +173,7 @@ public class TrackedSetTest extends DbTestBase {
     rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedSet = new TrackedSet<String>(doc);
+    final var trackedSet = new EmbeddedSetImpl<String>(doc);
     trackedSet.add("value1");
     trackedSet.add("value2");
     trackedSet.add("value3");
@@ -211,7 +211,7 @@ public class TrackedSetTest extends DbTestBase {
     rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    @SuppressWarnings("MismatchedQueryAndUpdateOfCollection") final var trackedSet = new TrackedSet<String>(
+    @SuppressWarnings("MismatchedQueryAndUpdateOfCollection") final var trackedSet = new EmbeddedSetImpl<String>(
         doc);
     trackedSet.add("value1");
     trackedSet.add("value2");
@@ -232,7 +232,7 @@ public class TrackedSetTest extends DbTestBase {
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
 
-    final var trackedSet = new TrackedSet<String>(doc);
+    final var trackedSet = new EmbeddedSetImpl<String>(doc);
     trackedSet.add("value1");
     trackedSet.add("value2");
     trackedSet.add("value3");
@@ -261,7 +261,7 @@ public class TrackedSetTest extends DbTestBase {
   public void testStackOverflowOnRecursion() {
     session.begin();
     final var entity = (EntityImpl) session.newEmbeddedEntity();
-    @SuppressWarnings("MismatchedQueryAndUpdateOfCollection") final var trackedSet = new TrackedSet<EntityImpl>(
+    @SuppressWarnings("MismatchedQueryAndUpdateOfCollection") final var trackedSet = new EmbeddedSetImpl<EntityImpl>(
         entity);
     trackedSet.add(entity);
     session.rollback();

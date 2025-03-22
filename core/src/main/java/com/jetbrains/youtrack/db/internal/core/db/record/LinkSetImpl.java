@@ -20,6 +20,7 @@
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableIdentity;
 import com.jetbrains.youtrack.db.internal.core.id.IdentityChangeListener;
@@ -30,48 +31,33 @@ import java.util.Objects;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- * Lazy implementation of Set. Can be bound to a source Record object to keep track of changes. This
- * avoid to call the makeDirty() by hand when the set is changed.
- *
- * <p><b>Internals</b>:
- *
- * <ul>
- *   <li>stores new records in a separate IdentityHashMap to keep underlying list (delegate) always
- *       ordered and minimizing sort operations
- *   <li>
- * </ul>
- *
- * <p>
- */
-public class LinkSet extends TrackedSet<Identifiable> implements IdentityChangeListener,
-    LinkTrackedMultiValue<Identifiable> {
-
+public class LinkSetImpl extends TrackedSet<Identifiable> implements IdentityChangeListener,
+    LinkTrackedMultiValue<Identifiable>, LinkSet {
   @Nonnull
   private final WeakReference<DatabaseSessionInternal> session;
 
 
-  public LinkSet(DatabaseSessionInternal session) {
+  public LinkSetImpl(DatabaseSessionInternal session) {
     super();
     this.session = new WeakReference<>(session);
   }
 
-  public LinkSet(int size, DatabaseSessionInternal session) {
+  public LinkSetImpl(int size, DatabaseSessionInternal session) {
     super(size);
     this.session = new WeakReference<>(session);
   }
 
-  public LinkSet(final RecordElement iSourceRecord) {
+  public LinkSetImpl(final RecordElement iSourceRecord) {
     super(iSourceRecord);
     this.session = new WeakReference<>(iSourceRecord.getSession());
   }
 
-  public LinkSet(final RecordElement iSourceRecord, int size) {
+  public LinkSetImpl(final RecordElement iSourceRecord, int size) {
     super(iSourceRecord, size);
     this.session = new WeakReference<>(iSourceRecord.getSession());
   }
 
-  public LinkSet(RecordElement iSourceRecord, Collection<Identifiable> iOrigin) {
+  public LinkSetImpl(RecordElement iSourceRecord, Collection<Identifiable> iOrigin) {
     this(iSourceRecord);
 
     if (iOrigin != null && !iOrigin.isEmpty()) {
@@ -190,7 +176,7 @@ public class LinkSet extends TrackedSet<Identifiable> implements IdentityChangeL
         iterator.remove();
 
         if (current instanceof ChangeableIdentity changeableIdentity) {
-          changeableIdentity.removeIdentityChangeListener(LinkSet.this);
+          changeableIdentity.removeIdentityChangeListener(LinkSetImpl.this);
         }
         current = null;
       }
@@ -241,5 +227,10 @@ public class LinkSet extends TrackedSet<Identifiable> implements IdentityChangeL
   @Override
   public DatabaseSessionInternal getSession() {
     return session.get();
+  }
+
+  @Override
+  public boolean isEmbeddedContainer() {
+    return false;
   }
 }

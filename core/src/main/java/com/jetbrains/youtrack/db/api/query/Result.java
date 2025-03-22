@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import java.math.BigDecimal;
 import java.util.Date;
@@ -232,7 +233,7 @@ public interface Result {
   }
 
   @Nullable
-  default <T> Set<T> getEmbeddedSet(@Nonnull String name) {
+  default <T> EmbeddedSet<T> getEmbeddedSet(@Nonnull String name) {
     if (isEntity()) {
       return asEntity().getEmbeddedSet(name);
     }
@@ -242,9 +243,9 @@ public interface Result {
       return null;
     }
 
-    if (value instanceof Set<?> set && !PropertyTypeInternal.checkLinkCollection(set)) {
+    if (value instanceof EmbeddedSet<?> set) {
       //noinspection unchecked
-      return (Set<T>) set;
+      return (EmbeddedSet<T>) set;
     }
 
     throw new DatabaseException(

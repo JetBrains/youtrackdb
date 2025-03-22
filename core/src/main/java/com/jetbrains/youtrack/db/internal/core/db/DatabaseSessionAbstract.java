@@ -46,6 +46,7 @@ import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.api.record.RecordHook.TYPE;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
@@ -57,14 +58,14 @@ import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
+import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.exception.SessionNotActivatedException;
 import com.jetbrains.youtrack.db.internal.core.exception.TransactionBlockedException;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
@@ -2557,35 +2558,35 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public <T> Set<T> newEmbeddedSet() {
-    return new TrackedSet<>();
+  public <T> EmbeddedSet<T> newEmbeddedSet() {
+    return new EmbeddedSetImpl<>();
   }
 
   @Override
-  public <T> Set<T> newEmbeddedSet(int size) {
-    return new TrackedSet<>(size);
+  public <T> EmbeddedSet<T> newEmbeddedSet(int size) {
+    return new EmbeddedSetImpl<>(size);
   }
 
   @Override
-  public <T> Set<T> newEmbeddedSet(Set<T> set) {
-    var trackedSet = new TrackedSet<T>(set.size());
+  public <T> EmbeddedSet<T> newEmbeddedSet(Collection<T> set) {
+    var trackedSet = new EmbeddedSetImpl<T>(set.size());
     trackedSet.addAll(set);
     return trackedSet;
   }
 
   @Override
   public Set<Identifiable> newLinkSet() {
-    return new LinkSet(this);
+    return new LinkSetImpl(this);
   }
 
   @Override
   public Set<Identifiable> newLinkSet(int size) {
-    return new LinkSet(size, this);
+    return new LinkSetImpl(size, this);
   }
 
   @Override
   public Set<Identifiable> newLinkSet(Set<Identifiable> source) {
-    var linkSet = new LinkSet(source.size(), this);
+    var linkSet = new LinkSetImpl(source.size(), this);
     linkSet.addAll(source);
     return linkSet;
   }

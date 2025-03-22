@@ -41,11 +41,10 @@ import javax.annotation.Nullable;
  * Implementation of Set bound to a source Record object to keep track of changes. This avoid to
  * call the makeDirty() by hand when the set is changed.
  */
-public class TrackedSet<T> extends AbstractSet<T>
+public abstract class TrackedSet<T> extends AbstractSet<T>
     implements RecordElement, TrackedMultiValue<T, T>, Serializable {
 
   protected RecordElement sourceRecord;
-  private final boolean embeddedCollection;
   protected Class<?> genericClass;
   private boolean dirty = false;
   private boolean transactionDirty = false;
@@ -57,24 +56,20 @@ public class TrackedSet<T> extends AbstractSet<T>
   public TrackedSet(final RecordElement iSourceRecord) {
     this.set = new HashSet<>();
     this.sourceRecord = iSourceRecord;
-    embeddedCollection = this.getClass().equals(TrackedSet.class);
   }
 
   public TrackedSet(final RecordElement iSourceRecord, int size) {
     this.set = new HashSet<>(size);
     this.sourceRecord = iSourceRecord;
-    embeddedCollection = this.getClass().equals(TrackedSet.class);
   }
 
   public TrackedSet() {
     this.set = new HashSet<>();
-    embeddedCollection = this.getClass().equals(TrackedSet.class);
     tracker.enable();
   }
 
   public TrackedSet(int size) {
     this.set = new HashSet<>(size);
-    embeddedCollection = this.getClass().equals(TrackedSet.class);
     tracker.enable();
   }
 
@@ -131,11 +126,6 @@ public class TrackedSet<T> extends AbstractSet<T>
   @Override
   public int size() {
     return set.size();
-  }
-
-  @Override
-  public boolean isEmbeddedContainer() {
-    return embeddedCollection;
   }
 
   public boolean add(@Nullable final T e) {

@@ -1,4 +1,5 @@
 /*
+ *
  *  *
  *  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  *  you may not use this file except in compliance with the License.
@@ -12,25 +13,26 @@
  *  *  See the License for the specific language governing permissions and
  *  *  limitations under the License.
  *  *
- *  *
  *
  */
-package com.jetbrains.youtrack.db.internal.server;
+package com.jetbrains.youtrack.db.internal.server.plugin;
+
+import com.jetbrains.youtrack.db.internal.tools.config.ServerParameterConfiguration;
 
 /**
- * Interface to get notified on the server lifecycle.
+ * Interface for monitoring plugin events.
  */
-public interface OServerLifecycleListener {
+public interface PluginLifecycleListener {
 
-  default void onBeforeActivate() {
-  }
+  void onBeforeConfig(final ServerPlugin plugin, final ServerParameterConfiguration[] cfg);
 
-  default void onAfterActivate() {
-  }
+  void onAfterConfig(final ServerPlugin plugin, final ServerParameterConfiguration[] cfg);
 
-  default void onBeforeDeactivate() {
-  }
+  void onBeforeStartup(final ServerPlugin plugin);
 
-  default void onAfterDeactivate() {
-  }
+  void onAfterStartup(final ServerPlugin plugin);
+
+  void onBeforeShutdown(final ServerPlugin plugin);
+
+  void onAfterShutdown(final ServerPlugin plugin);
 }

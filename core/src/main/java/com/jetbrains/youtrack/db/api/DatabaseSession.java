@@ -26,10 +26,12 @@ import com.jetbrains.youtrack.db.api.exception.ModificationOperationProhibitedEx
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -479,11 +481,11 @@ public interface DatabaseSession extends AutoCloseable {
 
   List<Identifiable> newLinkList(List<Identifiable> source);
 
-  <T> Set<T> newEmbeddedSet();
+  <T> EmbeddedSet<T> newEmbeddedSet();
 
-  <T> Set<T> newEmbeddedSet(int size);
+  <T> EmbeddedSet<T> newEmbeddedSet(int size);
 
-  <T> Set<T> newEmbeddedSet(Set<T> set);
+  <T> EmbeddedSet<T> newEmbeddedSet(Collection<T> set);
 
   Set<Identifiable> newLinkSet();
 
