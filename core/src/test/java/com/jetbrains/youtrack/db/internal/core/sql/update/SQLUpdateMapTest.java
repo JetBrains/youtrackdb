@@ -39,7 +39,8 @@ public class SQLUpdateMapTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    ret = session.bindToSession(ret);
+    var activeTx = session.getActiveTransaction();
+    ret = activeTx.load(ret);
     assertEquals(2, ((Map) ret.getProperty("attrs")).size());
     assertEquals("test value", ((Map) ret.getProperty("attrs")).get("test"));
     assertEquals("first test", ((Map) ret.getProperty("attrs")).get("test1"));

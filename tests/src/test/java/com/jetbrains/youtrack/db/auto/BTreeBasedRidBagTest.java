@@ -149,9 +149,12 @@ public class BTreeBasedRidBagTest extends RidBagTest {
 
     session.commit();
 
-    scuti = session.bindToSession(scuti);
-    cygni = session.bindToSession(cygni);
-    scorpii = session.bindToSession(scorpii);
+    var activeTx3 = session.getActiveTransaction();
+    scuti = activeTx3.load(scuti);
+    var activeTx2 = session.getActiveTransaction();
+    cygni = activeTx2.load(cygni);
+    var activeTx1 = session.getActiveTransaction();
+    scorpii = activeTx1.load(scorpii);
 
     var expectedResult = new HashSet<EntityImpl>(Arrays.asList(scuti, scorpii));
 
@@ -168,7 +171,8 @@ public class BTreeBasedRidBagTest extends RidBagTest {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     bag = doc.getProperty("ridBag");
     bag.remove(cygni.getIdentity());
 
@@ -209,7 +213,8 @@ public class BTreeBasedRidBagTest extends RidBagTest {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
     var doc_5 = ((EntityImpl) session.newEntity());
 
     var doc_6 = ((EntityImpl) session.newEntity());
@@ -221,7 +226,8 @@ public class BTreeBasedRidBagTest extends RidBagTest {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     bag = doc.getProperty("ridBag");
     Assert.assertEquals(bag.size(), 6);
 
@@ -287,7 +293,8 @@ public class BTreeBasedRidBagTest extends RidBagTest {
 
     for (var i = 0; i < 100; i++) {
       session.begin();
-      session.bindToSession(testDocument).delete();
+      var activeTx = session.getActiveTransaction();
+      activeTx.<EntityImpl>load(testDocument).delete();
       session.commit();
 
       testDocument = crateTestDeleteDoc(realDoc);
@@ -315,7 +322,8 @@ public class BTreeBasedRidBagTest extends RidBagTest {
     var testDocument = ((EntityImpl) session.newEntity());
     var highLevelRidBag = new RidBag(session);
     testDocument.setProperty("ridBag", highLevelRidBag);
-    realDoc = session.bindToSession(realDoc);
+    var activeTx = session.getActiveTransaction();
+    realDoc = activeTx.load(realDoc);
     testDocument.setProperty("realDoc", realDoc);
 
     session.begin();

@@ -138,8 +138,10 @@ public class LuceneMiscTest extends BaseLuceneTest {
     session.commit();
 
     session.begin();
-    authorVertex = session.bindToSession(authorVertex);
-    songVertex = session.bindToSession(songVertex);
+    var activeTx1 = session.getActiveTransaction();
+    authorVertex = activeTx1.load(authorVertex);
+    var activeTx = session.getActiveTransaction();
+    songVertex = activeTx.load(songVertex);
     var edge = authorVertex.addEdge(songVertex, "AuthorOf");
     session.commit();
 

@@ -77,7 +77,8 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
 
     session.begin();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     session.delete(doc);
 
     var query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";
@@ -123,7 +124,8 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
 
     session.begin();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     doc.setProperty("bar", "removed");
 
     var query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";
@@ -187,7 +189,8 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
 
     session.begin();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     doc.setProperty("bar", "removed");
 
     var query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";

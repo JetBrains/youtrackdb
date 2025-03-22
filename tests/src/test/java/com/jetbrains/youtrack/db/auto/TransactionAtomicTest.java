@@ -60,13 +60,15 @@ public class TransactionAtomicTest extends BaseDBTest {
     db2.commit();
 
     db2.begin();
-    record2 = db2.bindToSession(record2);
+    var activeTx1 = db2.getActiveTransaction();
+    record2 = activeTx1.load(record2);
     record2.setProperty("value", "This is the third version");
 
     db2.commit();
 
     db1.activateOnCurrentThread();
-    record1 = db1.bindToSession(record1);
+    var activeTx = db1.getActiveTransaction();
+    record1 = activeTx.load(record1);
     Assert.assertEquals(record1.getProperty("value"), "This is the third version");
     db1.close();
 
@@ -86,7 +88,8 @@ public class TransactionAtomicTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     doc.setDirty();
     doc.setProperty("testmvcc", true);
     final var rec = (RecordAbstract) doc;

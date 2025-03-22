@@ -136,7 +136,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     session.executeInTx(tx -> {
       var iterator = (Iterator<EntityImpl>) session.<EntityImpl>browseCluster("Account");
       session.forEachInTx(iterator, (session, rec) -> {
-        rec = session.bindToSession(rec);
+        rec = session.load(rec);
         if (i[0] % 2 == 0) {
           rec.setProperty("location", "Spain");
         }
@@ -238,7 +238,8 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
     session.begin();
     // Remove this last record.
-    session.delete(session.bindToSession(vDoc));
+    var activeTx = session.getActiveTransaction();
+    session.delete(activeTx.<EntityImpl>load(vDoc));
     session.commit();
 
     // We must get 1 record for "nameA".
@@ -312,7 +313,8 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
       var dexter = result.getFirst();
 
       session.begin();
-      dexter = session.bindToSession(dexter);
+      var activeTx = session.getActiveTransaction();
+      dexter = activeTx.load(dexter);
       ((Collection<String>) dexter.getProperty("tag_list")).add("actor");
     });
 
@@ -358,7 +360,8 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    newDoc = session.bindToSession(newDoc);
+    var activeTx = session.getActiveTransaction();
+    newDoc = activeTx.load(newDoc);
     final EntityImpl loadedDoc = session.load(rid);
     Assert.assertTrue(newDoc.hasSameContentOf(loadedDoc));
 
@@ -490,7 +493,8 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    jaimeDoc = session.bindToSession(jaimeDoc);
+    var activeTx = session.getActiveTransaction();
+    jaimeDoc = activeTx.load(jaimeDoc);
     // The link between jamie and tyrion is not saved properly
     var tyrionDoc = ((EntityImpl) session.newEntity("PersonTest"));
 
@@ -555,7 +559,8 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     Assert.assertEquals(doc.getProperty("test"), s);
     session.commit();
   }
@@ -596,7 +601,8 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session.bindToSession(newAccount).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<RecordAbstract>load(newAccount).delete();
     session.commit();
   }
 
@@ -658,7 +664,8 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session.bindToSession(newAccount).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<RecordAbstract>load(newAccount).delete();
     session.commit();
   }
 
@@ -677,7 +684,8 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     Assert.assertEquals(doc.getVersion(), oldVersion);
     Assert.assertEquals(doc.getProperty("name"), "modified");
     session.commit();
@@ -722,7 +730,8 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
       allDocs.add(linkDoc);
     }
-    doc = session.bindToSession(doc);
+    var activeTx3 = session.getActiveTransaction();
+    doc = activeTx3.load(doc);
     doc.setProperty("linkList", allDocs);
     session.commit();
 
@@ -732,7 +741,8 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
       docsToRemove.add(allDocs.get(i));
     }
 
-    doc = session.bindToSession(doc);
+    var activeTx2 = session.getActiveTransaction();
+    doc = activeTx2.load(doc);
     List<Identifiable> linkList = doc.getProperty("linkList");
     linkList.removeAll(docsToRemove);
 
@@ -745,12 +755,14 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    activeTx1.load(doc);
 
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     linkList = doc.getProperty("linkList");
     Assert.assertEquals(linkList.size(), 5);
 
@@ -771,7 +783,8 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    doc1 = session.bindToSession(doc1);
+    var activeTx = session.getActiveTransaction();
+    doc1 = activeTx.load(doc1);
     session.delete(doc1);
     session.commit();
 

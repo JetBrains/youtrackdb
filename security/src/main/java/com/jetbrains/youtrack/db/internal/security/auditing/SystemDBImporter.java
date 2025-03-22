@@ -115,7 +115,6 @@ public class SystemDBImporter extends Thread {
       var sql = String.format("select from %s order by @rid limit ?", auditingClass);
 
       while (isRunning) {
-        db.activateOnCurrentThread();
         // Retrieve the auditing log records from the local database.
         var result = db.query(sql, limit);
 
@@ -165,12 +164,10 @@ public class SystemDBImporter extends Thread {
             // Add the database name as part of the log stored in the system db.
             copy.setProperty("database", dbName);
 
-            sysdb.activateOnCurrentThread();
             lastRID = entity.getIdentity().toString();
 
             count++;
 
-            db.activateOnCurrentThread();
             db.delete(entity.asEntity());
           } catch (Exception ex) {
             LogManager.instance().error(this, "importDB()", ex);
@@ -208,12 +205,10 @@ public class SystemDBImporter extends Thread {
       LogManager.instance().error(this, "importDB()", ex);
     } finally {
       if (sysdb != null) {
-        sysdb.activateOnCurrentThread();
         sysdb.close();
       }
 
       if (db != null) {
-        db.activateOnCurrentThread();
         db.close();
       }
     }

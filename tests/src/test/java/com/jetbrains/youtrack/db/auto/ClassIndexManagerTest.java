@@ -8,11 +8,8 @@ import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -169,7 +166,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     var exceptionThrown = false;
     try {
       session.begin();
-      docTwo = session.bindToSession(docTwo);
+      var activeTx = session.getActiveTransaction();
+      docTwo = activeTx.load(docTwo);
       docTwo.setProperty("prop1", "a");
       session.commit();
 
@@ -187,7 +185,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    docTwo = session.bindToSession(docTwo);
+    var activeTx = session.getActiveTransaction();
+    docTwo = activeTx.load(docTwo);
     docTwo.setProperty("prop1", null);
     session.commit();
   }
@@ -214,7 +213,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     var exceptionThrown = false;
     try {
       session.begin();
-      docTwo = session.bindToSession(docTwo);
+      var activeTx = session.getActiveTransaction();
+      docTwo = activeTx.load(docTwo);
       docTwo.setProperty("prop0", "a");
 
       session.commit();
@@ -234,14 +234,16 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    docTwo = session.bindToSession(docTwo);
+    var activeTx1 = session.getActiveTransaction();
+    docTwo = activeTx1.load(docTwo);
     docTwo.setProperty("prop1", "b");
 
     session.commit();
 
     try {
       session.begin();
-      docTwo = session.bindToSession(docTwo);
+      var activeTx = session.getActiveTransaction();
+      docTwo = activeTx.load(docTwo);
       docTwo.setProperty("prop1", "a");
 
       session.commit();
@@ -261,12 +263,14 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    docTwo = session.bindToSession(docTwo);
+    var activeTx1 = session.getActiveTransaction();
+    docTwo = activeTx1.load(docTwo);
     docTwo.setProperty("prop1", "b");
     session.commit();
 
     session.begin();
-    docTwo = session.bindToSession(docTwo);
+    var activeTx = session.getActiveTransaction();
+    docTwo = activeTx.load(docTwo);
     docTwo.setProperty("prop1", null);
     session.commit();
   }
@@ -371,7 +375,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session.bindToSession(docOne).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(docOne).delete();
     session.commit();
   }
 
@@ -383,7 +388,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    docOne = session.bindToSession(docOne);
+    var activeTx = session.getActiveTransaction();
+    docOne = activeTx.load(docOne);
     docOne.setProperty("prop1", "b");
     docOne.delete();
     session.commit();
@@ -397,7 +403,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    docOne = session.bindToSession(docOne);
+    var activeTx = session.getActiveTransaction();
+    docOne = activeTx.load(docOne);
     docOne.setDirty();
 
     session.commit();
@@ -472,7 +479,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(propZeroIndex.size(session), 1);
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     doc.removeProperty("prop2");
     doc.removeProperty("prop0");
 
@@ -511,7 +519,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(propZeroIndex.size(session), 1);
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     doc.setProperty("prop2", null);
     doc.setProperty("prop0", null);
 
@@ -550,7 +559,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(propZeroIndex.size(session), 1);
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     doc.setProperty("prop2", 2);
     doc.setProperty("prop0", "y");
 
@@ -597,7 +607,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(compositeIndex.size(session), 0);
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     doc.setProperty("prop2", 2);
 
     session.commit();
@@ -642,7 +653,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     }
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     List<String> trackedList = doc.getProperty("prop4");
     trackedList.set(0, "value3");
 
@@ -695,7 +707,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     }
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     Map<String, String> trackedMap = doc.getProperty("prop5");
     trackedMap.put("key3", "value3");
     trackedMap.put("key4", "value4");
@@ -767,7 +780,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     }
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     Set<String> trackedSet = doc.getProperty("prop6");
 
     //noinspection OverwrittenKey
@@ -815,7 +829,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     }
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
     List<String> trackedList = doc.getProperty("prop4");
     trackedList.set(0, "value3");
 
@@ -840,7 +855,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     }
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     trackedList = doc.getProperty("prop4");
     trackedList.remove("value3");
     trackedList.remove("value4");
@@ -880,7 +896,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     }
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
     Map<String, String> trackedMap = doc.getProperty("prop5");
     trackedMap.put("key3", "value3");
     trackedMap.put("key4", "value4");
@@ -928,7 +945,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     }
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     trackedMap = doc.getProperty("prop5");
 
     trackedMap.remove("key1");
@@ -966,7 +984,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     }
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
     Set<String> trackedSet = doc.getProperty("prop6");
 
     //noinspection OverwrittenKey
@@ -990,7 +1009,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     }
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     trackedSet = doc.getProperty("prop6");
     trackedSet.remove("value1");
     trackedSet.add("value6");
@@ -1024,7 +1044,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(compositeIndex.size(session), 1);
 
     session.begin();
-    session.bindToSession(doc).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
     Assert.assertEquals(propZeroIndex.size(session), 0);
@@ -1055,7 +1076,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(compositeIndex.size(session), 1);
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     doc.setProperty("prop2", 2);
     doc.setProperty("prop0", "y");
 
@@ -1086,7 +1108,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(compositeIndex.size(session), 0);
 
     session.begin();
-    session.bindToSession(doc).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
     Assert.assertEquals(propOneIndex.size(session), 0);
@@ -1112,7 +1135,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(compositeIndex.size(session), 0);
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     doc.setProperty("prop2", 2);
 
     doc.delete();
@@ -1131,7 +1155,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     doc.setProperty("prop1", "b");
 
     session.commit();
@@ -1154,7 +1179,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session.bindToSession(doc).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
     session.commit();
   }
 
@@ -1187,7 +1213,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     }
 
     session.begin();
-    session.bindToSession(doc).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
     Assert.assertEquals(index.size(session), 0);
@@ -1213,7 +1240,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 0);
 
     session.begin();
-    session.bindToSession(doc).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
     session.commit();
   }
 
@@ -1237,7 +1265,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 0);
 
     session.begin();
-    session.bindToSession(doc).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
     session.commit();
   }
 
@@ -1260,7 +1289,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
     doc.setProperty("prop1", "test2");
 
     session.commit();
@@ -1277,7 +1307,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     session.begin();
-    session.bindToSession(doc).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
     Assert.assertEquals(index.size(session), 0);
@@ -1302,7 +1333,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
     doc.setProperty("prop2", session.newEmbeddedList(List.of(1, 3)));
 
     session.commit();
@@ -1319,7 +1351,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     session.begin();
-    session.bindToSession(doc).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
     Assert.assertEquals(index.size(session), 0);
@@ -1344,7 +1377,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
     List<Integer> docList = doc.getProperty("prop2");
     docList.add(3);
     docList.add(4);
@@ -1374,7 +1408,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 4);
 
     session.begin();
-    session.bindToSession(doc).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
     Assert.assertEquals(index.size(session), 0);
@@ -1399,7 +1434,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
     List<Integer> docList = doc.getProperty("prop2");
     docList.add(3);
     docList.add(4);
@@ -1431,7 +1467,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     }
 
     session.begin();
-    session.bindToSession(doc).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
     Assert.assertEquals(index.size(session), 0);
@@ -1456,7 +1493,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
     doc.setProperty("prop1", null);
 
     session.commit();
@@ -1464,7 +1502,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 0);
 
     session.begin();
-    session.bindToSession(doc).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
     Assert.assertEquals(index.size(session), 0);
@@ -1489,7 +1528,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
     doc.setProperty("prop2", null);
 
     session.commit();
@@ -1497,7 +1537,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 0);
 
     session.begin();
-    session.bindToSession(doc).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
     Assert.assertEquals(index.size(session), 0);
@@ -1515,7 +1556,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
     final var index =
         session
             .getMetadata()
@@ -1531,7 +1573,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 0);
 
     session.begin();
-    session.bindToSession(doc).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
     Assert.assertEquals(index.size(session), 0);
@@ -1556,7 +1599,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
     List<Integer> docList = doc.getProperty("prop2");
     docList.add(3);
     docList.add(4);
@@ -1571,7 +1615,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 0);
 
     session.begin();
-    session.bindToSession(doc).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
     session.commit();
 
     Assert.assertEquals(index.size(session), 0);
@@ -1596,7 +1641,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     doc.setProperty("prop1", "test2");
 
     doc.delete();
@@ -1624,7 +1670,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     doc.setProperty("prop2", session.newEmbeddedList(List.of(1, 3)));
 
     doc.delete();
@@ -1652,7 +1699,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     List<Integer> docList = doc.getProperty("prop2");
     docList.add(3);
     docList.add(4);
@@ -1677,7 +1725,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     final var index =
         session
             .getMetadata()
@@ -1718,7 +1767,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     doc.setProperty("prop2", session.newEmbeddedList(List.of(1, 3)));
     doc.setProperty("prop1", "test2");
 
@@ -1740,7 +1790,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     final var index =
         session
             .getMetadata()
@@ -1775,7 +1826,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     doc.setProperty("prop2", null);
 
     doc.delete();
@@ -1796,7 +1848,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     final var index =
         session
             .getMetadata()
@@ -1825,7 +1878,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     final var index =
         session
             .getMetadata()

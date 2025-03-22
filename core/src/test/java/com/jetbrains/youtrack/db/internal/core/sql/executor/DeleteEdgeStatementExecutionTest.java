@@ -24,7 +24,8 @@ public class DeleteEdgeStatementExecutionTest extends DbTestBase {
       var v1 = session.newVertex(vertexClassName);
       v1.setProperty("name", "a" + i);
       if (prev != null) {
-        prev = session.bindToSession(prev);
+        var activeTx = session.getActiveTransaction();
+        prev = activeTx.load(prev);
         prev.addEdge(v1, edgeClassName);
       }
       prev = v1;
@@ -80,7 +81,8 @@ public class DeleteEdgeStatementExecutionTest extends DbTestBase {
       var v1 = session.newVertex(vertexClassName);
       v1.setProperty("name", "a" + i);
       if (prev != null) {
-        prev = session.bindToSession(prev);
+        var activeTx = session.getActiveTransaction();
+        prev = activeTx.load(prev);
         prev.addEdge(v1, edgeClassName);
       }
       prev = v1;

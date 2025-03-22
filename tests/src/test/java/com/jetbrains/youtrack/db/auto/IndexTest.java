@@ -21,6 +21,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -531,7 +532,8 @@ public class IndexTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    whiz = session.bindToSession(whiz);
+    var activeTx = session.getActiveTransaction();
+    whiz = activeTx.load(whiz);
     Assert.assertTrue(((EntityImpl) whiz.getProperty("account")).getIdentity().isValidPosition());
     ((EntityImpl) whiz.getProperty("account")).delete();
     whiz.delete();
@@ -664,7 +666,8 @@ public class IndexTest extends BaseDBTest {
         // do delete
         db.begin();
         for (final var recordToDelete : recordsToDelete) {
-          db.delete(db.bindToSession(recordToDelete));
+          var activeTx = db.getActiveTransaction();
+          db.delete(activeTx.<EntityImpl>load(recordToDelete));
         }
         db.commit();
 
@@ -1064,7 +1067,8 @@ public class IndexTest extends BaseDBTest {
 
     final Entity loadedProfile = session.load(profile.getIdentity());
     session.begin();
-    session.delete(session.bindToSession(loadedProfile));
+    var activeTx = session.getActiveTransaction();
+    session.delete(activeTx.<Entity>load(loadedProfile));
     session.commit();
 
     try (var stream = nickIndex
@@ -1497,11 +1501,15 @@ public class IndexTest extends BaseDBTest {
     }
 
     session.begin();
-    session.delete(session.bindToSession(parent));
-    session.delete(session.bindToSession(child));
+    var activeTx3 = session.getActiveTransaction();
+    session.delete(activeTx3.<Vertex>load(parent));
+    var activeTx2 = session.getActiveTransaction();
+    session.delete(activeTx2.<Vertex>load(child));
 
-    session.delete(session.bindToSession(parent2));
-    session.delete(session.bindToSession(child2));
+    var activeTx1 = session.getActiveTransaction();
+    session.delete(activeTx1.<Vertex>load(parent2));
+    var activeTx = session.getActiveTransaction();
+    session.delete(activeTx.<Vertex>load(child2));
     session.commit();
   }
 
@@ -1690,7 +1698,8 @@ public class IndexTest extends BaseDBTest {
     document = session.load(rid);
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx2 = session.getActiveTransaction();
+    document = activeTx2.load(document);
     users = document.getProperty("users");
     users.remove(rid2);
     Assert.assertTrue(users.isEmpty());
@@ -1739,7 +1748,8 @@ public class IndexTest extends BaseDBTest {
     session = acquireSession();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx1 = session.getActiveTransaction();
+    document = activeTx1.load(document);
     users = document.getProperty("users");
     users.add(rid4);
 
@@ -1777,7 +1787,8 @@ public class IndexTest extends BaseDBTest {
     session = acquireSession();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     document.removeProperty("users");
 
     session.commit();
@@ -1951,7 +1962,8 @@ public class IndexTest extends BaseDBTest {
 
     session.begin();
 
-    document = session.bindToSession(document);
+    var activeTx1 = session.getActiveTransaction();
+    document = activeTx1.load(document);
     users = document.getProperty("users");
     users.add(rid4);
 
@@ -1989,7 +2001,8 @@ public class IndexTest extends BaseDBTest {
     session = acquireSession();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     document.removeProperty("users");
 
     session.commit();

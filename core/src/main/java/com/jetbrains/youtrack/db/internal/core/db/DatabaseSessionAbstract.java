@@ -820,51 +820,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     return prefetchRecords;
   }
 
-  @Override
-  public <T extends Identifiable> T bindToSession(T identifiable) {
-    if (!(identifiable instanceof DBRecord record)) {
-      return identifiable;
-    }
 
-    if (identifiable instanceof Edge edge && edge.isLightweight()) {
-      return (T) edge;
-    }
-
-    var rid = record.getIdentity();
-    checkOpenness();
-    assert assertIfNotActive();
-
-    // unwrap the record if wrapper is passed
-    var transaction = getActiveTransaction();
-    record = transaction.load(record);
-
-    var txRecord = currentTx.getRecord(rid);
-    if (txRecord == record) {
-      assert !txRecord.isUnloaded();
-      assert txRecord.getSession() == this;
-      return (T) record;
-    }
-
-    var cachedRecord = localCache.findRecord(rid);
-    if (cachedRecord == record) {
-      assert !cachedRecord.isUnloaded();
-      assert cachedRecord.getSession() == this;
-      return (T) record;
-    }
-
-    if (!rid.isPersistent()) {
-      throw new DatabaseException(getDatabaseName(),
-          "Cannot bind record to session with not persisted rid: " + rid);
-    }
-
-    var result = executeReadRecord((RecordId) rid, false,
-        false, true).recordAbstract();
-
-    assert !result.isUnloaded();
-    assert result.getSession() == this;
-
-    return (T) result;
-  }
 
   @Nullable
   @Override

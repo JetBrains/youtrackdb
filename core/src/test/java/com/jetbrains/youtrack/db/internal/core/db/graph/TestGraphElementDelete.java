@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
@@ -49,7 +50,7 @@ public class TestGraphElementDelete {
     tx.commit();
 
     tx = session.begin();
-    tx.delete(tx.bindToSession(vertex));
+    tx.delete(tx.<Vertex>load(vertex));
     tx.commit();
 
     tx = session.begin();
@@ -72,11 +73,11 @@ public class TestGraphElementDelete {
     tx.commit();
 
     tx = session.begin();
-    tx.delete(tx.bindToSession(edge));
+    tx.delete(tx.<StatefulEdge>load(edge));
     tx.commit();
 
     tx = session.begin();
-    assertFalse(tx.bindToSession(vertex).getEdges(Direction.OUT, "E").iterator().hasNext());
+    assertFalse(tx.<Vertex>load(vertex).getEdges(Direction.OUT, "E").iterator().hasNext());
     tx.commit();
   }
 

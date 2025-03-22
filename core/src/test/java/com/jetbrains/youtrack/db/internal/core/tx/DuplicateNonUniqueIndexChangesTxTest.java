@@ -66,8 +66,11 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
 
     // verify index state
     session.begin();
-    assertRids(null, session.bindToSession(person1), session.bindToSession(person2));
-    assertRids("Name3", session.bindToSession(person3));
+    var activeTx1 = session.getActiveTransaction();
+    var activeTx2 = session.getActiveTransaction();
+    assertRids(null, activeTx2.<EntityImpl>load(person1), activeTx1.<EntityImpl>load(person2));
+    var activeTx = session.getActiveTransaction();
+    assertRids("Name3", activeTx.<EntityImpl>load(person3));
     session.commit();
   }
 
@@ -85,16 +88,22 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
     session.begin();
     // verify index state
     assertRids(null);
-    assertRids("Name1", session.bindToSession(person1));
-    assertRids("Name2", session.bindToSession(person2));
-    assertRids("Name3", session.bindToSession(person3));
+    var activeTx8 = session.getActiveTransaction();
+    assertRids("Name1", activeTx8.<EntityImpl>load(person1));
+    var activeTx7 = session.getActiveTransaction();
+    assertRids("Name2", activeTx7.<EntityImpl>load(person2));
+    var activeTx6 = session.getActiveTransaction();
+    assertRids("Name3", activeTx6.<EntityImpl>load(person3));
     session.commit();
 
     session.begin();
 
-    person1 = session.bindToSession(person1);
-    person2 = session.bindToSession(person2);
-    person3 = session.bindToSession(person3);
+    var activeTx5 = session.getActiveTransaction();
+    person1 = activeTx5.load(person1);
+    var activeTx4 = session.getActiveTransaction();
+    person2 = activeTx4.load(person2);
+    var activeTx3 = session.getActiveTransaction();
+    person3 = activeTx3.load(person3);
 
     // saved persons will have null name
     person1.setProperty("name", null);
@@ -118,9 +127,12 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    person1 = session.bindToSession(person1);
-    person2 = session.bindToSession(person2);
-    person3 = session.bindToSession(person3);
+    var activeTx2 = session.getActiveTransaction();
+    person1 = activeTx2.load(person1);
+    var activeTx1 = session.getActiveTransaction();
+    person2 = activeTx1.load(person2);
+    var activeTx = session.getActiveTransaction();
+    person3 = activeTx.load(person3);
 
     // verify index state
     assertRids(null);
@@ -153,9 +165,12 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
 
     session.begin();
     // verify index state
-    assertRids("same", session.bindToSession(person1));
+    var activeTx2 = session.getActiveTransaction();
+    assertRids("same", activeTx2.<EntityImpl>load(person1));
     assertRids("Name1");
-    assertRids("Name2", session.bindToSession(person2), session.bindToSession(person3));
+    var activeTx = session.getActiveTransaction();
+    var activeTx1 = session.getActiveTransaction();
+    assertRids("Name2", activeTx1.<EntityImpl>load(person2), activeTx.<EntityImpl>load(person3));
     session.commit();
   }
 
@@ -171,9 +186,12 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    person1 = session.bindToSession(person1);
-    person2 = session.bindToSession(person2);
-    person3 = session.bindToSession(person3);
+    var activeTx5 = session.getActiveTransaction();
+    person1 = activeTx5.load(person1);
+    var activeTx4 = session.getActiveTransaction();
+    person2 = activeTx4.load(person2);
+    var activeTx3 = session.getActiveTransaction();
+    person3 = activeTx3.load(person3);
 
 
     // verify index state
@@ -199,9 +217,12 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    person1 = session.bindToSession(person1);
-    person2 = session.bindToSession(person2);
-    person3 = session.bindToSession(person3);
+    var activeTx2 = session.getActiveTransaction();
+    person1 = activeTx2.load(person1);
+    var activeTx1 = session.getActiveTransaction();
+    person2 = activeTx1.load(person2);
+    var activeTx = session.getActiveTransaction();
+    person3 = activeTx.load(person3);
 
     // verify index state
     assertRids("same");
@@ -236,7 +257,9 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
     session.begin();
     // verify index state
     assertRids("Name1");
-    assertRids("Name2", session.bindToSession(person2), session.bindToSession(person4));
+    var activeTx = session.getActiveTransaction();
+    var activeTx1 = session.getActiveTransaction();
+    assertRids("Name2", activeTx1.<EntityImpl>load(person2), activeTx.<EntityImpl>load(person4));
     assertRids("Name3");
     assertRids("Name4");
     session.commit();
@@ -258,10 +281,14 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
 
     session.begin();
 
-    person1 = session.bindToSession(person1);
-    person2 = session.bindToSession(person2);
-    person3 = session.bindToSession(person3);
-    person4 = session.bindToSession(person4);
+    var activeTx7 = session.getActiveTransaction();
+    person1 = activeTx7.load(person1);
+    var activeTx6 = session.getActiveTransaction();
+    person2 = activeTx6.load(person2);
+    var activeTx5 = session.getActiveTransaction();
+    person3 = activeTx5.load(person3);
+    var activeTx4 = session.getActiveTransaction();
+    person4 = activeTx4.load(person4);
 
     // verify index state
     assertRids("Name1", person1);
@@ -282,8 +309,10 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    person2 = session.bindToSession(person2);
-    person4 = session.bindToSession(person4);
+    var activeTx3 = session.getActiveTransaction();
+    person2 = activeTx3.load(person2);
+    var activeTx2 = session.getActiveTransaction();
+    person4 = activeTx2.load(person4);
 
     // verify index state
     assertRids("same");
@@ -294,8 +323,10 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    person2 = session.bindToSession(person2);
-    person4 = session.bindToSession(person4);
+    var activeTx1 = session.getActiveTransaction();
+    person2 = activeTx1.load(person2);
+    var activeTx = session.getActiveTransaction();
+    person4 = activeTx.load(person4);
 
     person2.delete();
     person4.delete();

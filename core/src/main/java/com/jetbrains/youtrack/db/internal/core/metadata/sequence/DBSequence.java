@@ -460,7 +460,6 @@ public abstract class DBSequence {
   protected long callRetry(DatabaseSessionInternal db, final SequenceCallable callable,
       final String method) {
     var dbCopy = db.copy();
-    db.activateOnCurrentThread();
     var future =
         sequenceExecutor.submit(
             () -> {

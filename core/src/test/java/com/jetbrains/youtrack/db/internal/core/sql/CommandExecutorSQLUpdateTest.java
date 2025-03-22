@@ -27,6 +27,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
@@ -67,7 +68,10 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     session.commit();
 
     session.executeInTx(transaction ->
-        assertEquals(((Set) session.bindToSession(r).getProperty("employees")).size(), 4)
+        {
+          var activeTx = session.getActiveTransaction();
+          assertEquals(((Set) activeTx.<Entity>load(r).getProperty("employees")).size(), 4);
+        }
     );
 
     session.executeInTx(transaction ->
@@ -78,7 +82,10 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     );
 
     session.executeInTx(transaction ->
-        assertEquals(((Set) session.bindToSession(r).getProperty("employees")).size(), 3)
+        {
+          var activeTx = session.getActiveTransaction();
+          assertEquals(((Set) activeTx.<Entity>load(r).getProperty("employees")).size(), 3);
+        }
     );
   }
 
@@ -293,24 +300,33 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     );
 
     session.executeInTx(transaction ->
-        assertThat(session.bindToSession(queried).<Integer>getProperty("count"))
-            .isEqualTo(22));
+    {
+      var activeTx = session.getActiveTransaction();
+      assertThat(activeTx.<Entity>load(queried).<Integer>getProperty("count"))
+          .isEqualTo(22);
+    });
 
     session.executeInTx(transaction ->
         session.execute("UPDATE test set map.nestedCount = map.nestedCount + 5").close()
     );
 
     session.executeInTx(transaction ->
-        assertThat(session.bindToSession(queried).<Map>getProperty("map").get("nestedCount"))
-            .isEqualTo(15));
+    {
+      var activeTx = session.getActiveTransaction();
+      assertThat(activeTx.<Entity>load(queried).<Map>getProperty("map").get("nestedCount"))
+          .isEqualTo(15);
+    });
 
     session.executeInTx(transaction ->
         session.execute("UPDATE test set map.nestedCount = map.nestedCount+ 5").close()
     );
 
     session.executeInTx(transaction ->
-        assertThat(session.bindToSession(queried).<Map>getProperty("map").get("nestedCount"))
-            .isEqualTo(20));
+    {
+      var activeTx = session.getActiveTransaction();
+      assertThat(activeTx.<Entity>load(queried).<Map>getProperty("map").get("nestedCount"))
+          .isEqualTo(20);
+    });
   }
 
   @Test
@@ -337,7 +353,10 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     );
 
     session.executeInTx(transaction ->
-        assertEquals(session.bindToSession(queried).getProperty("text"), "single \"")
+        {
+          var activeTx = session.getActiveTransaction();
+          assertEquals(activeTx.<Entity>load(queried).getProperty("text"), "single \"");
+        }
     );
   }
 
@@ -364,7 +383,10 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
         session.execute("UPDATE test SET text = :text", params).close());
 
     session.executeInTx(transaction ->
-        assertEquals(session.bindToSession(queried).getProperty("text"), "quoted \"value\" string")
+        {
+          var activeTx = session.getActiveTransaction();
+          assertEquals(activeTx.<Entity>load(queried).getProperty("text"), "quoted \"value\" string");
+        }
     );
   }
 
@@ -495,7 +517,8 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
 
     session.begin();
     var d = (EntityImpl) session.newEntity("TestSource");
-    state = session.bindToSession(state);
+    var activeTx = session.getActiveTransaction();
+    state = activeTx.load(state);
     d.setProperty("name", "foo");
     d.setProperty("linked", state);
     session.commit();

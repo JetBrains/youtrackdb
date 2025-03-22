@@ -458,7 +458,8 @@ public class CRUDTest extends BaseDBTest {
     session.release();
 
     session.begin();
-    checkCollectionImplementations(session.bindToSession(testLoadedEntity));
+    var activeTx = session.getActiveTransaction();
+    checkCollectionImplementations(activeTx.load(testLoadedEntity));
     session.commit();
   }
 
@@ -495,7 +496,8 @@ public class CRUDTest extends BaseDBTest {
     session.release();
 
     session.begin();
-    checkCollectionImplementations(session.bindToSession(testLoadedEntity));
+    var activeTx = session.getActiveTransaction();
+    checkCollectionImplementations(activeTx.load(testLoadedEntity));
     session.rollback();
   }
 
@@ -538,7 +540,8 @@ public class CRUDTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    element = session.bindToSession(element);
+    var activeTx = session.getActiveTransaction();
+    element = activeTx.load(element);
     Assert.assertEquals(element.<List<Date>>getProperty("dateField"), date);
     session.commit();
   }
@@ -546,7 +549,8 @@ public class CRUDTest extends BaseDBTest {
   @Test(dependsOnMethods = "testCreateClass")
   public void readAndBrowseDescendingAndCheckHoleUtilization() {
     session.begin();
-    rome = session.bindToSession(rome);
+    var activeTx = session.getActiveTransaction();
+    rome = activeTx.load(rome);
     Set<Integer> ids = new HashSet<>(TOT_RECORDS_ACCOUNT);
     for (var i = 0; i < TOT_RECORDS_ACCOUNT; i++) {
       ids.add(i);
@@ -702,25 +706,31 @@ public class CRUDTest extends BaseDBTest {
     // ============================== step 1
     // add new information to luke
     session.begin();
-    luke = session.bindToSession(luke);
+    var activeTx5 = session.getActiveTransaction();
+    luke = activeTx5.load(luke);
     var friends = session.newLinkSet();
-    friends.add(session.bindToSession(hanSolo));
+    var activeTx4 = session.getActiveTransaction();
+    friends.add(activeTx4.<EntityImpl>load(hanSolo));
 
     luke.setProperty("friends", friends);
     session.commit();
 
     session.begin();
-    luke = session.bindToSession(luke);
+    var activeTx3 = session.getActiveTransaction();
+    luke = activeTx3.load(luke);
     Assert.assertEquals(luke.<Set<Identifiable>>getProperty("friends").size(), 1);
     friends = session.newLinkSet();
-    friends.add(session.bindToSession(obiWan));
+    var activeTx2 = session.getActiveTransaction();
+    friends.add(activeTx2.<EntityImpl>load(obiWan));
     luke.setProperty("friends", friends);
 
-    session.bindToSession(luke);
+    var activeTx1 = session.getActiveTransaction();
+    activeTx1.load(luke);
     session.commit();
 
     session.begin();
-    luke = session.bindToSession(luke);
+    var activeTx = session.getActiveTransaction();
+    luke = activeTx.load(luke);
     Assert.assertEquals(luke.<Set<Identifiable>>getProperty("friends").size(), 1);
     session.commit();
     // ============================== end 2
@@ -755,7 +765,8 @@ public class CRUDTest extends BaseDBTest {
     session.release();
 
     session.begin();
-    agenda = session.bindToSession(agenda);
+    var activeTx = session.getActiveTransaction();
+    agenda = activeTx.load(agenda);
     try {
       for (var i = 0; i < agenda.<List<Entity>>getProperty("events").size(); i++) {
         var transaction = session.getActiveTransaction();
@@ -1025,7 +1036,8 @@ public class CRUDTest extends BaseDBTest {
     var c4 = session.newInstance("Child");
     c4.setProperty("name", "Peter");
 
-    p = session.bindToSession(p);
+    var activeTx4 = session.getActiveTransaction();
+    p = activeTx4.load(p);
     p.<Map<String, Identifiable>>getProperty("children").put("third", c3);
     p.<Map<String, Identifiable>>getProperty("children").put("fourth", c4);
 
@@ -1042,10 +1054,14 @@ public class CRUDTest extends BaseDBTest {
 
     session = createSessionInstance();
     session.begin();
-    c1 = session.bindToSession(c1);
-    c2 = session.bindToSession(c2);
-    c3 = session.bindToSession(c3);
-    c4 = session.bindToSession(c4);
+    var activeTx3 = session.getActiveTransaction();
+    c1 = activeTx3.load(c1);
+    var activeTx2 = session.getActiveTransaction();
+    c2 = activeTx2.load(c2);
+    var activeTx1 = session.getActiveTransaction();
+    c3 = activeTx1.load(c3);
+    var activeTx = session.getActiveTransaction();
+    c4 = activeTx.load(c4);
 
     Entity loaded = session.load(rid);
 
@@ -1126,10 +1142,14 @@ public class CRUDTest extends BaseDBTest {
     session.begin();
     Entity loaded = session.load(rid);
 
-    c1 = session.bindToSession(c1);
-    c2 = session.bindToSession(c2);
-    c3 = session.bindToSession(c3);
-    c4 = session.bindToSession(c4);
+    var activeTx3 = session.getActiveTransaction();
+    c1 = activeTx3.load(c1);
+    var activeTx2 = session.getActiveTransaction();
+    c2 = activeTx2.load(c2);
+    var activeTx1 = session.getActiveTransaction();
+    c3 = activeTx1.load(c3);
+    var activeTx = session.getActiveTransaction();
+    c4 = activeTx.load(c4);
 
     Identifiable identifiable3 = loaded
         .<Map<String, Identifiable>>getProperty("children")
@@ -1505,7 +1525,8 @@ public class CRUDTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    loaded = session.bindToSession(loaded);
+    var activeTx3 = session.getActiveTransaction();
+    loaded = activeTx3.load(loaded);
     for (var entry : relatives.entrySet()) {
       Assert.assertEquals(
           entry.getValue(),
@@ -1523,7 +1544,8 @@ public class CRUDTest extends BaseDBTest {
           loaded.<Map<String, String>>getProperty("stringMap").get(entry.getKey()));
     }
 
-    session.delete(session.bindToSession(loaded));
+    var activeTx2 = session.getActiveTransaction();
+    session.delete(activeTx2.<Entity>load(loaded));
     session.commit();
 
     session.begin();
@@ -1558,7 +1580,8 @@ public class CRUDTest extends BaseDBTest {
 
     session.begin();
     for (var entry : relatives.entrySet()) {
-      loaded = session.bindToSession(loaded);
+      var activeTx = session.getActiveTransaction();
+      loaded = activeTx.load(loaded);
       Assert.assertEquals(
           entry.getValue(),
           loaded.<Map<String, String>>getProperty("stringMap").get(entry.getKey()));
@@ -1576,7 +1599,8 @@ public class CRUDTest extends BaseDBTest {
           loaded.<Map<String, String>>getProperty("stringMap").get(entry.getKey()));
     }
 
-    session.delete(session.bindToSession(loaded));
+    var activeTx1 = session.getActiveTransaction();
+    session.delete(activeTx1.<Entity>load(loaded));
     session.commit();
 
     session.begin();
@@ -1611,7 +1635,8 @@ public class CRUDTest extends BaseDBTest {
 
     session.begin();
     for (var entry : relatives.entrySet()) {
-      loaded = session.bindToSession(loaded);
+      var activeTx = session.getActiveTransaction();
+      loaded = activeTx.load(loaded);
       Assert.assertEquals(
           entry.getValue(),
           loaded.<Map<String, String>>getProperty("stringMap").get(entry.getKey()));
@@ -1628,7 +1653,8 @@ public class CRUDTest extends BaseDBTest {
           entry.getValue(),
           loaded.<Map<String, String>>getProperty("stringMap").get(entry.getKey()));
     }
-    session.delete(session.bindToSession(loaded));
+    var activeTx = session.getActiveTransaction();
+    session.delete(activeTx.<Entity>load(loaded));
     session.commit();
   }
 
@@ -1646,10 +1672,12 @@ public class CRUDTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    testClassProxy = session.bindToSession(testClassProxy);
+    var activeTx4 = session.getActiveTransaction();
+    testClassProxy = activeTx4.load(testClassProxy);
     Assert.assertEquals(roles.size(), testClassProxy.<Set<String>>getProperty("stringSet").size());
     for (var referenceRole : roles) {
-      testClassProxy = session.bindToSession(testClassProxy);
+      var activeTx = session.getActiveTransaction();
+      testClassProxy = activeTx.load(testClassProxy);
       Assert.assertTrue(
           testClassProxy.<Set<String>>getProperty("stringSet").contains(referenceRole));
     }
@@ -1666,11 +1694,13 @@ public class CRUDTest extends BaseDBTest {
       Assert.assertTrue(loadedProxy.<Set<String>>getProperty("stringSet").contains(referenceRole));
     }
 
-    session.bindToSession(loadedProxy);
+    var activeTx3 = session.getActiveTransaction();
+    activeTx3.load(loadedProxy);
     session.commit();
 
     session.begin();
-    loadedProxy = session.bindToSession(loadedProxy);
+    var activeTx2 = session.getActiveTransaction();
+    loadedProxy = activeTx2.load(loadedProxy);
     Assert.assertEquals(roles.size(), loadedProxy.<Set<String>>getProperty("stringSet").size());
     for (var referenceRole : roles) {
       Assert.assertTrue(loadedProxy.<Set<String>>getProperty("stringSet").contains(referenceRole));
@@ -1681,7 +1711,8 @@ public class CRUDTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    loadedProxy = session.bindToSession(loadedProxy);
+    var activeTx1 = session.getActiveTransaction();
+    loadedProxy = activeTx1.load(loadedProxy);
     Assert.assertEquals(roles.size(), loadedProxy.<Set<String>>getProperty("stringSet").size());
     for (var referenceRole : roles) {
       Assert.assertTrue(loadedProxy.<Set<String>>getProperty("stringSet").contains(referenceRole));
@@ -1691,7 +1722,8 @@ public class CRUDTest extends BaseDBTest {
     session = createSessionInstance();
 
     session.begin();
-    loadedProxy = session.bindToSession(loadedProxy);
+    var activeTx = session.getActiveTransaction();
+    loadedProxy = activeTx.load(loadedProxy);
     Assert.assertEquals(roles.size(), loadedProxy.<Set<String>>getProperty("stringSet").size());
     for (var referenceRole : roles) {
       Assert.assertTrue(loadedProxy.<Set<String>>getProperty("stringSet").contains(referenceRole));
@@ -1749,7 +1781,8 @@ public class CRUDTest extends BaseDBTest {
           loaded.<Map<String, List<String>>>getProperty("stringListMap").get(entry.getKey()));
     }
 
-    session.delete(session.bindToSession(loaded));
+    var activeTx3 = session.getActiveTransaction();
+    session.delete(activeTx3.<Entity>load(loaded));
     session.commit();
 
     session.begin();
@@ -1784,7 +1817,8 @@ public class CRUDTest extends BaseDBTest {
           loaded.<Map<String, List<String>>>getProperty("stringListMap").get(entry.getKey()));
     }
 
-    session.delete(session.bindToSession(loaded));
+    var activeTx2 = session.getActiveTransaction();
+    session.delete(activeTx2.<Entity>load(loaded));
     session.commit();
 
     session.begin();
@@ -1833,7 +1867,8 @@ public class CRUDTest extends BaseDBTest {
           loaded.<Map<String, List<String>>>getProperty("stringListMap").get(entry.getKey()));
     }
 
-    session.delete(session.bindToSession(loaded));
+    var activeTx1 = session.getActiveTransaction();
+    session.delete(activeTx1.<Entity>load(loaded));
     session.commit();
 
     // TEST WITH JAVA CONSTRUCTOR
@@ -1868,7 +1903,8 @@ public class CRUDTest extends BaseDBTest {
           loaded.<Map<String, List<String>>>getProperty("stringListMap").get(entry.getKey()));
     }
 
-    session.delete(session.bindToSession(loaded));
+    var activeTx = session.getActiveTransaction();
+    session.delete(activeTx.<Entity>load(loaded));
     session.commit();
   }
 
@@ -1924,7 +1960,8 @@ public class CRUDTest extends BaseDBTest {
 
     session.begin();
     for (var entry : relatives.entrySet()) {
-      loaded = session.bindToSession(loaded);
+      var activeTx = session.getActiveTransaction();
+      loaded = activeTx.load(loaded);
       Assert.assertEquals(
           entry.getValue(),
           loaded.<Map<String, Object>>getProperty("mapObject").get(entry.getKey()));
@@ -1942,7 +1979,8 @@ public class CRUDTest extends BaseDBTest {
           loaded.<Map<String, Object>>getProperty("mapObject").get(entry.getKey()));
     }
 
-    session.delete(session.bindToSession(loaded));
+    var activeTx2 = session.getActiveTransaction();
+    session.delete(activeTx2.<Entity>load(loaded));
     session.commit();
 
     // TEST WITH OBJECT DATABASE NEW INSTANCE AND MAP DIRECT SET
@@ -1978,7 +2016,8 @@ public class CRUDTest extends BaseDBTest {
 
     session.begin();
     for (var entry : relatives.entrySet()) {
-      loaded = session.bindToSession(loaded);
+      var activeTx = session.getActiveTransaction();
+      loaded = activeTx.load(loaded);
       Assert.assertEquals(
           entry.getValue(),
           loaded.<Map<String, Object>>getProperty("mapObject").get(entry.getKey()));
@@ -1996,7 +2035,8 @@ public class CRUDTest extends BaseDBTest {
           loaded.<Map<String, Object>>getProperty("mapObject").get(entry.getKey()));
     }
 
-    session.delete(session.bindToSession(loaded));
+    var activeTx1 = session.getActiveTransaction();
+    session.delete(activeTx1.<Entity>load(loaded));
     session.commit();
     session.begin();
 
@@ -2030,7 +2070,8 @@ public class CRUDTest extends BaseDBTest {
 
     session.begin();
     for (var entry : relatives.entrySet()) {
-      loaded = session.bindToSession(loaded);
+      var activeTx = session.getActiveTransaction();
+      loaded = activeTx.load(loaded);
       Assert.assertEquals(
           entry.getValue(),
           loaded.<Map<String, Object>>getProperty("mapObject").get(entry.getKey()));
@@ -2048,7 +2089,8 @@ public class CRUDTest extends BaseDBTest {
           loaded.<Map<String, Object>>getProperty("mapObject").get(entry.getKey()));
     }
 
-    session.delete(session.bindToSession(loaded));
+    var activeTx = session.getActiveTransaction();
+    session.delete(activeTx.<Entity>load(loaded));
     session.commit();
   }
 
@@ -2148,8 +2190,10 @@ public class CRUDTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    p = session.bindToSession(p);
-    testDocument = session.bindToSession(testDocument);
+    var activeTx3 = session.getActiveTransaction();
+    p = activeTx3.load(p);
+    var activeTx2 = session.getActiveTransaction();
+    testDocument = activeTx2.load(testDocument);
     p.setProperty("document", testDocument);
 
     var testRecordBytes =
@@ -2214,7 +2258,8 @@ public class CRUDTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    p = session.bindToSession(p);
+    var activeTx1 = session.getActiveTransaction();
+    p = activeTx1.load(p);
     Assert.assertNotNull(p.getBlob("byteArray"));
     try {
       try (var out = new ByteArrayOutputStream()) {
@@ -2276,7 +2321,8 @@ public class CRUDTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    p = session.bindToSession(p);
+    var activeTx = session.getActiveTransaction();
+    p = activeTx.load(p);
     Assert.assertNotNull(p.getBlob("byteArray"));
     try {
       try (var out = new ByteArrayOutputStream()) {
@@ -2333,11 +2379,13 @@ public class CRUDTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    media = session.bindToSession(media);
+    var activeTx1 = session.getActiveTransaction();
+    media = activeTx1.load(media);
     Assert.assertEquals(new String(media.getBlob("content").toStream()), "This is a test");
 
     // try to delete
-    session.delete(session.bindToSession(media));
+    var activeTx = session.getActiveTransaction();
+    session.delete(activeTx.<Entity>load(media));
     session.commit();
   }
 
@@ -2681,7 +2729,8 @@ public class CRUDTest extends BaseDBTest {
     Assert.assertEquals(presult.size(), 1);
     Assert.assertEquals(cresult.size(), 0);
 
-    session.delete(session.bindToSession(parent));
+    var activeTx = session.getActiveTransaction();
+    session.delete(activeTx.<EntityImpl>load(parent));
     session.commit();
 
     session.begin();

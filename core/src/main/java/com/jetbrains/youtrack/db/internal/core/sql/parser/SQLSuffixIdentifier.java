@@ -13,6 +13,7 @@ import com.jetbrains.youtrack.db.internal.common.util.Resettable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
+import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
@@ -77,7 +78,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
       if (varName.equalsIgnoreCase("$parent")) {
         return ctx.getParent();
       }
-      if (varName.startsWith("$") && ctx.getVariable(varName) != null) {
+      if (!varName.isEmpty() && varName.charAt(0) == '$' && ctx.getVariable(varName) != null) {
         return ctx.getVariable(varName);
       }
 
@@ -89,10 +90,14 @@ public class SQLSuffixIdentifier extends SimpleNode {
           }
         }
         try {
-          var transaction = db.getActiveTransaction();
-          Entity rec = transaction.load(iCurrentRecord);
-          if (rec.isUnloaded()) {
-            rec = ctx.getDatabaseSession().bindToSession(rec);
+
+          Entity rec;
+          if (iCurrentRecord instanceof Entity entity) {
+            rec = entity;
+          } else if (iCurrentRecord instanceof RecordId) {
+            rec = db.getActiveTransaction().loadEntity(iCurrentRecord);
+          } else {
+            throw new CommandExecutionException("Unexpected type of record: " + iCurrentRecord);
           }
 
           var result = rec.getProperty(varName);

@@ -46,6 +46,7 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -731,8 +732,7 @@ public class EntityHelper {
       if (begin == '@') {
         // RETURN AN ATTRIBUTE
         if (iFieldName.equalsIgnoreCase(ATTRIBUTE_THIS)) {
-          var transaction = session.getActiveTransaction();
-          return transaction.load(current);
+          return current;
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_RID)) {
           return current.getIdentity();
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_RID_ID)) {
@@ -740,27 +740,37 @@ public class EntityHelper {
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_RID_POS)) {
           return current.getIdentity().getClusterPosition();
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_VERSION)) {
-          var transaction = session.getActiveTransaction();
-          return transaction.load(current).getVersion();
+          if (current instanceof RecordAbstract recordAbstract) {
+            return recordAbstract.getVersion();
+          }
+
+          return -1;
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_CLASS)) {
-          var transaction = session.getActiveTransaction();
-          return ((EntityImpl) transaction.load(current)).getSchemaClassName();
+          return ((EntityImpl) current).getSchemaClassName();
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_TYPE)) {
-          var transaction = session.getActiveTransaction();
-          return YouTrackDBEnginesManager.instance()
-              .getRecordFactoryManager()
-              .getRecordTypeName(
-                  transaction.<RecordAbstract>load(current).getRecordType());
+          if (current instanceof RecordAbstract recordAbstract) {
+            return YouTrackDBEnginesManager.instance()
+                .getRecordFactoryManager()
+                .getRecordTypeName(
+                    recordAbstract.getRecordType());
+          }
+          return null;
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_SIZE)) {
-          var transaction = session.getActiveTransaction();
-          final var stream = ((RecordAbstract) transaction.load(current)).toStream();
-          return stream != null ? stream.length : 0;
+          if (current instanceof RecordAbstract recordAbstract) {
+            final var stream = recordAbstract.toStream();
+            return stream != null ? stream.length : 0;
+          }
+          return null;
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_FIELDS)) {
-          var transaction = session.getActiveTransaction();
-          return ((EntityImpl) transaction.load(current)).propertyNames();
+          if (current instanceof Entity entity) {
+            return entity.getPropertyNames();
+          }
+          return Collections.emptyList();
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_RAW)) {
-          var transaction = session.getActiveTransaction();
-          return new String(((RecordAbstract) transaction.load(current)).toStream());
+          if (current instanceof RecordAbstract recordAbstract) {
+            return new String(recordAbstract.toStream());
+          }
+          return null;
         }
       }
       return null;

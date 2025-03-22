@@ -28,8 +28,10 @@ public class LinksetInTransactionTest extends DbTestBase {
 
     /* Only in transaction - without transaction all OK */
     session.begin();
-    withLinks1 = session.bindToSession(withLinks1);
-    link1 = session.bindToSession(link1);
+    var activeTx2 = session.getActiveTransaction();
+    withLinks1 = activeTx2.load(withLinks1);
+    var activeTx1 = session.getActiveTransaction();
+    link1 = activeTx1.load(link1);
 
     /* Add a new linked record */
     var link2 = session.newInstance("Linked");
@@ -51,7 +53,8 @@ public class LinksetInTransactionTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    withLinks1 = session.bindToSession(withLinks1);
+    var activeTx = session.getActiveTransaction();
+    withLinks1 = activeTx.load(withLinks1);
     links = withLinks1.getProperty("links");
     /* Initial record was removed */
     Assert.assertFalse(links.contains(link1));

@@ -52,7 +52,8 @@ public class DateTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    doc2 = session.bindToSession(doc2);
+    var activeTx = session.getActiveTransaction();
+    doc2 = activeTx.load(doc2);
     Assert.assertNotNull(doc2.getDate("date"));
 
     var result =

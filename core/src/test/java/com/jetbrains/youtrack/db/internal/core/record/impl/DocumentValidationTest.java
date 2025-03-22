@@ -791,7 +791,8 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
     try {
       session.begin();
-      entity = session.bindToSession(entity);
+      var activeTx = session.getActiveTransaction();
+      entity = activeTx.load(entity);
       entity.getLinkList("linkList").add(session.newEntity(clazz));
       ((EntityImpl) entity).validate();
       fail();
@@ -801,7 +802,8 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
     try {
       session.begin();
-      entity = session.bindToSession(entity);
+      var activeTx = session.getActiveTransaction();
+      entity = activeTx.load(entity);
       entity.getLinkSet("linkSet").add(session.newEntity(clazz));
       ((EntityImpl) entity).validate();
       fail();
@@ -811,7 +813,8 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
     try {
       session.begin();
-      entity = session.bindToSession(entity);
+      var activeTx = session.getActiveTransaction();
+      entity = activeTx.load(entity);
       ((RidBag) entity.getProperty("linkBag")).add(session.newEntity(clazz).getIdentity());
       session.commit();
       fail();
@@ -821,7 +824,8 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
     try {
       session.begin();
-      entity = session.bindToSession(entity);
+      var activeTx = session.getActiveTransaction();
+      entity = activeTx.load(entity);
       entity.getLinkMap("linkMap").put("a", session.newEntity(clazz));
       ((EntityImpl) entity).validate();
       fail();

@@ -97,7 +97,8 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
     }
     assertThat(coll).hasSize(2);
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     // modify london: it is rainy
     List<String> tags = doc.getProperty("tags");
     tags.remove("Sunny");

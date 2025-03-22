@@ -1731,8 +1731,6 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
                 contexts[current] = threadContext;
 
                 localDatabase = session.copy();
-
-                localDatabase.activateOnCurrentThread();
                 threadContext.setDatabaseSession(localDatabase);
 
                 // CREATE A SNAPSHOT TO AVOID DEADLOCKS

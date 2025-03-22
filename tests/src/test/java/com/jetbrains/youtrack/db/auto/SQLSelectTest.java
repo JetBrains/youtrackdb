@@ -170,7 +170,8 @@ public class SQLSelectTest extends AbstractSelectTest {
     Assert.assertEquals(resultset.getFirst().getIdentity(), doc.getIdentity());
 
     session.begin();
-    session.bindToSession(doc).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
     session.commit();
   }
 
@@ -200,7 +201,8 @@ public class SQLSelectTest extends AbstractSelectTest {
     Assert.assertEquals(resultset.getFirst().getIdentity(), doc.getIdentity());
 
     session.begin();
-    session.bindToSession(doc).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
     session.commit();
   }
 
@@ -234,7 +236,8 @@ public class SQLSelectTest extends AbstractSelectTest {
         "Jay");
 
     session.begin();
-    session.bindToSession(doc).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
     session.commit();
   }
 
@@ -270,7 +273,8 @@ public class SQLSelectTest extends AbstractSelectTest {
         "Jay");
 
     session.begin();
-    session.bindToSession(doc).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
     session.commit();
   }
 
@@ -309,7 +313,8 @@ public class SQLSelectTest extends AbstractSelectTest {
     Assert.assertEquals(resultset.getFirst().getIdentity(), doc.getIdentity());
 
     session.begin();
-    session.bindToSession(doc).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
     session.commit();
   }
 
@@ -349,7 +354,8 @@ public class SQLSelectTest extends AbstractSelectTest {
     Assert.assertEquals(resultset.getFirst().getIdentity(), doc.getIdentity());
 
     session.begin();
-    session.bindToSession(doc).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
     session.commit();
   }
 
@@ -473,7 +479,8 @@ public class SQLSelectTest extends AbstractSelectTest {
     Assert.assertEquals(result.size(), 1);
 
     session.begin();
-    session.bindToSession(record).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(record).delete();
     session.commit();
   }
 
@@ -535,7 +542,8 @@ public class SQLSelectTest extends AbstractSelectTest {
     Assert.assertEquals(result.size(), 1);
 
     session.begin();
-    session.bindToSession(record).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(record).delete();
     session.commit();
   }
 

@@ -81,7 +81,6 @@ public class YouTrackDbJdbcStatement implements Statement {
       int resultSetHoldability) {
     this.connection = iConnection;
     this.session = (DatabaseSessionInternal) iConnection.getDatabaseSession();
-    session.activateOnCurrentThread();
     batches = new ArrayList<>();
     this.resultSetType = resultSetType;
     this.resultSetConcurrency = resultSetConcurrency;

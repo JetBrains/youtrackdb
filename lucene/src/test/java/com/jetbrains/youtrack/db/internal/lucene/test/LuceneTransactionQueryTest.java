@@ -18,6 +18,7 @@
 
 package com.jetbrains.youtrack.db.internal.lucene.test;
 
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -148,7 +149,9 @@ public class LuceneTransactionQueryTest extends BaseLuceneTest {
 
     session.begin();
 
-    var record = session.bindToSession(res.asEntity());
+    Entity identifiable = res.asEntity();
+    var activeTx = session.getActiveTransaction();
+    var record = activeTx.<Entity>load(identifiable);
     record.setProperty("p1", "removed");
 
     vertices = session.query("select from C1 where p1 lucene \"update\" ");
@@ -206,7 +209,8 @@ public class LuceneTransactionQueryTest extends BaseLuceneTest {
 
     session.begin();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     doc.setProperty("p1", "removed");
 
     var vertices = session.query("select from C1 where p1 lucene \"abc\"");

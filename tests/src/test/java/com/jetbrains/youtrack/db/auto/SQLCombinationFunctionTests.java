@@ -367,11 +367,15 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
       final Vertex from;
       final Vertex to;
       if (re.reverse) {
-        from = session.bindToSession(motorcycle);
-        to = session.bindToSession(car);
+        var activeTx1 = session.getActiveTransaction();
+        from = activeTx1.load(motorcycle);
+        var activeTx = session.getActiveTransaction();
+        to = activeTx.load(car);
       } else {
-        from = session.bindToSession(car);
-        to = session.bindToSession(motorcycle);
+        var activeTx1 = session.getActiveTransaction();
+        from = activeTx1.load(car);
+        var activeTx = session.getActiveTransaction();
+        to = activeTx.load(motorcycle);
       }
       session.newStatefulEdge(from, to);
     }

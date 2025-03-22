@@ -20,8 +20,6 @@
 
 package com.jetbrains.youtrack.db.internal.core.index;
 
-import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeTimeLine;
@@ -42,13 +40,11 @@ public class ClassIndexManager {
 
   public static void checkIndexesAfterCreate(
       EntityImpl entity, DatabaseSessionInternal database) {
-    entity = checkForLoading(database, entity);
     processIndexOnCreate(database, entity);
   }
 
   public static void reIndex(DatabaseSessionInternal session, EntityImpl entity,
       Index index) {
-    entity = checkForLoading(session, entity);
     addIndexEntry(session, entity, entity.getIdentity(), index);
   }
 
@@ -66,7 +62,6 @@ public class ClassIndexManager {
 
   public static void checkIndexesAfterUpdate(
       EntityImpl entity, DatabaseSessionInternal database) {
-    entity = checkForLoading(database, entity);
     processIndexOnUpdate(database, entity);
   }
 
@@ -382,21 +377,6 @@ public class ClassIndexManager {
       return true;
     }
     return false;
-  }
-
-  private static EntityImpl checkForLoading(DatabaseSessionInternal session,
-      final EntityImpl iRecord) {
-    if (iRecord.isUnloaded()) {
-      try {
-        return session.load(iRecord.getIdentity());
-      } catch (final RecordNotFoundException e) {
-        throw BaseException.wrapException(
-            new IndexException(session.getDatabaseName(),
-                "Error during loading of record with id " + iRecord.getIdentity()),
-            e, session.getDatabaseName());
-      }
-    }
-    return iRecord;
   }
 
   public static void processIndexUpdate(

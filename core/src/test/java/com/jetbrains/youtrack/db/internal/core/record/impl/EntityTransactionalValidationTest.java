@@ -32,7 +32,8 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
     session.commit();
     session.begin();
     session.begin();
-    Integer value = session.bindToSession(vertex).getProperty("int");
+    var activeTx = session.getActiveTransaction();
+    Integer value = activeTx.<Vertex>load(vertex).getProperty("int");
     Assert.assertEquals((Integer) 11, value);
   }
 
@@ -45,7 +46,8 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
     vertex.setProperty("int", "11");
     session.commit();
     session.begin();
-    Integer value = session.bindToSession(vertex).getProperty("int");
+    var activeTx = session.getActiveTransaction();
+    Integer value = activeTx.<Vertex>load(vertex).getProperty("int");
     Assert.assertEquals((Integer) 11, value);
   }
 
@@ -62,7 +64,8 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
     vertex.setProperty("str", "abacorrect");
     session.commit();
     session.begin();
-    Assert.assertEquals("abacorrect", session.bindToSession(vertex).getProperty("str"));
+    var activeTx = session.getActiveTransaction();
+    Assert.assertEquals("abacorrect", activeTx.<Vertex>load(vertex).getProperty("str"));
     session.commit();
   }
 
@@ -135,7 +138,8 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
     vrt.getOrCreateEmbeddedList("arr").addAll(Arrays.asList(1, 2, 3));
     session.commit();
     session.begin();
-    vrt = session.bindToSession(vrt);
+    var activeTx = session.getActiveTransaction();
+    vrt = activeTx.load(vrt);
     List<Integer> arr = vrt.getProperty("arr");
     arr.clear();
     session.commit();
@@ -155,7 +159,8 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
     vrt.addLightWeightEdge(link, edgeClass);
     session.commit();
     session.begin();
-    vrt = session.bindToSession(vrt);
+    var activeTx = session.getActiveTransaction();
+    vrt = activeTx.load(vrt);
     vrt.getEdges(Direction.OUT, edgeClass).forEach(Edge::delete);
     var link2 = session.newVertex(linkClass.getName());
     vrt.addLightWeightEdge(link2, edgeClass);
@@ -179,7 +184,8 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
     vertex.setProperty("dbl", 2.39);
     session.commit();
     session.begin();
-    vertex = session.bindToSession(vertex);
+    var activeTx = session.getActiveTransaction();
+    vertex = activeTx.load(vertex);
     float actual = vertex.getProperty("dbl");
     Assert.assertEquals(2.39, actual, 0.01);
     session.commit();

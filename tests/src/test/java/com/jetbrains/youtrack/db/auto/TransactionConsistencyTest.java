@@ -84,7 +84,8 @@ public class TransactionConsistencyTest extends BaseDBTest {
       database1.activateOnCurrentThread();
       database1.begin();
       try {
-        vDocA_db1 = database1.bindToSession(vDocA_db1);
+        var activeTx = database1.getActiveTransaction();
+        vDocA_db1 = activeTx.load(vDocA_db1);
 
         vDocA_db1.setProperty(NAME, "docA_v3");
 
@@ -92,8 +93,10 @@ public class TransactionConsistencyTest extends BaseDBTest {
       } catch (ConcurrentModificationException e) {
         Assert.fail("Should not failed here...");
       }
-      vDocA_db1 = database1.bindToSession(vDocA_db1);
-      vDocB_db1 = database1.bindToSession(vDocB_db1);
+      var activeTx1 = database1.getActiveTransaction();
+      vDocA_db1 = activeTx1.load(vDocA_db1);
+      var activeTx = database1.getActiveTransaction();
+      vDocB_db1 = activeTx.load(vDocB_db1);
 
       Assert.assertEquals(vDocA_db1.getProperty(NAME), "docA_v3");
       // Keep the last versions.
@@ -155,13 +158,15 @@ public class TransactionConsistencyTest extends BaseDBTest {
       database1.activateOnCurrentThread();
       database1.begin();
       try {
-        vDocA_db1 = database1.bindToSession(vDocA_db1);
+        var activeTx = database1.getActiveTransaction();
+        vDocA_db1 = activeTx.load(vDocA_db1);
         vDocA_db1.setProperty(NAME, "docA_v3");
         database1.commit();
       } catch (ConcurrentModificationException e) {
         Assert.fail("Should not failed here...");
       }
-      vDocA_db1 = database1.bindToSession(vDocA_db1);
+      var activeTx = database1.getActiveTransaction();
+      vDocA_db1 = activeTx.load(vDocA_db1);
       Assert.assertEquals(vDocA_db1.getProperty(NAME), "docA_v3");
 
       // Will throw ConcurrentModificationException
@@ -214,14 +219,16 @@ public class TransactionConsistencyTest extends BaseDBTest {
       database1.activateOnCurrentThread();
       database1.begin();
       try {
-        vDocA_db1 = database1.bindToSession(vDocA_db1);
+        var activeTx = database1.getActiveTransaction();
+        vDocA_db1 = activeTx.load(vDocA_db1);
         vDocA_db1.setProperty(NAME, "docA_v3");
         database1.commit();
       } catch (ConcurrentModificationException e) {
         Assert.fail("Should not failed here...");
       }
 
-      vDocA_db1 = database1.bindToSession(vDocA_db1);
+      var activeTx = database1.getActiveTransaction();
+      vDocA_db1 = activeTx.load(vDocA_db1);
       Assert.assertEquals(vDocA_db1.getProperty(NAME), "docA_v3");
 
       // Will throw ConcurrentModificationException
@@ -315,20 +322,24 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
     var jackLastVersion = loadedJack.getVersion();
     session.begin();
-    loadedJack = session.bindToSession(loadedJack);
+    var activeTx3 = session.getActiveTransaction();
+    loadedJack = activeTx3.load(loadedJack);
     loadedJack.setProperty("occupation", "agent");
 
     session.commit();
-    Assert.assertTrue(jackLastVersion != session.bindToSession(loadedJack).getVersion());
+    var activeTx2 = session.getActiveTransaction();
+    Assert.assertTrue(jackLastVersion != activeTx2.<EntityImpl>load(loadedJack).getVersion());
 
     loadedJack = session.load(jack.getIdentity());
-    Assert.assertTrue(jackLastVersion != session.bindToSession(loadedJack).getVersion());
+    var activeTx1 = session.getActiveTransaction();
+    Assert.assertTrue(jackLastVersion != activeTx1.<EntityImpl>load(loadedJack).getVersion());
 
     session.close();
 
     session = acquireSession();
     loadedJack = session.load(jack.getIdentity());
-    Assert.assertTrue(jackLastVersion != session.bindToSession(loadedJack).getVersion());
+    var activeTx = session.getActiveTransaction();
+    Assert.assertTrue(jackLastVersion != activeTx.<EntityImpl>load(loadedJack).getVersion());
     session.close();
   }
 
@@ -490,7 +501,8 @@ public class TransactionConsistencyTest extends BaseDBTest {
       // do delete
       session.begin();
       for (var entries : v) {
-        session.delete(session.bindToSession(entries));
+        var activeTx = session.getActiveTransaction();
+        session.delete(activeTx.<EntityImpl>load(entries));
       }
       session.commit();
 
@@ -528,7 +540,8 @@ public class TransactionConsistencyTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 1);
     // Step 4a
     session.begin();
-    session.delete(session.bindToSession(result.get(0)));
+    var activeTx2 = session.getActiveTransaction();
+    session.delete(activeTx2.<Entity>load(result.get(0)));
     session.commit();
 
     // Step 3b
@@ -536,7 +549,8 @@ public class TransactionConsistencyTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 1);
     // Step 4b
     session.begin();
-    session.delete(session.bindToSession(result.get(0)));
+    var activeTx1 = session.getActiveTransaction();
+    session.delete(activeTx1.<Entity>load(result.get(0)));
     session.commit();
 
     // Step 3c
@@ -544,7 +558,8 @@ public class TransactionConsistencyTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 1);
     // Step 4c
     session.begin();
-    session.delete(session.bindToSession(result.get(0)));
+    var activeTx = session.getActiveTransaction();
+    session.delete(activeTx.<Entity>load(result.get(0)));
     session.commit();
   }
 
@@ -575,8 +590,10 @@ public class TransactionConsistencyTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    foo = session.bindToSession(foo);
-    bar = session.bindToSession(bar);
+    var activeTx2 = session.getActiveTransaction();
+    foo = activeTx2.load(foo);
+    var activeTx1 = session.getActiveTransaction();
+    bar = activeTx1.load(bar);
     var sees = session.newStatefulEdge(foo, bar, "Sees");
     session.commit();
 
@@ -584,7 +601,9 @@ public class TransactionConsistencyTest extends BaseDBTest {
     Assert.assertEquals(foos.size(), 1);
 
     session.begin();
-    session.delete(session.bindToSession(foos.getFirst().asEntityOrNull()));
+    Entity identifiable = foos.getFirst().asEntityOrNull();
+    var activeTx = session.getActiveTransaction();
+    session.delete(activeTx.<Entity>load(identifiable));
     session.commit();
   }
 
@@ -625,7 +644,8 @@ public class TransactionConsistencyTest extends BaseDBTest {
         edge.setProperty("in", person.getIdentity());
         edge.setProperty("out", inserted.get(i - 1));
         (person.<Set<EntityImpl>>getProperty("out")).add(edge);
-        (session.bindToSession(inserted.get(i - 1)).<Set<EntityImpl>>getProperty("in")).add(
+        var activeTx = session.getActiveTransaction();
+        (activeTx.<Entity>load(inserted.get(i - 1)).<Set<EntityImpl>>getProperty("in")).add(
             edge);
 
       }
@@ -665,14 +685,16 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
             for (var i = 0; i < cnt; i++) {
               if (i != cnt - 1) {
-                var doc = session.bindToSession((EntityImpl) inserted.get(i));
+                var activeTx = session.getActiveTransaction();
+                var doc = activeTx.<EntityImpl>load(inserted.get(i));
                 doc.setProperty("myversion", 2);
 
               }
             }
 
             var doc = ((EntityImpl) inserted.get(cnt - 1));
-            session.bindToSession(doc).delete();
+            var activeTx = session.getActiveTransaction();
+            activeTx.<EntityImpl>load(doc).delete();
 
             throw new IllegalStateException();
           });
@@ -726,7 +748,8 @@ public class TransactionConsistencyTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    account = session.bindToSession(account);
+    var activeTx2 = session.getActiveTransaction();
+    account = activeTx2.load(account);
     var address1 = session.newEntity("Address");
     address1.setProperty("street", "Mulholland drive");
 
@@ -743,7 +766,8 @@ public class TransactionConsistencyTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    account = session.bindToSession(account);
+    var activeTx1 = session.getActiveTransaction();
+    account = activeTx1.load(account);
     String originalName = account.getProperty("name");
     Assert.assertEquals(account.<List<Identifiable>>getProperty("addresses").size(), 2);
     account
@@ -760,7 +784,8 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
     session.rollback(); // rollback the transaction
 
-    account = session.bindToSession(account);
+    var activeTx = session.getActiveTransaction();
+    account = activeTx.load(account);
     Assert.assertEquals(
         account.<List<Identifiable>>getProperty("addresses").size(),
         2); // this is fine, author still linked to 2 books

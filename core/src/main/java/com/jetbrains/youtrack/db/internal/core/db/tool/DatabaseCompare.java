@@ -113,7 +113,6 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                   return null;
                 }
 
-                sessionTwo.activateOnCurrentThread();
                 try (final var resultSet =
                     sessionTwo.query(
                         "select value from "
@@ -678,10 +677,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
           try {
             recordsCounter++;
 
-            sessionOne.activateOnCurrentThread();
             final var entity1 = new EntityImpl(sessionOne);
-            sessionTwo.activateOnCurrentThread();
-
             final var entity2 = new EntityImpl(sessionTwo);
 
             final var position = physicalPosition.clusterPosition;

@@ -534,7 +534,8 @@ public abstract class RidBagTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx2 = session.getActiveTransaction();
+    entity = activeTx2.load(entity);
     ridBag = entity.getProperty("ridBag");
     ridBag.add(new RecordId("#77:10"));
     Assert.assertTrue(entity.isDirty());
@@ -552,14 +553,16 @@ public abstract class RidBagTest extends BaseDBTest {
 
     session.begin();
     var version = entity.getVersion();
-    entity = session.bindToSession(entity);
+    var activeTx1 = session.getActiveTransaction();
+    entity = activeTx1.load(entity);
     ridBag = entity.getProperty("ridBag");
     ridBag.add(new RecordId("#77:12"));
 
     session.commit();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
     Assert.assertEquals(version == entity.getVersion(), !expectCME);
     session.rollback();
   }
@@ -700,8 +703,10 @@ public abstract class RidBagTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    docOne = session.bindToSession(docOne);
-    docTwo = session.bindToSession(docTwo);
+    var activeTx1 = session.getActiveTransaction();
+    docOne = activeTx1.load(docOne);
+    var activeTx = session.getActiveTransaction();
+    docTwo = activeTx.load(docTwo);
 
     ridBagOne = docOne.getProperty("ridBag");
     ridBagOne.add(docTwo.getIdentity());
@@ -1037,7 +1042,8 @@ public abstract class RidBagTest extends BaseDBTest {
     }
 
     session.begin();
-    session.bindToSession(document).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(document).delete();
     session.commit();
   }
 
@@ -1061,7 +1067,8 @@ public abstract class RidBagTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx1 = session.getActiveTransaction();
+    document = activeTx1.load(document);
     ridBag = document.getProperty("ridBag");
 
     Set<Identifiable> docs = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -1119,7 +1126,8 @@ public abstract class RidBagTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     ridBag = document.getProperty("ridBag");
     Assert.assertEquals(ridBag.size(), 0);
     Assert.assertEquals(docs.size(), 0);
@@ -1153,7 +1161,8 @@ public abstract class RidBagTest extends BaseDBTest {
       session.begin();
       var docToAdd = ((EntityImpl) session.newEntity());
 
-      document = session.bindToSession(document);
+      var activeTx = session.getActiveTransaction();
+      document = activeTx.load(document);
       ridBag = document.getProperty("ridBag");
       for (var k = 0; k < 2; k++) {
         ridBag.add(docToAdd.getIdentity());
@@ -1167,7 +1176,8 @@ public abstract class RidBagTest extends BaseDBTest {
       session.begin();
       var docToAdd = ((EntityImpl) session.newEntity());
 
-      document = session.bindToSession(document);
+      var activeTx = session.getActiveTransaction();
+      document = activeTx.load(document);
       ridBag = document.getProperty("ridBag");
       ridBag.add(docToAdd.getIdentity());
       itemsToAdd.add(docToAdd);
@@ -1178,7 +1188,8 @@ public abstract class RidBagTest extends BaseDBTest {
     assertEmbedded(ridBag.isEmbedded());
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx1 = session.getActiveTransaction();
+    document = activeTx1.load(document);
     ridBag = document.getProperty("ridBag");
     for (var i = 0; i < 10; i++) {
       var docToAdd = ((EntityImpl) session.newEntity());
@@ -1200,7 +1211,8 @@ public abstract class RidBagTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     ridBag = document.getProperty("ridBag");
     assertEmbedded(ridBag.isEmbedded());
 
@@ -1239,7 +1251,8 @@ public abstract class RidBagTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx6 = session.getActiveTransaction();
+    document = activeTx6.load(document);
     ridBag = document.getProperty("ridBag");
     Assert.assertTrue(ridBag.isEmbedded());
 
@@ -1259,7 +1272,8 @@ public abstract class RidBagTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx5 = session.getActiveTransaction();
+    document = activeTx5.load(document);
     ridBag = document.getProperty("ridBag");
     Assert.assertTrue(ridBag.isEmbedded());
     session.rollback();
@@ -1270,15 +1284,18 @@ public abstract class RidBagTest extends BaseDBTest {
     session.commit();
     session.begin();
 
-    docToAdd = session.bindToSession(docToAdd);
-    document = session.bindToSession(document);
+    var activeTx4 = session.getActiveTransaction();
+    docToAdd = activeTx4.load(docToAdd);
+    var activeTx3 = session.getActiveTransaction();
+    document = activeTx3.load(document);
     ridBag = document.getProperty("ridBag");
     ridBag.add(docToAdd.getIdentity());
     addedItems.add(docToAdd.getIdentity());
 
     session.commit();
 
-    document = session.bindToSession(document);
+    var activeTx2 = session.getActiveTransaction();
+    document = activeTx2.load(document);
     ridBag = document.getProperty("ridBag");
     Assert.assertFalse(ridBag.isEmbedded());
 
@@ -1290,7 +1307,8 @@ public abstract class RidBagTest extends BaseDBTest {
     Assert.assertTrue(addedItems.isEmpty());
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx1 = session.getActiveTransaction();
+    document = activeTx1.load(document);
     ridBag = document.getProperty("ridBag");
     Assert.assertFalse(ridBag.isEmbedded());
 
@@ -1313,7 +1331,8 @@ public abstract class RidBagTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     ridBag = document.getProperty("ridBag");
     Assert.assertFalse(ridBag.isEmbedded());
 
@@ -1358,7 +1377,8 @@ public abstract class RidBagTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx5 = session.getActiveTransaction();
+    document = activeTx5.load(document);
     ridBag = document.getProperty("ridBag");
     Assert.assertTrue(ridBag.isEmbedded());
 
@@ -1376,7 +1396,8 @@ public abstract class RidBagTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx4 = session.getActiveTransaction();
+    document = activeTx4.load(document);
     ridBag = document.getProperty("ridBag");
     Assert.assertTrue(ridBag.isEmbedded());
 
@@ -1385,8 +1406,10 @@ public abstract class RidBagTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
-    docToAdd = session.bindToSession(docToAdd);
+    var activeTx3 = session.getActiveTransaction();
+    document = activeTx3.load(document);
+    var activeTx2 = session.getActiveTransaction();
+    docToAdd = activeTx2.load(docToAdd);
 
     ridBag = document.getProperty("ridBag");
     ridBag.add(docToAdd.getIdentity());
@@ -1395,7 +1418,8 @@ public abstract class RidBagTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx1 = session.getActiveTransaction();
+    document = activeTx1.load(document);
     ridBag = document.getProperty("ridBag");
     Assert.assertFalse(ridBag.isEmbedded());
 
@@ -1428,7 +1452,8 @@ public abstract class RidBagTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     ridBag = document.getProperty("ridBag");
     Assert.assertFalse(ridBag.isEmbedded());
 
@@ -1470,7 +1495,8 @@ public abstract class RidBagTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx1 = session.getActiveTransaction();
+    document = activeTx1.load(document);
     ridBag = document.getProperty("ridBag");
     assertEmbedded(ridBag.isEmbedded());
 
@@ -1502,7 +1528,8 @@ public abstract class RidBagTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     ridBag = document.getProperty("ridBag");
     assertEmbedded(ridBag.isEmbedded());
 
@@ -1609,7 +1636,8 @@ public abstract class RidBagTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     ridBag = document.getProperty("ridBag");
     Assert.assertEquals(ridBag.size(), size);
 
@@ -1680,7 +1708,8 @@ public abstract class RidBagTest extends BaseDBTest {
 
     session.begin();
 
-    testDocument = session.bindToSession(testDocument);
+    var activeTx = session.getActiveTransaction();
+    testDocument = activeTx.load(testDocument);
     final var json = testDocument.toJSON();
 
     final var doc = ((EntityImpl) session.newEntity());

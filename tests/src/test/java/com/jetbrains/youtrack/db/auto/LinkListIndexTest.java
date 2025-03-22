@@ -188,7 +188,8 @@ public class LinkListIndexTest extends BaseDBTest {
 
     try {
       session.begin();
-      document = session.bindToSession(document);
+      var activeTx = session.getActiveTransaction();
+      document = activeTx.load(document);
       document.setProperty("linkCollection",
           new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docThree.getIdentity())));
 
@@ -233,7 +234,8 @@ public class LinkListIndexTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     document.setProperty("linkCollection",
         new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docThree.getIdentity())));
 
@@ -513,7 +515,8 @@ public class LinkListIndexTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     document.delete();
     session.commit();
 
@@ -538,7 +541,8 @@ public class LinkListIndexTest extends BaseDBTest {
 
     try {
       session.begin();
-      document = session.bindToSession(document);
+      var activeTx = session.getActiveTransaction();
+      document = activeTx.load(document);
       document.delete();
       session.commit();
     } catch (Exception e) {
@@ -565,7 +569,8 @@ public class LinkListIndexTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session.bindToSession(document).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(document).delete();
     session.rollback();
 
     var index = getIndex("linkCollectionIndex");

@@ -15,6 +15,7 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import java.util.ArrayList;
@@ -175,7 +176,8 @@ public class EntityTreeTest extends BaseDBTest {
       Assert.assertTrue(Integer.parseInt(child.getProperty("name")) >= 0);
     }
     Assert.assertEquals(test.<Set<Identifiable>>getProperty("set").size(), 100);
-    session.delete(session.bindToSession(test));
+    var activeTx = session.getActiveTransaction();
+    session.delete(activeTx.<Entity>load(test));
     session.commit();
   }
 
@@ -224,7 +226,8 @@ public class EntityTreeTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    a = session.bindToSession(a);
+    var activeTx = session.getActiveTransaction();
+    a = activeTx.load(a);
     var rid = a.getIdentity();
     Assert.assertEquals(a.<Set<Identifiable>>getProperty("set").size(), 4);
     Assert.assertEquals(a.<List<Identifiable>>getProperty("list").size(), 4);
@@ -304,7 +307,8 @@ public class EntityTreeTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    p = session.bindToSession(p);
+    var activeTx = session.getActiveTransaction();
+    p = activeTx.load(p);
     Assert.assertEquals(p.<Integer>getProperty("distanceSun"), 1000);
     Assert.assertEquals(p.getProperty("name"), "Earth");
     var rid = p.getIdentity();
@@ -429,7 +433,8 @@ public class EntityTreeTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session.delete(session.bindToSession(person));
+    var activeTx = session.getActiveTransaction();
+    session.delete(activeTx.<Entity>load(person));
     session.commit();
 
     session.begin();

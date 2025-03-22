@@ -140,7 +140,8 @@ public class HookTxTest extends BaseDBTest {
   @Test(dependsOnMethods = "testHookCallsUpdate")
   public void testHookCallsDelete() {
     session.begin();
-    session.delete(session.bindToSession(profile));
+    var activeTx = session.getActiveTransaction();
+    session.delete(activeTx.<Entity>load(profile));
     session.commit();
 
     Assert.assertEquals(recordHook.readCount, 1);

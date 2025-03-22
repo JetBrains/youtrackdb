@@ -1,12 +1,13 @@
 package com.jetbrains.youtrack.db.internal.core.sql.functions.graph;
 
+import static java.util.Arrays.asList;
+
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import static java.util.Arrays.asList;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.After;
@@ -290,7 +291,8 @@ public class SQLFunctionShortestPathTest {
   private void bindVertices() {
     var newVertices = new HashMap<Integer, Vertex>();
     for (var entry : vertices.entrySet()) {
-      newVertices.put(entry.getKey(), session.bindToSession(entry.getValue()));
+      var activeTx = session.getActiveTransaction();
+      newVertices.put(entry.getKey(), activeTx.load(entry.getValue()));
     }
 
     vertices = newVertices;

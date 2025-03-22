@@ -28,7 +28,7 @@ public class DefaultClusterTest {
               });
 
       var tx = session.begin();
-      final EntityImpl embedded = tx.bindToSession(v).getProperty("embedded");
+      final EntityImpl embedded = tx.loadVertex(v).getProperty("embedded");
       Assert.assertFalse("Found: " + embedded.getIdentity(),
           embedded.getIdentity().isValidPosition());
       tx.commit();

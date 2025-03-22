@@ -130,7 +130,8 @@ public class SchemaPropertyAccessTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
     assertTrue(entity.toJSON().contains("name"));
 
     Set<String> toHide = new HashSet<>();

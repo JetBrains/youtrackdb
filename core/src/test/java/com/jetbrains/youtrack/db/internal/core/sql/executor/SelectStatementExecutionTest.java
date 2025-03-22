@@ -2269,8 +2269,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var edgeClass = session.createEdgeClass(edgeClassName);
 
     session.begin();
-    doc1 = session.bindToSession(doc1);
-    doc2 = session.bindToSession(doc2);
+    var activeTx1 = session.getActiveTransaction();
+    doc1 = activeTx1.load(doc1);
+    var activeTx = session.getActiveTransaction();
+    doc2 = activeTx.load(doc2);
 
     session.newStatefulEdge(doc1, doc2, edgeClass);
     session.commit();
@@ -5020,16 +5022,20 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.begin();
     // fill data
     var coupe1 = session.newVertex(car);
-    gasoline = session.bindToSession(gasoline);
-    coupe = session.bindToSession(coupe);
+    var activeTx8 = session.getActiveTransaction();
+    gasoline = activeTx8.load(gasoline);
+    var activeTx7 = session.getActiveTransaction();
+    coupe = activeTx7.load(coupe);
 
     coupe1.setProperty("name", "car1");
     coupe1.addEdge(gasoline, eng);
     coupe1.addEdge(coupe, bt);
 
     var coupe2 = session.newVertex(car);
-    diesel = session.bindToSession(diesel);
-    coupe = session.bindToSession(coupe);
+    var activeTx6 = session.getActiveTransaction();
+    diesel = activeTx6.load(diesel);
+    var activeTx5 = session.getActiveTransaction();
+    coupe = activeTx5.load(coupe);
 
     coupe2.setProperty("name", "car2");
     coupe2.addEdge(diesel, eng);
@@ -5037,8 +5043,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     var mw1 = session.newVertex(car);
 
-    microwave = session.bindToSession(microwave);
-    suv = session.bindToSession(suv);
+    var activeTx4 = session.getActiveTransaction();
+    microwave = activeTx4.load(microwave);
+    var activeTx3 = session.getActiveTransaction();
+    suv = activeTx3.load(suv);
     mw1.setProperty("name", "microwave1");
     mw1.addEdge(microwave, eng);
     mw1.addEdge(suv, bt);
@@ -5055,9 +5063,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    gasoline = session.bindToSession(gasoline);
-    diesel = session.bindToSession(diesel);
-    microwave = session.bindToSession(microwave);
+    var activeTx2 = session.getActiveTransaction();
+    gasoline = activeTx2.load(gasoline);
+    var activeTx1 = session.getActiveTransaction();
+    diesel = activeTx1.load(diesel);
+    var activeTx = session.getActiveTransaction();
+    microwave = activeTx.load(microwave);
 
     var identities =
         String.join(

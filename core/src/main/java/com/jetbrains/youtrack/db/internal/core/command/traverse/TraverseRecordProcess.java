@@ -85,14 +85,9 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
         return pop();
       }
 
-      var database = command.getContext().getDatabaseSession();
-      if (targeEntity.isNotBound(database)) {
-        targeEntity = database.bindToSession(targeEntity);
-      }
 
       // MATCH!
       final List<Object> fields = new ArrayList<Object>();
-
       // TRAVERSE THE DOCUMENT ITSELF
       for (var cfgFieldObject : command.getFields()) {
         var cfgField = cfgFieldObject.toString();
@@ -169,10 +164,6 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
     var transaction2 = session.getActiveTransaction();
     EntityImpl entity = transaction2.load(this.target);
     var database = command.getContext().getDatabaseSession();
-    if (entity.isNotBound(database)) {
-      entity = database.bindToSession(entity);
-    }
-
     while (target.hasNext()) {
       var field = target.next();
 

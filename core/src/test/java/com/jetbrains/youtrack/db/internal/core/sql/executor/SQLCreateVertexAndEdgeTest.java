@@ -19,6 +19,7 @@ import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
@@ -41,20 +42,23 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    v1 = session.bindToSession(v1);
+    var activeTx8 = session.getActiveTransaction();
+    v1 = activeTx8.load(v1);
     Assert.assertEquals("V", v1.getSchemaClassName());
 
     var v2 = session.execute("create vertex V1").next().asVertex();
     session.commit();
 
     session.begin();
-    v2 = session.bindToSession(v2);
+    var activeTx7 = session.getActiveTransaction();
+    v2 = activeTx7.load(v2);
     Assert.assertEquals("V1", v2.getSchemaClassName());
 
     var v3 = session.execute("create vertex set brand = 'fiat'").next().asVertex();
     session.commit();
     session.begin();
-    v3 = session.bindToSession(v3);
+    var activeTx6 = session.getActiveTransaction();
+    v3 = activeTx6.load(v3);
     Assert.assertEquals("V", v3.getSchemaClassName());
     Assert.assertEquals("fiat", v3.getProperty("brand"));
 
@@ -63,7 +67,8 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    v4 = session.bindToSession(v4);
+    var activeTx5 = session.getActiveTransaction();
+    v4 = activeTx5.load(v4);
     Assert.assertEquals("V1", v4.getSchemaClassName());
     Assert.assertEquals("fiat", v4.getProperty("brand"));
     Assert.assertEquals("wow", v4.getProperty("name"));
@@ -72,7 +77,8 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    v5 = session.bindToSession(v5);
+    var activeTx4 = session.getActiveTransaction();
+    v5 = activeTx4.load(v5);
     Assert.assertEquals("V1", v5.getSchemaClassName());
 
     // EDGES
@@ -98,8 +104,10 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
     var transaction2 = session.getActiveTransaction();
     EntityImpl e3 = transaction2.load(identifiable2);
     Assert.assertEquals("E", e3.getSchemaClassName());
-    Assert.assertEquals(e3.getPropertyInternal("out"), session.bindToSession(v1));
-    Assert.assertEquals(e3.getPropertyInternal("in"), session.bindToSession(v4));
+    var activeTx3 = session.getActiveTransaction();
+    Assert.assertEquals(e3.getPropertyInternal("out"), activeTx3.<Vertex>load(v1));
+    var activeTx2 = session.getActiveTransaction();
+    Assert.assertEquals(e3.getPropertyInternal("in"), activeTx2.<Vertex>load(v4));
     Assert.assertEquals(3, e3.<Object>getProperty("weight"));
 
     edges =
@@ -115,8 +123,10 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
     var transaction1 = session.getActiveTransaction();
     EntityImpl e4 = transaction1.load(identifiable1);
     Assert.assertEquals("E1", e4.getSchemaClassName());
-    Assert.assertEquals(e4.getPropertyInternal("out"), session.bindToSession(v2));
-    Assert.assertEquals(e4.getPropertyInternal("in"), session.bindToSession(v3));
+    var activeTx1 = session.getActiveTransaction();
+    Assert.assertEquals(e4.getPropertyInternal("out"), activeTx1.<Vertex>load(v2));
+    var activeTx = session.getActiveTransaction();
+    Assert.assertEquals(e4.getPropertyInternal("in"), activeTx.<Vertex>load(v3));
     Assert.assertEquals(10, e4.<Object>getProperty("weight"));
 
     edges =
@@ -164,7 +174,8 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    v1 = session.bindToSession(v1);
+    var activeTx = session.getActiveTransaction();
+    v1 = activeTx.load(v1);
     Assert.assertEquals("V", v1.getSchemaClassName());
 
     var vid = v1.getIdentity();

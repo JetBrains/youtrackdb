@@ -84,7 +84,8 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
       Assert.assertEquals(index.size(session), 1);
     }
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     session.delete(doc);
 
     try (var vertices = session.execute(query)) {
@@ -198,7 +199,8 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
 
     session.begin();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     doc.setProperty("p1", new String[]{"removed"});
 
     var query = "select from C1 where p1 lucene \"abc\"";

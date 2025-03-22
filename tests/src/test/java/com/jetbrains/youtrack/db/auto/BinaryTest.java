@@ -42,7 +42,8 @@ public class BinaryTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     Assert.assertEquals(new String(doc.getBinary("binary")),
         "Binary data");
     session.rollback();

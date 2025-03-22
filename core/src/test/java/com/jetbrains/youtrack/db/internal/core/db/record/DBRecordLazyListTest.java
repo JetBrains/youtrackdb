@@ -58,7 +58,8 @@ public class DBRecordLazyListTest {
     db.commit();
 
     db.begin();
-    mainDoc = db.bindToSession(mainDoc);
+    var activeTx = db.getActiveTransaction();
+    mainDoc = activeTx.load(mainDoc);
     Collection<EntityImpl> origItems = mainDoc.getProperty("items");
     var it = origItems.iterator();
     assertNotNull(it.next());

@@ -2799,7 +2799,8 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     }
 
     session.begin();
-    session.bindToSession(doc).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
     session.commit();
   }
 

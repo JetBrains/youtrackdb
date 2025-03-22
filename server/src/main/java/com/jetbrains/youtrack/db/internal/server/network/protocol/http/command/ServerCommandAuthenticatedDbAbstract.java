@@ -184,7 +184,6 @@ public abstract class ServerCommandAuthenticatedDbAbstract extends ServerCommand
         if (iRequest.getDatabaseName() != null) {
           var db = getProfiledDatabaseSessionInstance(iRequest);
           if (db != null && !db.getTransactionInternal().isActive()) {
-            db.activateOnCurrentThread();
             db.getLocalCache().clear();
           }
         }

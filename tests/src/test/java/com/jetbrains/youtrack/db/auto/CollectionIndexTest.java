@@ -145,7 +145,8 @@ public class CollectionIndexTest extends BaseDBTest {
     session.commit();
     try {
       session.begin();
-      collector = session.bindToSession(collector);
+      var activeTx = session.getActiveTransaction();
+      collector = activeTx.load(collector);
       collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "bacon")));
       session.commit();
     } catch (Exception e) {
@@ -179,7 +180,8 @@ public class CollectionIndexTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    collector = session.bindToSession(collector);
+    var activeTx = session.getActiveTransaction();
+    collector = activeTx.load(collector);
     collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "bacon")));
     session.rollback();
 
@@ -413,7 +415,8 @@ public class CollectionIndexTest extends BaseDBTest {
     session.commit();
     try {
       session.begin();
-      session.delete(session.bindToSession(collector));
+      var activeTx = session.getActiveTransaction();
+      session.delete(activeTx.<Entity>load(collector));
       session.commit();
     } catch (Exception e) {
       session.rollback();
@@ -434,7 +437,8 @@ public class CollectionIndexTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session.delete(session.bindToSession(collector));
+    var activeTx = session.getActiveTransaction();
+    session.delete(activeTx.<Entity>load(collector));
     session.rollback();
 
     final var index = getIndex("Collector.stringCollection");

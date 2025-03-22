@@ -49,7 +49,8 @@ public class LuceneGraphTXTest extends BaseLuceneTest {
     var results = session.execute("select from City where name lucene 'London'");
     Assert.assertEquals(results.stream().count(), 1);
 
-    v = session.bindToSession(v);
+    var activeTx = session.getActiveTransaction();
+    v = activeTx.load(v);
     v.setProperty("name", "Berlin");
 
     session.commit();

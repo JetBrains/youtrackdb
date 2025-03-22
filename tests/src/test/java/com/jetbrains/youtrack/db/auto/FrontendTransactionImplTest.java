@@ -142,7 +142,8 @@ public class FrontendTransactionImplTest extends BaseDBTest {
       rec.fill(iRid, v1, "This is the second version".getBytes(), true);
       session.commit();
 
-      record = session.bindToSession(record);
+      var activeTx = session.getActiveTransaction();
+      record = activeTx.load(record);
       Assert.assertEquals(record.getVersion(), v1 + 1);
       Assert.assertTrue(new String(record.toStream()).contains("second"));
     } finally {
@@ -373,7 +374,8 @@ public class FrontendTransactionImplTest extends BaseDBTest {
       assertFuture = executorService.submit(assertEmptyRecord);
       assertFuture.get();
 
-      brokenDocOne = session.bindToSession(brokenDocOne);
+      var activeTx = session.getActiveTransaction();
+      brokenDocOne = activeTx.load(brokenDocOne);
       brokenDocOne.setDirty();
 
       session.commit();

@@ -643,8 +643,7 @@ public class EntitySerializerDelta {
         serializeDeltaEmbeddedMap(session, bytes, (TrackedMap<Object>) value);
         break;
       case EMBEDDED:
-        var transaction = session.getActiveTransaction();
-        serializeDelta(session, bytes, transaction.load(((DBRecord) value)));
+        serializeDelta(session, bytes, (EntityImpl) value);
         break;
       case LINKLIST:
         serializeDeltaLinkList(session, bytes, (LinkListImpl) value);

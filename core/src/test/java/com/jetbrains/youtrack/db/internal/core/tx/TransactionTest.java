@@ -33,12 +33,12 @@ public class TransactionTest {
     tx.commit();
 
     tx = db.begin();
-    v = tx.bindToSession(v);
+    v = tx.load(v);
     v.setProperty("name", "Bar");
     tx.rollback();
 
     tx = db.begin();
-    v = tx.bindToSession(v);
+    v = tx.load(v);
     Assert.assertEquals("Foo", v.getProperty("name"));
     tx.commit();
   }

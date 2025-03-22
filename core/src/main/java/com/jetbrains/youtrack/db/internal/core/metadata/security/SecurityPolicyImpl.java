@@ -21,9 +21,6 @@ public class SecurityPolicyImpl implements SecurityPolicy {
   }
 
   public Entity getEntity(@Nonnull DatabaseSessionInternal session) {
-    if (entity.isUnloaded()) {
-      entity = session.bindToSession(entity);
-    }
     return entity;
   }
 

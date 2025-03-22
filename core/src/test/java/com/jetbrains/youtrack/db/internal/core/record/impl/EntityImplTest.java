@@ -255,7 +255,8 @@ public class EntityImplTest extends DbTestBase {
       session.commit();
 
       session.begin();
-      doc = session.bindToSession(doc);
+      var activeTx2 = session.getActiveTransaction();
+      doc = activeTx2.load(doc);
       assertEquals("My Name", doc.getProperty("name"));
       assertEquals("value1", doc.getProperty("property"));
       doc.undo();
@@ -271,7 +272,8 @@ public class EntityImplTest extends DbTestBase {
       session.commit();
 
       session.begin();
-      doc = session.bindToSession(doc);
+      var activeTx1 = session.getActiveTransaction();
+      doc = activeTx1.load(doc);
       doc.setProperty("name", "My Name 4");
       doc.setProperty("property", "value4");
       doc.undo("property");
@@ -281,7 +283,8 @@ public class EntityImplTest extends DbTestBase {
       session.commit();
 
       session.begin();
-      doc = session.bindToSession(doc);
+      var activeTx = session.getActiveTransaction();
+      doc = activeTx.load(doc);
       doc.undo("property");
       assertEquals("My Name 4", doc.getProperty("name"));
       assertEquals("value1", doc.getProperty("property"));

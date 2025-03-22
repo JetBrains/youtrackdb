@@ -17,6 +17,7 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.record.Direction;
+import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
@@ -66,7 +67,8 @@ public class GraphDatabaseTest extends BaseDBTest {
 
     session.commit();
 
-    tom = session.bindToSession(tom);
+    var activeTx = session.getActiveTransaction();
+    tom = activeTx.load(tom);
     Assert.assertEquals(CollectionUtils.size(tom.getEdges(Direction.OUT, "drives")), 2);
 
     var result =
@@ -102,8 +104,10 @@ public class GraphDatabaseTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session.bindToSession(vertexB).delete();
-    session.bindToSession(vertexA).delete();
+    var activeTx1 = session.getActiveTransaction();
+    activeTx1.<Vertex>load(vertexB).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<Vertex>load(vertexA).delete();
 
     var v = session.newVertex("vertexA");
     v.setProperty("name", "myKey");

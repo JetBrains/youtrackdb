@@ -72,7 +72,8 @@ public class HookChangeValidationTest extends DbTestBase {
 
     session.begin();
     try {
-      doc = session.bindToSession(doc);
+      var activeTx = session.getActiveTransaction();
+      doc = activeTx.load(doc);
       assertEquals("value1-create", doc.getProperty("property1"));
       assertEquals("value2-create", doc.getProperty("property2"));
       assertEquals("value3-create", doc.getProperty("property3"));

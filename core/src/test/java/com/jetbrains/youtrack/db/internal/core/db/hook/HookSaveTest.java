@@ -46,7 +46,8 @@ public class HookSaveTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    var newRef = session.bindToSession(entity).getEntity("testNewLinkedRecord");
+    var activeTx = session.getActiveTransaction();
+    var newRef = activeTx.<Entity>load(entity).getEntity("testNewLinkedRecord");
     assertNotNull(newRef);
     assertTrue(newRef.getIdentity().isPersistent());
     session.commit();
@@ -83,7 +84,8 @@ public class HookSaveTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    var entity = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    var entity = activeTx.<EntityImpl>load(doc);
     EntityImpl newRef = entity.getProperty("testNewLinkedRecord");
     assertNotNull(newRef);
     assertTrue(newRef.getIdentity().isPersistent());

@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
@@ -26,12 +27,12 @@ public class UpdatableResult extends ResultInternal {
   @Override
   public void setProperty(@Nonnull String name, Object value) {
     checkSession();
-    ((Entity) identifiable).setProperty(name, value);
+    asEntity().setProperty(name, value);
   }
 
   public void removeProperty(String name) {
     checkSession();
-    ((Entity) identifiable).removeProperty(name);
+    asEntity().removeProperty(name);
   }
 
   @Override
@@ -108,17 +109,7 @@ public class UpdatableResult extends ResultInternal {
   @Override
   public Entity asEntity() {
     checkSession();
-    var entity = ((Entity) identifiable);
-
-    if (session != null) {
-      if (entity.isNotBound(session)) {
-        entity = session.bindToSession(entity);
-        identifiable = entity;
-      }
-
-      return entity;
-    }
-
+    bindToSession();
     return ((Entity) identifiable);
   }
 
@@ -231,6 +222,13 @@ public class UpdatableResult extends ResultInternal {
   public String toJSON() {
     checkSession();
     return this.asEntity().toJSON();
+  }
+
+  @Override
+  protected void bindToSession() {
+    if (((EntityImpl) identifiable).isNotBound(session)) {
+      identifiable = session.getActiveTransaction().load(identifiable);
+    }
   }
 
   @Override

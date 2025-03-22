@@ -114,7 +114,8 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
 
     session.begin();
 
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     document.delete();
 
     Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX));
@@ -157,7 +158,8 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
 
     session.begin();
 
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     document.removeProperty(PROPERTY_NAME);
 
     document.setProperty(PROPERTY_NAME, 1);

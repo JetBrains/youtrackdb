@@ -274,7 +274,8 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
       company.setProperty("salary", 1000000000.0f + i);
 
       var addresses = session.newLinkList();
-      addresses.add(session.bindToSession(address));
+      var activeTx = session.getActiveTransaction();
+      addresses.add(activeTx.<Entity>load(address));
       company.setProperty("addresses", addresses);
       session.commit();
     }
@@ -565,8 +566,10 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
     session.commit();
 
     session.begin();
-    carNode = session.bindToSession(carNode);
-    motoNode = session.bindToSession(motoNode);
+    var activeTx1 = session.getActiveTransaction();
+    carNode = activeTx1.load(carNode);
+    var activeTx = session.getActiveTransaction();
+    motoNode = activeTx.load(motoNode);
     session.newStatefulEdge(carNode, motoNode);
 
     var result =

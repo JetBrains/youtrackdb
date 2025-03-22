@@ -52,7 +52,8 @@ public class DefaultValueTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    saved = session.bindToSession(saved);
+    var activeTx = session.getActiveTransaction();
+    saved = activeTx.load(saved);
     assertNotNull(saved.getProperty("date"));
     assertTrue(saved.getProperty("date") instanceof Date);
     assertNotNull(saved.getProperty("id"));
@@ -86,7 +87,8 @@ public class DefaultValueTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    saved = session.bindToSession(saved);
+    var activeTx = session.getActiveTransaction();
+    saved = activeTx.load(saved);
     assertNotNull(saved.getProperty("date"));
     assertTrue(saved.getProperty("date") instanceof Date);
     assertNotNull(saved.getProperty("id"));
@@ -122,7 +124,8 @@ public class DefaultValueTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    saved = session.bindToSession(saved);
+    var activeTx = session.getActiveTransaction();
+    saved = activeTx.load(saved);
     assertNotNull(saved.getProperty("date"));
     assertTrue(saved.getProperty("date") instanceof Date);
     assertNotNull(saved.getProperty("other"));
@@ -145,7 +148,8 @@ public class DefaultValueTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    saved = session.bindToSession(saved);
+    var activeTx = session.getActiveTransaction();
+    saved = activeTx.load(saved);
     assertNotNull(saved.getProperty("date"));
     assertEquals(DateHelper.getDateTimeFormatInstance(session).format(saved.getProperty("date")),
         value1);
@@ -170,7 +174,8 @@ public class DefaultValueTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    saved = session.bindToSession(saved);
+    var activeTx = session.getActiveTransaction();
+    saved = activeTx.load(saved);
     assertNotNull(saved.getProperty("date"));
     assertTrue(saved.getProperty("date") instanceof Date);
     assertNotNull(saved.getProperty("other"));
@@ -195,7 +200,8 @@ public class DefaultValueTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    saved = session.bindToSession(saved);
+    var activeTx = session.getActiveTransaction();
+    saved = activeTx.load(saved);
     assertNotNull(saved.getProperty("date"));
     assertEquals(DateHelper.getDateTimeFormatInstance(session).format(saved.getProperty("date")),
         value1);
@@ -220,8 +226,10 @@ public class DefaultValueTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    saved = session.bindToSession(saved);
-    doc = session.bindToSession(doc);
+    var activeTx2 = session.getActiveTransaction();
+    saved = activeTx2.load(saved);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
 
     assertNotNull(saved.getProperty("date"));
     assertTrue(saved.getProperty("date") instanceof Date);
@@ -233,7 +241,8 @@ public class DefaultValueTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    saved = session.bindToSession(saved);
+    var activeTx = session.getActiveTransaction();
+    saved = activeTx.load(saved);
     assertNotNull(saved.getProperty("date"));
     assertEquals(DateHelper.getDateTimeFormatInstance(session).format(saved.getProperty("date")),
         val);

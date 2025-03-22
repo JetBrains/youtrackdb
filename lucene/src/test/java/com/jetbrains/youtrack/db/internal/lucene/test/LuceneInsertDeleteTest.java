@@ -71,7 +71,8 @@ public class LuceneInsertDeleteTest extends BaseLuceneTest {
     doc = session.load(next.getIdentity());
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     session.delete(doc);
     session.commit();
 

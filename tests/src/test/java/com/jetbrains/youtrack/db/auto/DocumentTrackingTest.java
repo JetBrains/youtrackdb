@@ -60,7 +60,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
@@ -99,7 +100,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
@@ -137,7 +139,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
@@ -178,7 +181,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
@@ -211,7 +215,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
 
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
@@ -245,7 +250,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
 
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
@@ -273,7 +279,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
@@ -311,7 +318,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
@@ -348,7 +356,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
@@ -389,7 +398,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
@@ -422,7 +432,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
@@ -455,7 +466,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
@@ -482,7 +494,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
@@ -521,7 +534,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
@@ -558,7 +572,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
@@ -599,7 +614,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
@@ -630,7 +646,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
@@ -663,7 +680,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
@@ -691,7 +709,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
@@ -714,7 +733,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
@@ -736,7 +756,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
@@ -770,7 +791,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
@@ -803,7 +825,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertFalse(document.isDirty());
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
 
@@ -836,7 +859,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
@@ -865,7 +889,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
@@ -893,7 +918,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
@@ -921,7 +947,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
@@ -949,7 +976,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 
@@ -975,7 +1003,8 @@ public class DocumentTrackingTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertEquals(document.getDirtyPropertiesBetweenCallbacks(), new String[]{});
     Assert.assertFalse(document.isDirty());
 

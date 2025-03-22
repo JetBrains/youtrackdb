@@ -51,7 +51,8 @@ public class DatabaseDocumentTxTest extends DbTestBase {
       Assert.assertEquals(2, session.countClass("TestSubclass", false));
       Assert.assertEquals(2, session.countClass("TestSubclass", true));
 
-      session.bindToSession(toDelete).delete();
+      var activeTx = session.getActiveTransaction();
+      activeTx.<EntityImpl>load(toDelete).delete();
       // 1 SUB, 1 SUPER
 
       Assert.assertEquals(1, session.countClass("TestSuperclass", false));
@@ -260,7 +261,8 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     session.begin();
     var doc2 = session.newVertex(vertexClass);
     doc2.setProperty("name", "second");
-    session.newStatefulEdge(session.bindToSession(doc1), doc2, "testEdge");
+    var activeTx = session.getActiveTransaction();
+    session.newStatefulEdge(activeTx.load(doc1), doc2, "testEdge");
     session.commit();
 
     session.begin();

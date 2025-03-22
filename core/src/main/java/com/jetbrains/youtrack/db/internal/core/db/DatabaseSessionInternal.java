@@ -874,33 +874,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   int activeTxCount();
 
   /**
-   * Binds current record to the session. It is mandatory to call this method in case you use
-   * records that are not created or loaded by the session. Method returns bounded instance of given
-   * record, usage of passed in instance is prohibited.
-   * <p>
-   * Method throws {@link RecordNotFoundException} if record does not exist in database or if record
-   * rid is temporary.
-   * <p/>
-   * You can verify if record already bound to the session by calling
-   * {@link DBRecord#isNotBound(DatabaseSession)} method.
-   * <p/>
-   * <p>
-   * Records with temporary RIDs are not allowed to be bound to the session and can not be accepted
-   * from the outside of the transaction boundaries.
-   *
-   * @param identifiable Record or rid to bind to the session, passed in instance is
-   *                     <b>prohibited</b> for further usage.
-   * @param <T>          Type of record.
-   * @return Bounded instance of given record.
-   * @throws RecordNotFoundException if record does not exist in database
-   * @throws DatabaseException       if the record rid is temporary
-   * @see DBRecord#isNotBound(DatabaseSession)
-   * @see Identifiable#getIdentity()
-   * @see RID#isPersistent()
-   */
-  <T extends Identifiable> T bindToSession(T identifiable);
-
-  /**
    * Loads an element by its id, throws an exception if record is not an element or does not exist.
    *
    * @param id the id of the element to load

@@ -64,7 +64,8 @@ public class CheckHookCallCountTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx2 = session.getActiveTransaction();
+    doc = activeTx2.load(doc);
     assertEquals(Integer.valueOf(2), doc.getProperty("a"));
     assertEquals(Integer.valueOf(2), doc.getProperty("b"));
     assertNull(doc.getProperty("c"));
@@ -95,7 +96,8 @@ public class CheckHookCallCountTest extends DbTestBase {
         });
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
     assertEquals(Integer.valueOf(2), doc.getProperty("a"));
     assertEquals(Integer.valueOf(2), doc.getProperty("b"));
     assertEquals(Integer.valueOf(4), doc.getProperty("c"));
@@ -109,7 +111,8 @@ public class CheckHookCallCountTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     assertEquals(Integer.valueOf(3), doc.getProperty("a"));
     assertEquals(Integer.valueOf(3), doc.getProperty("b"));
     assertEquals(Integer.valueOf(6), doc.getProperty("c"));

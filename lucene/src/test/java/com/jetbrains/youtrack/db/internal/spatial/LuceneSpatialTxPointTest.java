@@ -105,7 +105,8 @@ public class LuceneSpatialTxPointTest extends BaseSpatialLuceneTest {
 
     session.begin();
 
-    rome = session.bindToSession(rome);
+    var activeTx = session.getActiveTransaction();
+    rome = activeTx.load(rome);
     rome.setProperty("location", newPoint(12.5, 41.9));
 
     session.commit();
@@ -137,8 +138,10 @@ public class LuceneSpatialTxPointTest extends BaseSpatialLuceneTest {
 
     session.begin();
 
-    rome = session.bindToSession(rome);
-    london = session.bindToSession(london);
+    var activeTx1 = session.getActiveTransaction();
+    rome = activeTx1.load(rome);
+    var activeTx = session.getActiveTransaction();
+    london = activeTx.load(london);
 
     rome.setProperty("location", newPoint(12.5, 41.9));
     london.setProperty("location", newPoint(-0.1275, 51.507222));

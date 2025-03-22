@@ -52,7 +52,8 @@ public class LuceneGraphTxTest extends LuceneBaseTest {
 
     assertThat(resultSet).hasSize(1);
 
-    v = session.bindToSession(v);
+    var activeTx = session.getActiveTransaction();
+    v = activeTx.load(v);
     // modifiy vertex
     v.setProperty("name", "Berlin");
 

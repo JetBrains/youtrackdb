@@ -152,7 +152,8 @@ public class SchemaTest extends BaseDBTest {
                 session.commit();
 
                 session.begin();
-                doc = session.bindToSession(doc);
+                var activeTx = session.getActiveTransaction();
+                doc = activeTx.load(doc);
                 doc.delete();
                 session.commit();
 

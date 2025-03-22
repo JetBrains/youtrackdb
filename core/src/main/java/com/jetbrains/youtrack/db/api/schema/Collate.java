@@ -47,6 +47,6 @@ public interface Collate extends Serializable {
   Object transform(@Nonnull Object obj);
 
   default int compareForOrderBy(@Nonnull Object o1, @Nonnull Object o2) {
-    return new DefaultComparator().compare(transform(o1), transform(o2));
+    return DefaultComparator.INSTANCE.compare(transform(o1), transform(o2));
   }
 }

@@ -185,7 +185,8 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
 
     session.begin();
 
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     session.delete(document);
 
     query = session.query(

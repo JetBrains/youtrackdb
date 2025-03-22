@@ -704,10 +704,10 @@ public class ResultInternal implements Result {
     throw new IllegalStateException("Result is not an entity");
   }
 
-  private void bindToSession() {
+  protected void bindToSession() {
     if (session != null && identifiable instanceof RecordAbstract recordAbstract) {
       if (recordAbstract.isNotBound(session)) {
-        identifiable = session.bindToSession(recordAbstract);
+        identifiable = session.getActiveTransaction().load(identifiable);
       }
     }
   }

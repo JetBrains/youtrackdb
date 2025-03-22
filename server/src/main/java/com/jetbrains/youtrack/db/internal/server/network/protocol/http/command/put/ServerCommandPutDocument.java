@@ -132,7 +132,8 @@ public class ServerCommandPutDocument extends ServerCommandDocumentAbstract {
         return false;
       }
 
-      d = db.bindToSession(d);
+      var activeTx = db.getActiveTransaction();
+      d = activeTx.load(d);
       iResponse.send(
           HttpUtils.STATUS_OK_CODE,
           HttpUtils.STATUS_OK_DESCRIPTION,

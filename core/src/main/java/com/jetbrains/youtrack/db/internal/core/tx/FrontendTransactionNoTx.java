@@ -108,11 +108,6 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
     return session;
   }
 
-  @Override
-  public <T extends Identifiable> T bindToSession(T identifiable) {
-    throw new UnsupportedOperationException("not supported in no tx mode");
-  }
-
   @Nonnull
   @Override
   public Entity loadEntity(RID id) throws DatabaseException, RecordNotFoundException {

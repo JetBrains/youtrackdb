@@ -71,7 +71,8 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
       session.commit();
 
       session.begin();
-      session.bindToSession(doc).delete();
+      var activeTx = session.getActiveTransaction();
+      activeTx.<EntityImpl>load(doc).delete();
       session.commit();
     } finally {
       session.setValidationEnabled(true);
@@ -95,7 +96,8 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
   public void validationMinString() {
     session.begin();
     record = session.newInstance("Whiz");
-    account = session.bindToSession(account);
+    var activeTx = session.getActiveTransaction();
+    account = activeTx.load(account);
     record.setProperty("account", account);
     record.setProperty("id", 23723);
     record.setProperty("text", "");
@@ -110,7 +112,8 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
   public void validationMaxString() {
     session.begin();
     record = session.newInstance("Whiz");
-    account = session.bindToSession(account);
+    var activeTx = session.getActiveTransaction();
+    account = activeTx.load(account);
     record.setProperty("account", account);
     record.setProperty("id", 23723);
     record.setProperty(
@@ -128,7 +131,8 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
   public void validationMinDate() throws ParseException {
     session.begin();
     record = session.newInstance("Whiz");
-    account = session.bindToSession(account);
+    var activeTx = session.getActiveTransaction();
+    account = activeTx.load(account);
     record.setProperty("account", account);
     record.setPropertyInChain("date", new SimpleDateFormat("dd/MM/yyyy").parse("01/33/1976"));
     record.setProperty("text", "test");

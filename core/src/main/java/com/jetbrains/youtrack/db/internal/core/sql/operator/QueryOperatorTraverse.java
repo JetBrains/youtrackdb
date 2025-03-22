@@ -20,7 +20,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.operator;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -112,16 +111,6 @@ public class QueryOperatorTraverse extends QueryOperatorEqualityNotNulls {
     if (iTarget instanceof EntityImpl target) {
 
       iEvaluatedRecords.add(target.getIdentity());
-
-      var db = iContext.getDatabaseSession();
-      if (target.isNotBound(db)) {
-        try {
-          target = db.bindToSession(target);
-        } catch (final RecordNotFoundException ignore) {
-          // INVALID RID
-          return false;
-        }
-      }
 
       if (iLevel >= startDeepLevel && iCondition.evaluate(target, null, iContext) == Boolean.TRUE) {
         return true;

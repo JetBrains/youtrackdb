@@ -53,25 +53,41 @@ public class TraverseTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    rootDocument = session.bindToSession(rootDocument);
+    var activeTx15 = session.getActiveTransaction();
+    rootDocument = activeTx15.load(rootDocument);
+    var activeTx = session.getActiveTransaction();
+    var activeTx1 = session.getActiveTransaction();
+    var activeTx2 = session.getActiveTransaction();
+    var activeTx3 = session.getActiveTransaction();
+    var activeTx4 = session.getActiveTransaction();
+    var activeTx5 = session.getActiveTransaction();
+    var activeTx6 = session.getActiveTransaction();
+    var activeTx7 = session.getActiveTransaction();
+    var activeTx8 = session.getActiveTransaction();
+    var activeTx9 = session.getActiveTransaction();
+    var activeTx10 = session.getActiveTransaction();
+    var activeTx11 = session.getActiveTransaction();
+    var activeTx12 = session.getActiveTransaction();
+    var activeTx13 = session.getActiveTransaction();
+    var activeTx14 = session.getActiveTransaction();
     final var expectedResult =
         new HashSet<>(Arrays.asList(
             rootDocument,
-            session.bindToSession(a),
-            session.bindToSession(aa),
-            session.bindToSession(ab),
-            session.bindToSession(b),
-            session.bindToSession(ba),
-            session.bindToSession(bb),
-            session.bindToSession(c1),
-            session.bindToSession(c1a),
-            session.bindToSession(c1b),
-            session.bindToSession(c2),
-            session.bindToSession(c2a),
-            session.bindToSession(c2b),
-            session.bindToSession(c3),
-            session.bindToSession(c3a),
-            session.bindToSession(c3b)));
+            activeTx14.load(a),
+            activeTx13.load(aa),
+            activeTx12.load(ab),
+            activeTx11.load(b),
+            activeTx10.load(ba),
+            activeTx9.load(bb),
+            activeTx8.load(c1),
+            activeTx7.load(c1a),
+            activeTx6.load(c1b),
+            activeTx5.load(c2),
+            activeTx4.load(c2a),
+            activeTx3.load(c2b),
+            activeTx2.load(c3),
+            activeTx1.load(c3a),
+            activeTx.load(c3b)));
 
     traverse = new Traverse(session);
     traverse.target(rootDocument).fields("*");
@@ -121,30 +137,46 @@ public class TraverseTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    rootDocument = session.bindToSession(rootDocument);
+    var activeTx15 = session.getActiveTransaction();
+    rootDocument = activeTx15.load(rootDocument);
     traverse = new Traverse(session);
 
     traverse.target(rootDocument).fields("*");
     traverse.setStrategy(Traverse.STRATEGY.BREADTH_FIRST);
 
+    var activeTx = session.getActiveTransaction();
+    var activeTx1 = session.getActiveTransaction();
+    var activeTx2 = session.getActiveTransaction();
+    var activeTx3 = session.getActiveTransaction();
+    var activeTx4 = session.getActiveTransaction();
+    var activeTx5 = session.getActiveTransaction();
+    var activeTx6 = session.getActiveTransaction();
+    var activeTx7 = session.getActiveTransaction();
+    var activeTx8 = session.getActiveTransaction();
+    var activeTx9 = session.getActiveTransaction();
+    var activeTx10 = session.getActiveTransaction();
+    var activeTx11 = session.getActiveTransaction();
+    var activeTx12 = session.getActiveTransaction();
+    var activeTx13 = session.getActiveTransaction();
+    var activeTx14 = session.getActiveTransaction();
     final var expectedResult =
         new HashSet<>(Arrays.asList(
             rootDocument,
-            session.bindToSession(a),
-            session.bindToSession(b),
-            session.bindToSession(aa),
-            session.bindToSession(ab),
-            session.bindToSession(ba),
-            session.bindToSession(bb),
-            session.bindToSession(c1),
-            session.bindToSession(c2),
-            session.bindToSession(c3),
-            session.bindToSession(c1a),
-            session.bindToSession(c1b),
-            session.bindToSession(c2a),
-            session.bindToSession(c2b),
-            session.bindToSession(c3a),
-            session.bindToSession(c3b)));
+            activeTx14.load(a),
+            activeTx13.load(b),
+            activeTx12.load(aa),
+            activeTx11.load(ab),
+            activeTx10.load(ba),
+            activeTx9.load(bb),
+            activeTx8.load(c1),
+            activeTx7.load(c2),
+            activeTx6.load(c3),
+            activeTx5.load(c1a),
+            activeTx4.load(c1b),
+            activeTx3.load(c2a),
+            activeTx2.load(c2b),
+            activeTx1.load(c3a),
+            activeTx.load(c3b)));
     final var results = new HashSet<>(traverse.execute(session));
     Assert.assertEquals(expectedResult, results);
     session.rollback();

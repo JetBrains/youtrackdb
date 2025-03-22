@@ -177,7 +177,8 @@ public class SQLUpdateTest extends BaseDBTest {
           positions.get(0));
       loadedDoc.setProperty("addresses", doc.getProperty("addresses"));
 
-      session.bindToSession(loadedDoc);
+      var activeTx = session.getActiveTransaction();
+      activeTx.load(loadedDoc);
       session.commit();
     }
   }
@@ -488,7 +489,8 @@ public class SQLUpdateTest extends BaseDBTest {
         .close();
     session.commit();
 
-    document = session.bindToSession(document);
+    var activeTx6 = session.getActiveTransaction();
+    document = activeTx6.load(document);
     Assert.assertEquals(document.getProperty("test"), "aaa ' bbb");
 
     session.begin();
@@ -500,7 +502,8 @@ public class SQLUpdateTest extends BaseDBTest {
         .close();
     session.commit();
 
-    document = session.bindToSession(document);
+    var activeTx5 = session.getActiveTransaction();
+    document = activeTx5.load(document);
     Assert.assertEquals(document.getProperty("test"), "ccc ' eee");
     Assert.assertEquals(document.getProperty("test2"), "aaa ' bbb");
 
@@ -512,7 +515,8 @@ public class SQLUpdateTest extends BaseDBTest {
         .close();
     session.commit();
 
-    document = session.bindToSession(document);
+    var activeTx4 = session.getActiveTransaction();
+    document = activeTx4.load(document);
     Assert.assertEquals(document.getProperty("test"), "aaa \n bbb");
 
     session.begin();
@@ -523,7 +527,8 @@ public class SQLUpdateTest extends BaseDBTest {
         .close();
     session.commit();
 
-    document = session.bindToSession(document);
+    var activeTx3 = session.getActiveTransaction();
+    document = activeTx3.load(document);
     Assert.assertEquals(document.getProperty("test"), "aaa \r bbb");
 
     session.begin();
@@ -534,7 +539,8 @@ public class SQLUpdateTest extends BaseDBTest {
         .close();
     session.commit();
 
-    document = session.bindToSession(document);
+    var activeTx2 = session.getActiveTransaction();
+    document = activeTx2.load(document);
     Assert.assertEquals(document.getProperty("test"), "aaa \b bbb");
 
     session.begin();
@@ -545,7 +551,8 @@ public class SQLUpdateTest extends BaseDBTest {
         .close();
     session.commit();
 
-    document = session.bindToSession(document);
+    var activeTx1 = session.getActiveTransaction();
+    document = activeTx1.load(document);
     Assert.assertEquals(document.getProperty("test"), "aaa \t bbb");
 
     session.begin();
@@ -556,7 +563,8 @@ public class SQLUpdateTest extends BaseDBTest {
         .close();
     session.commit();
 
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertEquals(document.getProperty("test"), "aaa \f bbb");
   }
 
@@ -711,7 +719,8 @@ public class SQLUpdateTest extends BaseDBTest {
     Assert.assertEquals(records.intValue(), 1);
 
     session.begin();
-    v = session.bindToSession(v);
+    var activeTx = session.getActiveTransaction();
+    v = activeTx.load(v);
     Assert.assertTrue(v.getProperty("embmap") instanceof Map);
     Assert.assertEquals(((Map) v.getProperty("embmap")).size(), 2);
     session.rollback();
@@ -759,7 +768,8 @@ public class SQLUpdateTest extends BaseDBTest {
         .close();
     session.commit();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     Assert.assertTrue(doc.getProperty("embeddedListWithLinkedClass") instanceof List);
     Assert.assertEquals(((Collection) doc.getProperty("embeddedListWithLinkedClass")).size(), 3);
 

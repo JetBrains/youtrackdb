@@ -68,7 +68,8 @@ public class DocumentTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    var map = session.bindToSession(doc).toMap();
+    var activeTx = session.getActiveTransaction();
+    var map = activeTx.<EntityImpl>load(doc).toMap();
 
     Assert.assertEquals(4, map.size());
     Assert.assertEquals("Jay", map.get("name"));

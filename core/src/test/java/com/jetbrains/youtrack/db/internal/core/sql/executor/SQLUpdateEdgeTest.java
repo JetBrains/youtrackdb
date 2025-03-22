@@ -52,7 +52,8 @@ public class SQLUpdateEdgeTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    v4 = session.bindToSession(v4);
+    var activeTx = session.getActiveTransaction();
+    v4 = activeTx.load(v4);
     assertEquals("V1", v4.getSchemaClassName());
     assertEquals("fiat", v4.getProperty("brand"));
     assertEquals("wow", v4.getProperty("name"));

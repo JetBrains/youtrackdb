@@ -23,7 +23,8 @@ public class TestLinkedEntityInMap extends DbTestBase {
     session.commit();
 
     session.begin();
-    jaimeDoc = session.bindToSession(jaimeDoc);
+    var activeTx1 = session.getActiveTransaction();
+    jaimeDoc = activeTx1.load(jaimeDoc);
     var tyrionDoc = (EntityImpl) session.newEntity("PersonTest");
     tyrionDoc.updateFromJSON(
         "{\"@type\":\"d\",\"name\":\"tyrion\",\"emergency_contact\":[{\"@embedded\":true,\"relationship\":\"brother\",\"contact\":"
@@ -33,7 +34,8 @@ public class TestLinkedEntityInMap extends DbTestBase {
     session.commit();
 
     session.begin();
-    tyrionDoc = session.bindToSession(tyrionDoc);
+    var activeTx = session.getActiveTransaction();
+    tyrionDoc = activeTx.load(tyrionDoc);
     List<Entity> res = tyrionDoc.getProperty("emergency_contact");
     var doc = res.getFirst();
     Assert.assertTrue(doc.getLink("contact").isPersistent());

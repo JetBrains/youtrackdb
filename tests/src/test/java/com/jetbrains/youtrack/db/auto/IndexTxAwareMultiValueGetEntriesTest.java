@@ -117,8 +117,10 @@ public class IndexTxAwareMultiValueGetEntriesTest extends BaseDBTest {
 
     session.begin();
 
-    docOne = session.bindToSession(docOne);
-    docTwo = session.bindToSession(docTwo);
+    var activeTx1 = session.getActiveTransaction();
+    docOne = activeTx1.load(docOne);
+    var activeTx = session.getActiveTransaction();
+    docTwo = activeTx.load(docTwo);
 
     docOne.delete();
     docTwo.delete();
@@ -165,7 +167,8 @@ public class IndexTxAwareMultiValueGetEntriesTest extends BaseDBTest {
 
     session.begin();
 
-    docOne = session.bindToSession(docOne);
+    var activeTx = session.getActiveTransaction();
+    docOne = activeTx.load(docOne);
     docOne.delete();
 
     Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));

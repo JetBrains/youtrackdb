@@ -504,10 +504,6 @@ public abstract class HttpResponseAbstract implements HttpResponse {
             try {
               var transaction = session.getActiveTransaction();
               var rec = transaction.load(identifiable);
-              if (rec.isNotBound(session)) {
-                rec = session.bindToSession(rec);
-              }
-
               objectJson = rec.toJSON(format);
 
               buffer.append(objectJson);

@@ -54,7 +54,8 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     session.begin();
 
-    rootDoc = session.bindToSession(rootDoc);
+    var activeTx = session.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
     ridBag = rootDoc.getProperty("ridBag");
 
     var docOne = (EntityImpl) session.newEntity();
@@ -90,15 +91,18 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    cmeDoc = session.bindToSession(cmeDoc);
+    var activeTx2 = session.getActiveTransaction();
+    cmeDoc = activeTx2.load(cmeDoc);
     cmeDoc.setProperty("v", "v");
 
     session.commit();
 
     session.begin();
 
-    cmeDoc = session.bindToSession(cmeDoc);
-    rootDoc = session.bindToSession(rootDoc);
+    var activeTx1 = session.getActiveTransaction();
+    cmeDoc = activeTx1.load(cmeDoc);
+    var activeTx = session.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
     ridBag = rootDoc.getProperty("ridBag");
 
     cmeDoc.setProperty("v", "v234");
@@ -145,7 +149,8 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
 
     session.begin();
-    rootDoc = session.bindToSession(rootDoc);
+    var activeTx = session.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
     ridBag = rootDoc.getProperty("ridBag");
 
     var docThree = (EntityImpl) session.newEntity();
@@ -190,7 +195,8 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     final var version = rootDoc.getVersion();
 
     session.begin();
-    rootDoc = session.bindToSession(rootDoc);
+    var activeTx = session.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
     ridBag = rootDoc.getProperty("ridBag");
 
     var docTwo = (EntityImpl) session.newEntity();
@@ -226,7 +232,8 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     final var version = rootDoc.getVersion();
 
     session.begin();
-    rootDoc = session.bindToSession(rootDoc);
+    var activeTx = session.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
     ridBag = rootDoc.getProperty("ridBag");
 
     var docTwo = (EntityImpl) session.newEntity();
@@ -270,7 +277,8 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     session.begin();
 
-    cmeDoc = session.bindToSession(cmeDoc);
+    var activeTx = session.getActiveTransaction();
+    cmeDoc = activeTx.load(cmeDoc);
     cmeDoc.setProperty("v", "v");
 
     rootDoc = session.load(rootDoc.getIdentity());
@@ -351,7 +359,8 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     session.begin();
     rootDoc = session.load(rootDoc.getIdentity());
 
-    rootDoc = session.bindToSession(rootDoc);
+    var activeTx = session.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
     ridBag = rootDoc.getProperty("ridBag");
 
     var docThree = (EntityImpl) session.newEntity();
@@ -406,14 +415,16 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     session.begin();
     rootDoc = session.load(rootDoc.getIdentity());
 
-    cmeDoc = session.bindToSession(cmeDoc);
+    var activeTx1 = session.getActiveTransaction();
+    cmeDoc = activeTx1.load(cmeDoc);
     cmeDoc.setProperty("v", "v");
 
     var docThree = (EntityImpl) session.newEntity();
 
     var docFour = (EntityImpl) session.newEntity();
 
-    rootDoc = session.bindToSession(rootDoc);
+    var activeTx = session.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
     ridBag = rootDoc.getProperty("ridBag");
 
     ridBag.add(docThree.getIdentity());
@@ -469,7 +480,8 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     var docFour = (EntityImpl) session.newEntity();
 
-    rootDoc = session.bindToSession(rootDoc);
+    var activeTx = session.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
     ridBag = rootDoc.getProperty("ridBag");
 
     ridBag.add(docThree.getIdentity());
@@ -535,14 +547,16 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
 
     session.begin();
-    cmeDoc = session.bindToSession(cmeDoc);
+    var activeTx1 = session.getActiveTransaction();
+    cmeDoc = activeTx1.load(cmeDoc);
     cmeDoc.setProperty("v", "v2");
 
     var docThree = (EntityImpl) session.newEntity();
 
     var docFour = (EntityImpl) session.newEntity();
 
-    rootDoc = session.bindToSession(rootDoc);
+    var activeTx = session.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
     ridBag = rootDoc.getProperty("ridBag");
 
     ridBag.add(docThree.getIdentity());
@@ -656,7 +670,8 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     }
 
     session.begin();
-    cmeDoc = session.bindToSession(cmeDoc);
+    var activeTx1 = session.getActiveTransaction();
+    cmeDoc = activeTx1.load(cmeDoc);
     cmeDoc.setProperty("v", "v");
 
     session.commit();
@@ -674,7 +689,8 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     deleteDocsForLevel(session, amountOfDeletedDocsPerLevel, 0, levels, rootDoc, rnd);
     addDocsForLevel(session, amountOfAddedDocsAfterSavePerLevel, 0, levels, rootDoc);
 
-    cmeDoc = session.bindToSession(cmeDoc);
+    var activeTx = session.getActiveTransaction();
+    cmeDoc = activeTx.load(cmeDoc);
     cmeDoc.setProperty("v", "vn");
 
     generateCME(cmeDoc.getIdentity());
@@ -706,7 +722,8 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx2 = session.getActiveTransaction();
+    document = activeTx2.load(document);
     ridBag = document.getProperty("ridBag");
     for (var i = 0; i < 3; i++) {
       var docToAdd = (EntityImpl) session.newEntity();
@@ -718,14 +735,16 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx1 = session.getActiveTransaction();
+    document = activeTx1.load(document);
     ridBag = document.getProperty("ridBag");
     Assert.assertEquals(3, docsToAdd.size());
     Assert.assertTrue(ridBag.isEmbedded());
 
     document = session.load(document.getIdentity());
 
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     ridBag = document.getProperty("ridBag");
 
     for (var i = 0; i < 3; i++) {
@@ -773,7 +792,8 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx2 = session.getActiveTransaction();
+    document = activeTx2.load(document);
     ridBag = document.getProperty("ridBag");
 
     for (var i = 0; i < 3; i++) {
@@ -794,10 +814,12 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     EntityImpl staleDocument = session.load(cmeDocument.getIdentity());
     Assert.assertNotSame(staleDocument, cmeDocument);
 
-    cmeDocument = session.bindToSession(cmeDocument);
+    var activeTx1 = session.getActiveTransaction();
+    cmeDocument = activeTx1.load(cmeDocument);
     cmeDocument.setProperty("v", "v234");
 
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     ridBag = document.getProperty("ridBag");
     for (var i = 0; i < 3; i++) {
       var docToAdd = (EntityImpl) session.newEntity();
@@ -843,7 +865,8 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx1 = session.getActiveTransaction();
+    document = activeTx1.load(document);
     ridBag = document.getProperty("ridBag");
     for (var i = 0; i < 3; i++) {
       var docToAdd = (EntityImpl) session.newEntity();
@@ -862,7 +885,8 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     var rid = document.getIdentity();
 
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     ridBag = document.getProperty("ridBag");
     for (var i = 0; i < 3; i++) {
       var docToAdd = (EntityImpl) session.newEntity();
@@ -927,7 +951,8 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx2 = session.getActiveTransaction();
+    document = activeTx2.load(document);
     ridBag = document.getProperty("ridBag");
 
     for (var i = 0; i < 10; i++) {
@@ -940,14 +965,16 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx1 = session.getActiveTransaction();
+    document = activeTx1.load(document);
     ridBag = document.getProperty("ridBag");
     Assert.assertEquals(10, docsToAdd.size());
     Assert.assertFalse(ridBag.isEmbedded());
 
     document = session.load(document.getIdentity());
 
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     ridBag = document.getProperty("ridBag");
     for (var i = 0; i < 4; i++) {
       var docToRemove = docsToAdd.get(i);
@@ -993,7 +1020,8 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx2 = session.getActiveTransaction();
+    document = activeTx2.load(document);
     ridBag = document.getProperty("ridBag");
 
     for (var i = 0; i < 10; i++) {
@@ -1012,10 +1040,12 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     document = session.load(document.getIdentity());
     document.getProperty("ridBag");
 
-    cmeDoc = session.bindToSession(cmeDoc);
+    var activeTx1 = session.getActiveTransaction();
+    cmeDoc = activeTx1.load(cmeDoc);
     cmeDoc.setProperty("v", "sd");
 
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     ridBag = document.getProperty("ridBag");
     for (var i = 0; i < 4; i++) {
       var docToRemove = docsToAdd.get(i);
@@ -1081,7 +1111,8 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
       int levels,
       EntityImpl rootDoc,
       Random rnd) {
-    rootDoc = db.bindToSession(rootDoc);
+    var activeTx = db.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
     RidBag ridBag = rootDoc.getProperty("ridBag");
     for (Identifiable identifiable : ridBag) {
       var transaction = db.getActiveTransaction();
@@ -1116,7 +1147,8 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
       int level,
       int levels,
       EntityImpl rootDoc) {
-    rootDoc = db.bindToSession(rootDoc);
+    var activeTx = db.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
     RidBag ridBag = rootDoc.getProperty("ridBag");
 
     for (Identifiable identifiable : ridBag) {

@@ -45,7 +45,8 @@ public class UniqueIndexTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    secondEntity = session.bindToSession(secondEntity);
+    var activeTx = session.getActiveTransaction();
+    secondEntity = activeTx.load(secondEntity);
     secondEntity.setProperty("type", "type1");
     try {
       session.commit();

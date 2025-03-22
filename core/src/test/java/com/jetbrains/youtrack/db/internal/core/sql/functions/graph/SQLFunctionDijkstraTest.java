@@ -77,10 +77,10 @@ public class SQLFunctionDijkstraTest {
   @Test
   public void testExecute() throws Exception {
     var tx = session.begin();
-    v1 = tx.bindToSession(v1);
-    v2 = tx.bindToSession(v2);
-    v3 = tx.bindToSession(v3);
-    v4 = tx.bindToSession(v4);
+    v1 = tx.load(v1);
+    v2 = tx.load(v2);
+    v3 = tx.load(v3);
+    v4 = tx.load(v4);
 
     var context = new BasicCommandContext();
     context.setDatabaseSession((DatabaseSessionInternal) session);

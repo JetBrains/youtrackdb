@@ -4,6 +4,7 @@ import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -288,7 +289,8 @@ public class PredicateSecurityTest {
 
     try {
       session.begin();
-      elem = session.bindToSession(elem);
+      var activeTx = session.getActiveTransaction();
+      elem = activeTx.load(elem);
       elem.setProperty("name", "baz");
       var elemToSave = elem;
       session.commit();
@@ -351,7 +353,8 @@ public class PredicateSecurityTest {
     }
 
     session.begin();
-    Assert.assertEquals("foo", session.bindToSession(elem).getProperty("name"));
+    var activeTx = session.getActiveTransaction();
+    Assert.assertEquals("foo", activeTx.<Entity>load(elem).getProperty("name"));
     session.commit();
     return true;
   }
@@ -386,7 +389,8 @@ public class PredicateSecurityTest {
 
     try {
       session.begin();
-      elem = session.bindToSession(elem);
+      var activeTx = session.getActiveTransaction();
+      elem = activeTx.load(elem);
       elem.setProperty("name", "bar");
       session.commit();
       Assert.fail();
@@ -436,7 +440,8 @@ public class PredicateSecurityTest {
     }
 
     session.begin();
-    Assert.assertEquals("foo", session.bindToSession(elem).getProperty("name"));
+    var activeTx = session.getActiveTransaction();
+    Assert.assertEquals("foo", activeTx.<Entity>load(elem).getProperty("name"));
     session.commit();
   }
 
@@ -470,7 +475,10 @@ public class PredicateSecurityTest {
 
     try {
       var elemToDelete = elem;
-      session.executeInTx(transaction -> session.delete(session.bindToSession(elemToDelete)));
+      session.executeInTx(transaction -> {
+        var activeTx = session.getActiveTransaction();
+        session.delete(activeTx.<Entity>load(elemToDelete));
+      });
       Assert.fail();
     } catch (SecurityException ex) {
     }
@@ -484,7 +492,10 @@ public class PredicateSecurityTest {
             });
 
     var elemToDelete = elem;
-    session.executeInTx(transaction -> session.delete(session.bindToSession(elemToDelete)));
+    session.executeInTx(transaction -> {
+      var activeTx = session.getActiveTransaction();
+      session.delete(activeTx.<Entity>load(elemToDelete));
+    });
   }
 
   @Test

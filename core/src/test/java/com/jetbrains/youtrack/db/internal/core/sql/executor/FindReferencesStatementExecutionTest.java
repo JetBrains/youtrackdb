@@ -32,7 +32,8 @@ public class FindReferencesStatementExecutionTest extends DbTestBase {
 
     for (var i = 0; i < 10; i++) {
       session.begin();
-      linked = session.bindToSession(linked);
+      var activeTx = session.getActiveTransaction();
+      linked = activeTx.load(linked);
       var doc = (EntityImpl) session.newEntity(name2);
       doc.setProperty("counter", i);
       if (i % 2 == 0) {

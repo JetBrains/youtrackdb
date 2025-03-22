@@ -96,8 +96,6 @@ public class YouTrackDbJdbcResultSet implements java.sql.ResultSet {
     oResultSet.close();
     rowCount = records.size();
 
-    activateDatabaseOnCurrentThread();
-
     if (!records.isEmpty()) {
       result = records.getFirst();
     } else {
@@ -202,9 +200,6 @@ public class YouTrackDbJdbcResultSet implements java.sql.ResultSet {
     return fields;
   }
 
-  private void activateDatabaseOnCurrentThread() {
-    statement.session.activateOnCurrentThread();
-  }
 
   public void close() throws SQLException {
     cursor = 0;
@@ -552,8 +547,6 @@ public class YouTrackDbJdbcResultSet implements java.sql.ResultSet {
 
   public Date getDate(final String columnLabel) throws SQLException {
     try {
-      activateDatabaseOnCurrentThread();
-
       java.util.Date date = result.getProperty(columnLabel);
       lastReadWasNull = date == null;
       return date != null ? new Date(date.getTime()) : null;
@@ -575,8 +568,6 @@ public class YouTrackDbJdbcResultSet implements java.sql.ResultSet {
       throw new SQLException();
     }
     try {
-      activateDatabaseOnCurrentThread();
-
       java.util.Date date = result.getProperty(columnLabel);
       if (date == null) {
         lastReadWasNull = true;

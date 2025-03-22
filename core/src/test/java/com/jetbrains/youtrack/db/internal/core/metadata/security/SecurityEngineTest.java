@@ -293,11 +293,13 @@ public class SecurityEngineTest {
     session.commit();
 
     session.executeInTx(transaction -> {
-      session.bindToSession(rec1);
+      var activeTx1 = session.getActiveTransaction();
+      activeTx1.load(rec1);
       Assert.assertTrue(rec1.getIdentity().isPersistent());
 
       try {
-        session.bindToSession(rec2);
+        var activeTx = session.getActiveTransaction();
+        activeTx.load(rec2);
         Assert.fail();
       } catch (RecordNotFoundException e) {
         // ignore

@@ -27,7 +27,6 @@ import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.ATTRIBUTES;
@@ -598,9 +597,7 @@ public abstract class SchemaClassImpl {
     final Collection<EntityImpl> storedProperties = entity.getProperty("properties");
 
     if (storedProperties != null) {
-      for (Identifiable id : storedProperties) {
-        var transaction = session.getActiveTransaction();
-        EntityImpl p = transaction.load(id);
+      for (var p : storedProperties) {
         String name = p.getProperty("name");
         // To lower case ?
         if (properties.containsKey(name)) {

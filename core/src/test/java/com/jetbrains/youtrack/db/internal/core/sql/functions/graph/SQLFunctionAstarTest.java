@@ -19,6 +19,8 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.graph;
 
+import static org.junit.Assert.assertEquals;
+
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -32,7 +34,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.After;
-import static org.junit.Assert.assertEquals;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -198,10 +199,14 @@ public class SQLFunctionAstarTest {
     var ctx = new BasicCommandContext();
 
     session.begin();
-    v1 = session.bindToSession(v1);
-    v2 = session.bindToSession(v2);
-    v3 = session.bindToSession(v3);
-    v4 = session.bindToSession(v4);
+    var activeTx3 = session.getActiveTransaction();
+    v1 = activeTx3.load(v1);
+    var activeTx2 = session.getActiveTransaction();
+    v2 = activeTx2.load(v2);
+    var activeTx1 = session.getActiveTransaction();
+    v3 = activeTx1.load(v3);
+    var activeTx = session.getActiveTransaction();
+    v4 = activeTx.load(v4);
 
     ctx.setDatabaseSession(session);
     final List<Vertex> result =
@@ -228,9 +233,12 @@ public class SQLFunctionAstarTest {
     ctx.setDatabaseSession(session);
 
     session.begin();
-    v1 = session.bindToSession(v1);
-    v5 = session.bindToSession(v5);
-    v6 = session.bindToSession(v6);
+    var activeTx2 = session.getActiveTransaction();
+    v1 = activeTx2.load(v1);
+    var activeTx1 = session.getActiveTransaction();
+    v5 = activeTx1.load(v5);
+    var activeTx = session.getActiveTransaction();
+    v6 = activeTx.load(v6);
 
     final List<Vertex> result =
         functionAstar.execute(null, null, null, new Object[]{v1, v6, "'weight'", options}, ctx);
@@ -255,9 +263,12 @@ public class SQLFunctionAstarTest {
     ctx.setDatabaseSession(session);
 
     session.begin();
-    v1 = session.bindToSession(v1);
-    v5 = session.bindToSession(v5);
-    v6 = session.bindToSession(v6);
+    var activeTx2 = session.getActiveTransaction();
+    v1 = activeTx2.load(v1);
+    var activeTx1 = session.getActiveTransaction();
+    v5 = activeTx1.load(v5);
+    var activeTx = session.getActiveTransaction();
+    v6 = activeTx.load(v6);
 
     final List<Vertex> result =
         functionAstar.execute(null, null, null, new Object[]{v1, v6, "'weight'", options}, ctx);
@@ -283,9 +294,12 @@ public class SQLFunctionAstarTest {
     ctx.setDatabaseSession(session);
 
     session.begin();
-    v1 = session.bindToSession(v1);
-    v5 = session.bindToSession(v5);
-    v6 = session.bindToSession(v6);
+    var activeTx2 = session.getActiveTransaction();
+    v1 = activeTx2.load(v1);
+    var activeTx1 = session.getActiveTransaction();
+    v5 = activeTx1.load(v5);
+    var activeTx = session.getActiveTransaction();
+    v6 = activeTx.load(v6);
 
     final List<Vertex> result =
         functionAstar.execute(null, null, null, new Object[]{v1, v6, "'weight'", options}, ctx);
@@ -311,9 +325,12 @@ public class SQLFunctionAstarTest {
     ctx.setDatabaseSession(session);
 
     session.begin();
-    v3 = session.bindToSession(v3);
-    v5 = session.bindToSession(v5);
-    v6 = session.bindToSession(v6);
+    var activeTx2 = session.getActiveTransaction();
+    v3 = activeTx2.load(v3);
+    var activeTx1 = session.getActiveTransaction();
+    v5 = activeTx1.load(v5);
+    var activeTx = session.getActiveTransaction();
+    v6 = activeTx.load(v6);
 
     final List<Vertex> result =
         functionAstar.execute(null, null, null, new Object[]{v3, v5, "'weight'", options}, ctx);
@@ -339,12 +356,18 @@ public class SQLFunctionAstarTest {
     ctx.setDatabaseSession(session);
 
     session.begin();
-    v1 = session.bindToSession(v1);
-    v2 = session.bindToSession(v2);
-    v3 = session.bindToSession(v3);
-    v4 = session.bindToSession(v4);
-    v5 = session.bindToSession(v5);
-    v6 = session.bindToSession(v6);
+    var activeTx5 = session.getActiveTransaction();
+    v1 = activeTx5.load(v1);
+    var activeTx4 = session.getActiveTransaction();
+    v2 = activeTx4.load(v2);
+    var activeTx3 = session.getActiveTransaction();
+    v3 = activeTx3.load(v3);
+    var activeTx2 = session.getActiveTransaction();
+    v4 = activeTx2.load(v4);
+    var activeTx1 = session.getActiveTransaction();
+    v5 = activeTx1.load(v5);
+    var activeTx = session.getActiveTransaction();
+    v6 = activeTx.load(v6);
 
     final List<Vertex> result =
         functionAstar.execute(null, null, null, new Object[]{v6, v1, "'weight'", options}, ctx);
@@ -374,12 +397,18 @@ public class SQLFunctionAstarTest {
     ctx.setDatabaseSession(session);
 
     session.begin();
-    v1 = session.bindToSession(v1);
-    v2 = session.bindToSession(v2);
-    v3 = session.bindToSession(v3);
-    v4 = session.bindToSession(v4);
-    v5 = session.bindToSession(v5);
-    v6 = session.bindToSession(v6);
+    var activeTx5 = session.getActiveTransaction();
+    v1 = activeTx5.load(v1);
+    var activeTx4 = session.getActiveTransaction();
+    v2 = activeTx4.load(v2);
+    var activeTx3 = session.getActiveTransaction();
+    v3 = activeTx3.load(v3);
+    var activeTx2 = session.getActiveTransaction();
+    v4 = activeTx2.load(v4);
+    var activeTx1 = session.getActiveTransaction();
+    v5 = activeTx1.load(v5);
+    var activeTx = session.getActiveTransaction();
+    v6 = activeTx.load(v6);
 
     final List<Vertex> result =
         functionAstar.execute(null, null, null, new Object[]{v6, v1, "'weight'", options}, ctx);
@@ -410,12 +439,18 @@ public class SQLFunctionAstarTest {
     ctx.setDatabaseSession(session);
 
     session.begin();
-    v1 = session.bindToSession(v1);
-    v2 = session.bindToSession(v2);
-    v3 = session.bindToSession(v3);
-    v4 = session.bindToSession(v4);
-    v5 = session.bindToSession(v5);
-    v6 = session.bindToSession(v6);
+    var activeTx5 = session.getActiveTransaction();
+    v1 = activeTx5.load(v1);
+    var activeTx4 = session.getActiveTransaction();
+    v2 = activeTx4.load(v2);
+    var activeTx3 = session.getActiveTransaction();
+    v3 = activeTx3.load(v3);
+    var activeTx2 = session.getActiveTransaction();
+    v4 = activeTx2.load(v4);
+    var activeTx1 = session.getActiveTransaction();
+    v5 = activeTx1.load(v5);
+    var activeTx = session.getActiveTransaction();
+    v6 = activeTx.load(v6);
 
     final List<Vertex> result =
         functionAstar.execute(null, null, null, new Object[]{v6, v1, "'weight'", options}, ctx);
@@ -445,9 +480,12 @@ public class SQLFunctionAstarTest {
     ctx.setDatabaseSession(session);
 
     session.begin();
-    v1 = session.bindToSession(v1);
-    v5 = session.bindToSession(v5);
-    v6 = session.bindToSession(v6);
+    var activeTx2 = session.getActiveTransaction();
+    v1 = activeTx2.load(v1);
+    var activeTx1 = session.getActiveTransaction();
+    v5 = activeTx1.load(v5);
+    var activeTx = session.getActiveTransaction();
+    v6 = activeTx.load(v6);
 
     final List<Vertex> result =
         functionAstar.execute(null, null, null, new Object[]{v6, v1, "'weight'", options}, ctx);
@@ -476,12 +514,18 @@ public class SQLFunctionAstarTest {
     ctx.setDatabaseSession(session);
 
     session.begin();
-    v1 = session.bindToSession(v1);
-    v2 = session.bindToSession(v2);
-    v3 = session.bindToSession(v3);
-    v4 = session.bindToSession(v4);
-    v5 = session.bindToSession(v5);
-    v6 = session.bindToSession(v6);
+    var activeTx5 = session.getActiveTransaction();
+    v1 = activeTx5.load(v1);
+    var activeTx4 = session.getActiveTransaction();
+    v2 = activeTx4.load(v2);
+    var activeTx3 = session.getActiveTransaction();
+    v3 = activeTx3.load(v3);
+    var activeTx2 = session.getActiveTransaction();
+    v4 = activeTx2.load(v4);
+    var activeTx1 = session.getActiveTransaction();
+    v5 = activeTx1.load(v5);
+    var activeTx = session.getActiveTransaction();
+    v6 = activeTx.load(v6);
 
     final List<Vertex> result =
         functionAstar.execute(null, null, null, new Object[]{v6, v1, "'weight'", options}, ctx);
@@ -515,8 +559,10 @@ public class SQLFunctionAstarTest {
     ctx.setDatabaseSession(session);
 
     session.begin();
-    v6 = session.bindToSession(v6);
-    v1 = session.bindToSession(v1);
+    var activeTx1 = session.getActiveTransaction();
+    v6 = activeTx1.load(v6);
+    var activeTx = session.getActiveTransaction();
+    v1 = activeTx.load(v1);
 
     final List<Vertex> result =
         functionAstar.execute(null, null, null, new Object[]{v6, v1, "'weight'", options}, ctx);
@@ -544,11 +590,16 @@ public class SQLFunctionAstarTest {
     ctx.setDatabaseSession(session);
 
     session.begin();
-    v1 = session.bindToSession(v1);
-    v2 = session.bindToSession(v2);
-    v3 = session.bindToSession(v3);
-    v5 = session.bindToSession(v5);
-    v6 = session.bindToSession(v6);
+    var activeTx4 = session.getActiveTransaction();
+    v1 = activeTx4.load(v1);
+    var activeTx3 = session.getActiveTransaction();
+    v2 = activeTx3.load(v2);
+    var activeTx2 = session.getActiveTransaction();
+    v3 = activeTx2.load(v3);
+    var activeTx1 = session.getActiveTransaction();
+    v5 = activeTx1.load(v5);
+    var activeTx = session.getActiveTransaction();
+    v6 = activeTx.load(v6);
 
     final List<Vertex> result =
         functionAstar.execute(null, null, null, new Object[]{v6, v1, "'weight'", options}, ctx);
@@ -567,10 +618,14 @@ public class SQLFunctionAstarTest {
   @Test
   public void testSql() {
     session.begin();
-    v1 = session.bindToSession(v1);
-    v2 = session.bindToSession(v2);
-    v3 = session.bindToSession(v3);
-    v4 = session.bindToSession(v4);
+    var activeTx3 = session.getActiveTransaction();
+    v1 = activeTx3.load(v1);
+    var activeTx2 = session.getActiveTransaction();
+    v2 = activeTx2.load(v2);
+    var activeTx1 = session.getActiveTransaction();
+    v3 = activeTx1.load(v3);
+    var activeTx = session.getActiveTransaction();
+    v4 = activeTx.load(v4);
     var r =
         session.query(
             "select expand(astar("

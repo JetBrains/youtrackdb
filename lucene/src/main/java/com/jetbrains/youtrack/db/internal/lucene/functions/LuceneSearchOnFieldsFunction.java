@@ -159,7 +159,6 @@ public class LuceneSearchOnFieldsFunction extends LuceneSearchFunctionTemplate {
   private static LuceneFullTextIndex searchForIndex(
       String className, CommandContext ctx, List<String> fieldNames) {
     var db = ctx.getDatabaseSession();
-    db.activateOnCurrentThread();
     var dbMetadata = db.getMetadata();
 
     var indices =

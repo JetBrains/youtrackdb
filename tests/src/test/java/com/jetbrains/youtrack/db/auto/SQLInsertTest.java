@@ -91,7 +91,8 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
     Assert.assertNotNull(doc);
     Assert.assertEquals(doc.getProperty("name"), "Luca");
     Assert.assertEquals(doc.getProperty("surname"), "Smith");
@@ -113,7 +114,8 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     Assert.assertNotNull(doc);
     Assert.assertEquals(doc.getProperty("name"), "Luca");
     Assert.assertEquals(doc.getProperty("surname"), "Smith");
@@ -145,7 +147,8 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
-    doc = session.bindToSession(doc);
+    var activeTx2 = session.getActiveTransaction();
+    doc = activeTx2.load(doc);
     Assert.assertNotNull(doc);
     Assert.assertEquals(doc.getProperty("name"), "Marc");
     Assert.assertEquals(doc.getProperty("surname"), "Smith");
@@ -154,7 +157,8 @@ public class SQLInsertTest extends BaseDBTest {
     Assert.assertEquals(doc.getProperty("dummy"), "hooray");
 
     session.begin();
-    session.delete(session.bindToSession(doc));
+    var activeTx1 = session.getActiveTransaction();
+    session.delete(activeTx1.<Entity>load(doc));
     session.commit();
 
     session.begin();
@@ -172,7 +176,8 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     Assert.assertNotNull(doc);
     Assert.assertEquals(doc.getProperty("name"), "Marc");
     Assert.assertEquals(doc.getProperty("surname"), "Smith");
@@ -198,7 +203,8 @@ public class SQLInsertTest extends BaseDBTest {
 
     Assert.assertNotNull(doc);
 
-    doc = session.bindToSession(doc);
+    var activeTx2 = session.getActiveTransaction();
+    doc = activeTx2.load(doc);
     Assert.assertEquals(doc.getProperty("equaledges"), "no");
     Assert.assertEquals(doc.getProperty("name"), "circle");
     Assert.assertTrue(doc.getProperty("properties") instanceof Map);
@@ -210,7 +216,8 @@ public class SQLInsertTest extends BaseDBTest {
     Assert.assertEquals(entries.get("blaaa"), "zigzag");
 
     session.begin();
-    session.delete(session.bindToSession(doc));
+    var activeTx1 = session.getActiveTransaction();
+    session.delete(activeTx1.<Entity>load(doc));
     session.commit();
 
     session.begin();
@@ -223,7 +230,8 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     Assert.assertNotNull(doc);
 
     Assert.assertEquals(doc.getProperty("equaledges"), "no");
@@ -252,7 +260,8 @@ public class SQLInsertTest extends BaseDBTest {
 
     Assert.assertNotNull(doc);
 
-    doc = session.bindToSession(doc);
+    var activeTx2 = session.getActiveTransaction();
+    doc = activeTx2.load(doc);
     Assert.assertEquals(doc.getProperty("equaledges"), "yes");
     Assert.assertEquals(doc.getProperty("name"), "square");
     Assert.assertTrue(doc.getProperty("list") instanceof List);
@@ -266,7 +275,8 @@ public class SQLInsertTest extends BaseDBTest {
     Assert.assertEquals(entries.get(3), "right");
 
     session.begin();
-    session.delete(session.bindToSession(doc));
+    var activeTx1 = session.getActiveTransaction();
+    session.delete(activeTx1.<Entity>load(doc));
     session.commit();
 
     session.begin();
@@ -279,7 +289,8 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     Assert.assertNotNull(doc);
 
     Assert.assertEquals(doc.getProperty("equaledges"), "yes");
@@ -339,7 +350,8 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     Assert.assertNotNull(doc);
     Assert.assertNotNull(doc.getProperty("names"));
     Assert.assertTrue(doc.getProperty("names") instanceof Collection);
@@ -390,7 +402,8 @@ public class SQLInsertTest extends BaseDBTest {
     var transaction = session.getActiveTransaction();
     EntityImpl record = transaction.load(result);
 
-    record = session.bindToSession(record);
+    var activeTx = session.getActiveTransaction();
+    record = activeTx.load(record);
     Assert.assertEquals(record.<Object>getProperty("id"), 3232);
     Assert.assertEquals(record.getProperty("name"), "my name");
     Map<String, String> map = record.getProperty("map");
@@ -525,7 +538,8 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     Assert.assertTrue(doc.getProperty("embeddedSetNoLinkedClass") instanceof Set);
 
     Set addr = doc.getProperty("embeddedSetNoLinkedClass");
@@ -552,7 +566,8 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     Assert.assertTrue(doc.getProperty("embeddedSetWithLinkedClass") instanceof Set);
 
     Set addr = doc.getProperty("embeddedSetWithLinkedClass");
@@ -577,7 +592,8 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     Assert.assertTrue(doc.getProperty("embeddedListNoLinkedClass") instanceof List);
 
     List addr = doc.getProperty("embeddedListNoLinkedClass");
@@ -606,7 +622,8 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     Assert.assertTrue(doc.getProperty("embeddedListWithLinkedClass") instanceof List);
 
     List addr = doc.getProperty("embeddedListWithLinkedClass");
@@ -633,7 +650,8 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     Assert.assertTrue(doc.getProperty("embeddedMapNoLinkedClass") instanceof Map);
 
     Map addr = doc.getProperty("embeddedMapNoLinkedClass");
@@ -660,7 +678,8 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     Assert.assertTrue(doc.getProperty("embeddedMapWithLinkedClass") instanceof Map);
 
     Map addr = doc.getProperty("embeddedMapWithLinkedClass");
@@ -685,7 +704,8 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     Assert.assertTrue(doc.getProperty("embeddedNoLinkedClass") instanceof EntityImpl);
   }
 
@@ -743,7 +763,8 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     Assert.assertTrue(doc.getProperty("embeddedWithLinkedClass") instanceof EntityImpl);
     Assert.assertEquals(
         ((EntityImpl) doc.getProperty("embeddedWithLinkedClass")).getSchemaClassName(),
@@ -773,7 +794,8 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     Assert.assertTrue(doc.getProperty("like") instanceof Identifiable);
     Assert.assertEquals(
         ((EntityImpl) doc.getProperty("like")).getSchemaClassName(),
@@ -804,7 +826,8 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     Assert.assertTrue(doc.getProperty("like") instanceof Identifiable);
     Assert.assertEquals(
         ((EntityImpl) doc.getProperty("like")).getSchemaClassName(),

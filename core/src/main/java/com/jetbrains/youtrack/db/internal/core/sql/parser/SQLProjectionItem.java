@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeToVertexIterable;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeToVertexIterator;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -182,6 +183,13 @@ public class SQLProjectionItem extends SimpleNode {
       }
     }
 
+    if (value instanceof RecordAbstract recordAbstract && recordAbstract.isUnloaded()) {
+      var record = context.getDatabaseSession().getActiveTransaction().loadOrNull(recordAbstract);
+      if (record != null) {
+        value = record;
+      }
+    }
+
     return value;
   }
 
@@ -193,8 +201,10 @@ public class SQLProjectionItem extends SimpleNode {
       result = expression.execute(iCurrentRecord, ctx);
     }
     if (nestedProjection != null) {
-      if (result instanceof EntityImpl entity && entity.isEmpty()) {
-        result = ctx.getDatabaseSession().bindToSession(entity);
+      if (result instanceof EntityImpl entity && entity.isUnloaded()) {
+        var databaseSessionInternal = ctx.getDatabaseSession();
+        var activeTx = databaseSessionInternal.getActiveTransaction();
+        result = activeTx.<EntityImpl>load(entity);
       }
       result = nestedProjection.apply(expression, result, ctx);
     }

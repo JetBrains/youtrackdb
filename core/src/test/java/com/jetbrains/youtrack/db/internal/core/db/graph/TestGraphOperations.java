@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.db.graph;
 
 import com.jetbrains.youtrack.db.api.exception.RecordDuplicatedException;
+import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
@@ -35,8 +36,10 @@ public class TestGraphOperations extends DbTestBase {
 
     try {
       session.begin();
-      edge = session.bindToSession(vertex)
-          .addStateFulEdge(session.bindToSession(vertex1), "TestLabel");
+      var activeTx = session.getActiveTransaction();
+      var activeTx1 = session.getActiveTransaction();
+      edge = activeTx1.<Vertex>load(vertex)
+          .addStateFulEdge(activeTx.load(vertex1), "TestLabel");
       edge.setProperty("key", "unique");
       session.commit();
       Assert.fail("It should not be inserted  a duplicated edge");
@@ -45,8 +48,10 @@ public class TestGraphOperations extends DbTestBase {
     }
 
     session.begin();
-    edge = session.bindToSession(vertex)
-        .addStateFulEdge(session.bindToSession(vertex1), "TestLabel");
+    var activeTx = session.getActiveTransaction();
+    var activeTx1 = session.getActiveTransaction();
+    edge = activeTx1.<Vertex>load(vertex)
+        .addStateFulEdge(activeTx.load(vertex1), "TestLabel");
     edge.setProperty("key", "notunique");
     session.commit();
   }

@@ -107,9 +107,12 @@ public class IndexChangesQueryTest {
 
     db.begin();
 
-    doc1 = db.bindToSession(doc1);
-    doc2 = db.bindToSession(doc2);
-    doc3 = db.bindToSession(doc3);
+    var activeTx2 = db.getActiveTransaction();
+    doc1 = activeTx2.load(doc1);
+    var activeTx1 = db.getActiveTransaction();
+    doc2 = activeTx1.load(doc2);
+    var activeTx = db.getActiveTransaction();
+    doc3 = activeTx.load(doc3);
 
     doc1.delete();
     doc2.delete();

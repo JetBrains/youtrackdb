@@ -54,10 +54,9 @@ public class SQLMethodToJSON extends AbstractSQLMethod {
     final var format = iParams.length > 0 ? ((String) iParams[0]).replace("\"", "") : null;
 
     if (current instanceof Result result && result.isEntity()) {
-      current = result.asEntityOrNull();
+      current = result.asEntity();
     }
 
-    var session = iContext.getDatabaseSession();
     if (current instanceof DBRecord record) {
       return iParams.length == 1 ? record.toJSON(format) : record.toJSON();
     } else if (current instanceof Map) {

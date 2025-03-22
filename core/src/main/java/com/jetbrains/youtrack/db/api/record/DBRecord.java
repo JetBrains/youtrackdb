@@ -37,16 +37,21 @@ public interface DBRecord extends Identifiable {
 
   /**
    * Returns <code>true</code> if record is bound to the passed in session.
+   * <p>
+   * Record is bound to the session only while the current transaction is running.
+   * Once the transaction has finished, it will be unbound from its session and unloaded,
+   * so all properties will be inaccessible and {@link #getBoundedToSession()} will
+   * return <code>null</code>.
    *
-   * @param session The session to check
+   * @param session The session to check.
+   *
    * @return <code>true</code> if record is bound to the passed in session.
-   * @see com.jetbrains.youtrack.db.api.transaction.Transaction#bindToSession(Identifiable)
+   * @see com.jetbrains.youtrack.db.api.transaction.Transaction#load(Identifiable)
    */
   boolean isNotBound(@Nonnull DatabaseSession session);
 
   /**
-   * All the fields are deleted but the record identity is maintained. Use this to remove all the
-   * document's fields.
+   * All the properties are accessible for user will be deleted.
    */
   void clear();
 

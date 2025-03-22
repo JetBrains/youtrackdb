@@ -300,7 +300,8 @@ public class LinkMapIndexTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     final Map<String, RID> mapTwo = new HashMap<>();
 
     mapTwo.put("key3", docTwo.getIdentity());
@@ -908,7 +909,8 @@ public class LinkMapIndexTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session.bindToSession(document).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(document).delete();
     session.commit();
 
     final var keyIndexMap = getIndex("mapIndexTestKey");
@@ -938,7 +940,8 @@ public class LinkMapIndexTest extends BaseDBTest {
 
     try {
       session.begin();
-      session.bindToSession(document).delete();
+      var activeTx = session.getActiveTransaction();
+      activeTx.<EntityImpl>load(document).delete();
       session.commit();
     } catch (Exception e) {
       session.rollback();
@@ -971,7 +974,8 @@ public class LinkMapIndexTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session.bindToSession(document).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(document).delete();
     session.rollback();
 
     final var keyIndexMap = getIndex("mapIndexTestKey");
@@ -1030,7 +1034,8 @@ public class LinkMapIndexTest extends BaseDBTest {
     Assert.assertNotNull(resultByKey);
     Assert.assertEquals(resultByKey.size(), 1);
 
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     Assert.assertEquals(map, document.getProperty("linkMap"));
 
     var resultByValue =

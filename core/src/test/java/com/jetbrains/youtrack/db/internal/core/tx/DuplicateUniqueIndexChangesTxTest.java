@@ -67,9 +67,12 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     session.begin();
     // verify index state
     Assert.assertNull(fetchDocumentFromIndex(null));
-    Assert.assertEquals(session.bindToSession(person1), fetchDocumentFromIndex("Name1"));
-    Assert.assertEquals(session.bindToSession(person2), fetchDocumentFromIndex("Name2"));
-    Assert.assertEquals(session.bindToSession(person3), fetchDocumentFromIndex("Name3"));
+    var activeTx2 = session.getActiveTransaction();
+    Assert.assertEquals(activeTx2.<EntityImpl>load(person1), fetchDocumentFromIndex("Name1"));
+    var activeTx1 = session.getActiveTransaction();
+    Assert.assertEquals(activeTx1.<EntityImpl>load(person2), fetchDocumentFromIndex("Name2"));
+    var activeTx = session.getActiveTransaction();
+    Assert.assertEquals(activeTx.<EntityImpl>load(person3), fetchDocumentFromIndex("Name3"));
     session.commit();
   }
 
@@ -95,9 +98,12 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
 
     // verify index state
     session.begin();
-    person1 = session.bindToSession(person1);
-    person2 = session.bindToSession(person2);
-    person3 = session.bindToSession(person3);
+    var activeTx5 = session.getActiveTransaction();
+    person1 = activeTx5.load(person1);
+    var activeTx4 = session.getActiveTransaction();
+    person2 = activeTx4.load(person2);
+    var activeTx3 = session.getActiveTransaction();
+    person3 = activeTx3.load(person3);
 
     Assert.assertNull(fetchDocumentFromIndex(null));
     Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
@@ -129,9 +135,12 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     // verify index state
     session.begin();
     Assert.assertNull(fetchDocumentFromIndex(null));
-    Assert.assertEquals(session.bindToSession(person1), fetchDocumentFromIndex("Name1"));
-    Assert.assertEquals(session.bindToSession(person2), fetchDocumentFromIndex("Name2"));
-    Assert.assertEquals(session.bindToSession(person3), fetchDocumentFromIndex("Name3"));
+    var activeTx2 = session.getActiveTransaction();
+    Assert.assertEquals(activeTx2.<EntityImpl>load(person1), fetchDocumentFromIndex("Name1"));
+    var activeTx1 = session.getActiveTransaction();
+    Assert.assertEquals(activeTx1.<EntityImpl>load(person2), fetchDocumentFromIndex("Name2"));
+    var activeTx = session.getActiveTransaction();
+    Assert.assertEquals(activeTx.<EntityImpl>load(person3), fetchDocumentFromIndex("Name3"));
     session.commit();
   }
 
@@ -160,9 +169,12 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     // verify index state
     session.begin();
     Assert.assertNull(fetchDocumentFromIndex("same"));
-    Assert.assertEquals(session.bindToSession(person1), fetchDocumentFromIndex("Name1"));
-    Assert.assertEquals(session.bindToSession(person2), fetchDocumentFromIndex("Name2"));
-    Assert.assertEquals(session.bindToSession(person3), fetchDocumentFromIndex("Name3"));
+    var activeTx2 = session.getActiveTransaction();
+    Assert.assertEquals(activeTx2.<EntityImpl>load(person1), fetchDocumentFromIndex("Name1"));
+    var activeTx1 = session.getActiveTransaction();
+    Assert.assertEquals(activeTx1.<EntityImpl>load(person2), fetchDocumentFromIndex("Name2"));
+    var activeTx = session.getActiveTransaction();
+    Assert.assertEquals(activeTx.<EntityImpl>load(person3), fetchDocumentFromIndex("Name3"));
     session.commit();
   }
 
@@ -179,9 +191,12 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
 
     // verify index state
     session.begin();
-    person1 = session.bindToSession(person1);
-    person2 = session.bindToSession(person2);
-    person3 = session.bindToSession(person3);
+    var activeTx5 = session.getActiveTransaction();
+    person1 = activeTx5.load(person1);
+    var activeTx4 = session.getActiveTransaction();
+    person2 = activeTx4.load(person2);
+    var activeTx3 = session.getActiveTransaction();
+    person3 = activeTx3.load(person3);
 
     Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
     Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
@@ -207,9 +222,12 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     session.begin();
     // verify index state
 
-    person1 = session.bindToSession(person1);
-    person2 = session.bindToSession(person2);
-    person3 = session.bindToSession(person3);
+    var activeTx2 = session.getActiveTransaction();
+    person1 = activeTx2.load(person1);
+    var activeTx1 = session.getActiveTransaction();
+    person2 = activeTx1.load(person2);
+    var activeTx = session.getActiveTransaction();
+    person3 = activeTx.load(person3);
 
     Assert.assertNull(fetchDocumentFromIndex("same"));
     Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
@@ -242,8 +260,10 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
 
     // verify index state
     session.begin();
-    Assert.assertEquals(session.bindToSession(person2), fetchDocumentFromIndex("Name2"));
-    Assert.assertEquals(session.bindToSession(person4), fetchDocumentFromIndex("same"));
+    var activeTx1 = session.getActiveTransaction();
+    Assert.assertEquals(activeTx1.<EntityImpl>load(person2), fetchDocumentFromIndex("Name2"));
+    var activeTx = session.getActiveTransaction();
+    Assert.assertEquals(activeTx.<EntityImpl>load(person4), fetchDocumentFromIndex("same"));
     session.commit();
   }
 
@@ -263,10 +283,14 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     // verify index state
     session.begin();
 
-    person1 = session.bindToSession(person1);
-    person2 = session.bindToSession(person2);
-    person3 = session.bindToSession(person3);
-    person4 = session.bindToSession(person4);
+    var activeTx5 = session.getActiveTransaction();
+    person1 = activeTx5.load(person1);
+    var activeTx4 = session.getActiveTransaction();
+    person2 = activeTx4.load(person2);
+    var activeTx3 = session.getActiveTransaction();
+    person3 = activeTx3.load(person3);
+    var activeTx2 = session.getActiveTransaction();
+    person4 = activeTx2.load(person4);
 
     Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
     Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
@@ -286,8 +310,10 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
 
     // verify index state
     session.begin();
-    person2 = session.bindToSession(person2);
-    person4 = session.bindToSession(person4);
+    var activeTx1 = session.getActiveTransaction();
+    person2 = activeTx1.load(person2);
+    var activeTx = session.getActiveTransaction();
+    person4 = activeTx.load(person4);
 
     Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
     Assert.assertEquals(person4, fetchDocumentFromIndex("same"));
@@ -335,10 +361,14 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     // verify index state
     session.begin();
 
-    person1 = session.bindToSession(person1);
-    person2 = session.bindToSession(person2);
-    person3 = session.bindToSession(person3);
-    person4 = session.bindToSession(person4);
+    var activeTx3 = session.getActiveTransaction();
+    person1 = activeTx3.load(person1);
+    var activeTx2 = session.getActiveTransaction();
+    person2 = activeTx2.load(person2);
+    var activeTx1 = session.getActiveTransaction();
+    person3 = activeTx1.load(person3);
+    var activeTx = session.getActiveTransaction();
+    person4 = activeTx.load(person4);
 
     Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
     Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));

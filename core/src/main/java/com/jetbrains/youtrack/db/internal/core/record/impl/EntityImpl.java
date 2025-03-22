@@ -1875,9 +1875,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
                   + propertyValue);
         }
 
-        var transaction = session.getActiveTransaction();
-        final var embeddedRecord = transaction.load(embedded);
-        if (embeddedRecord instanceof EntityImpl entity) {
+        if (embedded instanceof EntityImpl entity) {
           final var embeddedClass = p.getLinkedClass();
           if (entity.isVertex()) {
             throw new ValidationException(session.getDatabaseName(),
@@ -1908,8 +1906,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
         final var embeddedClass = p.getLinkedClass();
         if (embeddedClass != null) {
-
-          if (!(embeddedRecord instanceof EntityImpl entity)) {
+          if (!(embedded instanceof EntityImpl entity)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The property '"
                     + p.getFullName()
@@ -2755,7 +2752,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     checkForProperties(propertyName);
 
     var entry = properties.get(propertyName);
-    if (entry != null) {
+    if (entry != null && entry.exists()) {
       if (propertyAccess == null || propertyAccess.isReadable(propertyName)) {
         if (entry.type != null) {
           return entry.type.getPublicPropertyType();
@@ -2850,8 +2847,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
   public void clear() {
     checkForBinding();
 
-    super.clear();
-    internalReset();
+    for (var property : getPropertyNames()) {
+      removeProperty(property);
+    }
+
     owner = null;
   }
 

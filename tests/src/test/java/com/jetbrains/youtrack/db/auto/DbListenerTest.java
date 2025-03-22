@@ -197,7 +197,8 @@ public class DbListenerTest extends BaseDBTest {
     final var cl = new DocumentChangeListener(session);
 
     session.begin();
-    rec = session.bindToSession(rec);
+    var activeTx = session.getActiveTransaction();
+    rec = activeTx.load(rec);
     rec.setProperty("surname", "Miner");
 
     session.commit();
@@ -217,7 +218,8 @@ public class DbListenerTest extends BaseDBTest {
     session.begin();
     final var cl = new DocumentChangeListener(session);
 
-    v = session.bindToSession(v);
+    var activeTx = session.getActiveTransaction();
+    v = activeTx.load(v);
     v.setProperty("surname", "Miner");
     session.commit();
     session.close();

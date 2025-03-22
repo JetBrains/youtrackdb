@@ -55,8 +55,10 @@ public class DBRecordLazySetTest extends DbTestBase {
   public void testSetRemoveNotPersistent() {
     session.begin();
     var set = new LinkSetImpl((EntityImpl) session.newEntity());
-    doc1 = session.bindToSession(doc1);
-    doc2 = session.bindToSession(doc2);
+    var activeTx1 = session.getActiveTransaction();
+    doc1 = activeTx1.load(doc1);
+    var activeTx = session.getActiveTransaction();
+    doc2 = activeTx.load(doc2);
 
     set.add(doc1);
     set.add(doc2);

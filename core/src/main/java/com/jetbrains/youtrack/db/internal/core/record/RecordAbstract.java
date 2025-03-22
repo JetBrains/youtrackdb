@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
@@ -299,7 +300,8 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   @Override
   public boolean isNotBound(@Nonnull DatabaseSession session) {
-    return isUnloaded() || this.session != session;
+    assert ((DatabaseSessionInternal) session).assertIfNotActive();
+    return this.session == null || this.session != session || this.status != STATUS.LOADED;
   }
 
   @Nonnull
@@ -493,8 +495,8 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
         + recordId
         + " is not bound to the current session. Please bind record to the database session"
         + " by calling : "
-        + DatabaseSession.class.getSimpleName()
-        + ".bindToSession(record) before using it.";
+        + Transaction.class.getSimpleName()
+        + ".load(record) before using it.";
   }
 
   public boolean isContentChanged() {

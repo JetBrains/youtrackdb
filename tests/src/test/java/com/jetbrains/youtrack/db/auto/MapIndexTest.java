@@ -167,7 +167,8 @@ public class MapIndexTest extends BaseDBTest {
 
     session.begin();
 
-    mapper = session.bindToSession(mapper);
+    var activeTx = session.getActiveTransaction();
+    mapper = activeTx.load(mapper);
     final Map<String, Integer> mapTwo = new HashMap<>();
 
     mapTwo.put("key3", 30);
@@ -230,7 +231,8 @@ public class MapIndexTest extends BaseDBTest {
       mapTwo.put("key3", 30);
       mapTwo.put("key2", 20);
 
-      mapper = session.bindToSession(mapper);
+      var activeTx = session.getActiveTransaction();
+      mapper = activeTx.load(mapper);
       mapper.setProperty("intMap", mapTwo);
       session.commit();
     } catch (Exception e) {
@@ -290,7 +292,8 @@ public class MapIndexTest extends BaseDBTest {
     mapTwo.put("key3", 30);
     mapTwo.put("key2", 20);
 
-    mapper = session.bindToSession(mapper);
+    var activeTx = session.getActiveTransaction();
+    mapper = activeTx.load(mapper);
     mapper.setProperty("intMap", mapTwo);
     session.rollback();
 
@@ -812,7 +815,8 @@ public class MapIndexTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session.delete(session.bindToSession(mapper));
+    var activeTx = session.getActiveTransaction();
+    session.delete(activeTx.<Entity>load(mapper));
     session.commit();
 
     var keyIndex = getIndex("mapIndexTestKey");
@@ -840,7 +844,8 @@ public class MapIndexTest extends BaseDBTest {
 
     try {
       session.begin();
-      session.delete(session.bindToSession(mapper));
+      var activeTx = session.getActiveTransaction();
+      session.delete(activeTx.<Entity>load(mapper));
       session.commit();
     } catch (Exception e) {
       session.rollback();
@@ -870,7 +875,8 @@ public class MapIndexTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session.delete(session.bindToSession(mapper));
+    var activeTx = session.getActiveTransaction();
+    session.delete(activeTx.<Entity>load(mapper));
     session.rollback();
 
     var keyIndex = getIndex("mapIndexTestKey");

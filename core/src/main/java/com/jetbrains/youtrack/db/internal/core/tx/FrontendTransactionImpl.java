@@ -39,6 +39,7 @@ import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.transaction.RecordOperationType;
+import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
@@ -438,8 +439,8 @@ public class FrontendTransactionImpl implements
             "Record "
                 + record
                 + " is not bound to session, please call "
-                + DatabaseSession.class.getSimpleName()
-                + ".bindToSession(record) before changing it");
+                + Transaction.class.getSimpleName()
+                + ".load(record) before changing it");
       }
       if (record.isEmbedded()) {
         throw new DatabaseException(session,
@@ -1196,12 +1197,6 @@ public class FrontendTransactionImpl implements
     return session;
   }
 
-  @Override
-  public <T extends Identifiable> T bindToSession(T identifiable) {
-    checkIfActive();
-    return session.bindToSession(identifiable);
-  }
-
   @Nonnull
   @Override
   public Entity loadEntity(RID id) throws DatabaseException, RecordNotFoundException {
@@ -1216,6 +1211,9 @@ public class FrontendTransactionImpl implements
     checkIfActive();
 
     if (identifiable instanceof Entity entity) {
+      if (entity.isEmbedded()) {
+        return entity;
+      }
       if (entity.isNotBound(session)) {
         return loadEntity(entity.getIdentity());
       }
@@ -1550,6 +1548,12 @@ public class FrontendTransactionImpl implements
     checkIfActive();
 
     if (identifiable instanceof DBRecord record) {
+      if (record instanceof Entity entity && entity.isEmbedded()) {
+        return (RET) record;
+      }
+      if (record.isNotBound(session)) {
+        return load(record.getIdentity());
+      }
       //noinspection unchecked
       return (RET) record;
     }

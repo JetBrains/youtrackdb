@@ -79,7 +79,8 @@ public class LuceneTransactionCompositeQueryTest extends LuceneBaseTest {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     session.delete(doc);
 
     var query = "select from Foo where name = 'Test' and  SEARCH_CLASS(\"abc\") = true ";
@@ -126,7 +127,8 @@ public class LuceneTransactionCompositeQueryTest extends LuceneBaseTest {
 
     session.begin();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     doc.setProperty("bar", "removed");
 
     var query = "select from Foo where name = 'Test' and SEARCH_CLASS(\"abc\") =true";
@@ -190,7 +192,8 @@ public class LuceneTransactionCompositeQueryTest extends LuceneBaseTest {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     doc.setProperty("bar", "removed");
 
     var query = "select from Foo where name = 'Test' and SEARCH_CLASS(\"abc\")=true ";

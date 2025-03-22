@@ -59,7 +59,8 @@ public class EntityFieldWalker {
     final Set<EntityImpl> walked = Collections.newSetFromMap(new IdentityHashMap<>());
 
     if (entity.getIdentity().isValidPosition()) {
-      entity = session.bindToSession(entity);
+      var activeTx = session.getActiveTransaction();
+      entity = activeTx.load(entity);
     }
 
     walkDocument(session, entity, fieldWalker, walked);

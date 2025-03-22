@@ -108,7 +108,8 @@ public class GetSchemaPropertyOnLoadValueTest extends DbTestBase {
 
     session.begin();
     entity = session.load(entity.getIdentity());
-    oBlob2 = session.bindToSession(oBlob2);
+    var activeTx = session.getActiveTransaction();
+    oBlob2 = activeTx.load(oBlob2);
 
     entity.setLazyLoad(true);
     entity.setProperty("stringBlob", oBlob2);
@@ -178,7 +179,8 @@ public class GetSchemaPropertyOnLoadValueTest extends DbTestBase {
     session.commit();
     for (var txId = 0; txId < 5; txId++) {
       session.begin();
-      var boundDoc = session.bindToSession(v);
+      var activeTx = session.getActiveTransaction();
+      var boundDoc = activeTx.<Vertex>load(v);
       propertyNames.forEach(name -> initialValues.put(name, boundDoc.getProperty(name)));
       for (var i = 0; i < 1000; i++) {
         var operation = operations.get(random.nextInt(operations.size()));

@@ -30,7 +30,8 @@ public class DocumentTrackingNestedCollectionsTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
     orid = entity.getIdentity();
 
     objects = entity.getOrCreateEmbeddedSet("objects");
@@ -65,7 +66,8 @@ public class DocumentTrackingNestedCollectionsTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     objects = document.getProperty("objects");
     subObjects = (EmbeddedSet<Object>) objects.iterator().next();
     subObjects.add("one");
@@ -96,7 +98,8 @@ public class DocumentTrackingNestedCollectionsTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    document = session.bindToSession(document);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
     objects = document.getEmbeddedList("objects");
     subObjects = (EmbeddedList<Object>) objects.iterator().next();
     subObjects.add("one");
@@ -128,7 +131,8 @@ public class DocumentTrackingNestedCollectionsTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
     objects = entity.getOrCreateEmbeddedMap("objects");
     subObjects = objects.values().iterator().next();
     subObjects.put("one", "String");

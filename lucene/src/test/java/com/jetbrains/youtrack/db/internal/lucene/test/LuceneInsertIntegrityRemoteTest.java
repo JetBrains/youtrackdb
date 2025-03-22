@@ -67,7 +67,8 @@ public class LuceneInsertIntegrityRemoteTest extends BaseLuceneTest {
     Assert.assertEquals("Rome", doc.getProperty("name"));
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
     doc.setProperty("name", "London");
     session.commit();
 
@@ -84,7 +85,8 @@ public class LuceneInsertIntegrityRemoteTest extends BaseLuceneTest {
     Assert.assertEquals("London", doc.getProperty("name"));
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     doc.setProperty("name", "Berlin");
     session.commit();
 

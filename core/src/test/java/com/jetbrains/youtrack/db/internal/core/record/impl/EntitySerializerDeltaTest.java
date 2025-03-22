@@ -48,7 +48,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
 
     doc.setProperty(fieldName, testValue);
     doc.removeProperty(removeField);
@@ -58,7 +59,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.rollback();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     delta.deserializeDelta(session, bytes, doc);
     assertEquals(testValue, doc.getProperty(fieldName));
     assertNull(doc.getProperty(removeField));
@@ -92,7 +94,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
     nestedDoc = doc.getProperty(nestedDocField);
     nestedDoc.setProperty(fieldName, testValue);
 
@@ -102,7 +105,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     var bytes = serializerDelta.serializeDelta(session, doc);
     // test serialization/deserialization
-    originalDoc = session.bindToSession(originalDoc);
+    var activeTx = session.getActiveTransaction();
+    originalDoc = activeTx.load(originalDoc);
     serializerDelta.deserializeDelta(session, bytes, originalDoc);
     nestedDoc = originalDoc.getProperty(nestedDocField);
     assertEquals(testValue, nestedDoc.getProperty(fieldName));
@@ -127,7 +131,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
 
     List<String> newArray = doc.getProperty(fieldName);
     newArray.set(1, "three");
@@ -139,7 +144,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.rollback();
     session.begin();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     serializerDelta.deserializeDelta(session, bytes, doc);
 
     List<?> checkList = doc.getProperty(fieldName);
@@ -162,7 +168,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
 
     Set<String> newArray = doc.getProperty(fieldName);
     newArray.add("three");
@@ -175,7 +182,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.rollback();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     serializerDelta.deserializeDelta(session, bytes, doc);
 
     Set<String> checkSet = doc.getProperty(fieldName);
@@ -202,7 +210,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
 
     @SuppressWarnings("unchecked")
     var newSet = ((Set<Set<String>>) doc.getProperty(fieldName)).iterator().next();
@@ -214,7 +223,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.rollback();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     serializerDelta.deserializeDelta(session, bytes, doc);
 
     Set<Set<String>> checkSet = doc.getProperty(fieldName);
@@ -245,7 +255,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
 
     var newList = doc.<List<List<String>>>getProperty(fieldName).getFirst();
     newList.set(1, "three");
@@ -256,7 +267,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var bytes = serializerDelta.serializeDelta(session, doc);
     session.rollback();
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     serializerDelta.deserializeDelta(session, bytes, doc);
 
     List<List<String>> checkList = doc.getProperty(fieldName);
@@ -286,7 +298,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
 
     @SuppressWarnings("unchecked")
     var testDoc = ((List<EntityImpl>) doc.getProperty(fieldName)).get(1);
@@ -298,7 +311,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.rollback();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     serializerDelta.deserializeDelta(session, bytes, doc);
     List<EntityImpl> checkList = doc.getProperty(fieldName);
     var checkDoc = checkList.get(1);
@@ -334,7 +348,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx1 = session.getActiveTransaction();
+    entity = activeTx1.load(entity);
 
     originalValue = entity.getProperty(fieldName);
     Identifiable identifiable = originalValue.getFirst().getFirst();
@@ -348,7 +363,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.rollback();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
     serializerDelta.deserializeDelta(session, bytes, entity);
 
     List<List<EntityImpl>> checkList = entity.getProperty(fieldName);
@@ -379,7 +395,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx1 = session.getActiveTransaction();
+    entity = activeTx1.load(entity);
     @SuppressWarnings("unchecked")
     var innerList = ((List<List<List<String>>>) entity.getProperty(fieldName)).getFirst()
         .getFirst();
@@ -391,7 +408,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var bytes = serializerDelta.serializeDelta(session, entity);
     session.rollback();
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
     serializerDelta.deserializeDelta(session, bytes, entity);
     List<List<List<String>>> checkList = entity.getProperty(fieldName);
     assertEquals("changed", checkList.getFirst().getFirst().getFirst());
@@ -426,7 +444,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx1 = session.getActiveTransaction();
+    entity = activeTx1.load(entity);
 
     @SuppressWarnings("unchecked")
     var testDoc = ((List<EntityImpl>) entity.getProperty(fieldName)).get(1);
@@ -439,7 +458,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.rollback();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
     serializerDelta.deserializeDelta(session, bytes, entity);
 
     List<EntityImpl> checkList = entity.getProperty(fieldName);
@@ -463,7 +483,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx1 = session.getActiveTransaction();
+    entity = activeTx1.load(entity);
 
     List<String> newArray = entity.getProperty(fieldName);
     newArray.add("three");
@@ -474,7 +495,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var bytes = serializerDelta.serializeDelta(session, entity);
     session.rollback();
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
     serializerDelta.deserializeDelta(session, bytes, entity);
 
     List<String> checkList = entity.getProperty(fieldName);
@@ -500,7 +522,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx1 = session.getActiveTransaction();
+    entity = activeTx1.load(entity);
 
     @SuppressWarnings("unchecked")
     var newArray = ((List<List<String>>) entity.getProperty(fieldName)).getFirst();
@@ -512,7 +535,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.rollback();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
     serializerDelta.deserializeDelta(session, bytes, entity);
 
     List<List<String>> rootList = entity.getProperty(fieldName);
@@ -537,7 +561,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
 
     List<String> newArray = doc.getProperty(fieldName);
     newArray.removeFirst();
@@ -549,7 +574,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.rollback();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     serializerDelta.deserializeDelta(session, bytes, doc);
     List<String> checkList = doc.getProperty(fieldName);
     assertEquals("three", checkList.getFirst());
@@ -572,7 +598,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx1 = session.getActiveTransaction();
+    entity = activeTx1.load(entity);
     entity.setProperty(fieldName, testValue);
 
     // test serialization/deserialization
@@ -581,7 +608,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.rollback();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
     serializerDelta.deserializeDelta(session, bytes, entity);
     assertEquals(testValue, entity.getProperty(fieldName));
     session.rollback();
@@ -603,7 +631,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx1 = session.getActiveTransaction();
+    entity = activeTx1.load(entity);
 
     entity.removeProperty(fieldName);
     entity.setProperty("other", "new");
@@ -614,7 +643,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.rollback();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
     serializerDelta.deserializeDelta(session, bytes, entity);
 
     assertFalse(entity.hasProperty(fieldName));
@@ -644,7 +674,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    rootDoc = session.bindToSession(rootDoc);
+    var activeTx1 = session.getActiveTransaction();
+    rootDoc = activeTx1.load(rootDoc);
 
     entity = rootDoc.getProperty(nestedFieldName);
     entity.removeProperty(fieldName);
@@ -655,7 +686,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.rollback();
 
     session.begin();
-    rootDoc = session.bindToSession(rootDoc);
+    var activeTx = session.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
     serializerDelta.deserializeDelta(session, bytes, rootDoc);
     EntityImpl nested = rootDoc.getProperty(nestedFieldName);
     assertFalse(nested.hasProperty(fieldName));
@@ -684,7 +716,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx1 = session.getActiveTransaction();
+    entity = activeTx1.load(entity);
 
     var transaction1 = session.getActiveTransaction();
     @SuppressWarnings("unchecked")
@@ -697,7 +730,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.rollback();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
     serializerDelta.deserializeDelta(session, bytes, entity);
     List<Identifiable> checkList = entity.getProperty(fieldName);
     var transaction = session.getActiveTransaction();
@@ -720,7 +754,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx1 = session.getActiveTransaction();
+    entity = activeTx1.load(entity);
 
     Map<String, String> containedMap = entity.getProperty(fieldName);
     containedMap.put("first", "changed");
@@ -732,7 +767,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.rollback();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
     serializerDelta.deserializeDelta(session, bytes, entity);
 
     containedMap = entity.getProperty(fieldName);
@@ -760,7 +796,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
 
     @SuppressWarnings("unchecked")
     var containedMap = ((List<Map<String, String>>) doc.getProperty(fieldName)).getFirst();
@@ -772,7 +809,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.rollback();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     serializerDelta.deserializeDelta(session, bytes, doc);
 
     //noinspection unchecked
@@ -801,7 +839,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx1 = session.getActiveTransaction();
+    entity = activeTx1.load(entity);
 
     Map<String, EntityImpl> containedMap = entity.getProperty(fieldName);
     var changeDoc = containedMap.get("first");
@@ -813,7 +852,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.rollback();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
     serializerDelta.deserializeDelta(session, bytes, entity);
     containedMap = entity.getProperty(fieldName);
     var containedDoc = containedMap.get("first");
@@ -849,7 +889,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
     var containedMap = doc.<Map<String, String>>getEmbeddedList(
         fieldName).getFirst();
     containedMap.put("first", "changed");
@@ -858,7 +899,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var bytes = serializerDelta.serializeDelta(session, doc);
     session.rollback();
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     serializerDelta.deserializeDelta(session, bytes, doc);
 
     containedMap = doc.<Map<String, String>>getEmbeddedList(fieldName).getFirst();
@@ -888,22 +930,27 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    first = session.bindToSession(first);
-    second = session.bindToSession(second);
-    third = session.bindToSession(third);
+    var activeTx4 = session.getActiveTransaction();
+    first = activeTx4.load(first);
+    var activeTx3 = session.getActiveTransaction();
+    second = activeTx3.load(second);
+    var activeTx2 = session.getActiveTransaction();
+    third = activeTx2.load(third);
 
     ridBag = new RidBag(session);
     ridBag.add(first.getIdentity());
     ridBag.add(second.getIdentity());
     ridBag.add(third.getIdentity());
 
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
     doc.setProperty(fieldName, ridBag, PropertyType.LINKBAG);
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
 
     var bytes = serializerDelta.serializeDelta(session, doc);
-    originalDoc = session.bindToSession(originalDoc);
+    var activeTx = session.getActiveTransaction();
+    originalDoc = activeTx.load(originalDoc);
     serializerDelta.deserializeDelta(session, bytes, originalDoc);
 
     RidBag mergedRidbag = originalDoc.getProperty(fieldName);
@@ -925,10 +972,14 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    entity = session.bindToSession(entity);
-    first = session.bindToSession(first);
-    second = session.bindToSession(second);
-    third = session.bindToSession(third);
+    var activeTx7 = session.getActiveTransaction();
+    entity = activeTx7.load(entity);
+    var activeTx6 = session.getActiveTransaction();
+    first = activeTx6.load(first);
+    var activeTx5 = session.getActiveTransaction();
+    second = activeTx5.load(second);
+    var activeTx4 = session.getActiveTransaction();
+    third = activeTx4.load(third);
 
     var ridBag = new RidBag(session);
     ridBag.add(first.getIdentity());
@@ -939,9 +990,12 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    first = session.bindToSession(first);
-    second = session.bindToSession(second);
-    entity = session.bindToSession(entity);
+    var activeTx3 = session.getActiveTransaction();
+    first = activeTx3.load(first);
+    var activeTx2 = session.getActiveTransaction();
+    second = activeTx2.load(second);
+    var activeTx1 = session.getActiveTransaction();
+    entity = activeTx1.load(entity);
 
     ridBag = new RidBag(session);
     ridBag.add(first.getIdentity());
@@ -954,7 +1008,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.rollback();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
     serializerDelta.deserializeDelta(session, bytes, entity);
     RidBag mergedRidbag = entity.getProperty(fieldName);
     assertEquals(ridBag, mergedRidbag);
@@ -979,14 +1034,17 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx3 = session.getActiveTransaction();
+    entity = activeTx3.load(entity);
 
     var third = (EntityImpl) session.newEntity(claz);
     session.commit();
 
     session.begin();
-    entity = session.bindToSession(entity);
-    third = session.bindToSession(third);
+    var activeTx2 = session.getActiveTransaction();
+    entity = activeTx2.load(entity);
+    var activeTx1 = session.getActiveTransaction();
+    third = activeTx1.load(third);
 
     ridBag = entity.getProperty(fieldName);
     ridBag.add(third.getIdentity());
@@ -997,7 +1055,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.rollback();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
     serializerDelta.deserializeDelta(session, bytes, entity);
     RidBag mergedRidbag = entity.getProperty(fieldName);
     assertEquals(ridBag, mergedRidbag);
@@ -1024,7 +1083,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx1 = session.getActiveTransaction();
+    entity = activeTx1.load(entity);
     ridBag = entity.getProperty(fieldName);
     ridBag.remove(third.getIdentity());
 
@@ -1034,7 +1094,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.rollback();
 
     session.begin();
-    entity = session.bindToSession(entity);
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
     serializerDelta.deserializeDelta(session, bytes, entity);
     RidBag mergedRidbag = entity.getProperty(fieldName);
     assertEquals(ridBag, mergedRidbag);
@@ -1060,7 +1121,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
 
     ridBag = new RidBag(session);
     ridBag.add(first.getIdentity());
@@ -1073,7 +1135,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.rollback();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     serializerDelta.deserializeDelta(session, bytes, doc);
     RidBag mergedRidbag = doc.getProperty(fieldName);
     assertEquals(ridBag, mergedRidbag);
@@ -1101,7 +1164,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
     doc.setProperty("one", null);
     doc.<List<String>>getProperty("list").add(null);
     doc.<Set<String>>getProperty("set").add(null);
@@ -1115,7 +1179,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var bytes = serializerDelta.serializeDelta(session, doc);
     session.rollback();
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     serializerDelta.deserializeDelta(session, bytes, doc);
     assertTrue(doc.getEmbeddedList("list").contains(null));
     assertTrue(doc.getEmbeddedSet("set").contains(null));
@@ -1146,9 +1211,12 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
-    link2 = session.bindToSession(link2);
-    link1 = session.bindToSession(link1);
+    var activeTx5 = session.getActiveTransaction();
+    doc = activeTx5.load(doc);
+    var activeTx4 = session.getActiveTransaction();
+    link2 = activeTx4.load(link2);
+    var activeTx3 = session.getActiveTransaction();
+    link1 = activeTx3.load(link1);
 
     doc.<List<Identifiable>>getProperty("linkList").set(1, link2);
     doc.<List<Identifiable>>getProperty("linkList").remove(link1);
@@ -1164,9 +1232,12 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var bytes = serializerDelta.serializeDelta(session, doc);
     session.rollback();
     session.begin();
-    doc = session.bindToSession(doc);
-    link1 = session.bindToSession(link1);
-    link2 = session.bindToSession(link2);
+    var activeTx2 = session.getActiveTransaction();
+    doc = activeTx2.load(doc);
+    var activeTx1 = session.getActiveTransaction();
+    link1 = activeTx1.load(link1);
+    var activeTx = session.getActiveTransaction();
+    link2 = activeTx.load(link2);
 
     serializerDelta.deserializeDelta(session, bytes, doc);
     assertFalse(doc.<List<Identifiable>>getProperty("linkList").contains(link1));
@@ -1209,7 +1280,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
     var embedded1 = session.newEmbeddedEntity();
     embedded1.setProperty("other", 1);
     doc.<Map<String, Entity>>getProperty("mapEmbedded").put("newDoc", embedded1);
@@ -1225,7 +1297,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var bytes = serializerDelta.serializeDelta(session, doc);
     session.rollback();
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     serializerDelta.deserializeDelta(session, bytes, doc);
     assertNotNull((doc.<Map<String, String>>getProperty("mapEmbedded")).get("newDoc"));
     assertEquals(

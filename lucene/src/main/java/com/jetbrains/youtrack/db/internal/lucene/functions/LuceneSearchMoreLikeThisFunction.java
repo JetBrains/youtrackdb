@@ -279,7 +279,6 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
 
   private LuceneFullTextIndex searchForIndex(CommandContext ctx, String className) {
     var db = ctx.getDatabaseSession();
-    db.activateOnCurrentThread();
     var dbMetadata = db.getMetadata();
 
     var indices =

@@ -113,8 +113,10 @@ public class LinkSetIndexTest extends BaseDBTest {
       session.begin();
       final var document = ((EntityImpl) session.newEntity("LinkSetIndexTestClass"));
       final Set<Identifiable> linkSet = new HashSet<>();
-      linkSet.add(session.bindToSession(docOne));
-      linkSet.add(session.bindToSession(docTwo));
+      var activeTx1 = session.getActiveTransaction();
+      linkSet.add(activeTx1.<EntityImpl>load(docOne));
+      var activeTx = session.getActiveTransaction();
+      linkSet.add(activeTx.<EntityImpl>load(docTwo));
 
       document.setProperty("linkSet", linkSet);
 
@@ -205,10 +207,13 @@ public class LinkSetIndexTest extends BaseDBTest {
     try {
       session.begin();
 
-      document = session.bindToSession(document);
+      var activeTx2 = session.getActiveTransaction();
+      document = activeTx2.load(document);
       final Set<Identifiable> linkSetTwo = new HashSet<>();
-      linkSetTwo.add(session.bindToSession(docOne));
-      linkSetTwo.add(session.bindToSession(docThree));
+      var activeTx1 = session.getActiveTransaction();
+      linkSetTwo.add(activeTx1.<EntityImpl>load(docOne));
+      var activeTx = session.getActiveTransaction();
+      linkSetTwo.add(activeTx.<EntityImpl>load(docThree));
 
       document.setProperty("linkSet", linkSetTwo);
 
@@ -256,10 +261,13 @@ public class LinkSetIndexTest extends BaseDBTest {
 
     session.begin();
 
-    document = session.bindToSession(document);
+    var activeTx2 = session.getActiveTransaction();
+    document = activeTx2.load(document);
     final Set<Identifiable> linkSetTwo = new HashSet<>();
-    linkSetTwo.add(session.bindToSession(docOne));
-    linkSetTwo.add(session.bindToSession(docThree));
+    var activeTx1 = session.getActiveTransaction();
+    linkSetTwo.add(activeTx1.<EntityImpl>load(docOne));
+    var activeTx = session.getActiveTransaction();
+    linkSetTwo.add(activeTx.<EntityImpl>load(docThree));
 
     document.setProperty("linkSet", linkSetTwo);
 
@@ -350,7 +358,9 @@ public class LinkSetIndexTest extends BaseDBTest {
     try {
       session.begin();
       EntityImpl loadedDocument = session.load(document.getIdentity());
-      loadedDocument.<Set<Identifiable>>getProperty("linkSet").add(session.bindToSession(docThree));
+      var activeTx = session.getActiveTransaction();
+      loadedDocument.<Set<Identifiable>>getProperty("linkSet").add(
+          activeTx.<EntityImpl>load(docThree));
 
       session.commit();
     } catch (Exception e) {
@@ -397,7 +407,9 @@ public class LinkSetIndexTest extends BaseDBTest {
 
     session.begin();
     EntityImpl loadedDocument = session.load(document.getIdentity());
-    loadedDocument.<Set<Identifiable>>getProperty("linkSet").add(session.bindToSession(docThree));
+    var activeTx = session.getActiveTransaction();
+    loadedDocument.<Set<Identifiable>>getProperty("linkSet").add(
+        activeTx.<EntityImpl>load(docThree));
 
     session.rollback();
 
@@ -558,7 +570,8 @@ public class LinkSetIndexTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session.bindToSession(document).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(document).delete();
     session.commit();
 
     var index = getIndex("linkSetIndex");
@@ -585,7 +598,8 @@ public class LinkSetIndexTest extends BaseDBTest {
 
     try {
       session.begin();
-      session.bindToSession(document).delete();
+      var activeTx = session.getActiveTransaction();
+      activeTx.<EntityImpl>load(document).delete();
       session.commit();
     } catch (Exception e) {
       session.rollback();
@@ -615,7 +629,8 @@ public class LinkSetIndexTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session.bindToSession(document).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(document).delete();
     session.rollback();
 
     var index = getIndex("linkSetIndex");

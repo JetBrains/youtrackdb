@@ -1556,11 +1556,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public <T extends Identifiable> T bindToSession(T identifiable) {
-    return internal.bindToSession(identifiable);
-  }
-
-  @Override
   public Schema getSchema() {
     return internal.getSchema();
   }

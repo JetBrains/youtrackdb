@@ -40,7 +40,8 @@ public class EmbeddedEntitySerializationTest extends BaseDBTest {
     Assert.assertEquals(loadedCompositeKey, compositeKey);
 
     session.begin();
-    session.bindToSession(originalDoc).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(originalDoc).delete();
     session.commit();
   }
 
@@ -104,7 +105,8 @@ public class EmbeddedEntitySerializationTest extends BaseDBTest {
     Assert.assertEquals(loadedEmbeddedDocThree.getProperty("compositeKey"), compositeKeyThree);
 
     session.begin();
-    session.bindToSession(originalDoc).delete();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(originalDoc).delete();
     session.commit();
   }
 }

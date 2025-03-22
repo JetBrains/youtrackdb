@@ -29,7 +29,8 @@ public class ChainIndexFetchTest extends DbTestBase {
 
     session.begin();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     var doc1 = (EntityImpl) session.newEntity(baseClass);
     doc1.setProperty("ref", doc);
 

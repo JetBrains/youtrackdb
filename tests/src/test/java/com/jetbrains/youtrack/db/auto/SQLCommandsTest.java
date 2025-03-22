@@ -17,7 +17,6 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -112,8 +111,9 @@ public class SQLCommandsTest extends BaseDBTest {
     var transaction1 = session.getActiveTransaction();
     Assert.assertTrue(transaction1.load(result) instanceof EntityImpl);
     var transaction = session.getActiveTransaction();
-    EntityImpl entity = session.bindToSession(
-        transaction.load(result));
+    EntityImpl identifiable = transaction.load(result);
+    var activeTx = session.getActiveTransaction();
+    EntityImpl entity = activeTx.load(identifiable);
     Assert.assertTrue(
         entity.getProperty("script"));
   }

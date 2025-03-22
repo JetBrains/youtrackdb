@@ -82,7 +82,7 @@ public class RecordBytes extends RecordAbstract implements Blob {
 
   @Override
   public void clear() {
-    clearSource();
+    source = EMPTY_SOURCE;
     super.clear();
   }
 

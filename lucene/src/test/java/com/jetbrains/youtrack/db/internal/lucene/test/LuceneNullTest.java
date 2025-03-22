@@ -23,7 +23,8 @@ public class LuceneNullTest extends BaseLuceneTest {
     session.commit();
 
     session.begin();
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     doc.setProperty("names", new String[]{"foo"});
     session.commit();
 
@@ -48,7 +49,8 @@ public class LuceneNullTest extends BaseLuceneTest {
 
     session.begin();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     doc.removeProperty("names");
 
     session.commit();

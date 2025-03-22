@@ -4,6 +4,7 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
@@ -187,14 +188,14 @@ public class RemoteSecurityTests {
       tx.commit();
       try {
         tx = filteredSession.begin();
-        elem = tx.bindToSession(elem);
+        elem = tx.load(elem);
         elem.setProperty("name", "baz");
         tx.commit();
         Assert.fail();
       } catch (SecurityException ex) {
       }
       tx = filteredSession.begin();
-      Assert.assertEquals("foo", tx.bindToSession(elem).getProperty("name"));
+      Assert.assertEquals("foo", tx.<Entity>load(elem).getProperty("name"));
       tx.commit();
     }
   }
@@ -220,7 +221,7 @@ public class RemoteSecurityTests {
       }
 
       tx = filteredSession.begin();
-      Assert.assertEquals("foo", tx.bindToSession(elem).getProperty("name"));
+      Assert.assertEquals("foo", tx.<Entity>load(elem).getProperty("name"));
       tx.commit();
     }
   }
@@ -239,7 +240,7 @@ public class RemoteSecurityTests {
       tx.commit();
       try {
         tx = filteredSession.begin();
-        elem = tx.bindToSession(elem);
+        elem = tx.load(elem);
         elem.setProperty("name", "bar");
         tx.commit();
         Assert.fail();
@@ -247,7 +248,7 @@ public class RemoteSecurityTests {
       }
 
       tx = filteredSession.begin();
-      Assert.assertEquals("foo", tx.bindToSession(elem).getProperty("name"));
+      Assert.assertEquals("foo", tx.<Entity>load(elem).getProperty("name"));
       tx.commit();
     }
   }
@@ -273,7 +274,7 @@ public class RemoteSecurityTests {
       }
 
       tx = filteredSession.begin();
-      Assert.assertEquals("foo", tx.bindToSession(elem).getProperty("name"));
+      Assert.assertEquals("foo", tx.<Entity>load(elem).getProperty("name"));
       tx.commit();
     }
   }
@@ -292,7 +293,7 @@ public class RemoteSecurityTests {
       tx.commit();
       try {
         tx = filteredSession.begin();
-        elem = tx.bindToSession(elem);
+        elem = tx.load(elem);
         tx.delete(elem);
         tx.commit();
         Assert.fail();

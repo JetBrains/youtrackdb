@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.lucene.tests;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -164,8 +165,10 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
     session.begin();
 
     var record = results.getFirst();
+    Entity identifiable = record.asEntity();
+    var activeTx = session.getActiveTransaction();
     @SuppressWarnings("OptionalGetWithoutIsPresent")
-    var element = session.bindToSession(record.asEntity());
+    var element = activeTx.<Entity>load(identifiable);
     element.setProperty("p1", "removed");
 
     try (var vertices = session.execute(query)) {
@@ -217,7 +220,8 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
 
     session.begin();
 
-    doc = session.bindToSession(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     doc.setProperty("p1", "removed");
 
     var query = "select from C1 where search_fields(['p1'], \"abc\")=true ";
