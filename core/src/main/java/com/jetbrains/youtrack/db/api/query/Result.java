@@ -10,13 +10,17 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
+import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import java.math.BigDecimal;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -192,7 +196,7 @@ public interface Result {
   }
 
   @Nullable
-  default <T> List<T> getEmbeddedList(@Nonnull String name) {
+  default <T> EmbeddedList<T> getEmbeddedList(@Nonnull String name) {
     if (isEntity()) {
       return asEntity().getEmbeddedList(name);
     }
@@ -202,9 +206,9 @@ public interface Result {
       return null;
     }
 
-    if (value instanceof List<?> list && !PropertyTypeInternal.checkLinkCollection(list)) {
+    if (value instanceof EmbeddedListImpl<?> embeddedList) {
       //noinspection unchecked
-      return (List<T>) list;
+      return (EmbeddedList<T>) embeddedList;
     }
 
     throw new DatabaseException(
@@ -212,7 +216,7 @@ public interface Result {
   }
 
   @Nullable
-  default List<Identifiable> getLinkList(@Nonnull String name) {
+  default LinkList getLinkList(@Nonnull String name) {
     if (isEntity()) {
       return asEntity().getLinkList(name);
     }
@@ -223,9 +227,8 @@ public interface Result {
       return null;
     }
 
-    if (value instanceof List<?> list && PropertyTypeInternal.canBeLinkCollection(list)) {
-      //noinspection unchecked
-      return (List<Identifiable>) list;
+    if (value instanceof LinkList list) {
+      return list;
     }
 
     throw new DatabaseException(
@@ -253,7 +256,7 @@ public interface Result {
   }
 
   @Nullable
-  default Set<Identifiable> getLinkSet(@Nonnull String name) {
+  default LinkSet getLinkSet(@Nonnull String name) {
     if (isEntity()) {
       return asEntity().getLinkSet(name);
     }
@@ -263,9 +266,8 @@ public interface Result {
       return null;
     }
 
-    if (value instanceof Set<?> set && PropertyTypeInternal.canBeLinkCollection(set)) {
-      //noinspection unchecked
-      return (Set<Identifiable>) set;
+    if (value instanceof LinkSetImpl linkSet) {
+      return linkSet;
     }
 
     throw new DatabaseException(

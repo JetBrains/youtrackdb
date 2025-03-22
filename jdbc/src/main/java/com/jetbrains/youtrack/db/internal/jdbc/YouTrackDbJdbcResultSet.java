@@ -21,7 +21,7 @@ import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -423,7 +423,7 @@ public class YouTrackDbJdbcResultSet implements java.sql.ResultSet {
       if (value instanceof Blob) {
         lastReadWasNull = false;
         return new YouTrackDbBlob((Blob) value);
-      } else if (value instanceof LinkList list) {
+      } else if (value instanceof LinkListImpl list) {
         // check if all the list items are instances of RecordBytes
         var iterator = list.listIterator();
 

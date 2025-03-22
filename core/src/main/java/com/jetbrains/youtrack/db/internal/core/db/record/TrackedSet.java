@@ -51,26 +51,46 @@ public abstract class TrackedSet<T> extends AbstractSet<T>
   @Nonnull
   private final HashSet<T> set;
 
+  private final boolean linkCollectionsProhibited;
+  private final boolean resultAllowed;
+
   private final SimpleMultiValueTracker<T, T> tracker = new SimpleMultiValueTracker<>(this);
 
   public TrackedSet(final RecordElement iSourceRecord) {
     this.set = new HashSet<>();
     this.sourceRecord = iSourceRecord;
+    this.linkCollectionsProhibited = true;
+    this.resultAllowed = false;
   }
 
   public TrackedSet(final RecordElement iSourceRecord, int size) {
     this.set = new HashSet<>(size);
     this.sourceRecord = iSourceRecord;
+    this.linkCollectionsProhibited = true;
+    this.resultAllowed = false;
   }
 
   public TrackedSet() {
+    this(true, false);
+  }
+
+  public TrackedSet(boolean linkCollectionsProhibited, boolean resultAllowed) {
     this.set = new HashSet<>();
     tracker.enable();
+    this.linkCollectionsProhibited = linkCollectionsProhibited;
+    this.resultAllowed = resultAllowed;
   }
 
   public TrackedSet(int size) {
     this.set = new HashSet<>(size);
     tracker.enable();
+    this.linkCollectionsProhibited = true;
+    this.resultAllowed = false;
+  }
+
+  @Override
+  public boolean isResultAllowed() {
+    return resultAllowed;
   }
 
   @Override
@@ -282,6 +302,11 @@ public abstract class TrackedSet<T> extends AbstractSet<T>
 
   public MultiValueChangeTimeLine<T, T> getTransactionTimeLine() {
     return tracker.getTransactionTimeLine();
+  }
+
+  @Override
+  public boolean isLinkCollectionsProhibited() {
+    return linkCollectionsProhibited;
   }
 
   @Override

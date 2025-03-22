@@ -6,7 +6,7 @@ import static org.junit.Assert.assertNotNull;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
 import java.util.Set;
@@ -52,7 +52,7 @@ public class CollectionOfLinkInNestedEntityTest extends DbTestBase {
     var doc2 = (EntityImpl) session.newEntity();
     doc2.setProperty("value", "item 2");
     var nested = (EntityImpl) session.newEmbeddedEntity();
-    var list = new LinkList(nested);
+    var list = new LinkListImpl(nested);
     list.add(doc1);
     list.add(doc2);
 

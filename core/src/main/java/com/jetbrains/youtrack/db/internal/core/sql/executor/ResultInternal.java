@@ -14,11 +14,11 @@ import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
@@ -42,6 +42,7 @@ import javax.annotation.Nullable;
 
 
 public class ResultInternal implements Result {
+
   protected Map<String, Object> content;
   protected Map<String, Object> temporaryContent;
   protected Map<String, Object> metadata;
@@ -116,7 +117,7 @@ public class ResultInternal implements Result {
 
       case Result result -> result.toMap();
 
-      case LinkList linkList -> {
+      case LinkListImpl linkList -> {
         List<RID> list = new ArrayList<>(linkList.size());
         for (var item : linkList) {
           list.add(item.getIdentity());
@@ -282,7 +283,7 @@ public class ResultInternal implements Result {
             allIdentifiable = true;
             if (listCopy == null) {
               //noinspection unchecked,rawtypes
-              listCopy = (List<Object>) (List) new LinkList(session);
+              listCopy = (List<Object>) (List) new LinkListImpl(session);
             }
           } else {
             if (allIdentifiable) {
@@ -290,7 +291,7 @@ public class ResultInternal implements Result {
                   "Invalid property value, if list contains identifiables, it should contain only them");
             }
             if (listCopy == null) {
-              listCopy = new TrackedList<>();
+              listCopy = new EmbeddedListImpl<>(false, true);
             }
           }
 
@@ -298,7 +299,7 @@ public class ResultInternal implements Result {
         }
 
         if (listCopy == null) {
-          listCopy = new TrackedList<>();
+          listCopy = new EmbeddedListImpl<>(false, true);
         }
         return listCopy;
       }
@@ -321,7 +322,7 @@ public class ResultInternal implements Result {
                   "Invalid property value, if set contains identifiables, it should contain only them");
             }
             if (setCopy == null) {
-              setCopy = new EmbeddedSetImpl<>();
+              setCopy = new EmbeddedSetImpl<>(false, true);
             }
           }
 
@@ -329,7 +330,7 @@ public class ResultInternal implements Result {
         }
 
         if (setCopy == null) {
-          setCopy = new EmbeddedSetImpl<>();
+          setCopy = new EmbeddedSetImpl<>(false, true);
         }
         return setCopy;
       }
@@ -361,7 +362,7 @@ public class ResultInternal implements Result {
 
             }
             if (mapCopy == null) {
-              mapCopy = new TrackedMap<>();
+              mapCopy = new TrackedMap<>(false, true);
             }
           }
 
@@ -369,7 +370,7 @@ public class ResultInternal implements Result {
         }
 
         if (mapCopy == null) {
-          mapCopy = new TrackedMap<>();
+          mapCopy = new TrackedMap<>(false, true);
         }
 
         return mapCopy;

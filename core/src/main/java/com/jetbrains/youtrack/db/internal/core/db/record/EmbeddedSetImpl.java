@@ -19,6 +19,10 @@ public class EmbeddedSetImpl<T> extends TrackedSet<T> implements EmbeddedSet<T> 
     super(size);
   }
 
+  public EmbeddedSetImpl(boolean linkCollectionsProhibited, boolean resultAllowed) {
+    super(linkCollectionsProhibited, resultAllowed);
+  }
+
   @Override
   public boolean isEmbeddedContainer() {
     return true;

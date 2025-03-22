@@ -26,7 +26,10 @@ import com.jetbrains.youtrack.db.api.exception.ModificationOperationProhibitedEx
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
@@ -35,7 +38,6 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
@@ -455,31 +457,31 @@ public interface DatabaseSession extends AutoCloseable {
   @Nullable
   Transaction getActiveTransactionOrNull();
 
-  <T> List<T> newEmbeddedList();
+  <T> EmbeddedList<T> newEmbeddedList();
 
-  <T> List<T> newEmbeddedList(int size);
+  <T> EmbeddedList<T> newEmbeddedList(int size);
 
-  <T> List<T> newEmbeddedList(List<T> list);
+  <T> EmbeddedList<T> newEmbeddedList(List<T> list);
 
-  List<Byte> newEmbeddedList(byte[] source);
+  EmbeddedList<Byte> newEmbeddedList(byte[] source);
 
-  List<Short> newEmbeddedList(short[] source);
+  EmbeddedList<Short> newEmbeddedList(short[] source);
 
-  List<Integer> newEmbeddedList(int[] source);
+  EmbeddedList<Integer> newEmbeddedList(int[] source);
 
-  List<Long> newEmbeddedList(long[] source);
+  EmbeddedList<Long> newEmbeddedList(long[] source);
 
-  List<Float> newEmbeddedList(float[] source);
+  EmbeddedList<Float> newEmbeddedList(float[] source);
 
-  List<Double> newEmbeddedList(double[] source);
+  EmbeddedList<Double> newEmbeddedList(double[] source);
 
-  List<Boolean> newEmbeddedList(boolean[] source);
+  EmbeddedList<Boolean> newEmbeddedList(boolean[] source);
 
-  List<Identifiable> newLinkList();
+  LinkList newLinkList();
 
-  List<Identifiable> newLinkList(int size);
+  LinkList newLinkList(int size);
 
-  List<Identifiable> newLinkList(List<Identifiable> source);
+  LinkList newLinkList(Collection<Identifiable> source);
 
   <T> EmbeddedSet<T> newEmbeddedSet();
 
@@ -487,11 +489,11 @@ public interface DatabaseSession extends AutoCloseable {
 
   <T> EmbeddedSet<T> newEmbeddedSet(Collection<T> set);
 
-  Set<Identifiable> newLinkSet();
+  LinkSet newLinkSet();
 
-  Set<Identifiable> newLinkSet(int size);
+  LinkSet newLinkSet(int size);
 
-  Set<Identifiable> newLinkSet(Set<Identifiable> source);
+  LinkSet newLinkSet(Collection<Identifiable> source);
 
   <V> Map<String, V> newEmbeddedMap();
 

@@ -328,6 +328,16 @@ public class RemoteTreeRidBag implements RidBagDelegate {
     return this.tracker.getTransactionTimeLine();
   }
 
+  @Override
+  public boolean isLinkCollectionsProhibited() {
+    return true;
+  }
+
+  @Override
+  public boolean isResultAllowed() {
+    return false;
+  }
+
   public void setRecordAndField(RecordId id, String fieldName) {
     this.ownerRecord = id;
     this.fieldName = fieldName;

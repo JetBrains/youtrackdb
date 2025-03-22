@@ -8,15 +8,15 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -24,7 +24,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import org.apache.commons.collections4.IterableUtils;
 
 public class VertexEntityImpl extends EntityImpl implements Vertex {
@@ -40,6 +39,12 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     if (!getImmutableSchemaClass(session).isVertexType()) {
       throw new IllegalArgumentException(getSchemaClassName() + " is not a vertex class");
     }
+  }
+
+  @Override
+  protected void validatePropertyName(String propertyName, boolean allowMetadata) {
+    super.validatePropertyName(propertyName, allowMetadata);
+    checkPropertyName(propertyName);
   }
 
   public static List<String> filterPropertyNames(List<String> propertyNames) {
@@ -95,48 +100,6 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   public @Nonnull List<String> getPropertyNames() {
     return filterPropertyNames(super.getPropertyNames());
   }
-
-  @Override
-  public <RET> RET getProperty(@Nonnull String fieldName) {
-    checkPropertyName(fieldName);
-
-    return super.getProperty(fieldName);
-  }
-
-  @Nullable
-  @Override
-  public RID getLink(@Nonnull String fieldName) {
-    checkPropertyName(fieldName);
-
-    return super.getLink(fieldName);
-  }
-
-  @Override
-  public void setProperty(@Nonnull String propertyName, @Nullable Object propertyValue) {
-    checkPropertyName(propertyName);
-    super.setProperty(propertyName, propertyValue);
-  }
-
-  @Override
-  public void setProperty(@Nonnull String propertyName, Object propertyValue,
-      @Nonnull PropertyType type) {
-
-    checkPropertyName(propertyName);
-    super.setProperty(propertyName, propertyValue, type);
-  }
-
-  public void setProperty(@Nonnull String propertyName, @Nullable Object value,
-      @Nonnull PropertyType propertyType, @Nonnull PropertyType linkedType) {
-    checkPropertyName(propertyName);
-    super.setProperty(propertyName, value, propertyType, linkedType);
-  }
-
-  @Override
-  public <RET> RET removeProperty(@Nonnull String fieldName) {
-    checkPropertyName(fieldName);
-    return super.removeProperty(fieldName);
-  }
-
 
   @Override
   public Iterable<Vertex> getVertices(Direction direction) {
@@ -713,7 +676,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
         if (propType == PropertyType.LINKLIST
             || (prop != null
             && "true".equalsIgnoreCase(prop.getCustom("ordered")))) { // TODO constant
-          var coll = new LinkList(fromVertex);
+          var coll = new LinkListImpl(fromVertex);
           coll.add(to);
           out = coll;
           outType = PropertyTypeInternal.LINKLIST;
@@ -742,7 +705,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
         if (prop != null && "true".equalsIgnoreCase(
             prop.getCustom("ordered"))) { // TODO constant
-          var coll = new LinkList(fromVertex);
+          var coll = new LinkListImpl(fromVertex);
           coll.add(foundId);
           coll.add(to);
           out = coll;

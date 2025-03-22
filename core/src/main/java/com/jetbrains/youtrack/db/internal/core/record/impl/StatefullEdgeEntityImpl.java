@@ -6,7 +6,6 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -136,10 +135,9 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
   }
 
   @Override
-  public <RET> RET getProperty(@Nonnull String fieldName) {
-    EdgeInternal.checkPropertyName(fieldName);
-
-    return super.getProperty(fieldName);
+  protected void validatePropertyName(String propertyName, boolean allowMetadata) {
+    EdgeInternal.checkPropertyName(propertyName);
+    super.validatePropertyName(propertyName, allowMetadata);
   }
 
   @Nullable
@@ -148,28 +146,6 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     EdgeInternal.checkPropertyName(fieldName);
 
     return super.getLink(fieldName);
-  }
-
-  @Override
-  public void setProperty(@Nonnull String propertyName, @Nullable Object propertyValue) {
-    EdgeInternal.checkPropertyName(propertyName);
-
-    super.setProperty(propertyName, propertyValue);
-  }
-
-  @Override
-  public void setProperty(@Nonnull String propertyName, Object propertyValue,
-      @Nonnull PropertyType type) {
-    EdgeInternal.checkPropertyName(propertyName);
-
-    super.setProperty(propertyName, propertyValue, type);
-  }
-
-  @Override
-  public <RET> RET removeProperty(@Nonnull String fieldName) {
-    EdgeInternal.checkPropertyName(fieldName);
-
-    return super.removeProperty(fieldName);
   }
 
   @Nonnull

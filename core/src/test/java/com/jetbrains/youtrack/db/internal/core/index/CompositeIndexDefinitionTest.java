@@ -2,8 +2,8 @@ package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
+import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -789,7 +789,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedList = new TrackedList<String>(doc);
+    final var trackedList = new EmbeddedSetImpl<String>(doc);
     trackedList.enableTracking(doc);
     trackedList.add("l1");
     trackedList.add("l2");
@@ -873,7 +873,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedList = new TrackedList<String>(doc);
+    final var trackedList = new EmbeddedListImpl<String>(doc);
 
     trackedList.add("l1");
     trackedList.add("l2");

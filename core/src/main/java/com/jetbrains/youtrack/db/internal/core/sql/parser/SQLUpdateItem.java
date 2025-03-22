@@ -14,7 +14,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
@@ -376,7 +376,7 @@ public class SQLUpdateItem extends SimpleNode {
               .stream()
               .map(item -> PropertyTypeInternal.convert(db, item, Identifiable.class))
               .collect(Collectors.toSet());
-        } else if (type == PropertyTypeInternal.LINKLIST && !(value instanceof LinkList)) {
+        } else if (type == PropertyTypeInternal.LINKLIST && !(value instanceof LinkListImpl)) {
           var db = ctx.getDatabaseSession();
           return ((Collection<?>) value)
               .stream()

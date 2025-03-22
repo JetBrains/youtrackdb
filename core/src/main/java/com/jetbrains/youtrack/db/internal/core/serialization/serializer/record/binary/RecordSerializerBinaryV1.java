@@ -35,11 +35,11 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.DecimalSeri
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
@@ -904,9 +904,9 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         value = readLinkCollection(bytes, collectionSet, justRunThrough);
         break;
       case LINKLIST:
-        LinkList collectionList = null;
+        LinkListImpl collectionList = null;
         if (!justRunThrough) {
-          collectionList = new LinkList(owner);
+          collectionList = new LinkListImpl(owner);
         }
         value = readLinkCollection(bytes, collectionList, justRunThrough);
         break;
@@ -1223,14 +1223,15 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return null;
   }
 
-  protected Collection<?> readEmbeddedList(DatabaseSessionInternal db, final BytesContainer bytes,
+  protected EmbeddedListImpl<?> readEmbeddedList(DatabaseSessionInternal db,
+      final BytesContainer bytes,
       final RecordElement owner) {
 
     final var items = VarIntSerializer.readAsInteger(bytes);
     var type = readOType(bytes, false);
 
     if (type != null) {
-      var found = new TrackedList<>(owner);
+      var found = new EmbeddedListImpl<>(owner);
       for (var i = 0; i < items; i++) {
         var itemType = readOType(bytes, false);
         if (itemType == null) {

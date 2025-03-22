@@ -24,4 +24,9 @@ public interface LinkTrackedMultiValue<K> extends TrackedMultiValue<K, Identifia
     e = session.refreshRid(e.getIdentity());
     return e;
   }
+
+  @Override
+  default boolean isLinkCollectionsProhibited() {
+    return true;
+  }
 }

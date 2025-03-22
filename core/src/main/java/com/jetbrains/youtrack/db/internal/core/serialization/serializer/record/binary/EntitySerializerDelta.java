@@ -27,12 +27,12 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSeri
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.UUIDSerializer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
@@ -226,7 +226,7 @@ public class EntitySerializerDelta {
     switch (type) {
       case EMBEDDEDLIST:
         //noinspection unchecked
-        deserializeDeltaEmbeddedList(session, bytes, (TrackedList<Object>) toUpdate);
+        deserializeDeltaEmbeddedList(session, bytes, (EmbeddedListImpl<Object>) toUpdate);
         break;
       case EMBEDDEDSET:
         //noinspection unchecked
@@ -241,7 +241,7 @@ public class EntitySerializerDelta {
         deserializeDelta(session, bytes, transaction.load(((DBRecord) toUpdate)));
         break;
       case LINKLIST:
-        deserializeDeltaLinkList(session, bytes, (LinkList) toUpdate);
+        deserializeDeltaLinkList(session, bytes, (LinkListImpl) toUpdate);
         break;
       case LINKSET:
         deserializeDeltaLinkSet(session, bytes, (LinkSetImpl) toUpdate);
@@ -326,7 +326,7 @@ public class EntitySerializerDelta {
 
   private static void deserializeDeltaLinkList(DatabaseSessionInternal session,
       BytesContainer bytes,
-      LinkList toUpdate) {
+      LinkListImpl toUpdate) {
     var rootChanges = VarIntSerializer.readAsLong(bytes);
     while (rootChanges-- > 0) {
       var change = deserializeByte(bytes);
@@ -499,7 +499,7 @@ public class EntitySerializerDelta {
   }
 
   private void deserializeDeltaEmbeddedList(DatabaseSessionInternal session, BytesContainer bytes,
-      TrackedList<Object> toUpdate) {
+      EmbeddedListImpl<Object> toUpdate) {
     var rootChanges = VarIntSerializer.readAsLong(bytes);
     while (rootChanges-- > 0) {
       var change = deserializeByte(bytes);
@@ -632,8 +632,7 @@ public class EntitySerializerDelta {
       PropertyTypeInternal type) {
     switch (type) {
       case EMBEDDEDLIST:
-        //noinspection unchecked
-        serializeDeltaEmbeddedList(session, bytes, (TrackedList<Object>) value);
+        serializeDeltaEmbeddedList(session, bytes, (EmbeddedListImpl<?>) value);
         break;
       case EMBEDDEDSET:
         //noinspection unchecked
@@ -648,7 +647,7 @@ public class EntitySerializerDelta {
         serializeDelta(session, bytes, transaction.load(((DBRecord) value)));
         break;
       case LINKLIST:
-        serializeDeltaLinkList(session, bytes, (LinkList) value);
+        serializeDeltaLinkList(session, bytes, (LinkListImpl) value);
         break;
       case LINKSET:
         serializeDeltaLinkSet(session, bytes, (LinkSetImpl) value);
@@ -727,7 +726,7 @@ public class EntitySerializerDelta {
   }
 
   private static void serializeDeltaLinkList(DatabaseSessionInternal session, BytesContainer bytes,
-      LinkList value) {
+      LinkListImpl value) {
     var timeline = value.getTransactionTimeLine();
     assert timeline != null : "Collection timeline required for link* types serialization";
     VarIntSerializer.write(bytes, timeline.getMultiValueChangeEvents().size());
@@ -849,7 +848,7 @@ public class EntitySerializerDelta {
   }
 
   private void serializeDeltaEmbeddedList(DatabaseSessionInternal session, BytesContainer bytes,
-      TrackedList<?> value) {
+      EmbeddedListImpl<?> value) {
     var timeline = value.getTransactionTimeLine();
     if (timeline != null) {
       VarIntSerializer.write(bytes, timeline.getMultiValueChangeEvents().size());
@@ -1325,9 +1324,9 @@ public class EntitySerializerDelta {
     return value;
   }
 
-  private Collection<?> readEmbeddedList(DatabaseSessionInternal session,
+  private EmbeddedListImpl<?> readEmbeddedList(DatabaseSessionInternal session,
       final BytesContainer bytes, final RecordElement owner) {
-    var found = new TrackedList<>(owner);
+    var found = new EmbeddedListImpl<>(owner);
     final var items = VarIntSerializer.readAsInteger(bytes);
     for (var i = 0; i < items; i++) {
       var itemType = readNullableType(bytes);
@@ -1358,7 +1357,7 @@ public class EntitySerializerDelta {
   private static Collection<Identifiable> readLinkList(DatabaseSessionInternal session,
       BytesContainer bytes,
       RecordElement owner) {
-    var found = new LinkList(owner);
+    var found = new LinkListImpl(owner);
     final var items = VarIntSerializer.readAsInteger(bytes);
     for (var i = 0; i < items; i++) {
       Identifiable id = readOptimizedLink(session, bytes);

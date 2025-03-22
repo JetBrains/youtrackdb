@@ -620,4 +620,14 @@ public class RidBag
       convertToEmbedded();
     }
   }
+
+  @Override
+  public boolean isLinkCollectionsProhibited() {
+    return true;
+  }
+
+  @Override
+  public boolean isResultAllowed() {
+    return false;
+  }
 }

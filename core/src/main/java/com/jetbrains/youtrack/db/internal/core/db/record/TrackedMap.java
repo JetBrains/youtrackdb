@@ -47,6 +47,8 @@ public class TrackedMap<T> extends AbstractMap<String, T>
   private final boolean embeddedCollection;
   private boolean dirty = false;
   private boolean transactionDirty = false;
+  private final boolean linkCollectionsProhibited;
+  private final boolean resultAllowed;
 
   @Nonnull
   private final HashMap<String, T> map;
@@ -65,24 +67,41 @@ public class TrackedMap<T> extends AbstractMap<String, T>
     this.map = new HashMap<>();
     this.sourceRecord = iSourceRecord;
     embeddedCollection = this.getClass().equals(TrackedMap.class);
+    this.linkCollectionsProhibited = true;
+    this.resultAllowed = false;
   }
 
   public TrackedMap(final RecordElement iSourceRecord, int size) {
     this.map = new HashMap<>(size);
     this.sourceRecord = iSourceRecord;
     embeddedCollection = this.getClass().equals(TrackedMap.class);
+    this.linkCollectionsProhibited = true;
+    this.resultAllowed = false;
   }
 
   public TrackedMap() {
+    this(true, false);
+  }
+
+  public TrackedMap(boolean linkCollectionsProhibited, boolean resultAllowed) {
     this.map = new HashMap<>();
     embeddedCollection = this.getClass().equals(TrackedMap.class);
     tracker.enable();
+    this.linkCollectionsProhibited = linkCollectionsProhibited;
+    this.resultAllowed = resultAllowed;
   }
 
   public TrackedMap(int size) {
     this.map = new HashMap<>(size);
     embeddedCollection = this.getClass().equals(TrackedMap.class);
     tracker.enable();
+    this.linkCollectionsProhibited = true;
+    this.resultAllowed = false;
+  }
+
+  @Override
+  public boolean isResultAllowed() {
+    return resultAllowed;
   }
 
   @Override
@@ -494,6 +513,11 @@ public class TrackedMap<T> extends AbstractMap<String, T>
       map.remove(key, value);
       lastEntry = null;
     }
+  }
+
+  @Override
+  public boolean isLinkCollectionsProhibited() {
+    return linkCollectionsProhibited;
   }
 
   private final class TrackerEntry implements Entry<String, T> {

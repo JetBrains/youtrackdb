@@ -40,14 +40,13 @@ import javax.annotation.Nullable;
  * Implementation of ArrayList bound to a source Record object to keep track of changes for literal
  * types. This avoids to call the makeDirty() by hand when the list is changed.
  */
-public class TrackedList<T> extends AbstractList<T>
+public abstract class TrackedList<T> extends AbstractList<T>
     implements RecordElement, TrackedMultiValue<Integer, T>, Serializable {
 
   @Nullable
   protected RecordElement sourceRecord;
   protected Class<?> genericClass;
 
-  private final boolean embeddedCollection;
   private boolean dirty = false;
   private boolean transactionDirty = false;
 
@@ -55,6 +54,9 @@ public class TrackedList<T> extends AbstractList<T>
 
   @Nonnull
   private final ArrayList<T> list;
+
+  private final boolean linkCollectionsProhibited;
+  private final boolean resultAllowed;
 
   public TrackedList(
       @Nonnull final RecordElement iRecord,
@@ -69,27 +71,40 @@ public class TrackedList<T> extends AbstractList<T>
   }
 
   public TrackedList(@Nonnull final RecordElement iSourceRecord) {
+    this.linkCollectionsProhibited = true;
     this.list = new ArrayList<>();
     this.sourceRecord = iSourceRecord;
-    embeddedCollection = this.getClass().equals(TrackedList.class);
+    this.resultAllowed = false;
   }
 
   public TrackedList(@Nonnull final RecordElement iSourceRecord, int size) {
+    this.linkCollectionsProhibited = true;
     this.list = new ArrayList<>(size);
     this.sourceRecord = iSourceRecord;
-    embeddedCollection = this.getClass().equals(TrackedList.class);
+    this.resultAllowed = false;
   }
 
   public TrackedList() {
+    this(true, false);
+  }
+
+  public TrackedList(boolean linkCollectionsProhibited, boolean resultAllowed) {
+    this.linkCollectionsProhibited = linkCollectionsProhibited;
+    this.resultAllowed = resultAllowed;
     this.list = new ArrayList<>();
-    embeddedCollection = this.getClass().equals(TrackedList.class);
     tracker.enable();
   }
 
   public TrackedList(int size) {
+    this.linkCollectionsProhibited = true;
+    this.resultAllowed = false;
     this.list = new ArrayList<>(size);
-    embeddedCollection = this.getClass().equals(TrackedList.class);
     tracker.enable();
+  }
+
+  @Override
+  public boolean isResultAllowed() {
+    return resultAllowed;
   }
 
   @Override
@@ -108,11 +123,6 @@ public class TrackedList<T> extends AbstractList<T>
     } else {
       this.sourceRecord = null;
     }
-  }
-
-  @Override
-  public boolean isEmbeddedContainer() {
-    return embeddedCollection;
   }
 
   @Override
@@ -353,6 +363,11 @@ public class TrackedList<T> extends AbstractList<T>
 
   public MultiValueChangeTimeLine<Integer, T> getTransactionTimeLine() {
     return tracker.getTransactionTimeLine();
+  }
+
+  @Override
+  public boolean isLinkCollectionsProhibited() {
+    return linkCollectionsProhibited;
   }
 
   @Override

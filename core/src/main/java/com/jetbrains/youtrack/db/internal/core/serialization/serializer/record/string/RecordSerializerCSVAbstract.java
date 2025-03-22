@@ -30,12 +30,12 @@ import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionItera
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
@@ -406,7 +406,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
 
       case LINKLIST: {
         iOutput.append(StringSerializerHelper.LIST_BEGIN);
-        final LinkList coll;
+        final LinkListImpl coll;
         final Iterator<Identifiable> it;
         if (iValue instanceof MultiCollectionIterator<?>) {
           final var iterator =
@@ -414,9 +414,9 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
           iterator.reset();
           it = iterator;
           coll = null;
-        } else if (!(iValue instanceof LinkList)) {
+        } else if (!(iValue instanceof LinkListImpl)) {
           // FIRST TIME: CONVERT THE ENTIRE COLLECTION
-          coll = new LinkList(iRecord);
+          coll = new LinkListImpl(iRecord);
 
           if (iValue.getClass().isArray()) {
             var iterab = MultiValue.getMultiValueIterable(iValue);
@@ -432,7 +432,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
           it = coll.iterator();
         } else {
           // LAZY LIST
-          coll = (LinkList) iValue;
+          coll = (LinkListImpl) iValue;
           it = coll.iterator();
         }
 
@@ -662,7 +662,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
     } else {
       coll =
           iType == PropertyTypeInternal.EMBEDDEDLIST
-              ? new TrackedList<Object>(e)
+              ? new EmbeddedListImpl<>(e)
               : new EmbeddedSetImpl<>(e);
     }
 
@@ -858,9 +858,9 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
     iOutput.append(StringSerializerHelper.SET_END);
   }
 
-  private LinkList unserializeList(DatabaseSessionInternal db, final EntityImpl iSourceRecord,
+  private LinkListImpl unserializeList(DatabaseSessionInternal db, final EntityImpl iSourceRecord,
       final String value) {
-    final var coll = new LinkList(iSourceRecord);
+    final var coll = new LinkListImpl(iSourceRecord);
     final var items =
         StringSerializerHelper.smartSplit(value, StringSerializerHelper.RECORD_SEPARATOR);
     for (var item : items) {

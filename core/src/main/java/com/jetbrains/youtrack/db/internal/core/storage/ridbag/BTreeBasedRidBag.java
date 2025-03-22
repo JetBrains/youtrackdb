@@ -738,6 +738,16 @@ public class BTreeBasedRidBag implements RidBagDelegate {
     return this.tracker.getTransactionTimeLine();
   }
 
+  @Override
+  public boolean isLinkCollectionsProhibited() {
+    return true;
+  }
+
+  @Override
+  public boolean isResultAllowed() {
+    return false;
+  }
+
   private RID refreshNonPersistentRid(RID identifiable) {
     if (!identifiable.isPersistent()) {
       identifiable = session.refreshRid(identifiable);

@@ -38,11 +38,11 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
@@ -775,7 +775,7 @@ public class RecordSerializerJackson {
         }
 
         case RID link -> serializeLink(jsonGenerator, link);
-        case LinkList linkList -> {
+        case LinkListImpl linkList -> {
           jsonGenerator.writeStartArray();
           for (var link : linkList) {
             serializeLink(jsonGenerator, link.getIdentity());
@@ -805,7 +805,7 @@ public class RecordSerializerJackson {
           jsonGenerator.writeEndObject();
         }
 
-        case TrackedList<?> trackedList -> {
+        case EmbeddedListImpl<?> trackedList -> {
           jsonGenerator.writeStartArray();
           for (var value : trackedList) {
             serializeValue(session, jsonGenerator, value, formatSettings);
@@ -1029,9 +1029,9 @@ public class RecordSerializerJackson {
     return map;
   }
 
-  private static LinkList parseLinkList(EntityImpl entity, JsonParser jsonParser)
+  private static LinkListImpl parseLinkList(EntityImpl entity, JsonParser jsonParser)
       throws IOException {
-    var list = new LinkList(entity);
+    var list = new LinkListImpl(entity);
 
     while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
       var ridText = jsonParser.getText();
@@ -1065,10 +1065,10 @@ public class RecordSerializerJackson {
     return bag;
   }
 
-  private static TrackedList<Object> parseEmbeddedList(DatabaseSessionInternal session,
+  private static EmbeddedListImpl<Object> parseEmbeddedList(DatabaseSessionInternal session,
       EntityImpl entity,
       JsonParser jsonParser, @Nullable SchemaProperty schemaProperty) throws IOException {
-    var list = new TrackedList<>(entity);
+    var list = new EmbeddedListImpl<>(entity);
 
     while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
       list.add(parseValue(session, null, jsonParser,

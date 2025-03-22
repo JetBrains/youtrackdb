@@ -32,12 +32,12 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSeri
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.UUIDSerializer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
@@ -503,7 +503,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
 
   private static Collection<Identifiable> readLinkList(
       DatabaseSessionInternal db, BytesContainer bytes, RecordElement owner) {
-    var found = new LinkList(owner);
+    var found = new LinkListImpl(owner);
     final var items = VarIntSerializer.readAsInteger(bytes);
     for (var i = 0; i < items; i++) {
       Identifiable id = readOptimizedLink(db, bytes);
@@ -543,9 +543,10 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
     return rid;
   }
 
-  private Collection<?> readEmbeddedList(DatabaseSessionInternal db, final BytesContainer bytes,
+  private EmbeddedListImpl<?> readEmbeddedList(DatabaseSessionInternal db,
+      final BytesContainer bytes,
       final RecordElement owner) {
-    var found = new TrackedList<>(owner);
+    var found = new EmbeddedListImpl<>(owner);
     final var items = VarIntSerializer.readAsInteger(bytes);
     for (var i = 0; i < items; i++) {
       var itemType = readOType(bytes);

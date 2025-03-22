@@ -20,7 +20,10 @@
 package com.jetbrains.youtrack.db.api.record;
 
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import java.math.BigDecimal;
@@ -28,7 +31,6 @@ import java.util.Collection;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -138,7 +140,7 @@ public interface Entity extends DBRecord, Result {
     setProperty(name, value, PropertyType.DECIMAL);
   }
 
-  default <T> void setEmbeddedList(@Nonnull String name, @Nullable List<T> value) {
+  default <T> void setEmbeddedList(@Nonnull String name, @Nullable EmbeddedList<T> value) {
     setProperty(name, value, PropertyType.EMBEDDEDLIST);
   }
 
@@ -150,11 +152,11 @@ public interface Entity extends DBRecord, Result {
     setProperty(name, value, PropertyType.EMBEDDEDMAP);
   }
 
-  default void setLinkList(@Nonnull String name, @Nullable List<Identifiable> value) {
+  default void setLinkList(@Nonnull String name, @Nullable LinkList value) {
     setProperty(name, value, PropertyType.LINKLIST);
   }
 
-  default void setLinkSet(@Nonnull String name, @Nullable Set<Identifiable> value) {
+  default void setLinkSet(@Nonnull String name, @Nullable LinkSet value) {
     setProperty(name, value, PropertyType.LINKSET);
   }
 
@@ -163,41 +165,41 @@ public interface Entity extends DBRecord, Result {
   }
 
   @Nonnull
-  <T> List<T> newEmbeddedList(@Nonnull String name);
+  <T> EmbeddedList<T> newEmbeddedList(@Nonnull String name);
 
   @Nonnull
-  <T> List<T> newEmbeddedList(@Nonnull String name, @Nonnull PropertyType linkedType);
+  <T> EmbeddedList<T> newEmbeddedList(@Nonnull String name, @Nonnull PropertyType linkedType);
 
   @Nonnull
-  <T> List<T> newEmbeddedList(@Nonnull String name, @Nonnull List<T> source);
+  <T> EmbeddedList<T> newEmbeddedList(@Nonnull String name, @Nonnull Collection<T> source);
 
   @Nonnull
-  <T> List<T> newEmbeddedList(@Nonnull String name, @Nonnull List<T> source,
+  <T> EmbeddedList<T> newEmbeddedList(@Nonnull String name, @Nonnull Collection<T> source,
       @Nonnull PropertyType linkedType);
 
   @Nonnull
-  <T> List<T> newEmbeddedList(@Nonnull String name, T[] source);
+  <T> EmbeddedList<T> newEmbeddedList(@Nonnull String name, T[] source);
 
   @Nonnull
-  List<Byte> newEmbeddedList(@Nonnull String name, byte[] source);
+  EmbeddedList<Byte> newEmbeddedList(@Nonnull String name, byte[] source);
 
   @Nonnull
-  List<Short> newEmbeddedList(@Nonnull String name, short[] source);
+  EmbeddedList<Short> newEmbeddedList(@Nonnull String name, short[] source);
 
   @Nonnull
-  List<Integer> newEmbeddedList(@Nonnull String name, int[] source);
+  EmbeddedList<Integer> newEmbeddedList(@Nonnull String name, int[] source);
 
   @Nonnull
-  List<Long> newEmbeddedList(@Nonnull String name, long[] source);
+  EmbeddedList<Long> newEmbeddedList(@Nonnull String name, long[] source);
 
   @Nonnull
-  List<Boolean> newEmbeddedList(@Nonnull String name, boolean[] source);
+  EmbeddedList<Boolean> newEmbeddedList(@Nonnull String name, boolean[] source);
 
   @Nonnull
-  List<Float> newEmbeddedList(@Nonnull String name, float[] source);
+  EmbeddedList<Float> newEmbeddedList(@Nonnull String name, float[] source);
 
   @Nonnull
-  List<Double> newEmbeddedList(@Nonnull String name, double[] source);
+  EmbeddedList<Double> newEmbeddedList(@Nonnull String name, double[] source);
 
   @Nonnull
   <T> EmbeddedSet<T> newEmbeddedSet(@Nonnull String name);
@@ -226,16 +228,16 @@ public interface Entity extends DBRecord, Result {
       @Nonnull PropertyType linkedType);
 
   @Nonnull
-  List<Identifiable> newLinkList(@Nonnull String name);
+  LinkList newLinkList(@Nonnull String name);
 
   @Nonnull
-  List<Identifiable> newLinkList(@Nonnull String name, List<Identifiable> source);
+  LinkList newLinkList(@Nonnull String name, Collection<Identifiable> source);
 
   @Nonnull
-  Set<Identifiable> newLinkSet(@Nonnull String name);
+  LinkSet newLinkSet(@Nonnull String name);
 
   @Nonnull
-  Set<Identifiable> newLinkSet(@Nonnull String name, Set<Identifiable> source);
+  LinkSet newLinkSet(@Nonnull String name, Collection<Identifiable> source);
 
   @Nonnull
   Map<String, Identifiable> newLinkMap(@Nonnull String name);
@@ -244,13 +246,14 @@ public interface Entity extends DBRecord, Result {
   Map<String, Identifiable> newLinkMap(@Nonnull String name, Map<String, Identifiable> source);
 
   @Nonnull
-  <T> List<T> getOrCreateEmbeddedList(@Nonnull String name);
+  <T> EmbeddedList<T> getOrCreateEmbeddedList(@Nonnull String name);
 
   @Nonnull
-  <T> List<T> getOrCreateEmbeddedList(@Nonnull String name, @Nonnull PropertyType linkedType);
+  <T> EmbeddedList<T> getOrCreateEmbeddedList(@Nonnull String name,
+      @Nonnull PropertyType linkedType);
 
   @Nonnull
-  <T> Set<T> getOrCreateEmbeddedSet(@Nonnull String name);
+  <T> EmbeddedSet<T> getOrCreateEmbeddedSet(@Nonnull String name);
 
   @Nonnull
   <T> EmbeddedSet<T> getOrCreateEmbeddedSet(@Nonnull String name, @Nonnull PropertyType linkedType);
@@ -262,10 +265,10 @@ public interface Entity extends DBRecord, Result {
   <T> Map<String, T> getOrCreateEmbeddedMap(@Nonnull String name, @Nonnull PropertyType linkedType);
 
   @Nonnull
-  List<Identifiable> getOrCreateLinkList(@Nonnull String name);
+  LinkList getOrCreateLinkList(@Nonnull String name);
 
   @Nonnull
-  Set<Identifiable> getOrCreateLinkSet(@Nonnull String name);
+  LinkSet getOrCreateLinkSet(@Nonnull String name);
 
   @Nonnull
   Map<String, Identifiable> getOrCreateLinkMap(@Nonnull String name);

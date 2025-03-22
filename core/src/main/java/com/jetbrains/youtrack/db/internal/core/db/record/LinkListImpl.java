@@ -20,6 +20,7 @@
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
 import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.lang.ref.WeakReference;
@@ -34,33 +35,32 @@ import javax.annotation.Nullable;
  * This avoid to call the makeDirty() by hand when the list is changed. It handles an internal
  * contentType to speed up some operations like conversion to/from record/links.
  */
-public class LinkList extends TrackedList<Identifiable> implements Sizeable,
-    LinkTrackedMultiValue<Integer> {
-
+public class LinkListImpl extends TrackedList<Identifiable> implements Sizeable,
+    LinkTrackedMultiValue<Integer>, LinkList {
   @Nonnull
   private final WeakReference<DatabaseSessionInternal> session;
 
-  public LinkList(DatabaseSessionInternal session) {
+  public LinkListImpl(DatabaseSessionInternal session) {
     super();
     this.session = new WeakReference<>(session);
   }
 
-  public LinkList(int size, DatabaseSessionInternal session) {
+  public LinkListImpl(int size, DatabaseSessionInternal session) {
     super(size);
     this.session = new WeakReference<>(session);
   }
 
-  public LinkList(@Nonnull final RecordElement sourceRecord) {
+  public LinkListImpl(@Nonnull final RecordElement sourceRecord) {
     super(sourceRecord);
     this.session = new WeakReference<>(sourceRecord.getSession());
   }
 
-  public LinkList(@Nonnull final RecordElement sourceRecord, int size) {
+  public LinkListImpl(@Nonnull final RecordElement sourceRecord, int size) {
     super(sourceRecord, size);
     this.session = new WeakReference<>(sourceRecord.getSession());
   }
 
-  public LinkList(
+  public LinkListImpl(
       @Nonnull final RecordElement sourceRecord, final Collection<? extends Identifiable> origin) {
     this(sourceRecord);
     if (origin != null && !origin.isEmpty()) {
@@ -88,6 +88,11 @@ public class LinkList extends TrackedList<Identifiable> implements Sizeable,
   public void add(int index, Identifiable e) {
     e = convertToRid(e);
     super.add(index, e);
+  }
+
+  @Override
+  public boolean isEmbeddedContainer() {
+    return false;
   }
 
   @Override

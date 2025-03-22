@@ -78,61 +78,61 @@ public class EntitySchemalessSerializationTest extends DbTestBase {
   public void testSimpleLiteralList() {
     session.begin();
     var entity = session.newEntity();
-    List<String> strings = session.newEmbeddedList();
+    var strings = session.newEmbeddedList();
     strings.add("a");
     strings.add("b");
     strings.add("c");
     entity.setEmbeddedList("listStrings", strings);
 
-    List<Short> shorts = session.newEmbeddedList();
+    var shorts = session.newEmbeddedList();
     shorts.add((short) 1);
     shorts.add((short) 2);
     shorts.add((short) 3);
     entity.setEmbeddedList("shorts", shorts);
 
-    List<Long> longs = session.newEmbeddedList();
+    var longs = session.newEmbeddedList();
     longs.add((long) 1);
     longs.add((long) 2);
     longs.add((long) 3);
     entity.setEmbeddedList("longs", longs);
 
-    List<Integer> ints = session.newEmbeddedList();
+    var ints = session.newEmbeddedList();
     ints.add(1);
     ints.add(2);
     ints.add(3);
     entity.setEmbeddedList("integers", ints);
 
-    List<Float> floats = session.newEmbeddedList();
+    var floats = session.newEmbeddedList();
     floats.add(1.1f);
     floats.add(2.2f);
     floats.add(3.3f);
     entity.setEmbeddedList("floats", floats);
 
-    List<Double> doubles = session.newEmbeddedList();
+    var doubles = session.newEmbeddedList();
     doubles.add(1.1);
     doubles.add(2.2);
     doubles.add(3.3);
     entity.setEmbeddedList("doubles", doubles);
 
-    List<Date> dates = session.newEmbeddedList();
+    var dates = session.newEmbeddedList();
     dates.add(new Date());
     dates.add(new Date());
     dates.add(new Date());
     entity.setEmbeddedList("dates", dates);
 
-    List<Byte> bytes = session.newEmbeddedList();
+    var bytes = session.newEmbeddedList();
     bytes.add((byte) 0);
     bytes.add((byte) 1);
     bytes.add((byte) 3);
     entity.setEmbeddedList("bytes", bytes);
 
-    List<Boolean> booleans = session.newEmbeddedList();
+    var booleans = session.newEmbeddedList();
     booleans.add(true);
     booleans.add(false);
     booleans.add(false);
     entity.setEmbeddedList("booleans", booleans);
 
-    List listMixed = session.newEmbeddedList();
+    var listMixed = session.newEmbeddedList();
     listMixed.add(true);
     listMixed.add(1);
     listMixed.add((long) 5);

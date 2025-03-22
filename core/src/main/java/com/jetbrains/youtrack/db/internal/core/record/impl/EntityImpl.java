@@ -35,7 +35,10 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
@@ -45,14 +48,14 @@ import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent.ChangeType;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeTimeLine;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
@@ -537,14 +540,14 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nullable
-  public <T> List<T> getEmbeddedList(@Nonnull String name) {
+  public <T> EmbeddedList<T> getEmbeddedList(@Nonnull String name) {
     var value = getProperty(name);
     if (value == null) {
       return null;
     }
 
-    if (value instanceof TrackedList<?> list) {
-      return (List<T>) list;
+    if (value instanceof EmbeddedListImpl<?> list) {
+      return (EmbeddedList<T>) list;
     }
 
     throw new DatabaseException(
@@ -552,14 +555,14 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nullable
-  public List<Identifiable> getLinkList(@Nonnull String name) {
+  public LinkList getLinkList(@Nonnull String name) {
     var value = getProperty(name);
 
     if (value == null) {
       return null;
     }
 
-    if (value instanceof LinkList list) {
+    if (value instanceof LinkListImpl list) {
       return list;
     }
 
@@ -616,7 +619,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nullable
-  public Set<Identifiable> getLinkSet(@Nonnull String name) {
+  public LinkSet getLinkSet(@Nonnull String name) {
     var value = getProperty(name);
 
     if (value == null) {
@@ -653,11 +656,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
 
-  public @Nonnull <T> List<T> getOrCreateEmbeddedList(@Nonnull String name) {
-    var value = this.<List<T>>getProperty(name);
+  public @Nonnull <T> EmbeddedList<T> getOrCreateEmbeddedList(@Nonnull String name) {
+    var value = this.<EmbeddedList<T>>getProperty(name);
 
     if (value == null) {
-      value = new TrackedList<>(this);
+      value = new EmbeddedListImpl<>(this);
       setProperty(name, value, PropertyType.EMBEDDEDLIST);
     }
 
@@ -665,12 +668,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nonnull
-  public <T> List<T> getOrCreateEmbeddedList(@Nonnull String name,
+  public <T> EmbeddedList<T> getOrCreateEmbeddedList(@Nonnull String name,
       @Nonnull PropertyType linkedType) {
-    var value = this.<List<T>>getProperty(name);
+    var value = this.<EmbeddedListImpl<T>>getProperty(name);
 
     if (value == null) {
-      value = new TrackedList<>(this);
+      value = new EmbeddedListImpl<>(this);
       setProperty(name, value, PropertyType.EMBEDDEDLIST, linkedType);
     } else {
       var linkedTypeProperty = PropertyTypeInternal.getTypeByValue(value);
@@ -684,39 +687,39 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nonnull
-  public <T> List<T> newEmbeddedList(@Nonnull String name) {
-    var value = new TrackedList<T>(this);
+  public <T> EmbeddedList<T> newEmbeddedList(@Nonnull String name) {
+    var value = new EmbeddedListImpl<T>(this);
     setProperty(name, value, PropertyType.EMBEDDEDLIST);
     return value;
   }
 
   @Nonnull
-  public <T> List<T> newEmbeddedList(@Nonnull String name,
+  public <T> EmbeddedList<T> newEmbeddedList(@Nonnull String name,
       @Nonnull PropertyType linkedType) {
-    var value = new TrackedList<T>(this);
+    var value = new EmbeddedListImpl<T>(this);
     setProperty(name, value, PropertyType.EMBEDDEDLIST, linkedType);
     return value;
   }
 
   @Nonnull
-  public <T> List<T> newEmbeddedList(@Nonnull String name, @Nonnull List<T> source) {
-    var value = new TrackedList<T>(source.size());
+  public <T> EmbeddedList<T> newEmbeddedList(@Nonnull String name, @Nonnull Collection<T> source) {
+    var value = new EmbeddedListImpl<T>(source.size());
     value.addAll(source);
     setProperty(name, value, PropertyType.EMBEDDEDLIST);
     return value;
   }
 
   @Nonnull
-  public <T> List<T> newEmbeddedList(@Nonnull String name, @Nonnull List<T> source,
+  public <T> EmbeddedList<T> newEmbeddedList(@Nonnull String name, @Nonnull Collection<T> source,
       @Nonnull PropertyType linkedType) {
-    var value = new TrackedList<T>(source.size());
+    var value = new EmbeddedListImpl<T>(source.size());
     value.addAll(source);
     setProperty(name, value, PropertyType.EMBEDDEDLIST, linkedType);
     return value;
   }
 
   @Nonnull
-  public <T> List<T> newEmbeddedList(@Nonnull String name, T[] source) {
+  public <T> EmbeddedList<T> newEmbeddedList(@Nonnull String name, T[] source) {
     var componentType = source.getClass().getComponentType();
     var linkedType = PropertyTypeInternal.getTypeByClass(componentType);
 
@@ -724,7 +727,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       throw new IllegalArgumentException("Unsupported type: " + componentType);
     }
 
-    var value = new TrackedList<T>(source.length);
+    var value = new EmbeddedListImpl<T>(source.length);
     Collections.addAll(value, source);
 
     setProperty(name, value, PropertyType.EMBEDDEDLIST, linkedType.getPublicPropertyType());
@@ -733,8 +736,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
 
   @Nonnull
-  public List<Byte> newEmbeddedList(@Nonnull String name, byte[] source) {
-    var value = new TrackedList<Byte>(source.length);
+  public EmbeddedList<Byte> newEmbeddedList(@Nonnull String name, byte[] source) {
+    var value = new EmbeddedListImpl<Byte>(source.length);
     for (var b : source) {
       value.add(b);
     }
@@ -743,8 +746,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nonnull
-  public List<Short> newEmbeddedList(@Nonnull String name, short[] source) {
-    var value = new TrackedList<Short>(source.length);
+  public EmbeddedList<Short> newEmbeddedList(@Nonnull String name, short[] source) {
+    var value = new EmbeddedListImpl<Short>(source.length);
     for (var s : source) {
       value.add(s);
     }
@@ -754,8 +757,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nonnull
-  public List<Integer> newEmbeddedList(@Nonnull String name, int[] source) {
-    var value = new TrackedList<Integer>(source.length);
+  public EmbeddedList<Integer> newEmbeddedList(@Nonnull String name, int[] source) {
+    var value = new EmbeddedListImpl<Integer>(source.length);
     for (var i : source) {
       value.add(i);
     }
@@ -766,8 +769,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nonnull
-  public List<Long> newEmbeddedList(@Nonnull String name, long[] source) {
-    var value = new TrackedList<Long>(source.length);
+  public EmbeddedList<Long> newEmbeddedList(@Nonnull String name, long[] source) {
+    var value = new EmbeddedListImpl<Long>(source.length);
     for (var l : source) {
       value.add(l);
     }
@@ -776,8 +779,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nonnull
-  public List<Boolean> newEmbeddedList(@Nonnull String name, boolean[] source) {
-    var value = new TrackedList<Boolean>(source.length);
+  public EmbeddedList<Boolean> newEmbeddedList(@Nonnull String name, boolean[] source) {
+    var value = new EmbeddedListImpl<Boolean>(source.length);
     for (var b : source) {
       value.add(b);
     }
@@ -786,8 +789,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nonnull
-  public List<Float> newEmbeddedList(@Nonnull String name, float[] source) {
-    var value = new TrackedList<Float>(source.length);
+  public EmbeddedList<Float> newEmbeddedList(@Nonnull String name, float[] source) {
+    var value = new EmbeddedListImpl<Float>(source.length);
     for (var f : source) {
       value.add(f);
     }
@@ -796,8 +799,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nonnull
-  public List<Double> newEmbeddedList(@Nonnull String name, double[] source) {
-    var value = new TrackedList<Double>(source.length);
+  public EmbeddedList<Double> newEmbeddedList(@Nonnull String name, double[] source) {
+    var value = new EmbeddedListImpl<Double>(source.length);
     for (var d : source) {
       value.add(d);
     }
@@ -927,10 +930,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
 
-  public @Nonnull List<Identifiable> getOrCreateLinkList(@Nonnull String name) {
-    var value = this.<List<Identifiable>>getProperty(name);
+  public @Nonnull LinkList getOrCreateLinkList(@Nonnull String name) {
+    var value = this.<LinkList>getProperty(name);
     if (value == null) {
-      value = new LinkList(this);
+      value = new LinkListImpl(this);
       setProperty(name, value, PropertyType.LINKLIST);
     }
 
@@ -938,23 +941,23 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nonnull
-  public List<Identifiable> newLinkList(@Nonnull String name) {
-    var value = new LinkList(this);
+  public LinkList newLinkList(@Nonnull String name) {
+    var value = new LinkListImpl(this);
     setProperty(name, value, PropertyType.LINKLIST);
     return value;
   }
 
   @Nonnull
-  public List<Identifiable> newLinkList(@Nonnull String name, List<Identifiable> source) {
-    var value = new LinkList(this);
+  public LinkList newLinkList(@Nonnull String name, Collection<Identifiable> source) {
+    var value = new LinkListImpl(this);
     value.addAll(source);
     setProperty(name, value, PropertyType.LINKLIST);
     return value;
   }
 
   @Nonnull
-  public Set<Identifiable> getOrCreateLinkSet(@Nonnull String name) {
-    var value = this.<Set<Identifiable>>getProperty(name);
+  public LinkSet getOrCreateLinkSet(@Nonnull String name) {
+    var value = this.<LinkSetImpl>getProperty(name);
     if (value == null) {
       value = new LinkSetImpl(this);
       setProperty(name, value, PropertyType.LINKSET);
@@ -964,14 +967,14 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nonnull
-  public Set<Identifiable> newLinkSet(@Nonnull String name) {
+  public LinkSet newLinkSet(@Nonnull String name) {
     var value = new LinkSetImpl(this);
     setProperty(name, value, PropertyType.LINKSET);
     return value;
   }
 
   @Nonnull
-  public Set<Identifiable> newLinkSet(@Nonnull String name, Set<Identifiable> source) {
+  public LinkSet newLinkSet(@Nonnull String name, Collection<Identifiable> source) {
     var value = new LinkSetImpl(this);
     value.addAll(source);
     setProperty(name, value, PropertyType.LINKSET);
@@ -1018,7 +1021,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     setPropertyInternal(name, value, null);
   }
 
-  private static void validatePropertyName(String propertyName, boolean allowMetadata) {
+  protected void validatePropertyName(String propertyName, boolean allowMetadata) {
     final var c = SchemaShared.checkPropertyNameIfValid(propertyName);
     if (allowMetadata && propertyName.charAt(0) == '@') {
       return;
@@ -1502,7 +1505,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
           validateLink(schema, session, p, propertyValue, false);
           break;
         case LINKLIST:
-          if (!(propertyValue instanceof LinkList)) {
+          if (!(propertyValue instanceof LinkListImpl)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The property '"
                     + p.getFullName()
@@ -1547,7 +1550,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
           validateEmbedded(session, p, propertyValue);
           break;
         case EMBEDDEDLIST:
-          if (!(propertyValue instanceof TrackedList<?>)) {
+          if (!(propertyValue instanceof EmbeddedListImpl<?>)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The property '"
                     + p.getFullName()
@@ -2321,7 +2324,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
         value = trackedMap;
       }
     } else if (value instanceof List<?> list) {
-      var trackedList = new TrackedList<>(this);
+      var trackedList = new EmbeddedListImpl<>(this);
       for (var item : list) {
         trackedList.add(convertMapValue(session, item));
       }
@@ -2383,7 +2386,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   private void updateEmbeddedListFromMapValue(DatabaseSessionInternal session,
       Object value, String key) {
     if (value instanceof Collection<?> collection) {
-      var embeddedList = new TrackedList<>(this);
+      var embeddedList = new EmbeddedListImpl<>(this);
       for (var item : collection) {
         embeddedList.add(convertMapValue(session, item));
       }
@@ -2454,7 +2457,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   private void updateLinkListFromMapValue(Object value, String key) {
     if (value instanceof Collection<?> collection) {
-      var linkList = new LinkList(session);
+      var linkList = new LinkListImpl(session);
       for (var item : collection) {
         if (item instanceof Identifiable identifiable) {
           linkList.add(identifiable);
@@ -3467,7 +3470,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
       switch (propertyType) {
         case EMBEDDEDLIST:
-          if (propertyValue instanceof List<?> && !(propertyValue instanceof TrackedList)) {
+          if (propertyValue instanceof List<?> && !(propertyValue instanceof EmbeddedListImpl<?>)) {
             throw new DatabaseException(session.getDatabaseName(),
                 "Property " + propertyEntry.getKey() + " is supposed to be TrackedList but is "
                     + propertyValue.getClass());
@@ -3489,7 +3492,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
           }
           break;
         case LINKLIST:
-          if (propertyValue instanceof List<?> && !(propertyValue instanceof LinkList)) {
+          if (propertyValue instanceof List<?> && !(propertyValue instanceof LinkListImpl)) {
             throw new DatabaseException(session.getDatabaseName(),
                 "Property " + propertyEntry.getKey() + " is supposed to be LinkList but is "
                     + propertyValue.getClass());

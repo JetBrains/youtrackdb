@@ -26,7 +26,10 @@ import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.api.record.RecordHook.TYPE;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
@@ -1119,79 +1122,79 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public <T> List<T> newEmbeddedList() {
+  public <T> EmbeddedList<T> newEmbeddedList() {
     checkOpenness();
     return internal.newEmbeddedList();
   }
 
   @Override
-  public <T> List<T> newEmbeddedList(int size) {
+  public <T> EmbeddedList<T> newEmbeddedList(int size) {
     checkOpenness();
     return internal.newEmbeddedList(size);
   }
 
   @Override
-  public <T> List<T> newEmbeddedList(List<T> list) {
+  public <T> EmbeddedList<T> newEmbeddedList(List<T> list) {
     checkOpenness();
     return internal.newEmbeddedList(list);
   }
 
   @Override
-  public List<Byte> newEmbeddedList(byte[] source) {
+  public EmbeddedList<Byte> newEmbeddedList(byte[] source) {
     checkOpenness();
     return internal.newEmbeddedList(source);
   }
 
   @Override
-  public List<Short> newEmbeddedList(short[] source) {
+  public EmbeddedList<Short> newEmbeddedList(short[] source) {
     checkOpenness();
     return internal.newEmbeddedList(source);
   }
 
   @Override
-  public List<Integer> newEmbeddedList(int[] source) {
+  public EmbeddedList<Integer> newEmbeddedList(int[] source) {
     checkOpenness();
     return internal.newEmbeddedList(source);
   }
 
   @Override
-  public List<Long> newEmbeddedList(long[] source) {
+  public EmbeddedList<Long> newEmbeddedList(long[] source) {
     checkOpenness();
     return internal.newEmbeddedList(source);
   }
 
   @Override
-  public List<Float> newEmbeddedList(float[] source) {
+  public EmbeddedList<Float> newEmbeddedList(float[] source) {
     checkOpenness();
     return internal.newEmbeddedList(source);
   }
 
   @Override
-  public List<Double> newEmbeddedList(double[] source) {
+  public EmbeddedList<Double> newEmbeddedList(double[] source) {
     checkOpenness();
     return internal.newEmbeddedList(source);
   }
 
   @Override
-  public List<Boolean> newEmbeddedList(boolean[] source) {
+  public EmbeddedList<Boolean> newEmbeddedList(boolean[] source) {
     checkOpenness();
     return internal.newEmbeddedList(source);
   }
 
   @Override
-  public List<Identifiable> newLinkList() {
+  public LinkList newLinkList() {
     checkOpenness();
     return internal.newLinkList();
   }
 
   @Override
-  public List<Identifiable> newLinkList(int size) {
+  public LinkList newLinkList(int size) {
     checkOpenness();
     return internal.newLinkList(size);
   }
 
   @Override
-  public List<Identifiable> newLinkList(List<Identifiable> source) {
+  public LinkList newLinkList(Collection<Identifiable> source) {
     checkOpenness();
     return internal.newLinkList(source);
   }
@@ -1215,19 +1218,19 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public Set<Identifiable> newLinkSet() {
+  public LinkSet newLinkSet() {
     checkOpenness();
     return internal.newLinkSet();
   }
 
   @Override
-  public Set<Identifiable> newLinkSet(int size) {
+  public LinkSet newLinkSet(int size) {
     checkOpenness();
     return internal.newLinkSet(size);
   }
 
   @Override
-  public Set<Identifiable> newLinkSet(Set<Identifiable> source) {
+  public LinkSet newLinkSet(Collection<Identifiable> source) {
     checkOpenness();
     return internal.newLinkSet(source);
   }

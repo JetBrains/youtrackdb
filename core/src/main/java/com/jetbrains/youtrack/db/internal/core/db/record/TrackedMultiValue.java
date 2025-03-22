@@ -80,13 +80,22 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
       }
 
       if (value instanceof Collection<?>) {
-        if (value instanceof TrackedList<?> || value instanceof EmbeddedSetImpl<?>) {
+        if (value instanceof EmbeddedListImpl<?> || value instanceof EmbeddedSetImpl<?>) {
+          var trackedMultiValue = (TrackedMultiValue<?, ?>) value;
+          checkResultsAndLinkCollectionsAreProhibited(trackedMultiValue);
+          return;
+        }
+
+        //case whew we use it inside query result set
+        if ((value instanceof LinkListImpl
+            || value instanceof LinkSetImpl) && !isLinkCollectionsProhibited()) {
           return;
         }
       }
 
       if (value instanceof Map<?, ?>) {
-        if (value instanceof TrackedMap<?>) {
+        if (value instanceof TrackedMap<?> trackedMap) {
+          checkResultsAndLinkCollectionsAreProhibited(trackedMap);
           return;
         }
       }
@@ -98,8 +107,9 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
                 " factory methods instead : "
                 + "newEmbeddedList(), newEmbeddedSet(), newEmbeddedMap().");
       }
-      //case whew we use it inside query result set, fail later on validation and serialization
-      if (value instanceof Result) {
+
+      //case whew we use it inside query result set
+      if ((value instanceof Result) && isResultAllowed()) {
         return;
       }
 
@@ -117,6 +127,24 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
         throw new SchemaException(
             "Cannot add a non-identifiable entity to a link based data container");
       }
+    }
+  }
+
+  private void checkResultsAndLinkCollectionsAreProhibited(
+      TrackedMultiValue<?, ?> trackedMultiValue) {
+    if (!isResultAllowed() && trackedMultiValue.isResultAllowed()) {
+      throw new SchemaException(
+          "Cannot add a collection to a embedded data container. Please use "
+              + DatabaseSession.class.getName() +
+              " factory methods instead : "
+              + "newEmbeddedList(), newEmbeddedSet(), newEmbeddedMap().");
+    }
+    if (isLinkCollectionsProhibited() && !trackedMultiValue.isLinkCollectionsProhibited()) {
+      throw new SchemaException(
+          "Cannot add a collection to a embedded data container. Please use "
+              + DatabaseSession.class.getName() +
+              " factory methods instead : "
+              + "newEmbeddedList(), newEmbeddedSet(), newEmbeddedMap().");
     }
   }
 
@@ -156,6 +184,10 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
   boolean addInternal(final V e);
 
   MultiValueChangeTimeLine<K, V> getTransactionTimeLine();
+
+  boolean isLinkCollectionsProhibited();
+
+  boolean isResultAllowed();
 
   default void addOwner(V e) {
     if (isEmbeddedContainer()) {

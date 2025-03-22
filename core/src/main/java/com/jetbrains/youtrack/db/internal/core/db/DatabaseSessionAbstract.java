@@ -46,7 +46,10 @@ import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.api.record.RecordHook.TYPE;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
@@ -58,13 +61,13 @@ import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
+import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.exception.SessionNotActivatedException;
 import com.jetbrains.youtrack.db.internal.core.exception.TransactionBlockedException;
@@ -114,7 +117,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
@@ -2461,25 +2463,25 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public <T> List<T> newEmbeddedList() {
-    return new TrackedList<>();
+  public <T> EmbeddedList<T> newEmbeddedList() {
+    return new EmbeddedListImpl<>();
   }
 
   @Override
-  public <T> List<T> newEmbeddedList(int size) {
-    return new TrackedList<>(size);
+  public <T> EmbeddedList<T> newEmbeddedList(int size) {
+    return new EmbeddedListImpl<>(size);
   }
 
   @Override
-  public <T> List<T> newEmbeddedList(List<T> list) {
-    var trackedList = new TrackedList<T>(list.size());
+  public <T> EmbeddedList<T> newEmbeddedList(List<T> list) {
+    var trackedList = new EmbeddedListImpl<T>(list.size());
     trackedList.addAll(list);
     return trackedList;
   }
 
   @Override
-  public List<Byte> newEmbeddedList(byte[] source) {
-    var trackedList = new TrackedList<Byte>(source.length);
+  public EmbeddedList<Byte> newEmbeddedList(byte[] source) {
+    var trackedList = new EmbeddedListImpl<Byte>(source.length);
     for (var b : source) {
       trackedList.add(b);
     }
@@ -2487,8 +2489,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public List<Short> newEmbeddedList(short[] source) {
-    var trackedList = new TrackedList<Short>(source.length);
+  public EmbeddedList<Short> newEmbeddedList(short[] source) {
+    var trackedList = new EmbeddedListImpl<Short>(source.length);
     for (var s : source) {
       trackedList.add(s);
     }
@@ -2496,8 +2498,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public List<Integer> newEmbeddedList(int[] source) {
-    var trackedList = new TrackedList<Integer>(source.length);
+  public EmbeddedList<Integer> newEmbeddedList(int[] source) {
+    var trackedList = new EmbeddedListImpl<Integer>(source.length);
     for (var i : source) {
       trackedList.add(i);
     }
@@ -2505,8 +2507,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public List<Long> newEmbeddedList(long[] source) {
-    var trackedList = new TrackedList<Long>(source.length);
+  public EmbeddedList<Long> newEmbeddedList(long[] source) {
+    var trackedList = new EmbeddedListImpl<Long>(source.length);
     for (var l : source) {
       trackedList.add(l);
     }
@@ -2514,8 +2516,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public List<Float> newEmbeddedList(float[] source) {
-    var trackedList = new TrackedList<Float>(source.length);
+  public EmbeddedList<Float> newEmbeddedList(float[] source) {
+    var trackedList = new EmbeddedListImpl<Float>(source.length);
     for (var f : source) {
       trackedList.add(f);
     }
@@ -2523,8 +2525,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public List<Double> newEmbeddedList(double[] source) {
-    var trackedList = new TrackedList<Double>(source.length);
+  public EmbeddedList<Double> newEmbeddedList(double[] source) {
+    var trackedList = new EmbeddedListImpl<Double>(source.length);
     for (var d : source) {
       trackedList.add(d);
     }
@@ -2532,8 +2534,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public List<Boolean> newEmbeddedList(boolean[] source) {
-    var trackedList = new TrackedList<Boolean>(source.length);
+  public EmbeddedList<Boolean> newEmbeddedList(boolean[] source) {
+    var trackedList = new EmbeddedListImpl<Boolean>(source.length);
     for (var b : source) {
       trackedList.add(b);
     }
@@ -2541,18 +2543,18 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public List<Identifiable> newLinkList() {
-    return new LinkList(this);
+  public LinkList newLinkList() {
+    return new LinkListImpl(this);
   }
 
   @Override
-  public List<Identifiable> newLinkList(int size) {
-    return new LinkList(size, this);
+  public LinkList newLinkList(int size) {
+    return new LinkListImpl(size, this);
   }
 
   @Override
-  public List<Identifiable> newLinkList(List<Identifiable> source) {
-    var list = new LinkList(source.size(), this);
+  public LinkList newLinkList(Collection<Identifiable> source) {
+    var list = new LinkListImpl(source.size(), this);
     list.addAll(source);
     return list;
   }
@@ -2575,17 +2577,17 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public Set<Identifiable> newLinkSet() {
+  public LinkSet newLinkSet() {
     return new LinkSetImpl(this);
   }
 
   @Override
-  public Set<Identifiable> newLinkSet(int size) {
+  public LinkSet newLinkSet(int size) {
     return new LinkSetImpl(size, this);
   }
 
   @Override
-  public Set<Identifiable> newLinkSet(Set<Identifiable> source) {
+  public LinkSet newLinkSet(Collection<Identifiable> source) {
     var linkSet = new LinkSetImpl(source.size(), this);
     linkSet.addAll(source);
     return linkSet;

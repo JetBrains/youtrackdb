@@ -5,10 +5,10 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import java.util.List;
 import java.util.Map;
 import org.junit.Test;
 
@@ -98,7 +98,7 @@ public class DocumentTrackingNestedCollectionsTest extends DbTestBase {
     session.begin();
     document = session.bindToSession(document);
     objects = document.getEmbeddedList("objects");
-    subObjects = (List) objects.iterator().next();
+    subObjects = (EmbeddedList<Object>) objects.iterator().next();
     subObjects.add("one");
     subObjects.add(session.newEmbeddedEntity());
 

@@ -20,9 +20,9 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
+import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -502,7 +502,8 @@ public class CRUDTest extends BaseDBTest {
   protected static void checkCollectionImplementations(EntityImpl doc) {
     var collectionObj = doc.getProperty("list");
     var validImplementation =
-        (collectionObj instanceof TrackedList<?>) || (doc.getProperty("list") instanceof LinkList);
+        (collectionObj instanceof EmbeddedListImpl<?>) || (doc.getProperty(
+            "list") instanceof LinkListImpl);
     if (!validImplementation) {
       Assert.fail(
           "Document list implementation "

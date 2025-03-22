@@ -1627,7 +1627,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     session.begin();
 
     var document = (EntityImpl) session.newEntity();
-    List<List<String>> list = session.newEmbeddedList();
+    var list = session.<List<String>>newEmbeddedList();
     List<String> ls = session.newEmbeddedList();
     ls.add("test1");
     ls.add("test2");
