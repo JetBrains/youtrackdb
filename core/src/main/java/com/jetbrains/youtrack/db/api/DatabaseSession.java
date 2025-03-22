@@ -35,6 +35,7 @@ import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -50,6 +51,7 @@ import javax.annotation.Nullable;
  * Session for database operations with a specific user.
  */
 public interface DatabaseSession extends AutoCloseable {
+
   enum STATUS {
     OPEN,
     CLOSED,
@@ -462,6 +464,10 @@ public interface DatabaseSession extends AutoCloseable {
   <T> EmbeddedList<T> newEmbeddedList(int size);
 
   <T> EmbeddedList<T> newEmbeddedList(List<T> list);
+
+  EmbeddedList<String> newEmbeddedList(String[] source);
+
+  EmbeddedList<Date> newEmbeddedList(Date[] source);
 
   EmbeddedList<Byte> newEmbeddedList(byte[] source);
 

@@ -109,6 +109,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -2432,6 +2433,20 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   public <T> EmbeddedList<T> newEmbeddedList(List<T> list) {
     var trackedList = new EmbeddedListImpl<T>(list.size());
     trackedList.addAll(list);
+    return trackedList;
+  }
+
+  @Override
+  public EmbeddedList<String> newEmbeddedList(String[] source) {
+    var trackedList = new EmbeddedListImpl<String>(source.length);
+    trackedList.addAll(Arrays.asList(source));
+    return trackedList;
+  }
+
+  @Override
+  public EmbeddedList<Date> newEmbeddedList(Date[] source) {
+    var trackedList = new EmbeddedListImpl<Date>(source.length);
+    trackedList.addAll(Arrays.asList(source));
     return trackedList;
   }
 

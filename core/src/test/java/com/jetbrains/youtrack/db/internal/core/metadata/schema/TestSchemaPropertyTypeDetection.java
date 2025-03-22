@@ -79,7 +79,7 @@ public class TestSchemaPropertyTypeDetection extends DbTestBase {
     assertEquals(PropertyTypeInternal.DECIMAL,
         PropertyTypeInternal.getTypeByClass(BigDecimal.class));
 
-    assertEquals(PropertyTypeInternal.INTEGER,
+    assertEquals(PropertyTypeInternal.DECIMAL,
         PropertyTypeInternal.getTypeByClass(BigInteger.class));
 
     assertEquals(PropertyTypeInternal.LINK,
@@ -168,7 +168,7 @@ public class TestSchemaPropertyTypeDetection extends DbTestBase {
     assertEquals(PropertyTypeInternal.DECIMAL,
         PropertyTypeInternal.getTypeByValue(new BigDecimal(10)));
 
-    assertEquals(PropertyTypeInternal.INTEGER,
+    assertEquals(PropertyTypeInternal.DECIMAL,
         PropertyTypeInternal.getTypeByValue(new BigInteger("20")));
 
     assertEquals(PropertyTypeInternal.LINK,

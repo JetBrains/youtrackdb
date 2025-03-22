@@ -61,6 +61,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import javax.annotation.Nullable;
 
 /**
@@ -1240,7 +1241,6 @@ public enum PropertyTypeInternal {
     TYPES_BY_CLASS.put(Boolean.TYPE, BOOLEAN);
     TYPES_BY_CLASS.put(Integer.TYPE, INTEGER);
     TYPES_BY_CLASS.put(Integer.class, INTEGER);
-    TYPES_BY_CLASS.put(BigInteger.class, INTEGER);
     TYPES_BY_CLASS.put(Short.class, SHORT);
     TYPES_BY_CLASS.put(Short.TYPE, SHORT);
     TYPES_BY_CLASS.put(Long.class, LONG);
@@ -1259,6 +1259,7 @@ public enum PropertyTypeInternal {
     TYPES_BY_CLASS.put(Character.TYPE, STRING);
     TYPES_BY_CLASS.put(RecordId.class, LINK);
     TYPES_BY_CLASS.put(BigDecimal.class, DECIMAL);
+    TYPES_BY_CLASS.put(BigInteger.class, DECIMAL);
     TYPES_BY_CLASS.put(RidBag.class, LINKBAG);
     TYPES_BY_CLASS.put(EmbeddedSetImpl.class, EMBEDDEDSET);
     TYPES_BY_CLASS.put(LinkSetImpl.class, LINKSET);
@@ -1509,11 +1510,17 @@ public enum PropertyTypeInternal {
       return true;
     }
 
-    return Integer.class.isAssignableFrom(cls) || Long.class.isAssignableFrom(cls) || Short.class
-        .isAssignableFrom(cls) || Byte.class.isAssignableFrom(cls) || Double.class
-        .isAssignableFrom(cls) || Float.class.isAssignableFrom(cls) || Boolean.class
-        .isAssignableFrom(cls) || BigDecimal.class.isAssignableFrom(cls) ||
-        Date.class.isAssignableFrom(cls) || String.class.isAssignableFrom(cls);
+    return Integer.class.isAssignableFrom(cls) ||
+        Long.class.isAssignableFrom(cls) ||
+        Short.class.isAssignableFrom(cls) ||
+        Byte.class.isAssignableFrom(cls) ||
+        Double.class.isAssignableFrom(cls) ||
+        Float.class.isAssignableFrom(cls) ||
+        Boolean.class.isAssignableFrom(cls) ||
+        BigInteger.class.isAssignableFrom(cls) ||
+        BigDecimal.class.isAssignableFrom(cls) ||
+        Date.class.isAssignableFrom(cls) ||
+        String.class.isAssignableFrom(cls);
   }
 
   public static boolean isSingleValueType(@Nullable Object value) {

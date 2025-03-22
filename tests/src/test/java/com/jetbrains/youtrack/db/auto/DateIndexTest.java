@@ -87,6 +87,7 @@ public class DateIndexTest extends BaseDBTest {
   public void testDateIndexes() {
     checkEmbeddedDB();
 
+    session.begin();
     final var dateOne = new Date();
 
     final var dateTwo = new Date(dateOne.getTime() + 24 * 60 * 60 * 1000 + 100);
@@ -96,7 +97,7 @@ public class DateIndexTest extends BaseDBTest {
     dateDoc.setProperty("dateField", dateOne);
     dateDoc.setProperty("dateTimeField", dateTwo);
 
-    final List<Date> dateList = new ArrayList<>();
+    final List<Date> dateList = session.newEmbeddedList();
 
     final var dateThree = new Date(dateOne.getTime() + 100);
     final var dateFour = new Date(dateThree.getTime() + 24 * 60 * 60 * 1000 + 100);
@@ -104,7 +105,7 @@ public class DateIndexTest extends BaseDBTest {
     dateList.add(new Date(dateThree.getTime()));
     dateList.add(new Date(dateFour.getTime()));
 
-    final List<Date> dateTimeList = new ArrayList<>();
+    final List<Date> dateTimeList = session.newEmbeddedList();
 
     dateTimeList.add(new Date(dateThree.getTime()));
     dateTimeList.add(new Date(dateFour.getTime()));
@@ -113,8 +114,6 @@ public class DateIndexTest extends BaseDBTest {
     dateDoc.setProperty("dateTimeList", dateTimeList);
 
     dateDoc.setProperty("value", "v1");
-
-    session.begin();
 
     session.commit();
 

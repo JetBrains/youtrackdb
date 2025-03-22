@@ -120,9 +120,11 @@ public class TraverseTest extends BaseDBTest {
   }
 
   public void traverseAPIAllFromActorNoWhere() {
+    session.begin();
     var result1 =
         new Traverse(session).fields("*").target(tomCruise.getIdentity()).execute(session);
     Assert.assertEquals(result1.size(), totalElements);
+    session.commit();
   }
 
   @Test
@@ -259,6 +261,7 @@ public class TraverseTest extends BaseDBTest {
 
   @Test
   public void traverseAPIIterating() {
+    session.begin();
     var cycles = 0;
     for (var id :
         new Traverse(session)
@@ -275,6 +278,7 @@ public class TraverseTest extends BaseDBTest {
       cycles++;
     }
     Assert.assertTrue(cycles > 0);
+    session.commit();
   }
 
   @Test
@@ -283,6 +287,7 @@ public class TraverseTest extends BaseDBTest {
     var context = new BasicCommandContext();
     context.setDatabaseSession(session);
 
+    session.begin();
     for (var id :
         new Traverse(session)
             .target(session.browseClass("Movie"))
@@ -290,6 +295,7 @@ public class TraverseTest extends BaseDBTest {
       cycles++;
     }
     Assert.assertTrue(cycles > 0);
+    session.commit();
   }
 
   @Test
@@ -378,6 +384,7 @@ public class TraverseTest extends BaseDBTest {
 
   @Test
   public void traverseAndCheckDepthInSelect() {
+    session.begin();
     var result1 =
         executeQuery(
             "select *, $depth as d from ( traverse out_married  from "
@@ -391,6 +398,7 @@ public class TraverseTest extends BaseDBTest {
       Integer depth = res.getProperty("d");
       Assert.assertEquals(depth, i++);
     }
+    session.commit();
   }
 
   @Test

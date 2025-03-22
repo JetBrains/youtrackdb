@@ -5,18 +5,26 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.api.exception.SchemaException;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
+import com.jetbrains.youtrack.db.internal.common.util.Triple;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Supplier;
 import org.junit.Test;
 
 public class EntityImplTest extends DbTestBase {
@@ -330,6 +338,46 @@ public class EntityImplTest extends DbTestBase {
       doc.setProperty("testMap", map);
       doc.checkAllMultiValuesAreTrackedVersions();
     });
+  }
+
+  @Test
+  public void testLinkEmbeddedMismatch() {
+    final List<Triple<PropertyType, String, Supplier<Object>>> values = List.of(
+        new Triple<>(PropertyType.EMBEDDEDLIST, "LINKLIST",
+            () -> session.newLinkList(List.of(session.newEntity()))),
+        new Triple<>(PropertyType.EMBEDDEDSET, "LINKSET",
+            () -> session.newLinkSet(Set.of(session.newEntity()))),
+        new Triple<>(PropertyType.EMBEDDEDMAP, "LINKMAP",
+            () -> session.newLinkMap(Map.of("a", session.newEntity())))
+    );
+
+    for (var v : values) {
+      session.executeInTx(tx -> {
+        final var parent = tx.newEntity();
+
+        final var propertyType = v.getKey();
+        final var message = v.getValue().getKey() + " -> " + v.getKey();
+        final var collectionFactory = v.getValue().getValue();
+
+        expectConversionError(message, () -> {
+          parent.setProperty(
+              "children",
+              collectionFactory.get(),
+              propertyType
+          );
+        });
+      });
+    }
+  }
+
+  private static void expectConversionError(String message, Runnable r) {
+
+    try {
+      r.run();
+      fail("Conversion error expected: " + message);
+    } catch (SchemaException e) {
+      // ok
+    }
   }
 
   @Test
