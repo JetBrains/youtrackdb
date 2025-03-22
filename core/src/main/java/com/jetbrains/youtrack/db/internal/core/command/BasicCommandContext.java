@@ -21,9 +21,9 @@ package com.jetbrains.youtrack.db.internal.core.command;
 
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
@@ -285,7 +285,7 @@ public class BasicCommandContext implements CommandContext {
         if (v == null) {
           variables.put(iName, 1);
         } else if (v instanceof Number) {
-          variables.put(iName, PropertyType.increment((Number) v, 1));
+          variables.put(iName, PropertyTypeInternal.increment((Number) v, 1));
         } else {
           throw new IllegalArgumentException(
               "Variable '" + iName + "' is not a number, but: " + v.getClass());

@@ -28,7 +28,7 @@ public class TestImmutableIndexLoad {
             TestImmutableIndexLoad.class.getSimpleName(),
             "admin",
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
-    var one = db.createClass("One");
+    var one = db.getSchema().createClass("One");
     var property = one.createProperty("one", PropertyType.STRING);
     property.createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
     db.close();

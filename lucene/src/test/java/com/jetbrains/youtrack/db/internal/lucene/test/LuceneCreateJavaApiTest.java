@@ -94,13 +94,13 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
   public void testCreateIndexWithUnsupportedEmbedded() {
     var schema = session.getMetadata().getSchema();
     var song = schema.getClassInternal(SONG_CLASS);
-    song.createProperty(PropertyType.EMBEDDED.getName(), PropertyType.EMBEDDED);
+    song.createProperty(PropertyType.EMBEDDED.name(), PropertyType.EMBEDDED);
     song.createIndex(
-        SONG_CLASS + "." + PropertyType.EMBEDDED.getName(),
+        SONG_CLASS + "." + PropertyType.EMBEDDED.name(),
         SchemaClass.INDEX_TYPE.FULLTEXT.toString(),
         null,
         null,
-        "LUCENE", new String[]{"description", PropertyType.EMBEDDED.getName()});
+        "LUCENE", new String[]{"description", PropertyType.EMBEDDED.name()});
     Assert.assertEquals(1, song.getIndexes().size());
   }
 
@@ -112,7 +112,7 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
         "{\n"
             + "    \"description\": \"Capital\",\n"
             + "    \"String"
-            + PropertyType.EMBEDDEDMAP.getName()
+            + PropertyType.EMBEDDEDMAP.name()
             + "\": {\n"
             + "    \"text\": \"Hello Rome how are you today?\",\n"
             + "    \"text2\": \"Hello Bolzano how are you today?\",\n"
@@ -142,7 +142,7 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
 
     final var doc = ((EntityImpl) session.newEntity(SONG_CLASS));
     doc.setProperty("description", "Capital", PropertyType.STRING);
-    String fieldName = "String" + PropertyType.EMBEDDEDMAP.getName();
+    String fieldName = "String" + PropertyType.EMBEDDEDMAP.name();
     doc.setProperty(fieldName, entries, PropertyType.EMBEDDEDMAP, PropertyType.STRING);
     session.begin();
     session.commit();
@@ -184,15 +184,15 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
   private SchemaClassInternal createEmbeddedMapIndex() {
     var schema = session.getMetadata().getSchema();
     var song = schema.getClassInternal(SONG_CLASS);
-    song.createProperty("String" + PropertyType.EMBEDDEDMAP.getName(),
+    song.createProperty("String" + PropertyType.EMBEDDEDMAP.name(),
         PropertyType.EMBEDDEDMAP,
         PropertyType.STRING);
     song.createIndex(
-        SONG_CLASS + "." + PropertyType.EMBEDDEDMAP.getName(),
+        SONG_CLASS + "." + PropertyType.EMBEDDEDMAP.name(),
         SchemaClass.INDEX_TYPE.FULLTEXT.toString(),
         null,
         null,
-        "LUCENE", new String[]{"String" + PropertyType.EMBEDDEDMAP.getName() + " by value"});
+        "LUCENE", new String[]{"String" + PropertyType.EMBEDDEDMAP.name() + " by value"});
     Assert.assertEquals(1, song.getIndexes().size());
     return song;
   }
@@ -200,13 +200,13 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
   private SchemaClassInternal createEmbeddedMapIndexSimple() {
     var schema = session.getMetadata().getSchema();
     var song = schema.getClassInternal(SONG_CLASS);
-    song.createProperty("String" + PropertyType.EMBEDDEDMAP.getName(),
+    song.createProperty("String" + PropertyType.EMBEDDEDMAP.name(),
         PropertyType.EMBEDDEDMAP,
         PropertyType.STRING);
     song.createIndex(
-        SONG_CLASS + "." + PropertyType.EMBEDDEDMAP.getName(),
+        SONG_CLASS + "." + PropertyType.EMBEDDEDMAP.name(),
         SchemaClass.INDEX_TYPE.FULLTEXT.toString(),
-        "String" + PropertyType.EMBEDDEDMAP.getName() + " by value");
+        "String" + PropertyType.EMBEDDEDMAP.name() + " by value");
     Assert.assertEquals(1, song.getIndexes().size());
     return song;
   }

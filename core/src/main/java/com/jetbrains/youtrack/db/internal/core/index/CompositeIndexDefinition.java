@@ -22,9 +22,9 @@ package com.jetbrains.youtrack.db.internal.core.index;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.schema.Collate;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.CommandExecutorSQLCreateIndex;
 import it.unimi.dsi.fastutil.ints.IntCollection;
@@ -381,13 +381,13 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
   /**
    * {@inheritDoc}
    */
-  public PropertyType[] getTypes() {
-    final List<PropertyType> types = new LinkedList<>();
+  public PropertyTypeInternal[] getTypes() {
+    final List<PropertyTypeInternal> types = new LinkedList<>();
     for (final var indexDefinition : indexDefinitions) {
       Collections.addAll(types, indexDefinition.getTypes());
     }
 
-    return types.toArray(new PropertyType[0]);
+    return types.toArray(new PropertyTypeInternal[0]);
   }
 
   @Override

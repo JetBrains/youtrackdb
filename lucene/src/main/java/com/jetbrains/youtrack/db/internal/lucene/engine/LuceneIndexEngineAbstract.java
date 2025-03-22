@@ -34,6 +34,7 @@ import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
 import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValuesTransformer;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalPaginatedStorage;
@@ -204,7 +205,8 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
     for (var field : fields) {
       var property = aClass.getProperty(field);
 
-      if (property.getType().isEmbedded() && property.getLinkedType() != null) {
+      if (PropertyTypeInternal.convertFromPublicType(property.getType()).isEmbedded()
+          && property.getLinkedType() != null) {
         collectionFields.put(field, true);
       } else {
         collectionFields.put(field, false);

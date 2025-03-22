@@ -54,7 +54,7 @@ public class RemoteTokenExpireTest {
         RemoteTokenExpireTest.class.getSimpleName());
 
     session = youTrackDB.open(RemoteTokenExpireTest.class.getSimpleName(), "admin", "admin");
-    session.createClass("Some");
+    session.getSchema().createClass("Some");
 
     session.close();
     youTrackDB.close();

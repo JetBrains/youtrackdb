@@ -21,7 +21,6 @@ package com.jetbrains.youtrack.db.internal.core.sql;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
@@ -31,6 +30,7 @@ import com.jetbrains.youtrack.db.internal.core.index.IndexCursor;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexKeyCursor;
 import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField.FieldChain;
@@ -433,7 +433,7 @@ public class ChainedIndexProxy<T> implements Index {
     throw new UnsupportedOperationException("Not allowed operation");
   }
 
-  public PropertyType[] getKeyTypes() {
+  public PropertyTypeInternal[] getKeyTypes() {
     throw new UnsupportedOperationException("Not allowed operation");
   }
 

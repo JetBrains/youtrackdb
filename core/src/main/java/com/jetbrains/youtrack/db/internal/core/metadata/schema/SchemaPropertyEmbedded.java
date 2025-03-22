@@ -26,7 +26,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     super(oClassImpl, global);
   }
 
-  public void setType(DatabaseSessionInternal session, final PropertyType type) {
+  public void setType(DatabaseSessionInternal session, final PropertyTypeInternal type) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
     acquireSchemaWriteLock(session);
@@ -35,24 +35,27 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     } finally {
       releaseSchemaWriteLock(session);
     }
-    owner.fireDatabaseMigration(session, globalRef.getName(), globalRef.getType());
+    owner.fireDatabaseMigration(session, globalRef.getName(),
+        PropertyTypeInternal.convertFromPublicType(globalRef.getType()));
   }
 
   /**
    * Change the type. It checks for compatibility between the change of type.
    */
-  protected void setTypeInternal(DatabaseSessionInternal session, final PropertyType iType) {
+  protected void setTypeInternal(DatabaseSessionInternal session,
+      final PropertyTypeInternal iType) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
     acquireSchemaWriteLock(session);
     try {
-      if (iType == globalRef.getType())
+      if (iType == PropertyTypeInternal.convertFromPublicType(globalRef.getType()))
       // NO CHANGES
       {
         return;
       }
 
-      if (!iType.getCastable().contains(globalRef.getType())) {
+      if (!iType.getCastable()
+          .contains(PropertyTypeInternal.convertFromPublicType(globalRef.getType()))) {
         throw new IllegalArgumentException(
             "Cannot change property type from " + globalRef.getType() + " to " + iType);
       }
@@ -83,11 +86,13 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
       checkEmbedded(session);
 
       owner.renameProperty(oldName, name);
-      this.globalRef = owner.owner.findOrCreateGlobalProperty(name, this.globalRef.getType());
+      this.globalRef = owner.owner.findOrCreateGlobalProperty(name,
+          PropertyTypeInternal.convertFromPublicType(this.globalRef.getType()));
     } finally {
       releaseSchemaWriteLock(session);
     }
-    owner.firePropertyNameMigration(session, oldName, name, this.globalRef.getType());
+    owner.firePropertyNameMigration(session, oldName, name,
+        PropertyTypeInternal.convertFromPublicType(this.globalRef.getType()));
   }
 
   @Override
@@ -271,7 +276,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
       final SchemaClassImpl linkedClass) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
-    checkSupportLinkedClass(getType(session));
+    checkSupportLinkedClass(PropertyTypeInternal.convertFromPublicType(getType(session)));
 
     acquireSchemaWriteLock(session);
     try {
@@ -297,10 +302,10 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
   }
 
   public void setLinkedType(DatabaseSessionInternal session,
-      final PropertyType linkedType) {
+      final PropertyTypeInternal linkedType) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
-    checkLinkTypeSupport(getType(session));
+    checkLinkTypeSupport(PropertyTypeInternal.convertFromPublicType(getType(session)));
 
     acquireSchemaWriteLock(session);
     try {
@@ -311,7 +316,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
   }
 
   protected void setLinkedTypeInternal(DatabaseSessionInternal session,
-      final PropertyType iLinkedType) {
+      final PropertyTypeInternal iLinkedType) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
     acquireSchemaWriteLock(session);
     try {
@@ -398,7 +403,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
           || this.getType(session).equals(PropertyType.LINKBAG)
           || this.getType(session).equals(PropertyType.EMBEDDEDMAP)
           || this.getType(session).equals(PropertyType.LINKMAP)) {
-        PropertyType.convert(session, value, Integer.class);
+        PropertyTypeInternal.convert(session, value, Integer.class);
       } else if (this.getType(session).equals(PropertyType.DATE)
           || this.getType(session).equals(PropertyType.BYTE)
           || this.getType(session).equals(PropertyType.SHORT)
@@ -408,7 +413,8 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
           || this.getType(session).equals(PropertyType.DOUBLE)
           || this.getType(session).equals(PropertyType.DECIMAL)
           || this.getType(session).equals(PropertyType.DATETIME)) {
-        PropertyType.convert(session, value, this.getType(session).getDefaultJavaType());
+        PropertyTypeInternal.convert(session, value,
+            PropertyTypeInternal.convertFromPublicType(this.getType(session)).getDefaultJavaType());
       }
     }
   }

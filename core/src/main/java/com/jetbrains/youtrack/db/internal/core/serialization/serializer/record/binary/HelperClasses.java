@@ -21,7 +21,6 @@ import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.ByteSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
@@ -34,6 +33,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.embedded.EmbeddedRidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
@@ -86,16 +86,16 @@ public class HelperClasses {
 
     public int fieldStartOffset;
     public int fieldLength;
-    public PropertyType fieldType;
+    public PropertyTypeInternal fieldType;
   }
 
   protected static class MapRecordInfo extends RecordInfo {
 
     public String key;
-    public PropertyType keyType;
+    public PropertyTypeInternal keyType;
   }
 
-  public static PropertyType readOType(final BytesContainer bytes, boolean justRunThrough) {
+  public static PropertyTypeInternal readOType(final BytesContainer bytes, boolean justRunThrough) {
     if (justRunThrough) {
       bytes.offset++;
       return null;
@@ -106,10 +106,10 @@ public class HelperClasses {
       return null;
     }
 
-    return PropertyType.getById(typeId);
+    return PropertyTypeInternal.getById(typeId);
   }
 
-  public static void writeOType(BytesContainer bytes, int pos, PropertyType type) {
+  public static void writeOType(BytesContainer bytes, int pos, PropertyTypeInternal type) {
     if (type != null) {
       bytes.bytes[pos] = (byte) type.getId();
     } else {
@@ -117,12 +117,12 @@ public class HelperClasses {
     }
   }
 
-  public static PropertyType readType(BytesContainer bytes) {
+  public static PropertyTypeInternal readType(BytesContainer bytes) {
     var typeId = bytes.bytes[bytes.offset++];
     if (typeId == -1) {
       return null;
     }
-    return PropertyType.getById(typeId);
+    return PropertyTypeInternal.getById(typeId);
   }
 
   public static byte[] readBinary(final BytesContainer bytes) {
@@ -249,12 +249,12 @@ public class HelperClasses {
     return pos;
   }
 
-  public static PropertyType getTypeFromValueEmbedded(final Object fieldValue) {
-    var type = PropertyType.getTypeByValue(fieldValue);
-    if (type == PropertyType.LINK
+  public static PropertyTypeInternal getTypeFromValueEmbedded(final Object fieldValue) {
+    var type = PropertyTypeInternal.getTypeByValue(fieldValue);
+    if (type == PropertyTypeInternal.LINK
         && fieldValue instanceof EntityImpl
         && !((EntityImpl) fieldValue).getIdentity().isValidPosition()) {
-      type = PropertyType.EMBEDDED;
+      type = PropertyTypeInternal.EMBEDDED;
     }
     return type;
   }
@@ -567,16 +567,17 @@ public class HelperClasses {
     return ChangeSerializationHelper.createChangeInstance(type, change);
   }
 
-  public static PropertyType getLinkedType(DatabaseSessionInternal session, SchemaClass clazz,
-      PropertyType type, String key) {
-    if (type != PropertyType.EMBEDDEDLIST && type != PropertyType.EMBEDDEDSET
-        && type != PropertyType.EMBEDDEDMAP) {
+  public static PropertyTypeInternal getLinkedType(DatabaseSessionInternal session,
+      SchemaClass clazz,
+      PropertyTypeInternal type, String key) {
+    if (type != PropertyTypeInternal.EMBEDDEDLIST && type != PropertyTypeInternal.EMBEDDEDSET
+        && type != PropertyTypeInternal.EMBEDDEDMAP) {
       return null;
     }
     if (clazz != null) {
       var prop = clazz.getProperty(key);
       if (prop != null) {
-        return prop.getLinkedType();
+        return PropertyTypeInternal.convertFromPublicType(prop.getLinkedType());
       }
     }
     return null;

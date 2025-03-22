@@ -57,7 +57,7 @@ public abstract class SchemaPropertyImpl {
   private static final Pattern DOUBLE_SLASH_PATTERN = Pattern.compile("\\\\");
   private static final Pattern QUOTATION_PATTERN = Pattern.compile("\"");
   protected final SchemaClassImpl owner;
-  protected PropertyType linkedType;
+  protected PropertyTypeInternal linkedType;
   protected SchemaClassImpl linkedClass;
   private transient String linkedClassName;
 
@@ -251,21 +251,21 @@ public abstract class SchemaPropertyImpl {
     }
   }
 
-  public static void checkSupportLinkedClass(PropertyType type) {
-    if (type != PropertyType.LINK
-        && type != PropertyType.LINKSET
-        && type != PropertyType.LINKLIST
-        && type != PropertyType.LINKMAP
-        && type != PropertyType.EMBEDDED
-        && type != PropertyType.EMBEDDEDSET
-        && type != PropertyType.EMBEDDEDLIST
-        && type != PropertyType.EMBEDDEDMAP
-        && type != PropertyType.LINKBAG) {
+  public static void checkSupportLinkedClass(PropertyTypeInternal type) {
+    if (type != PropertyTypeInternal.LINK
+        && type != PropertyTypeInternal.LINKSET
+        && type != PropertyTypeInternal.LINKLIST
+        && type != PropertyTypeInternal.LINKMAP
+        && type != PropertyTypeInternal.EMBEDDED
+        && type != PropertyTypeInternal.EMBEDDEDSET
+        && type != PropertyTypeInternal.EMBEDDEDLIST
+        && type != PropertyTypeInternal.EMBEDDEDMAP
+        && type != PropertyTypeInternal.LINKBAG) {
       throw new SchemaException("Linked class is not supported for type: " + type);
     }
   }
 
-  public PropertyType getLinkedType(DatabaseSessionInternal session) {
+  public PropertyTypeInternal getLinkedType(DatabaseSessionInternal session) {
     acquireSchemaReadLock(session);
     try {
       return linkedType;
@@ -274,9 +274,9 @@ public abstract class SchemaPropertyImpl {
     }
   }
 
-  public static void checkLinkTypeSupport(PropertyType type) {
-    if (type != PropertyType.EMBEDDEDSET && type != PropertyType.EMBEDDEDLIST
-        && type != PropertyType.EMBEDDEDMAP) {
+  public static void checkLinkTypeSupport(PropertyTypeInternal type) {
+    if (type != PropertyTypeInternal.EMBEDDEDSET && type != PropertyTypeInternal.EMBEDDEDLIST
+        && type != PropertyTypeInternal.EMBEDDEDMAP) {
       throw new SchemaException("Linked type is not supported for type: " + type);
     }
   }
@@ -437,7 +437,7 @@ public abstract class SchemaPropertyImpl {
         if (stringValue == null) {
           setLinkedType(session, null);
         } else {
-          setLinkedType(session, PropertyType.valueOf(stringValue));
+          setLinkedType(session, PropertyTypeInternal.valueOf(stringValue));
         }
         break;
       case MIN:
@@ -465,7 +465,7 @@ public abstract class SchemaPropertyImpl {
         setRegexp(session, stringValue);
         break;
       case TYPE:
-        setType(session, PropertyType.valueOf(stringValue.toUpperCase(Locale.ENGLISH)));
+        setType(session, PropertyTypeInternal.valueOf(stringValue.toUpperCase(Locale.ENGLISH)));
         break;
       case COLLATE:
         setCollate(session, stringValue);
@@ -500,7 +500,7 @@ public abstract class SchemaPropertyImpl {
 
   public abstract void setLinkedClass(DatabaseSessionInternal session, SchemaClassImpl oClass);
 
-  public abstract void setLinkedType(DatabaseSessionInternal session, PropertyType type);
+  public abstract void setLinkedType(DatabaseSessionInternal session, PropertyTypeInternal type);
 
   public abstract void setMin(DatabaseSessionInternal session, String min);
 
@@ -518,7 +518,7 @@ public abstract class SchemaPropertyImpl {
 
   public abstract void setRegexp(DatabaseSessionInternal session, String regexp);
 
-  public abstract void setType(DatabaseSessionInternal session, final PropertyType iType);
+  public abstract void setType(DatabaseSessionInternal session, final PropertyTypeInternal iType);
 
   public abstract void setDescription(DatabaseSessionInternal session, String iDescription);
 
@@ -564,9 +564,9 @@ public abstract class SchemaPropertyImpl {
 
   public void fromStream(DatabaseSessionInternal session, EntityImpl entity) {
     String name = entity.getProperty("name");
-    PropertyType type = null;
+    PropertyTypeInternal type = null;
     if (entity.getProperty("type") != null) {
-      type = PropertyType.getById(((Integer) entity.getProperty("type")).byteValue());
+      type = PropertyTypeInternal.getById(((Integer) entity.getProperty("type")).byteValue());
     }
     Integer globalId = entity.getProperty("globalId");
     if (globalId != null) {
@@ -624,7 +624,7 @@ public abstract class SchemaPropertyImpl {
     }
     if (entity.getProperty("linkedType") != null) {
       linkedType =
-          PropertyType.getById(((Integer) entity.getProperty("linkedType")).byteValue());
+          PropertyTypeInternal.getById(((Integer) entity.getProperty("linkedType")).byteValue());
     } else {
       linkedType =
           null;
@@ -668,7 +668,8 @@ public abstract class SchemaPropertyImpl {
   public Entity toStream(DatabaseSessionInternal session) {
     var entity = session.newEmbeddedEntity();
     entity.setProperty("name", getName(session));
-    entity.setProperty("type", getType(session).getId());
+    entity.setProperty("type",
+        PropertyTypeInternal.convertFromPublicType(getType(session)).getId());
     entity.setProperty("globalId", globalRef.getId());
     entity.setProperty("mandatory", mandatory);
     entity.setProperty("readonly", readonly);

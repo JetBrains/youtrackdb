@@ -21,7 +21,7 @@ public class TestManyProperties {
           .execute("create database test memory users(admin identified by 'admin' role admin)")
           .close();
       try (var session = youTrackDB.open("test", "admin", "admin")) {
-        var clazz = session.createClass("test");
+        var clazz = session.getSchema().createClass("test");
         clazz.createProperty("property1", PropertyType.STRING);
         clazz.createProperty("property2", PropertyType.STRING);
         clazz.createProperty("property3", PropertyType.STRING);

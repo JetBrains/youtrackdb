@@ -5,7 +5,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -353,13 +353,14 @@ public class SQLModifier extends SimpleNode {
     } else if (arraySingleValues != null) {
 
       if (schemaProperty != null) {
-        if (PropertyType.isSingleValueType(value)) {
-          var linkedType = schemaProperty.getLinkedType();
+        if (PropertyTypeInternal.isSingleValueType(value)) {
+          var linkedType = PropertyTypeInternal.convertFromPublicType(
+              schemaProperty.getLinkedType());
           if (linkedType != null) {
             value = linkedType.convert(value, session);
           }
         } else {
-          var type = schemaProperty.getType();
+          var type = PropertyTypeInternal.convertFromPublicType(schemaProperty.getType());
           if (type != null) {
             value = type.convert(value, session);
           }

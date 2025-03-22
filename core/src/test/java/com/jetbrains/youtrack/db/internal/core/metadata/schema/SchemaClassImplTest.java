@@ -59,7 +59,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
 
     var oClass = (SchemaClassInternal) oSchema.createClass("Test21");
     oClass.createProperty("some", PropertyType.LINKLIST, (SchemaClass) null);
-    oClass.createProperty("some2", PropertyType.LINKLIST, (SchemaClass) null, true);
+    oClass.createProperty("some2", PropertyTypeInternal.LINKLIST, (SchemaClass) null, true);
 
     assertNotNull(oClass.getProperty("some"));
     assertNotNull(oClass.getProperty("some2"));

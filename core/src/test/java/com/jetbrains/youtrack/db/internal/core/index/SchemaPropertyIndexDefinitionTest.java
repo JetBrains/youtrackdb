@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
 import java.util.Collections;
@@ -15,7 +15,7 @@ public class SchemaPropertyIndexDefinitionTest extends DbTestBase {
 
   @Before
   public void beforeMethod() {
-    propertyIndex = new PropertyIndexDefinition("testClass", "fOne", PropertyType.INTEGER);
+    propertyIndex = new PropertyIndexDefinition("testClass", "fOne", PropertyTypeInternal.INTEGER);
   }
 
   @Test
@@ -76,12 +76,12 @@ public class SchemaPropertyIndexDefinitionTest extends DbTestBase {
   public void testGetTypes() {
     final var result = propertyIndex.getTypes();
     Assert.assertEquals(1, result.length);
-    Assert.assertEquals(PropertyType.INTEGER, result[0]);
+    Assert.assertEquals(PropertyTypeInternal.INTEGER, result[0]);
   }
 
   @Test
   public void testEmptyIndexReload() {
-    propertyIndex = new PropertyIndexDefinition("tesClass", "fOne", PropertyType.INTEGER);
+    propertyIndex = new PropertyIndexDefinition("tesClass", "fOne", PropertyTypeInternal.INTEGER);
 
     final var map = propertyIndex.toMap(session);
     final var result = new PropertyIndexDefinition();

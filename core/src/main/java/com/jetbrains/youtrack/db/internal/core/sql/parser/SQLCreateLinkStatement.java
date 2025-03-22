@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
@@ -109,13 +110,13 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
     try {
       final var multipleRelationship = new boolean[1];
 
-      var linkType = PropertyType.valueOf(
+      var linkType = PropertyTypeInternal.valueOf(
           type.getStringValue().toUpperCase(Locale.ENGLISH));
       if (linkType != null)
       // DETERMINE BASED ON FORCED TYPE
       {
         multipleRelationship[0] =
-            linkType == PropertyType.LINKSET || linkType == PropertyType.LINKLIST;
+            linkType == PropertyTypeInternal.LINKSET || linkType == PropertyTypeInternal.LINKLIST;
       } else {
         multipleRelationship[0] = false;
       }
@@ -195,10 +196,10 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
                 coll.add(entity);
               } else {
                 if (txLinkType != null) {
-                  if (txLinkType == PropertyType.LINKSET) {
+                  if (txLinkType == PropertyTypeInternal.LINKSET) {
                     value = new LinkSet(target);
                     ((Set<Identifiable>) value).add(entity);
-                  } else if (txLinkType == PropertyType.LINKLIST) {
+                  } else if (txLinkType == PropertyTypeInternal.LINKLIST) {
                     value = new LinkList(target);
                     ((LinkList) value).add(entity);
                   } else
@@ -231,7 +232,7 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
           var prop = destClass.getProperty(linkName);
           destClass = session.getMetadata().getSchema().getClass(this.destClass.getStringValue());
           if (prop != null) {
-            if (linkType != prop.getType()) {
+            if (linkType != PropertyTypeInternal.convertFromPublicType(prop.getType())) {
               throw new CommandExecutionException(session,
                   "Cannot create the link because the property '"
                       + linkName
@@ -264,7 +265,7 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
                       + " and has a different type - actual: "
                       + prop.getType()
                       + " expected: "
-                      + PropertyType.LINK);
+                      + PropertyTypeInternal.LINK);
             }
           } else {
             throw new CommandExecutionException(session,

@@ -18,17 +18,18 @@
 
 package com.jetbrains.youtrack.db.internal.lucene.builder;
 
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.ParseException;
 import com.jetbrains.youtrack.db.internal.lucene.analyzer.LuceneAnalyzerFactory;
 import com.jetbrains.youtrack.db.internal.lucene.parser.LuceneMultiFieldQueryParser;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import org.apache.lucene.analysis.Analyzer;
@@ -102,7 +103,7 @@ public class LuceneQueryBuilder {
         fields[i] = "k" + i;
       }
     }
-    final Map<String, PropertyType> types = new HashMap<>();
+    final Map<String, PropertyTypeInternal> types = new HashMap<>();
     for (var i = 0; i < fields.length; i++) {
       final var field = fields[i];
       types.put(field, index.getTypes()[i]);
@@ -116,14 +117,14 @@ public class LuceneQueryBuilder {
       final Map<String, ?> metadata,
       final Analyzer queryAnalyzer,
       final String[] fields,
-      final Map<String, PropertyType> types, DatabaseSessionInternal session)
+      final Map<String, PropertyTypeInternal> types, DatabaseSessionInternal session)
       throws ParseException {
     @SuppressWarnings("unchecked") final var boost =
         Optional.ofNullable((Map<String, Number>) metadata.get("boost"))
             .orElse(new HashMap<>())
             .entrySet()
             .stream()
-            .collect(Collectors.toMap(e -> e.getKey(), e -> e.getValue().floatValue()));
+            .collect(Collectors.toMap(Entry::getKey, e -> e.getValue().floatValue()));
     final var analyzer =
         Optional.ofNullable((Boolean) metadata.get("customAnalysis"))
             .filter(b -> b)

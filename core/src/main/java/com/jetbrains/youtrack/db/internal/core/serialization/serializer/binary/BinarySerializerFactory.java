@@ -20,7 +20,6 @@
 
 package com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary;
 
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.BinaryTypeSerializer;
@@ -40,6 +39,7 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.StringSeria
 import com.jetbrains.youtrack.db.internal.common.serialization.types.UTF8Serializer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.impl.CompactedLinkSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.impl.LinkSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.impl.index.CompositeKeySerializer;
@@ -65,8 +65,8 @@ public class BinarySerializerFactory {
   private final Byte2ObjectArrayMap<BinarySerializer<?>> serializerIdMap = new Byte2ObjectArrayMap<>();
   private final Byte2ObjectArrayMap<Class<? extends BinarySerializer>> serializerClassesIdMap =
       new Byte2ObjectArrayMap<>();
-  private final EnumMap<PropertyType, BinarySerializer<?>> serializerTypeMap = new EnumMap<>(
-      PropertyType.class);
+  private final EnumMap<PropertyTypeInternal, BinarySerializer<?>> serializerTypeMap = new EnumMap<>(
+      PropertyTypeInternal.class);
 
 
   private BinarySerializerFactory() {
@@ -87,23 +87,23 @@ public class BinarySerializerFactory {
     // STATELESS SERIALIER
     factory.registerSerializer(new NullSerializer(), null);
 
-    factory.registerSerializer(BooleanSerializer.INSTANCE, PropertyType.BOOLEAN);
-    factory.registerSerializer(IntegerSerializer.INSTANCE, PropertyType.INTEGER);
-    factory.registerSerializer(ShortSerializer.INSTANCE, PropertyType.SHORT);
-    factory.registerSerializer(LongSerializer.INSTANCE, PropertyType.LONG);
-    factory.registerSerializer(FloatSerializer.INSTANCE, PropertyType.FLOAT);
-    factory.registerSerializer(DoubleSerializer.INSTANCE, PropertyType.DOUBLE);
-    factory.registerSerializer(DateTimeSerializer.INSTANCE, PropertyType.DATETIME);
+    factory.registerSerializer(BooleanSerializer.INSTANCE, PropertyTypeInternal.BOOLEAN);
+    factory.registerSerializer(IntegerSerializer.INSTANCE, PropertyTypeInternal.INTEGER);
+    factory.registerSerializer(ShortSerializer.INSTANCE, PropertyTypeInternal.SHORT);
+    factory.registerSerializer(LongSerializer.INSTANCE, PropertyTypeInternal.LONG);
+    factory.registerSerializer(FloatSerializer.INSTANCE, PropertyTypeInternal.FLOAT);
+    factory.registerSerializer(DoubleSerializer.INSTANCE, PropertyTypeInternal.DOUBLE);
+    factory.registerSerializer(DateTimeSerializer.INSTANCE, PropertyTypeInternal.DATETIME);
     factory.registerSerializer(CharSerializer.INSTANCE, null);
-    factory.registerSerializer(StringSerializer.INSTANCE, PropertyType.STRING);
+    factory.registerSerializer(StringSerializer.INSTANCE, PropertyTypeInternal.STRING);
 
-    factory.registerSerializer(ByteSerializer.INSTANCE, PropertyType.BYTE);
-    factory.registerSerializer(DateSerializer.INSTANCE, PropertyType.DATE);
-    factory.registerSerializer(LinkSerializer.INSTANCE, PropertyType.LINK);
+    factory.registerSerializer(ByteSerializer.INSTANCE, PropertyTypeInternal.BYTE);
+    factory.registerSerializer(DateSerializer.INSTANCE, PropertyTypeInternal.DATE);
+    factory.registerSerializer(LinkSerializer.INSTANCE, PropertyTypeInternal.LINK);
     factory.registerSerializer(CompositeKeySerializer.INSTANCE, null);
     factory.registerSerializer(StreamSerializerRID.INSTANCE, null);
-    factory.registerSerializer(BinaryTypeSerializer.INSTANCE, PropertyType.BINARY);
-    factory.registerSerializer(DecimalSerializer.INSTANCE, PropertyType.DECIMAL);
+    factory.registerSerializer(BinaryTypeSerializer.INSTANCE, PropertyTypeInternal.BINARY);
+    factory.registerSerializer(DecimalSerializer.INSTANCE, PropertyTypeInternal.DECIMAL);
 
 
     factory.registerSerializer(CompactedLinkSerializer.INSTANCE, null);
@@ -111,7 +111,7 @@ public class BinarySerializerFactory {
     factory.registerSerializer(MultiValueEntrySerializer.INSTANCE, null);
 
     //used for spatial indexes
-    factory.registerSerializer(MockSerializer.INSTANCE, PropertyType.EMBEDDED);
+    factory.registerSerializer(MockSerializer.INSTANCE, PropertyTypeInternal.EMBEDDED);
     return factory;
   }
 
@@ -119,7 +119,8 @@ public class BinarySerializerFactory {
     return session.getSerializerFactory();
   }
 
-  public void registerSerializer(final BinarySerializer<?> iInstance, final PropertyType iType) {
+  public void registerSerializer(final BinarySerializer<?> iInstance,
+      final PropertyTypeInternal iType) {
     if (serializerIdMap.containsKey(iInstance.getId())) {
       throw new IllegalArgumentException(
           "Binary serializer with id " + iInstance.getId() + " has been already registered.");
@@ -175,7 +176,7 @@ public class BinarySerializerFactory {
    * @return OBinarySerializer instance
    */
   @SuppressWarnings("unchecked")
-  public <T> BinarySerializer<T> getObjectSerializer(final PropertyType type) {
+  public <T> BinarySerializer<T> getObjectSerializer(final PropertyTypeInternal type) {
     return (BinarySerializer<T>) serializerTypeMap.get(type);
   }
 }

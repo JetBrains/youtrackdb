@@ -347,7 +347,8 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
 
   public GlobalProperty createGlobalProperty(String name, PropertyType type, Integer id) {
     assert session.assertIfNotActive();
-    return delegate.createGlobalProperty(session, name, type, id);
+    return delegate.createGlobalProperty(session, name,
+        PropertyTypeInternal.convertFromPublicType(type), id);
   }
 
   @Override

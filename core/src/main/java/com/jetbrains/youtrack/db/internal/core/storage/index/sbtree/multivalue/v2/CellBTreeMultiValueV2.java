@@ -24,7 +24,6 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.TooBigIndexKeyException;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.ByteSerializer;
@@ -36,6 +35,7 @@ import com.jetbrains.youtrack.db.internal.core.index.comparator.AlwaysGreaterKey
 import com.jetbrains.youtrack.db.internal.core.index.comparator.AlwaysLessKey;
 import com.jetbrains.youtrack.db.internal.core.iterator.EmptyIterator;
 import com.jetbrains.youtrack.db.internal.core.iterator.EmptyMapEntryIterator;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
@@ -115,7 +115,7 @@ public final class CellBTreeMultiValueV2<K> extends DurableComponent
 
   private int keySize;
   private BinarySerializer<K> keySerializer;
-  private PropertyType[] keyTypes;
+  private PropertyTypeInternal[] keyTypes;
 
   private SBTreeV2<MultiValueEntry, Byte> multiContainer;
   private final ModifiableLong mIdCounter = new ModifiableLong();
@@ -140,7 +140,7 @@ public final class CellBTreeMultiValueV2<K> extends DurableComponent
 
   public void create(
       final BinarySerializer<K> keySerializer,
-      final PropertyType[] keyTypes,
+      final PropertyTypeInternal[] keyTypes,
       final int keySize,
       AtomicOperation atomicOperation) {
     assert keySerializer != null;
@@ -563,7 +563,7 @@ public final class CellBTreeMultiValueV2<K> extends DurableComponent
   public void load(
       final String name,
       final int keySize,
-      final PropertyType[] keyTypes,
+      final PropertyTypeInternal[] keyTypes,
       final BinarySerializer<K> keySerializer) {
     acquireExclusiveLock();
     try {

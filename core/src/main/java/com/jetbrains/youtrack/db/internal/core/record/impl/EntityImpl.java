@@ -58,6 +58,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchemaProperty;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Identity;
@@ -652,13 +653,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
 
   public @Nonnull <T> List<T> getOrCreateEmbeddedList(@Nonnull String name) {
-    validatePropertyName(name, false);
-
     var value = this.<List<T>>getProperty(name);
 
     if (value == null) {
       value = new TrackedList<>(this);
-      setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST);
+      setProperty(name, value, PropertyType.EMBEDDEDLIST);
     }
 
     return value;
@@ -667,16 +666,14 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Nonnull
   public <T> List<T> getOrCreateEmbeddedList(@Nonnull String name,
       @Nonnull PropertyType linkedType) {
-    validatePropertyName(name, false);
-
     var value = this.<List<T>>getProperty(name);
 
     if (value == null) {
       value = new TrackedList<>(this);
-      setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST, linkedType);
+      setProperty(name, value, PropertyType.EMBEDDEDLIST, linkedType);
     } else {
-      var linkedTypeProperty = PropertyType.getTypeByValue(value);
-      if (linkedTypeProperty != linkedType) {
+      var linkedTypeProperty = PropertyTypeInternal.getTypeByValue(value);
+      if (linkedTypeProperty.getPublicPropertyType() != linkedType) {
         throw new IllegalArgumentException(
             "Property " + name + " is not of type " + linkedType + ", but " + linkedTypeProperty);
       }
@@ -687,47 +684,40 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Nonnull
   public <T> List<T> newEmbeddedList(@Nonnull String name) {
-    validatePropertyName(name, false);
-
     var value = new TrackedList<T>(this);
-    setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST);
+    setProperty(name, value, PropertyType.EMBEDDEDLIST);
     return value;
   }
 
   @Nonnull
-  public <T> List<T> newEmbeddedList(@Nonnull String name, @Nonnull PropertyType linkedType) {
-    validatePropertyName(name, false);
-
+  public <T> List<T> newEmbeddedList(@Nonnull String name,
+      @Nonnull PropertyType linkedType) {
     var value = new TrackedList<T>(this);
-    setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST, linkedType);
+    setProperty(name, value, PropertyType.EMBEDDEDLIST, linkedType);
     return value;
   }
 
   @Nonnull
   public <T> List<T> newEmbeddedList(@Nonnull String name, @Nonnull List<T> source) {
-    validatePropertyName(name, false);
     var value = new TrackedList<T>(source.size());
     value.addAll(source);
-    setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST);
+    setProperty(name, value, PropertyType.EMBEDDEDLIST);
     return value;
   }
 
   @Nonnull
   public <T> List<T> newEmbeddedList(@Nonnull String name, @Nonnull List<T> source,
       @Nonnull PropertyType linkedType) {
-    validatePropertyName(name, false);
     var value = new TrackedList<T>(source.size());
     value.addAll(source);
-    setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST, linkedType);
+    setProperty(name, value, PropertyType.EMBEDDEDLIST, linkedType);
     return value;
   }
 
   @Nonnull
   public <T> List<T> newEmbeddedList(@Nonnull String name, T[] source) {
-    validatePropertyName(name, false);
-
     var componentType = source.getClass().getComponentType();
-    var linkedType = PropertyType.getTypeByClass(componentType);
+    var linkedType = PropertyTypeInternal.getTypeByClass(componentType);
 
     if (linkedType == null) {
       throw new IllegalArgumentException("Unsupported type: " + componentType);
@@ -736,121 +726,105 @@ public class EntityImpl extends RecordAbstract implements Entity {
     var value = new TrackedList<T>(source.length);
     Collections.addAll(value, source);
 
-    setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST, linkedType);
+    setProperty(name, value, PropertyType.EMBEDDEDLIST, linkedType.getPublicPropertyType());
     return value;
   }
 
 
   @Nonnull
   public List<Byte> newEmbeddedList(@Nonnull String name, byte[] source) {
-    validatePropertyName(name, false);
-
     var value = new TrackedList<Byte>(source.length);
     for (var b : source) {
       value.add(b);
     }
-    setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST, PropertyType.BYTE);
+    setProperty(name, value, PropertyType.EMBEDDEDLIST, PropertyType.BYTE);
     return value;
   }
 
   @Nonnull
   public List<Short> newEmbeddedList(@Nonnull String name, short[] source) {
-    validatePropertyName(name, false);
-
     var value = new TrackedList<Short>(source.length);
     for (var s : source) {
       value.add(s);
     }
 
-    setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST, PropertyType.SHORT);
+    setProperty(name, value, PropertyType.EMBEDDEDLIST, PropertyType.SHORT);
     return value;
   }
 
   @Nonnull
   public List<Integer> newEmbeddedList(@Nonnull String name, int[] source) {
-    validatePropertyName(name, false);
-
     var value = new TrackedList<Integer>(source.length);
     for (var i : source) {
       value.add(i);
     }
 
-    setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST, PropertyType.INTEGER);
+    setProperty(name, value, PropertyType.EMBEDDEDLIST,
+        PropertyType.INTEGER);
     return value;
   }
 
   @Nonnull
   public List<Long> newEmbeddedList(@Nonnull String name, long[] source) {
-    validatePropertyName(name, false);
-
     var value = new TrackedList<Long>(source.length);
     for (var l : source) {
       value.add(l);
     }
-    setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST, PropertyType.LONG);
+    setProperty(name, value, PropertyType.EMBEDDEDLIST, PropertyType.LONG);
     return value;
   }
 
   @Nonnull
   public List<Boolean> newEmbeddedList(@Nonnull String name, boolean[] source) {
-    validatePropertyName(name, false);
-
     var value = new TrackedList<Boolean>(source.length);
     for (var b : source) {
       value.add(b);
     }
-    setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST, PropertyType.BOOLEAN);
+    setProperty(name, value, PropertyType.EMBEDDEDLIST, PropertyType.BOOLEAN);
     return value;
   }
 
   @Nonnull
   public List<Float> newEmbeddedList(@Nonnull String name, float[] source) {
-    validatePropertyName(name, false);
-
     var value = new TrackedList<Float>(source.length);
     for (var f : source) {
       value.add(f);
     }
-    setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST, PropertyType.FLOAT);
+    setProperty(name, value, PropertyType.EMBEDDEDLIST, PropertyType.FLOAT);
     return value;
   }
 
   @Nonnull
   public List<Double> newEmbeddedList(@Nonnull String name, double[] source) {
-    validatePropertyName(name, false);
-
     var value = new TrackedList<Double>(source.length);
     for (var d : source) {
       value.add(d);
     }
-    setPropertyInternal(name, value, PropertyType.EMBEDDEDLIST, PropertyType.DOUBLE);
+    setProperty(name, value, PropertyType.EMBEDDEDLIST, PropertyType.DOUBLE);
     return value;
   }
 
 
   public @Nonnull <T> Set<T> getOrCreateEmbeddedSet(@Nonnull String name) {
-    validatePropertyName(name, false);
-
     var value = this.<Set<T>>getProperty(name);
     if (value == null) {
       value = new TrackedSet<>(this);
-      setPropertyInternal(name, value, PropertyType.EMBEDDEDSET);
+      setProperty(name, value, PropertyType.EMBEDDEDSET);
     }
 
     return value;
   }
 
   @Nonnull
-  public <T> Set<T> getOrCreateEmbeddedSet(@Nonnull String name, @Nonnull PropertyType linkedType) {
-    validatePropertyName(name, false);
-
+  public <T> Set<T> getOrCreateEmbeddedSet(@Nonnull String name,
+      @Nonnull PropertyType linkedType) {
     var value = this.<Set<T>>getProperty(name);
     if (value == null) {
       value = new TrackedSet<>(this);
-      setPropertyInternal(name, value, PropertyType.EMBEDDEDSET, linkedType);
+      setProperty(name, value, PropertyType.EMBEDDEDSET, linkedType);
     } else {
-      var linkedTypeProperty = PropertyType.getTypeByValue(value);
-      if (linkedTypeProperty != linkedType) {
+      var linkedTypeProperty = PropertyTypeInternal.getTypeByValue(value);
+      if (linkedTypeProperty.getPublicPropertyType() != linkedType) {
         throw new IllegalArgumentException(
             "Property " + name + " is not of type " + linkedType + ", but " + linkedTypeProperty);
       }
@@ -861,51 +835,41 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Nonnull
   public <T> Set<T> newEmbeddedSet(@Nonnull String name) {
-    validatePropertyName(name, false);
-
     var value = new TrackedSet<T>(this);
-    setPropertyInternal(name, value, PropertyType.EMBEDDEDSET);
+    setProperty(name, value, PropertyType.EMBEDDEDSET);
     return value;
   }
 
   @Nonnull
   public <T> Set<T> newEmbeddedSet(@Nonnull String name, @Nonnull PropertyType linkedType) {
-    validatePropertyName(name, false);
-
     var value = new TrackedSet<T>(this);
-    setPropertyInternal(name, value, PropertyType.EMBEDDEDSET, linkedType);
+    setProperty(name, value, PropertyType.EMBEDDEDSET, linkedType);
     return value;
   }
 
   @Nonnull
   public <T> Set<T> newEmbeddedSet(@Nonnull String name, @Nonnull Set<T> source) {
-    validatePropertyName(name, false);
-
     var value = new TrackedSet<T>(source.size());
     value.addAll(source);
-    setPropertyInternal(name, value, PropertyType.EMBEDDEDSET);
+    setProperty(name, value, PropertyType.EMBEDDEDSET);
     return value;
   }
 
   @Nonnull
   public <T> Set<T> newEmbeddedSet(@Nonnull String name, Set<T> source,
       @Nonnull PropertyType linkedType) {
-    validatePropertyName(name, false);
-
     var value = new TrackedSet<T>(source.size());
     value.addAll(source);
-    setPropertyInternal(name, value, PropertyType.EMBEDDEDSET, linkedType);
+    setProperty(name, value, PropertyType.EMBEDDEDSET, linkedType);
     return value;
   }
 
 
   public @Nonnull <T> Map<String, T> getOrCreateEmbeddedMap(@Nonnull String name) {
-    validatePropertyName(name, false);
-
-    var value = this.<Map<String, T>>getPropertyInternal(name);
+    var value = this.<Map<String, T>>getProperty(name);
     if (value == null) {
       value = new TrackedMap<>(this);
-      setPropertyInternal(name, value, PropertyType.EMBEDDEDMAP);
+      setProperty(name, value, PropertyType.EMBEDDEDMAP);
     }
 
     return value;
@@ -914,15 +878,13 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Nonnull
   public <T> Map<String, T> getOrCreateEmbeddedMap(@Nonnull String name,
       @Nonnull PropertyType linkedType) {
-    validatePropertyName(name, false);
-
-    var value = this.<Map<String, T>>getPropertyInternal(name);
+    var value = this.<Map<String, T>>getProperty(name);
     if (value == null) {
       value = new TrackedMap<>(this);
-      setPropertyInternal(name, value, PropertyType.EMBEDDEDMAP, linkedType);
+      setProperty(name, value, PropertyType.EMBEDDEDMAP, linkedType);
     } else {
-      var linkedTypeProperty = PropertyType.getTypeByValue(value);
-      if (linkedTypeProperty != linkedType) {
+      var linkedTypeProperty = PropertyTypeInternal.getTypeByValue(value);
+      if (linkedTypeProperty.getPublicPropertyType() != linkedType) {
         throw new IllegalArgumentException(
             "Property " + name + " is not of type " + linkedType + ", but " + linkedTypeProperty);
       }
@@ -933,52 +895,42 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Nonnull
   public <T> Map<String, T> newEmbeddedMap(@Nonnull String name) {
-    validatePropertyName(name, false);
-
     var value = new TrackedMap<T>(this);
-    setPropertyInternal(name, value, PropertyType.EMBEDDEDMAP);
+    setProperty(name, value, PropertyType.EMBEDDEDMAP);
     return value;
   }
 
 
   public @Nonnull <T> Map<String, T> newEmbeddedMap(@Nonnull String name,
       @Nonnull PropertyType linkedType) {
-    validatePropertyName(name, false);
-
     var value = new TrackedMap<T>(this);
-    setPropertyInternal(name, value, PropertyType.EMBEDDEDMAP, linkedType);
+    setProperty(name, value, PropertyType.EMBEDDEDMAP, linkedType);
     return value;
   }
 
   @Nonnull
   public <T> Map<String, T> newEmbeddedMap(@Nonnull String name, Map<String, T> source) {
-    validatePropertyName(name, false);
-
     var value = new TrackedMap<T>(source.size());
     value.putAll(source);
-    setPropertyInternal(name, value, PropertyType.EMBEDDEDMAP);
+    setProperty(name, value, PropertyType.EMBEDDEDMAP);
     return value;
   }
 
   @Nonnull
   public <T> Map<String, T> newEmbeddedMap(@Nonnull String name, Map<String, T> source,
       @Nonnull PropertyType linkedType) {
-    validatePropertyName(name, false);
-
     var value = new TrackedMap<T>(source.size());
     value.putAll(source);
-    setPropertyInternal(name, value, PropertyType.EMBEDDEDMAP, linkedType);
+    setProperty(name, value, PropertyType.EMBEDDEDMAP, linkedType);
     return value;
   }
 
 
   public @Nonnull List<Identifiable> getOrCreateLinkList(@Nonnull String name) {
-    validatePropertyName(name, false);
-
-    var value = this.<List<Identifiable>>getPropertyInternal(name);
+    var value = this.<List<Identifiable>>getProperty(name);
     if (value == null) {
       value = new LinkList(this);
-      setPropertyInternal(name, value, PropertyType.LINKLIST);
+      setProperty(name, value, PropertyType.LINKLIST);
     }
 
     return value;
@@ -986,32 +938,25 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Nonnull
   public List<Identifiable> newLinkList(@Nonnull String name) {
-    validatePropertyName(name, false);
-
     var value = new LinkList(this);
-    setPropertyInternal(name, value, PropertyType.LINKLIST);
+    setProperty(name, value, PropertyType.LINKLIST);
     return value;
   }
 
-
   @Nonnull
   public List<Identifiable> newLinkList(@Nonnull String name, List<Identifiable> source) {
-    validatePropertyName(name, false);
-
     var value = new LinkList(this);
     value.addAll(source);
-    setPropertyInternal(name, value, PropertyType.LINKLIST);
+    setProperty(name, value, PropertyType.LINKLIST);
     return value;
   }
 
   @Nonnull
   public Set<Identifiable> getOrCreateLinkSet(@Nonnull String name) {
-    validatePropertyName(name, false);
-
-    var value = this.<Set<Identifiable>>getPropertyInternal(name);
+    var value = this.<Set<Identifiable>>getProperty(name);
     if (value == null) {
       value = new LinkSet(this);
-      setPropertyInternal(name, value, PropertyType.LINKSET);
+      setProperty(name, value, PropertyType.LINKSET);
     }
 
     return value;
@@ -1019,31 +964,25 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Nonnull
   public Set<Identifiable> newLinkSet(@Nonnull String name) {
-    validatePropertyName(name, false);
-
     var value = new LinkSet(this);
-    setPropertyInternal(name, value, PropertyType.LINKSET);
+    setProperty(name, value, PropertyType.LINKSET);
     return value;
   }
 
   @Nonnull
   public Set<Identifiable> newLinkSet(@Nonnull String name, Set<Identifiable> source) {
-    validatePropertyName(name, false);
-
     var value = new LinkSet(this);
     value.addAll(source);
-    setPropertyInternal(name, value, PropertyType.LINKSET);
+    setProperty(name, value, PropertyType.LINKSET);
     return value;
   }
 
   @Nonnull
   public Map<String, Identifiable> getOrCreateLinkMap(@Nonnull String name) {
-    validatePropertyName(name, false);
-
-    var value = this.<Map<String, Identifiable>>getPropertyInternal(name);
+    var value = this.<Map<String, Identifiable>>getProperty(name);
     if (value == null) {
       value = new LinkMap(this);
-      setPropertyInternal(name, value, PropertyType.LINKMAP);
+      setProperty(name, value, PropertyType.LINKMAP);
     }
 
     return value;
@@ -1051,31 +990,26 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Nonnull
   public Map<String, Identifiable> newLinkMap(@Nonnull String name) {
-    validatePropertyName(name, false);
-
     var value = new LinkMap(this);
-    setPropertyInternal(name, value, PropertyType.LINKMAP);
+    setProperty(name, value, PropertyType.LINKMAP);
     return value;
   }
 
   @Nonnull
   public Map<String, Identifiable> newLinkMap(@Nonnull String name,
       Map<String, Identifiable> source) {
-    validatePropertyName(name, false);
-
     var value = new LinkMap(this);
     value.putAll(source);
-    setPropertyInternal(name, value, PropertyType.LINKMAP);
+    setProperty(name, value, PropertyType.LINKMAP);
     return value;
   }
-
 
   public void setPropertyInternal(String name, Object value) {
     checkForBinding();
 
     if (value instanceof EntityImpl entity) {
       if (entity.isEmbedded()) {
-        setPropertyInternal(name, value, PropertyType.EMBEDDED);
+        setPropertyInternal(name, value, PropertyTypeInternal.EMBEDDED);
         return;
       }
     }
@@ -1211,7 +1145,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
       @Nonnull PropertyType type) {
     validatePropertyUpdate(propertyName, propertyValue);
 
-    setPropertyInternal(propertyName, propertyValue, type);
+    setPropertyInternal(propertyName, propertyValue,
+        PropertyTypeInternal.convertFromPublicType(type));
   }
 
 
@@ -1219,10 +1154,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
       @Nonnull PropertyType propertyType, @Nonnull PropertyType linkedType) {
     validatePropertyUpdate(propertyName, propertyValue);
 
-    setPropertyInternal(propertyName, propertyValue, propertyType, linkedType);
+    setPropertyInternal(propertyName, propertyValue,
+        PropertyTypeInternal.convertFromPublicType(propertyType),
+        PropertyTypeInternal.convertFromPublicType(linkedType));
   }
 
-  public void compareAndSetPropertyInternal(String name, Object value, PropertyType type) {
+  public void compareAndSetPropertyInternal(String name, Object value, PropertyTypeInternal type) {
     checkForBinding();
 
     var oldValue = getPropertyInternal(name);
@@ -1232,13 +1169,13 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
 
-  public void setPropertyInternal(String name, Object value, @Nullable PropertyType type) {
+  public void setPropertyInternal(String name, Object value, @Nullable PropertyTypeInternal type) {
     setPropertyInternal(name, value, type, null);
   }
 
 
-  public void setPropertyInternal(String name, Object value, PropertyType type,
-      PropertyType linkedType) {
+  public void setPropertyInternal(String name, Object value, PropertyTypeInternal type,
+      PropertyTypeInternal linkedType) {
     checkForBinding();
 
     if (name == null) {
@@ -1289,7 +1226,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     var entry = properties.get(name);
     final boolean knownProperty;
     final Object oldValue;
-    final PropertyType oldType;
+    final PropertyTypeInternal oldType;
 
     if (entry == null) {
       entry = new EntityEntry();
@@ -1322,7 +1259,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
               && Arrays.equals((byte[]) value, (byte[]) oldValue)) {
             return;
           }
-          if (PropertyType.isSingleValueType(value) && Objects.equals(oldValue, value)) {
+          if (PropertyTypeInternal.isSingleValueType(value) && Objects.equals(oldValue, value)) {
             setDirty();
             return;
           }
@@ -1379,7 +1316,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
 
   public void setDeserializedPropertyInternal(String name, Object value,
-      PropertyType propertyType) {
+      PropertyTypeInternal propertyType) {
     if (value instanceof RecordAbstract recordAbstract) {
       recordAbstract.checkForBinding();
 
@@ -1409,10 +1346,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nullable
-  private Object preprocessAssignedValue(String name, Object value, PropertyType propertyType) {
+  private Object preprocessAssignedValue(String name, Object value,
+      PropertyTypeInternal propertyType) {
     switch (value) {
       case EntityImpl entity -> {
-        if (propertyType == PropertyType.EMBEDDED) {
+        if (propertyType == PropertyTypeInternal.EMBEDDED) {
           entity.setOwner(this);
         }
       }
@@ -1514,7 +1452,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
       ImmutableSchemaProperty p)
       throws ValidationException {
     iRecord.checkForBinding();
-    iRecord = iRecord;
 
     final Object propertyValue;
     var entry = iRecord.properties.get(p.getName());
@@ -1529,8 +1466,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
             "The property '" + p.getFullName() + "' cannot be null, record: " + iRecord);
       }
 
-      if (propertyValue != null && p.getRegexp() != null && p.getType()
-          .equals(PropertyType.STRING)) {
+      if (propertyValue != null && p.getRegexp() != null && p.getType() == PropertyType.STRING) {
         // REGEXP
         if (!((String) propertyValue).matches(p.getRegexp())) {
           throw new ValidationException(session.getDatabaseName(),
@@ -1777,8 +1713,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
         // non-simple properties as dirty
         var orgVal = entry.getOnLoadValue(session);
         var simple =
-            propertyValue != null ? PropertyType.isSimpleValueType(propertyValue)
-                : PropertyType.isSimpleValueType(orgVal);
+            propertyValue != null ? PropertyTypeInternal.isSimpleValueType(propertyValue)
+                : PropertyTypeInternal.isSimpleValueType(orgVal);
         if (simple || propertyValue != null && orgVal == null || propertyValue == null
             || !Objects.deepEquals(propertyValue, orgVal)) {
           throw new ValidationException(session.getDatabaseName(),
@@ -1819,8 +1755,9 @@ public class EntityImpl extends RecordAbstract implements Entity {
       final Object value) {
     if (value != null) {
       try {
-        if (p.getLinkedType()
-            .convert(value, p.getLinkedType(), p.getLinkedClass(), session)
+        if (PropertyTypeInternal.convertFromPublicType(p.getLinkedType())
+            .convert(value, PropertyTypeInternal.convertFromPublicType(p.getLinkedType()),
+                p.getLinkedClass(), session)
             == null) {
           throw new ValidationException(session.getDatabaseName(),
               "The property '"
@@ -2214,7 +2151,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
         var typeName = propertyTypes.get(propertyName);
 
         if (typeName != null) {
-          type = PropertyType.valueOf(typeName);
+          type = PropertyTypeInternal.valueOf(typeName).getPublicPropertyType();
         }
       }
 
@@ -2682,15 +2619,15 @@ public class EntityImpl extends RecordAbstract implements Entity {
         if (cls != null) {
           prop = cls.getProperty(name);
         }
-        PropertyType propertyType = null;
+        PropertyTypeInternal propertyType = null;
         if (prop != null) {
-          propertyType = prop.getType();
+          propertyType = PropertyTypeInternal.convertFromPublicType(prop.getType());
         }
         if (propertyType == null) {
           propertyType = entry.getValue().type;
         }
         if (propertyType == null) {
-          propertyType = PropertyType.getTypeByValue(entry.getValue().value);
+          propertyType = PropertyTypeInternal.getTypeByValue(entry.getValue().value);
         }
         if (propertyType != null) {
           propertyTypes.put(name, propertyType.getName());
@@ -2816,7 +2753,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
     var entry = properties.get(propertyName);
     if (entry != null) {
       if (propertyAccess == null || propertyAccess.isReadable(propertyName)) {
-        return entry.type;
+        if (entry.type != null) {
+          return entry.type.getPublicPropertyType();
+        }
+
+        return null;
       } else {
         return null;
       }
@@ -2825,7 +2766,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return null;
   }
 
-  public PropertyType getPropertyTypeInternal(String propertyName) {
+  public PropertyTypeInternal getPropertyTypeInternal(String propertyName) {
     checkForBinding();
     checkForProperties(propertyName);
 
@@ -3515,11 +3456,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
         SchemaClass clazz = getImmutableSchemaClass(session);
         if (clazz != null) {
           final var prop = clazz.getProperty(propertyEntry.getKey());
-          propertyType = prop != null ? prop.getType() : null;
+          propertyType =
+              prop != null ? PropertyTypeInternal.convertFromPublicType(prop.getType()) : null;
         }
       }
       if (propertyType == null) {
-        propertyType = PropertyType.getTypeByValue(propertyValue);
+        propertyType = PropertyTypeInternal.getTypeByValue(propertyValue);
       }
 
       switch (propertyType) {
@@ -3696,7 +3638,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
     for (var prop : clazz.properties()) {
       var entry = properties != null ? properties.get(prop.getName()) : null;
       if (entry != null && entry.exists()) {
-        if (entry.type == null || entry.type != prop.getType()) {
+        if (entry.type == null || entry.type != PropertyTypeInternal.convertFromPublicType(
+            prop.getType())) {
           var preChanged = entry.isChanged();
           var preCreated = entry.isCreated();
           var propertyName = prop.getName();
@@ -3720,27 +3663,29 @@ public class EntityImpl extends RecordAbstract implements Entity {
         if (defValue != null && !hasProperty(prop.getName())) {
           var curFieldValue = SQLHelper.parseDefaultValue(session, this, defValue, prop);
           var propertyValue = convertField(session,
-              this, prop.getName(), prop.getType(), prop.getLinkedType(), curFieldValue);
+              this, prop.getName(), PropertyTypeInternal.convertFromPublicType(prop.getType()),
+              PropertyTypeInternal.convertFromPublicType(prop.getLinkedType()), curFieldValue);
           final var propertyName = prop.getName();
-          setPropertyInternal(propertyName, propertyValue, prop.getType());
+          setPropertyInternal(propertyName, propertyValue,
+              PropertyTypeInternal.convertFromPublicType(prop.getType()));
         }
       }
     }
   }
 
-  private PropertyType derivePropertyType(String propertyName,
-      PropertyType propertyType, Object value) {
+  private PropertyTypeInternal derivePropertyType(String propertyName,
+      PropertyTypeInternal propertyType, Object value) {
     SchemaClass clazz = getImmutableSchemaClass(session);
     if (clazz != null) {
       // SCHEMA-FULL?
       final var prop = clazz.getProperty(propertyName);
       if (prop != null) {
-        propertyType = prop.getType();
+        propertyType = PropertyTypeInternal.convertFromPublicType(prop.getType());
       }
     }
 
     if (propertyType == null) {
-      propertyType = PropertyType.getTypeByValue(value);
+      propertyType = PropertyTypeInternal.getTypeByValue(value);
     }
 
     if (propertyType == null && value != null) {
@@ -3759,7 +3704,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   private String checkPropertyValue(String propertyName, @Nullable Object propertyValue) {
-    if (PropertyType.isSingleValueType(propertyValue)) {
+    if (PropertyTypeInternal.isSingleValueType(propertyValue)) {
       return null;
     }
 
@@ -3847,15 +3792,15 @@ public class EntityImpl extends RecordAbstract implements Entity {
   private static <RET> RET convertField(
       @Nonnull DatabaseSessionInternal session, @Nonnull final EntityImpl entity,
       @Nonnull final String fieldName,
-      @Nullable PropertyType type,
-      @Nullable PropertyType linkedType,
+      @Nullable PropertyTypeInternal type,
+      @Nullable PropertyTypeInternal linkedType,
       @Nullable Object value) {
     if (value == null) {
       return null;
     }
 
     if (type == null) {
-      type = PropertyType.getTypeByValue(value);
+      type = PropertyTypeInternal.getTypeByValue(value);
     }
 
     if (type == null) {
@@ -3866,7 +3811,9 @@ public class EntityImpl extends RecordAbstract implements Entity {
     var property =
         immutableSchemaClass != null ? immutableSchemaClass.getProperty(fieldName) : null;
     if (linkedType == null) {
-      linkedType = property != null ? property.getLinkedType() : null;
+      linkedType =
+          property != null ? PropertyTypeInternal.convertFromPublicType(property.getLinkedType())
+              : null;
     }
 
     value = type.convert(value, linkedType,

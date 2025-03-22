@@ -25,7 +25,7 @@ import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
@@ -73,7 +73,7 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
             "Cannot add a RID or a non-embedded entity to a embedded data container");
       }
 
-      if (PropertyType.isSingleValueType(value) || (value instanceof Entity)) {
+      if (PropertyTypeInternal.isSingleValueType(value) || (value instanceof Entity)) {
         return;
       }
 

@@ -15,6 +15,7 @@ import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.PropertyIndexDefinition;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
@@ -61,7 +62,7 @@ public class IndexManagerTest extends BaseDBTest {
             session,
             "propertyone",
             SchemaClass.INDEX_TYPE.UNIQUE.toString(),
-            new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyType.INTEGER),
+            new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER),
             new int[]{session.getClusterIdByName(CLASS_NAME)},
             null,
             null);
@@ -90,8 +91,8 @@ public class IndexManagerTest extends BaseDBTest {
             new CompositeIndexDefinition(
                 CLASS_NAME,
                 Arrays.asList(
-                    new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyType.INTEGER),
-                    new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyType.STRING))),
+                    new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER),
+                    new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING))),
             new int[]{session.getClusterIdByName(CLASS_NAME)},
             null,
             null);
@@ -139,9 +140,10 @@ public class IndexManagerTest extends BaseDBTest {
             new CompositeIndexDefinition(
                 CLASS_NAME,
                 Arrays.asList(
-                    new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyType.INTEGER),
-                    new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyType.STRING),
-                    new PropertyIndexDefinition(CLASS_NAME, "fThree", PropertyType.BOOLEAN))),
+                    new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER),
+                    new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING),
+                    new PropertyIndexDefinition(CLASS_NAME, "fThree",
+                        PropertyTypeInternal.BOOLEAN))),
             new int[]{session.getClusterIdByName(CLASS_NAME)},
             progressListener,
             null);
@@ -609,7 +611,7 @@ public class IndexManagerTest extends BaseDBTest {
         session,
         className + "_indexOne_notunique",
         SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
-        new PropertyIndexDefinition(className, "one", PropertyType.STRING),
+        new PropertyIndexDefinition(className, "one", PropertyTypeInternal.STRING),
         oClass.getClusterIds(),
         null,
         null);
@@ -621,8 +623,8 @@ public class IndexManagerTest extends BaseDBTest {
         new CompositeIndexDefinition(
             className,
             Arrays.asList(
-                new PropertyIndexDefinition(className, "one", PropertyType.STRING),
-                new PropertyIndexDefinition(className, "two", PropertyType.STRING))),
+                new PropertyIndexDefinition(className, "one", PropertyTypeInternal.STRING),
+                new PropertyIndexDefinition(className, "two", PropertyTypeInternal.STRING))),
         oClass.getClusterIds(),
         null,
         null);
@@ -634,9 +636,9 @@ public class IndexManagerTest extends BaseDBTest {
         new CompositeIndexDefinition(
             className,
             Arrays.asList(
-                new PropertyIndexDefinition(className, "one", PropertyType.STRING),
-                new PropertyIndexDefinition(className, "two", PropertyType.STRING),
-                new PropertyIndexDefinition(className, "three", PropertyType.STRING))),
+                new PropertyIndexDefinition(className, "one", PropertyTypeInternal.STRING),
+                new PropertyIndexDefinition(className, "two", PropertyTypeInternal.STRING),
+                new PropertyIndexDefinition(className, "three", PropertyTypeInternal.STRING))),
         oClass.getClusterIds(),
         null,
         null);
@@ -676,25 +678,25 @@ public class IndexManagerTest extends BaseDBTest {
     final var compositeIndexOne = new CompositeIndexDefinition(CLASS_NAME);
 
     compositeIndexOne.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexOne.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyType.STRING));
+        new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING));
     compositeIndexOne.setNullValuesIgnored(false);
     expectedIndexDefinitions.add(compositeIndexOne);
 
     final var compositeIndexTwo = new CompositeIndexDefinition(CLASS_NAME);
 
     compositeIndexTwo.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexTwo.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyType.STRING));
+        new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING));
     compositeIndexTwo.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fThree", PropertyType.BOOLEAN));
+        new PropertyIndexDefinition(CLASS_NAME, "fThree", PropertyTypeInternal.BOOLEAN));
     compositeIndexTwo.setNullValuesIgnored(false);
     expectedIndexDefinitions.add(compositeIndexTwo);
 
     final var propertyIndex =
-        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyType.INTEGER);
+        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER);
     propertyIndex.setNullValuesIgnored(false);
     expectedIndexDefinitions.add(propertyIndex);
 
@@ -720,25 +722,25 @@ public class IndexManagerTest extends BaseDBTest {
     final var compositeIndexOne = new CompositeIndexDefinition(CLASS_NAME);
 
     compositeIndexOne.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexOne.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyType.STRING));
+        new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING));
     compositeIndexOne.setNullValuesIgnored(false);
     expectedIndexDefinitions.add(compositeIndexOne);
 
     final var compositeIndexTwo = new CompositeIndexDefinition(CLASS_NAME);
 
     compositeIndexTwo.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexTwo.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyType.STRING));
+        new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING));
     compositeIndexTwo.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fThree", PropertyType.BOOLEAN));
+        new PropertyIndexDefinition(CLASS_NAME, "fThree", PropertyTypeInternal.BOOLEAN));
     compositeIndexTwo.setNullValuesIgnored(false);
     expectedIndexDefinitions.add(compositeIndexTwo);
 
     final var propertyIndex =
-        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyType.INTEGER);
+        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER);
     propertyIndex.setNullValuesIgnored(false);
     expectedIndexDefinitions.add(propertyIndex);
 
@@ -757,7 +759,7 @@ public class IndexManagerTest extends BaseDBTest {
         session,
         "anotherproperty",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
-        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyType.INTEGER),
+        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER),
         new int[]{session.getClusterIdByName(CLASS_NAME)},
         null,
         null);
@@ -783,7 +785,8 @@ public class IndexManagerTest extends BaseDBTest {
         session,
         "twoclassproperty",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
-        new PropertyIndexDefinition("indexManagerTestClassTwo", "fOne", PropertyType.INTEGER),
+        new PropertyIndexDefinition("indexManagerTestClassTwo", "fOne",
+            PropertyTypeInternal.INTEGER),
         new int[]{session.getClusterIdByName("indexManagerTestClassTwo")},
         null,
         null);

@@ -20,7 +20,6 @@ import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.DecimalSerializer;
@@ -39,6 +38,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityEntry;
@@ -161,7 +161,7 @@ public class EntitySerializerDelta {
     }
 
     String fieldName;
-    PropertyType type;
+    PropertyTypeInternal type;
     Object value;
     var size = VarIntSerializer.readAsInteger(bytes);
     while ((size--) > 0) {
@@ -222,7 +222,7 @@ public class EntitySerializerDelta {
   }
 
   private void deserializeDeltaValue(DatabaseSessionInternal session, BytesContainer bytes,
-      PropertyType type, Object toUpdate) {
+      PropertyTypeInternal type, Object toUpdate) {
     switch (type) {
       case EMBEDDEDLIST:
         //noinspection unchecked
@@ -628,7 +628,8 @@ public class EntitySerializerDelta {
   }
 
   private void serializeDeltaValue(
-      DatabaseSessionInternal session, BytesContainer bytes, Object value, PropertyType type) {
+      DatabaseSessionInternal session, BytesContainer bytes, Object value,
+      PropertyTypeInternal type) {
     switch (type) {
       case EMBEDDEDLIST:
         //noinspection unchecked
@@ -787,7 +788,7 @@ public class EntitySerializerDelta {
             serializeByte(bytes, CREATED);
             writeString(bytes, event.getKey());
             if (event.getValue() != null) {
-              var type = PropertyType.getTypeByValue(event.getValue());
+              var type = PropertyTypeInternal.getTypeByValue(event.getValue());
               writeNullableType(bytes, type);
               serializeValue(session, bytes, event.getValue(), type, null);
             } else {
@@ -799,7 +800,7 @@ public class EntitySerializerDelta {
             serializeByte(bytes, REPLACED);
             writeString(bytes, event.getKey());
             if (event.getValue() != null) {
-              var type = PropertyType.getTypeByValue(event.getValue());
+              var type = PropertyTypeInternal.getTypeByValue(event.getValue());
               writeNullableType(bytes, type);
               serializeValue(session, bytes, event.getValue(), type, null);
             } else {
@@ -832,7 +833,7 @@ public class EntitySerializerDelta {
           && trackedMultiValue.isTransactionModified()) {
         serializeByte(bytes, CHANGED);
         writeString(bytes, singleEntry.getKey());
-        var type = PropertyType.getTypeByValue(singleValue);
+        var type = PropertyTypeInternal.getTypeByValue(singleValue);
         writeNullableType(bytes, type);
         serializeDeltaValue(session, bytes, singleValue, type);
       } else if (singleValue instanceof EntityImpl
@@ -840,7 +841,7 @@ public class EntitySerializerDelta {
           && ((EntityImpl) singleValue).isDirty()) {
         serializeByte(bytes, CHANGED);
         writeString(bytes, singleEntry.getKey());
-        var type = PropertyType.getTypeByValue(singleValue);
+        var type = PropertyTypeInternal.getTypeByValue(singleValue);
         writeNullableType(bytes, type);
         serializeDeltaValue(session, bytes, singleValue, type);
       }
@@ -857,7 +858,7 @@ public class EntitySerializerDelta {
           case ADD: {
             serializeByte(bytes, CREATED);
             if (event.getValue() != null) {
-              var type = PropertyType.getTypeByValue(event.getValue());
+              var type = PropertyTypeInternal.getTypeByValue(event.getValue());
               writeNullableType(bytes, type);
               serializeValue(session, bytes, event.getValue(), type, null);
             } else {
@@ -869,7 +870,7 @@ public class EntitySerializerDelta {
             serializeByte(bytes, REPLACED);
             VarIntSerializer.write(bytes, event.getKey().longValue());
             if (event.getValue() != null) {
-              var type = PropertyType.getTypeByValue(event.getValue());
+              var type = PropertyTypeInternal.getTypeByValue(event.getValue());
               writeNullableType(bytes, type);
               serializeValue(session, bytes, event.getValue(), type, null);
             } else {
@@ -903,7 +904,7 @@ public class EntitySerializerDelta {
           && trackedMultiValue.isTransactionModified()) {
         serializeByte(bytes, CHANGED);
         VarIntSerializer.write(bytes, i);
-        var type = PropertyType.getTypeByValue(singleValue);
+        var type = PropertyTypeInternal.getTypeByValue(singleValue);
         writeNullableType(bytes, type);
         serializeDeltaValue(session, bytes, singleValue, type);
       } else if (singleValue instanceof EntityImpl
@@ -911,7 +912,7 @@ public class EntitySerializerDelta {
           && ((EntityImpl) singleValue).isDirty()) {
         serializeByte(bytes, CHANGED);
         VarIntSerializer.write(bytes, i);
-        var type = PropertyType.getTypeByValue(singleValue);
+        var type = PropertyTypeInternal.getTypeByValue(singleValue);
         writeNullableType(bytes, type);
         serializeDeltaValue(session, bytes, singleValue, type);
       }
@@ -928,7 +929,7 @@ public class EntitySerializerDelta {
           case ADD: {
             serializeByte(bytes, CREATED);
             if (event.getValue() != null) {
-              var type = PropertyType.getTypeByValue(event.getValue());
+              var type = PropertyTypeInternal.getTypeByValue(event.getValue());
               writeNullableType(bytes, type);
               serializeValue(session, bytes, event.getValue(), type, null);
             } else {
@@ -942,7 +943,7 @@ public class EntitySerializerDelta {
           case REMOVE: {
             serializeByte(bytes, REMOVED);
             if (event.getOldValue() != null) {
-              var type = PropertyType.getTypeByValue(event.getOldValue());
+              var type = PropertyTypeInternal.getTypeByValue(event.getOldValue());
               writeNullableType(bytes, type);
               serializeValue(session, bytes, event.getOldValue(), type, null);
             } else {
@@ -971,7 +972,7 @@ public class EntitySerializerDelta {
           && trackedMultiValue.isTransactionModified()) {
         serializeByte(bytes, CHANGED);
         VarIntSerializer.write(bytes, i);
-        var type = PropertyType.getTypeByValue(singleValue);
+        var type = PropertyTypeInternal.getTypeByValue(singleValue);
         writeNullableType(bytes, type);
         serializeDeltaValue(session, bytes, singleValue, type);
       } else if (singleValue instanceof EntityImpl
@@ -979,7 +980,7 @@ public class EntitySerializerDelta {
           && ((EntityImpl) singleValue).isDirty()) {
         serializeByte(bytes, CHANGED);
         VarIntSerializer.write(bytes, i);
-        var type = PropertyType.getTypeByValue(singleValue);
+        var type = PropertyTypeInternal.getTypeByValue(singleValue);
         writeNullableType(bytes, type);
         serializeDeltaValue(session, bytes, singleValue, type);
       }
@@ -987,16 +988,16 @@ public class EntitySerializerDelta {
     }
   }
 
-  protected static PropertyType getFieldType(final EntityEntry entry) {
+  protected static PropertyTypeInternal getFieldType(final EntityEntry entry) {
     var type = entry.type;
     if (type == null) {
       final var prop = entry.property;
       if (prop != null) {
-        type = prop.getType();
+        type = PropertyTypeInternal.convertFromPublicType(prop.getType());
       }
     }
     if (type == null) {
-      type = PropertyType.getTypeByValue(entry.value);
+      type = PropertyTypeInternal.getTypeByValue(entry.value);
     }
     return type;
   }
@@ -1036,8 +1037,8 @@ public class EntitySerializerDelta {
 
   public void serializeValue(
       DatabaseSessionInternal session, final BytesContainer bytes, Object value,
-      final PropertyType type,
-      final PropertyType linkedType) {
+      final PropertyTypeInternal type,
+      final PropertyTypeInternal linkedType) {
     var pointer = 0;
     switch (type) {
       case INTEGER:
@@ -1164,7 +1165,7 @@ public class EntitySerializerDelta {
     for (var entry : map.entrySet()) {
       // TODO:check skip of complex types
       // FIXME: changed to support only string key on map
-      final var type = PropertyType.STRING;
+      final var type = PropertyTypeInternal.STRING;
       writeOType(bytes, bytes.alloc(1), type);
       writeString(bytes, entry.getKey().toString());
       if (entry.getValue() == null) {
@@ -1177,7 +1178,7 @@ public class EntitySerializerDelta {
 
   private void writeEmbeddedCollection(
       DatabaseSessionInternal session, final BytesContainer bytes, final Collection<?> value,
-      final PropertyType linkedType) {
+      final PropertyTypeInternal linkedType) {
     VarIntSerializer.write(bytes, value.size());
     // TODO manage embedded type from schema and auto-determined.
     for (var itemValue : value) {
@@ -1186,7 +1187,7 @@ public class EntitySerializerDelta {
         writeNullableType(bytes, null);
         continue;
       }
-      PropertyType type;
+      PropertyTypeInternal type;
       if (linkedType == null) {
         type = getTypeFromValueEmbedded(itemValue);
       } else {
@@ -1227,7 +1228,7 @@ public class EntitySerializerDelta {
   }
 
   public Object deserializeValue(DatabaseSessionInternal session, BytesContainer bytes,
-      PropertyType type,
+      PropertyTypeInternal type,
       RecordElement owner) {
     Object value = null;
     switch (type) {
@@ -1516,7 +1517,7 @@ public class EntitySerializerDelta {
     }
   }
 
-  public static void writeNullableType(BytesContainer bytes, PropertyType type) {
+  public static void writeNullableType(BytesContainer bytes, PropertyTypeInternal type) {
     var pos = bytes.alloc(1);
     if (type == null) {
       bytes.bytes[pos] = -1;
@@ -1525,7 +1526,7 @@ public class EntitySerializerDelta {
     }
   }
 
-  public static PropertyType readNullableType(BytesContainer bytes) {
+  public static PropertyTypeInternal readNullableType(BytesContainer bytes) {
     return HelperClasses.readType(bytes);
   }
 

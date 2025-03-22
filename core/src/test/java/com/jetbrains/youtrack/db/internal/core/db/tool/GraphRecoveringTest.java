@@ -58,10 +58,10 @@ public class GraphRecoveringTest {
   }
 
   private static void init(DatabaseSession session) {
-    session.createVertexClass("V1");
-    session.createVertexClass("V2");
-    session.createEdgeClass("E1");
-    session.createEdgeClass("E2");
+    session.getSchema().createVertexClass("V1");
+    session.getSchema().createVertexClass("V2");
+    session.getSchema().createEdgeClass("E1");
+    session.getSchema().createEdgeClass("E2");
 
     var tx = session.begin();
     var v0 = tx.newVertex();

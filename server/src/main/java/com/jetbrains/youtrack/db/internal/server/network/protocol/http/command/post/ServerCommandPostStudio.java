@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.util.PatternConst;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaPropertyImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -148,7 +149,8 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
         }
 
         if (fields.get("linkedType") != null) {
-          prop.setLinkedType(db, PropertyType.valueOf(fields.get("linkedType")));
+          prop.setLinkedType(db, PropertyTypeInternal.convertFromPublicType(
+              PropertyType.valueOf(fields.get("linkedType"))));
         }
         if (fields.get("mandatory") != null) {
           prop.setMandatory(db, "on".equals(fields.get("mandatory")));

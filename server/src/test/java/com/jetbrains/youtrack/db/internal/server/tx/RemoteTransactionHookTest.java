@@ -95,11 +95,11 @@ public class RemoteTransactionHookTest extends DbTestBase {
     YouTrackDB youTrackDB = new YouTrackDBImpl("embedded:", YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
         "create database test memory users (admin identified by 'admin' role admin)");
-    var database = youTrackDB.open("test", "admin", "admin");
-    var calls = new CountCallHook(database);
-    database.registerHook(calls);
-    database.createClassIfNotExist("SomeTx");
-    var tx = database.begin();
+    var session = youTrackDB.open("test", "admin", "admin");
+    var calls = new CountCallHook(session);
+    session.registerHook(calls);
+    session.getSchema().getOrCreateClass("SomeTx");
+    var tx = session.begin();
     var doc = ((EntityImpl) tx.newEntity("SomeTx"));
     doc.setProperty("name", "some");
     tx.execute("insert into SomeTx set name='aa' ").close();
@@ -112,7 +112,7 @@ public class RemoteTransactionHookTest extends DbTestBase {
     assertEquals(2, calls.getCreate());
     assertEquals(1, calls.getUpdate());
     assertEquals(1, calls.getDelete());
-    database.close();
+    session.close();
     youTrackDB.close();
     this.session.activateOnCurrentThread();
   }

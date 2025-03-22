@@ -1,9 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent.ChangeType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import java.util.Arrays;
@@ -40,13 +40,16 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
 
     propertyIndexByKey =
         new PropertyMapIndexDefinition(
-            "testClass", "fOne", PropertyType.STRING, PropertyMapIndexDefinition.INDEX_BY.KEY);
+            "testClass", "fOne", PropertyTypeInternal.STRING,
+            PropertyMapIndexDefinition.INDEX_BY.KEY);
     propertyIndexByIntegerKey =
         new PropertyMapIndexDefinition(
-            "testClass", "fTwo", PropertyType.INTEGER, PropertyMapIndexDefinition.INDEX_BY.KEY);
+            "testClass", "fTwo", PropertyTypeInternal.INTEGER,
+            PropertyMapIndexDefinition.INDEX_BY.KEY);
     propertyIndexByValue =
         new PropertyMapIndexDefinition(
-            "testClass", "fOne", PropertyType.INTEGER, PropertyMapIndexDefinition.INDEX_BY.VALUE);
+            "testClass", "fOne", PropertyTypeInternal.INTEGER,
+            PropertyMapIndexDefinition.INDEX_BY.VALUE);
   }
 
   @Test
@@ -212,14 +215,15 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
   public void testGetTypes() {
     final var result = propertyIndexByKey.getTypes();
     Assert.assertEquals(1, result.length);
-    Assert.assertEquals(PropertyType.STRING, result[0]);
+    Assert.assertEquals(PropertyTypeInternal.STRING, result[0]);
   }
 
   @Test
   public void testEmptyIndexByKeyReload() {
     propertyIndexByKey =
         new PropertyMapIndexDefinition(
-            "tesClass", "fOne", PropertyType.STRING, PropertyMapIndexDefinition.INDEX_BY.KEY);
+            "tesClass", "fOne", PropertyTypeInternal.STRING,
+            PropertyMapIndexDefinition.INDEX_BY.KEY);
 
     final var map = propertyIndexByKey.toMap(session);
     final PropertyIndexDefinition result = new PropertyMapIndexDefinition();
@@ -231,7 +235,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
   public void testEmptyIndexByValueReload() {
     propertyIndexByValue =
         new PropertyMapIndexDefinition(
-            "tesClass", "fOne", PropertyType.INTEGER, PropertyMapIndexDefinition.INDEX_BY.VALUE);
+            "tesClass", "fOne", PropertyTypeInternal.INTEGER,
+            PropertyMapIndexDefinition.INDEX_BY.VALUE);
 
     final var map = propertyIndexByValue.toMap(session);
     final PropertyIndexDefinition result = new PropertyMapIndexDefinition();
@@ -259,7 +264,7 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
 
   @Test(expected = NullPointerException.class)
   public void testIndexByIsRequired() {
-    new PropertyMapIndexDefinition("testClass", "testField", PropertyType.STRING, null);
+    new PropertyMapIndexDefinition("testClass", "testField", PropertyTypeInternal.STRING, null);
   }
 
   @Test

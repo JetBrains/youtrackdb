@@ -1,8 +1,8 @@
 package com.jetbrains.youtrack.db.internal.lucene.parser;
 
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.lucene.builder.LuceneDateTools;
 import java.util.Map;
 import java.util.Optional;
@@ -21,11 +21,11 @@ import org.apache.lucene.search.Query;
  */
 public class LuceneMultiFieldQueryParser extends MultiFieldQueryParser {
 
-  private final Map<String, PropertyType> types;
+  private final Map<String, PropertyTypeInternal> types;
   private final DatabaseSessionInternal session;
 
   public LuceneMultiFieldQueryParser(
-      final Map<String, PropertyType> types,
+      final Map<String, PropertyTypeInternal> types,
       final String[] fields,
       final Analyzer analyzer,
       final Map<String, Float> boosts, DatabaseSessionInternal session) {

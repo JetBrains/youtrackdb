@@ -17,11 +17,11 @@
 package com.jetbrains.youtrack.db.internal.core.fetch.remote;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.FetchException;
 import com.jetbrains.youtrack.db.internal.core.fetch.FetchContext;
 import com.jetbrains.youtrack.db.internal.core.fetch.FetchListener;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 
@@ -48,7 +48,7 @@ public abstract class RemoteFetchListener implements FetchListener {
       FetchContext iContext,
       final Object iusObject,
       final String iFormat,
-      PropertyType filedType)
+      PropertyTypeInternal filedType)
       throws FetchException {
   }
 

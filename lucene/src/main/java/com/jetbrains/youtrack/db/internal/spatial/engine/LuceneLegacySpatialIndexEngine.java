@@ -22,7 +22,6 @@ import static com.jetbrains.youtrack.db.internal.lucene.builder.LuceneQueryBuild
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
@@ -31,6 +30,7 @@ import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexEngineException;
 import com.jetbrains.youtrack.db.internal.core.index.IndexKeyUpdater;
 import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValidator;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.lucene.collections.LuceneResultSet;
@@ -99,8 +99,8 @@ public class LuceneLegacySpatialIndexEngine extends LuceneSpatialIndexEngineAbst
       LuceneTxChanges changes)
       throws IOException {
 
-    double lat = PropertyType.convert(db, key.getKeys().get(0), Double.class);
-    double lng = PropertyType.convert(db, key.getKeys().get(1), Double.class);
+    double lat = PropertyTypeInternal.convert(db, key.getKeys().get(0), Double.class);
+    double lng = PropertyTypeInternal.convert(db, key.getKeys().get(1), Double.class);
     var operation = SpatialOperation.Intersects;
 
     @SuppressWarnings("deprecation")

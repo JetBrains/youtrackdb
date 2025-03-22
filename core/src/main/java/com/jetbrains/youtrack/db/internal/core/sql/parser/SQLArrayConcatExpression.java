@@ -5,7 +5,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -67,7 +67,7 @@ public class SQLArrayConcatExpression extends SimpleNode {
 
     List<Object> result = null;
     if (left instanceof TrackedMultiValue<?, ?> trackedMultiValue) {
-      var type = PropertyType.getTypeByValue(trackedMultiValue);
+      var type = PropertyTypeInternal.getTypeByValue(trackedMultiValue);
       left = type.copy(trackedMultiValue, session);
 
       if (left instanceof List<?> list) {
@@ -77,7 +77,7 @@ public class SQLArrayConcatExpression extends SimpleNode {
     }
 
     if (right instanceof TrackedMultiValue<?, ?> trackedMultiValue) {
-      var type = PropertyType.getTypeByValue(trackedMultiValue);
+      var type = PropertyTypeInternal.getTypeByValue(trackedMultiValue);
       right = type.copy(trackedMultiValue, session);
       if (result == null && right instanceof List<?> list) {
         //noinspection unchecked
@@ -107,7 +107,7 @@ public class SQLArrayConcatExpression extends SimpleNode {
       while (leftIter.hasNext()) {
         if (result instanceof TrackedMultiValue<?, ?> trackedMultiValue) {
           var item = leftIter.next();
-          var type = PropertyType.getTypeByValue(item);
+          var type = PropertyTypeInternal.getTypeByValue(item);
           if (type == null) {
             throw new CommandExecutionException(session,
                 "Cannot concatenate values of not supported types : " + item.getClass() + " : "

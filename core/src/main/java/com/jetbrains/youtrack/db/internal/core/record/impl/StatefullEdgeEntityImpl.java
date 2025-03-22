@@ -12,7 +12,6 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -164,50 +163,6 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     EdgeInternal.checkPropertyName(propertyName);
 
     super.setProperty(propertyName, propertyValue, type);
-  }
-
-  @Override
-  public @Nonnull <T> List<T> getOrCreateEmbeddedList(@Nonnull String name) {
-    EdgeInternal.checkPropertyName(name);
-
-    return super.getOrCreateEmbeddedList(name);
-  }
-
-  @Override
-  public @Nonnull <T> Set<T> getOrCreateEmbeddedSet(@Nonnull String name) {
-    EdgeInternal.checkPropertyName(name);
-
-    return super.getOrCreateEmbeddedSet(name);
-  }
-
-  @Override
-  public @Nonnull <T> Map<String, T> getOrCreateEmbeddedMap(@Nonnull String name) {
-    EdgeInternal.checkPropertyName(name);
-
-    return super.getOrCreateEmbeddedMap(name);
-  }
-
-  @Override
-  public @Nonnull List<Identifiable> getOrCreateLinkList(@Nonnull String name) {
-    EdgeInternal.checkPropertyName(name);
-
-    return super.getOrCreateLinkList(name);
-  }
-
-  @Nonnull
-  @Override
-  public Set<Identifiable> getOrCreateLinkSet(@Nonnull String name) {
-    EdgeInternal.checkPropertyName(name);
-
-    return super.getOrCreateLinkSet(name);
-  }
-
-  @Nonnull
-  @Override
-  public Map<String, Identifiable> getOrCreateLinkMap(@Nonnull String name) {
-    EdgeInternal.checkPropertyName(name);
-
-    return super.getOrCreateLinkMap(name);
   }
 
   @Override

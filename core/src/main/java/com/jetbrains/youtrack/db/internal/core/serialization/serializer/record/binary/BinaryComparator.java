@@ -20,8 +20,8 @@
 
 package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary;
 
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 
 /**
  * Compares types at binary level: super fast, using of literals as much as it can.
@@ -54,5 +54,5 @@ public interface BinaryComparator {
    * @param iType
    * @return
    */
-  boolean isBinaryComparable(PropertyType iType);
+  boolean isBinaryComparable(PropertyTypeInternal iType);
 }

@@ -38,7 +38,6 @@ import com.jetbrains.youtrack.db.api.exception.StorageExistsException;
 import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
 import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.ScalableRWLock;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.ThreadInterruptedException;
@@ -88,6 +87,7 @@ import com.jetbrains.youtrack.db.internal.core.index.engine.V1IndexEngine;
 import com.jetbrains.youtrack.db.internal.core.index.engine.v1.CellBTreeMultiValueIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.index.engine.v1.CellBTreeSingleValueIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.query.live.YTLiveQueryMonitorEmbedded;
 import com.jetbrains.youtrack.db.internal.core.record.RecordVersionHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -2420,7 +2420,7 @@ public abstract class AbstractPaginatedStorage
     } else {
       final var keyType = indexDefinition.getTypes()[0];
 
-      if (keyType == PropertyType.STRING && configuration.getBinaryFormatVersion() >= 13) {
+      if (keyType == PropertyTypeInternal.STRING && configuration.getBinaryFormatVersion() >= 13) {
         return UTF8Serializer.INSTANCE;
       }
 

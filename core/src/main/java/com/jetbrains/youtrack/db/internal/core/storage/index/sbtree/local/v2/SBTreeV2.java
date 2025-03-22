@@ -23,7 +23,6 @@ package com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.local.v2;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.TooBigIndexKeyException;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
@@ -33,6 +32,7 @@ import com.jetbrains.youtrack.db.internal.core.index.IndexUpdateAction;
 import com.jetbrains.youtrack.db.internal.core.index.comparator.AlwaysGreaterKey;
 import com.jetbrains.youtrack.db.internal.core.index.comparator.AlwaysLessKey;
 import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValidator;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
@@ -107,7 +107,7 @@ public class SBTreeV2<K, V> extends DurableComponent implements SBTree<K, V> {
   private long nullBucketFileId = -1;
   private int keySize;
   private BinarySerializer<K> keySerializer;
-  private PropertyType[] keyTypes;
+  private PropertyTypeInternal[] keyTypes;
   private BinarySerializer<V> valueSerializer;
   private final BinarySerializerFactory serializerFactory;
   private boolean nullPointerSupport;
@@ -133,7 +133,7 @@ public class SBTreeV2<K, V> extends DurableComponent implements SBTree<K, V> {
       final AtomicOperation atomicOperation,
       final BinarySerializer<K> keySerializer,
       final BinarySerializer<V> valueSerializer,
-      final PropertyType[] keyTypes,
+      final PropertyTypeInternal[] keyTypes,
       final int keySize,
       final boolean nullPointerSupport)
       throws IOException {
@@ -502,7 +502,7 @@ public class SBTreeV2<K, V> extends DurableComponent implements SBTree<K, V> {
       final String name,
       final BinarySerializer<K> keySerializer,
       final BinarySerializer<V> valueSerializer,
-      final PropertyType[] keyTypes,
+      final PropertyTypeInternal[] keyTypes,
       final int keySize,
       final boolean nullPointerSupport) {
     acquireExclusiveLock();

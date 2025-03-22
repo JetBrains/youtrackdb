@@ -29,13 +29,13 @@ import javax.annotation.Nonnull;
 public class GlobalPropertyImpl implements GlobalProperty {
 
   private String name;
-  private PropertyType type;
+  private PropertyTypeInternal type;
   private Integer id;
 
   public GlobalPropertyImpl() {
   }
 
-  public GlobalPropertyImpl(final String name, final PropertyType type, final Integer id) {
+  public GlobalPropertyImpl(final String name, final PropertyTypeInternal type, final Integer id) {
     this.name = name;
     this.type = type;
     this.id = id;
@@ -53,12 +53,12 @@ public class GlobalPropertyImpl implements GlobalProperty {
 
   @Nonnull
   public PropertyType getType() {
-    return type;
+    return type.getPublicPropertyType();
   }
 
   public void fromEntity(final Entity entity) {
     this.name = entity.getString("name");
-    this.type = PropertyType.valueOf(entity.getString("type"));
+    this.type = PropertyTypeInternal.valueOf(entity.getString("type"));
     this.id = entity.getInt("id");
   }
 

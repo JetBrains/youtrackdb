@@ -17,7 +17,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.method.misc;
 
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 
 /**
@@ -41,7 +41,7 @@ public class SQLMethodType extends AbstractSQLMethod {
     if (ioResult == null) {
       return null;
     }
-    final var t = PropertyType.getTypeByValue(ioResult);
+    final var t = PropertyTypeInternal.getTypeByValue(ioResult);
 
     if (t != null) {
       return t.toString();

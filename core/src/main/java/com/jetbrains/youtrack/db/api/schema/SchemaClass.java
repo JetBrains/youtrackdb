@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrack.db.api.schema;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import java.util.Collection;
 import java.util.List;

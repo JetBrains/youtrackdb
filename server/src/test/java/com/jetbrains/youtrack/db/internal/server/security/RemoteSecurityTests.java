@@ -18,7 +18,7 @@ public class RemoteSecurityTests {
   private static final String DB_NAME = RemoteSecurityTests.class.getSimpleName();
   private YouTrackDB youTrackDB;
   private YouTrackDBServer server;
-  private DatabaseSession db;
+  private DatabaseSession session;
 
   @Before
   public void before()
@@ -30,14 +30,14 @@ public class RemoteSecurityTests {
         "create database ? memory users (admin identified by 'admin' role admin, writer identified"
             + " by 'writer' role writer, reader identified by 'reader' role reader)",
         DB_NAME);
-    this.db = youTrackDB.open(DB_NAME, "admin", "admin");
-    var person = db.createClass("Person");
+    this.session = youTrackDB.open(DB_NAME, "admin", "admin");
+    var person = session.getSchema().createClass("Person");
     person.createProperty("name", PropertyType.STRING);
   }
 
   @After
   public void after() {
-    this.db.close();
+    this.session.close();
     youTrackDB.drop(DB_NAME);
     youTrackDB.close();
     server.shutdown();
@@ -45,7 +45,7 @@ public class RemoteSecurityTests {
 
   @Test
   public void testCreate() {
-    var tx = db.begin();
+    var tx = session.begin();
     tx.command("CREATE SECURITY POLICY testPolicy SET create = (name = 'foo')");
     tx.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
     tx.commit();
@@ -68,7 +68,7 @@ public class RemoteSecurityTests {
 
   @Test
   public void testSqlCreate() {
-    var tx = db.begin();
+    var tx = session.begin();
     tx.command("CREATE SECURITY POLICY testPolicy SET create = (name = 'foo')");
     tx.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
     tx.commit();
@@ -89,12 +89,12 @@ public class RemoteSecurityTests {
 
   @Test
   public void testSqlRead() {
-    var tx = db.begin();
+    var tx = session.begin();
     tx.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
     tx.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
     tx.commit();
 
-    tx = db.begin();
+    tx = session.begin();
     var elem = tx.newEntity("Person");
     elem.setProperty("name", "foo");
 
@@ -102,7 +102,7 @@ public class RemoteSecurityTests {
     elem.setProperty("name", "bar");
     tx.commit();
 
-    db.close();
+    session.close();
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "reader", "reader")) {
       tx = filteredSession.begin();
@@ -117,14 +117,14 @@ public class RemoteSecurityTests {
 
   @Test
   public void testSqlReadWithIndex() {
-    db.runScript("sql", "create index Person.name on Person (name) NOTUNIQUE");
+    session.runScript("sql", "create index Person.name on Person (name) NOTUNIQUE");
 
-    var tx = db.begin();
+    var tx = session.begin();
     tx.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
     tx.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
     tx.commit();
 
-    tx = db.begin();
+    tx = session.begin();
     var elem = tx.newEntity("Person");
     elem.setProperty("name", "foo");
 
@@ -144,14 +144,14 @@ public class RemoteSecurityTests {
 
   @Test
   public void testSqlReadWithIndex2() {
-    db.runScript("sql", "create index Person.name on Person(name)NOTUNIQUE");
+    session.runScript("sql", "create index Person.name on Person(name)NOTUNIQUE");
 
-    var tx = db.begin();
+    var tx = session.begin();
     tx.command("CREATE SECURITY POLICY testPolicy SET read = (surname = 'foo')");
     tx.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
     tx.commit();
 
-    tx = db.begin();
+    tx = session.begin();
     var elem = tx.newEntity("Person");
     elem.setProperty("name", "foo");
     elem.setProperty("surname", "foo");
@@ -175,7 +175,7 @@ public class RemoteSecurityTests {
 
   @Test
   public void testBeforeUpdateCreate() {
-    var tx = db.begin();
+    var tx = session.begin();
     tx.command("CREATE SECURITY POLICY testPolicy SET BEFORE UPDATE = (name = 'bar')");
     tx.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
     tx.commit();
@@ -201,7 +201,7 @@ public class RemoteSecurityTests {
 
   @Test
   public void testBeforeUpdateCreateSQL() {
-    var tx = db.begin();
+    var tx = session.begin();
     tx.command("CREATE SECURITY POLICY testPolicy SET BEFORE UPDATE = (name = 'bar')");
     tx.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
     tx.commit();
@@ -227,7 +227,7 @@ public class RemoteSecurityTests {
 
   @Test
   public void testAfterUpdate() {
-    var tx = db.begin();
+    var tx = session.begin();
     tx.command("CREATE SECURITY POLICY testPolicy SET AFTER UPDATE = (name = 'foo')");
     tx.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
     tx.commit();
@@ -254,7 +254,7 @@ public class RemoteSecurityTests {
 
   @Test
   public void testAfterUpdateSQL() {
-    var tx = db.begin();
+    var tx = session.begin();
     tx.command("CREATE SECURITY POLICY testPolicy SET AFTER UPDATE = (name = 'foo')");
     tx.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
     tx.commit();
@@ -280,7 +280,7 @@ public class RemoteSecurityTests {
 
   @Test
   public void testDelete() {
-    var tx = db.begin();
+    var tx = session.begin();
     tx.command("CREATE SECURITY POLICY testPolicy SET DELETE = (name = 'foo')");
     tx.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
     tx.commit();
@@ -309,7 +309,7 @@ public class RemoteSecurityTests {
 
   @Test
   public void testDeleteSQL() {
-    var tx = db.begin();
+    var tx = session.begin();
     tx.command("CREATE SECURITY POLICY testPolicy SET DELETE = (name = 'foo')");
     tx.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
     tx.commit();
@@ -346,12 +346,12 @@ public class RemoteSecurityTests {
 
   @Test
   public void testSqlCount() {
-    var tx = db.begin();
+    var tx = session.begin();
     tx.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
     tx.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
     tx.commit();
 
-    tx = db.begin();
+    tx = session.begin();
     var elem = tx.newEntity("Person");
     elem.setProperty("name", "foo");
 
@@ -370,14 +370,14 @@ public class RemoteSecurityTests {
 
   @Test
   public void testSqlCountWithIndex() {
-    db.runScript("sql", "create index Person.name on Person (name) NOTUNIQUE");
+    session.runScript("sql", "create index Person.name on Person (name) NOTUNIQUE");
 
-    var tx = db.begin();
+    var tx = session.begin();
     tx.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
     tx.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
     tx.commit();
 
-    tx = db.begin();
+    tx = session.begin();
     var elem = tx.newEntity("Person");
     elem.setProperty("name", "foo");
 
@@ -385,7 +385,7 @@ public class RemoteSecurityTests {
     elem.setProperty("name", "bar");
     tx.commit();
 
-    db.close();
+    session.close();
     try (var filteredSession = youTrackDB.open(DB_NAME, "reader", "reader")) {
       tx = filteredSession.begin();
       try (var rs = tx.query("select count(*) as count from Person where name = 'bar'")) {
@@ -402,14 +402,14 @@ public class RemoteSecurityTests {
 
   @Test
   public void testIndexGet() {
-    db.runScript("sql", "create index Person.name on Person (name) NOTUNIQUE");
+    session.runScript("sql", "create index Person.name on Person (name) NOTUNIQUE");
 
-    var tx = db.begin();
+    var tx = session.begin();
     tx.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
     tx.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
     tx.commit();
 
-    tx = db.begin();
+    tx = session.begin();
     var elem = tx.newEntity("Person");
     elem.setProperty("name", "foo");
 
@@ -434,14 +434,14 @@ public class RemoteSecurityTests {
 
   @Test
   public void testIndexGetAndColumnSecurity() {
-    db.runScript("sql", "create index Person.name on Person (name) NOTUNIQUE");
+    session.runScript("sql", "create index Person.name on Person (name) NOTUNIQUE");
 
-    var tx = db.begin();
+    var tx = session.begin();
     tx.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
     tx.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person.name");
     tx.commit();
 
-    tx = db.begin();
+    tx = session.begin();
     var elem = tx.newEntity("Person");
     elem.setProperty("name", "foo");
 
@@ -466,21 +466,21 @@ public class RemoteSecurityTests {
 
   @Test
   public void testReadHiddenColumn() {
-    var tx = db.begin();
+    var tx = session.begin();
     tx.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'bar')");
     tx.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person.name");
     tx.commit();
 
-    tx = db.begin();
+    tx = session.begin();
     var elem = tx.newEntity("Person");
     elem.setProperty("name", "foo");
     elem.setProperty("surname", "foo");
     tx.commit();
 
-    db.close();
+    session.close();
 
-    db = youTrackDB.open(DB_NAME, "reader", "reader");
-    tx = db.begin();
+    session = youTrackDB.open(DB_NAME, "reader", "reader");
+    tx = session.begin();
     try (final var resultSet = tx.query("SELECT from Person")) {
       var item = resultSet.next();
       Assert.assertNull(item.getProperty("name"));
@@ -490,22 +490,22 @@ public class RemoteSecurityTests {
 
   @Test
   public void testUpdateHiddenColumn() {
-    var tx = db.begin();
+    var tx = session.begin();
     tx.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'bar')");
     tx.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person.name");
     tx.commit();
 
-    tx = db.begin();
+    tx = session.begin();
     var elem = tx.newEntity("Person");
     elem.setProperty("name", "foo");
     elem.setProperty("surname", "foo");
     tx.commit();
 
-    db.close();
+    session.close();
 
-    db = youTrackDB.open(DB_NAME, "reader", "reader");
+    session = youTrackDB.open(DB_NAME, "reader", "reader");
 
-    tx = db.begin();
+    tx = session.begin();
     try (final var resultSet = tx.query("SELECT from Person")) {
       try {
         var item = resultSet.next();

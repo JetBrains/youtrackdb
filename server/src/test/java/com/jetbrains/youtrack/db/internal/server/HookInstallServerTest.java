@@ -101,7 +101,7 @@ public class HookInstallServerTest {
         var poolInstance = pool.cachedPool("test", "admin", "admin");
         var id = i;
         try (var db = poolInstance.acquire()) {
-          db.createClassIfNotExist("Test");
+          db.getSchema().getOrCreateClass("Test");
 
           db.executeInTx(transaction -> {
             var entity = transaction.newEntity("Test");

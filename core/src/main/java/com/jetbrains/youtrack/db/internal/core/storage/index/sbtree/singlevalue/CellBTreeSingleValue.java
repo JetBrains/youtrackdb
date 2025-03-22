@@ -1,10 +1,10 @@
 package com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.singlevalue;
 
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValidator;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
 import java.util.stream.Stream;
@@ -14,7 +14,7 @@ public interface CellBTreeSingleValue<K> {
   void create(
       AtomicOperation atomicOperation,
       BinarySerializer<K> keySerializer,
-      PropertyType[] keyTypes,
+      PropertyTypeInternal[] keyTypes,
       int keySize)
       throws IOException;
 
@@ -34,7 +34,7 @@ public interface CellBTreeSingleValue<K> {
   void load(
       String name,
       int keySize,
-      PropertyType[] keyTypes,
+      PropertyTypeInternal[] keyTypes,
       BinarySerializer<K> keySerializer);
 
   long size();

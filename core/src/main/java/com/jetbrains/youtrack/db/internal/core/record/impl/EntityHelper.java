@@ -24,7 +24,6 @@ import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
@@ -34,6 +33,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExportException;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerStringAbstract;
@@ -264,7 +264,7 @@ public class EntityHelper {
             final var fieldValue = getFieldValue(session, currentRecord, conditionFieldName);
 
             if (conditionFieldValue != null && fieldValue != null) {
-              var type = PropertyType.getTypeByValue(fieldValue);
+              var type = PropertyTypeInternal.getTypeByValue(fieldValue);
               conditionFieldValue = type.convert(conditionFieldValue, null,
                   null, session);
             }
@@ -332,7 +332,7 @@ public class EntityHelper {
             final var fieldValue = map.get(conditionFieldName);
 
             if (conditionFieldValue != null && fieldValue != null) {
-              var type = PropertyType.getTypeByValue(fieldValue);
+              var type = PropertyTypeInternal.getTypeByValue(fieldValue);
               conditionFieldValue = type.convert(conditionFieldValue, null,
                   null, session);
             }
@@ -641,7 +641,7 @@ public class EntityHelper {
           return fieldValue == null ? entity : null;
         }
 
-        var dbType = PropertyType.getTypeByValue(iConditionFieldValue);
+        var dbType = PropertyTypeInternal.getTypeByValue(iConditionFieldValue);
         fieldValue = dbType.convert(fieldValue, null, null, db);
 
         if (fieldValue != null && fieldValue.equals(iConditionFieldValue)) {
@@ -652,7 +652,7 @@ public class EntityHelper {
       final var map = (Map<String, ?>) iValue;
       var fieldValue = getMapEntry(db, map, iConditionFieldName);
 
-      var dbType = PropertyType.getTypeByValue(iConditionFieldValue);
+      var dbType = PropertyTypeInternal.getTypeByValue(iConditionFieldValue);
       fieldValue = dbType.convert(fieldValue, null, null, db);
       if (fieldValue != null && fieldValue.equals(iConditionFieldValue)) {
         return map;

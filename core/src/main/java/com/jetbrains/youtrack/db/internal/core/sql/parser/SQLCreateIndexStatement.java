@@ -6,7 +6,7 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Collate;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -109,7 +109,8 @@ public class SQLCreateIndexStatement extends DDLStatement {
           && "LUCENE_CROSS_CLASS".equalsIgnoreCase(engine)) {
         // handle special case of cross class  Lucene index: awful but works
         IndexDefinition keyDef =
-            new SimpleKeyIndexDefinition(new PropertyType[]{PropertyType.STRING}, collatesList);
+            new SimpleKeyIndexDefinition(new PropertyTypeInternal[]{PropertyTypeInternal.STRING},
+                collatesList);
         idx =
             session
                 .getMetadata()
@@ -179,7 +180,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
           engine, fields);
       idx = session.getIndex(indexName);
     } else {
-      final List<PropertyType> fieldTypeList;
+      final List<PropertyTypeInternal> fieldTypeList;
       if (keyTypes == null || keyTypes.isEmpty() && fields.length > 0) {
         for (final var fieldName : fields) {
           if (!fieldName.equals("@rid") && !oClass.existsProperty(fieldName)) {
@@ -197,7 +198,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
       } else {
         fieldTypeList =
             keyTypes.stream()
-                .map(x -> PropertyType.valueOf(x.getStringValue()))
+                .map(x -> PropertyTypeInternal.valueOf(x.getStringValue()))
                 .collect(Collectors.toList());
       }
 
@@ -267,14 +268,14 @@ public class SQLCreateIndexStatement extends DDLStatement {
     return metadata.toMap((Identifiable) null, ctx);
   }
 
-  private PropertyType[] calculateKeyTypes(CommandContext ctx) {
+  private PropertyTypeInternal[] calculateKeyTypes(CommandContext ctx) {
     if (keyTypes == null) {
-      return new PropertyType[0];
+      return new PropertyTypeInternal[0];
     }
     return keyTypes.stream()
-        .map(x -> PropertyType.valueOf(x.getStringValue()))
+        .map(x -> PropertyTypeInternal.valueOf(x.getStringValue()))
         .toList()
-        .toArray(new PropertyType[]{});
+        .toArray(new PropertyTypeInternal[]{});
   }
 
   private List<Collate> calculateCollates(CommandContext ctx) {

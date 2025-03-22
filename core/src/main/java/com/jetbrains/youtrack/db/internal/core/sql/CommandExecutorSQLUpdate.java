@@ -35,6 +35,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandResultListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Security;
@@ -624,7 +625,7 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
         } else
         // COMPUTING INCREMENT
         {
-          Object iPropertyValue = PropertyType.increment(prevValue, current);
+          Object iPropertyValue = PropertyTypeInternal.increment(prevValue, current);
           record.setProperty(entry.getKey(), iPropertyValue);
         }
       }
@@ -729,8 +730,8 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
                     .getProperty(entry.getKey());
             if (property != null
                 && (property.getType() != null
-                && (!property.getType().equals(PropertyType.EMBEDDEDMAP)
-                && !property.getType().equals(PropertyType.LINKMAP)))) {
+                && (!property.getType().equals(PropertyTypeInternal.EMBEDDEDMAP)
+                && !property.getType().equals(PropertyTypeInternal.LINKMAP)))) {
               throw new CommandExecutionException(session,
                   "field " + entry.getKey() + " is not defined as a map");
             }
@@ -760,13 +761,13 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
                 result
                     .getProperty(entry.getKey());
             if (property != null
-                && property.getType().equals(PropertyType.LINKMAP)
+                && property.getType().equals(PropertyTypeInternal.LINKMAP)
                 && !(value instanceof Identifiable)) {
               throw new CommandExecutionException(session,
                   "field " + entry.getKey() + " defined of type LINKMAP accept only link values");
             }
           }
-          if (PropertyType.LINKMAP.equals(PropertyType.getTypeByValue(fieldValue))
+          if (PropertyTypeInternal.LINKMAP.equals(PropertyTypeInternal.getTypeByValue(fieldValue))
               && !(value instanceof Identifiable)) {
             map = new TrackedMap(record, map, Object.class);
             String fieldName = entry.getKey();

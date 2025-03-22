@@ -69,8 +69,8 @@ public class DatabaseSuperNodeTest {
 
     try (final var session =
         youTrackDB.open(databaseName, "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
-      session.createClassIfNotExist("SuperNodeClass", "V");
-      session.createClassIfNotExist("NonSuperEdgeClass", "E");
+      session.getSchema().getOrCreateClass("SuperNodeClass", session.getSchema().getClass("V"));
+      session.getSchema().getOrCreateClass("NonSuperEdgeClass", session.getSchema().getClass("E"));
 
       var tx = session.begin();
       final var fromNode = tx.newVertex("SuperNodeClass");

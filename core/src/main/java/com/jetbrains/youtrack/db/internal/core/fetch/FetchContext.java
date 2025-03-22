@@ -17,9 +17,9 @@
 package com.jetbrains.youtrack.db.internal.core.fetch;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.FetchException;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 
 /**
@@ -80,11 +80,11 @@ public interface FetchContext {
 
   void onBeforeStandardField(
       final Object iFieldValue, final String iFieldName, final Object iUserObject,
-      PropertyType fieldType);
+      PropertyTypeInternal fieldType);
 
   void onAfterStandardField(
       final Object iFieldValue, final String iFieldName, final Object iUserObject,
-      PropertyType fieldType);
+      PropertyTypeInternal fieldType);
 
   boolean fetchEmbeddedDocuments();
 }

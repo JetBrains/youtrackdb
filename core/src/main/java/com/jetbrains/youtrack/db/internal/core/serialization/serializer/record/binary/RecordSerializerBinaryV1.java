@@ -27,7 +27,6 @@ import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
@@ -45,6 +44,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyEncryption;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
@@ -112,7 +112,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     }
 
     String fieldName;
-    PropertyType type;
+    PropertyTypeInternal type;
     var unmarshalledFields = 0;
 
     var headerLength = VarIntSerializer.readAsInteger(bytes);
@@ -145,7 +145,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         found = checkIfPropertyNameMatchSome(prop, iFields);
 
         fieldLength = VarIntSerializer.readAsInteger(bytes);
-        type = prop.getType();
+        type = PropertyTypeInternal.convertFromPublicType(prop.getType());
 
         fieldName = prop.getName();
       }
@@ -233,8 +233,8 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         final var id = (len * -1) - 1;
         final var prop = schema.getGlobalPropertyById(id);
         final var fieldLength = VarIntSerializer.readAsInteger(bytes);
-        final PropertyType type;
-        type = prop.getType();
+        final PropertyTypeInternal type;
+        type = PropertyTypeInternal.convertFromPublicType(prop.getType());
 
         if (iFieldName.equals(prop.getName())) {
           if (fieldLength == 0 || !getComparator().isBinaryComparable(type)) {
@@ -258,7 +258,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     var valuesStart = headerStart + headerLength;
     var last = 0;
     String fieldName;
-    PropertyType type;
+    PropertyTypeInternal type;
     var cumulativeSize = valuesStart;
     while (bytes.offset < valuesStart) {
       GlobalProperty prop;
@@ -276,7 +276,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         prop = getGlobalProperty(entity, len);
         fieldName = prop.getName();
         fieldLength = VarIntSerializer.readAsInteger(bytes);
-        type = prop.getType();
+        type = PropertyTypeInternal.convertFromPublicType(prop.getType());
       }
 
       if (!entity.rawContainsProperty(fieldName)) {
@@ -383,7 +383,8 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       }
       if (docEntry.property == null && props != null) {
         var prop = props.get(field.getKey());
-        if (prop != null && docEntry.type == prop.getType()) {
+        if (prop != null && docEntry.type == PropertyTypeInternal.convertFromPublicType(
+            prop.getType())) {
           docEntry.property = prop;
         }
       }
@@ -397,7 +398,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
 
       final var value = field.getValue().value;
 
-      final PropertyType type;
+      final PropertyTypeInternal type;
       if (value != null) {
         type = EntitySerializerDelta.getFieldType(field.getValue());
         if (type == null) {
@@ -566,7 +567,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         final var id = (len * -1) - 1;
         final var prop = schema.getGlobalPropertyById(id);
         final var fieldLength = VarIntSerializer.readAsInteger(bytes);
-        var type = prop.getType();
+        var type = PropertyTypeInternal.convertFromPublicType(prop.getType());
 
         if (iFieldName.equals(prop.getName())) {
 
@@ -591,7 +592,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   /**
    * use only for named fields
    */
-  private static Tuple<Integer, PropertyType> getFieldSizeAndTypeFromCurrentPosition(
+  private static Tuple<Integer, PropertyTypeInternal> getFieldSizeAndTypeFromCurrentPosition(
       BytesContainer bytes) {
     var fieldSize = VarIntSerializer.readAsInteger(bytes);
     var type = readOType(bytes, false);
@@ -609,7 +610,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     debugInfo.properties = new ArrayList<>();
     var last = 0;
     String fieldName;
-    PropertyType type;
+    PropertyTypeInternal type;
     var cumulativeLength = 0;
     while (true) {
       var debugProperty = new RecordSerializationDebugProperty();
@@ -642,7 +643,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
           debugProperty.valuePos = headerPos + headerLength + cumulativeLength;
           if (prop != null) {
             fieldName = prop.getName();
-            type = prop.getType();
+            type = PropertyTypeInternal.convertFromPublicType(prop.getType());
           } else {
             cumulativeLength += fieldLength;
             continue;
@@ -694,7 +695,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     for (var entry : map.entrySet()) {
       // TODO:check skip of complex types
       // FIXME: changed to support only string key on map
-      var type = PropertyType.STRING;
+      var type = PropertyTypeInternal.STRING;
       writeOType(bytes, bytes.alloc(1), type);
       var key = entry.getKey();
       if (key == null) {
@@ -785,7 +786,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   public Object deserializeValue(
-      DatabaseSessionInternal db, final BytesContainer bytes, final PropertyType type,
+      DatabaseSessionInternal db, final BytesContainer bytes, final PropertyTypeInternal type,
       final RecordElement owner) {
     var entity = owner;
     while (!(entity instanceof EntityImpl) && entity != null) {
@@ -800,7 +801,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
 
   protected Object deserializeValue(
       DatabaseSessionInternal session, final BytesContainer bytes,
-      final PropertyType type,
+      final PropertyTypeInternal type,
       final RecordElement owner,
       boolean embeddedAsDocument,
       int valueLengthInBytes,
@@ -952,8 +953,8 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   public int serializeValue(
       DatabaseSessionInternal session, final BytesContainer bytes,
       Object value,
-      final PropertyType type,
-      final PropertyType linkedType,
+      final PropertyTypeInternal type,
+      final PropertyTypeInternal linkedType,
       ImmutableSchema schema,
       PropertyEncryption encryption) {
     var pointer = 0;
@@ -1062,17 +1063,18 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   protected int writeEmbeddedCollection(
       DatabaseSessionInternal session, final BytesContainer bytes,
       final Collection<?> value,
-      final PropertyType linkedType,
+      final PropertyTypeInternal linkedType,
       ImmutableSchema schema,
       PropertyEncryption encryption) {
     final var pos = VarIntSerializer.write(bytes, value.size());
-    writeOType(bytes, bytes.alloc(1), linkedType != null ? linkedType : PropertyType.EMBEDDED);
+    writeOType(bytes, bytes.alloc(1),
+        linkedType != null ? linkedType : PropertyTypeInternal.EMBEDDED);
     for (var itemValue : value) {
       if (itemValue == null) {
         writeOType(bytes, bytes.alloc(1), null);
         continue;
       }
-      PropertyType type;
+      PropertyTypeInternal type;
       if (linkedType == null) {
         type = getTypeFromValueEmbedded(itemValue);
       } else {

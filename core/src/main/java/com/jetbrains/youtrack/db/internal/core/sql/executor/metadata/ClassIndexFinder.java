@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor.metadata;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaPropertyInternal;
 import java.util.Optional;
 
@@ -41,7 +42,8 @@ public class ClassIndexFinder implements IndexFinder {
       if (prop != null) {
         var linkedClass = prop.getLinkedClass();
         var indexes = prop.getAllIndexesInternal();
-        if (prop.getType().isLink() && linkedClass != null) {
+        if (PropertyTypeInternal.convertFromPublicType(prop.getType()).isLink()
+            && linkedClass != null) {
           var found = false;
           for (var index : indexes) {
             if (index.canBeUsedInEqualityOperators()) {
@@ -114,7 +116,6 @@ public class ClassIndexFinder implements IndexFinder {
     var cand = pre.chain;
     var last = pre.last;
 
-    var session = ctx.getDatabaseSession();
     var prop = (SchemaPropertyInternal) cl.getProperty(last);
     if (prop != null) {
       if (prop.getType() == PropertyType.EMBEDDEDMAP) {

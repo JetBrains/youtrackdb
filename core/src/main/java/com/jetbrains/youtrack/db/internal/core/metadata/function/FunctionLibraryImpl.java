@@ -23,11 +23,11 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
@@ -171,13 +171,15 @@ public class FunctionLibraryImpl {
     }
 
     var f = (SchemaClassInternal) session.getMetadata().getSchema().createClass("OFunction");
-    var prop = f.createProperty("name", PropertyType.STRING, (PropertyType) null, true);
+    var prop = f.createProperty("name", PropertyTypeInternal.STRING, (PropertyTypeInternal) null,
+        true);
     prop.createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
 
-    f.createProperty("code", PropertyType.STRING, (PropertyType) null, true);
-    f.createProperty("language", PropertyType.STRING, (PropertyType) null, true);
-    f.createProperty("idempotent", PropertyType.BOOLEAN, (PropertyType) null, true);
-    f.createProperty("parameters", PropertyType.EMBEDDEDLIST, PropertyType.STRING, true);
+    f.createProperty("code", PropertyTypeInternal.STRING, (PropertyTypeInternal) null, true);
+    f.createProperty("language", PropertyTypeInternal.STRING, (PropertyTypeInternal) null, true);
+    f.createProperty("idempotent", PropertyTypeInternal.BOOLEAN, (PropertyTypeInternal) null, true);
+    f.createProperty("parameters", PropertyTypeInternal.EMBEDDEDLIST, PropertyTypeInternal.STRING,
+        true);
   }
 
   public synchronized void dropFunction(DatabaseSessionInternal session, Function function) {

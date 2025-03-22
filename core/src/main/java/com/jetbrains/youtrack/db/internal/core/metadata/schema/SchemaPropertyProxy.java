@@ -12,6 +12,7 @@ import com.jetbrains.youtrack.db.internal.core.index.Index;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nonnull;
 
 public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl> implements
     SchemaPropertyInternal {
@@ -85,13 +86,18 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
   @Override
   public PropertyType getLinkedType() {
     assert session.assertIfNotActive();
-    return delegate.getLinkedType(session);
+    var linkedType = delegate.getLinkedType(session);
+    if (linkedType == null) {
+      return null;
+    }
+
+    return linkedType.getPublicPropertyType();
   }
 
   @Override
-  public SchemaProperty setLinkedType(PropertyType type) {
+  public SchemaProperty setLinkedType(@Nonnull PropertyType type) {
     assert session.assertIfNotActive();
-    delegate.setLinkedType(session, type);
+    delegate.setLinkedType(session, PropertyTypeInternal.convertFromPublicType(type));
     return this;
   }
 
@@ -233,7 +239,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
   @Override
   public SchemaProperty setType(PropertyType iType) {
     assert session.assertIfNotActive();
-    delegate.setType(session, iType);
+    delegate.setType(session, PropertyTypeInternal.convertFromPublicType(iType));
     return this;
   }
 

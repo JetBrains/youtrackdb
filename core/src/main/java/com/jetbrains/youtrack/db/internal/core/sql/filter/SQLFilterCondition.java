@@ -26,7 +26,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.Collate;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -96,7 +96,7 @@ public class SQLFilterCondition {
 
     if (binaryEvaluation && l instanceof BinaryField) {
       if (r != null && !(r instanceof BinaryField)) {
-        final var type = PropertyType.getTypeByValue(r);
+        final var type = PropertyTypeInternal.getTypeByValue(r);
 
         if (RecordSerializerBinary.INSTANCE
             .getCurrentSerializer()
@@ -127,7 +127,7 @@ public class SQLFilterCondition {
 
     if (binaryEvaluation && r instanceof BinaryField) {
       if (l != null && !(l instanceof BinaryField)) {
-        final var type = PropertyType.getTypeByValue(l);
+        final var type = PropertyTypeInternal.getTypeByValue(l);
         if (RecordSerializerBinary.INSTANCE
             .getCurrentSerializer()
             .getComparator()

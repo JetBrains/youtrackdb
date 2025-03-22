@@ -41,9 +41,9 @@ public class RemoteBasicSecurityTest {
     youTrackDB.execute(
         "create database test memory users (admin identified by 'admin' role admin, reader"
             + " identified by 'reader' role reader, writer identified by 'writer' role writer)");
-    try (var db = youTrackDB.open("test", "admin", "admin")) {
-      db.createClass("one");
-      var tx = db.begin();
+    try (var session = youTrackDB.open("test", "admin", "admin")) {
+      session.getSchema().createClass("one");
+      var tx = session.begin();
       tx.newEntity("one");
       tx.commit();
     }

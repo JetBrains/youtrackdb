@@ -21,7 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.functions.math;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import java.util.Collection;
 
@@ -59,7 +59,7 @@ public class SQLFunctionMax extends SQLFunctionMathAbstract {
         }
       } else {
         if ((item instanceof Number) && (max instanceof Number)) {
-          var converted = PropertyType.castComparableNumber((Number) item, (Number) max);
+          var converted = PropertyTypeInternal.castComparableNumber((Number) item, (Number) max);
           item = converted[0];
           max = converted[1];
         }
@@ -78,7 +78,8 @@ public class SQLFunctionMax extends SQLFunctionMathAbstract {
         context = max;
       } else {
         if (context instanceof Number && max instanceof Number) {
-          final var casted = PropertyType.castComparableNumber((Number) context, (Number) max);
+          final var casted = PropertyTypeInternal.castComparableNumber((Number) context,
+              (Number) max);
           context = casted[0];
           max = casted[1];
         }

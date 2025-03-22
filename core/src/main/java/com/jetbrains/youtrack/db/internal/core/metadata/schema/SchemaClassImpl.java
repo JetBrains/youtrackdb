@@ -435,13 +435,14 @@ public abstract class SchemaClassImpl {
 
   public SchemaPropertyImpl createProperty(DatabaseSessionInternal session,
       final String iPropertyName,
-      final PropertyType iType) {
+      final PropertyTypeInternal iType) {
     return addProperty(session, iPropertyName, iType, null, null,
         false);
   }
 
+
   public SchemaPropertyImpl createProperty(
-      DatabaseSessionInternal session, final String iPropertyName, final PropertyType iType,
+      DatabaseSessionInternal session, final String iPropertyName, final PropertyTypeInternal iType,
       final SchemaClassImpl iLinkedClass) {
     return addProperty(session, iPropertyName, iType, null,
         iLinkedClass,
@@ -450,7 +451,7 @@ public abstract class SchemaClassImpl {
 
   public SchemaPropertyImpl createProperty(
       DatabaseSessionInternal session, final String iPropertyName,
-      final PropertyType iType,
+      final PropertyTypeInternal iType,
       final SchemaClassImpl iLinkedClass,
       final boolean unsafe) {
     return addProperty(session, iPropertyName, iType, null,
@@ -459,10 +460,52 @@ public abstract class SchemaClassImpl {
   }
 
   public SchemaPropertyImpl createProperty(
-      DatabaseSessionInternal session, final String iPropertyName, final PropertyType iType,
-      final PropertyType iLinkedType) {
+      DatabaseSessionInternal session, final String iPropertyName, final PropertyTypeInternal iType,
+      final PropertyTypeInternal iLinkedType) {
     return addProperty(session, iPropertyName, iType, iLinkedType, null,
         false);
+  }
+
+  public SchemaPropertyImpl createProperty(
+      DatabaseSessionInternal session, final String iPropertyName,
+      final PropertyTypeInternal iType,
+      final PropertyTypeInternal iLinkedType,
+      final boolean unsafe) {
+    return addProperty(session, iPropertyName, iType, iLinkedType, null,
+        unsafe);
+  }
+
+  public SchemaPropertyImpl createProperty(DatabaseSessionInternal session,
+      final String iPropertyName,
+      final PropertyType iType) {
+    return createProperty(session, iPropertyName,
+        PropertyTypeInternal.convertFromPublicType(iType));
+  }
+
+
+  public SchemaPropertyImpl createProperty(
+      DatabaseSessionInternal session, final String iPropertyName, final PropertyType iType,
+      final SchemaClassImpl iLinkedClass) {
+    return createProperty(session, iPropertyName,
+        PropertyTypeInternal.convertFromPublicType(iType), iLinkedClass);
+  }
+
+  public SchemaPropertyImpl createProperty(
+      DatabaseSessionInternal session, final String iPropertyName,
+      final PropertyType iType,
+      final SchemaClassImpl iLinkedClass,
+      final boolean unsafe) {
+    return createProperty(session, iPropertyName,
+        PropertyTypeInternal.convertFromPublicType(iType), iLinkedClass,
+        unsafe);
+  }
+
+  public SchemaPropertyImpl createProperty(
+      DatabaseSessionInternal session, final String iPropertyName, final PropertyType iType,
+      final PropertyType iLinkedType) {
+    return createProperty(session, iPropertyName,
+        PropertyTypeInternal.convertFromPublicType(iType),
+        PropertyTypeInternal.convertFromPublicType(iLinkedType));
   }
 
   public SchemaPropertyImpl createProperty(
@@ -470,9 +513,11 @@ public abstract class SchemaClassImpl {
       final PropertyType iType,
       final PropertyType iLinkedType,
       final boolean unsafe) {
-    return addProperty(session, iPropertyName, iType, iLinkedType, null,
-        unsafe);
+    return createProperty(session, iPropertyName,
+        PropertyTypeInternal.convertFromPublicType(iType),
+        PropertyTypeInternal.convertFromPublicType(iLinkedType), unsafe);
   }
+
 
   public boolean existsProperty(DatabaseSessionInternal session, String propertyName) {
     acquireSchemaReadLock(session);
@@ -1198,7 +1243,8 @@ public abstract class SchemaClassImpl {
   }
 
   public void fireDatabaseMigration(
-      final DatabaseSessionInternal database, final String propertyName, final PropertyType type) {
+      final DatabaseSessionInternal database, final String propertyName,
+      final PropertyTypeInternal type) {
     final var strictSQL =
         database.getStorageInfo().getConfiguration().isStrictSql();
 
@@ -1223,7 +1269,7 @@ public abstract class SchemaClassImpl {
         return;
       }
 
-      var valueType = PropertyType.getTypeByValue(value);
+      var valueType = PropertyTypeInternal.getTypeByValue(value);
       if (valueType != type) {
         entity.setPropertyInternal(propertyName, value, type);
       }
@@ -1234,7 +1280,7 @@ public abstract class SchemaClassImpl {
       final DatabaseSessionInternal database,
       final String propertyName,
       final String newPropertyName,
-      final PropertyType type) {
+      final PropertyTypeInternal type) {
     final var strictSQL =
         database.getStorageInfo().getConfiguration().isStrictSql();
 
@@ -1260,7 +1306,7 @@ public abstract class SchemaClassImpl {
   public void checkPersistentPropertyType(
       final DatabaseSessionInternal session,
       final String propertyName,
-      final PropertyType type,
+      final PropertyTypeInternal type,
       SchemaClassImpl linkedClass) {
     final var strictSQL = session.getStorageInfo().getConfiguration().isStrictSql();
 
@@ -1310,7 +1356,7 @@ public abstract class SchemaClassImpl {
   }
 
   protected void checkAllLikedObjects(
-      DatabaseSessionInternal db, String propertyName, PropertyType type,
+      DatabaseSessionInternal db, String propertyName, PropertyTypeInternal type,
       SchemaClassImpl linkedClass) {
     final var builder = new StringBuilder(256);
     builder.append("select from ");
@@ -1448,8 +1494,8 @@ public abstract class SchemaClassImpl {
 
   protected abstract SchemaPropertyImpl addProperty(
       DatabaseSessionInternal session, final String propertyName,
-      final PropertyType type,
-      final PropertyType linkedType,
+      final PropertyTypeInternal type,
+      final PropertyTypeInternal linkedType,
       final SchemaClassImpl linkedClass,
       final boolean unsafe);
 

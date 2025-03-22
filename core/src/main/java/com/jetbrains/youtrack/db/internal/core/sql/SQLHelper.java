@@ -23,7 +23,7 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
@@ -103,14 +103,14 @@ public class SQLHelper {
       String iValue, final CommandContext context,
       boolean resolveContextVariables,
       @Nullable SchemaClass schemaClass,
-      @Nullable SchemaProperty schemaProperty, @Nullable PropertyType propertyType,
-      @Nullable PropertyType parentProperty) {
+      @Nullable SchemaProperty schemaProperty, @Nullable PropertyTypeInternal propertyType,
+      @Nullable PropertyTypeInternal parentProperty) {
     if (iValue == null) {
       return null;
     }
 
     if (propertyType == null && schemaProperty != null) {
-      propertyType = schemaProperty.getType();
+      propertyType = PropertyTypeInternal.convertFromPublicType(schemaProperty.getType());
     }
 
     iValue = iValue.trim();
@@ -153,7 +153,7 @@ public class SQLHelper {
       }
 
       if (schemaProperty != null) {
-        var linkedType = schemaProperty.getLinkedType();
+        var linkedType = PropertyTypeInternal.convertFromPublicType(schemaProperty.getLinkedType());
         var linkedClass = schemaProperty.getLinkedClass();
         for (var item : items) {
           coll.add(parseValue(item, context, resolveContextVariables,
@@ -221,11 +221,12 @@ public class SQLHelper {
           Object key;
           Object value;
           if (schemaProperty != null) {
-            var linkedType = schemaProperty.getLinkedType();
+            var linkedType = PropertyTypeInternal.convertFromPublicType(
+                schemaProperty.getLinkedType());
             var linkedClass = schemaProperty.getLinkedClass();
             key = parseValue(parts.get(0), context, resolveContextVariables,
                 null,
-                null, PropertyType.STRING, propertyType);
+                null, PropertyTypeInternal.STRING, propertyType);
             value = parseValue(parts.get(1), context, resolveContextVariables,
                 linkedClass,
                 null, linkedType, propertyType);
@@ -319,21 +320,21 @@ public class SQLHelper {
   public static Object parseStringNumber(final String iValue) {
     final var t = RecordSerializerCSVAbstract.getType(iValue);
 
-    if (t == PropertyType.INTEGER) {
+    if (t == PropertyTypeInternal.INTEGER) {
       return Integer.parseInt(iValue);
-    } else if (t == PropertyType.LONG) {
+    } else if (t == PropertyTypeInternal.LONG) {
       return Long.parseLong(iValue);
-    } else if (t == PropertyType.FLOAT) {
+    } else if (t == PropertyTypeInternal.FLOAT) {
       return Float.parseFloat(iValue);
-    } else if (t == PropertyType.SHORT) {
+    } else if (t == PropertyTypeInternal.SHORT) {
       return Short.parseShort(iValue);
-    } else if (t == PropertyType.BYTE) {
+    } else if (t == PropertyTypeInternal.BYTE) {
       return Byte.parseByte(iValue);
-    } else if (t == PropertyType.DOUBLE) {
+    } else if (t == PropertyTypeInternal.DOUBLE) {
       return Double.parseDouble(iValue);
-    } else if (t == PropertyType.DECIMAL) {
+    } else if (t == PropertyTypeInternal.DECIMAL) {
       return new BigDecimal(iValue);
-    } else if (t == PropertyType.DATE || t == PropertyType.DATETIME) {
+    } else if (t == PropertyTypeInternal.DATE || t == PropertyTypeInternal.DATETIME) {
       return new Date(Long.parseLong(iValue));
     }
 

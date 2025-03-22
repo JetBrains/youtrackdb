@@ -21,7 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.functions.math;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import java.util.Collection;
 
@@ -59,7 +59,7 @@ public class SQLFunctionMin extends SQLFunctionMathAbstract {
         }
       } else {
         if ((item instanceof Number) && (min instanceof Number)) {
-          var converted = PropertyType.castComparableNumber((Number) item, (Number) min);
+          var converted = PropertyTypeInternal.castComparableNumber((Number) item, (Number) min);
           item = converted[0];
           min = converted[1];
         }
@@ -78,7 +78,8 @@ public class SQLFunctionMin extends SQLFunctionMathAbstract {
         context = min;
       } else {
         if (context instanceof Number && min instanceof Number) {
-          final var casted = PropertyType.castComparableNumber((Number) context, (Number) min);
+          final var casted = PropertyTypeInternal.castComparableNumber((Number) context,
+              (Number) min);
           context = casted[0];
           min = casted[1];
         }

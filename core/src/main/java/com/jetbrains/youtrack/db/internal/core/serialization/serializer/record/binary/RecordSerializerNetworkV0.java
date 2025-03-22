@@ -25,7 +25,6 @@ import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.DecimalSerializer;
@@ -43,6 +42,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyEncryption;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
@@ -89,7 +89,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
 
     String fieldName = null;
     int valuePos;
-    PropertyType type;
+    PropertyTypeInternal type;
     var unmarshalledFields = 0;
 
     while (true) {
@@ -160,7 +160,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
     var last = 0;
     String fieldName;
     int valuePos;
-    PropertyType type;
+    PropertyTypeInternal type;
     while (true) {
       final var len = VarIntSerializer.readAsInteger(bytes);
       if (len == 0) {
@@ -319,16 +319,16 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
     }
   }
 
-  protected PropertyType readOType(final BytesContainer bytes) {
+  protected PropertyTypeInternal readOType(final BytesContainer bytes) {
     var res = readByte(bytes);
     if (res == -1) {
       return null;
     }
 
-    return PropertyType.getById(res);
+    return PropertyTypeInternal.getById(res);
   }
 
-  private void writeOType(BytesContainer bytes, int pos, PropertyType type) {
+  private void writeOType(BytesContainer bytes, int pos, PropertyTypeInternal type) {
     if (type == null) {
       bytes.bytes[pos] = (byte) -1;
     } else {
@@ -337,7 +337,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
   }
 
   public Object deserializeValue(DatabaseSessionInternal session, BytesContainer bytes,
-      PropertyType type,
+      PropertyTypeInternal type,
       RecordElement owner) {
     Object value = null;
     switch (type) {
@@ -527,10 +527,10 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
     return null;
   }
 
-  private PropertyType getLinkedType(DatabaseSessionInternal session, EntityImpl entity,
-      PropertyType type, String key) {
-    if (type != PropertyType.EMBEDDEDLIST && type != PropertyType.EMBEDDEDSET
-        && type != PropertyType.EMBEDDEDMAP) {
+  private PropertyTypeInternal getLinkedType(DatabaseSessionInternal session, EntityImpl entity,
+      PropertyTypeInternal type, String key) {
+    if (type != PropertyTypeInternal.EMBEDDEDLIST && type != PropertyTypeInternal.EMBEDDEDSET
+        && type != PropertyTypeInternal.EMBEDDEDMAP) {
       return null;
     }
     SchemaImmutableClass result = null;
@@ -541,7 +541,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
     if (immutableClass != null) {
       var prop = immutableClass.getProperty(key);
       if (prop != null) {
-        return prop.getLinkedType();
+        return PropertyTypeInternal.convertFromPublicType(prop.getLinkedType());
       }
     }
     return null;
@@ -552,8 +552,8 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
   public int serializeValue(
       DatabaseSessionInternal session, final BytesContainer bytes,
       Object value,
-      final PropertyType type,
-      final PropertyType linkedType,
+      final PropertyTypeInternal type,
+      final PropertyTypeInternal linkedType,
       ImmutableSchema schema,
       PropertyEncryption encryption) {
     var pointer = 0;
@@ -668,7 +668,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
     for (var entry : map.entrySet()) {
       // TODO:check skip of complex types
       // FIXME: changed to support only string key on map
-      final var type = PropertyType.STRING;
+      final var type = PropertyTypeInternal.STRING;
       writeOType(bytes, bytes.alloc(1), type);
       writeString(bytes, entry.getKey().toString());
       if (entry.getValue() == null) {
@@ -693,7 +693,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
     for (var entry : map.entrySet()) {
       // TODO:check skip of complex types
       // FIXME: changed to support only string key on map
-      var type = PropertyType.STRING;
+      var type = PropertyTypeInternal.STRING;
       writeOType(bytes, bytes.alloc(1), type);
       writeString(bytes, entry.getKey().toString());
       pos[i] = bytes.alloc(IntegerSerializer.INT_SIZE + 1);
@@ -757,19 +757,20 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
   private int writeEmbeddedCollection(
       DatabaseSessionInternal session, final BytesContainer bytes,
       final Collection<?> value,
-      final PropertyType linkedType,
+      final PropertyTypeInternal linkedType,
       ImmutableSchema schema,
       PropertyEncryption encryption) {
     final var pos = VarIntSerializer.write(bytes, value.size());
     // TODO manage embedded type from schema and auto-determined.
-    writeOType(bytes, bytes.alloc(1), linkedType != null ? linkedType : PropertyType.EMBEDDED);
+    writeOType(bytes, bytes.alloc(1),
+        linkedType != null ? linkedType : PropertyTypeInternal.EMBEDDED);
     for (var itemValue : value) {
       // TODO:manage in a better way null entry
       if (itemValue == null) {
         writeOType(bytes, bytes.alloc(1), null);
         continue;
       }
-      PropertyType type;
+      PropertyTypeInternal type;
       if (linkedType == null) {
         type = getTypeFromValueEmbedded(itemValue);
       } else {
@@ -788,26 +789,27 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
     return pos;
   }
 
-  private PropertyType getFieldType(DatabaseSessionInternal session, final EntityEntry entry) {
+  private PropertyTypeInternal getFieldType(DatabaseSessionInternal session,
+      final EntityEntry entry) {
     var type = entry.type;
     if (type == null) {
       final var prop = entry.property;
       if (prop != null) {
-        type = prop.getType();
+        type = PropertyTypeInternal.convertFromPublicType(prop.getType());
       }
     }
     if (type == null) {
-      type = PropertyType.getTypeByValue(entry.value);
+      type = PropertyTypeInternal.getTypeByValue(entry.value);
     }
     return type;
   }
 
-  private PropertyType getTypeFromValueEmbedded(final Object fieldValue) {
-    var type = PropertyType.getTypeByValue(fieldValue);
-    if (type == PropertyType.LINK
+  private PropertyTypeInternal getTypeFromValueEmbedded(final Object fieldValue) {
+    var type = PropertyTypeInternal.getTypeByValue(fieldValue);
+    if (type == PropertyTypeInternal.LINK
         && fieldValue instanceof EntityImpl
         && !((EntityImpl) fieldValue).getIdentity().isValidPosition()) {
-      type = PropertyType.EMBEDDED;
+      type = PropertyTypeInternal.EMBEDDED;
     }
     return type;
   }

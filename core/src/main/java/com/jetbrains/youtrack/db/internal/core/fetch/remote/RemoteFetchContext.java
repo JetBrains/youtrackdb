@@ -17,10 +17,10 @@
 package com.jetbrains.youtrack.db.internal.core.fetch.remote;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.FetchException;
 import com.jetbrains.youtrack.db.internal.core.fetch.FetchContext;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 
 /**
@@ -29,11 +29,11 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 public class RemoteFetchContext implements FetchContext {
 
   public void onBeforeStandardField(
-      Object iFieldValue, String iFieldName, Object iUserObject, PropertyType fieldType) {
+      Object iFieldValue, String iFieldName, Object iUserObject, PropertyTypeInternal fieldType) {
   }
 
   public void onAfterStandardField(
-      Object iFieldValue, String iFieldName, Object iUserObject, PropertyType fieldType) {
+      Object iFieldValue, String iFieldName, Object iUserObject, PropertyTypeInternal fieldType) {
   }
 
   public void onBeforeMap(DatabaseSessionInternal db, EntityImpl iRootRecord, String iFieldName,

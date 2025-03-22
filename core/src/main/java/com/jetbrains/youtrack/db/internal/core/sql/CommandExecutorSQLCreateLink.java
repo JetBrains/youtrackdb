@@ -20,10 +20,10 @@
 package com.jetbrains.youtrack.db.internal.core.sql;
 
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import java.util.Locale;
 import java.util.Map;
@@ -45,7 +45,7 @@ public class CommandExecutorSQLCreateLink extends CommandExecutorSQLAbstract {
   private String sourceClassName;
   private String sourceField;
   private String linkName;
-  private PropertyType linkType;
+  private PropertyTypeInternal linkType;
   private boolean inverse = false;
 
   public CommandExecutorSQLCreateLink parse(DatabaseSessionInternal session,
@@ -105,7 +105,7 @@ public class CommandExecutorSQLCreateLink extends CommandExecutorSQLAbstract {
               "Link type missed. Use " + getSyntax(), parserText, oldPos);
         }
 
-        linkType = PropertyType.valueOf(word.toString().toUpperCase(Locale.ENGLISH));
+        linkType = PropertyTypeInternal.valueOf(word.toString().toUpperCase(Locale.ENGLISH));
 
         oldPos = pos;
         pos = nextWord(parserText, parserTextUpperCase, pos, word, true);

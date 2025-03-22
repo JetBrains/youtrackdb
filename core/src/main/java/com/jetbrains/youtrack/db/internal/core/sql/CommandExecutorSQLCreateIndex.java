@@ -24,7 +24,6 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.schema.Collate;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.util.PatternConst;
 import com.jetbrains.youtrack.db.internal.core.command.CommandDistributedReplicateRequest;
@@ -35,6 +34,7 @@ import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionFactory;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
 import com.jetbrains.youtrack.db.internal.core.index.PropertyMapIndexDefinition;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
@@ -67,7 +67,7 @@ public class CommandExecutorSQLCreateIndex extends CommandExecutorSQLAbstract
   private SchemaClass oClass;
   private String[] fields;
   private SchemaClass.INDEX_TYPE indexType;
-  private PropertyType[] keyTypes;
+  private PropertyTypeInternal[] keyTypes;
   private byte serializerKeyId;
   private String engine;
   private Map<String, Object> metadata = null;
@@ -237,12 +237,12 @@ public class CommandExecutorSQLCreateIndex extends CommandExecutorSQLAbstract
 
           serializerKeyId = Byte.parseByte(word.toString());
         } else {
-          var keyTypeList = new ArrayList<PropertyType>();
+          var keyTypeList = new ArrayList<PropertyTypeInternal>();
           for (var typeName : PatternConst.PATTERN_COMMA_SEPARATED.split(typesString)) {
-            keyTypeList.add(PropertyType.valueOf(typeName));
+            keyTypeList.add(PropertyTypeInternal.valueOf(typeName));
           }
 
-          keyTypes = new PropertyType[keyTypeList.size()];
+          keyTypes = new PropertyTypeInternal[keyTypeList.size()];
           keyTypeList.toArray(keyTypes);
 
           if (fields != null && fields.length != 0 && fields.length != keyTypes.length) {
@@ -300,7 +300,7 @@ public class CommandExecutorSQLCreateIndex extends CommandExecutorSQLAbstract
             fields);
         idx = session.getMetadata().getIndexManagerInternal().getIndex(session, indexName);
       } else {
-        final List<PropertyType> fieldTypeList;
+        final List<PropertyTypeInternal> fieldTypeList;
         if (keyTypes == null) {
           for (final var fieldName : fields) {
             if (!fieldName.equals("@rid") && !oClass.existsProperty(fieldName)) {

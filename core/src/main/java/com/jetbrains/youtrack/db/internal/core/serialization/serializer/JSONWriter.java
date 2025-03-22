@@ -23,12 +23,12 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.io.IOException;
 import java.io.Writer;
@@ -74,7 +74,7 @@ public class JSONWriter {
 
   public static String writeValue(
       DatabaseSessionInternal db, Object iValue, final String iFormat, final int iIndentLevel,
-      PropertyType valueType)
+      PropertyTypeInternal valueType)
       throws IOException {
     if (iValue == null) {
       return "null";
@@ -402,7 +402,7 @@ public class JSONWriter {
       final String iName,
       final Object iValue,
       final String iFormat,
-      PropertyType valueType)
+      PropertyTypeInternal valueType)
       throws IOException {
     if (!firstAttribute) {
       out.append(",");

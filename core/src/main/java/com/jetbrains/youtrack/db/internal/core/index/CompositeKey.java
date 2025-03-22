@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrack.db.internal.core.index;
 
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
@@ -27,6 +26,7 @@ import com.jetbrains.youtrack.db.internal.core.id.ChangeableIdentity;
 import com.jetbrains.youtrack.db.internal.core.id.IdentityChangeListener;
 import com.jetbrains.youtrack.db.internal.core.index.comparator.AlwaysGreaterKey;
 import com.jetbrains.youtrack.db.internal.core.index.comparator.AlwaysLessKey;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.EntitySerializable;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37;
@@ -244,7 +244,7 @@ public class CompositeKey
       if (key == null) {
         out.writeByte((byte) -1);
       } else {
-        var type = PropertyType.getTypeByValue(key);
+        var type = PropertyTypeInternal.getTypeByValue(key);
         var bytes = serializer.serializeValue(db, key, type);
         out.writeByte((byte) type.getId());
         out.writeInt(bytes.length);
@@ -264,7 +264,7 @@ public class CompositeKey
         var len = in.readInt();
         var bytes = new byte[len];
         in.readFully(bytes);
-        var type = PropertyType.getById(b);
+        var type = PropertyTypeInternal.getById(b);
         var k = serializer.deserializeValue(db, bytes, type);
         addKey(k);
       }

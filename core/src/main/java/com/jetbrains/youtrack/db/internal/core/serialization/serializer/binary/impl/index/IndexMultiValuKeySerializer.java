@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.ByteSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
@@ -11,6 +10,7 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.ShortSerial
 import com.jetbrains.youtrack.db.internal.common.serialization.types.UTF8Serializer;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.impl.CompactedLinkSerializer;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALChanges;
@@ -27,7 +27,7 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
 
   public int getObjectSize(BinarySerializerFactory serializerFactory, CompositeKey compositeKey,
       Object... hints) {
-    final var types = (PropertyType[]) hints;
+    final var types = (PropertyTypeInternal[]) hints;
     final var keys = compositeKey.getKeys();
 
     var size = 0;
@@ -44,7 +44,7 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
     return size + 2 * IntegerSerializer.INT_SIZE;
   }
 
-  private static int sizeOfKey(final PropertyType type, final Object key,
+  private static int sizeOfKey(final PropertyTypeInternal type, final Object key,
       BinarySerializerFactory serializerFactory) {
     return switch (type) {
       case BOOLEAN, BYTE -> 1;
@@ -68,11 +68,11 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
     final var buffer = ByteBuffer.wrap(stream);
     buffer.position(startPosition);
 
-    serialize(compositeKey, buffer, (PropertyType[]) hints, serializerFactory);
+    serialize(compositeKey, buffer, (PropertyTypeInternal[]) hints, serializerFactory);
   }
 
   private static void serialize(CompositeKey compositeKey, ByteBuffer buffer,
-      PropertyType[] types, BinarySerializerFactory serializerFactory) {
+      PropertyTypeInternal[] types, BinarySerializerFactory serializerFactory) {
     final var keys = compositeKey.getKeys();
     final var startPosition = buffer.position();
     buffer.position(startPosition + IntegerSerializer.INT_SIZE);
@@ -95,7 +95,7 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
   }
 
   private static void serializeKeyToByteBuffer(
-      final ByteBuffer buffer, final PropertyType type, final Object key,
+      final ByteBuffer buffer, final PropertyTypeInternal type, final Object key,
       BinarySerializerFactory serializerFactory) {
     switch (type) {
       case BINARY:
@@ -167,7 +167,7 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
       if (typeId < 0) {
         keys.addKey(null);
       } else {
-        final var type = PropertyType.getById(typeId);
+        final var type = PropertyTypeInternal.getById(typeId);
         assert type != null;
         keys.addKey(deserializeKeyFromByteBuffer(buffer, type, serializerFactory));
       }
@@ -190,7 +190,7 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
       if (typeId < 0) {
         keys.addKey(null);
       } else {
-        final var type = PropertyType.getById(typeId);
+        final var type = PropertyTypeInternal.getById(typeId);
         assert type != null;
         var delta = getKeySizeInByteBuffer(offset, buffer, type, serializerFactory);
         keys.addKey(deserializeKeyFromByteBuffer(offset, buffer, type, serializerFactory));
@@ -202,7 +202,7 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
   }
 
   private static Object deserializeKeyFromByteBuffer(final ByteBuffer buffer,
-      final PropertyType type, BinarySerializerFactory serializerFactory) {
+      final PropertyTypeInternal type, BinarySerializerFactory serializerFactory) {
     switch (type) {
       case BINARY:
         final var len = buffer.getInt();
@@ -243,7 +243,7 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
   }
 
   private static Object deserializeKeyFromByteBuffer(
-      int offset, final ByteBuffer buffer, final PropertyType type,
+      int offset, final ByteBuffer buffer, final PropertyTypeInternal type,
       BinarySerializerFactory serializerFactory) {
     switch (type) {
       case BINARY:
@@ -293,7 +293,7 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
   }
 
   private static int getKeySizeInByteBuffer(int offset, final ByteBuffer buffer,
-      final PropertyType type, BinarySerializerFactory serializerFactory) {
+      final PropertyTypeInternal type, BinarySerializerFactory serializerFactory) {
     switch (type) {
       case BINARY:
         final var len = buffer.getInt(offset);
@@ -322,7 +322,7 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
   }
 
   private static Object deserializeKeyFromByteBuffer(
-      final int offset, final ByteBuffer buffer, final PropertyType type,
+      final int offset, final ByteBuffer buffer, final PropertyTypeInternal type,
       final WALChanges walChanges, BinarySerializerFactory serializerFactory) {
     switch (type) {
       case BINARY:
@@ -388,7 +388,7 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
       int startPosition, Object... hints) {
     @SuppressWarnings("RedundantCast") final var buffer =
         (ByteBuffer) ByteBuffer.wrap(stream).order(ByteOrder.nativeOrder()).position(startPosition);
-    serialize(compositeKey, buffer, (PropertyType[]) hints, serializerFactory);
+    serialize(compositeKey, buffer, (PropertyTypeInternal[]) hints, serializerFactory);
   }
 
   public CompositeKey deserializeNativeObject(BinarySerializerFactory serializerFactory,
@@ -413,14 +413,14 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
       return null;
     }
 
-    final var types = (PropertyType[]) hints;
+    final var types = (PropertyTypeInternal[]) hints;
     final var keys = value.getKeys();
 
     var preprocess = false;
     for (var i = 0; i < keys.size(); i++) {
       final var type = types[i];
 
-      if (type == PropertyType.DATE || (type == PropertyType.LINK && !(keys.get(
+      if (type == PropertyTypeInternal.DATE || (type == PropertyTypeInternal.LINK && !(keys.get(
           i) instanceof RID))) {
         preprocess = true;
         break;
@@ -437,7 +437,7 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
       final var key = keys.get(i);
       final var type = types[i];
       if (key != null) {
-        if (type == PropertyType.DATE) {
+        if (type == PropertyTypeInternal.DATE) {
           final var calendar = Calendar.getInstance();
           calendar.setTime((Date) key);
           calendar.set(Calendar.HOUR_OF_DAY, 0);
@@ -446,7 +446,7 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
           calendar.set(Calendar.MILLISECOND, 0);
 
           compositeKey.addKey(calendar.getTime());
-        } else if (type == PropertyType.LINK) {
+        } else if (type == PropertyTypeInternal.LINK) {
           compositeKey.addKey(((Identifiable) key).getIdentity());
         } else {
           compositeKey.addKey(key);
@@ -466,7 +466,7 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
   public void serializeInByteBufferObject(
       BinarySerializerFactory serializerFactory, CompositeKey object, ByteBuffer buffer,
       Object... hints) {
-    serialize(object, buffer, (PropertyType[]) hints, serializerFactory);
+    serialize(object, buffer, (PropertyTypeInternal[]) hints, serializerFactory);
   }
 
   /**
@@ -519,7 +519,7 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
       if (typeId < 0) {
         keys.add(null);
       } else {
-        final var type = PropertyType.getById(typeId);
+        final var type = PropertyTypeInternal.getById(typeId);
         assert type != null;
         final var key = deserializeKeyFromByteBuffer(offset, buffer, type, walChanges,
             serializerFactory);

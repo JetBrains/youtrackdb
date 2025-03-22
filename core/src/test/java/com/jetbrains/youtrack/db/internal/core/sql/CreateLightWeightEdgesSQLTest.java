@@ -35,7 +35,7 @@ public class CreateLightWeightEdgesSQLTest {
             "admin",
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-    session.createLightweightEdgeClass("lightweight");
+    session.getSchema().createLightweightEdgeClass("lightweight");
 
     var tx = session.begin();
     tx.command("create vertex v set name='a' ");

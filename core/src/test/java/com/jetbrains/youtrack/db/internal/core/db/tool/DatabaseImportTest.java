@@ -24,7 +24,7 @@ public class DatabaseImportTest {
 
     final var output = new ByteArrayOutputStream();
     try (final var db = youTrackDB.open(databaseName, "admin", "admin")) {
-      db.createClass("SimpleClass");
+      db.getSchema().createClass("SimpleClass");
 
       final var export =
           new DatabaseExport((DatabaseSessionInternal) db, output, iText -> {

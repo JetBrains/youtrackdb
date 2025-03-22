@@ -3,7 +3,6 @@ package com.jetbrains.youtrack.db.internal.core.storage.config;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.ByteSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
@@ -22,6 +21,7 @@ import com.jetbrains.youtrack.db.internal.core.config.StorageSegmentConfiguratio
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrack.db.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.WriteCache;
@@ -937,7 +937,7 @@ public final class ClusterBasedStorageConfiguration implements StorageConfigurat
       final var cfg = GlobalConfiguration.findByKey(key);
       if (cfg != null) {
         if (value != null) {
-          configuration.setValue(key, PropertyType.convert(null, value, cfg.getType()));
+          configuration.setValue(key, PropertyTypeInternal.convert(null, value, cfg.getType()));
         }
       } else {
         LogManager.instance()
@@ -1542,12 +1542,12 @@ public final class ClusterBasedStorageConfiguration implements StorageConfigurat
     final var keyTypesSize = IntegerSerializer.deserializeNative(property, pos);
     pos += IntegerSerializer.INT_SIZE;
 
-    final var keyTypes = new PropertyType[keyTypesSize];
+    final var keyTypes = new PropertyTypeInternal[keyTypesSize];
     for (var i = 0; i < keyTypesSize; i++) {
       final var typeName = deserializeStringValue(property, pos);
       pos += getSerializedStringSize(property, pos);
 
-      keyTypes[i] = PropertyType.valueOf(typeName);
+      keyTypes[i] = PropertyTypeInternal.valueOf(typeName);
     }
 
     final Map<String, String> engineProperties = new HashMap<>(8);

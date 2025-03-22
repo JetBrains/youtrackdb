@@ -19,6 +19,8 @@
  */
 package com.jetbrains.youtrack.db.api.schema;
 
+import com.jetbrains.youtrack.db.api.exception.SchemaException;
+import com.jetbrains.youtrack.db.api.record.Edge;
 import java.util.Collection;
 import java.util.List;
 import javax.annotation.Nonnull;
@@ -49,6 +51,47 @@ public interface Schema {
   SchemaClass createAbstractClass(String iClassName, SchemaClass iSuperClass);
 
   SchemaClass createAbstractClass(String iClassName, SchemaClass... superClasses);
+
+  /**
+   * creates a new vertex class (a class that extends V)
+   *
+   * @param className the class name
+   * @return The object representing the class in the schema
+   * @throws SchemaException if the class already exists or if V class is not defined (Eg. if it was
+   *                         deleted from the schema)
+   */
+  default SchemaClass createVertexClass(String className) throws SchemaException {
+    return createClass(className, getClass(SchemaClass.VERTEX_CLASS_NAME));
+  }
+
+  /**
+   * Creates a non-abstract new edge class (a class that extends E)
+   *
+   * @param className the class name
+   * @return The object representing the class in the schema
+   * @throws SchemaException if the class already exists or if E class is not defined (Eg. if it was
+   *                         deleted from the schema)
+   */
+  default SchemaClass createEdgeClass(String className) {
+    var edgeClass = createClass(className, getClass(SchemaClass.EDGE_CLASS_NAME));
+
+    edgeClass.createProperty(Edge.DIRECTION_IN, PropertyType.LINK);
+    edgeClass.createProperty(Edge.DIRECTION_OUT, PropertyType.LINK);
+
+    return edgeClass;
+  }
+
+  /**
+   * Creates a new edge class for lightweight edge (an abstract class that extends E)
+   *
+   * @param className the class name
+   * @return The object representing the class in the schema
+   * @throws SchemaException if the class already exists or if E class is not defined (Eg. if it was
+   *                         deleted from the schema)
+   */
+  default SchemaClass createLightweightEdgeClass(String className) {
+    return createAbstractClass(className, getClass(SchemaClass.EDGE_CLASS_NAME));
+  }
 
   void dropClass(String iClassName);
 

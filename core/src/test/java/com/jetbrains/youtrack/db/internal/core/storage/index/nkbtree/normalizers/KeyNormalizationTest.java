@@ -1,10 +1,11 @@
 package com.jetbrains.youtrack.db.internal.core.storage.index.nkbtree.normalizers;
 
+import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.comparator.ByteArrayComparator;
 import com.jetbrains.youtrack.db.internal.common.comparator.UnsafeByteArrayComparator;
 import com.jetbrains.youtrack.db.internal.common.comparator.UnsafeByteArrayComparatorV2;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
@@ -12,7 +13,6 @@ import java.nio.ByteOrder;
 import java.text.Collator;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.ZonedDateTime;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.GregorianCalendar;
@@ -41,7 +41,7 @@ public class KeyNormalizationTest {
   public void normalizeUnequalInput() {
     final var compositeKey = new CompositeKey();
     compositeKey.addKey(null);
-    keyNormalizer.normalize(compositeKey, new PropertyType[0], Collator.NO_DECOMPOSITION);
+    keyNormalizer.normalize(compositeKey, new PropertyTypeInternal[0], Collator.NO_DECOMPOSITION);
   }
 
   @Test
@@ -57,9 +57,9 @@ public class KeyNormalizationTest {
     compositeKey.addKey(5);
     Assert.assertEquals(2, compositeKey.getKeys().size());
 
-    final var types = new PropertyType[2];
+    final var types = new PropertyTypeInternal[2];
     types[0] = null;
-    types[1] = PropertyType.INTEGER;
+    types[1] = PropertyTypeInternal.INTEGER;
 
     final var bytes = keyNormalizer.normalize(compositeKey, types, Collator.NO_DECOMPOSITION);
     Assert.assertEquals((byte) 0x1, bytes[0]);
@@ -361,8 +361,8 @@ public class KeyNormalizationTest {
   @Test
   @Ignore
   public void normalizeCompositeString() {
-    final var types = new PropertyType[1];
-    types[0] = PropertyType.STRING;
+    final var types = new PropertyTypeInternal[1];
+    types[0] = PropertyTypeInternal.STRING;
 
     assertCollationOfCompositeKeyString(
         types,
@@ -445,8 +445,8 @@ public class KeyNormalizationTest {
   @Test
   @Ignore
   public void normalizeCompositeStringUmlaute() {
-    final var types = new PropertyType[1];
-    types[0] = PropertyType.STRING;
+    final var types = new PropertyTypeInternal[1];
+    types[0] = PropertyTypeInternal.STRING;
 
     assertCollationOfCompositeKeyString(
         types,
@@ -486,9 +486,9 @@ public class KeyNormalizationTest {
     compositeKey.addKey(secondKey);
     Assert.assertEquals(2, compositeKey.getKeys().size());
 
-    final var types = new PropertyType[2];
-    types[0] = PropertyType.STRING;
-    types[1] = PropertyType.STRING;
+    final var types = new PropertyTypeInternal[2];
+    types[0] = PropertyTypeInternal.STRING;
+    types[1] = PropertyTypeInternal.STRING;
 
     assertCollationOfCompositeKeyString(
         types,
@@ -604,8 +604,8 @@ public class KeyNormalizationTest {
     compositeKey.addKey(key);
     Assert.assertEquals(1, compositeKey.getKeys().size());
 
-    final var types = new PropertyType[1];
-    types[0] = PropertyType.BINARY;
+    final var types = new PropertyTypeInternal[1];
+    types[0] = PropertyTypeInternal.BINARY;
 
     final var bytes = keyNormalizer.normalize(compositeKey, types, Collator.NO_DECOMPOSITION);
     Assert.assertEquals((byte) 0x0, bytes[0]);
@@ -629,13 +629,14 @@ public class KeyNormalizationTest {
     compositeKey.addKey(keyValue);
     Assert.assertEquals(1, compositeKey.getKeys().size());
 
-    final var types = new PropertyType[1];
-    types[0] = type;
+    final var types = new PropertyTypeInternal[1];
+    types[0] = PropertyTypeInternal.convertFromPublicType(type);
     return keyNormalizer.normalize(compositeKey, types, Collator.NO_DECOMPOSITION);
   }
 
   private void assertCollationOfCompositeKeyString(
-      final PropertyType[] types, final CompositeKey compositeKey, final Consumer<byte[]> func) {
+      final PropertyTypeInternal[] types, final CompositeKey compositeKey,
+      final Consumer<byte[]> func) {
     // System.out.println("actual string: " + compositeKey.getKeys().get(0));
     final var bytes = keyNormalizer.normalize(compositeKey, types, Collator.NO_DECOMPOSITION);
     // print(bytes);

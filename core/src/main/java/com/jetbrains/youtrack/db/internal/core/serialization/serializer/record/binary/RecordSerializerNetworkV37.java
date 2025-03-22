@@ -24,7 +24,6 @@ import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
@@ -43,6 +42,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EmbeddedEntityImpl;
@@ -95,7 +95,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
     }
 
     String fieldName;
-    PropertyType type;
+    PropertyTypeInternal type;
     var size = VarIntSerializer.readAsInteger(bytes);
 
     var matched = 0;
@@ -134,7 +134,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
     }
 
     String fieldName;
-    PropertyType type;
+    PropertyTypeInternal type;
     Object value;
     var size = VarIntSerializer.readAsInteger(bytes);
     while ((size--) > 0) {
@@ -205,7 +205,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
 
     var size = VarIntSerializer.readAsInteger(bytes);
     String fieldName;
-    PropertyType type;
+    PropertyTypeInternal type;
     while ((size--) > 0) {
       fieldName = readString(bytes);
       type = readOType(bytes);
@@ -240,11 +240,11 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
     }
   }
 
-  protected static PropertyType readOType(final BytesContainer bytes) {
+  protected static PropertyTypeInternal readOType(final BytesContainer bytes) {
     return HelperClasses.readType(bytes);
   }
 
-  private static void writeOType(BytesContainer bytes, int pos, PropertyType type) {
+  private static void writeOType(BytesContainer bytes, int pos, PropertyTypeInternal type) {
     if (type == null) {
       bytes.bytes[pos] = (byte) -1;
     } else {
@@ -252,19 +252,21 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
     }
   }
 
-  public byte[] serializeValue(DatabaseSessionInternal db, Object value, PropertyType type) {
+  public byte[] serializeValue(DatabaseSessionInternal db, Object value,
+      PropertyTypeInternal type) {
     var bytes = new BytesContainer();
     serializeValue(db, bytes, value, type, null);
     return bytes.fitBytes();
   }
 
-  public Object deserializeValue(DatabaseSessionInternal db, byte[] val, PropertyType type) {
+  public Object deserializeValue(DatabaseSessionInternal db, byte[] val,
+      PropertyTypeInternal type) {
     var bytes = new BytesContainer(val);
     return deserializeValue(db, bytes, type, null);
   }
 
   public Object deserializeValue(DatabaseSessionInternal session, BytesContainer bytes,
-      PropertyType type,
+      PropertyTypeInternal type,
       RecordElement owner) {
     Object value = null;
     switch (type) {
@@ -571,16 +573,17 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
     return found;
   }
 
-  private static PropertyType getLinkedType(DatabaseSessionInternal session, EntityImpl entity,
-      PropertyType type, String key) {
+  private static PropertyTypeInternal getLinkedType(DatabaseSessionInternal session,
+      EntityImpl entity,
+      PropertyTypeInternal type, String key) {
     return RecordSerializerBinaryV0.getLinkedType(session, entity, type, key);
   }
 
   @SuppressWarnings("unchecked")
   public void serializeValue(
       DatabaseSessionInternal session, final BytesContainer bytes, Object value,
-      final PropertyType type,
-      final PropertyType linkedType) {
+      final PropertyTypeInternal type,
+      final PropertyTypeInternal linkedType) {
     int pointer;
     switch (type) {
       case INTEGER:
@@ -688,7 +691,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
     for (var entry : map.entrySet()) {
       // TODO:check skip of complex types
       // FIXME: changed to support only string key on map
-      final var type = PropertyType.STRING;
+      final var type = PropertyTypeInternal.STRING;
       writeOType(bytes, bytes.alloc(1), type);
       writeString(bytes, entry.getKey().toString());
       if (entry.getValue() == null) {
@@ -755,7 +758,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
 
   private void writeEmbeddedCollection(
       DatabaseSessionInternal session, final BytesContainer bytes, final Collection<?> value,
-      final PropertyType linkedType) {
+      final PropertyTypeInternal linkedType) {
     VarIntSerializer.write(bytes, value.size());
     // TODO manage embedded type from schema and auto-determined.
     for (var itemValue : value) {
@@ -764,7 +767,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
         writeOType(bytes, bytes.alloc(1), null);
         continue;
       }
-      PropertyType type;
+      PropertyTypeInternal type;
       if (linkedType == null) {
         type = getTypeFromValueEmbedded(itemValue);
       } else {
@@ -782,11 +785,11 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
     }
   }
 
-  private static PropertyType getFieldType(final EntityEntry entry) {
+  private static PropertyTypeInternal getFieldType(final EntityEntry entry) {
     return EntitySerializerDelta.getFieldType(entry);
   }
 
-  private static PropertyType getTypeFromValueEmbedded(final Object fieldValue) {
+  private static PropertyTypeInternal getTypeFromValueEmbedded(final Object fieldValue) {
     return HelperClasses.getTypeFromValueEmbedded(fieldValue);
   }
 

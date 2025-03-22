@@ -1,9 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
 import com.jetbrains.youtrack.db.api.schema.Collate;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.BinaryComparator;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.BinaryField;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.BytesContainer;
@@ -17,8 +17,8 @@ public abstract class AbstractComparatorTest extends DbTestBase {
       RecordSerializerBinary.INSTANCE.getCurrentSerializer();
   protected BinaryComparator comparator = serializer.getComparator();
 
-  protected void testEquals(DatabaseSessionInternal db, PropertyType sourceType,
-      PropertyType destType) {
+  protected void testEquals(DatabaseSessionInternal db, PropertyTypeInternal sourceType,
+      PropertyTypeInternal destType) {
     try {
       Assert.assertTrue(comparator.isEqual(db, field(db, sourceType, 10), field(db, destType, 10)));
       Assert.assertFalse(comparator.isEqual(db, field(db, sourceType, 10), field(db, destType, 9)));
@@ -30,16 +30,17 @@ public abstract class AbstractComparatorTest extends DbTestBase {
     }
   }
 
-  protected BinaryField field(DatabaseSessionInternal db, final PropertyType type,
+  protected BinaryField field(DatabaseSessionInternal db, final PropertyTypeInternal type,
       final Object value) {
     return field(db, type, value, null);
   }
 
-  protected BinaryField field(DatabaseSessionInternal db, final PropertyType type,
+  protected BinaryField field(DatabaseSessionInternal db, final PropertyTypeInternal type,
       final Object value,
       Collate collate) {
     var bytes = new BytesContainer();
-    bytes.offset = serializer.serializeValue(db, bytes, value, type, null, null, null);
+    bytes.offset = serializer.serializeValue(db, bytes, value,
+        type, null, null, null);
     return new BinaryField(null, type, bytes, collate);
   }
 }

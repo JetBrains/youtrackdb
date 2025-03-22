@@ -20,12 +20,12 @@
 
 package com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.impl.index;
 
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.NullSerializer;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import java.nio.ByteBuffer;
@@ -53,11 +53,11 @@ public class CompositeKeySerializer implements BinarySerializer<CompositeKey> {
       final var key = keys.get(i);
 
       if (key != null) {
-        final PropertyType type;
+        final PropertyTypeInternal type;
         if (types.length > i) {
           type = types[i];
         } else {
-          type = PropertyType.getTypeByClass(key.getClass());
+          type = PropertyTypeInternal.getTypeByClass(key.getClass());
         }
 
         size +=
@@ -94,11 +94,11 @@ public class CompositeKeySerializer implements BinarySerializer<CompositeKey> {
 
       BinarySerializer<Object> binarySerializer;
       if (key != null) {
-        final PropertyType type;
+        final PropertyTypeInternal type;
         if (types.length > i) {
           type = types[i];
         } else {
-          type = PropertyType.getTypeByClass(key.getClass());
+          type = PropertyTypeInternal.getTypeByClass(key.getClass());
         }
 
         binarySerializer = serializerFactory.getObjectSerializer(type);
@@ -176,11 +176,11 @@ public class CompositeKeySerializer implements BinarySerializer<CompositeKey> {
       final var key = keys.get(i);
       BinarySerializer<Object> binarySerializer;
       if (key != null) {
-        final PropertyType type;
+        final PropertyTypeInternal type;
         if (types.length > i) {
           type = types[i];
         } else {
-          type = PropertyType.getTypeByClass(key.getClass());
+          type = PropertyTypeInternal.getTypeByClass(key.getClass());
         }
 
         binarySerializer = serializerFactory.getObjectSerializer(type);
@@ -225,11 +225,11 @@ public class CompositeKeySerializer implements BinarySerializer<CompositeKey> {
     return compositeKey;
   }
 
-  private static PropertyType[] getKeyTypes(Object[] hints) {
-    final PropertyType[] types;
+  private static PropertyTypeInternal[] getKeyTypes(Object[] hints) {
+    final PropertyTypeInternal[] types;
 
     if (hints != null && hints.length > 0) {
-      types = (PropertyType[]) hints;
+      types = (PropertyTypeInternal[]) hints;
     } else {
       types = CommonConst.EMPTY_TYPES_ARRAY;
     }
@@ -260,16 +260,16 @@ public class CompositeKeySerializer implements BinarySerializer<CompositeKey> {
       var key = keys.get(i);
 
       if (key != null) {
-        final PropertyType type;
+        final PropertyTypeInternal type;
         if (types.length > i) {
           type = types[i];
         } else {
-          type = PropertyType.getTypeByClass(key.getClass());
+          type = PropertyTypeInternal.getTypeByClass(key.getClass());
         }
 
         var keySerializer = serializerFactory.getObjectSerializer(type);
         if (key instanceof Map
-            && !(type == PropertyType.EMBEDDEDMAP || type == PropertyType.LINKMAP)
+            && !(type == PropertyTypeInternal.EMBEDDEDMAP || type == PropertyTypeInternal.LINKMAP)
             && ((Map<?, ?>) key).size() == 1
             && ((Map<?, ?>) key)
             .keySet()
@@ -310,11 +310,11 @@ public class CompositeKeySerializer implements BinarySerializer<CompositeKey> {
 
       BinarySerializer<Object> binarySerializer;
       if (key != null) {
-        final PropertyType type;
+        final PropertyTypeInternal type;
         if (types.length > i) {
           type = types[i];
         } else {
-          type = PropertyType.getTypeByClass(key.getClass());
+          type = PropertyTypeInternal.getTypeByClass(key.getClass());
         }
 
         binarySerializer = serializerFactory.getObjectSerializer(type);

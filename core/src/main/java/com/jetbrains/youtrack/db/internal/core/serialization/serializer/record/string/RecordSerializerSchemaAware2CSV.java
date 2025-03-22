@@ -22,7 +22,6 @@ package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionIterator;
@@ -31,6 +30,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -112,9 +112,9 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
 
     String fieldName = null;
     String fieldValue;
-    PropertyType type;
+    PropertyTypeInternal type;
     SchemaClass linkedClass;
-    PropertyType linkedType;
+    PropertyTypeInternal linkedType;
     SchemaProperty prop;
 
     final Set<String> fieldSet;
@@ -170,13 +170,13 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
           }
           if (prop != null) {
             // RECOGNIZED PROPERTY
-            type = prop.getType();
+            type = PropertyTypeInternal.convertFromPublicType(prop.getType());
             linkedClass = prop.getLinkedClass();
-            linkedType = prop.getLinkedType();
+            linkedType = PropertyTypeInternal.convertFromPublicType(prop.getLinkedType());
 
           } else {
             // SCHEMA PROPERTY NOT FOUND FOR THIS FIELD: TRY TO AUTODETERMINE THE BEST TYPE
-            type = record.getPropertyType(fieldName);
+            type = PropertyTypeInternal.convertFromPublicType(record.getPropertyType(fieldName));
             if (type != null) {
               setFieldType = true;
             }
@@ -188,9 +188,9 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
               if (fieldValue.length() > 1
                   && fieldValue.charAt(0) == '"'
                   && fieldValue.charAt(fieldValue.length() - 1) == '"') {
-                type = PropertyType.STRING;
+                type = PropertyTypeInternal.STRING;
               } else if (fieldValue.startsWith(StringSerializerHelper.LINKSET_PREFIX)) {
-                type = PropertyType.LINKSET;
+                type = PropertyTypeInternal.LINKSET;
               } else if (fieldValue.charAt(0) == StringSerializerHelper.LIST_BEGIN
                   && fieldValue.charAt(fieldValue.length() - 1)
                   == StringSerializerHelper.LIST_END
@@ -200,8 +200,8 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
                 // EMBEDDED LIST/SET
                 type =
                     fieldValue.charAt(0) == StringSerializerHelper.LIST_BEGIN
-                        ? PropertyType.EMBEDDEDLIST
-                        : PropertyType.EMBEDDEDSET;
+                        ? PropertyTypeInternal.EMBEDDEDLIST
+                        : PropertyTypeInternal.EMBEDDEDSET;
 
                 final var value = fieldValue.substring(1, fieldValue.length() - 1);
 
@@ -228,19 +228,19 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
                     if (allLinks) {
                       type =
                           fieldValue.charAt(0) == StringSerializerHelper.LIST_BEGIN
-                              ? PropertyType.LINKLIST
-                              : PropertyType.LINKSET;
-                      linkedType = PropertyType.LINK;
+                              ? PropertyTypeInternal.LINKLIST
+                              : PropertyTypeInternal.LINKSET;
+                      linkedType = PropertyTypeInternal.LINK;
                     }
                   } else if (value.charAt(0) == StringSerializerHelper.EMBEDDED_BEGIN) {
-                    linkedType = PropertyType.EMBEDDED;
+                    linkedType = PropertyTypeInternal.EMBEDDED;
                   } else if (Character.isDigit(value.charAt(0))
                       || value.charAt(0) == '+'
                       || value.charAt(0) == '-') {
                     var items = value.split(",");
                     linkedType = getType(items[0]);
                   } else if (value.charAt(0) == '\'' || value.charAt(0) == '"') {
-                    linkedType = PropertyType.STRING;
+                    linkedType = PropertyTypeInternal.STRING;
                   }
                 } else {
                   uncertainType = true;
@@ -249,20 +249,20 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
               } else if (fieldValue.charAt(0) == StringSerializerHelper.MAP_BEGIN
                   && fieldValue.charAt(fieldValue.length() - 1)
                   == StringSerializerHelper.MAP_END) {
-                type = PropertyType.EMBEDDEDMAP;
+                type = PropertyTypeInternal.EMBEDDEDMAP;
               } else if (fieldValue.charAt(0) == StringSerializerHelper.LINK) {
-                type = PropertyType.LINK;
+                type = PropertyTypeInternal.LINK;
               } else if (fieldValue.charAt(0) == StringSerializerHelper.EMBEDDED_BEGIN) {
                 // TEMPORARY PATCH
                 if (fieldValue.startsWith("(ORIDs")) {
-                  type = PropertyType.LINKSET;
+                  type = PropertyTypeInternal.LINKSET;
                 } else {
-                  type = PropertyType.EMBEDDED;
+                  type = PropertyTypeInternal.EMBEDDED;
                 }
               } else if (fieldValue.charAt(0) == StringSerializerHelper.BAG_BEGIN) {
-                type = PropertyType.LINKBAG;
+                type = PropertyTypeInternal.LINKBAG;
               } else if (fieldValue.equals("true") || fieldValue.equals("false")) {
-                type = PropertyType.BOOLEAN;
+                type = PropertyTypeInternal.BOOLEAN;
               } else {
                 type = getType(fieldValue);
               }
@@ -341,9 +341,9 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
     }
 
     SchemaProperty prop;
-    PropertyType type;
+    PropertyTypeInternal type;
     SchemaClass linkedClass;
-    PropertyType linkedType;
+    PropertyTypeInternal linkedType;
     String fieldClassName;
     var i = 0;
 
@@ -372,64 +372,64 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
       }
       fieldClassName = getClassName(fieldValue);
 
-      type = record.getPropertyType(fieldName);
+      type = PropertyTypeInternal.convertFromPublicType(record.getPropertyType(fieldName));
       linkedClass = null;
       linkedType = null;
 
       if (prop != null) {
         // RECOGNIZED PROPERTY
-        type = prop.getType();
+        type = PropertyTypeInternal.convertFromPublicType(prop.getType());
         linkedClass = prop.getLinkedClass();
-        linkedType = prop.getLinkedType();
+        linkedType = PropertyTypeInternal.convertFromPublicType(prop.getLinkedType());
 
       } else if (fieldValue != null) {
         // NOT FOUND: TRY TO DETERMINE THE TYPE FROM ITS CONTENT
         if (type == null) {
           if (fieldValue.getClass() == byte[].class) {
-            type = PropertyType.BINARY;
+            type = PropertyTypeInternal.BINARY;
           } else if (fieldValue instanceof DBRecord) {
             if (fieldValue instanceof EntityImpl && ((EntityImpl) fieldValue).hasOwners()) {
-              type = PropertyType.EMBEDDED;
+              type = PropertyTypeInternal.EMBEDDED;
             } else {
-              type = PropertyType.LINK;
+              type = PropertyTypeInternal.LINK;
             }
 
             linkedClass = getLinkInfo(session, fieldClassName);
           } else if (fieldValue instanceof RID)
           // DETERMINE THE FIELD TYPE
           {
-            type = PropertyType.LINK;
+            type = PropertyTypeInternal.LINK;
           } else if (fieldValue instanceof Date) {
-            type = PropertyType.DATETIME;
+            type = PropertyTypeInternal.DATETIME;
           } else if (fieldValue instanceof String) {
-            type = PropertyType.STRING;
+            type = PropertyTypeInternal.STRING;
           } else if (fieldValue instanceof Integer || fieldValue instanceof BigInteger) {
-            type = PropertyType.INTEGER;
+            type = PropertyTypeInternal.INTEGER;
           } else if (fieldValue instanceof Long) {
-            type = PropertyType.LONG;
+            type = PropertyTypeInternal.LONG;
           } else if (fieldValue instanceof Float) {
-            type = PropertyType.FLOAT;
+            type = PropertyTypeInternal.FLOAT;
           } else if (fieldValue instanceof Short) {
-            type = PropertyType.SHORT;
+            type = PropertyTypeInternal.SHORT;
           } else if (fieldValue instanceof Byte) {
-            type = PropertyType.BYTE;
+            type = PropertyTypeInternal.BYTE;
           } else if (fieldValue instanceof Double) {
-            type = PropertyType.DOUBLE;
+            type = PropertyTypeInternal.DOUBLE;
           } else if (fieldValue instanceof BigDecimal) {
-            type = PropertyType.DECIMAL;
+            type = PropertyTypeInternal.DECIMAL;
           } else if (fieldValue instanceof RidBag) {
-            type = PropertyType.LINKBAG;
+            type = PropertyTypeInternal.LINKBAG;
           }
 
           if (fieldValue instanceof MultiCollectionIterator<?>) {
             type =
                 ((MultiCollectionIterator<?>) fieldValue).isEmbedded()
-                    ? PropertyType.EMBEDDEDLIST
-                    : PropertyType.LINKLIST;
+                    ? PropertyTypeInternal.EMBEDDEDLIST
+                    : PropertyTypeInternal.LINKLIST;
             linkedType =
                 ((MultiCollectionIterator<?>) fieldValue).isEmbedded()
-                    ? PropertyType.EMBEDDED
-                    : PropertyType.LINK;
+                    ? PropertyTypeInternal.EMBEDDED
+                    : PropertyTypeInternal.LINK;
           } else if (fieldValue instanceof Collection<?> || fieldValue.getClass().isArray()) {
             final var size = MultiValue.getSize(fieldValue);
 
@@ -440,11 +440,11 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
                 if (firstValue != null) {
                   if (firstValue instanceof RID) {
                     linkedClass = null;
-                    linkedType = PropertyType.LINK;
+                    linkedType = PropertyTypeInternal.LINK;
                     if (fieldValue instanceof Set<?>) {
-                      type = PropertyType.LINKSET;
+                      type = PropertyTypeInternal.LINKSET;
                     } else {
-                      type = PropertyType.LINKLIST;
+                      type = PropertyTypeInternal.LINKLIST;
                     }
                   } else if ((firstValue instanceof EntityImpl
                       && !((EntityImpl) firstValue).isEmbedded())
@@ -454,30 +454,30 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
                             session, getClassName(firstValue));
                     if (type == null) {
                       // LINK: GET THE CLASS
-                      linkedType = PropertyType.LINK;
+                      linkedType = PropertyTypeInternal.LINK;
 
                       if (fieldValue instanceof Set<?>) {
-                        type = PropertyType.LINKSET;
+                        type = PropertyTypeInternal.LINKSET;
                       } else {
-                        type = PropertyType.LINKLIST;
+                        type = PropertyTypeInternal.LINKLIST;
                       }
                     } else {
-                      linkedType = PropertyType.EMBEDDED;
+                      linkedType = PropertyTypeInternal.EMBEDDED;
                     }
                   } else {
                     // EMBEDDED COLLECTION
                     if (firstValue instanceof EntityImpl
                         && ((((EntityImpl) firstValue).hasOwners())
-                        || type == PropertyType.EMBEDDEDSET
-                        || type == PropertyType.EMBEDDEDLIST
-                        || type == PropertyType.EMBEDDEDMAP)) {
-                      linkedType = PropertyType.EMBEDDED;
+                        || type == PropertyTypeInternal.EMBEDDEDSET
+                        || type == PropertyTypeInternal.EMBEDDEDLIST
+                        || type == PropertyTypeInternal.EMBEDDEDMAP)) {
+                      linkedType = PropertyTypeInternal.EMBEDDED;
                     } else if (firstValue instanceof Enum<?>) {
-                      linkedType = PropertyType.STRING;
+                      linkedType = PropertyTypeInternal.STRING;
                     } else {
-                      linkedType = PropertyType.getTypeByClass(firstValue.getClass());
+                      linkedType = PropertyTypeInternal.getTypeByClass(firstValue.getClass());
 
-                      if (linkedType != PropertyType.LINK)
+                      if (linkedType != PropertyTypeInternal.LINK)
                       // EMBEDDED FOR SURE DON'T USE THE LINKED TYPE
                       {
                         linkedType = null;
@@ -486,17 +486,17 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
 
                     if (type == null) {
                       if (fieldValue instanceof LinkSet) {
-                        type = PropertyType.LINKSET;
+                        type = PropertyTypeInternal.LINKSET;
                       } else if (fieldValue instanceof Set<?>) {
-                        type = PropertyType.EMBEDDEDSET;
+                        type = PropertyTypeInternal.EMBEDDEDSET;
                       } else {
-                        type = PropertyType.EMBEDDEDLIST;
+                        type = PropertyTypeInternal.EMBEDDEDLIST;
                       }
                     }
                   }
                 }
               } else if (type == null) {
-                type = PropertyType.EMBEDDEDLIST;
+                type = PropertyTypeInternal.EMBEDDEDLIST;
               }
             }
           } else if (fieldValue instanceof Map<?, ?> && type == null) {
@@ -512,21 +512,21 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
                   linkedClass =
                       getLinkInfo(session, getClassName(firstValue));
                   // LINK: GET THE CLASS
-                  linkedType = PropertyType.LINK;
-                  type = PropertyType.LINKMAP;
+                  linkedType = PropertyTypeInternal.LINK;
+                  type = PropertyTypeInternal.LINKMAP;
                 }
               }
             }
 
             if (type == null) {
-              type = PropertyType.EMBEDDEDMAP;
+              type = PropertyTypeInternal.EMBEDDEDMAP;
             }
           }
         }
       }
 
       if (type == null) {
-        type = PropertyType.EMBEDDED;
+        type = PropertyTypeInternal.EMBEDDED;
       }
 
       iOutput.append(fieldName);

@@ -21,7 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.functions.geo;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
 
@@ -53,7 +53,7 @@ public class SQLFunctionDistance extends SQLFunctionAbstract {
         return null;
       }
 
-      values[i] = (Double) PropertyType.DOUBLE.convert(iParams[i], null, null,
+      values[i] = (Double) PropertyTypeInternal.DOUBLE.convert(iParams[i], null, null,
           iContext.getDatabaseSession());
     }
 

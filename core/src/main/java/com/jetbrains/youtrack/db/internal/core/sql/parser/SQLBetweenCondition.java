@@ -4,7 +4,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.ArrayList;
@@ -41,13 +41,13 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
     }
 
     var db = ctx.getDatabaseSession();
-    secondValue = PropertyType.convert(db, secondValue, firstValue.getClass());
+    secondValue = PropertyTypeInternal.convert(db, secondValue, firstValue.getClass());
 
     var thirdValue = third.execute(currentRecord, ctx);
     if (thirdValue == null) {
       return false;
     }
-    thirdValue = PropertyType.convert(db, thirdValue, firstValue.getClass());
+    thirdValue = PropertyTypeInternal.convert(db, thirdValue, firstValue.getClass());
 
     final var leftResult = ((Comparable<Object>) firstValue).compareTo(secondValue);
     final var rightResult = ((Comparable<Object>) firstValue).compareTo(thirdValue);
@@ -85,12 +85,12 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
       return false;
     }
 
-    secondValue = PropertyType.convert(session, secondValue, firstValue.getClass());
+    secondValue = PropertyTypeInternal.convert(session, secondValue, firstValue.getClass());
 
     if (thirdValue == null) {
       return false;
     }
-    thirdValue = PropertyType.convert(session, thirdValue, firstValue.getClass());
+    thirdValue = PropertyTypeInternal.convert(session, thirdValue, firstValue.getClass());
 
     final var leftResult = ((Comparable<Object>) firstValue).compareTo(secondValue);
     final var rightResult = ((Comparable<Object>) firstValue).compareTo(thirdValue);

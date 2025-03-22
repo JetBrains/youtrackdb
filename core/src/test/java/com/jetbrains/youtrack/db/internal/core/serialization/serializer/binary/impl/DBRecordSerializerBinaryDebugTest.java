@@ -8,6 +8,7 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionAbstract;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializationDebugProperty;
@@ -54,17 +55,17 @@ public class DBRecordSerializerBinaryDebugTest extends DbTestBase {
 
     var testIndex = names.indexOf("test");
     assertEquals("test", debug.properties.get(testIndex).name);
-    assertEquals(PropertyType.STRING, debug.properties.get(testIndex).type);
+    assertEquals(PropertyTypeInternal.STRING, debug.properties.get(testIndex).type);
     assertEquals("test", debug.properties.get(testIndex).value);
 
     var intIndex = names.indexOf("anInt");
     assertEquals("anInt", debug.properties.get(intIndex).name);
-    assertEquals(PropertyType.INTEGER, debug.properties.get(intIndex).type);
+    assertEquals(PropertyTypeInternal.INTEGER, debug.properties.get(intIndex).type);
     assertEquals(2, debug.properties.get(intIndex).value);
 
     var doubleIndex = names.indexOf("anDouble");
     assertEquals("anDouble", debug.properties.get(doubleIndex).name);
-    assertEquals(PropertyType.DOUBLE, debug.properties.get(doubleIndex).type);
+    assertEquals(PropertyTypeInternal.DOUBLE, debug.properties.get(doubleIndex).type);
     assertEquals(2D, debug.properties.get(doubleIndex).value);
 
     session.rollback();
@@ -93,17 +94,17 @@ public class DBRecordSerializerBinaryDebugTest extends DbTestBase {
     var testPIndex = names.indexOf("testP");
 
     assertEquals("testP", debug.properties.get(testPIndex).name);
-    assertEquals(PropertyType.STRING, debug.properties.get(testPIndex).type);
+    assertEquals(PropertyTypeInternal.STRING, debug.properties.get(testPIndex).type);
     assertEquals("test", debug.properties.get(testPIndex).value);
 
     var theIntIndex = names.indexOf("theInt");
     assertEquals("theInt", debug.properties.get(theIntIndex).name);
-    assertEquals(PropertyType.INTEGER, debug.properties.get(theIntIndex).type);
+    assertEquals(PropertyTypeInternal.INTEGER, debug.properties.get(theIntIndex).type);
     assertEquals(2, debug.properties.get(theIntIndex).value);
 
     var anDoubleIndex = names.indexOf("anDouble");
     assertEquals("anDouble", debug.properties.get(anDoubleIndex).name);
-    assertEquals(PropertyType.DOUBLE, debug.properties.get(anDoubleIndex).type);
+    assertEquals(PropertyTypeInternal.DOUBLE, debug.properties.get(anDoubleIndex).type);
     assertEquals(2D, debug.properties.get(anDoubleIndex).value);
 
     session.rollback();
@@ -129,19 +130,19 @@ public class DBRecordSerializerBinaryDebugTest extends DbTestBase {
 
     var testIndex = names.indexOf("test");
     assertEquals("test", debug.properties.get(testIndex).name);
-    assertEquals(PropertyType.STRING, debug.properties.get(testIndex).type);
+    assertEquals(PropertyTypeInternal.STRING, debug.properties.get(testIndex).type);
     assertTrue(debug.properties.get(testIndex).faildToRead);
     assertNotNull(debug.properties.get(testIndex).readingException);
 
     var intIndex = names.indexOf("anInt");
     assertEquals("anInt", debug.properties.get(intIndex).name);
-    assertEquals(PropertyType.INTEGER, debug.properties.get(intIndex).type);
+    assertEquals(PropertyTypeInternal.INTEGER, debug.properties.get(intIndex).type);
     assertTrue(debug.properties.get(intIndex).faildToRead);
     assertNotNull(debug.properties.get(intIndex).readingException);
 
     var doubleIndex = names.indexOf("anDouble");
     assertEquals("anDouble", debug.properties.get(doubleIndex).name);
-    assertEquals(PropertyType.DOUBLE, debug.properties.get(doubleIndex).type);
+    assertEquals(PropertyTypeInternal.DOUBLE, debug.properties.get(doubleIndex).type);
     assertTrue(debug.properties.get(doubleIndex).faildToRead);
     assertNotNull(debug.properties.get(doubleIndex).readingException);
 
@@ -174,7 +175,7 @@ public class DBRecordSerializerBinaryDebugTest extends DbTestBase {
 
     var testIndex = names.indexOf("testP");
     assertEquals("testP", debug.properties.get(testIndex).name);
-    assertEquals(PropertyType.STRING, debug.properties.get(testIndex).type);
+    assertEquals(PropertyTypeInternal.STRING, debug.properties.get(testIndex).type);
     failed |= debug.properties.get(testIndex).faildToRead;
     if (debug.properties.get(testIndex).faildToRead) {
       assertNotNull(debug.properties.get(testIndex).readingException);
@@ -184,7 +185,7 @@ public class DBRecordSerializerBinaryDebugTest extends DbTestBase {
 
     var intIndex = names.indexOf("theInt");
     assertEquals("theInt", debug.properties.get(intIndex).name);
-    assertEquals(PropertyType.INTEGER, debug.properties.get(intIndex).type);
+    assertEquals(PropertyTypeInternal.INTEGER, debug.properties.get(intIndex).type);
     failed |= debug.properties.get(intIndex).faildToRead;
     if (debug.properties.get(intIndex).faildToRead) {
       assertNotNull(debug.properties.get(intIndex).readingException);
@@ -194,7 +195,7 @@ public class DBRecordSerializerBinaryDebugTest extends DbTestBase {
 
     var doubleIndex = names.indexOf("anDouble");
     assertEquals("anDouble", debug.properties.get(doubleIndex).name);
-    assertEquals(PropertyType.DOUBLE, debug.properties.get(doubleIndex).type);
+    assertEquals(PropertyTypeInternal.DOUBLE, debug.properties.get(doubleIndex).type);
     failed |= debug.properties.get(doubleIndex).faildToRead;
     if (debug.properties.get(doubleIndex).faildToRead) {
       assertNotNull(debug.properties.get(doubleIndex).readingException);

@@ -24,7 +24,6 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -32,6 +31,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionMultiValue;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.BinaryField;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializer;
@@ -54,12 +54,12 @@ public class QueryOperatorEquals extends QueryOperatorEqualityNotNulls {
 
   public static boolean equals(DatabaseSessionInternal session, final Object iLeft,
       final Object iRight,
-      PropertyType type) {
+      PropertyTypeInternal type) {
     if (type == null) {
       return equals(session, iLeft, iRight);
     }
-    var left = PropertyType.convert(session, iLeft, type.getDefaultJavaType());
-    var right = PropertyType.convert(session, iRight, type.getDefaultJavaType());
+    var left = PropertyTypeInternal.convert(session, iLeft, type.getDefaultJavaType());
+    var right = PropertyTypeInternal.convert(session, iRight, type.getDefaultJavaType());
     return equals(session, left, right);
   }
 
@@ -89,13 +89,13 @@ public class QueryOperatorEquals extends QueryOperatorEqualityNotNulls {
 
     // NUMBERS
     if (iLeft instanceof Number && iRight instanceof Number) {
-      var couple = PropertyType.castComparableNumber((Number) iLeft, (Number) iRight);
+      var couple = PropertyTypeInternal.castComparableNumber((Number) iLeft, (Number) iRight);
       return couple[0].equals(couple[1]);
     }
 
     // ALL OTHER CASES
     try {
-      final var right = PropertyType.convert(session, iRight, iLeft.getClass());
+      final var right = PropertyTypeInternal.convert(session, iRight, iLeft.getClass());
 
       if (right == null) {
         return false;

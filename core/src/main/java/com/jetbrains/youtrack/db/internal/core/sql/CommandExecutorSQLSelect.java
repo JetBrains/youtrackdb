@@ -28,7 +28,6 @@ import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
@@ -60,6 +59,7 @@ import com.jetbrains.youtrack.db.internal.core.index.IndexEngineException;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClusters;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
@@ -2775,7 +2775,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
         if (index.getDefinition().getParamCount() == 1) {
           // CONVERT BEFORE SEARCH IF NEEDED
           final var type = index.getDefinition().getTypes()[0];
-          keyValue = PropertyType.convert(session, keyValue, type.getDefaultJavaType());
+          keyValue = PropertyTypeInternal.convert(session, keyValue, type.getDefaultJavaType());
 
           res = index.getRids(session, keyValue);
         } else {

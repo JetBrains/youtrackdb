@@ -592,13 +592,13 @@ public class SchemaImmutableClass implements SchemaClassInternal {
 
   @Override
   public SchemaProperty createProperty(String iPropertyName,
-      PropertyType iType, PropertyType iLinkedType, boolean unsafe) {
+      PropertyTypeInternal iType, PropertyTypeInternal iLinkedType, boolean unsafe) {
     throw new UnsupportedOperationException();
   }
 
   @Override
   public SchemaProperty createProperty(String iPropertyName,
-      PropertyType iType, SchemaClass iLinkedClass, boolean unsafe) {
+      PropertyTypeInternal iType, SchemaClass iLinkedClass, boolean unsafe) {
     throw new UnsupportedOperationException();
   }
 

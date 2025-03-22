@@ -3,7 +3,6 @@ package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 import static com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl.decodeClassName;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -28,13 +27,13 @@ public interface SchemaClassInternal extends SchemaClass {
 
   SchemaProperty createProperty(
       final String iPropertyName,
-      final PropertyType iType,
-      final PropertyType iLinkedType,
+      final PropertyTypeInternal iType,
+      final PropertyTypeInternal iLinkedType,
       final boolean unsafe);
 
   SchemaProperty createProperty(
       final String iPropertyName,
-      final PropertyType iType,
+      final PropertyTypeInternal iType,
       final SchemaClass iLinkedClass,
       final boolean unsafe);
 
@@ -145,16 +144,16 @@ public interface SchemaClassInternal extends SchemaClass {
 
   DatabaseSession getBoundToSession();
 
-  default List<PropertyType> extractFieldTypes(final String[] fieldNames) {
-    final List<PropertyType> types = new ArrayList<>(fieldNames.length);
+  default List<PropertyTypeInternal> extractFieldTypes(final String[] fieldNames) {
+    final List<PropertyTypeInternal> types = new ArrayList<>(fieldNames.length);
 
     for (var fieldName : fieldNames) {
       if (!fieldName.equals("@rid")) {
         types.add(
-            getProperty(
-                decodeClassName(IndexDefinitionFactory.extractFieldName(fieldName))).getType());
+            PropertyTypeInternal.convertFromPublicType(getProperty(
+                decodeClassName(IndexDefinitionFactory.extractFieldName(fieldName))).getType()));
       } else {
-        types.add(PropertyType.LINK);
+        types.add(PropertyTypeInternal.LINK);
       }
     }
     return types;

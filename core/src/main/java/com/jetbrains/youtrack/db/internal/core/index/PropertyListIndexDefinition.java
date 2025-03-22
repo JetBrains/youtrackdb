@@ -20,9 +20,9 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import java.util.ArrayList;
@@ -32,8 +32,8 @@ import java.util.List;
 
 /**
  * Index implementation bound to one schema class property that presents
- * {@link PropertyType#EMBEDDEDLIST}, {@link PropertyType#LINKLIST}, {@link PropertyType#LINKSET} or
- * {@link PropertyType#EMBEDDEDSET} properties.
+ * {@link PropertyTypeInternal#EMBEDDEDLIST}, {@link PropertyTypeInternal#LINKLIST}, {@link PropertyTypeInternal#LINKSET} or
+ * {@link PropertyTypeInternal#EMBEDDEDSET} properties.
  */
 public class PropertyListIndexDefinition extends PropertyIndexDefinition
     implements IndexDefinitionMultiValue {
@@ -43,7 +43,7 @@ public class PropertyListIndexDefinition extends PropertyIndexDefinition
   }
 
   public PropertyListIndexDefinition(
-      final String iClassName, final String iField, final PropertyType iType) {
+      final String iClassName, final String iField, final PropertyTypeInternal iType) {
     super(iClassName, iField, iType);
   }
 

@@ -21,10 +21,10 @@
 package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary;
 
 import com.jetbrains.youtrack.db.api.record.Blob;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Base64;
@@ -111,7 +111,8 @@ public class RecordSerializerNetworkBase implements RecordSerializerNetwork {
     }
   }
 
-  public byte[] serializeValue(DatabaseSessionInternal db, Object value, PropertyType type) {
+  public byte[] serializeValue(DatabaseSessionInternal db, Object value,
+      PropertyTypeInternal type) {
     ImmutableSchema schema = null;
     if (db != null) {
       schema = db.getMetadata().getImmutableSchemaSnapshot();
@@ -121,7 +122,8 @@ public class RecordSerializerNetworkBase implements RecordSerializerNetwork {
     return bytes.fitBytes();
   }
 
-  public Object deserializeValue(DatabaseSessionInternal db, byte[] val, PropertyType type) {
+  public Object deserializeValue(DatabaseSessionInternal db, byte[] val,
+      PropertyTypeInternal type) {
     var bytes = new BytesContainer(val);
     return serializerByVersion[0].deserializeValue(db, bytes, type, null);
   }

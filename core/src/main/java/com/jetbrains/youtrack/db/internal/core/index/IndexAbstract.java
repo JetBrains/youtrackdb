@@ -27,7 +27,6 @@ import com.jetbrains.youtrack.db.api.exception.ManualIndexesAreProhibited;
 import com.jetbrains.youtrack.db.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.OneEntryPerKeyLockManager;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.PartitionedLockManager;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
@@ -38,6 +37,7 @@ import com.jetbrains.youtrack.db.internal.core.index.comparator.AlwaysGreaterKey
 import com.jetbrains.youtrack.db.internal.core.index.comparator.AlwaysLessKey;
 import com.jetbrains.youtrack.db.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.index.iterator.IndexCursorStream;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
@@ -759,7 +759,7 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
-  public PropertyType[] getKeyTypes() {
+  public PropertyTypeInternal[] getKeyTypes() {
     acquireSharedLock();
     try {
       if (im.getIndexDefinition() == null) {

@@ -21,9 +21,9 @@ package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.CommandExecutorSQLCreateIndex;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
@@ -39,10 +39,10 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
 
   protected String className;
   protected String field;
-  protected PropertyType keyType;
+  protected PropertyTypeInternal keyType;
 
   public PropertyIndexDefinition(final String iClassName, final String iField,
-      final PropertyType iType) {
+      final PropertyTypeInternal iType) {
     super();
     className = iClassName;
     field = iField;
@@ -73,7 +73,7 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
 
   public Object getDocumentValueToIndex(
       DatabaseSessionInternal session, final EntityImpl entity) {
-    if (PropertyType.LINK.equals(keyType)) {
+    if (PropertyTypeInternal.LINK.equals(keyType)) {
       final Identifiable identifiable = entity.getPropertyInternal(field);
       if (identifiable != null) {
         return createValue(session, identifiable.getIdentity());
@@ -150,8 +150,8 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
     return 1;
   }
 
-  public PropertyType[] getTypes() {
-    return new PropertyType[]{keyType};
+  public PropertyTypeInternal[] getTypes() {
+    return new PropertyTypeInternal[]{keyType};
   }
 
   public void fromMap(@Nonnull Map<String, ?> map) {
@@ -206,7 +206,7 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
     field = (String) map.get("field");
 
     final var keyTypeStr = (String) map.get("keyType");
-    keyType = PropertyType.valueOf(keyTypeStr);
+    keyType = PropertyTypeInternal.valueOf(keyTypeStr);
 
     setCollate((String) map.get("collate"));
     setNullValuesIgnored(!Boolean.FALSE.equals(map.get("nullValuesIgnored")));

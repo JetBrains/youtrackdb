@@ -21,10 +21,10 @@ package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import java.io.IOException;
@@ -37,9 +37,9 @@ import javax.annotation.Nonnull;
 
 /**
  * Index implementation bound to one schema class property that presents
- * {@link PropertyType#EMBEDDEDMAP or
+ * {@link PropertyTypeInternal#EMBEDDEDMAP or
  *
- * @link PropertyType#LINKMAP} property.
+ * @link PropertyTypeInternal#LINKMAP} property.
  */
 public class PropertyMapIndexDefinition extends PropertyIndexDefinition
     implements IndexDefinitionMultiValue {
@@ -58,7 +58,7 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
   }
 
   public PropertyMapIndexDefinition(
-      final String iClassName, final String iField, final PropertyType iType,
+      final String iClassName, final String iField, final PropertyTypeInternal iType,
       final INDEX_BY indexBy) {
     super(iClassName, iField, iType);
 

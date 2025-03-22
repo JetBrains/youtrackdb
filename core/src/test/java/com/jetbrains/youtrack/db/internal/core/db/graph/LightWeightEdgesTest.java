@@ -24,8 +24,8 @@ public class LightWeightEdgesTest {
             CreateDatabaseUtil.TYPE_MEMORY);
     session = youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-    session.createVertexClass("Vertex");
-    session.createLightweightEdgeClass("Edge");
+    session.getSchema().createVertexClass("Vertex");
+    session.getSchema().createLightweightEdgeClass("Edge");
   }
 
   @Test
@@ -58,10 +58,10 @@ public class LightWeightEdgesTest {
   @Test
   public void testRegularBySchema() {
     var vClazz = "VtestRegularBySchema";
-    var vClass = session.createVertexClass(vClazz);
+    var vClass = session.getSchema().createVertexClass(vClazz);
 
     var eClazz = "EtestRegularBySchema";
-    var eClass = session.createEdgeClass(eClazz);
+    var eClass = session.getSchema().createEdgeClass(eClazz);
 
     vClass.createProperty("out_" + eClazz, PropertyType.LINKBAG, eClass);
     vClass.createProperty("in_" + eClazz, PropertyType.LINKBAG, eClass);

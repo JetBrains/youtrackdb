@@ -38,7 +38,7 @@ public class BrowseClusterTest {
             + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
             + "' role admin)");
     db = youTrackDb.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
-    db.createVertexClass("One");
+    db.getSchema().createVertexClass("One");
   }
 
   @Test
@@ -50,7 +50,7 @@ public class BrowseClusterTest {
       v.setProperty("a", i);
       tx.commit();
     }
-    var cluster = db.getClass("One").getClusterIds()[0];
+    var cluster = db.getSchema().getClass("One").getClusterIds()[0];
     var browser =
         ((AbstractPaginatedStorage) ((DatabaseSessionInternal) db).getStorage())
             .browseCluster(cluster);

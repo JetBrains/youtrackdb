@@ -23,7 +23,7 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.parser.StringParser;
@@ -76,14 +76,14 @@ public abstract class StringSerializerHelper {
   public static final String SKIPPED_VALUE = "[SKIPPED VALUE]";
 
   public static Object fieldTypeFromStream(
-      DatabaseSessionInternal db, final EntityImpl entity, PropertyType iType,
+      DatabaseSessionInternal db, final EntityImpl entity, PropertyTypeInternal iType,
       final Object iValue) {
     if (iValue == null) {
       return null;
     }
 
     if (iType == null) {
-      iType = PropertyType.EMBEDDED;
+      iType = PropertyTypeInternal.EMBEDDED;
     }
 
     switch (iType) {
@@ -1218,7 +1218,7 @@ public abstract class StringSerializerHelper {
         final var key = entry.get(0).trim();
         final var value = entry.get(1).trim();
 
-        map.put((String) fieldTypeFromStream(db, null, PropertyType.STRING, key), value);
+        map.put((String) fieldTypeFromStream(db, null, PropertyTypeInternal.STRING, key), value);
       }
     }
 

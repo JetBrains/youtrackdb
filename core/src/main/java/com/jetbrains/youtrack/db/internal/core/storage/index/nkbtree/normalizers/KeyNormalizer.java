@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.storage.index.nkbtree.normalizers;
 
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.HashMap;
@@ -10,26 +10,26 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class KeyNormalizer {
 
-  private final Map<PropertyType, KeyNormalizers> normalizers = new HashMap<>();
+  private final Map<PropertyTypeInternal, KeyNormalizers> normalizers = new HashMap<>();
 
   public KeyNormalizer() {
     normalizers.put(null, new NullKeyNormalizer());
-    normalizers.put(PropertyType.INTEGER, new IntegerKeyNormalizer());
-    normalizers.put(PropertyType.FLOAT, new FloatKeyNormalizer());
-    normalizers.put(PropertyType.DOUBLE, new DoubleKeyNormalizer());
-    normalizers.put(PropertyType.SHORT, new ShortKeyNormalizer());
-    normalizers.put(PropertyType.BOOLEAN, new BooleanKeyNormalizer());
-    normalizers.put(PropertyType.BYTE, new ByteKeyNormalizer());
-    normalizers.put(PropertyType.LONG, new LongKeyNormalizer());
-    normalizers.put(PropertyType.STRING, new StringKeyNormalizer());
-    normalizers.put(PropertyType.DECIMAL, new DecimalKeyNormalizer());
-    normalizers.put(PropertyType.DATE, new DateKeyNormalizer());
-    normalizers.put(PropertyType.DATETIME, new DateTimeKeyNormalizer());
-    normalizers.put(PropertyType.BINARY, new BinaryKeyNormalizer());
+    normalizers.put(PropertyTypeInternal.INTEGER, new IntegerKeyNormalizer());
+    normalizers.put(PropertyTypeInternal.FLOAT, new FloatKeyNormalizer());
+    normalizers.put(PropertyTypeInternal.DOUBLE, new DoubleKeyNormalizer());
+    normalizers.put(PropertyTypeInternal.SHORT, new ShortKeyNormalizer());
+    normalizers.put(PropertyTypeInternal.BOOLEAN, new BooleanKeyNormalizer());
+    normalizers.put(PropertyTypeInternal.BYTE, new ByteKeyNormalizer());
+    normalizers.put(PropertyTypeInternal.LONG, new LongKeyNormalizer());
+    normalizers.put(PropertyTypeInternal.STRING, new StringKeyNormalizer());
+    normalizers.put(PropertyTypeInternal.DECIMAL, new DecimalKeyNormalizer());
+    normalizers.put(PropertyTypeInternal.DATE, new DateKeyNormalizer());
+    normalizers.put(PropertyTypeInternal.DATETIME, new DateTimeKeyNormalizer());
+    normalizers.put(PropertyTypeInternal.BINARY, new BinaryKeyNormalizer());
   }
 
   public byte[] normalize(
-      final CompositeKey keys, final PropertyType[] keyTypes, final int decompositon) {
+      final CompositeKey keys, final PropertyTypeInternal[] keyTypes, final int decompositon) {
     if (keys == null) {
       throw new IllegalArgumentException("Keys must not be null.");
     }
@@ -55,7 +55,7 @@ public class KeyNormalizer {
   private void normalizeCompositeKeys(
       final ByteArrayOutputStream normalizedKeyStream,
       final Object key,
-      final PropertyType keyType,
+      final PropertyTypeInternal keyType,
       final int decompositon) {
     try {
       final var keyNormalizer = normalizers.get(keyType);

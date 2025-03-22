@@ -32,7 +32,6 @@ import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
@@ -49,6 +48,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
@@ -653,30 +653,31 @@ public class RecordSerializerJackson {
     }
   }
 
-  private static PropertyType fetchPropertyType(DatabaseSessionInternal session, EntityImpl entity,
+  private static PropertyTypeInternal fetchPropertyType(DatabaseSessionInternal session,
+      EntityImpl entity,
       String propertyName,
       SchemaClass schemaClass) {
-    PropertyType type = null;
+    PropertyTypeInternal type = null;
     if (schemaClass != null) {
       var property = schemaClass.getProperty(propertyName);
 
       if (property != null) {
-        type = property.getType();
+        type = PropertyTypeInternal.convertFromPublicType(property.getType());
       }
     }
 
     if (type == null) {
-      type = entity.getPropertyType(propertyName);
+      type = PropertyTypeInternal.convertFromPublicType(entity.getPropertyType(propertyName));
     }
 
     if (type == null) {
-      type = PropertyType.getTypeByValue(entity.getPropertyInternal(propertyName));
+      type = PropertyTypeInternal.getTypeByValue(entity.getPropertyInternal(propertyName));
     }
 
     return type;
   }
 
-  private static String charType(PropertyType type) {
+  private static String charType(PropertyTypeInternal type) {
     return switch (type) {
       case FLOAT -> "f";
       case DECIMAL -> "c";
@@ -704,13 +705,14 @@ public class RecordSerializerJackson {
   }
 
   @Nullable
-  private static PropertyType determineType(DatabaseSessionInternal session, EntityImpl entity,
+  private static PropertyTypeInternal determineType(DatabaseSessionInternal session,
+      EntityImpl entity,
       String fieldName,
       String charType, SchemaProperty schemaProperty) {
-    PropertyType type = null;
+    PropertyTypeInternal type = null;
 
     if (schemaProperty != null) {
-      type = schemaProperty.getType();
+      type = PropertyTypeInternal.convertFromPublicType(schemaProperty.getType());
     }
 
     if (type != null) {
@@ -718,22 +720,22 @@ public class RecordSerializerJackson {
     }
 
     type = switch (charType) {
-      case "f" -> PropertyType.FLOAT;
-      case "c" -> PropertyType.DECIMAL;
-      case "l" -> PropertyType.LONG;
-      case "b" -> PropertyType.BINARY;
-      case "y" -> PropertyType.BYTE;
-      case "d" -> PropertyType.DOUBLE;
-      case "a" -> PropertyType.DATE;
-      case "t" -> PropertyType.DATETIME;
-      case "s" -> PropertyType.SHORT;
-      case "e" -> PropertyType.EMBEDDEDSET;
-      case "g" -> PropertyType.LINKBAG;
-      case "z" -> PropertyType.LINKLIST;
-      case "m" -> PropertyType.LINKMAP;
-      case "x" -> PropertyType.LINK;
-      case "n" -> PropertyType.LINKSET;
-      case "w" -> PropertyType.EMBEDDED;
+      case "f" -> PropertyTypeInternal.FLOAT;
+      case "c" -> PropertyTypeInternal.DECIMAL;
+      case "l" -> PropertyTypeInternal.LONG;
+      case "b" -> PropertyTypeInternal.BINARY;
+      case "y" -> PropertyTypeInternal.BYTE;
+      case "d" -> PropertyTypeInternal.DOUBLE;
+      case "a" -> PropertyTypeInternal.DATE;
+      case "t" -> PropertyTypeInternal.DATETIME;
+      case "s" -> PropertyTypeInternal.SHORT;
+      case "e" -> PropertyTypeInternal.EMBEDDEDSET;
+      case "g" -> PropertyTypeInternal.LINKBAG;
+      case "z" -> PropertyTypeInternal.LINKLIST;
+      case "m" -> PropertyTypeInternal.LINKMAP;
+      case "x" -> PropertyTypeInternal.LINK;
+      case "n" -> PropertyTypeInternal.LINKSET;
+      case "w" -> PropertyTypeInternal.EMBEDDED;
       case null -> null;
       default -> throw new IllegalArgumentException("Invalid type: " + charType);
     };
@@ -742,7 +744,7 @@ public class RecordSerializerJackson {
       return type;
     }
 
-    return entity.getPropertyType(fieldName);
+    return PropertyTypeInternal.convertFromPublicType(entity.getPropertyType(fieldName));
   }
 
   private static void serializeValue(DatabaseSessionInternal session, JsonGenerator jsonGenerator,
@@ -859,7 +861,8 @@ public class RecordSerializerJackson {
       @Nonnull DatabaseSessionInternal session,
       @Nullable final EntityImpl entity,
       @Nonnull JsonParser jsonParser,
-      @Nullable PropertyType type, @Nullable SchemaProperty schemaProperty) throws IOException {
+      @Nullable PropertyTypeInternal type, @Nullable SchemaProperty schemaProperty)
+      throws IOException {
     var token = jsonParser.currentToken();
     return switch (token) {
       case VALUE_NULL -> null;
@@ -869,7 +872,7 @@ public class RecordSerializerJackson {
           case BINARY -> {
             var text = jsonParser.getText();
             if (!text.isEmpty() && text.length() <= 3) {
-              yield PropertyType.BYTE.convert(text, null, null, session);
+              yield PropertyTypeInternal.BYTE.convert(text, null, null, session);
             }
 
             yield Base64.getDecoder().decode(text);
@@ -887,7 +890,8 @@ public class RecordSerializerJackson {
             }
           }
           default -> type.convert(jsonParser.getText(),
-              schemaProperty != null ? schemaProperty.getLinkedType() : null,
+              schemaProperty != null ? PropertyTypeInternal.convertFromPublicType(
+                  schemaProperty.getLinkedType()) : null,
               schemaProperty != null ? schemaProperty.getLinkedClass() : null, session);
         };
       }
@@ -1017,7 +1021,8 @@ public class RecordSerializerJackson {
       var fieldName = jsonParser.currentName();
       jsonParser.nextToken();
       var value = parseValue(session, null, jsonParser,
-          schemaProperty != null ? schemaProperty.getType() : null, null);
+          schemaProperty != null ? PropertyTypeInternal.convertFromPublicType(
+              schemaProperty.getType()) : null, null);
       map.put(fieldName, value);
     }
 
@@ -1067,7 +1072,8 @@ public class RecordSerializerJackson {
 
     while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
       list.add(parseValue(session, null, jsonParser,
-          schemaProperty != null ? schemaProperty.getType() : null, null));
+          schemaProperty != null ? PropertyTypeInternal.convertFromPublicType(
+              schemaProperty.getType()) : null, null));
     }
 
     return list;
@@ -1080,7 +1086,8 @@ public class RecordSerializerJackson {
 
     while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
       list.add(parseValue(session, null, jsonParser,
-          schemaProperty != null ? schemaProperty.getType() : null, null));
+          schemaProperty != null ? PropertyTypeInternal.convertFromPublicType(
+              schemaProperty.getType()) : null, null));
     }
 
     return list;
@@ -1130,9 +1137,10 @@ public class RecordSerializerJackson {
               case "keepTypes" -> keepTypes = true;
               case "internal" -> internalRecords = true;
               case "markEmbeddedDocs" -> markEmbeddedDocs = true;
-              case "includeVersion" -> includeVersion = true;
+              case "version" -> includeVersion = true;
               default -> LogManager.instance().warn(this, "Unknown format option: %s. "
-                  + "Expected: type, rid, class, keepTypes, internal", null, f);
+                      + "Expected: type, rid, class, keepTypes, internal, markEmbeddedDocs,version",
+                  null, f);
             }
           }
         }

@@ -5,7 +5,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -173,8 +173,9 @@ public class SQLWhereClause extends SimpleNode {
     return Long.MAX_VALUE;
   }
 
-  private static Object convert(DatabaseSessionInternal session, Object o, PropertyType oType) {
-    return PropertyType.convert(session, o, oType.getDefaultJavaType());
+  private static Object convert(DatabaseSessionInternal session, Object o,
+      PropertyTypeInternal oType) {
+    return PropertyTypeInternal.convert(session, o, oType.getDefaultJavaType());
   }
 
   private static Map<String, Object> getEqualityOperations(

@@ -47,7 +47,7 @@ public class SQLFunctionDijkstraTest {
         youTrackDB.open("SQLFunctionDijkstraTest", "admin",
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-    session.createEdgeClass("weight");
+    session.getSchema().createEdgeClass("weight");
 
     var tx = session.begin();
     v1 = tx.newVertex();

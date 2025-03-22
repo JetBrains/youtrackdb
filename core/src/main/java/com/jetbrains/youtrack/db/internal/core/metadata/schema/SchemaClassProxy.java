@@ -54,7 +54,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
 
   @Override
   public SchemaProperty createProperty(String iPropertyName,
-      PropertyType iType, PropertyType iLinkedType, boolean unsafe) {
+      PropertyTypeInternal iType, PropertyTypeInternal iLinkedType, boolean unsafe) {
     assert this.session.assertIfNotActive();
     return new SchemaPropertyProxy(
         delegate.createProperty(session, iPropertyName, iType, iLinkedType, unsafe), session);
@@ -62,7 +62,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
 
   @Override
   public SchemaProperty createProperty(String iPropertyName,
-      PropertyType iType, SchemaClass iLinkedClass, boolean unsafe) {
+      PropertyTypeInternal iType, SchemaClass iLinkedClass, boolean unsafe) {
     assert this.session.assertIfNotActive();
     return new SchemaPropertyProxy(delegate.createProperty(session, iPropertyName, iType,
         iLinkedClass != null ? ((SchemaClassInternal) iLinkedClass).getImplementation() : null,

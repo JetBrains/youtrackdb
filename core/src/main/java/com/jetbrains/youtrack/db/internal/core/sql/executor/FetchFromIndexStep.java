@@ -6,7 +6,6 @@ import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
@@ -18,6 +17,7 @@ import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionMultiValue;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStreamProducer;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.MultipleExecutionStream;
@@ -528,7 +528,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
 
   private static Object convertToIndexDefinitionTypes(
       DatabaseSessionInternal session, SQLBooleanExpression condition, Object val,
-      PropertyType[] types) {
+      PropertyTypeInternal[] types) {
     if (val == null) {
       return null;
     }

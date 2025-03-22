@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.ArrayUtils;
@@ -27,8 +26,8 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
 
   public SchemaPropertyImpl addProperty(
       DatabaseSessionInternal session, final String propertyName,
-      final PropertyType type,
-      final PropertyType linkedType,
+      final PropertyTypeInternal type,
+      final PropertyTypeInternal linkedType,
       final SchemaClassImpl linkedClass,
       final boolean unsafe) {
     if (type == null) {
@@ -327,8 +326,8 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
 
   public SchemaPropertyImpl addPropertyInternal(
       DatabaseSessionInternal session, final String name,
-      final PropertyType type,
-      final PropertyType linkedType,
+      final PropertyTypeInternal type,
+      final PropertyTypeInternal linkedType,
       final SchemaClassImpl linkedClass,
       final boolean unsafe) {
     if (name == null || name.isEmpty()) {

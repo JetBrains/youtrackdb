@@ -15,7 +15,7 @@ package com.jetbrains.youtrack.db.internal.spatial.shape.legacy;
 
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import java.util.Collection;
 import java.util.List;
 import org.locationtech.spatial4j.context.SpatialContext;
@@ -36,9 +36,9 @@ public class RectangleLegacyBuilder implements ShapeBuilderLegacy<Rectangle> {
 
     for (var o : key.getKeys()) {
       var numbers = (List<Number>) o;
-      var lat = ((Double) PropertyType.convert(session, numbers.get(0),
+      var lat = ((Double) PropertyTypeInternal.convert(session, numbers.get(0),
           Double.class)).doubleValue();
-      var lng = ((Double) PropertyType.convert(session, numbers.get(1),
+      var lng = ((Double) PropertyTypeInternal.convert(session, numbers.get(1),
           Double.class)).doubleValue();
       points[i] = ctx.makePoint(lng, lat);
       i++;

@@ -17,7 +17,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.functions.conversion;
 
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
@@ -55,14 +55,14 @@ public class SQLMethodConvert extends AbstractSQLMethod {
     var db = iContext.getDatabaseSession();
     if (destType.contains(".")) {
       try {
-        return PropertyType.convert(db, iThis, Class.forName(destType));
+        return PropertyTypeInternal.convert(db, iThis, Class.forName(destType));
       } catch (ClassNotFoundException e) {
         LogManager.instance().error(this, "Class for destination type was not found", e);
       }
     } else {
-      final var youTrackDbType = PropertyType.valueOf(
+      final var youTrackDbType = PropertyTypeInternal.valueOf(
           destType.toUpperCase(Locale.ENGLISH));
-      return PropertyType.convert(db, iThis, youTrackDbType.getDefaultJavaType());
+      return PropertyTypeInternal.convert(db, iThis, youTrackDbType.getDefaultJavaType());
     }
 
     return null;

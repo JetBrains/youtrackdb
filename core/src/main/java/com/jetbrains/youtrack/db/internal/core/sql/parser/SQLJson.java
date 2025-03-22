@@ -5,6 +5,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
@@ -130,8 +131,16 @@ public class SQLJson extends SimpleNode {
           for (var entry : types.entrySet()) {
             var t = FieldTypesString.getOTypeFromChar(entry.getValue());
             var propertyName = entry.getKey();
-            if (entity.hasProperty(propertyName) && entity.getPropertyType(propertyName) != t) {
-              entity.setProperty(propertyName, entity.getProperty(propertyName), t);
+            if (entity.hasProperty(propertyName)
+                && PropertyTypeInternal.convertFromPublicType(entity.getPropertyType(propertyName))
+                != t) {
+              if (t != null) {
+                entity.setProperty(propertyName,
+                    entity.getProperty(propertyName), t.getPublicPropertyType());
+              } else {
+                entity.setProperty(propertyName,
+                    entity.getProperty(propertyName));
+              }
             }
 
           }
@@ -150,7 +159,11 @@ public class SQLJson extends SimpleNode {
       }
       if (charType != null) {
         var t = FieldTypesString.getOTypeFromChar(charType);
-        entity.setProperty(name, value, t);
+        if (t != null) {
+          entity.setProperty(name, value, t.getPublicPropertyType());
+        } else {
+          entity.setProperty(name, value);
+        }
       } else {
         entity.setProperty(name, value);
       }

@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
@@ -36,154 +35,180 @@ public class TestSchemaPropertyTypeDetection extends DbTestBase {
   @Test
   public void testOTypeFromClass() {
 
-    assertEquals(PropertyType.BOOLEAN, PropertyType.getTypeByClass(Boolean.class));
+    assertEquals(PropertyTypeInternal.BOOLEAN, PropertyTypeInternal.getTypeByClass(Boolean.class));
 
-    assertEquals(PropertyType.BOOLEAN, PropertyType.getTypeByClass(Boolean.TYPE));
+    assertEquals(PropertyTypeInternal.BOOLEAN, PropertyTypeInternal.getTypeByClass(Boolean.TYPE));
 
-    assertEquals(PropertyType.LONG, PropertyType.getTypeByClass(Long.class));
+    assertEquals(PropertyTypeInternal.LONG, PropertyTypeInternal.getTypeByClass(Long.class));
 
-    assertEquals(PropertyType.LONG, PropertyType.getTypeByClass(Long.TYPE));
+    assertEquals(PropertyTypeInternal.LONG, PropertyTypeInternal.getTypeByClass(Long.TYPE));
 
-    assertEquals(PropertyType.INTEGER, PropertyType.getTypeByClass(Integer.class));
+    assertEquals(PropertyTypeInternal.INTEGER, PropertyTypeInternal.getTypeByClass(Integer.class));
 
-    assertEquals(PropertyType.INTEGER, PropertyType.getTypeByClass(Integer.TYPE));
+    assertEquals(PropertyTypeInternal.INTEGER, PropertyTypeInternal.getTypeByClass(Integer.TYPE));
 
-    assertEquals(PropertyType.SHORT, PropertyType.getTypeByClass(Short.class));
+    assertEquals(PropertyTypeInternal.SHORT, PropertyTypeInternal.getTypeByClass(Short.class));
 
-    assertEquals(PropertyType.SHORT, PropertyType.getTypeByClass(Short.TYPE));
+    assertEquals(PropertyTypeInternal.SHORT, PropertyTypeInternal.getTypeByClass(Short.TYPE));
 
-    assertEquals(PropertyType.FLOAT, PropertyType.getTypeByClass(Float.class));
+    assertEquals(PropertyTypeInternal.FLOAT, PropertyTypeInternal.getTypeByClass(Float.class));
 
-    assertEquals(PropertyType.FLOAT, PropertyType.getTypeByClass(Float.TYPE));
+    assertEquals(PropertyTypeInternal.FLOAT, PropertyTypeInternal.getTypeByClass(Float.TYPE));
 
-    assertEquals(PropertyType.DOUBLE, PropertyType.getTypeByClass(Double.class));
+    assertEquals(PropertyTypeInternal.DOUBLE, PropertyTypeInternal.getTypeByClass(Double.class));
 
-    assertEquals(PropertyType.DOUBLE, PropertyType.getTypeByClass(Double.TYPE));
+    assertEquals(PropertyTypeInternal.DOUBLE, PropertyTypeInternal.getTypeByClass(Double.TYPE));
 
-    assertEquals(PropertyType.BYTE, PropertyType.getTypeByClass(Byte.class));
+    assertEquals(PropertyTypeInternal.BYTE, PropertyTypeInternal.getTypeByClass(Byte.class));
 
-    assertEquals(PropertyType.BYTE, PropertyType.getTypeByClass(Byte.TYPE));
+    assertEquals(PropertyTypeInternal.BYTE, PropertyTypeInternal.getTypeByClass(Byte.TYPE));
 
-    assertEquals(PropertyType.STRING, PropertyType.getTypeByClass(Character.class));
+    assertEquals(PropertyTypeInternal.STRING, PropertyTypeInternal.getTypeByClass(Character.class));
 
-    assertEquals(PropertyType.STRING, PropertyType.getTypeByClass(Character.TYPE));
+    assertEquals(PropertyTypeInternal.STRING, PropertyTypeInternal.getTypeByClass(Character.TYPE));
 
-    assertEquals(PropertyType.STRING, PropertyType.getTypeByClass(String.class));
+    assertEquals(PropertyTypeInternal.STRING, PropertyTypeInternal.getTypeByClass(String.class));
 
-    // assertEquals(PropertyType.BINARY, PropertyType.getTypeByClass(Byte[].class));
+    // assertEquals(PropertyTypeInternal.BINARY, PropertyTypeInternal.getTypeByClass(Byte[].class));
 
-    assertEquals(PropertyType.BINARY, PropertyType.getTypeByClass(byte[].class));
+    assertEquals(PropertyTypeInternal.BINARY, PropertyTypeInternal.getTypeByClass(byte[].class));
 
-    assertEquals(PropertyType.DATETIME, PropertyType.getTypeByClass(Date.class));
+    assertEquals(PropertyTypeInternal.DATETIME, PropertyTypeInternal.getTypeByClass(Date.class));
 
-    assertEquals(PropertyType.DECIMAL, PropertyType.getTypeByClass(BigDecimal.class));
+    assertEquals(PropertyTypeInternal.DECIMAL,
+        PropertyTypeInternal.getTypeByClass(BigDecimal.class));
 
-    assertEquals(PropertyType.INTEGER, PropertyType.getTypeByClass(BigInteger.class));
+    assertEquals(PropertyTypeInternal.INTEGER,
+        PropertyTypeInternal.getTypeByClass(BigInteger.class));
 
-    assertEquals(PropertyType.LINK, PropertyType.getTypeByClass(Identifiable.class));
+    assertEquals(PropertyTypeInternal.LINK,
+        PropertyTypeInternal.getTypeByClass(Identifiable.class));
 
-    assertEquals(PropertyType.LINK, PropertyType.getTypeByClass(RecordId.class));
+    assertEquals(PropertyTypeInternal.LINK, PropertyTypeInternal.getTypeByClass(RecordId.class));
 
-    assertEquals(PropertyType.LINK, PropertyType.getTypeByClass(DBRecord.class));
+    assertEquals(PropertyTypeInternal.LINK, PropertyTypeInternal.getTypeByClass(DBRecord.class));
 
-    assertEquals(PropertyType.LINK, PropertyType.getTypeByClass(EntityImpl.class));
+    assertEquals(PropertyTypeInternal.LINK, PropertyTypeInternal.getTypeByClass(EntityImpl.class));
 
-    assertEquals(PropertyType.EMBEDDEDLIST, PropertyType.getTypeByClass(ArrayList.class));
+    assertEquals(PropertyTypeInternal.EMBEDDEDLIST,
+        PropertyTypeInternal.getTypeByClass(ArrayList.class));
 
-    assertEquals(PropertyType.EMBEDDEDLIST, PropertyType.getTypeByClass(List.class));
+    assertEquals(PropertyTypeInternal.EMBEDDEDLIST,
+        PropertyTypeInternal.getTypeByClass(List.class));
 
-    assertEquals(PropertyType.EMBEDDEDLIST, PropertyType.getTypeByClass(TrackedList.class));
+    assertEquals(PropertyTypeInternal.EMBEDDEDLIST,
+        PropertyTypeInternal.getTypeByClass(TrackedList.class));
 
-    assertEquals(PropertyType.EMBEDDEDSET, PropertyType.getTypeByClass(Set.class));
+    assertEquals(PropertyTypeInternal.EMBEDDEDSET, PropertyTypeInternal.getTypeByClass(Set.class));
 
-    assertEquals(PropertyType.EMBEDDEDSET, PropertyType.getTypeByClass(HashSet.class));
+    assertEquals(PropertyTypeInternal.EMBEDDEDSET,
+        PropertyTypeInternal.getTypeByClass(HashSet.class));
 
-    assertEquals(PropertyType.EMBEDDEDSET, PropertyType.getTypeByClass(TrackedSet.class));
+    assertEquals(PropertyTypeInternal.EMBEDDEDSET,
+        PropertyTypeInternal.getTypeByClass(TrackedSet.class));
 
-    assertEquals(PropertyType.EMBEDDEDMAP, PropertyType.getTypeByClass(Map.class));
+    assertEquals(PropertyTypeInternal.EMBEDDEDMAP, PropertyTypeInternal.getTypeByClass(Map.class));
 
-    assertEquals(PropertyType.EMBEDDEDMAP, PropertyType.getTypeByClass(HashMap.class));
+    assertEquals(PropertyTypeInternal.EMBEDDEDMAP,
+        PropertyTypeInternal.getTypeByClass(HashMap.class));
 
-    assertEquals(PropertyType.EMBEDDEDMAP, PropertyType.getTypeByClass(TrackedMap.class));
+    assertEquals(PropertyTypeInternal.EMBEDDEDMAP,
+        PropertyTypeInternal.getTypeByClass(TrackedMap.class));
 
-    assertEquals(PropertyType.LINKSET, PropertyType.getTypeByClass(LinkSet.class));
+    assertEquals(PropertyTypeInternal.LINKSET, PropertyTypeInternal.getTypeByClass(LinkSet.class));
 
-    assertEquals(PropertyType.LINKLIST, PropertyType.getTypeByClass(LinkList.class));
+    assertEquals(PropertyTypeInternal.LINKLIST,
+        PropertyTypeInternal.getTypeByClass(LinkList.class));
 
-    assertEquals(PropertyType.LINKMAP, PropertyType.getTypeByClass(LinkMap.class));
+    assertEquals(PropertyTypeInternal.LINKMAP, PropertyTypeInternal.getTypeByClass(LinkMap.class));
 
-    assertEquals(PropertyType.LINKBAG, PropertyType.getTypeByClass(RidBag.class));
+    assertEquals(PropertyTypeInternal.LINKBAG, PropertyTypeInternal.getTypeByClass(RidBag.class));
 
-    assertEquals(PropertyType.EMBEDDEDLIST, PropertyType.getTypeByClass(Object[].class));
+    assertEquals(PropertyTypeInternal.EMBEDDEDLIST,
+        PropertyTypeInternal.getTypeByClass(Object[].class));
 
-    assertEquals(PropertyType.EMBEDDEDLIST, PropertyType.getTypeByClass(String[].class));
+    assertEquals(PropertyTypeInternal.EMBEDDEDLIST,
+        PropertyTypeInternal.getTypeByClass(String[].class));
 
-    assertEquals(PropertyType.EMBEDDED, PropertyType.getTypeByClass(EntitySerializable.class));
+    assertEquals(PropertyTypeInternal.EMBEDDED,
+        PropertyTypeInternal.getTypeByClass(EntitySerializable.class));
 
-    assertEquals(PropertyType.EMBEDDED, PropertyType.getTypeByClass(DocumentSer.class));
+    assertEquals(PropertyTypeInternal.EMBEDDED,
+        PropertyTypeInternal.getTypeByClass(DocumentSer.class));
   }
 
   @Test
   public void testOTypeFromValue() {
     session.begin();
-    assertEquals(PropertyType.BOOLEAN, PropertyType.getTypeByValue(true));
+    assertEquals(PropertyTypeInternal.BOOLEAN, PropertyTypeInternal.getTypeByValue(true));
 
-    assertEquals(PropertyType.LONG, PropertyType.getTypeByValue(2L));
+    assertEquals(PropertyTypeInternal.LONG, PropertyTypeInternal.getTypeByValue(2L));
 
-    assertEquals(PropertyType.INTEGER, PropertyType.getTypeByValue(2));
+    assertEquals(PropertyTypeInternal.INTEGER, PropertyTypeInternal.getTypeByValue(2));
 
-    assertEquals(PropertyType.SHORT, PropertyType.getTypeByValue((short) 4));
+    assertEquals(PropertyTypeInternal.SHORT, PropertyTypeInternal.getTypeByValue((short) 4));
 
-    assertEquals(PropertyType.FLOAT, PropertyType.getTypeByValue(0.5f));
+    assertEquals(PropertyTypeInternal.FLOAT, PropertyTypeInternal.getTypeByValue(0.5f));
 
-    assertEquals(PropertyType.DOUBLE, PropertyType.getTypeByValue(0.7d));
+    assertEquals(PropertyTypeInternal.DOUBLE, PropertyTypeInternal.getTypeByValue(0.7d));
 
-    assertEquals(PropertyType.BYTE, PropertyType.getTypeByValue((byte) 10));
+    assertEquals(PropertyTypeInternal.BYTE, PropertyTypeInternal.getTypeByValue((byte) 10));
 
-    assertEquals(PropertyType.STRING, PropertyType.getTypeByValue('a'));
+    assertEquals(PropertyTypeInternal.STRING, PropertyTypeInternal.getTypeByValue('a'));
 
-    assertEquals(PropertyType.STRING, PropertyType.getTypeByValue("yaaahooooo"));
+    assertEquals(PropertyTypeInternal.STRING, PropertyTypeInternal.getTypeByValue("yaaahooooo"));
 
-    assertEquals(PropertyType.BINARY, PropertyType.getTypeByValue(new byte[]{0, 1, 2}));
+    assertEquals(PropertyTypeInternal.BINARY,
+        PropertyTypeInternal.getTypeByValue(new byte[]{0, 1, 2}));
 
-    assertEquals(PropertyType.DATETIME, PropertyType.getTypeByValue(new Date()));
+    assertEquals(PropertyTypeInternal.DATETIME, PropertyTypeInternal.getTypeByValue(new Date()));
 
-    assertEquals(PropertyType.DECIMAL, PropertyType.getTypeByValue(new BigDecimal(10)));
+    assertEquals(PropertyTypeInternal.DECIMAL,
+        PropertyTypeInternal.getTypeByValue(new BigDecimal(10)));
 
-    assertEquals(PropertyType.INTEGER, PropertyType.getTypeByValue(new BigInteger("20")));
+    assertEquals(PropertyTypeInternal.INTEGER,
+        PropertyTypeInternal.getTypeByValue(new BigInteger("20")));
 
-    assertEquals(PropertyType.LINK, PropertyType.getTypeByValue(session.newEntity()));
+    assertEquals(PropertyTypeInternal.LINK,
+        PropertyTypeInternal.getTypeByValue(session.newEntity()));
 
-    assertEquals(PropertyType.LINK, PropertyType.getTypeByValue(new ChangeableRecordId()));
+    assertEquals(PropertyTypeInternal.LINK,
+        PropertyTypeInternal.getTypeByValue(new ChangeableRecordId()));
 
-    assertEquals(PropertyType.EMBEDDEDLIST, PropertyType.getTypeByValue(new ArrayList<Object>()));
+    assertEquals(PropertyTypeInternal.EMBEDDEDLIST,
+        PropertyTypeInternal.getTypeByValue(new ArrayList<Object>()));
 
     assertEquals(
-        PropertyType.EMBEDDEDLIST,
-        PropertyType.getTypeByValue(new TrackedList<Object>((EntityImpl) session.newEntity()
+        PropertyTypeInternal.EMBEDDEDLIST,
+        PropertyTypeInternal.getTypeByValue(new TrackedList<Object>((EntityImpl) session.newEntity()
         )));
 
-    assertEquals(PropertyType.EMBEDDEDSET, PropertyType.getTypeByValue(new HashSet<Object>()));
+    assertEquals(PropertyTypeInternal.EMBEDDEDSET,
+        PropertyTypeInternal.getTypeByValue(new HashSet<Object>()));
 
-    assertEquals(PropertyType.EMBEDDEDMAP,
-        PropertyType.getTypeByValue(new HashMap<Object, Object>()));
+    assertEquals(PropertyTypeInternal.EMBEDDEDMAP,
+        PropertyTypeInternal.getTypeByValue(new HashMap<Object, Object>()));
 
-    assertEquals(PropertyType.LINKSET,
-        PropertyType.getTypeByValue(new LinkSet((EntityImpl) session.newEntity())));
+    assertEquals(PropertyTypeInternal.LINKSET,
+        PropertyTypeInternal.getTypeByValue(new LinkSet((EntityImpl) session.newEntity())));
 
-    assertEquals(PropertyType.LINKLIST,
-        PropertyType.getTypeByValue(new LinkList((EntityImpl) session.newEntity())));
+    assertEquals(PropertyTypeInternal.LINKLIST,
+        PropertyTypeInternal.getTypeByValue(new LinkList((EntityImpl) session.newEntity())));
 
-    assertEquals(PropertyType.LINKMAP,
-        PropertyType.getTypeByValue(new LinkMap((EntityImpl) session.newEntity())));
+    assertEquals(PropertyTypeInternal.LINKMAP,
+        PropertyTypeInternal.getTypeByValue(new LinkMap((EntityImpl) session.newEntity())));
 
-    assertEquals(PropertyType.LINKBAG, PropertyType.getTypeByValue(new RidBag(session)));
+    assertEquals(PropertyTypeInternal.LINKBAG,
+        PropertyTypeInternal.getTypeByValue(new RidBag(session)));
 
-    assertEquals(PropertyType.EMBEDDEDLIST, PropertyType.getTypeByValue(new Object[]{}));
+    assertEquals(PropertyTypeInternal.EMBEDDEDLIST,
+        PropertyTypeInternal.getTypeByValue(new Object[]{}));
 
-    assertEquals(PropertyType.EMBEDDEDLIST, PropertyType.getTypeByValue(new String[]{}));
+    assertEquals(PropertyTypeInternal.EMBEDDEDLIST,
+        PropertyTypeInternal.getTypeByValue(new String[]{}));
 
-    assertEquals(PropertyType.EMBEDDED, PropertyType.getTypeByValue(new DocumentSer()));
+    assertEquals(PropertyTypeInternal.EMBEDDED,
+        PropertyTypeInternal.getTypeByValue(new DocumentSer()));
 
     session.rollback();
   }
@@ -193,31 +218,31 @@ public class TestSchemaPropertyTypeDetection extends DbTestBase {
     session.begin();
     Map<String, RecordId> linkmap = new HashMap<String, RecordId>();
     linkmap.put("some", new ChangeableRecordId());
-    assertEquals(PropertyType.LINKMAP, PropertyType.getTypeByValue(linkmap));
+    assertEquals(PropertyTypeInternal.LINKMAP, PropertyTypeInternal.getTypeByValue(linkmap));
 
     Map<String, DBRecord> linkmap2 = new HashMap<String, DBRecord>();
     linkmap2.put("some", session.newEntity());
-    assertEquals(PropertyType.LINKMAP, PropertyType.getTypeByValue(linkmap2));
+    assertEquals(PropertyTypeInternal.LINKMAP, PropertyTypeInternal.getTypeByValue(linkmap2));
 
     List<RecordId> linkList = new ArrayList<RecordId>();
     linkList.add(new ChangeableRecordId());
-    assertEquals(PropertyType.LINKLIST, PropertyType.getTypeByValue(linkList));
+    assertEquals(PropertyTypeInternal.LINKLIST, PropertyTypeInternal.getTypeByValue(linkList));
 
     List<DBRecord> linkList2 = new ArrayList<DBRecord>();
     linkList2.add(session.newEntity());
-    assertEquals(PropertyType.LINKLIST, PropertyType.getTypeByValue(linkList2));
+    assertEquals(PropertyTypeInternal.LINKLIST, PropertyTypeInternal.getTypeByValue(linkList2));
 
     Set<RecordId> linkSet = new HashSet<RecordId>();
     linkSet.add(new ChangeableRecordId());
-    assertEquals(PropertyType.LINKSET, PropertyType.getTypeByValue(linkSet));
+    assertEquals(PropertyTypeInternal.LINKSET, PropertyTypeInternal.getTypeByValue(linkSet));
 
     Set<DBRecord> linkSet2 = new HashSet<DBRecord>();
     linkSet2.add(session.newEntity());
-    assertEquals(PropertyType.LINKSET, PropertyType.getTypeByValue(linkSet2));
+    assertEquals(PropertyTypeInternal.LINKSET, PropertyTypeInternal.getTypeByValue(linkSet2));
 
     var document = (EntityImpl) session.newEmbeddedEntity();
     document.setOwner((EntityImpl) session.newEntity());
-    assertEquals(PropertyType.EMBEDDED, PropertyType.getTypeByValue(document));
+    assertEquals(PropertyTypeInternal.EMBEDDED, PropertyTypeInternal.getTypeByValue(document));
     session.rollback();
   }
 

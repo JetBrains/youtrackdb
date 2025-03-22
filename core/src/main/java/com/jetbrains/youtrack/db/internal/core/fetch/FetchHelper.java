@@ -29,6 +29,7 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson.FormatSettings;
@@ -483,7 +484,8 @@ public class FetchHelper {
       result = record.getProperty(fieldName);
     }
     fieldValue = result;
-    final var fieldType = record.getPropertyType(fieldName);
+    final var fieldType = PropertyTypeInternal.convertFromPublicType(
+        record.getPropertyType(fieldName));
     var fetch =
         !format.contains("shallow")
             && (!(fieldValue instanceof Identifiable)
@@ -569,10 +571,13 @@ public class FetchHelper {
         || Array.getLength(fieldValue) == 0
         || !(Array.get(fieldValue, 0) instanceof Identifiable))
         && !containsIdentifiers(fieldValue)) {
-      fetchContext.onBeforeStandardField(fieldValue, fieldName, userObject, fieldType);
+      fetchContext.onBeforeStandardField(fieldValue, fieldName, userObject,
+          PropertyTypeInternal.convertFromPublicType(fieldType));
       fetchListener.processStandardField(db,
-          record, fieldValue, fieldName, fetchContext, userObject, format, fieldType);
-      fetchContext.onAfterStandardField(fieldValue, fieldName, userObject, fieldType);
+          record, fieldValue, fieldName, fetchContext, userObject, format,
+          PropertyTypeInternal.convertFromPublicType(fieldType));
+      fetchContext.onAfterStandardField(fieldValue, fieldName, userObject,
+          PropertyTypeInternal.convertFromPublicType(fieldType));
     } else {
       try {
         if (fetch) {

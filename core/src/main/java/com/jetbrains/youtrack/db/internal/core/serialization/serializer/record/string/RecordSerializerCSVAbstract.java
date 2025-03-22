@@ -41,6 +41,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -126,9 +127,9 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
 
   public Object fieldFromStream(
       DatabaseSessionInternal session, final RecordAbstract iSourceRecord,
-      final PropertyType iType,
+      final PropertyTypeInternal iType,
       SchemaClass iLinkedClass,
-      PropertyType iLinkedType,
+      PropertyTypeInternal iLinkedType,
       final String iName,
       final String iValue) {
 
@@ -154,7 +155,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
                 ? iValue.substring(1, iValue.length() - 1)
                 : iValue;
 
-        if (iType == PropertyType.LINKLIST) {
+        if (iType == PropertyTypeInternal.LINKLIST) {
           return unserializeList(session, (EntityImpl) iSourceRecord, value);
         } else {
           return unserializeSet(session, (EntityImpl) iSourceRecord, value);
@@ -191,7 +192,8 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
                 mapValue = mapValue.substring(1);
               }
               map.put(
-                  fieldTypeFromStream(session, (EntityImpl) iSourceRecord, PropertyType.STRING,
+                  fieldTypeFromStream(session, (EntityImpl) iSourceRecord,
+                      PropertyTypeInternal.STRING,
                       entry.get(0)),
                   new RecordId(mapValue));
             }
@@ -261,7 +263,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
 
   public static Map<String, Object> embeddedMapFromStream(
       DatabaseSessionInternal session, final EntityImpl iSourceDocument,
-      final PropertyType iLinkedType,
+      final PropertyTypeInternal iLinkedType,
       final String iValue,
       final String iName) {
     if (iValue.length() == 0) {
@@ -273,7 +275,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
 
     @SuppressWarnings("rawtypes")
     Map map;
-    if (iLinkedType == PropertyType.LINK || iLinkedType == PropertyType.EMBEDDED) {
+    if (iLinkedType == PropertyTypeInternal.LINK || iLinkedType == PropertyTypeInternal.EMBEDDED) {
       map = new LinkMap(iSourceDocument);
     } else {
       map = new TrackedMap<Object>(iSourceDocument);
@@ -299,7 +301,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
           if (entries.size() > 1) {
             var mapValue = entries.get(1);
 
-            final PropertyType linkedType;
+            final PropertyTypeInternal linkedType;
 
             if (iLinkedType == null) {
               if (!mapValue.isEmpty()) {
@@ -310,17 +312,17 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
                     && isConvertToLinkedMap(map, linkedType)) {
                   // CONVERT IT TO A LAZY MAP
                   map = new LinkMap(iSourceDocument);
-                } else if (map instanceof LinkMap && linkedType != PropertyType.LINK) {
+                } else if (map instanceof LinkMap && linkedType != PropertyTypeInternal.LINK) {
                   map = new TrackedMap<Object>(iSourceDocument, map, null);
                 }
               } else {
-                linkedType = PropertyType.EMBEDDED;
+                linkedType = PropertyTypeInternal.EMBEDDED;
               }
             } else {
               linkedType = iLinkedType;
             }
 
-            if (linkedType == PropertyType.EMBEDDED && mapValue.length() >= 2) {
+            if (linkedType == PropertyTypeInternal.EMBEDDED && mapValue.length() >= 2) {
               mapValue = mapValue.substring(1, mapValue.length() - 1);
             }
 
@@ -333,7 +335,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
             mapValueObject = null;
           }
 
-          final var key = fieldTypeFromStream(session, iSourceDocument, PropertyType.STRING,
+          final var key = fieldTypeFromStream(session, iSourceDocument, PropertyTypeInternal.STRING,
               entries.get(0));
           try {
             map.put(key, mapValueObject);
@@ -361,9 +363,9 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
   public void fieldToStream(
       DatabaseSessionInternal session, final EntityImpl iRecord,
       final StringWriter iOutput,
-      final PropertyType iType,
+      final PropertyTypeInternal iType,
       final SchemaClass iLinkedClass,
-      final PropertyType iLinkedType,
+      final PropertyTypeInternal iLinkedType,
       final String iName,
       final Object iValue) {
     if (iValue == null) {
@@ -386,7 +388,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
           fieldToStream(session,
               iRecord,
               iOutput,
-              PropertyType.EMBEDDED,
+              PropertyTypeInternal.EMBEDDED,
               iLinkedClass,
               iLinkedType,
               iName,
@@ -490,7 +492,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
             iOutput.append(StringSerializerHelper.RECORD_SEPARATOR);
           }
 
-          fieldTypeToString(session, iOutput, PropertyType.STRING, entry.getKey());
+          fieldTypeToString(session, iOutput, PropertyTypeInternal.STRING, entry.getKey());
           iOutput.append(StringSerializerHelper.ENTRY_SEPARATOR);
           final Object link = linkToStream(session, iOutput, iRecord, entry.getValue());
 
@@ -564,7 +566,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
   public void embeddedMapToStream(
       DatabaseSessionInternal db,
       final StringWriter iOutput,
-      PropertyType iLinkedType,
+      PropertyTypeInternal iLinkedType,
       final Object iValue) {
     iOutput.append(StringSerializerHelper.MAP_BEGIN);
 
@@ -577,12 +579,12 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         }
 
         if (o != null) {
-          fieldTypeToString(db, iOutput, PropertyType.STRING, o.getKey());
+          fieldTypeToString(db, iOutput, PropertyTypeInternal.STRING, o.getKey());
           iOutput.append(StringSerializerHelper.ENTRY_SEPARATOR);
 
           if (o.getValue() instanceof EntityImpl
               && ((EntityImpl) o.getValue()).getIdentity().isValidPosition()) {
-            fieldTypeToString(db, iOutput, PropertyType.LINK, o.getValue());
+            fieldTypeToString(db, iOutput, PropertyTypeInternal.LINK, o.getValue());
           } else if (o.getValue() instanceof DBRecord
               || o.getValue() instanceof EntitySerializable) {
             final EntityImpl record;
@@ -599,18 +601,19 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
             iOutput.append(StringSerializerHelper.EMBEDDED_END);
           } else if (o.getValue() instanceof Set<?>) {
             // SUB SET
-            fieldTypeToString(db, iOutput, PropertyType.EMBEDDEDSET, o.getValue());
+            fieldTypeToString(db, iOutput, PropertyTypeInternal.EMBEDDEDSET, o.getValue());
           } else if (o.getValue() instanceof Collection<?>) {
             // SUB LIST
-            fieldTypeToString(db, iOutput, PropertyType.EMBEDDEDLIST, o.getValue());
+            fieldTypeToString(db, iOutput, PropertyTypeInternal.EMBEDDEDLIST, o.getValue());
           } else if (o.getValue() instanceof Map<?, ?>) {
             // SUB MAP
-            fieldTypeToString(db, iOutput, PropertyType.EMBEDDEDMAP, o.getValue());
+            fieldTypeToString(db, iOutput, PropertyTypeInternal.EMBEDDEDMAP, o.getValue());
           } else {
             // EMBEDDED LITERALS
             if (iLinkedType == null && o.getValue() != null) {
               fieldTypeToString(db,
-                  iOutput, PropertyType.getTypeByClass(o.getValue().getClass()), o.getValue());
+                  iOutput, PropertyTypeInternal.getTypeByClass(o.getValue().getClass()),
+                  o.getValue());
             } else {
               fieldTypeToString(db, iOutput, iLinkedType, o.getValue());
             }
@@ -625,9 +628,9 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
 
   public Object embeddedCollectionFromStream(
       DatabaseSessionInternal session, final EntityImpl e,
-      final PropertyType iType,
+      final PropertyTypeInternal iType,
       SchemaClass iLinkedClass,
-      final PropertyType iLinkedType,
+      final PropertyTypeInternal iLinkedType,
       final String iValue) {
     if (iValue.length() == 0) {
       return null;
@@ -643,14 +646,14 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
     }
 
     Collection<?> coll;
-    if (iLinkedType == PropertyType.LINK) {
+    if (iLinkedType == PropertyTypeInternal.LINK) {
       if (e != null) {
         coll =
-            (iType == PropertyType.EMBEDDEDLIST
+            (iType == PropertyTypeInternal.EMBEDDEDLIST
                 ? unserializeList(session, e, value)
                 : unserializeSet(session, e, value));
       } else {
-        if (iType == PropertyType.EMBEDDEDLIST) {
+        if (iType == PropertyTypeInternal.EMBEDDEDLIST) {
           coll = unserializeList(session, e, value);
         } else {
           return unserializeSet(session, e, value);
@@ -658,7 +661,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
       }
     } else {
       coll =
-          iType == PropertyType.EMBEDDEDLIST
+          iType == PropertyTypeInternal.EMBEDDEDLIST
               ? new TrackedList<Object>(e)
               : new TrackedSet<Object>(e);
     }
@@ -667,7 +670,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
       return coll;
     }
 
-    PropertyType linkedType;
+    PropertyTypeInternal linkedType;
 
     final var items =
         StringSerializerHelper.smartSplit(
@@ -696,7 +699,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
           } else
           // EMBEDDED OBJECT
           {
-            objectToAdd = fieldTypeFromStream(session, e, PropertyType.EMBEDDED, item);
+            objectToAdd = fieldTypeFromStream(session, e, PropertyTypeInternal.EMBEDDED, item);
           }
         }
       } else {
@@ -705,7 +708,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
 
           // AUTO-DETERMINE LINKED TYPE
           if (begin == StringSerializerHelper.LINK) {
-            linkedType = PropertyType.LINK;
+            linkedType = PropertyTypeInternal.LINK;
           } else {
             linkedType = getType(item);
           }
@@ -736,7 +739,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
       DatabaseSessionInternal session,
       final StringWriter iOutput,
       final SchemaClass iLinkedClass,
-      final PropertyType iLinkedType,
+      final PropertyTypeInternal iLinkedType,
       final Object iValue,
       final boolean iSet) {
     iOutput.append(iSet ? StringSerializerHelper.SET_BEGIN : StringSerializerHelper.LIST_BEGIN);
@@ -763,7 +766,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
       final SchemaClass linkedClass;
       if (!(o instanceof Identifiable)) {
         if (iLinkedType == null) {
-          linkedType = PropertyType.getTypeByClass(o.getClass());
+          linkedType = PropertyTypeInternal.getTypeByClass(o.getClass());
         }
 
         linkedClass = iLinkedClass;
@@ -774,9 +777,9 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         // AUTO-DETERMINE LINKED TYPE
         {
           if (((RecordId) id.getIdentity()).isValidPosition()) {
-            linkedType = PropertyType.LINK;
+            linkedType = PropertyTypeInternal.LINK;
           } else {
-            linkedType = PropertyType.EMBEDDED;
+            linkedType = PropertyTypeInternal.EMBEDDED;
           }
         }
 
@@ -784,10 +787,10 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
           entity = (EntityImpl) id;
 
           if (entity.hasOwners()) {
-            linkedType = PropertyType.EMBEDDED;
+            linkedType = PropertyTypeInternal.EMBEDDED;
           }
 
-          assert linkedType == PropertyType.EMBEDDED
+          assert linkedType == PropertyTypeInternal.EMBEDDED
               || ((RecordId) id.getIdentity()).isValidPosition()
               || session.isRemote()
               : "Impossible to serialize invalid link " + id.getIdentity();
@@ -802,25 +805,26 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         }
       }
 
-      if (id != null && linkedType != PropertyType.LINK) {
+      if (id != null && linkedType != PropertyTypeInternal.LINK) {
         iOutput.append(StringSerializerHelper.EMBEDDED_BEGIN);
       }
 
-      if (linkedType == PropertyType.EMBEDDED && o instanceof Identifiable) {
+      if (linkedType == PropertyTypeInternal.EMBEDDED && o instanceof Identifiable) {
         var transaction = session.getActiveTransaction();
         toString(session, transaction.load(((Identifiable) o)), iOutput, null);
-      } else if (linkedType != PropertyType.LINK && (linkedClass != null || entity != null)) {
+      } else if (linkedType != PropertyTypeInternal.LINK && (linkedClass != null
+          || entity != null)) {
         toString(session, entity, iOutput, null, true);
       } else {
         // EMBEDDED LITERALS
         if (iLinkedType == null) {
-          linkedType = PropertyType.getTypeByClass(o.getClass());
+          linkedType = PropertyTypeInternal.getTypeByClass(o.getClass());
         }
 
         fieldTypeToString(session, iOutput, linkedType, o);
       }
 
-      if (id != null && linkedType != PropertyType.LINK) {
+      if (id != null && linkedType != PropertyTypeInternal.LINK) {
         iOutput.append(StringSerializerHelper.EMBEDDED_END);
       }
     }
@@ -828,8 +832,9 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
     iOutput.append(iSet ? StringSerializerHelper.SET_END : StringSerializerHelper.LIST_END);
   }
 
-  protected static boolean isConvertToLinkedMap(Map<?, ?> map, final PropertyType linkedType) {
-    var convert = (linkedType == PropertyType.LINK && !(map instanceof LinkMap));
+  protected static boolean isConvertToLinkedMap(Map<?, ?> map,
+      final PropertyTypeInternal linkedType) {
+    var convert = (linkedType == PropertyTypeInternal.LINK && !(map instanceof LinkMap));
     if (convert) {
       for (var value : map.values()) {
         if (!(value instanceof Identifiable)) {

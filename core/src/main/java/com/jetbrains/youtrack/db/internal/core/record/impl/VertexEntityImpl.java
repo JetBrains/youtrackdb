@@ -8,6 +8,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
@@ -715,15 +716,15 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
           var coll = new LinkList(fromVertex);
           coll.add(to);
           out = coll;
-          outType = PropertyType.LINKLIST;
+          outType = PropertyTypeInternal.LINKLIST;
         } else if (propType == null || propType == PropertyType.LINKBAG) {
           final var bag = new RidBag(fromVertex.getSession());
           bag.add(to.getIdentity());
           out = bag;
-          outType = PropertyType.LINKBAG;
+          outType = PropertyTypeInternal.LINKBAG;
         } else if (propType == PropertyType.LINK) {
           out = to;
-          outType = PropertyType.LINK;
+          outType = PropertyTypeInternal.LINK;
         } else {
           throw new DatabaseException(session.getDatabaseName(),
               "Type of field provided in schema '"
@@ -745,13 +746,13 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
           coll.add(foundId);
           coll.add(to);
           out = coll;
-          outType = PropertyType.LINKLIST;
+          outType = PropertyTypeInternal.LINKLIST;
         } else {
           final var bag = new RidBag(fromVertex.getSession());
           bag.add(foundId.getIdentity());
           bag.add(to.getIdentity());
           out = bag;
-          outType = PropertyType.LINKBAG;
+          outType = PropertyTypeInternal.LINKBAG;
         }
       }
       case RidBag bag -> {

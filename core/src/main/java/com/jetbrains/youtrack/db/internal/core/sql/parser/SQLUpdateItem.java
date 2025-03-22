@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -305,14 +306,16 @@ public class SQLUpdateItem extends SimpleNode {
       return null;
     }
 
-    var type = schemaProperty != null ? schemaProperty.getType() : null;
+    var type = schemaProperty != null ? PropertyTypeInternal.convertFromPublicType(
+        schemaProperty.getType()) : null;
     if (type == null) {
-      type = PropertyType.getTypeByValue(newValue);
+      type = PropertyTypeInternal.getTypeByValue(newValue);
     }
 
     if (type != null) {
       return type.convert(newValue,
-          schemaProperty != null ? schemaProperty.getLinkedType() : null,
+          schemaProperty != null ? PropertyTypeInternal.convertFromPublicType(
+              schemaProperty.getLinkedType()) : null,
           schemaProperty != null ? schemaProperty.getLinkedClass() : null, session);
     }
 
@@ -334,18 +337,18 @@ public class SQLUpdateItem extends SimpleNode {
       return newValue;
     }
 
-    var type = prop.getType();
+    var type = PropertyTypeInternal.convertFromPublicType(prop.getType());
     var linkedClass = prop.getLinkedClass();
     return convertToType(newValue, type, linkedClass, ctx);
   }
 
   private static Object convertToType(
-      Object value, PropertyType type, SchemaClass linkedClass, CommandContext ctx) {
+      Object value, PropertyTypeInternal type, SchemaClass linkedClass, CommandContext ctx) {
     if (type == null) {
       return value;
     }
     if (value instanceof Collection) {
-      if (type == PropertyType.LINK) {
+      if (type == PropertyTypeInternal.LINK) {
         if (((Collection<?>) value).isEmpty()) {
           value = null;
         } else if (((Collection<?>) value).size() == 1) {
@@ -355,37 +358,38 @@ public class SQLUpdateItem extends SimpleNode {
               "Cannot assign a collection to a LINK property");
         }
       } else {
-        if (type == PropertyType.EMBEDDEDLIST && linkedClass != null) {
+        if (type == PropertyTypeInternal.EMBEDDEDLIST && linkedClass != null) {
           return ((Collection<?>) value)
               .stream()
               .map(item -> convertToType(item, linkedClass, ctx))
               .collect(Collectors.toList());
 
-        } else if (type == PropertyType.EMBEDDEDSET && linkedClass != null) {
+        } else if (type == PropertyTypeInternal.EMBEDDEDSET && linkedClass != null) {
           return ((Collection<?>) value)
               .stream()
               .map(item -> convertToType(item, linkedClass, ctx))
               .collect(Collectors.toSet());
         }
-        if (type == PropertyType.LINKSET && !(value instanceof LinkSet)) {
+        if (type == PropertyTypeInternal.LINKSET && !(value instanceof LinkSet)) {
           var db = ctx.getDatabaseSession();
           return ((Collection<?>) value)
               .stream()
-              .map(item -> PropertyType.convert(db, item, Identifiable.class))
+              .map(item -> PropertyTypeInternal.convert(db, item, Identifiable.class))
               .collect(Collectors.toSet());
-        } else if (type == PropertyType.LINKLIST && !(value instanceof LinkList)) {
+        } else if (type == PropertyTypeInternal.LINKLIST && !(value instanceof LinkList)) {
           var db = ctx.getDatabaseSession();
           return ((Collection<?>) value)
               .stream()
-              .map(item -> PropertyType.convert(db, item, Identifiable.class))
+              .map(item -> PropertyTypeInternal.convert(db, item, Identifiable.class))
               .collect(Collectors.toList());
-        } else if (type == PropertyType.LINKBAG && !(value instanceof RidBag)) {
+        } else if (type == PropertyTypeInternal.LINKBAG && !(value instanceof RidBag)) {
           var db = ctx.getDatabaseSession();
           var bag = new RidBag(db);
 
           ((Collection<?>) value)
               .stream()
-              .map(item -> (Identifiable) PropertyType.convert(db, item, Identifiable.class))
+              .map(
+                  item -> (Identifiable) PropertyTypeInternal.convert(db, item, Identifiable.class))
               .forEach(item -> bag.add(item.getIdentity()));
 
         }

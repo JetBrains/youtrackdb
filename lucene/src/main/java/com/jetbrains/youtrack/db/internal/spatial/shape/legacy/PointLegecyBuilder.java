@@ -15,7 +15,7 @@ package com.jetbrains.youtrack.db.internal.spatial.shape.legacy;
 
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import org.locationtech.spatial4j.context.SpatialContext;
 import org.locationtech.spatial4j.shape.Point;
 
@@ -26,9 +26,9 @@ public class PointLegecyBuilder implements ShapeBuilderLegacy<Point> {
 
   @Override
   public Point makeShape(DatabaseSessionInternal session, CompositeKey key, SpatialContext ctx) {
-    var lat = ((Double) PropertyType.convert(session, key.getKeys().get(0),
+    var lat = ((Double) PropertyTypeInternal.convert(session, key.getKeys().get(0),
         Double.class)).doubleValue();
-    var lng = ((Double) PropertyType.convert(session, key.getKeys().get(1),
+    var lng = ((Double) PropertyTypeInternal.convert(session, key.getKeys().get(1),
         Double.class)).doubleValue();
     return ctx.makePoint(lng, lat);
   }

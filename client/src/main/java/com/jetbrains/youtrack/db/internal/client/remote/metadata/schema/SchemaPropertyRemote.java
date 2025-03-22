@@ -1,7 +1,6 @@
 package com.jetbrains.youtrack.db.internal.client.remote.metadata.schema;
 
 import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.internal.common.comparator.CaseInsentiveComparator;
 import com.jetbrains.youtrack.db.internal.common.util.Collections;
@@ -9,6 +8,7 @@ import com.jetbrains.youtrack.db.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.PropertyIndexDefinition;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaPropertyImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
@@ -30,7 +30,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
     super(oClassImpl, global);
   }
 
-  public void setType(DatabaseSessionInternal session, final PropertyType type) {
+  public void setType(DatabaseSessionInternal session, final PropertyTypeInternal type) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
     acquireSchemaWriteLock(session);
     try {
@@ -141,7 +141,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
       final SchemaClassImpl linkedClass) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
-    checkSupportLinkedClass(getType(session));
+    checkSupportLinkedClass(PropertyTypeInternal.convertFromPublicType(getType(session)));
 
     acquireSchemaWriteLock(session);
     try {
@@ -158,10 +158,10 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
   }
 
   public void setLinkedType(DatabaseSessionInternal session,
-      final PropertyType linkedType) {
+      final PropertyTypeInternal linkedType) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
-    checkLinkTypeSupport(getType(session));
+    checkLinkTypeSupport(PropertyTypeInternal.convertFromPublicType(getType(session)));
 
     acquireSchemaWriteLock(session);
     try {

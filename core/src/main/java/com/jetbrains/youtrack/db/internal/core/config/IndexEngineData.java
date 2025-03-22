@@ -1,8 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.config;
 
-import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -30,7 +29,7 @@ public final class IndexEngineData {
   private final byte valueSerializerId;
   private final byte keySerializedId;
   private final boolean isAutomatic;
-  private final PropertyType[] keyTypes;
+  private final PropertyTypeInternal[] keyTypes;
   private final boolean nullValuesSupport;
   private final int keySize;
   private final Map<String, String> engineProperties;
@@ -43,7 +42,7 @@ public final class IndexEngineData {
       final Boolean durableInNonTxMode,
       final byte valueSerializerId,
       final byte keySerializedId,
-      final PropertyType[] keyTypes,
+      final PropertyTypeInternal[] keyTypes,
       final int keySize,
       final String encryption,
       final String encryptionOptions,
@@ -83,7 +82,7 @@ public final class IndexEngineData {
       final byte valueSerializerId,
       final byte keySerializedId,
       final boolean isAutomatic,
-      final PropertyType[] keyTypes,
+      final PropertyTypeInternal[] keyTypes,
       final boolean nullValuesSupport,
       final int keySize,
       final String encryption,
@@ -159,7 +158,7 @@ public final class IndexEngineData {
     return isAutomatic;
   }
 
-  public PropertyType[] getKeyTypes() {
+  public PropertyTypeInternal[] getKeyTypes() {
     return keyTypes;
   }
 

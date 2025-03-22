@@ -20,8 +20,8 @@
 package com.jetbrains.youtrack.db.internal.common.util;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.config.StorageFileConfiguration;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageCluster;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.PageDataVerificationError;
@@ -35,7 +35,7 @@ public final class CommonConst {
   public static final StorageCluster[] EMPTY_CLUSTER_ARRAY = new StorageCluster[0];
   public static final Identifiable[] EMPTY_IDENTIFIABLE_ARRAY = new Identifiable[0];
   public static final Object[] EMPTY_OBJECT_ARRAY = new Object[0];
-  public static final PropertyType[] EMPTY_TYPES_ARRAY = new PropertyType[0];
+  public static final PropertyTypeInternal[] EMPTY_TYPES_ARRAY = new PropertyTypeInternal[0];
   public static final PageDataVerificationError[] EMPTY_PAGE_DATA_VERIFICATION_ARRAY =
       new PageDataVerificationError[0];
   public static final PhysicalPosition[] EMPTY_PHYSICAL_POSITIONS_ARRAY = new PhysicalPosition[0];

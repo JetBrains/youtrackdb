@@ -21,16 +21,14 @@ package com.jetbrains.youtrack.db.internal.core.sql;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.command.CommandDistributedReplicateRequest;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassEmbedded;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaPropertyImpl;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -59,7 +57,7 @@ public class CommandExecutorSQLCreateProperty extends CommandExecutorSQLAbstract
 
   private boolean ifNotExists = false;
 
-  private PropertyType type;
+  private PropertyTypeInternal type;
   private String linked;
 
   private boolean readonly = false;
@@ -150,7 +148,7 @@ public class CommandExecutorSQLCreateProperty extends CommandExecutorSQLAbstract
         pos = nextWord(parserText, parserTextUpperCase, oldPos, word, true);
       }
 
-      type = PropertyType.valueOf(word.toString());
+      type = PropertyTypeInternal.valueOf(word.toString());
 
       // Use a REGEX for the rest because we know exactly what we are looking for.
       // If we are in strict mode, the parser took care of strict matching.
@@ -313,7 +311,7 @@ public class CommandExecutorSQLCreateProperty extends CommandExecutorSQLAbstract
 
     // CREATE THE PROPERTY
     SchemaClass linkedClass = null;
-    PropertyType linkedType = null;
+    PropertyTypeInternal linkedType = null;
     if (linked != null) {
       // FIRST SEARCH BETWEEN CLASSES
       linkedClass = session.getMetadata().getSchema().getClass(linked);
@@ -321,7 +319,7 @@ public class CommandExecutorSQLCreateProperty extends CommandExecutorSQLAbstract
       if (linkedClass == null)
       // NOT FOUND: SEARCH BETWEEN TYPES
       {
-        linkedType = PropertyType.valueOf(linked.toUpperCase(Locale.ENGLISH));
+        linkedType = PropertyTypeInternal.valueOf(linked.toUpperCase(Locale.ENGLISH));
       }
     }
 
@@ -332,7 +330,7 @@ public class CommandExecutorSQLCreateProperty extends CommandExecutorSQLAbstract
     } else if (linkedType != null) {
       internalProp = sourceClass.createProperty(fieldName, type, linkedType, unsafe);
     } else {
-      internalProp = sourceClass.createProperty(fieldName, type);
+      internalProp = sourceClass.createProperty(fieldName, type.getPublicPropertyType());
     }
 
     if (readonly) {

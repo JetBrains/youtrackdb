@@ -3,13 +3,11 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaPropertyImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaPropertyInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
@@ -75,14 +73,14 @@ public class SQLCreatePropertyStatement extends DDLStatement {
               + propertyName.getStringValue()
               + " already exists");
     }
-    var type = PropertyType.valueOf(
+    var type = PropertyTypeInternal.valueOf(
         propertyType.getStringValue().toUpperCase(Locale.ENGLISH));
     if (type == null) {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Invalid property type: " + propertyType.getStringValue());
     }
     SchemaClass linkedClass = null;
-    PropertyType linkedType = null;
+    PropertyTypeInternal linkedType = null;
     if (this.linkedType != null) {
       var linked = this.linkedType.getStringValue();
       // FIRST SEARCH BETWEEN CLASSES
@@ -90,7 +88,7 @@ public class SQLCreatePropertyStatement extends DDLStatement {
       if (linkedClass == null)
       // NOT FOUND: SEARCH BETWEEN TYPES
       {
-        linkedType = PropertyType.valueOf(linked.toUpperCase(Locale.ENGLISH));
+        linkedType = PropertyTypeInternal.valueOf(linked.toUpperCase(Locale.ENGLISH));
       }
     }
     // CREATE IT LOCALLY
@@ -101,7 +99,8 @@ public class SQLCreatePropertyStatement extends DDLStatement {
     } else if (linkedClass != null) {
       internalProp = clazz.createProperty(propertyName.getStringValue(), type, linkedClass, unsafe);
     } else {
-      internalProp = clazz.createProperty(propertyName.getStringValue(), type);
+      internalProp = clazz.createProperty(propertyName.getStringValue(),
+          type.getPublicPropertyType());
     }
 
     for (var attr : attributes) {

@@ -38,6 +38,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.index.NullOutputListener;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule.ResourceGeneric;
@@ -971,25 +972,25 @@ public class SecurityShared implements SecurityInternal {
     if (!restrictedClass.existsProperty(ALLOW_ALL_FIELD)) {
       restrictedClass.createProperty(
           ALLOW_ALL_FIELD,
-          PropertyType.LINKSET,
+          PropertyTypeInternal.LINKSET,
           database.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
     }
     if (!restrictedClass.existsProperty(ALLOW_READ_FIELD)) {
       restrictedClass.createProperty(
           ALLOW_READ_FIELD,
-          PropertyType.LINKSET,
+          PropertyTypeInternal.LINKSET,
           database.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
     }
     if (!restrictedClass.existsProperty(ALLOW_UPDATE_FIELD)) {
       restrictedClass.createProperty(
           ALLOW_UPDATE_FIELD,
-          PropertyType.LINKSET,
+          PropertyTypeInternal.LINKSET,
           database.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
     }
     if (!restrictedClass.existsProperty(ALLOW_DELETE_FIELD)) {
       restrictedClass.createProperty(
           ALLOW_DELETE_FIELD,
-          PropertyType.LINKSET,
+          PropertyTypeInternal.LINKSET,
           database.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
     }
   }
@@ -1011,7 +1012,7 @@ public class SecurityShared implements SecurityInternal {
 
     if (!userClass.existsProperty("name")) {
       userClass
-          .createProperty("name", PropertyType.STRING, (PropertyType) null, unsafe)
+          .createProperty("name", PropertyTypeInternal.STRING, (PropertyTypeInternal) null, unsafe)
           .setMandatory(true)
           .setNotNull(true)
           .setCollate("ci")
@@ -1028,17 +1029,18 @@ public class SecurityShared implements SecurityInternal {
     }
     if (!userClass.existsProperty(SecurityUserImpl.PASSWORD_PROPERTY)) {
       userClass
-          .createProperty(SecurityUserImpl.PASSWORD_PROPERTY, PropertyType.STRING,
-              (PropertyType) null, unsafe)
+          .createProperty(SecurityUserImpl.PASSWORD_PROPERTY, PropertyTypeInternal.STRING,
+              (PropertyTypeInternal) null, unsafe)
           .setMandatory(true)
           .setNotNull(true);
     }
     if (!userClass.existsProperty("roles")) {
-      userClass.createProperty("roles", PropertyType.LINKSET, roleClass, unsafe);
+      userClass.createProperty("roles", PropertyTypeInternal.LINKSET, roleClass, unsafe);
     }
     if (!userClass.existsProperty("status")) {
       userClass
-          .createProperty("status", PropertyType.STRING, (PropertyType) null, unsafe)
+          .createProperty("status", PropertyTypeInternal.STRING, (PropertyTypeInternal) null,
+              unsafe)
           .setMandatory(true)
           .setNotNull(true);
     }
@@ -1057,7 +1059,7 @@ public class SecurityShared implements SecurityInternal {
 
     if (!policyClass.existsProperty("name")) {
       policyClass
-          .createProperty("name", PropertyType.STRING, (PropertyType) null, unsafe)
+          .createProperty("name", PropertyTypeInternal.STRING, (PropertyTypeInternal) null, unsafe)
           .setMandatory(true)
           .setNotNull(true)
           .setCollate("ci");
@@ -1072,32 +1074,36 @@ public class SecurityShared implements SecurityInternal {
     }
 
     if (!policyClass.existsProperty("create")) {
-      policyClass.createProperty("create", PropertyType.STRING, (PropertyType) null,
+      policyClass.createProperty("create", PropertyTypeInternal.STRING, (PropertyTypeInternal) null,
           unsafe);
     }
     if (!policyClass.existsProperty("read")) {
-      policyClass.createProperty("read", PropertyType.STRING, (PropertyType) null,
+      policyClass.createProperty("read", PropertyTypeInternal.STRING, (PropertyTypeInternal) null,
           unsafe);
     }
     if (!policyClass.existsProperty("beforeUpdate")) {
-      policyClass.createProperty("beforeUpdate", PropertyType.STRING, (PropertyType) null,
+      policyClass.createProperty("beforeUpdate", PropertyTypeInternal.STRING,
+          (PropertyTypeInternal) null,
           unsafe);
     }
     if (!policyClass.existsProperty("afterUpdate")) {
-      policyClass.createProperty("afterUpdate", PropertyType.STRING, (PropertyType) null,
+      policyClass.createProperty("afterUpdate", PropertyTypeInternal.STRING,
+          (PropertyTypeInternal) null,
           unsafe);
     }
     if (!policyClass.existsProperty("delete")) {
-      policyClass.createProperty("delete", PropertyType.STRING, (PropertyType) null,
+      policyClass.createProperty("delete", PropertyTypeInternal.STRING, (PropertyTypeInternal) null,
           unsafe);
     }
     if (!policyClass.existsProperty("execute")) {
-      policyClass.createProperty("execute", PropertyType.STRING, (PropertyType) null,
+      policyClass.createProperty("execute", PropertyTypeInternal.STRING,
+          (PropertyTypeInternal) null,
           unsafe);
     }
 
     if (!policyClass.existsProperty("active")) {
-      policyClass.createProperty("active", PropertyType.BOOLEAN, (PropertyType) null,
+      policyClass.createProperty("active", PropertyTypeInternal.BOOLEAN,
+          (PropertyTypeInternal) null,
           unsafe);
     }
 
@@ -1120,7 +1126,7 @@ public class SecurityShared implements SecurityInternal {
 
     if (!roleClass.existsProperty("name")) {
       roleClass
-          .createProperty("name", PropertyType.STRING, (PropertyType) null, unsafe)
+          .createProperty("name", PropertyTypeInternal.STRING, (PropertyTypeInternal) null, unsafe)
           .setMandatory(true)
           .setNotNull(true)
           .setCollate("ci");
@@ -1136,20 +1142,21 @@ public class SecurityShared implements SecurityInternal {
     }
 
     if (!roleClass.existsProperty("mode")) {
-      roleClass.createProperty("mode", PropertyType.BYTE, (PropertyType) null, unsafe);
+      roleClass.createProperty("mode", PropertyTypeInternal.BYTE, (PropertyTypeInternal) null,
+          unsafe);
     }
 
     if (!roleClass.existsProperty("rules")) {
-      roleClass.createProperty("rules", PropertyType.EMBEDDEDMAP, PropertyType.BYTE,
+      roleClass.createProperty("rules", PropertyTypeInternal.EMBEDDEDMAP, PropertyTypeInternal.BYTE,
           unsafe);
     }
     if (!roleClass.existsProperty("inheritedRole")) {
-      roleClass.createProperty("inheritedRole", PropertyType.LINK, roleClass, unsafe);
+      roleClass.createProperty("inheritedRole", PropertyTypeInternal.LINK, roleClass, unsafe);
     }
 
     if (!roleClass.existsProperty("policies")) {
       roleClass.createProperty(
-          "policies", PropertyType.LINKMAP, database.getClass("OSecurityPolicy"), unsafe);
+          "policies", PropertyTypeInternal.LINKMAP, database.getClass("OSecurityPolicy"), unsafe);
     }
 
     return roleClass;

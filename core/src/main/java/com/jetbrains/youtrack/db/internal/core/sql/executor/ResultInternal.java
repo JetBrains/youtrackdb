@@ -12,7 +12,6 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
@@ -21,6 +20,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.lang.reflect.Array;
@@ -167,7 +167,7 @@ public class ResultInternal implements Result {
       }
 
       default -> {
-        if (PropertyType.getTypeByValue(value) == null) {
+        if (PropertyTypeInternal.getTypeByValue(value) == null) {
           throw new IllegalArgumentException(
               "Unexpected property value :" + value);
         }
@@ -207,7 +207,7 @@ public class ResultInternal implements Result {
       return null;
     }
 
-    if (PropertyType.isSingleValueType(value)) {
+    if (PropertyTypeInternal.isSingleValueType(value)) {
       return value;
     }
 

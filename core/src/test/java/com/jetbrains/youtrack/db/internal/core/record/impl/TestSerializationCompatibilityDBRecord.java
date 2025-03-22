@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.record.impl;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
@@ -29,8 +30,8 @@ public class TestSerializationCompatibilityDBRecord extends DbTestBase {
     var id = entity.getIdentity();
     session.commit();
 
-    klass.createProperty("map", PropertyType.EMBEDDEDMAP,
-        (PropertyType) null, true);
+    klass.createProperty("map", PropertyTypeInternal.EMBEDDEDMAP,
+        (PropertyTypeInternal) null, true);
 
     session.begin();
     var record = session.loadEntity(id);

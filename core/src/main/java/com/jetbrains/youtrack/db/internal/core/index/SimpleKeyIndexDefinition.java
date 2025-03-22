@@ -23,10 +23,10 @@ package com.jetbrains.youtrack.db.internal.core.index;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.schema.Collate;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import java.io.IOException;
@@ -38,9 +38,9 @@ import javax.annotation.Nonnull;
 
 public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
 
-  private PropertyType[] keyTypes;
+  private PropertyTypeInternal[] keyTypes;
 
-  public SimpleKeyIndexDefinition(final PropertyType... keyTypes) {
+  public SimpleKeyIndexDefinition(final PropertyTypeInternal... keyTypes) {
     super();
 
     this.keyTypes = keyTypes;
@@ -49,7 +49,7 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
   public SimpleKeyIndexDefinition() {
   }
 
-  public SimpleKeyIndexDefinition(PropertyType[] keyTypes2, List<Collate> collatesList) {
+  public SimpleKeyIndexDefinition(PropertyTypeInternal[] keyTypes2, List<Collate> collatesList) {
     super();
 
     this.keyTypes = Arrays.copyOf(keyTypes2, keyTypes2.length);
@@ -114,7 +114,7 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
     return keyTypes.length;
   }
 
-  public PropertyType[] getTypes() {
+  public PropertyTypeInternal[] getTypes() {
     return Arrays.copyOf(keyTypes, keyTypes.length);
   }
 
@@ -188,11 +188,11 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
     super.serializeFromMap(map);
 
     @SuppressWarnings("unchecked") final var keyTypeNames = (List<String>) map.get("keyTypes");
-    keyTypes = new PropertyType[keyTypeNames.size()];
+    keyTypes = new PropertyTypeInternal[keyTypeNames.size()];
 
     var i = 0;
     for (final var keyTypeName : keyTypeNames) {
-      keyTypes[i] = PropertyType.valueOf(keyTypeName);
+      keyTypes[i] = PropertyTypeInternal.valueOf(keyTypeName);
       i++;
     }
 

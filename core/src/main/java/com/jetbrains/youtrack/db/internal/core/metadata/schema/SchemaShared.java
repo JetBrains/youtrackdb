@@ -719,14 +719,15 @@ public abstract class SchemaShared implements CloseableInStorage {
   }
 
   public GlobalProperty createGlobalProperty(
-      DatabaseSessionInternal session, final String name, final PropertyType type,
+      DatabaseSessionInternal session, final String name, final PropertyTypeInternal type,
       final Integer id) {
 
     acquireSchemaWriteLock(session);
     try {
       GlobalProperty global;
       if (id < properties.size() && (global = properties.get(id)) != null) {
-        if (!global.getName().equals(name) || !global.getType().equals(type)) {
+        if (!global.getName().equals(name)
+            || PropertyTypeInternal.convertFromPublicType(global.getType()) != type) {
           throw new SchemaException("A property with id " + id + " already exist ");
         }
         return global;
@@ -751,7 +752,8 @@ public abstract class SchemaShared implements CloseableInStorage {
     }
   }
 
-  protected GlobalProperty findOrCreateGlobalProperty(final String name, final PropertyType type) {
+  protected GlobalProperty findOrCreateGlobalProperty(final String name,
+      final PropertyTypeInternal type) {
     var global = propertiesByNameType.get(name + "|" + type.name());
     if (global == null) {
       var id = properties.size();

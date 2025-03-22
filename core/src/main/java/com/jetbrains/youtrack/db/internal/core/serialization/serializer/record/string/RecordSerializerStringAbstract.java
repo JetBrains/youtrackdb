@@ -22,10 +22,10 @@ package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
@@ -49,14 +49,14 @@ public abstract class RecordSerializerStringAbstract {
   private static final int MAX_INTEGER_DIGITS = MAX_INTEGER_AS_STRING.length();
 
   public static Object fieldTypeFromStream(
-      DatabaseSessionInternal session, final EntityImpl entity, PropertyType iType,
+      DatabaseSessionInternal session, final EntityImpl entity, PropertyTypeInternal iType,
       final Object iValue) {
     if (iValue == null) {
       return null;
     }
 
     if (iType == null) {
-      iType = PropertyType.EMBEDDED;
+      iType = PropertyTypeInternal.EMBEDDED;
     }
 
     switch (iType) {
@@ -106,13 +106,13 @@ public abstract class RecordSerializerStringAbstract {
   }
 
   public static Object convertValue(DatabaseSessionInternal session,
-      final String iValue, final PropertyType iExpectedType) {
+      final String iValue, final PropertyTypeInternal iExpectedType) {
     final var v = getTypeValue(session, iValue);
-    return PropertyType.convert(session, v, iExpectedType.getDefaultJavaType());
+    return PropertyTypeInternal.convert(session, v, iExpectedType.getDefaultJavaType());
   }
 
   public static void fieldTypeToString(
-      DatabaseSessionInternal session, final StringWriter iBuffer, PropertyType iType,
+      DatabaseSessionInternal session, final StringWriter iBuffer, PropertyTypeInternal iType,
       final Object iValue) {
     if (iValue == null) {
       return;
@@ -120,9 +120,9 @@ public abstract class RecordSerializerStringAbstract {
 
     if (iType == null) {
       if (iValue instanceof RID) {
-        iType = PropertyType.LINK;
+        iType = PropertyTypeInternal.LINK;
       } else {
-        iType = PropertyType.EMBEDDED;
+        iType = PropertyTypeInternal.EMBEDDED;
       }
     }
 
@@ -234,7 +234,7 @@ public abstract class RecordSerializerStringAbstract {
    * @param iValue Value to parse
    * @return The closest type recognized
    */
-  public static PropertyType getType(final String iValue) {
+  public static PropertyTypeInternal getType(final String iValue) {
     if (iValue.length() == 0) {
       return null;
     }
@@ -244,24 +244,24 @@ public abstract class RecordSerializerStringAbstract {
     if (firstChar == RID.PREFIX)
     // RID
     {
-      return PropertyType.LINK;
+      return PropertyTypeInternal.LINK;
     } else if (firstChar == '\'' || firstChar == '"') {
-      return PropertyType.STRING;
+      return PropertyTypeInternal.STRING;
     } else if (firstChar == StringSerializerHelper.BINARY_BEGINEND) {
-      return PropertyType.BINARY;
+      return PropertyTypeInternal.BINARY;
     } else if (firstChar == StringSerializerHelper.EMBEDDED_BEGIN) {
-      return PropertyType.EMBEDDED;
+      return PropertyTypeInternal.EMBEDDED;
     } else if (firstChar == StringSerializerHelper.LIST_BEGIN) {
-      return PropertyType.EMBEDDEDLIST;
+      return PropertyTypeInternal.EMBEDDEDLIST;
     } else if (firstChar == StringSerializerHelper.SET_BEGIN) {
-      return PropertyType.EMBEDDEDSET;
+      return PropertyTypeInternal.EMBEDDEDSET;
     } else if (firstChar == StringSerializerHelper.MAP_BEGIN) {
-      return PropertyType.EMBEDDEDMAP;
+      return PropertyTypeInternal.EMBEDDEDMAP;
     }
 
     // BOOLEAN?
     if (iValue.equalsIgnoreCase("true") || iValue.equalsIgnoreCase("false")) {
-      return PropertyType.BOOLEAN;
+      return PropertyTypeInternal.BOOLEAN;
     }
 
     // NUMBER OR STRING?
@@ -286,32 +286,40 @@ public abstract class RecordSerializerStringAbstract {
                 continue;
               }
             } else if (c == 'f') {
-              return index != (iValue.length() - 1) ? PropertyType.STRING : PropertyType.FLOAT;
+              return index != (iValue.length() - 1) ? PropertyTypeInternal.STRING
+                  : PropertyTypeInternal.FLOAT;
             } else if (c == 'c') {
-              return index != (iValue.length() - 1) ? PropertyType.STRING : PropertyType.DECIMAL;
+              return index != (iValue.length() - 1) ? PropertyTypeInternal.STRING
+                  : PropertyTypeInternal.DECIMAL;
             } else if (c == 'l') {
-              return index != (iValue.length() - 1) ? PropertyType.STRING : PropertyType.LONG;
+              return index != (iValue.length() - 1) ? PropertyTypeInternal.STRING
+                  : PropertyTypeInternal.LONG;
             } else if (c == 'd') {
-              return index != (iValue.length() - 1) ? PropertyType.STRING : PropertyType.DOUBLE;
+              return index != (iValue.length() - 1) ? PropertyTypeInternal.STRING
+                  : PropertyTypeInternal.DOUBLE;
             } else if (c == 'b') {
-              return index != (iValue.length() - 1) ? PropertyType.STRING : PropertyType.BYTE;
+              return index != (iValue.length() - 1) ? PropertyTypeInternal.STRING
+                  : PropertyTypeInternal.BYTE;
             } else if (c == 'a') {
-              return index != (iValue.length() - 1) ? PropertyType.STRING : PropertyType.DATE;
+              return index != (iValue.length() - 1) ? PropertyTypeInternal.STRING
+                  : PropertyTypeInternal.DATE;
             } else if (c == 't') {
-              return index != (iValue.length() - 1) ? PropertyType.STRING : PropertyType.DATETIME;
+              return index != (iValue.length() - 1) ? PropertyTypeInternal.STRING
+                  : PropertyTypeInternal.DATETIME;
             } else if (c == 's') {
-              return index != (iValue.length() - 1) ? PropertyType.STRING : PropertyType.SHORT;
+              return index != (iValue.length() - 1) ? PropertyTypeInternal.STRING
+                  : PropertyTypeInternal.SHORT;
             } else if (c == 'e') { // eg. 1e-06
               try {
                 Double.parseDouble(iValue);
-                return PropertyType.DOUBLE;
+                return PropertyTypeInternal.DOUBLE;
               } catch (Exception ignore) {
-                return PropertyType.STRING;
+                return PropertyTypeInternal.STRING;
               }
             }
           }
 
-          return PropertyType.STRING;
+          return PropertyTypeInternal.STRING;
         }
       }
     }
@@ -321,10 +329,10 @@ public abstract class RecordSerializerStringAbstract {
       final var numberLength = iValue.length();
       if (numberLength > MAX_INTEGER_DIGITS
           || (numberLength == MAX_INTEGER_DIGITS && iValue.compareTo(MAX_INTEGER_AS_STRING) > 0)) {
-        return PropertyType.LONG;
+        return PropertyTypeInternal.LONG;
       }
 
-      return PropertyType.INTEGER;
+      return PropertyTypeInternal.INTEGER;
     }
 
     // CHECK IF THE DECIMAL NUMBER IS A FLOAT OR DOUBLE
@@ -333,12 +341,12 @@ public abstract class RecordSerializerStringAbstract {
         && dou >= Float.MIN_VALUE
         && Double.toString(dou).equals(Float.toString((float) dou))
         && (double) Double.valueOf(dou).floatValue() == dou) {
-      return PropertyType.FLOAT;
+      return PropertyTypeInternal.FLOAT;
     } else if (!Double.toString(dou).equals(iValue)) {
-      return PropertyType.DECIMAL;
+      return PropertyTypeInternal.DECIMAL;
     }
 
-    return PropertyType.DOUBLE;
+    return PropertyTypeInternal.DOUBLE;
   }
 
   /**
@@ -477,7 +485,7 @@ public abstract class RecordSerializerStringAbstract {
   }
 
   public static Object simpleValueFromStream(DatabaseSessionInternal db, final Object iValue,
-      final PropertyType iType) {
+      final PropertyTypeInternal iType) {
     switch (iType) {
       case STRING:
         if (iValue instanceof String) {
@@ -558,7 +566,7 @@ public abstract class RecordSerializerStringAbstract {
   }
 
   public static void simpleValueToStream(
-      DatabaseSessionInternal session, final StringWriter iBuffer, final PropertyType iType,
+      DatabaseSessionInternal session, final StringWriter iBuffer, final PropertyTypeInternal iType,
       final Object iValue) {
     if (iValue == null || iType == null) {
       return;

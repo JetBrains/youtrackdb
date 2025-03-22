@@ -37,7 +37,6 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.transaction.RecordOperationType;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
@@ -50,6 +49,7 @@ import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.ClassIndexManager;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
@@ -919,7 +919,7 @@ public class FrontendTransactionImpl implements
     return dependency == Dependency.Unknown || dependency == null;
   }
 
-  private static Dependency getTypeRidDependency(PropertyType type) {
+  private static Dependency getTypeRidDependency(PropertyTypeInternal type) {
     // fallback to the safest variant, just in case
     return switch (type) {
       case EMBEDDED, LINK -> Dependency.Yes;

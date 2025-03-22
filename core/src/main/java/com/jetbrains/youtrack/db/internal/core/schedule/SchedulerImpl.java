@@ -21,12 +21,12 @@ import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.schedule.Scheduler.STATUS;
@@ -161,29 +161,32 @@ public class SchedulerImpl {
     var f = (SchemaClassInternal) database.getMetadata().getSchema()
         .createClass(ScheduledEvent.CLASS_NAME);
 
-    f.createProperty(ScheduledEvent.PROP_NAME, PropertyType.STRING, (PropertyType) null,
+    f.createProperty(ScheduledEvent.PROP_NAME, PropertyTypeInternal.STRING,
+            (PropertyTypeInternal) null,
             true)
         .setMandatory(true)
         .setNotNull(true);
     f.createIndex(ScheduledEvent.PROP_NAME + "Index", SchemaClass.INDEX_TYPE.UNIQUE,
         ScheduledEvent.PROP_NAME);
-    f.createProperty(ScheduledEvent.PROP_RULE, PropertyType.STRING, (PropertyType) null,
+    f.createProperty(ScheduledEvent.PROP_RULE, PropertyTypeInternal.STRING,
+            (PropertyTypeInternal) null,
             true)
         .setMandatory(true)
         .setNotNull(true);
-    f.createProperty(ScheduledEvent.PROP_ARGUMENTS, PropertyType.EMBEDDEDMAP,
-        (PropertyType) null,
+    f.createProperty(ScheduledEvent.PROP_ARGUMENTS, PropertyTypeInternal.EMBEDDEDMAP,
+        (PropertyTypeInternal) null,
         true);
-    f.createProperty(ScheduledEvent.PROP_STATUS, PropertyType.STRING, (PropertyType) null,
+    f.createProperty(ScheduledEvent.PROP_STATUS, PropertyTypeInternal.STRING,
+        (PropertyTypeInternal) null,
         true);
     f.createProperty(
             ScheduledEvent.PROP_FUNC,
-            PropertyType.LINK,
+            PropertyTypeInternal.LINK,
             database.getMetadata().getSchema().getClass(Function.CLASS_NAME), true)
         .setMandatory(true)
         .setNotNull(true);
-    f.createProperty(ScheduledEvent.PROP_STARTTIME, PropertyType.DATETIME,
-        (PropertyType) null,
+    f.createProperty(ScheduledEvent.PROP_STARTTIME, PropertyTypeInternal.DATETIME,
+        (PropertyTypeInternal) null,
         true);
   }
 

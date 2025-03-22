@@ -21,7 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.functions.math;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 
@@ -69,7 +69,7 @@ public class SQLFunctionSum extends SQLFunctionMathAbstract {
       {
         sum = value;
       } else {
-        sum = PropertyType.increment(sum, value);
+        sum = PropertyTypeInternal.increment(sum, value);
       }
     }
   }

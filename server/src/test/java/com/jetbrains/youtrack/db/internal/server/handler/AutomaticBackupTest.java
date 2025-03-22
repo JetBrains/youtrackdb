@@ -104,7 +104,7 @@ public class AutomaticBackupTest {
         .execute("create database ? disk users (admin identified by 'admin' role admin)", DBNAME);
     db = server.getDatabases().openNoAuthorization(DBNAME);
 
-    db.createClass("TestBackup");
+    db.getSchema().createClass("TestBackup");
     var tx = db.begin();
     tx.newEntity("TestBackup").setProperty("name", DBNAME);
 

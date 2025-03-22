@@ -1,13 +1,13 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
@@ -31,8 +31,10 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
   public void beforeMethod() {
     compositeIndex = new CompositeIndexDefinition("testClass");
 
-    compositeIndex.addIndex(new PropertyIndexDefinition("testClass", "fOne", PropertyType.INTEGER));
-    compositeIndex.addIndex(new PropertyIndexDefinition("testClass", "fTwo", PropertyType.STRING));
+    compositeIndex.addIndex(
+        new PropertyIndexDefinition("testClass", "fOne", PropertyTypeInternal.INTEGER));
+    compositeIndex.addIndex(
+        new PropertyIndexDefinition("testClass", "fTwo", PropertyTypeInternal.STRING));
   }
 
   @Test
@@ -57,10 +59,10 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testCollectionClass");
 
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
         new PropertyMapIndexDefinition(
-            "testCollectionClass", "fTwo", PropertyType.STRING,
+            "testCollectionClass", "fTwo", PropertyTypeInternal.STRING,
             PropertyMapIndexDefinition.INDEX_BY.KEY));
 
     final Map<String, String> stringMap = new HashMap<String, String>();
@@ -82,9 +84,10 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testCollectionClass");
 
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyListIndexDefinition("testCollectionClass", "fTwo", PropertyType.INTEGER));
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.INTEGER));
 
     final var result = compositeIndexDefinition.createValue(session, 12, Arrays.asList(1, 2));
 
@@ -102,7 +105,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testCollectionClass");
 
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
         new PropertyRidBagIndexDefinition("testCollectionClass", "fTwo"));
 
@@ -128,9 +131,10 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testCollectionClass");
 
     compositeIndexDefinition.addIndex(
-        new PropertyListIndexDefinition("testCollectionClass", "fTwo", PropertyType.INTEGER));
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
 
     final var result =
         compositeIndexDefinition.createValue(session, Arrays.asList(Arrays.asList(1, 2), 12));
@@ -149,9 +153,10 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testCollectionClass");
 
     compositeIndexDefinition.addIndex(
-        new PropertyListIndexDefinition("testCollectionClass", "fTwo", PropertyType.INTEGER));
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
 
     final var result = compositeIndexDefinition.createValue(session, Collections.emptyList(), 12);
     Assert.assertNull(result);
@@ -163,9 +168,10 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testCollectionClass");
 
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyListIndexDefinition("testCollectionClass", "fTwo", PropertyType.INTEGER));
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.INTEGER));
 
     final var result = compositeIndexDefinition.createValue(session, 12, Collections.emptyList());
     Assert.assertNull(result);
@@ -178,9 +184,10 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.setNullValuesIgnored(false);
 
     compositeIndexDefinition.addIndex(
-        new PropertyListIndexDefinition("testCollectionClass", "fTwo", PropertyType.INTEGER));
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
 
     final var result = compositeIndexDefinition.createValue(session, Collections.emptyList(), 12);
     Assert.assertEquals(result, List.of(new CompositeKey(null, 12)));
@@ -193,9 +200,10 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.setNullValuesIgnored(false);
 
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyListIndexDefinition("testCollectionClass", "fTwo", PropertyType.INTEGER));
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.INTEGER));
 
     final var result = compositeIndexDefinition.createValue(session, 12, Collections.emptyList());
     Assert.assertEquals(result, List.of(new CompositeKey(12, null)));
@@ -209,7 +217,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyRidBagIndexDefinition("testCollectionClass", "fTwo"));
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
 
     var ridBag = new RidBag(session);
     ridBag.add(new RecordId("#1:10"));
@@ -233,11 +241,12 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testCollectionClass");
 
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyListIndexDefinition("testCollectionClass", "fTwo", PropertyType.INTEGER));
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyType.STRING));
+        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyTypeInternal.STRING));
 
     final var result = compositeIndexDefinition.createValue(session, 12, Arrays.asList(1, 2),
         "test");
@@ -256,11 +265,11 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testCollectionClass");
 
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
         new PropertyRidBagIndexDefinition("testCollectionClass", "fTwo"));
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyType.STRING));
+        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyTypeInternal.STRING));
 
     var ridBag = new RidBag(session);
     ridBag.add(new RecordId("#1:10"));
@@ -284,9 +293,11 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testCollectionClass");
 
     compositeIndexDefinition.addIndex(
-        new PropertyListIndexDefinition("testCollectionClass", "fTwo", PropertyType.INTEGER));
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyListIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyListIndexDefinition("testCollectionClass", "fOne",
+            PropertyTypeInternal.INTEGER));
 
     compositeIndexDefinition.createValue(session, Arrays.asList(1, 2), List.of(12));
   }
@@ -311,7 +322,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
   @Test
   public void testCreateValueDefinitionsMoreThanParams() {
     compositeIndex.addIndex(
-        new PropertyIndexDefinition("testClass", "fThree", PropertyType.STRING));
+        new PropertyIndexDefinition("testClass", "fThree", PropertyTypeInternal.STRING));
 
     final var result = compositeIndex.createValue(session, "12", "test");
     Assert.assertEquals(result, new CompositeKey(Arrays.asList(12, "test")));
@@ -323,9 +334,9 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testClass");
 
     anotherCompositeIndex.addIndex(
-        new PropertyIndexDefinition("testClass", "f11", PropertyType.STRING));
+        new PropertyIndexDefinition("testClass", "f11", PropertyTypeInternal.STRING));
     anotherCompositeIndex.addIndex(
-        new PropertyIndexDefinition("testClass", "f22", PropertyType.STRING));
+        new PropertyIndexDefinition("testClass", "f22", PropertyTypeInternal.STRING));
 
     compositeIndex.addIndex(anotherCompositeIndex);
 
@@ -362,10 +373,10 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testCollectionClass");
 
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
         new PropertyMapIndexDefinition(
-            "testCollectionClass", "fTwo", PropertyType.STRING,
+            "testCollectionClass", "fTwo", PropertyTypeInternal.STRING,
             PropertyMapIndexDefinition.INDEX_BY.KEY));
 
     final var result = compositeIndexDefinition.getDocumentValueToIndex(session, document);
@@ -389,9 +400,10 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testCollectionClass");
 
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyListIndexDefinition("testCollectionClass", "fTwo", PropertyType.INTEGER));
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.INTEGER));
 
     final var result = compositeIndexDefinition.getDocumentValueToIndex(session, document);
 
@@ -416,9 +428,10 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testCollectionClass");
 
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyListIndexDefinition("testCollectionClass", "fTwo", PropertyType.INTEGER));
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.INTEGER));
 
     final var result = compositeIndexDefinition.getDocumentValueToIndex(session, document);
     Assert.assertNull(result);
@@ -437,9 +450,10 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testCollectionClass");
 
     compositeIndexDefinition.addIndex(
-        new PropertyListIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyListIndexDefinition("testCollectionClass", "fOne",
+            PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fTwo", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fTwo", PropertyTypeInternal.INTEGER));
 
     final var result = compositeIndexDefinition.getDocumentValueToIndex(session, document);
     Assert.assertNull(result);
@@ -458,9 +472,10 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testCollectionClass");
 
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyListIndexDefinition("testCollectionClass", "fTwo", PropertyType.INTEGER));
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.setNullValuesIgnored(false);
 
     final var result = compositeIndexDefinition.getDocumentValueToIndex(session, document);
@@ -480,9 +495,10 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testCollectionClass");
 
     compositeIndexDefinition.addIndex(
-        new PropertyListIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyListIndexDefinition("testCollectionClass", "fOne",
+            PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fTwo", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fTwo", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.setNullValuesIgnored(false);
 
     final var result = compositeIndexDefinition.getDocumentValueToIndex(session, document);
@@ -507,7 +523,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testCollectionClass");
 
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
         new PropertyRidBagIndexDefinition("testCollectionClass", "fTwo"));
 
@@ -535,9 +551,10 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testCollectionClass");
 
     compositeIndexDefinition.addIndex(
-        new PropertyListIndexDefinition("testCollectionClass", "fTwo", PropertyType.INTEGER));
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
 
     final var result = compositeIndexDefinition.getDocumentValueToIndex(session, document);
 
@@ -569,7 +586,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyRidBagIndexDefinition("testCollectionClass", "fTwo"));
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
 
     final var result = compositeIndexDefinition.getDocumentValueToIndex(session, document);
 
@@ -596,11 +613,12 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testCollectionClass");
 
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyListIndexDefinition("testCollectionClass", "fTwo", PropertyType.INTEGER));
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyType.STRING));
+        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyTypeInternal.STRING));
 
     final var result = compositeIndexDefinition.getDocumentValueToIndex(session, document);
 
@@ -631,11 +649,11 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testCollectionClass");
 
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
         new PropertyRidBagIndexDefinition("testCollectionClass", "fTwo"));
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyType.STRING));
+        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyTypeInternal.STRING));
 
     final var result = compositeIndexDefinition.getDocumentValueToIndex(session, document);
 
@@ -661,9 +679,11 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testCollectionClass");
 
     compositeIndexDefinition.addIndex(
-        new PropertyListIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyListIndexDefinition("testCollectionClass", "fOne",
+            PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyListIndexDefinition("testCollectionClass", "fTwo", PropertyType.INTEGER));
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.getDocumentValueToIndex(session, document);
     session.rollback();
   }
@@ -692,8 +712,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     final var result = compositeIndex.getTypes();
 
     Assert.assertEquals(2, result.length);
-    Assert.assertEquals(PropertyType.INTEGER, result[0]);
-    Assert.assertEquals(PropertyType.STRING, result[1]);
+    Assert.assertEquals(PropertyTypeInternal.INTEGER, result[0]);
+    Assert.assertEquals(PropertyTypeInternal.STRING, result[1]);
   }
 
   @Test
@@ -702,9 +722,9 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testClass");
 
     emptyCompositeIndex.addIndex(
-        new PropertyIndexDefinition("testClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testClass", "fOne", PropertyTypeInternal.INTEGER));
     emptyCompositeIndex.addIndex(
-        new PropertyIndexDefinition("testClass", "fTwo", PropertyType.STRING));
+        new PropertyIndexDefinition("testClass", "fTwo", PropertyTypeInternal.STRING));
 
     final var map = emptyCompositeIndex.toMap(session);
     final var result = new CompositeIndexDefinition();
@@ -731,16 +751,16 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition(
             "testClass",
             Arrays.asList(
-                new PropertyIndexDefinition("testClass", "fOne", PropertyType.INTEGER),
-                new PropertyIndexDefinition("testClass", "fTwo", PropertyType.STRING)));
+                new PropertyIndexDefinition("testClass", "fOne", PropertyTypeInternal.INTEGER),
+                new PropertyIndexDefinition("testClass", "fTwo", PropertyTypeInternal.STRING)));
 
     final var emptyCompositeIndexTwo =
         new CompositeIndexDefinition("testClass");
 
     emptyCompositeIndexTwo.addIndex(
-        new PropertyIndexDefinition("testClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testClass", "fOne", PropertyTypeInternal.INTEGER));
     emptyCompositeIndexTwo.addIndex(
-        new PropertyIndexDefinition("testClass", "fTwo", PropertyType.STRING));
+        new PropertyIndexDefinition("testClass", "fTwo", PropertyTypeInternal.STRING));
 
     Assert.assertEquals(emptyCompositeIndex, emptyCompositeIndexTwo);
 
@@ -757,11 +777,12 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     final var compositeIndexDefinition = new CompositeIndexDefinition();
 
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyListIndexDefinition("testCollectionClass", "fTwo", PropertyType.STRING));
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.STRING));
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyTypeInternal.INTEGER));
 
     final var doc = (EntityImpl) session.newEntity();
     final var rec = (RecordAbstract) doc;
@@ -800,11 +821,11 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     final var compositeIndexDefinition = new CompositeIndexDefinition();
 
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
         new PropertyRidBagIndexDefinition("testCollectionClass", "fTwo"));
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyTypeInternal.INTEGER));
 
     final var ridBag = new RidBag(session);
     ridBag.enableTracking(null);
@@ -840,11 +861,12 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     final var compositeIndexDefinition = new CompositeIndexDefinition();
 
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyListIndexDefinition("testCollectionClass", "fTwo", PropertyType.STRING));
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.STRING));
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyTypeInternal.INTEGER));
 
     final var doc = (EntityImpl) session.newEntity();
     final var rec = (RecordAbstract) doc;
@@ -887,11 +909,11 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     final var compositeIndexDefinition = new CompositeIndexDefinition();
 
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
         new PropertyRidBagIndexDefinition("testCollectionClass", "fTwo"));
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyTypeInternal.INTEGER));
 
     final var ridBag = new RidBag(session);
 
@@ -929,11 +951,12 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     final var compositeIndexDefinition = new CompositeIndexDefinition();
 
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyListIndexDefinition("testCollectionClass", "fTwo", PropertyType.STRING));
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.STRING));
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyTypeInternal.INTEGER));
 
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
@@ -974,11 +997,12 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     final var compositeIndexDefinition = new CompositeIndexDefinition();
 
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyListIndexDefinition("testCollectionClass", "fTwo", PropertyType.STRING));
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.STRING));
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyTypeInternal.INTEGER));
 
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
@@ -1022,13 +1046,13 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     final var compositeIndexDefinition = new CompositeIndexDefinition();
 
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
         new PropertyMapIndexDefinition(
-            "testCollectionClass", "fTwo", PropertyType.STRING,
+            "testCollectionClass", "fTwo", PropertyTypeInternal.STRING,
             PropertyMapIndexDefinition.INDEX_BY.KEY));
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyTypeInternal.INTEGER));
 
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
@@ -1068,13 +1092,13 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     final var compositeIndexDefinition = new CompositeIndexDefinition();
 
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
         new PropertyMapIndexDefinition(
-            "testCollectionClass", "fTwo", PropertyType.STRING,
+            "testCollectionClass", "fTwo", PropertyTypeInternal.STRING,
             PropertyMapIndexDefinition.INDEX_BY.KEY));
     compositeIndexDefinition.addIndex(
-        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyType.INTEGER));
+        new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyTypeInternal.INTEGER));
 
     session.begin();
     final var doc = (EntityImpl) session.newEntity();

@@ -50,7 +50,7 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
 
   private final String name;
   private final String fullName;
-  private final PropertyType type;
+  private final PropertyTypeInternal type;
   private final String description;
 
   // do not make it volatile it is already thread safe.
@@ -58,7 +58,7 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
 
   private final String linkedClassName;
 
-  private final PropertyType linkedType;
+  private final PropertyTypeInternal linkedType;
   private final boolean notNull;
   private final Collate collate;
   private final boolean mandatory;
@@ -81,7 +81,7 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
       SchemaImmutableClass owner) {
     name = property.getName(session);
     fullName = property.getFullName(session);
-    type = property.getType(session);
+    type = PropertyTypeInternal.convertFromPublicType(property.getType(session));
     description = property.getDescription(session);
 
     if (property.getLinkedClass(session) != null) {
@@ -109,43 +109,44 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
     readOnly = property.isReadonly(session);
     Comparable<Object> minComparable = null;
     if (min != null) {
-      if (type.equals(PropertyType.STRING)) {
+      if (type.equals(PropertyTypeInternal.STRING)) {
         var conv = safeConvert(session, min, Integer.class, "min");
         if (conv != null) {
           minComparable = new ValidationStringComparable(conv);
         }
-      } else if (type.equals(PropertyType.BINARY)) {
+      } else if (type.equals(PropertyTypeInternal.BINARY)) {
         var conv = safeConvert(session, min, Integer.class, "min");
         if (conv != null) {
           minComparable = new ValidationBinaryComparable(conv);
         }
-      } else if (type.equals(PropertyType.DATE)
-          || type.equals(PropertyType.BYTE)
-          || type.equals(PropertyType.SHORT)
-          || type.equals(PropertyType.INTEGER)
-          || type.equals(PropertyType.LONG)
-          || type.equals(PropertyType.FLOAT)
-          || type.equals(PropertyType.DOUBLE)
-          || type.equals(PropertyType.DECIMAL)
-          || type.equals(PropertyType.DATETIME)) {
+      } else if (type.equals(PropertyTypeInternal.DATE)
+          || type.equals(PropertyTypeInternal.BYTE)
+          || type.equals(PropertyTypeInternal.SHORT)
+          || type.equals(PropertyTypeInternal.INTEGER)
+          || type.equals(PropertyTypeInternal.LONG)
+          || type.equals(PropertyTypeInternal.FLOAT)
+          || type.equals(PropertyTypeInternal.DOUBLE)
+          || type.equals(PropertyTypeInternal.DECIMAL)
+          || type.equals(PropertyTypeInternal.DATETIME)) {
         minComparable = (Comparable<Object>) safeConvert(session, min, type.getDefaultJavaType(),
             "min");
-      } else if (type.equals(PropertyType.EMBEDDEDLIST)
-          || type.equals(PropertyType.EMBEDDEDSET)
-          || type.equals(PropertyType.LINKLIST)
-          || type.equals(PropertyType.LINKSET)) {
+      } else if (type.equals(PropertyTypeInternal.EMBEDDEDLIST)
+          || type.equals(PropertyTypeInternal.EMBEDDEDSET)
+          || type.equals(PropertyTypeInternal.LINKLIST)
+          || type.equals(PropertyTypeInternal.LINKSET)) {
         var conv = safeConvert(session, min, Integer.class, "min");
         if (conv != null) {
 
           minComparable = new ValidationCollectionComparable(conv);
         }
-      } else if (type.equals(PropertyType.LINKBAG)) {
+      } else if (type.equals(PropertyTypeInternal.LINKBAG)) {
         var conv = safeConvert(session, min, Integer.class, "min");
         if (conv != null) {
 
           minComparable = new ValidationLinkbagComparable(conv);
         }
-      } else if (type.equals(PropertyType.EMBEDDEDMAP) || type.equals(PropertyType.LINKMAP)) {
+      } else if (type.equals(PropertyTypeInternal.EMBEDDEDMAP) || type.equals(
+          PropertyTypeInternal.LINKMAP)) {
         var conv = safeConvert(session, min, Integer.class, "min");
         if (conv != null) {
 
@@ -156,19 +157,19 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
     this.minComparable = minComparable;
     Comparable<Object> maxComparable = null;
     if (max != null) {
-      if (type.equals(PropertyType.STRING)) {
+      if (type.equals(PropertyTypeInternal.STRING)) {
         var conv = safeConvert(session, max, Integer.class, "max");
         if (conv != null) {
 
           maxComparable = new ValidationStringComparable(conv);
         }
-      } else if (type.equals(PropertyType.BINARY)) {
+      } else if (type.equals(PropertyTypeInternal.BINARY)) {
         var conv = safeConvert(session, max, Integer.class, "max");
         if (conv != null) {
 
           maxComparable = new ValidationBinaryComparable(conv);
         }
-      } else if (type.equals(PropertyType.DATE)) {
+      } else if (type.equals(PropertyTypeInternal.DATE)) {
         // This is needed because a date is valid in any time range of the day.
         var maxDate = (Date) safeConvert(session, max, type.getDefaultJavaType(), "max");
         if (maxDate != null) {
@@ -178,32 +179,33 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
           maxDate = new Date(cal.getTime().getTime() - 1);
           maxComparable = (Comparable) maxDate;
         }
-      } else if (type.equals(PropertyType.BYTE)
-          || type.equals(PropertyType.SHORT)
-          || type.equals(PropertyType.INTEGER)
-          || type.equals(PropertyType.LONG)
-          || type.equals(PropertyType.FLOAT)
-          || type.equals(PropertyType.DOUBLE)
-          || type.equals(PropertyType.DECIMAL)
-          || type.equals(PropertyType.DATETIME)) {
+      } else if (type.equals(PropertyTypeInternal.BYTE)
+          || type.equals(PropertyTypeInternal.SHORT)
+          || type.equals(PropertyTypeInternal.INTEGER)
+          || type.equals(PropertyTypeInternal.LONG)
+          || type.equals(PropertyTypeInternal.FLOAT)
+          || type.equals(PropertyTypeInternal.DOUBLE)
+          || type.equals(PropertyTypeInternal.DECIMAL)
+          || type.equals(PropertyTypeInternal.DATETIME)) {
         maxComparable = (Comparable<Object>) safeConvert(session, max, type.getDefaultJavaType(),
             "max");
-      } else if (type.equals(PropertyType.EMBEDDEDLIST)
-          || type.equals(PropertyType.EMBEDDEDSET)
-          || type.equals(PropertyType.LINKLIST)
-          || type.equals(PropertyType.LINKSET)) {
+      } else if (type.equals(PropertyTypeInternal.EMBEDDEDLIST)
+          || type.equals(PropertyTypeInternal.EMBEDDEDSET)
+          || type.equals(PropertyTypeInternal.LINKLIST)
+          || type.equals(PropertyTypeInternal.LINKSET)) {
         var conv = safeConvert(session, max, Integer.class, "max");
         if (conv != null) {
 
           maxComparable = new ValidationCollectionComparable(conv);
         }
-      } else if (type.equals(PropertyType.LINKBAG)) {
+      } else if (type.equals(PropertyTypeInternal.LINKBAG)) {
         var conv = safeConvert(session, max, Integer.class, "max");
         if (conv != null) {
 
           maxComparable = new ValidationLinkbagComparable(conv);
         }
-      } else if (type.equals(PropertyType.EMBEDDEDMAP) || type.equals(PropertyType.LINKMAP)) {
+      } else if (type.equals(PropertyTypeInternal.EMBEDDEDMAP) || type.equals(
+          PropertyTypeInternal.LINKMAP)) {
         var conv = safeConvert(session, max, Integer.class, "max");
         if (conv != null) {
           maxComparable = new ValidationMapComparable(conv);
@@ -223,7 +225,7 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
       String type) {
     T mc;
     try {
-      mc = PropertyType.convert(session, value, target);
+      mc = PropertyTypeInternal.convert(session, value, target);
     } catch (RuntimeException e) {
       LogManager.instance()
           .error(this, "Error initializing %s value check on property %s", e, type, fullName);
@@ -264,7 +266,7 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
 
   @Override
   public PropertyType getType() {
-    return type;
+    return type.getPublicPropertyType();
   }
 
   @Override
@@ -290,11 +292,15 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
 
   @Override
   public PropertyType getLinkedType() {
-    return linkedType;
+    if (linkedType == null) {
+      return null;
+    }
+
+    return linkedType.getPublicPropertyType();
   }
 
   @Override
-  public SchemaProperty setLinkedType(PropertyType type) {
+  public SchemaProperty setLinkedType(@Nonnull PropertyType type) {
     throw new UnsupportedOperationException();
   }
 

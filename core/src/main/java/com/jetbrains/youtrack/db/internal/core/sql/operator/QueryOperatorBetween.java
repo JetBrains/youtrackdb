@@ -22,12 +22,12 @@ package com.jetbrains.youtrack.db.internal.core.sql.operator;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
@@ -81,26 +81,26 @@ public class QueryOperatorBetween extends QueryOperatorEqualityNotNulls {
     var right1 = valueIterator.next();
     valueIterator.next();
     var right2 = valueIterator.next();
-    final var right1c = PropertyType.convert(database, right1, left.getClass());
+    final var right1c = PropertyTypeInternal.convert(database, right1, left.getClass());
     if (right1c == null) {
       return false;
     }
 
-    final var right2c = PropertyType.convert(database, right2, left.getClass());
+    final var right2c = PropertyTypeInternal.convert(database, right2, left.getClass());
     if (right2c == null) {
       return false;
     }
 
     final int leftResult;
     if (left instanceof Number && right1 instanceof Number) {
-      var conv = PropertyType.castComparableNumber((Number) left, (Number) right1);
+      var conv = PropertyTypeInternal.castComparableNumber((Number) left, (Number) right1);
       leftResult = ((Comparable) conv[0]).compareTo(conv[1]);
     } else {
       leftResult = ((Comparable<Object>) left).compareTo(right1c);
     }
     final int rightResult;
     if (left instanceof Number && right2 instanceof Number) {
-      var conv = PropertyType.castComparableNumber((Number) left, (Number) right2);
+      var conv = PropertyTypeInternal.castComparableNumber((Number) left, (Number) right2);
       rightResult = ((Comparable) conv[0]).compareTo(conv[1]);
     } else {
       rightResult = ((Comparable<Object>) left).compareTo(right2c);

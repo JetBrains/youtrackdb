@@ -50,6 +50,7 @@ import com.jetbrains.youtrack.db.internal.core.index.IndexManagerAbstract;
 import com.jetbrains.youtrack.db.internal.core.index.SimpleKeyIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
@@ -736,7 +737,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
     }
     next = jsonReader.checkContent("\"type\"").readString(JSONReader.NEXT_IN_OBJECT);
 
-    final var type = PropertyType.valueOf(next);
+    final var type = PropertyTypeInternal.valueOf(next);
 
     String attrib;
     String value = null;
@@ -744,7 +745,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
     String min = null;
     String max = null;
     String linkedClass = null;
-    PropertyType linkedType = null;
+    PropertyTypeInternal linkedType = null;
     var mandatory = false;
     var readonly = false;
     var notNull = false;
@@ -783,7 +784,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
                   notNull = Boolean.parseBoolean(value);
                 } else {
                   if (attrib.equals("\"linked-type\"")) {
-                    linkedType = PropertyType.valueOf(value);
+                    linkedType = PropertyTypeInternal.valueOf(value);
                   } else {
                     if (attrib.equals("\"collate\"")) {
                       collate = value;
@@ -813,7 +814,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
     if (prop == null) {
       // CREATE IT
       prop = iClass.createProperty(propName, type,
-          (PropertyType) null,
+          (PropertyTypeInternal) null,
           true);
     }
     prop.setMandatory(mandatory);
@@ -830,7 +831,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       linkedClasses.put(prop, linkedClass);
     }
     if (linkedType != null) {
-      prop.setLinkedType(linkedType);
+      prop.setLinkedType(linkedType.getPublicPropertyType());
     }
     if (collate != null) {
       prop.setCollate(collate);
@@ -1443,7 +1444,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       }
 
       if (indexDefinition == null) {
-        indexDefinition = new SimpleKeyIndexDefinition(PropertyType.STRING);
+        indexDefinition = new SimpleKeyIndexDefinition(PropertyTypeInternal.STRING);
       }
 
       var oldValue = GlobalConfiguration.INDEX_IGNORE_NULL_VALUES_DEFAULT.getValueAsBoolean();

@@ -24,7 +24,6 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.TooBigIndexKeyException;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
@@ -35,6 +34,7 @@ import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.index.comparator.AlwaysGreaterKey;
 import com.jetbrains.youtrack.db.internal.core.index.comparator.AlwaysLessKey;
 import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValidator;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
@@ -109,7 +109,7 @@ public final class CellBTreeSingleValueV1<K> extends DurableComponent
   private int keySize;
   private BinarySerializer<K> keySerializer;
   private final BinarySerializerFactory serializerFactory;
-  private PropertyType[] keyTypes;
+  private PropertyTypeInternal[] keyTypes;
 
   public CellBTreeSingleValueV1(
       final String name,
@@ -145,7 +145,7 @@ public final class CellBTreeSingleValueV1<K> extends DurableComponent
   public void create(
       AtomicOperation atomicOperation,
       final BinarySerializer<K> keySerializer,
-      final PropertyType[] keyTypes,
+      final PropertyTypeInternal[] keyTypes,
       final int keySize) {
     assert keySerializer != null;
     executeInsideComponentOperation(
@@ -445,7 +445,7 @@ public final class CellBTreeSingleValueV1<K> extends DurableComponent
   public void load(
       final String name,
       final int keySize,
-      final PropertyType[] keyTypes,
+      final PropertyTypeInternal[] keyTypes,
       final BinarySerializer<K> keySerializer) {
     acquireExclusiveLock();
     try {

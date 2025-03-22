@@ -30,13 +30,13 @@ import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.r
 import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.stringFromBytes;
 
 import com.jetbrains.youtrack.db.api.schema.Collate;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.DecimalSerializer;
 import com.jetbrains.youtrack.db.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.math.BigDecimal;
 import java.text.DateFormat;
@@ -54,7 +54,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
   public BinaryComparatorV0() {
   }
 
-  public boolean isBinaryComparable(final PropertyType iType) {
+  public boolean isBinaryComparable(final PropertyTypeInternal iType) {
     return switch (iType) {
       case INTEGER, LONG, DATETIME, SHORT, STRING, DOUBLE, FLOAT, BYTE, BOOLEAN, DATE, BINARY, LINK,
            DECIMAL -> true;
@@ -588,7 +588,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         }
 
         case BINARY: {
-          if (Objects.requireNonNull(iField2.type) == PropertyType.BINARY) {
+          if (Objects.requireNonNull(iField2.type) == PropertyTypeInternal.BINARY) {
             final var length1 = VarIntSerializer.readAsInteger(fieldValue1);
             final var length2 = VarIntSerializer.readAsInteger(fieldValue2);
             if (length1 != length2) {
@@ -1213,7 +1213,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
         }
 
         case BINARY: {
-          if (Objects.requireNonNull(iField2.type) == PropertyType.BINARY) {
+          if (Objects.requireNonNull(iField2.type) == PropertyTypeInternal.BINARY) {
             final var length1 = VarIntSerializer.readAsInteger(fieldValue1);
             final var length2 = VarIntSerializer.readAsInteger(fieldValue2);
 

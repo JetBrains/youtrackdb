@@ -16,10 +16,10 @@ package com.jetbrains.youtrack.db.internal.spatial.operator;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializer;
@@ -98,14 +98,14 @@ public class LuceneNearOperator extends QueryTargetOperator {
     var spatial = iContext.getVariable("spatial");
     if (spatial != null) {
       if (spatial instanceof Number) {
-        distance = PropertyType.convert(iContext.getDatabaseSession(), spatial,
+        distance = PropertyTypeInternal.convert(iContext.getDatabaseSession(), spatial,
             Double.class).doubleValue();
       } else if (spatial instanceof Map) {
         var params = (Map<String, Object>) spatial;
 
         var dst = params.get("maxDistance");
         if (dst != null && dst instanceof Number) {
-          distance = PropertyType.convert(iContext.getDatabaseSession(), dst,
+          distance = PropertyTypeInternal.convert(iContext.getDatabaseSession(), dst,
               Double.class).doubleValue();
         }
       }

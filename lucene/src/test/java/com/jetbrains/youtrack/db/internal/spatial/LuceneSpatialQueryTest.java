@@ -19,6 +19,7 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.lucene.test.BaseLuceneTest;
 import java.io.File;
@@ -95,8 +96,10 @@ public class LuceneSpatialQueryTest extends BaseLuceneTest {
             doc.setProperty("country", nextLine[1]);
             try {
 
-              Double lat = PropertyType.convert(session, nextLine[5], Double.class).doubleValue();
-              Double lng = PropertyType.convert(session, nextLine[6], Double.class).doubleValue();
+              Double lat = PropertyTypeInternal.convert(session, nextLine[5], Double.class)
+                  .doubleValue();
+              Double lng = PropertyTypeInternal.convert(session, nextLine[6], Double.class)
+                  .doubleValue();
               doc.setProperty("latitude", lat);
               doc.setProperty("longitude", lng);
             } catch (Exception e) {

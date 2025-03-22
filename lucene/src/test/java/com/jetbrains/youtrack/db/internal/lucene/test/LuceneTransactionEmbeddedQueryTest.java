@@ -52,7 +52,7 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
   }
 
   private static void createSchema(DatabaseSession db) {
-    final var c1 = db.createVertexClass("C1");
+    final var c1 = db.getSchema().createVertexClass("C1");
     c1.createProperty("p1", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
     c1.createIndex("C1.p1", "FULLTEXT", null, null, "LUCENE", new String[]{"p1"});
   }

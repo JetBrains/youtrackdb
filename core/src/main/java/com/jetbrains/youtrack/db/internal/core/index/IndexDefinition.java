@@ -21,9 +21,9 @@ package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.jetbrains.youtrack.db.api.schema.Collate;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
@@ -110,7 +110,7 @@ public interface IndexDefinition extends IndexCallback {
    *
    * @return Types of values from which index key consist.
    */
-  PropertyType[] getTypes();
+  PropertyTypeInternal[] getTypes();
 
   /**
    * Serializes internal index state to map.

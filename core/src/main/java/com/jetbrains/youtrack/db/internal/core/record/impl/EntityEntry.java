@@ -19,11 +19,11 @@
  */
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeTimeLine;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 
 /**
  * Entity entry. Used by EntityImpl.
@@ -32,7 +32,7 @@ public class EntityEntry {
 
   public Object value;
   public Object original;
-  public PropertyType type;
+  public PropertyTypeInternal type;
   public SchemaProperty property;
   private boolean changed = false;
   private boolean exists = true;

@@ -24,7 +24,6 @@ import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.DecimalSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
@@ -32,6 +31,7 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSeriali
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.BytesContainer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.VarIntSerializer;
@@ -66,7 +66,7 @@ public class ResultSerializerNetwork {
   public ResultInternal deserialize(DatabaseSessionInternal db, final BytesContainer bytes) {
     final var resultInternal = new ResultInternal(db);
     String fieldName;
-    PropertyType type;
+    PropertyTypeInternal type;
     var size = VarIntSerializer.readAsInteger(bytes);
     // fields
     while (size-- > 0) {
@@ -116,15 +116,15 @@ public class ResultSerializerNetwork {
         if (propertyValue instanceof Result) {
           if (((Result) propertyValue).isEntity()) {
             var elem = ((Result) propertyValue).asEntity();
-            writeOType(bytes, bytes.alloc(1), PropertyType.LINK);
+            writeOType(bytes, bytes.alloc(1), PropertyTypeInternal.LINK);
             serializeValue(session, bytes, session.refreshRid(elem.getIdentity()),
-                PropertyType.LINK);
+                PropertyTypeInternal.LINK);
           } else {
-            writeOType(bytes, bytes.alloc(1), PropertyType.EMBEDDED);
-            serializeValue(session, bytes, propertyValue, PropertyType.EMBEDDED);
+            writeOType(bytes, bytes.alloc(1), PropertyTypeInternal.EMBEDDED);
+            serializeValue(session, bytes, propertyValue, PropertyTypeInternal.EMBEDDED);
           }
         } else {
-          final var type = PropertyType.getTypeByValue(propertyValue);
+          final var type = PropertyTypeInternal.getTypeByValue(propertyValue);
           if (type == null) {
             throw new SerializationException(session,
                 "Impossible serialize value of type "
@@ -148,10 +148,10 @@ public class ResultSerializerNetwork {
         final var value = resultInternal.getMetadata(field);
         if (value != null) {
           if (value instanceof Result) {
-            writeOType(bytes, bytes.alloc(1), PropertyType.EMBEDDED);
-            serializeValue(session, bytes, value, PropertyType.EMBEDDED);
+            writeOType(bytes, bytes.alloc(1), PropertyTypeInternal.EMBEDDED);
+            serializeValue(session, bytes, value, PropertyTypeInternal.EMBEDDED);
           } else {
-            final var type = PropertyType.getTypeByValue(value);
+            final var type = PropertyTypeInternal.getTypeByValue(value);
             if (type == null) {
               throw new SerializationException(session,
                   "Impossible serialize value of type "
@@ -170,15 +170,15 @@ public class ResultSerializerNetwork {
     }
   }
 
-  protected PropertyType readOType(final BytesContainer bytes) {
+  protected PropertyTypeInternal readOType(final BytesContainer bytes) {
     var val = readByte(bytes);
     if (val == -1) {
       return null;
     }
-    return PropertyType.getById(val);
+    return PropertyTypeInternal.getById(val);
   }
 
-  private void writeOType(BytesContainer bytes, int pos, PropertyType type) {
+  private void writeOType(BytesContainer bytes, int pos, PropertyTypeInternal type) {
     if (type == null) {
       bytes.bytes[pos] = (byte) -1;
     } else {
@@ -187,7 +187,7 @@ public class ResultSerializerNetwork {
   }
 
   public Object deserializeValue(DatabaseSessionInternal session, BytesContainer bytes,
-      PropertyType type) {
+      PropertyTypeInternal type) {
     Object value = null;
     switch (type) {
       case INTEGER:
@@ -290,7 +290,7 @@ public class ResultSerializerNetwork {
     var size = VarIntSerializer.readAsInteger(bytes);
     final Map entity = new LinkedHashMap();
     String fieldName;
-    PropertyType type;
+    PropertyTypeInternal type;
     while ((size--) > 0) {
       final var len = VarIntSerializer.readAsInteger(bytes);
       // PARSE FIELD NAME
@@ -350,7 +350,7 @@ public class ResultSerializerNetwork {
   @SuppressWarnings("unchecked")
   public void serializeValue(
       DatabaseSessionInternal session, final BytesContainer bytes, Object value,
-      final PropertyType type) {
+      final PropertyTypeInternal type) {
 
     final int pointer;
     switch (type) {
@@ -459,7 +459,7 @@ public class ResultSerializerNetwork {
     for (var entry : map.entrySet()) {
       // TODO:check skip of complex types
       // FIXME: changed to support only string key on map
-      final var type = PropertyType.STRING;
+      final var type = PropertyTypeInternal.STRING;
       writeOType(bytes, bytes.alloc(1), type);
       writeString(bytes, entry.getKey().toString());
       if (entry.getValue() == null) {
@@ -483,10 +483,10 @@ public class ResultSerializerNetwork {
       final var value = map.get(field);
       if (value != null) {
         if (value instanceof Result) {
-          writeOType(bytes, bytes.alloc(1), PropertyType.EMBEDDED);
-          serializeValue(session, bytes, value, PropertyType.EMBEDDED);
+          writeOType(bytes, bytes.alloc(1), PropertyTypeInternal.EMBEDDED);
+          serializeValue(session, bytes, value, PropertyTypeInternal.EMBEDDED);
         } else {
-          final var type = PropertyType.getTypeByValue(value);
+          final var type = PropertyTypeInternal.getTypeByValue(value);
           if (type == null) {
             throw new SerializationException(session,
                 "Impossible serialize value of type "
@@ -555,17 +555,17 @@ public class ResultSerializerNetwork {
     }
   }
 
-  private static PropertyType getTypeFromValueEmbedded(final Object fieldValue) {
+  private static PropertyTypeInternal getTypeFromValueEmbedded(final Object fieldValue) {
     if (fieldValue instanceof Result && ((Result) fieldValue).isEntity()) {
-      return PropertyType.LINK;
+      return PropertyTypeInternal.LINK;
     }
     var type =
-        fieldValue instanceof Result ? PropertyType.EMBEDDED
-            : PropertyType.getTypeByValue(fieldValue);
-    if (type == PropertyType.LINK
+        fieldValue instanceof Result ? PropertyTypeInternal.EMBEDDED
+            : PropertyTypeInternal.getTypeByValue(fieldValue);
+    if (type == PropertyTypeInternal.LINK
         && fieldValue instanceof EntityImpl
         && !((EntityImpl) fieldValue).getIdentity().isValidPosition()) {
-      type = PropertyType.EMBEDDED;
+      type = PropertyTypeInternal.EMBEDDED;
     }
     return type;
   }

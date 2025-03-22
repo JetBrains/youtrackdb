@@ -3,7 +3,6 @@ package com.jetbrains.youtrack.db.internal.core.index.engine.v1;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.config.IndexEngineData;
@@ -15,6 +14,7 @@ import com.jetbrains.youtrack.db.internal.core.index.IndexException;
 import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValuesTransformer;
 import com.jetbrains.youtrack.db.internal.core.index.engine.MultiValueIndexEngine;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.impl.CompactedLinkSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.impl.index.IndexMultiValuKeySerializer;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
@@ -121,7 +121,7 @@ public final class CellBTreeMultiValueIndexEngine
         );
         nullTree.create(
             atomicOperation, CompactedLinkSerializer.INSTANCE,
-            new PropertyType[]{PropertyType.LINK}, 1);
+            new PropertyTypeInternal[]{PropertyTypeInternal.LINK}, 1);
       }
     } catch (IOException e) {
       throw BaseException.wrapException(
@@ -251,7 +251,8 @@ public final class CellBTreeMultiValueIndexEngine
 
       svTree.load(name, keySize + 1, sbTypes, new IndexMultiValuKeySerializer());
       nullTree.load(
-          nullTreeName, 1, new PropertyType[]{PropertyType.LINK}, CompactedLinkSerializer.INSTANCE
+          nullTreeName, 1, new PropertyTypeInternal[]{PropertyTypeInternal.LINK},
+          CompactedLinkSerializer.INSTANCE
       );
     }
   }
@@ -599,12 +600,12 @@ public final class CellBTreeMultiValueIndexEngine
     return name;
   }
 
-  private static PropertyType[] calculateTypes(final PropertyType[] keyTypes) {
-    final PropertyType[] sbTypes;
+  private static PropertyTypeInternal[] calculateTypes(final PropertyTypeInternal[] keyTypes) {
+    final PropertyTypeInternal[] sbTypes;
     if (keyTypes != null) {
-      sbTypes = new PropertyType[keyTypes.length + 1];
+      sbTypes = new PropertyTypeInternal[keyTypes.length + 1];
       System.arraycopy(keyTypes, 0, sbTypes, 0, keyTypes.length);
-      sbTypes[sbTypes.length - 1] = PropertyType.LINK;
+      sbTypes[sbTypes.length - 1] = PropertyTypeInternal.LINK;
     } else {
       throw new IndexException("Types of fields should be provided upon of creation of index");
     }

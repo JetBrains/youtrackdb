@@ -10,7 +10,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import java.math.BigDecimal;
 import java.util.Date;
 import java.util.List;
@@ -201,7 +201,7 @@ public interface Result {
       return null;
     }
 
-    if (value instanceof List<?> list && !PropertyType.checkLinkCollection(list)) {
+    if (value instanceof List<?> list && !PropertyTypeInternal.checkLinkCollection(list)) {
       //noinspection unchecked
       return (List<T>) list;
     }
@@ -222,7 +222,7 @@ public interface Result {
       return null;
     }
 
-    if (value instanceof List<?> list && PropertyType.canBeLinkCollection(list)) {
+    if (value instanceof List<?> list && PropertyTypeInternal.canBeLinkCollection(list)) {
       //noinspection unchecked
       return (List<Identifiable>) list;
     }
@@ -242,7 +242,7 @@ public interface Result {
       return null;
     }
 
-    if (value instanceof Set<?> set && !PropertyType.checkLinkCollection(set)) {
+    if (value instanceof Set<?> set && !PropertyTypeInternal.checkLinkCollection(set)) {
       //noinspection unchecked
       return (Set<T>) set;
     }
@@ -262,7 +262,7 @@ public interface Result {
       return null;
     }
 
-    if (value instanceof Set<?> set && PropertyType.canBeLinkCollection(set)) {
+    if (value instanceof Set<?> set && PropertyTypeInternal.canBeLinkCollection(set)) {
       //noinspection unchecked
       return (Set<Identifiable>) set;
     }
@@ -282,7 +282,7 @@ public interface Result {
       return null;
     }
 
-    if (value instanceof Map<?, ?> map && !PropertyType.checkLinkCollection(map.values())) {
+    if (value instanceof Map<?, ?> map && !PropertyTypeInternal.checkLinkCollection(map.values())) {
       //noinspection unchecked
       return (Map<String, T>) map;
     }
@@ -302,7 +302,7 @@ public interface Result {
       return null;
     }
 
-    if (value instanceof Map<?, ?> map && PropertyType.canBeLinkCollection(map.values())) {
+    if (value instanceof Map<?, ?> map && PropertyTypeInternal.canBeLinkCollection(map.values())) {
       //noinspection unchecked
       return (Map<String, Identifiable>) map;
     }

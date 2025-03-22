@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
@@ -16,8 +17,8 @@ public class SimpleKeyIndexDefinitionTest extends DbTestBase {
 
   @Before
   public void beforeMethod() {
-    simpleKeyIndexDefinition = new SimpleKeyIndexDefinition(PropertyType.INTEGER,
-        PropertyType.STRING);
+    simpleKeyIndexDefinition = new SimpleKeyIndexDefinition(PropertyTypeInternal.INTEGER,
+        PropertyTypeInternal.STRING);
   }
 
   @Test
@@ -33,7 +34,7 @@ public class SimpleKeyIndexDefinitionTest extends DbTestBase {
   @Test
   public void testCreateValueSimpleKey() {
     final var keyIndexDefinition =
-        new SimpleKeyIndexDefinition(PropertyType.INTEGER);
+        new SimpleKeyIndexDefinition(PropertyTypeInternal.INTEGER);
     final var result = keyIndexDefinition.createValue(session, "2");
     Assert.assertEquals(2, result);
   }
@@ -115,7 +116,7 @@ public class SimpleKeyIndexDefinitionTest extends DbTestBase {
   @Test
   public void testParamCountOneItem() {
     final var keyIndexDefinition =
-        new SimpleKeyIndexDefinition(PropertyType.INTEGER);
+        new SimpleKeyIndexDefinition(PropertyTypeInternal.INTEGER);
 
     Assert.assertEquals(1, keyIndexDefinition.getParamCount());
   }
@@ -123,16 +124,17 @@ public class SimpleKeyIndexDefinitionTest extends DbTestBase {
   @Test
   public void testGetKeyTypes() {
     Assert.assertEquals(
-        new PropertyType[]{PropertyType.INTEGER, PropertyType.STRING},
+        new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER, PropertyTypeInternal.STRING},
         simpleKeyIndexDefinition.getTypes());
   }
 
   @Test
   public void testGetKeyTypesOneType() {
     final var keyIndexDefinition =
-        new SimpleKeyIndexDefinition(PropertyType.BOOLEAN);
+        new SimpleKeyIndexDefinition(PropertyTypeInternal.BOOLEAN);
 
-    Assert.assertEquals(new PropertyType[]{PropertyType.BOOLEAN}, keyIndexDefinition.getTypes());
+    Assert.assertEquals(new PropertyTypeInternal[]{PropertyTypeInternal.BOOLEAN},
+        keyIndexDefinition.getTypes());
   }
 
   @Test

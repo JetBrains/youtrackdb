@@ -26,17 +26,17 @@ import static com.jetbrains.youtrack.db.internal.core.serialization.BinaryProtoc
 import static com.jetbrains.youtrack.db.internal.core.serialization.BinaryProtocol.short2bytes;
 
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.ShortSerializer;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import java.nio.ByteBuffer;
 
 /**
- * Serializer for {@link PropertyType#LINK}
+ * Serializer for {@link PropertyTypeInternal#LINK}
  *
  * @since 07.02.12
  */
