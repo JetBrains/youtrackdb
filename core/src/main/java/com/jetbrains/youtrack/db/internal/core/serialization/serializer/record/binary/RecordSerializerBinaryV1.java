@@ -463,7 +463,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       PropertyEncryption encryption) {
     // allocate space for header length
 
-    final var props = clazz != null ? clazz.propertiesMap() : null;
+    final var props = clazz != null ? clazz.getPropertiesMap() : null;
     final var fields = entity.getRawEntries();
 
     var valuesBuffer = new BytesContainer();

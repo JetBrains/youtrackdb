@@ -305,7 +305,7 @@ public abstract class HttpResponseAbstract implements HttpResponse {
                       var schema = entity.getImmutableSchemaClass(session);
 
                       if (schema != null) {
-                        schema.properties()
+                        schema.getProperties()
                             .forEach(prop -> colNames.add(prop.getName()));
                       }
 

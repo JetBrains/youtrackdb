@@ -398,7 +398,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
 
     final var clazz = serializeClass(session, entity, bytes);
 
-    final var props = clazz != null ? clazz.propertiesMap() : null;
+    final var props = clazz != null ? clazz.getPropertiesMap() : null;
 
     final var fields = entity.getRawEntries();
 

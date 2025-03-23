@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
@@ -3184,7 +3185,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
    */
   public void validate() throws ValidationException {
     checkForBinding();
-
     checkForProperties();
 
     validatePropertiesSecurity(session, this);
@@ -3209,7 +3209,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       }
 
       final var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
-      for (var p : immutableSchemaClass.properties()) {
+      for (var p : immutableSchemaClass.getProperties()) {
         validateProperty(session, immutableSchema, this, (ImmutableSchemaProperty) p);
       }
     }
@@ -3300,7 +3300,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
       final @Nonnull RID rid, final int version, final byte[] buffer, final boolean dirty) {
     var session = getSession();
     if (this.dirty > 0) {
-      throw new DatabaseException(session.getDatabaseName(), "Cannot call fill() on dirty records");
+      throw new DatabaseException(session.getDatabaseName(),
+          "Cannot call fill() on dirty records");
     }
 
     schema = null;
@@ -3372,7 +3373,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
     checkForBinding();
     return properties != null && properties.containsKey(iFiledName);
   }
-
 
   /**
    * Internal.
@@ -3469,7 +3469,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
       switch (propertyType) {
         case EMBEDDEDLIST:
-          if (propertyValue instanceof List<?> && !(propertyValue instanceof EmbeddedListImpl<?>)) {
+          if (propertyValue instanceof List<?>
+              && !(propertyValue instanceof EmbeddedListImpl<?>)) {
             throw new DatabaseException(session.getDatabaseName(),
                 "Property " + propertyEntry.getKey() + " is supposed to be TrackedList but is "
                     + propertyValue.getClass());
@@ -3638,7 +3639,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
    * Checks and convert the property of the entity matching the types specified by the class.
    */
   public final void convertPropertiesToClassAndInitDefaultValues(final SchemaClass clazz) {
-    for (var prop : clazz.properties()) {
+    for (var prop : clazz.getProperties()) {
       var entry = properties != null ? properties.get(prop.getName()) : null;
       if (entry != null && entry.exists()) {
         if (entry.type == null || entry.type != PropertyTypeInternal.convertFromPublicType(
@@ -3707,6 +3708,9 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   private String checkPropertyValue(String propertyName, @Nullable Object propertyValue) {
+    if (propertyValue == null) {
+      return null;
+    }
     if (PropertyTypeInternal.isSingleValueType(propertyValue)) {
       return null;
     }
@@ -3728,6 +3732,34 @@ public class EntityImpl extends RecordAbstract implements Entity {
         return "The collection is already owned by another entity : " + owner;
       }
 
+      if (propertyValue instanceof LinkMap linkMap) {
+        if (linkMap.getKeySizeLimit() > LinkMap.DEFAULT_KEY_SIZE_LIMIT) {
+          return
+              "Cannot assign a link map with key size limit bigger than  "
+                  + LinkMap.DEFAULT_KEY_SIZE_LIMIT
+                  + " to property " + propertyName + ". Please use "
+                  + DatabaseSession.class.getName() +
+                  " factory methods instead : " + "newLinkMap().";
+        }
+      } else if (propertyValue instanceof EmbeddedListImpl<?>
+          || propertyValue instanceof EmbeddedSetImpl<?>
+          || trackedMultiValue instanceof TrackedMap<?>) {
+        if (trackedMultiValue.isResultAllowed()) {
+          return
+              "Cannot assign collection to property " + propertyName + ". Please use "
+                  + DatabaseSession.class.getName() +
+                  " factory methods instead : "
+                  + "newEmbeddedList(), newEmbeddedSet(), newEmbeddedMap().";
+        }
+        if (!trackedMultiValue.isLinkCollectionsProhibited()) {
+          return
+              "Cannot assign collection to property " + propertyName + ". Please use "
+                  + DatabaseSession.class.getName() +
+                  " factory methods instead : "
+                  + "newEmbeddedList(), newEmbeddedSet(), newEmbeddedMap().";
+        }
+      }
+
       return null;
     }
 
@@ -3741,7 +3773,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     return "Invalid value for property. " + propertyName + " : " + propertyValue.getClass();
   }
-
 
   private void removeAllCollectionChangeListeners() {
     if (properties == null) {

@@ -308,9 +308,9 @@ public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerA
       json.writeAttribute(session, 3, false, "records", "? (Unauthorized)");
     }
 
-    if (cls.properties() != null && !cls.properties().isEmpty()) {
+    if (cls.getProperties() != null && !cls.getProperties().isEmpty()) {
       json.beginCollection(session, 3, true, "properties");
-      for (final var prop : cls.properties()) {
+      for (final var prop : cls.getProperties()) {
         json.beginObject(4, true, null);
         json.writeAttribute(session, 4, true, "name", prop.getName());
         if (prop.getLinkedClass() != null) {

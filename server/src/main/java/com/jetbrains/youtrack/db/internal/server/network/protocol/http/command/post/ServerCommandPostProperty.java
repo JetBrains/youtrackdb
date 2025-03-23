@@ -118,7 +118,7 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
         HttpUtils.STATUS_CREATED_CODE,
         HttpUtils.STATUS_CREATED_DESCRIPTION,
         HttpUtils.CONTENT_TEXT_PLAIN,
-        cls.properties().size(),
+        cls.getProperties().size(),
         null);
 
     return false;
@@ -197,7 +197,7 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
         HttpUtils.STATUS_CREATED_CODE,
         HttpUtils.STATUS_CREATED_DESCRIPTION,
         HttpUtils.CONTENT_TEXT_PLAIN,
-        cls.properties().size(),
+        cls.getProperties().size(),
         null);
 
     return false;

@@ -73,9 +73,9 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
       json.writeAttribute(session, "records", "? (Error)");
     }
 
-    if (cls.properties() != null && !cls.properties().isEmpty()) {
+    if (cls.getProperties() != null && !cls.getProperties().isEmpty()) {
       json.beginCollection(session, "properties");
-      for (final var prop : cls.properties()) {
+      for (final var prop : cls.getProperties()) {
         json.beginObject();
         json.writeAttribute(session, "name", prop.getName());
         if (prop.getLinkedClass() != null) {

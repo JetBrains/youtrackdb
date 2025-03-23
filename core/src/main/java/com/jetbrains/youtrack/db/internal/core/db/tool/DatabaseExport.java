@@ -494,10 +494,10 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
           jsonGenerator.writeBooleanField("abstract", cls.isAbstract());
         }
 
-        if (!cls.properties().isEmpty()) {
+        if (!cls.getProperties().isEmpty()) {
           jsonGenerator.writeArrayFieldStart("properties");
 
-          final List<SchemaProperty> properties = new ArrayList<>(cls.declaredProperties());
+          final List<SchemaProperty> properties = new ArrayList<>(cls.getDeclaredProperties());
           properties.sort(Comparator.comparing(SchemaProperty::getName));
 
           for (var p : properties) {

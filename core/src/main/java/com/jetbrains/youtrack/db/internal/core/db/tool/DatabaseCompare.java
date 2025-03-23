@@ -215,7 +215,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
         ok = false;
       }
 
-      for (var prop1 : clazz.declaredProperties()) {
+      for (var prop1 : clazz.getDeclaredProperties()) {
         var prop2 = clazz2.getProperty(prop1.getName());
         if (prop2 == null) {
           listener.onMessage(

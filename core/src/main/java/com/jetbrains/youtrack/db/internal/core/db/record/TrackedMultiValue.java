@@ -96,6 +96,12 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
       if (value instanceof Map<?, ?>) {
         if (value instanceof TrackedMap<?> trackedMap) {
           checkResultsAndLinkCollectionsAreProhibited(trackedMap);
+          if (trackedMap instanceof LinkMap linkMap
+              && linkMap.getKeySizeLimit() > LinkMap.DEFAULT_KEY_SIZE_LIMIT) {
+            throw new SchemaException(
+                "Cannot add a map with key size limit bigger than " + LinkMap.DEFAULT_KEY_SIZE_LIMIT
+                    + " to a embedded data container");
+          }
           return;
         }
       }

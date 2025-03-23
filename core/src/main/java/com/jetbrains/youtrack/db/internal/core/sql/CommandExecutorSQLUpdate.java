@@ -552,7 +552,7 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
         }
         if (restricted.isSuperClassOf(
             result)) {
-          for (var prop : restricted.properties()) {
+          for (var prop : restricted.getProperties()) {
             final String iFieldName = prop.getName();
             fieldsToPreserve.setProperty(iFieldName, record.getProperty(prop.getName()));
           }

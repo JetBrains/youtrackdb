@@ -802,7 +802,7 @@ public class YouTrackDbJdbcDatabaseMetaData implements DatabaseMetaData {
     final Schema schema = session.getMetadata().getImmutableSchemaSnapshot();
     for (var clazz : schema.getClasses()) {
       if (YouTrackDbJdbcUtils.like(clazz.getName(), tableNamePattern)) {
-        for (var prop : clazz.properties()) {
+        for (var prop : clazz.getProperties()) {
           if (columnNamePattern == null) {
             resultSet.add(getPropertyAsDocument(clazz, prop));
           } else {
@@ -890,7 +890,7 @@ public class YouTrackDbJdbcDatabaseMetaData implements DatabaseMetaData {
       throws SQLException {
     var aClass = session.getMetadata().getSchema().getClass(table);
 
-    aClass.declaredProperties().stream().forEach(p -> p.getType());
+    aClass.getDeclaredProperties().stream().forEach(p -> p.getType());
     return getEmptyResultSet();
   }
 

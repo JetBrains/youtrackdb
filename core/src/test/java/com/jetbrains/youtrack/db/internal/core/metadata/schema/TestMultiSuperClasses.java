@@ -1,7 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -52,12 +51,12 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
 
     var property = cClass.getProperty("propertyInt");
     assertEquals(PropertyType.INTEGER, property.getType());
-    property = cClass.propertiesMap().get("propertyInt");
+    property = cClass.getPropertiesMap().get("propertyInt");
     assertEquals(PropertyType.INTEGER, property.getType());
 
     property = cClass.getProperty("propertyDouble");
     assertEquals(PropertyType.DOUBLE, property.getType());
-    property = cClass.propertiesMap().get("propertyDouble");
+    property = cClass.getPropertiesMap().get("propertyDouble");
     assertEquals(PropertyType.DOUBLE, property.getType());
   }
 

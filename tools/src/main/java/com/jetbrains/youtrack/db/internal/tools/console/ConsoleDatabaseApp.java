@@ -1649,11 +1649,11 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       out.println();
     }
 
-    if (!cls.properties().isEmpty()) {
+    if (!cls.getProperties().isEmpty()) {
       message("\n\nPROPERTIES");
       final List<RawPair<RID, Object>> resultSet = new ArrayList<>();
 
-      for (final var p : cls.properties()) {
+      for (final var p : cls.getProperties()) {
         try {
           var row = new HashMap<>();
           resultSet.add(new RawPair<>(null, row));

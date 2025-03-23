@@ -79,7 +79,7 @@ public class ServerCommandGetFileDownload extends ServerCommandAuthenticatedDbAb
           }
           for (var prop :
               result
-                  .properties()) {
+                  .getProperties()) {
             if (prop.getType().equals(PropertyType.BINARY)) {
               final String iFieldName = prop.getName();
               sendBinaryFieldFileContent(

@@ -76,11 +76,11 @@ public interface SchemaClass {
 
   SchemaClass setDescription(String iDescription);
 
-  Collection<SchemaProperty> declaredProperties();
+  Collection<SchemaProperty> getDeclaredProperties();
 
-  Collection<SchemaProperty> properties();
+  Collection<SchemaProperty> getProperties();
 
-  Map<String, SchemaProperty> propertiesMap();
+  Map<String, SchemaProperty> getPropertiesMap();
 
   SchemaProperty getProperty(String iPropertyName);
 

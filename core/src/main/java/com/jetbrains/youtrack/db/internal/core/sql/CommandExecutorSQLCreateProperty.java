@@ -299,7 +299,7 @@ public class CommandExecutorSQLCreateProperty extends CommandExecutorSQLAbstract
 
     if (prop != null) {
       if (ifNotExists) {
-        return sourceClass.properties().size();
+        return sourceClass.getProperties().size();
       }
       throw new CommandExecutionException(session,
           "Property '"
@@ -357,7 +357,7 @@ public class CommandExecutorSQLCreateProperty extends CommandExecutorSQLAbstract
       internalProp.setDefaultValue(defaultValue);
     }
 
-    return sourceClass.properties().size();
+    return sourceClass.getProperties().size();
   }
 
   @Override

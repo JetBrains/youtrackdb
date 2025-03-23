@@ -245,17 +245,17 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public Collection<SchemaProperty> declaredProperties() {
+  public Collection<SchemaProperty> getDeclaredProperties() {
     return Collections.unmodifiableCollection(properties.values());
   }
 
   @Override
-  public Collection<SchemaProperty> properties() {
+  public Collection<SchemaProperty> getProperties() {
     return allProperties;
   }
 
   @Override
-  public Map<String, SchemaProperty> propertiesMap() {
+  public Map<String, SchemaProperty> getPropertiesMap() {
     return allPropertiesMap;
   }
 

@@ -56,7 +56,7 @@ public class UpdateContentStep extends AbstractExecutionStep {
 
     if (cls != null && cls.isRestricted()) {
       var restrictedCls = session.getSchema().getClass(Security.RESTRICTED_CLASSNAME);
-      preserverdProperties.addAll(restrictedCls.properties());
+      preserverdProperties.addAll(restrictedCls.getProperties());
     }
 
     for (var propertyNames : record.getPropertyNames()) {

@@ -307,7 +307,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   }
 
   @Override
-  public Collection<SchemaProperty> declaredProperties() {
+  public Collection<SchemaProperty> getDeclaredProperties() {
     assert this.session.assertIfNotActive();
     var result = delegate.declaredProperties(this.session);
 
@@ -320,7 +320,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   }
 
   @Override
-  public Collection<SchemaProperty> properties() {
+  public Collection<SchemaProperty> getProperties() {
     assert this.session.assertIfNotActive();
     var result = delegate.properties(this.session);
 
@@ -333,7 +333,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   }
 
   @Override
-  public Map<String, SchemaProperty> propertiesMap() {
+  public Map<String, SchemaProperty> getPropertiesMap() {
     assert session.assertIfNotActive();
     var result = delegate.propertiesMap(session);
 
