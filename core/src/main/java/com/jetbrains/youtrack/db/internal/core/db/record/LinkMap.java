@@ -41,8 +41,8 @@ public class LinkMap extends TrackedMap<Identifiable> implements Sizeable,
     LinkTrackedMultiValue<String> {
 
   public static final int DEFAULT_KEY_SIZE_LIMIT = 64;
-
   private final int keySizeLimit;
+
   @Nonnull
   private final WeakReference<DatabaseSessionInternal> session;
 
@@ -69,6 +69,7 @@ public class LinkMap extends TrackedMap<Identifiable> implements Sizeable,
     this.session = new WeakReference<>(iSourceRecord.getSession());
     this.keySizeLimit = DEFAULT_KEY_SIZE_LIMIT;
   }
+
 
   public LinkMap(final EntityImpl iSourceRecord) {
     super(iSourceRecord);
@@ -106,7 +107,7 @@ public class LinkMap extends TrackedMap<Identifiable> implements Sizeable,
 
   @Override
   public Identifiable put(final String key, Identifiable value) {
-    checkKeySizeLimit(key);
+    checkKeySizeLimitAndAsciiEncoding(key);
     value = convertToRid(value);
     return super.put(key, value);
   }
@@ -114,14 +115,14 @@ public class LinkMap extends TrackedMap<Identifiable> implements Sizeable,
   @Nullable
   @Override
   public Identifiable putIfAbsent(String key, Identifiable value) {
-    checkKeySizeLimit(key);
+    checkKeySizeLimitAndAsciiEncoding(key);
     return super.putIfAbsent(key, convertToRid(value));
   }
 
   @Override
   public Identifiable computeIfAbsent(String key,
       @Nonnull Function<? super String, ? extends Identifiable> mappingFunction) {
-    checkKeySizeLimit(key);
+    checkKeySizeLimitAndAsciiEncoding(key);
     return super.computeIfAbsent(key, k -> convertToRid(mappingFunction.apply(k)));
   }
 
@@ -134,7 +135,7 @@ public class LinkMap extends TrackedMap<Identifiable> implements Sizeable,
   @Override
   public Identifiable compute(String key,
       @Nonnull BiFunction<? super String, ? super Identifiable, ? extends Identifiable> remappingFunction) {
-    checkKeySizeLimit(key);
+    checkKeySizeLimitAndAsciiEncoding(key);
     return super.compute(key, (k, v) -> convertToRid(remappingFunction.apply(k, v)));
   }
 
@@ -152,14 +153,14 @@ public class LinkMap extends TrackedMap<Identifiable> implements Sizeable,
   @Override
   public Identifiable merge(String key, @Nonnull Identifiable value,
       @Nonnull BiFunction<? super Identifiable, ? super Identifiable, ? extends Identifiable> remappingFunction) {
-    checkKeySizeLimit(key);
+    checkKeySizeLimitAndAsciiEncoding(key);
     return super.merge(key, value, (k, v) -> convertToRid(remappingFunction.apply(k, v)));
   }
 
   @Nullable
   @Override
   public Identifiable replace(String key, Identifiable value) {
-    checkKeySizeLimit(key);
+    checkKeySizeLimitAndAsciiEncoding(key);
     return super.replace(key, convertToRid(value));
   }
 
@@ -172,7 +173,7 @@ public class LinkMap extends TrackedMap<Identifiable> implements Sizeable,
 
   @Override
   public void putInternal(String key, Identifiable value) {
-    checkKeySizeLimit(key);
+    checkKeySizeLimitAndAsciiEncoding(key);
     super.putInternal(key, convertToRid(value));
   }
 
@@ -188,7 +189,14 @@ public class LinkMap extends TrackedMap<Identifiable> implements Sizeable,
     return session.get();
   }
 
-  private void checkKeySizeLimit(String key) {
+  @Override
+  public void setOwner(RecordElement newOwner) {
+    LinkTrackedMultiValue.checkEntityAsOwner(newOwner);
+    super.setOwner(newOwner);
+  }
+
+
+  private void checkKeySizeLimitAndAsciiEncoding(String key) {
     if (key.length() > keySizeLimit) {
       throw new IllegalArgumentException(
           "Key size limit exceeded: " + key + ":" + key.length() + " > " + keySizeLimit);
@@ -285,5 +293,7 @@ public class LinkMap extends TrackedMap<Identifiable> implements Sizeable,
     public Identifiable setValue(Identifiable value) {
       return entry.setValue(convertToRid(value));
     }
+
+
   }
 }

@@ -145,4 +145,10 @@ public class LinkListImpl extends TrackedList<Identifiable> implements Sizeable,
   public DatabaseSessionInternal getSession() {
     return session.get();
   }
+
+  @Override
+  public void setOwner(RecordElement newOwner) {
+    LinkTrackedMultiValue.checkEntityAsOwner(newOwner);
+    super.setOwner(newOwner);
+  }
 }

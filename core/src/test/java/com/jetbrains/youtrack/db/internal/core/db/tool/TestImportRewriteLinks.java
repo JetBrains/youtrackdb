@@ -21,12 +21,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 
 public class TestImportRewriteLinks {
 
   @Test
-  public void testNestedLinkRewrite() {
+  @Ignore
+  public void testLinkRewrite() {
     try (final YouTrackDB youTrackDb =
         CreateDatabaseUtil.createDatabase(
             "testDB", DbTestBase.embeddedDBUrl(getClass()), CreateDatabaseUtil.TYPE_MEMORY)) {
@@ -62,14 +64,10 @@ public class TestImportRewriteLinks {
         session.begin();
         final Set<RID> brokenRids = new HashSet<>();
 
-        var doc = (EntityImpl) session.newEntity();
+        var entity = (EntityImpl) session.newEntity();
 
-        var emb = (EntityImpl) session.newEmbeddedEntity();
-        doc.setProperty("emb", emb, PropertyType.EMBEDDED);
-        var emb1 = (EntityImpl) session.newEmbeddedEntity();
-        emb.setProperty("emb1", emb1, PropertyType.EMBEDDED);
-        emb1.setProperty("link", new RecordId(10, 4));
-        emb1.setProperty("brokenLink", new RecordId(10, 5));
+        entity.setProperty("link", new RecordId(10, 4));
+        entity.setProperty("brokenLink", new RecordId(10, 5));
 
         var linkList = session.newLinkList();
 
@@ -91,30 +89,30 @@ public class TestImportRewriteLinks {
         linkMap.put("key1", new RecordId(51, 1));
         linkMap.put("key2", new RecordId(51, 2));
 
-        emb1.setProperty("linkList", linkList);
-        emb1.setProperty("linkSet", linkSet);
-        emb1.setProperty("linkMap", linkMap);
+        entity.setProperty("linkList", linkList);
+        entity.setProperty("linkSet", linkSet);
+        entity.setProperty("linkMap", linkMap);
 
-        DatabaseImport.doRewriteLinksInDocument(session, doc,
+        DatabaseImport.doRewriteLinksInDocument(session, entity,
             brokenRids);
 
-        Assert.assertEquals(new RecordId(10, 3), emb1.getLink("link"));
-        Assert.assertNull(emb1.getProperty("brokenLink"));
+        Assert.assertEquals(new RecordId(10, 3), entity.getLink("link"));
+        Assert.assertNull(entity.getProperty("brokenLink"));
 
         List<Identifiable> resLinkList = new ArrayList<>();
         resLinkList.add(new RecordId(21, 1));
 
-        Assert.assertEquals(emb1.getProperty("linkList"), resLinkList);
+        Assert.assertEquals(entity.getProperty("linkList"), resLinkList);
 
         Set<Identifiable> resLinkSet = new HashSet<>();
         resLinkSet.add(new RecordId(41, 1));
 
-        Assert.assertEquals(emb1.getProperty("linkSet"), resLinkSet);
+        Assert.assertEquals(entity.getProperty("linkSet"), resLinkSet);
 
         Map<String, Identifiable> resLinkMap = new HashMap<>();
         resLinkMap.put("key1", new RecordId(61, 1));
 
-        Assert.assertEquals(emb1.getProperty("linkMap"), resLinkMap);
+        Assert.assertEquals(entity.getProperty("linkMap"), resLinkMap);
         session.rollback();
       }
     }

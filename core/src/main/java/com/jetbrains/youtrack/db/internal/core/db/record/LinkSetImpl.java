@@ -33,6 +33,7 @@ import javax.annotation.Nullable;
 
 public class LinkSetImpl extends TrackedSet<Identifiable> implements IdentityChangeListener,
     LinkTrackedMultiValue<Identifiable>, LinkSet {
+
   @Nonnull
   private final WeakReference<DatabaseSessionInternal> session;
 
@@ -232,5 +233,11 @@ public class LinkSetImpl extends TrackedSet<Identifiable> implements IdentityCha
   @Override
   public boolean isEmbeddedContainer() {
     return false;
+  }
+
+  @Override
+  public void setOwner(RecordElement newOwner) {
+    LinkTrackedMultiValue.checkEntityAsOwner(newOwner);
+    super.setOwner(newOwner);
   }
 }

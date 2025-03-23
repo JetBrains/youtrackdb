@@ -3737,7 +3737,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
                   + LinkMap.DEFAULT_KEY_SIZE_LIMIT
                   + " to property " + propertyName + ". Please use "
                   + DatabaseSession.class.getName() +
-                  " factory methods instead : " + "newLinkMap().";
+                  " factory methods instead : newLinkMap().";
         }
       } else if (propertyValue instanceof EmbeddedListImpl<?>
           || propertyValue instanceof EmbeddedSetImpl<?>

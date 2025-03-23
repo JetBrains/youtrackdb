@@ -353,7 +353,7 @@ public class ResultInternal implements Result {
             allIdentifiable = true;
             if (mapCopy == null) {
               //noinspection unchecked,rawtypes
-              mapCopy = (Map<String, Object>) (Map) new LinkMap(session, Integer.MAX_VALUE);
+              mapCopy = (Map<String, Object>) (Map) new LinkMap(session);
             }
           } else {
             if (allIdentifiable) {
