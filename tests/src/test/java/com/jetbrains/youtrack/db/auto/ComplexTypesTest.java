@@ -15,6 +15,10 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.testng.Assert.fail;
+
+import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -26,6 +30,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import org.apache.commons.lang.StringUtils;
 import org.testng.Assert;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
@@ -42,11 +47,30 @@ public class ComplexTypesTest extends BaseDBTest {
 
   @Test
   public void testBigDecimal() {
+    final var clazz = session.createClass("BigDecimalTest");
+    clazz.createProperty("integer_schema", PropertyType.INTEGER);
+    clazz.createProperty("decimal_schema", PropertyType.DECIMAL);
+
+    final var largeNumber = new BigDecimal(Long.MAX_VALUE).multiply(new BigDecimal(Long.MAX_VALUE));
+    final var largeNumberFract = largeNumber.add(
+        new BigDecimal("0." + StringUtils.repeat("12345", 10)));
+    final var largeNumberInt = largeNumber.toBigInteger();
+    final var largeNumberIntNeg = largeNumberInt.negate();
+
+    // big integers must be converted to DECIMAL type
     session.begin();
-    var newDoc = session.newEntity();
-    newDoc.setProperty("integer", new BigInteger("10"));
-    newDoc.setProperty("decimal_integer", new BigDecimal(10));
-    newDoc.setProperty("decimal_float", new BigDecimal("10.34"));
+    var newDoc = session.newEntity(clazz);
+    newDoc.setProperty("decimal_integer", largeNumber);
+    newDoc.setProperty("decimal_float", largeNumberFract);
+
+    newDoc.setProperty("integer_no_schema", largeNumberInt);
+    newDoc.setProperty("decimal_schema", largeNumberIntNeg);
+    try {
+      newDoc.setProperty("integer_schema", new BigInteger("10"));
+      fail("BigInteger values should not be allowed for INTEGER schema property");
+    } catch (SchemaException ex) {
+      // ok
+    }
     session.commit();
 
     final RID rid = newDoc.getIdentity();
@@ -54,10 +78,16 @@ public class ComplexTypesTest extends BaseDBTest {
     session.close();
     session = acquireSession();
 
+    session.begin();
     EntityImpl loadedDoc = session.load(rid);
-    Assert.assertEquals(((Number) loadedDoc.getProperty("integer")).intValue(), 10);
-    Assert.assertEquals(loadedDoc.getProperty("decimal_integer"), new BigDecimal(10));
-    Assert.assertEquals(loadedDoc.getProperty("decimal_float"), new BigDecimal("10.34"));
+
+    assertThat(loadedDoc.<BigDecimal>getProperty("decimal_integer")).isEqualTo(largeNumber);
+    assertThat(loadedDoc.<BigDecimal>getProperty("decimal_float")).isEqualTo(largeNumberFract);
+
+    assertThat(loadedDoc.<BigDecimal>getProperty("integer_no_schema")).isEqualTo(new BigDecimal(largeNumberInt));
+    assertThat(loadedDoc.<BigDecimal>getProperty("decimal_schema")).isEqualTo(new BigDecimal(largeNumberIntNeg));
+
+    session.commit();
   }
 
   @Test
@@ -155,7 +185,7 @@ public class ComplexTypesTest extends BaseDBTest {
     session.begin();
     EntityImpl loadedDoc = session.load(rid);
     Assert.assertTrue(loadedDoc.hasProperty("linkSet"));
-    Assert.assertNotNull(loadedDoc.getEmbeddedSet("linkSet"));
+    Assert.assertNotNull(loadedDoc.getLinkSet("linkSet"));
 
     final var it = (loadedDoc.getLinkSet("linkSet")).iterator();
 

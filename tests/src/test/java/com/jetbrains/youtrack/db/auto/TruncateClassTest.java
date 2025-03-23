@@ -25,9 +25,11 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.testng.Assert;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -35,8 +37,8 @@ import org.testng.annotations.Test;
 public class TruncateClassTest extends BaseDBTest {
 
   @Parameters(value = "remote")
-  public TruncateClassTest(boolean remote) {
-    super(remote);
+  public TruncateClassTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @SuppressWarnings("unchecked")
@@ -54,21 +56,22 @@ public class TruncateClassTest extends BaseDBTest {
     session.begin();
     var e1 = ((EntityImpl) session.newEntity(testClass));
     e1.setProperty("name", "x");
-    e1.setPropertyInChain("data", Arrays.asList(1, 2));
+    e1.setPropertyInChain("data", session.newEmbeddedList(List.of(1, 2)));
 
     ((EntityImpl) session.newEntity(testClass)).setPropertyInChain("name", "y")
-        .setPropertyInChain("data", Arrays.asList(3, 0));
+        .setPropertyInChain("data", session.newEmbeddedList(List.of(3, 0)));
     session.commit();
 
     session.execute("truncate class test_class").close();
 
     session.begin();
     ((EntityImpl) session.newEntity(testClass)).setPropertyInChain("name", "x")
-        .setPropertyInChain("data", Arrays.asList(5, 6, 7));
+        .setPropertyInChain("data", session.newEmbeddedList(List.of(5, 6, 7)));
     ((EntityImpl) session.newEntity(testClass)).setPropertyInChain("name", "y")
-        .setPropertyInChain("data", Arrays.asList(8, 9, -1));
+        .setPropertyInChain("data", session.newEmbeddedList(List.of(8, 9, -1)));
     session.commit();
 
+    session.begin();
     var result =
         session.query("select from test_class").stream().collect(Collectors.toList());
     Assert.assertEquals(result.size(), 2);
@@ -89,6 +92,7 @@ public class TruncateClassTest extends BaseDBTest {
         Assert.assertTrue(set.contains((Integer) entry.first));
       }
     }
+    session.commit();
 
     schema.dropClass("test_class");
   }
@@ -214,9 +218,9 @@ public class TruncateClassTest extends BaseDBTest {
 
     session.begin();
     ((EntityImpl) session.newEntity(testClass)).setPropertyInChain("name", "x")
-        .setPropertyInChain("data", Arrays.asList(1, 2));
+        .setPropertyInChain("data", session.newEmbeddedList(List.of(1, 2)));
     ((EntityImpl) session.newEntity(testClass)).setPropertyInChain("name", "y")
-        .setPropertyInChain("data", Arrays.asList(3, 0));
+        .setPropertyInChain("data", session.newEmbeddedList(List.of(3, 0)));
     session.commit();
 
     var result = session.query("select from test_class");

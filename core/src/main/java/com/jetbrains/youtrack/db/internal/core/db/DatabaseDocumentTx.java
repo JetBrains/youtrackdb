@@ -64,6 +64,7 @@ import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.core.util.URLHelper;
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -1137,6 +1138,18 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   public <T> EmbeddedList<T> newEmbeddedList(List<T> list) {
     checkOpenness();
     return internal.newEmbeddedList(list);
+  }
+
+  @Override
+  public EmbeddedList<String> newEmbeddedList(String[] source) {
+    checkOpenness();
+    return internal.newEmbeddedList(source);
+  }
+
+  @Override
+  public EmbeddedList<Date> newEmbeddedList(Date[] source) {
+    checkOpenness();
+    return internal.newEmbeddedList(source);
   }
 
   @Override

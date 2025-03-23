@@ -3716,10 +3716,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     var cls = propertyValue.getClass();
-    if (cls.isArray() && cls.getComponentType().isPrimitive()) {
-      if (cls.getComponentType() != char.class) {
-        return null;
-      }
+    if (cls.isArray() && cls.getComponentType() == byte.class) {
+      return null;
     }
 
     if (cls.isEnum()) {

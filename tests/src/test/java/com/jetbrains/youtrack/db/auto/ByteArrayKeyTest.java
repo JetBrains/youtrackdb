@@ -6,6 +6,7 @@ import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -16,8 +17,8 @@ import org.testng.annotations.Test;
 public class ByteArrayKeyTest extends BaseDBTest {
 
   @Parameters(value = "remote")
-  public ByteArrayKeyTest(boolean remote) {
-    super(remote);
+  public ByteArrayKeyTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @BeforeClass
@@ -65,20 +66,29 @@ public class ByteArrayKeyTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     var index =
         session.getMetadata().getIndexManagerInternal().getIndex(session, "byteArrayKeyIndex");
+    final var tx = session.getActiveTransaction();
     try (var stream = index.getRids(session, key1)) {
-      Assert.assertEquals(stream.findAny().map(rid -> {
-        var transaction = session.getActiveTransaction();
-        return transaction.load(rid);
-      }).orElse(null), doc1);
+      Assert.assertEquals(
+          stream.findAny().map(rid -> {
+            var transaction = session.getActiveTransaction();
+            return transaction.load(rid);
+          }).orElse(null),
+          tx.load(doc1)
+      );
     }
     try (var stream = index.getRids(session, key2)) {
-      Assert.assertEquals(stream.findAny().map(rid -> {
-        var transaction = session.getActiveTransaction();
-        return transaction.load(rid);
-      }).orElse(null), doc2);
+      Assert.assertEquals(
+          stream.findAny().map(rid -> {
+            var transaction = session.getActiveTransaction();
+            return transaction.load(rid);
+          }).orElse(null),
+          tx.load(doc2)
+      );
     }
+    session.commit();
   }
 
   public void testAutomaticCompositeUsage() {
@@ -98,23 +108,32 @@ public class ByteArrayKeyTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     var index =
         session
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "compositeByteArrayKey");
+    final var tx = session.getActiveTransaction();
     try (var stream = index.getRids(session, new CompositeKey(key1, 1))) {
-      Assert.assertEquals(stream.findAny().map(rid -> {
-        var transaction = session.getActiveTransaction();
-        return transaction.load(rid);
-      }).orElse(null), doc1);
+      Assert.assertEquals(
+          stream.findAny().map(rid -> {
+            var transaction = session.getActiveTransaction();
+            return transaction.load(rid);
+          }).orElse(null),
+          tx.load(doc1)
+      );
     }
     try (var stream = index.getRids(session, new CompositeKey(key2, 2))) {
-      Assert.assertEquals(stream.findAny().map(rid -> {
-        var transaction = session.getActiveTransaction();
-        return transaction.load(rid);
-      }).orElse(null), doc2);
+      Assert.assertEquals(
+          stream.findAny().map(rid -> {
+            var transaction = session.getActiveTransaction();
+            return transaction.load(rid);
+          }).orElse(null),
+          tx.load(doc2)
+      );
     }
+    session.commit();
   }
 
   public void testAutomaticCompositeUsageInTX() {
@@ -134,23 +153,32 @@ public class ByteArrayKeyTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     var index =
         session
             .getMetadata()
             .getIndexManagerInternal()
             .getIndex(session, "compositeByteArrayKey");
+    final var tx = session.getActiveTransaction();
     try (var stream = index.getRids(session, new CompositeKey(key1, 1))) {
-      Assert.assertEquals(stream.findAny().map(rid -> {
-        var transaction = session.getActiveTransaction();
-        return transaction.load(rid);
-      }).orElse(null), doc1);
+      Assert.assertEquals(
+          stream.findAny().map(rid -> {
+            var transaction = session.getActiveTransaction();
+            return transaction.load(rid);
+          }).orElse(null),
+          tx.load(doc1)
+      );
     }
     try (var stream = index.getRids(session, new CompositeKey(key2, 2))) {
-      Assert.assertEquals(stream.findAny().map(rid -> {
-        var transaction = session.getActiveTransaction();
-        return transaction.load(rid);
-      }).orElse(null), doc2);
+      Assert.assertEquals(
+          stream.findAny().map(rid -> {
+            var transaction = session.getActiveTransaction();
+            return transaction.load(rid);
+          }).orElse(null),
+          tx.load(doc2)
+      );
     }
+    session.commit();
   }
 
   @Test(dependsOnMethods = {"testAutomaticUsage"})

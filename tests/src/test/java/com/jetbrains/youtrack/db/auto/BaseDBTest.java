@@ -460,7 +460,7 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
       return;
     }
 
-    var whiz = session.getMetadata().getSchema().createClass("Whiz", 1);
+    var whiz = session.getMetadata().getSchema().createClass("Whiz");
     whiz.createProperty("id", PropertyType.INTEGER);
     whiz.createProperty("account", PropertyType.LINK, account);
     whiz.createProperty("date", PropertyType.DATE).setMin("2010-01-01");
@@ -476,9 +476,9 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
     }
 
     var animalRace =
-        session.getMetadata().getSchema().createClass("AnimalRace", 1);
+        session.getMetadata().getSchema().createClass("AnimalRace");
     animalRace.createProperty("name", PropertyType.STRING);
-    var animal = session.getMetadata().getSchema().createClass("Animal", 1);
+    var animal = session.getMetadata().getSchema().createClass("Animal");
     animal.createProperty("races", PropertyType.LINKSET, animalRace);
     animal.createProperty("name", PropertyType.STRING);
   }
@@ -489,7 +489,7 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
     }
 
     var strictTest =
-        session.getMetadata().getSchema().createClass("StrictTest", 1);
+        session.getMetadata().getSchema().createClass("StrictTest");
     strictTest.setStrictMode(true);
     strictTest.createProperty("id", PropertyType.INTEGER).isMandatory();
     strictTest.createProperty("name", PropertyType.STRING);

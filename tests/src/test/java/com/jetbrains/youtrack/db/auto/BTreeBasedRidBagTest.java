@@ -33,6 +33,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeClass;
@@ -166,8 +167,6 @@ public class BTreeBasedRidBagTest extends RidBagTest {
     var doc = ((EntityImpl) session.newEntity());
     doc.setProperty("ridBag", bag);
 
-    session.begin();
-
     session.commit();
 
     session.begin();
@@ -182,7 +181,13 @@ public class BTreeBasedRidBagTest extends RidBagTest {
       result.add(transaction.load(identifiable));
     }
 
-    Assert.assertEquals(result, expectedResult);
+    final var tx = session.getActiveTransaction();
+    Assert.assertEquals(
+        result,
+        expectedResult.stream()
+            .map(tx::load)
+            .collect(Collectors.toSet())
+    );
     session.commit();
   }
 

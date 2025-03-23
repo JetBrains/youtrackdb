@@ -17,6 +17,7 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -24,8 +25,8 @@ import org.testng.annotations.Test;
 public class DbClosedTest extends BaseDBTest {
 
   @Parameters(value = {"remote"})
-  public DbClosedTest(boolean remote) {
-    super(remote, "db-closed-test");
+  public DbClosedTest(@Optional Boolean remote) {
+    super(remote != null && remote, "db-closed-test");
   }
 
   public void testDoubleDb() {

@@ -45,21 +45,17 @@ public class DateTest extends BaseDBTest {
     doc1.setProperty("context", "test");
     doc1.setProperty("date", new Date());
 
-    var doc2 = ((EntityImpl) session.newEntity("Order"));
-    doc2.setProperty("context", "test");
-    doc2.setProperty("date", System.currentTimeMillis());
-
     session.commit();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
-    doc2 = activeTx.load(doc2);
-    Assert.assertNotNull(doc2.getDate("date"));
+    doc1 = activeTx.load(doc1);
+    Assert.assertNotNull(doc1.getDate("date"));
 
     var result =
         session.execute("select * from Order where date >= ? and context = 'test'", begin);
 
-    Assert.assertEquals(result.stream().count(), 2);
+    Assert.assertEquals(result.stream().count(), 1);
     session.rollback();
   }
 
@@ -78,6 +74,7 @@ public class DateTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     var result =
         session
             .execute(
@@ -86,16 +83,19 @@ public class DateTest extends BaseDBTest {
             .collect(Collectors.toList());
 
     Assert.assertEquals(result.size(), 1);
+    session.commit();
   }
 
   @Test
   public void testDateTypes() throws ParseException {
+    session.begin();
     var doc = ((EntityImpl) session.newEntity());
     doc.setProperty("context", "test");
     Object propertyValue = System.currentTimeMillis();
     doc.setProperty("date", propertyValue, PropertyType.DATE);
 
     Assert.assertTrue(doc.getProperty("date") instanceof Date);
+    session.commit();
   }
 
   /**

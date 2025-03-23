@@ -15,11 +15,15 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
+import static org.testng.Assert.fail;
+
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
@@ -32,7 +36,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.ConcurrentModificationException;
 import java.util.Date;
 import java.util.HashMap;
@@ -171,6 +174,7 @@ public class CRUDTest extends BaseDBTest {
     var floatArray = new float[10];
     var booleanArray = new boolean[10];
     var dateArray = new Date[10];
+    var byteArray = new byte[10];
     var cal = Calendar.getInstance();
     cal.set(Calendar.SECOND, 0);
     cal.set(Calendar.MINUTE, 0);
@@ -184,18 +188,41 @@ public class CRUDTest extends BaseDBTest {
       longArray[i] = i;
       doubleArray[i] = i;
       floatArray[i] = i;
+      byteArray[i] = (byte) i;
       booleanArray[i] = (i % 2 == 0);
       cal.set(Calendar.DAY_OF_MONTH, (i + 1));
       dateArray[i] = cal.getTime();
     }
+   final var values = List.of(
+        new Pair<>("text", textArray),
+        new Pair<>("dateField", dateArray),
+        new Pair<>("doubleSimple", doubleArray),
+        new Pair<>("flagSimple", booleanArray),
+        new Pair<>("floatSimple", floatArray),
+        new Pair<>("longSimple", longArray),
+        new Pair<>("numberSimple", intArray)
+    );
 
-    element.setProperty("text", textArray);
-    element.setProperty("dateField", dateArray);
-    element.setProperty("doubleSimple", doubleArray);
-    element.setProperty("flagSimple", booleanArray);
-    element.setProperty("floatSimple", floatArray);
-    element.setProperty("longSimple", longArray);
-    element.setProperty("numberSimple", intArray);
+    for (var p : values) {
+
+      try {
+        element.setProperty(p.getKey(), p.getValue());
+        fail("Should fail on array values");
+        //
+      } catch (DatabaseException ex) {
+
+      }
+    }
+
+    element.setProperty("bytes", byteArray);
+
+    element.setProperty("text", session.newEmbeddedList(textArray));
+    element.setProperty("dateField", session.newEmbeddedList(dateArray));
+    element.setProperty("doubleSimple", session.newEmbeddedList(doubleArray));
+    element.setProperty("flagSimple", session.newEmbeddedList(booleanArray));
+    element.setProperty("floatSimple", session.newEmbeddedList(floatArray));
+    element.setProperty("longSimple", session.newEmbeddedList(longArray));
+    element.setProperty("numberSimple", session.newEmbeddedList(intArray));
 
     Assert.assertNotNull(element.getProperty("text"));
     Assert.assertNotNull(element.getProperty("numberSimple"));
@@ -251,13 +278,13 @@ public class CRUDTest extends BaseDBTest {
       cal.set(Calendar.DAY_OF_MONTH, (j + 1));
       dateArray[i] = cal.getTime();
     }
-    loadedElement.setProperty("text", textArray);
-    loadedElement.setProperty("dateField", dateArray);
-    loadedElement.setProperty("doubleSimple", doubleArray);
-    loadedElement.setProperty("flagSimple", booleanArray);
-    loadedElement.setProperty("floatSimple", floatArray);
-    loadedElement.setProperty("longSimple", longArray);
-    loadedElement.setProperty("numberSimple", intArray);
+    loadedElement.setProperty("text", session.newEmbeddedList(textArray));
+    loadedElement.setProperty("dateField", session.newEmbeddedList(dateArray));
+    loadedElement.setProperty("doubleSimple", session.newEmbeddedList(doubleArray));
+    loadedElement.setProperty("flagSimple", session.newEmbeddedList(booleanArray));
+    loadedElement.setProperty("floatSimple", session.newEmbeddedList(floatArray));
+    loadedElement.setProperty("longSimple", session.newEmbeddedList(longArray));
+    loadedElement.setProperty("numberSimple", session.newEmbeddedList(intArray));
 
     session.commit();
     session.close();
@@ -391,9 +418,9 @@ public class CRUDTest extends BaseDBTest {
       var child2 = session.newEntity("Child");
       var child3 = session.newEntity("Child");
 
-      a.setProperty("list", Collections.singletonList(child1));
-      a.setProperty("set", Collections.singleton(child2));
-      a.setProperty("children", Collections.singletonMap("" + i, child3));
+      a.setProperty("list", session.newLinkList(List.of(child1)));
+      a.setProperty("set", session.newLinkSet(Set.of(child2)));
+      a.setProperty("children", session.newLinkMap(Map.of("" + i, child3)));
     }
 
     a = a;
@@ -432,12 +459,11 @@ public class CRUDTest extends BaseDBTest {
       var child2 = session.newEntity("Child");
       var child3 = session.newEntity("Child");
 
-      a.setProperty("list", Collections.singletonList(child1));
-      a.setProperty("set", Collections.singleton(child2));
-      a.setProperty("children", Collections.singletonMap("" + i, child3));
+      a.setProperty("list", session.newLinkList(List.of(child1)));
+      a.setProperty("set", session.newLinkSet(Set.of(child2)));
+      a.setProperty("children", session.newLinkMap(Map.of("" + i, child3)));
     }
 
-    a = a;
     session.commit();
 
     var rid = a.getIdentity();
@@ -465,17 +491,17 @@ public class CRUDTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "collectionsDocumentTypeTestPhaseTwo")
   public void collectionsDocumentTypeTestPhaseThree() {
+    session.begin();
     var a = session.newInstance("JavaComplexTestClass");
 
-    session.begin();
     for (var i = 0; i < 100; i++) {
       var child1 = session.newEntity("Child");
       var child2 = session.newEntity("Child");
       var child3 = session.newEntity("Child");
 
-      a.setProperty("list", Collections.singletonList(child1));
-      a.setProperty("set", Collections.singleton(child2));
-      a.setProperty("children", Collections.singletonMap("" + i, child3));
+      a.setProperty("list", session.newLinkList(List.of(child1)));
+      a.setProperty("set", session.newLinkSet(Set.of(child2)));
+      a.setProperty("children", session.newLinkMap(Map.of("" + i, child3)));
     }
     a = a;
     session.commit();
@@ -486,7 +512,7 @@ public class CRUDTest extends BaseDBTest {
     session = createSessionInstance();
     session.begin();
     var agendas = executeQuery("SELECT FROM " + rid);
-    var testLoadedEntity = (EntityImpl) agendas.getFirst();
+    var testLoadedEntity = agendas.getFirst().asEntity();
     checkCollectionImplementations(testLoadedEntity);
 
     testLoadedEntity = testLoadedEntity;
@@ -501,13 +527,13 @@ public class CRUDTest extends BaseDBTest {
     session.rollback();
   }
 
-  protected static void checkCollectionImplementations(EntityImpl doc) {
+  protected static void checkCollectionImplementations(Entity doc) {
     var collectionObj = doc.getProperty("list");
     var validImplementation =
         (collectionObj instanceof EmbeddedListImpl<?>) || (doc.getProperty(
             "list") instanceof LinkListImpl);
     if (!validImplementation) {
-      Assert.fail(
+      fail(
           "Document list implementation "
               + collectionObj.getClass().getName()
               + " not compatible with current Object Database loading management");
@@ -516,7 +542,7 @@ public class CRUDTest extends BaseDBTest {
     validImplementation =
         collectionObj instanceof TrackedSet<?>;
     if (!validImplementation) {
-      Assert.fail(
+      fail(
           "Document set implementation "
               + collectionObj.getClass().getName()
               + " not compatible with current Object Database management");
@@ -524,7 +550,7 @@ public class CRUDTest extends BaseDBTest {
     collectionObj = doc.getProperty("children");
     validImplementation = collectionObj instanceof TrackedMap<?>;
     if (!validImplementation) {
-      Assert.fail(
+      fail(
           "Document map implementation "
               + collectionObj.getClass().getName()
               + " not compatible with current Object Database management");
@@ -775,7 +801,7 @@ public class CRUDTest extends BaseDBTest {
         // NO NEED TO DO ANYTHING, JUST NEED TO ITERATE THE LIST
       }
     } catch (ConcurrentModificationException cme) {
-      Assert.fail("Error iterating Object list", cme);
+      fail("Error iterating Object list", cme);
     }
 
     if (session.getTransactionInternal().isActive()) {
@@ -786,29 +812,29 @@ public class CRUDTest extends BaseDBTest {
   @Test(dependsOnMethods = "listObjectsIterationTest")
   public void mapObjectsListEmbeddedTest() {
     session.begin();
-    var cresult = executeQuery("select * from Child");
+    var cresult = executeQuery("select * from EmbeddedChild");
 
     var childSize = cresult.size();
 
     var p = session.newInstance("JavaComplexTestClass");
     p.setProperty("name", "Silvester");
 
-    var c = session.newInstance("Child");
+    var c = session.newEmbeddedEntity("EmbeddedChild");
     c.setProperty("name", "John");
 
-    var c1 = session.newInstance("Child");
+    var c1 = session.newEmbeddedEntity("EmbeddedChild");
     c1.setProperty("name", "Jack");
 
-    var c2 = session.newInstance("Child");
+    var c2 = session.newEmbeddedEntity("EmbeddedChild");
     c2.setProperty("name", "Bob");
 
-    var c3 = session.newInstance("Child");
+    var c3 = session.newEmbeddedEntity("EmbeddedChild");
     c3.setProperty("name", "Sam");
 
-    var c4 = session.newInstance("Child");
+    var c4 = session.newEmbeddedEntity("EmbeddedChild");
     c4.setProperty("name", "Dean");
 
-    var list = session.newLinkList();
+    var list = session.newEmbeddedList();
     list.add(c1);
     list.add(c2);
     list.add(c3);
@@ -819,7 +845,7 @@ public class CRUDTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    cresult = executeQuery("select * from Child");
+    cresult = executeQuery("select * from EmbeddedChild");
 
     Assert.assertEquals(childSize, cresult.size());
 
@@ -844,7 +870,7 @@ public class CRUDTest extends BaseDBTest {
                         .get(0))
                     .getSchemaClass())
             .getName(),
-        "Child");
+        "EmbeddedChild");
     var transaction2 = session.getActiveTransaction();
     Assert.assertEquals(
         Objects.requireNonNull(
@@ -853,7 +879,7 @@ public class CRUDTest extends BaseDBTest {
                         .get(1))
                     .getSchemaClass())
             .getName(),
-        "Child");
+        "EmbeddedChild");
     var transaction1 = session.getActiveTransaction();
     Assert.assertEquals(
         Objects.requireNonNull(
@@ -862,7 +888,7 @@ public class CRUDTest extends BaseDBTest {
                         .get(2))
                     .getSchemaClass())
             .getName(),
-        "Child");
+        "EmbeddedChild");
     var transaction = session.getActiveTransaction();
     Assert.assertEquals(
         Objects.requireNonNull(
@@ -871,7 +897,7 @@ public class CRUDTest extends BaseDBTest {
                         .get(3))
                     .getSchemaClass())
             .getName(),
-        "Child");
+        "EmbeddedChild");
     Assert.assertEquals(
         loaded.<List<Entity>>getProperty("embeddedList").get(0).getProperty("name"), "Jack");
     Assert.assertEquals(
@@ -886,28 +912,28 @@ public class CRUDTest extends BaseDBTest {
   @Test(dependsOnMethods = "mapObjectsListEmbeddedTest")
   public void mapObjectsSetEmbeddedTest() {
     session.begin();
-    var cresult = executeQuery("select * from Child");
+    var cresult = executeQuery("select * from EmbeddedChild");
     var childSize = cresult.size();
 
     var p = session.newInstance("JavaComplexTestClass");
     p.setProperty("name", "Silvester");
 
-    var c = session.newInstance("Child");
+    var c = session.newEmbeddedEntity("EmbeddedChild");
     c.setProperty("name", "John");
 
-    var c1 = session.newInstance("Child");
+    var c1 = session.newEmbeddedEntity("EmbeddedChild");
     c1.setProperty("name", "Jack");
 
-    var c2 = session.newInstance("Child");
+    var c2 = session.newEmbeddedEntity("EmbeddedChild");
     c2.setProperty("name", "Bob");
 
-    var c3 = session.newInstance("Child");
+    var c3 = session.newEmbeddedEntity("EmbeddedChild");
     c3.setProperty("name", "Sam");
 
-    var c4 = session.newInstance("Child");
+    var c4 = session.newEmbeddedEntity("EmbeddedChild");
     c4.setProperty("name", "Dean");
 
-    var embeddedSet = new HashSet<Entity>();
+    var embeddedSet = session.newEmbeddedSet();
     embeddedSet.add(c);
     embeddedSet.add(c1);
     embeddedSet.add(c2);
@@ -919,7 +945,7 @@ public class CRUDTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    cresult = executeQuery("select * from Child");
+    cresult = executeQuery("select * from EmbeddedChild");
 
     Assert.assertEquals(childSize, cresult.size());
 
@@ -935,7 +961,7 @@ public class CRUDTest extends BaseDBTest {
     Assert.assertEquals(loaded.<Set<Entity>>getProperty("embeddedSet").size(), 5);
     for (var loadedC : loaded.<Set<Entity>>getProperty("embeddedSet")) {
       Assert.assertTrue(loadedC.isEmbedded());
-      Assert.assertEquals(loadedC.getSchemaClassName(), "Child");
+      Assert.assertEquals(loadedC.getSchemaClassName(), "EmbeddedChild");
       Assert.assertTrue(
           loadedC.<String>getProperty("name").equals("John")
               || loadedC.<String>getProperty("name").equals("Jack")
@@ -949,28 +975,28 @@ public class CRUDTest extends BaseDBTest {
   @Test(dependsOnMethods = "mapObjectsSetEmbeddedTest")
   public void mapObjectsMapEmbeddedTest() {
     session.begin();
-    var cresult = executeQuery("select * from Child");
+    var cresult = executeQuery("select * from EmbeddedChild");
 
     var childSize = cresult.size();
     var p = session.newInstance("JavaComplexTestClass");
     p.setProperty("name", "Silvester");
 
-    var c = session.newInstance("Child");
+    var c = session.newEmbeddedEntity("EmbeddedChild");
     c.setProperty("name", "John");
 
-    var c1 = session.newInstance("Child");
+    var c1 = session.newEmbeddedEntity("EmbeddedChild");
     c1.setProperty("name", "Jack");
 
-    var c2 = session.newInstance("Child");
+    var c2 = session.newEmbeddedEntity("EmbeddedChild");
     c2.setProperty("name", "Bob");
 
-    var c3 = session.newInstance("Child");
+    var c3 = session.newEmbeddedEntity("EmbeddedChild");
     c3.setProperty("name", "Sam");
 
-    var c4 = session.newInstance("Child");
+    var c4 = session.newEmbeddedEntity("EmbeddedChild");
     c4.setProperty("name", "Dean");
 
-    var embeddedChildren = new HashMap<String, Entity>();
+    var embeddedChildren = session.newEmbeddedMap();
     embeddedChildren.put(c.getProperty("name"), c);
     embeddedChildren.put(c1.getProperty("name"), c1);
     embeddedChildren.put(c2.getProperty("name"), c2);
@@ -982,7 +1008,7 @@ public class CRUDTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    cresult = executeQuery("select * from Child");
+    cresult = executeQuery("select * from EmbeddedChild");
 
     Assert.assertEquals(childSize, cresult.size());
 
@@ -999,7 +1025,7 @@ public class CRUDTest extends BaseDBTest {
     for (var key : loaded.<Map<String, Entity>>getProperty("embeddedChildren").keySet()) {
       var loadedC = loaded.<Map<String, Entity>>getProperty("embeddedChildren").get(key);
       Assert.assertTrue(loadedC.isEmbedded());
-      Assert.assertEquals(loadedC.getSchemaClassName(), "Child");
+      Assert.assertEquals(loadedC.getSchemaClassName(), "EmbeddedChild");
       Assert.assertTrue(
           loadedC.<String>getProperty("name").equals("John")
               || loadedC.<String>getProperty("name").equals("Jack")
@@ -2226,7 +2252,7 @@ public class CRUDTest extends BaseDBTest {
             "this is a bytearray test. if you read this Object database has stored it correctly");
       }
     } catch (IOException ioe) {
-      Assert.fail();
+      fail();
       LogManager.instance().error(this, "Error reading byte[]", ioe);
     }
     Assert.assertTrue(loaded.getEntity("document") instanceof EntityImpl);
@@ -2274,7 +2300,7 @@ public class CRUDTest extends BaseDBTest {
                 + " correctlyVERSION2");
       }
     } catch (IOException ioe) {
-      Assert.fail();
+      fail();
       LogManager.instance().error(this, "Error reading byte[]", ioe);
     }
     rid = p.getIdentity();
@@ -2300,7 +2326,7 @@ public class CRUDTest extends BaseDBTest {
                 + " correctlyVERSION2");
       }
     } catch (IOException ioe) {
-      Assert.fail();
+      fail();
       LogManager.instance().error(this, "Error reading byte[]", ioe);
       throw new RuntimeException(ioe);
     }
@@ -2337,7 +2363,7 @@ public class CRUDTest extends BaseDBTest {
                 + " correctlyVERSION2");
       }
     } catch (IOException ioe) {
-      Assert.fail();
+      fail();
     }
     rid = p.getIdentity();
 
@@ -2362,7 +2388,7 @@ public class CRUDTest extends BaseDBTest {
                 + " correctlyVERSION2");
       }
     } catch (IOException ioe) {
-      Assert.fail();
+      fail();
       LogManager.instance().error(this, "Error reading byte[]", ioe);
     }
     session.commit();
@@ -2616,6 +2642,7 @@ public class CRUDTest extends BaseDBTest {
 
   @Test
   public void queryWithRidAsParameters() {
+    addGaribaldiAndBonaparte();
     session.begin();
     Entity profile = session.browseClass("Profile").next();
     var resultSet =
@@ -2627,6 +2654,7 @@ public class CRUDTest extends BaseDBTest {
 
   @Test
   public void queryWithRidStringAsParameters() {
+    addBarackObamaAndFollowers();
     session.begin();
     Entity profile = session.browseClass("Profile").next();
     var resultSet =
@@ -2659,7 +2687,7 @@ public class CRUDTest extends BaseDBTest {
       params.put("surname", "Obama");
 
       executeQuery("select from Profile where name = :name and surname = :surname%", params);
-      Assert.fail();
+      fail();
     } catch (CommandSQLParsingException e) {
       Assert.assertTrue(true);
     }
