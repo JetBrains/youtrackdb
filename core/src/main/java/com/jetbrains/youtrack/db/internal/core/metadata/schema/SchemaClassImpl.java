@@ -33,7 +33,6 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass.ATTRIBUTES;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.common.util.ArrayUtils;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
@@ -43,6 +42,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.clusterselection.
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.storage.StorageCluster;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntRBTreeSet;
@@ -59,6 +59,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * Schema Class implementation.
@@ -83,21 +84,6 @@ public abstract class SchemaClassImpl {
   protected Map<String, String> customFields;
   protected final ClusterSelectionStrategy clusterSelection = new RoundRobinClusterSelectionStrategy();
   protected volatile int hashCode;
-
-  private static final Set<String> RESERVED = new HashSet<>();
-
-  static {
-    // reserved.add("select");
-    RESERVED.add("traverse");
-    RESERVED.add("insert");
-    RESERVED.add("update");
-    RESERVED.add("delete");
-    RESERVED.add("from");
-    RESERVED.add("where");
-    RESERVED.add("skip");
-    RESERVED.add("limit");
-    RESERVED.add("timeout");
-  }
 
   protected SchemaClassImpl(final SchemaShared iOwner, final String iName,
       final int[] iClusterIds) {
@@ -168,6 +154,7 @@ public abstract class SchemaClassImpl {
     }
   }
 
+  @Nullable
   public String getCustom(DatabaseSessionInternal session, final String iName) {
     acquireSchemaReadLock(session);
     try {
@@ -181,6 +168,7 @@ public abstract class SchemaClassImpl {
     }
   }
 
+  @Nullable
   public Map<String, String> getCustomInternal(DatabaseSessionInternal session) {
     acquireSchemaReadLock(session);
     try {
@@ -1471,21 +1459,8 @@ public abstract class SchemaClassImpl {
       return;
     }
 
-    session.execute("alter cluster `" + oldName + "` NAME \"" + newName + "\"").close();
-  }
-
-  protected void onlyAddPolymorphicClusterId(int clusterId) {
-    if (Arrays.binarySearch(polymorphicClusterIds, clusterId) >= 0) {
-      return;
-    }
-
-    polymorphicClusterIds = ArrayUtils.copyOf(polymorphicClusterIds,
-        polymorphicClusterIds.length + 1);
-    polymorphicClusterIds[polymorphicClusterIds.length - 1] = clusterId;
-    Arrays.sort(polymorphicClusterIds);
-
-    for (var superClass : superClasses) {
-      superClass.onlyAddPolymorphicClusterId(clusterId);
+    if (!session.isRemote()) {
+      session.getStorage().setClusterAttribute(clusterId, StorageCluster.ATTRIBUTES.NAME, newName);
     }
   }
 
@@ -1685,6 +1660,7 @@ public abstract class SchemaClassImpl {
     Arrays.sort(clusterIds);
   }
 
+  @Nullable
   public static String decodeClassName(String s) {
     if (s == null) {
       return null;

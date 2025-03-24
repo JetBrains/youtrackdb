@@ -251,8 +251,6 @@ TOKEN:
 	|
 	< EXTENDS: ( "e" | "E" ) ( "x" | "X" ) ( "t" | "T" ) ( "e" | "E" ) ( "n" | "N" ) ( "d" | "D" ) ( "s" | "S" ) >
 	|
-	< CLUSTERS: ( "C" | "c" ) ( "L" | "l" ) ( "U" | "u" ) ( "S" | "s" ) ( "T" | "t" ) ( "E" | "e" ) ( "R" | "r" ) ( "S" | "s" ) >
-	|
 	< ABSTRACT: ( "a" | "A" ) ( "b" | "B" ) ( "s" | "S" ) ( "T" | "t" ) ( "R" | "r" ) ( "a" | "A" ) ( "C" | "c" ) ( "T" | "t" ) >
 	|
 	< ALTER: ( "a" | "A" ) ( "l" | "L" ) ( "t" | "T" ) ( "e" | "E" ) ( "r" | "R" ) >
@@ -579,7 +577,6 @@ TOKEN :
 | < MATCHES: ( "M" | "m") ( "A" | "a") ( "T" | "t") ( "C" | "c") ( "H" | "h") ( "E" | "e") ( "S" | "s") >
 | < KEY: ( "K" | "k") ( "E" | "e") ( "Y" | "y") >
 | < INSTANCEOF: ( "I" | "i" ) ( "N" | "n" ) ( "S" | "s" ) ( "T" | "t" ) ( "A" | "a" ) ( "N" | "n" ) ( "C" | "c" ) ( "E" | "e" ) ( "O" | "o" ) ( "F" | "f" ) >
-| < CLUSTER: ( "C" | "c" ) ( "L" | "l" ) ( "U" | "u" ) ( "S" | "s" ) ( "T" | "t" ) ( "E" | "e" ) ( "R" | "r" ) >
 }
 
 
@@ -589,18 +586,6 @@ TOKEN :
   < IDENTIFIER: ( ((<DOLLAR>) | <LETTER>) (<PART_LETTER>)* ) >
 |
   < QUOTED_IDENTIFIER: ( "`" (~["`"] | "\\`") (~["`"] | "\\`")*  "`") >
-|
-  < INDEX_COLON: <INDEX> ":" >
-|
-  < INDEXVALUES_IDENTIFIER: ( "I" | "i") ( "N" | "n") ( "D" | "d") ( "E" | "e") ( "X" | "x") ( "V" | "v") ( "A" | "a") ( "L" | "l") ( "U" | "u") ( "E" | "e") ( "S" | "s") ":" ( "__@recordmap@___" )? <IDENTIFIER> ( ( <DOT> | <MINUS> ) <IDENTIFIER> )* >
-|
-  < INDEXVALUESASC_IDENTIFIER:( "I" | "i") ( "N" | "n") ( "D" | "d") ( "E" | "e") ( "X" | "x") ( "V" | "v") ( "A" | "a") ( "L" | "l") ( "U" | "u") ( "E" | "e") ( "S" | "s") ( "A" | "a") ( "S" | "s") ( "C" | "c") ":" ( "__@recordmap@___" )? <IDENTIFIER> ( ( <DOT> | <MINUS> ) <IDENTIFIER> )* >
-|
-  < INDEXVALUESDESC_IDENTIFIER: ( "I" | "i") ( "N" | "n") ( "D" | "d") ( "E" | "e") ( "X" | "x") ( "V" | "v") ( "A" | "a") ( "L" | "l") ( "U" | "u") ( "E" | "e") ( "S" | "s") ( "D" | "d") ( "E" | "e") ( "S" | "s") ( "C" | "c") ":" ( "__@recordmap@___" )? <IDENTIFIER> ( ( <DOT> | <MINUS> ) <IDENTIFIER> )* >
-|
-  < CLUSTER_IDENTIFIER: <CLUSTER> <COLON> <IDENTIFIER>  >
-|
-  < CLUSTER_NUMBER_IDENTIFIER: <CLUSTER> <COLON> <INTEGER_LITERAL>  >
 |
   < METADATA_IDENTIFIER: "metadata:" <IDENTIFIER>  >
 |
@@ -777,8 +762,6 @@ SQLIdentifier Identifier():
 	token = <REFERENCES>
 	|
 	token = <EXTENDS>
-	|
-	token = <CLUSTERS>
 	|
 	token = <ABSTRACT>
 	|
@@ -1057,9 +1040,6 @@ SQLStatement StatementInternal():
                 result = CreateIndexStatement()
                 |
                 LOOKAHEAD(2)
-                result = CreateClusterStatement()
-                |
-                LOOKAHEAD(2)
                 result = CreateLinkStatement()
                 |
                 LOOKAHEAD(2)
@@ -1129,9 +1109,6 @@ SQLStatement StatementInternal():
                 |
                 LOOKAHEAD(2)
                 result = DropIndexStatement()
-                |
-                LOOKAHEAD(AlterClusterStatement())
-                result = AlterClusterStatement()
                 |
                 LOOKAHEAD(2)
                 result = AlterDatabaseStatement()
@@ -2548,34 +2525,6 @@ SQLIndexName IndexName():
     }
 }
 
-
-SQLIndexIdentifier IndexIdentifier():
-{
-    Token token;
-}
-{
-    (
-        (
-            <INDEX_COLON>
-            jjtThis.indexName = IndexName() { jjtThis.type = SQLIndexIdentifier.Type.INDEX; }
-        )
-        |
-        (
-            (
-                token = <INDEXVALUES_IDENTIFIER> { jjtThis.type = SQLIndexIdentifier.Type.VALUES; }
-                |
-                token = <INDEXVALUESASC_IDENTIFIER> { jjtThis.type = SQLIndexIdentifier.Type.VALUESASC; }
-                |
-                token = <INDEXVALUESDESC_IDENTIFIER> { jjtThis.type = SQLIndexIdentifier.Type.VALUESDESC; }
-            )
-            {
-                jjtThis.indexNameString = token.image.split(":")[1];
-            }
-        )
-    )
-    { return jjtThis; }
-}
-
 SQLWhereClause WhereClause():
 {}
 {
@@ -3569,23 +3518,6 @@ SQLMatchFilterItem MatchFilterItem():
         )
         |
         (
-            <CLUSTER> <COLON>
-            (
-               jjtThis.clusterName = Identifier()
-               |
-               jjtThis.clusterId = Integer()
-            )
-        )
-        |
-        (
-            (
-                lastToken = <CLUSTER_IDENTIFIER> {jjtThis.clusterName = new SQLIdentifier(lastToken.image.split(":")[1]);}
-                |
-                lastToken = <CLUSTER_NUMBER_IDENTIFIER> {jjtThis.clusterId = new SQLInteger(-1); jjtThis.clusterId.setValue(Integer.parseInt(lastToken.image.split(":")[1]));}
-            )
-        )
-        |
-        (
             <RID> <COLON> jjtThis.rid = Rid()
         )
         |
@@ -4169,37 +4101,6 @@ SQLDropIndexStatement DropIndexStatement():
         )
         [ <IF> <EXISTS> { jjtThis.ifExists = true; }]
 	)
-	{ return jjtThis; }
-}
-
-
-SQLCreateClusterStatement CreateClusterStatement():
-{}
-{
-    (
-        <CREATE>
-        (
-            ( <CLUSTER> )
-            |
-            ( <BLOB> <CLUSTER> { jjtThis.blob = true; } )
-        )
-        jjtThis.name = Identifier()
-        [ <IF> <NOT> <EXISTS> { jjtThis.ifNotExists = true; } ]
-        [ <ID> jjtThis.id = Integer() ]
-	)
-	{ return jjtThis; }
-}
-
-SQLAlterClusterStatement AlterClusterStatement():
-{}
-{
-	<ALTER> <CLUSTER>
-	(
-		jjtThis.name = Identifier()
-	)
-	[ <STAR> { jjtThis.starred = true; }]
-	jjtThis.attributeName = Identifier()
-	jjtThis.attributeValue = Expression()
 	{ return jjtThis; }
 }
 
@@ -4853,8 +4754,6 @@ SQLSecurityResourceSegment SecurityResourceSegment():
             <STAR> { jjtThis.star = true; }
             |
             identifier = Identifier() {jjtThis.setIdentifier(identifier); }
-            |
-            token = <CLUSTER> { jjtThis.setIdentifier( new SQLIdentifier(token.image)); }
             |
             token = <CREATE> { jjtThis.setIdentifier(new SQLIdentifier(token.image)); }
             |

@@ -198,20 +198,18 @@ public class MatchStatementTest {
   }
 
   @Test
-  public void testClusterTarget() {
-    checkRightSyntax("MATCH {cluster:v, as: foo} RETURN $elements");
-    checkRightSyntax("MATCH {cluster:12, as: foo} RETURN $elements");
-    checkRightSyntax("MATCH {cluster: v, as: foo} RETURN $elements");
-    checkRightSyntax("MATCH {cluster: `v`, as: foo} RETURN $elements");
-    checkRightSyntax("MATCH {cluster:`v`, as: foo} RETURN $elements");
-    checkRightSyntax("MATCH {cluster: 12, as: foo} RETURN $elements");
-
-    checkWrongSyntax("MATCH {cluster: 12.1, as: foo} RETURN $elements");
+  public void testClassTarget() {
+    checkRightSyntax("MATCH {class:v, as: foo} RETURN $elements");
+    checkRightSyntax("MATCH {class:12, as: foo} RETURN $elements");
+    checkRightSyntax("MATCH {class: v, as: foo} RETURN $elements");
+    checkRightSyntax("MATCH {class: `v`, as: foo} RETURN $elements");
+    checkRightSyntax("MATCH {class:`v`, as: foo} RETURN $elements");
+    checkRightSyntax("MATCH {class: 12, as: foo} RETURN $elements");
   }
 
   @Test
   public void testNot() {
-    checkRightSyntax("MATCH {cluster:v, as: foo}, NOT {as:foo}-->{as:bar} RETURN $elements");
+    checkRightSyntax("MATCH {class:v, as: foo}, NOT {as:foo}-->{as:bar} RETURN $elements");
   }
 
   @Test
