@@ -282,6 +282,7 @@ public interface DatabaseSession extends AutoCloseable {
    *
    * @return ContextConfiguration
    */
+  @Nullable
   ContextConfiguration getConfiguration();
 
   /**
@@ -353,6 +354,7 @@ public interface DatabaseSession extends AutoCloseable {
    */
   void freeze(boolean throwException);
 
+  @Nullable
   String getCurrentUserName();
 
   /**

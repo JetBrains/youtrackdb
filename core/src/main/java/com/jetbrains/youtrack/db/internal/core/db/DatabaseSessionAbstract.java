@@ -822,7 +822,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
 
-
   @Nullable
   @Override
   public <RET extends RecordAbstract> RawPair<RET, RecordId> loadFirstRecordAndNextRidInCluster(
@@ -938,13 +937,14 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
           Role.PERMISSION_READ,
           getClusterNameById(rid.getClusterId()));
       // SEARCH IN LOCAL TX
-      var record = getTransactionInternal().getRecord(rid);
-      if (record == FrontendTransactionImpl.DELETED_RECORD) {
+      var txInternal = getTransactionInternal();
+      if (txInternal.isDeletedInTx(rid)) {
         // DELETED IN TX
         return createRecordNotFoundResult(rid, fetchPreviousRid, fetchNextRid,
             throwExceptionIfRecordNotFound);
       }
 
+      var record = getTransactionInternal().getRecord(rid);
       var cachedRecord = localCache.findRecord(rid);
       if (record == null) {
         record = cachedRecord;
@@ -1115,6 +1115,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     }
   }
 
+  @Nullable
   private RecordId fetchNextRid(RecordId rid) {
     RecordId nextRid;
     while (true) {
@@ -1149,6 +1150,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     return nextRid;
   }
 
+  @Nullable
   private RecordId fetchPreviousRid(RecordId rid) {
     RecordId previousRid;
 

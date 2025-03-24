@@ -57,9 +57,9 @@ public class LinksetInTransactionTest extends DbTestBase {
     withLinks1 = activeTx.load(withLinks1);
     links = withLinks1.getProperty("links");
     /* Initial record was removed */
-    Assert.assertFalse(links.contains(link1));
+    Assert.assertFalse(links.contains(activeTx.load(link1)));
     /* Fails: why is link2 still in the set? */
-    Assert.assertFalse(links.contains(link2));
+    Assert.assertFalse(links.contains(activeTx.load(link2)));
     session.commit();
   }
 }

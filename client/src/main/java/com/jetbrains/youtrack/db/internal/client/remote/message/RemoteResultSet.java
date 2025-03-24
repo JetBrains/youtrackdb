@@ -82,9 +82,12 @@ public class RemoteResultSet implements ResultSet {
     var internal = currentPage.removeFirst();
 
     if (internal.isRecord() && session != null && session.isTxActive()) {
-      DBRecord record = session.getTransactionInternal().getRecord(internal.getIdentity());
-      if (record != null && record != FrontendTransactionImpl.DELETED_RECORD) {
-        internal = new ResultInternal(session, record);
+      var tx = session.getTransactionInternal();
+      if (!tx.isDeletedInTx(internal.getIdentity())) {
+        DBRecord record = tx.getRecord(internal.getIdentity());
+        if (record != null) {
+          internal = new ResultInternal(session, record);
+        }
       }
     }
     return internal;
@@ -163,6 +166,7 @@ public class RemoteResultSet implements ResultSet {
 
   @Override
   public ResultSet trySplit() {
+    //noinspection ReturnOfNull
     return null;
   }
 

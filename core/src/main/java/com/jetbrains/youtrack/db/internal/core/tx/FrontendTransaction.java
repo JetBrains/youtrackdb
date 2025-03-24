@@ -114,9 +114,9 @@ public interface FrontendTransaction extends Transaction {
    * Resolves a record with the given RID in the context of this transaction.
    *
    * @param rid the record RID.
-   * @return the resolved record, or {@code null} if no record is found, or
-   * {@link FrontendTransactionImpl#DELETED_RECORD} if the record was deleted in this transaction.
+   * @return the resolved record, or {@code null} if no record is found.
    */
+  @Nullable
   RecordAbstract getRecord(RID rid);
 
   /**
@@ -151,6 +151,7 @@ public interface FrontendTransaction extends Transaction {
    * @return the index changes in question or {@code null} if index is not found or storage is
    * remote.
    */
+  @Nullable
   FrontendTransactionIndexChanges getIndexChangesInternal(String indexName);
 
   /**

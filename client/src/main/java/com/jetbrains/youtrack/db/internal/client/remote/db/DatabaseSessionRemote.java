@@ -528,10 +528,10 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
     assert assertIfNotActive();
 
     try {
-      DBRecord record = getTransactionInternal().getRecord(rid);
-      if (record == FrontendTransactionImpl.DELETED_RECORD) {
+      if (getTransactionInternal().isDeletedInTx(rid)) {
         return false;
       }
+      DBRecord record = getTransactionInternal().getRecord(rid);
       if (record != null) {
         return true;
       }

@@ -53,6 +53,7 @@ import java.util.Map;
 import java.util.TimeZone;
 import java.util.UUID;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -95,6 +96,7 @@ public class HelperClasses {
     public PropertyTypeInternal keyType;
   }
 
+  @Nullable
   public static PropertyTypeInternal readOType(final BytesContainer bytes, boolean justRunThrough) {
     if (justRunThrough) {
       bytes.offset++;
@@ -117,6 +119,7 @@ public class HelperClasses {
     }
   }
 
+  @Nullable
   public static PropertyTypeInternal readType(BytesContainer bytes) {
     var typeId = bytes.bytes[bytes.offset++];
     if (typeId == -1) {
@@ -161,6 +164,7 @@ public class HelperClasses {
     return value;
   }
 
+  @Nullable
   public static RecordId readOptimizedLink(final BytesContainer bytes, boolean justRunThrough) {
     var clusterId = VarIntSerializer.readAsInteger(bytes);
     var clusterPos = VarIntSerializer.readAsLong(bytes);
@@ -378,13 +382,15 @@ public class HelperClasses {
     var entries = ((EmbeddedRidBag) ridbag.getDelegate()).getEntries();
     for (var i = 0; i < entries.length; i++) {
       var entry = entries[i];
+      var txInternal = session.getTransactionInternal();
       if (entry instanceof Identifiable itemValue) {
         if (!session.isClosed()
             && session.getTransactionInternal().isActive()
             && !itemValue.getIdentity().isPersistent()) {
           itemValue = session.getTransactionInternal().getRecord(itemValue.getIdentity());
         }
-        if (itemValue == null || itemValue == FrontendTransactionImpl.DELETED_RECORD) {
+
+        if (itemValue == null) {
           entries[i] = null;
           // Decrease size, nulls are ignored
           size--;
@@ -559,6 +565,7 @@ public class HelperClasses {
     return ChangeSerializationHelper.createChangeInstance(type, change);
   }
 
+  @Nullable
   public static PropertyTypeInternal getLinkedType(DatabaseSessionInternal session,
       SchemaClass clazz,
       PropertyTypeInternal type, String key) {

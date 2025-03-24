@@ -22,8 +22,6 @@ package com.jetbrains.youtrack.db.internal.core.db.record;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.id.ChangeableIdentity;
-import com.jetbrains.youtrack.db.internal.core.id.IdentityChangeListener;
 import java.lang.ref.WeakReference;
 import java.util.Collection;
 import java.util.Iterator;
@@ -31,7 +29,7 @@ import java.util.Objects;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class LinkSetImpl extends TrackedSet<Identifiable> implements IdentityChangeListener,
+public class LinkSetImpl extends TrackedSet<Identifiable> implements
     LinkTrackedMultiValue<Identifiable>, LinkSet {
 
   @Nonnull
@@ -68,44 +66,9 @@ public class LinkSetImpl extends TrackedSet<Identifiable> implements IdentityCha
 
   public boolean addInternal(Identifiable e) {
     e = convertToRid(e);
-    var result = super.addInternal(e);
-
-    if (result) {
-      var rid = e.getIdentity();
-
-      if (rid instanceof ChangeableIdentity changeableIdentity
-          && changeableIdentity.canChangeIdentity()) {
-        changeableIdentity.addIdentityChangeListener(this);
-      }
-    }
-
-    return result;
+    return super.addInternal(e);
   }
 
-
-  public void clear() {
-    for (var identifiable : this) {
-      if (identifiable instanceof ChangeableIdentity changeableIdentity) {
-        changeableIdentity.removeIdentityChangeListener(this);
-      }
-    }
-
-    super.clear();
-  }
-
-  public boolean removeAll(final Collection<?> c) {
-    var result = super.removeAll(c);
-
-    if (result) {
-      for (var item : c) {
-        if (item instanceof ChangeableIdentity changeableIdentity) {
-          changeableIdentity.removeIdentityChangeListener(this);
-        }
-      }
-    }
-
-    return result;
-  }
 
   public boolean addAll(@Nonnull final Collection<? extends Identifiable> c) {
     if (c.isEmpty()) {
@@ -118,13 +81,6 @@ public class LinkSetImpl extends TrackedSet<Identifiable> implements IdentityCha
 
       var resultAdd = super.add(o);
       result = result || resultAdd;
-
-      if (resultAdd) {
-        if (o instanceof ChangeableIdentity changeableIdentity
-            && changeableIdentity.canChangeIdentity()) {
-          changeableIdentity.addIdentityChangeListener(this);
-        }
-      }
     }
 
     return result;
@@ -175,10 +131,6 @@ public class LinkSetImpl extends TrackedSet<Identifiable> implements IdentityCha
       @Override
       public void remove() {
         iterator.remove();
-
-        if (current instanceof ChangeableIdentity changeableIdentity) {
-          changeableIdentity.removeIdentityChangeListener(LinkSetImpl.this);
-        }
         current = null;
       }
     };
@@ -187,26 +139,7 @@ public class LinkSetImpl extends TrackedSet<Identifiable> implements IdentityCha
   @Override
   public boolean add(@Nullable Identifiable e) {
     e = convertToRid(e);
-    var result = super.add(e);
-
-    if (result) {
-      if (e instanceof ChangeableIdentity changeableIdentity
-          && changeableIdentity.canChangeIdentity()) {
-        changeableIdentity.addIdentityChangeListener(this);
-      }
-    }
-
-    return result;
-  }
-
-  @Override
-  public void onBeforeIdentityChange(Object source) {
-    super.remove(source);
-  }
-
-  @Override
-  public void onAfterIdentityChange(Object source) {
-    super.addInternal((Identifiable) source);
+    return super.add(e);
   }
 
   public boolean remove(Object o) {
@@ -214,14 +147,7 @@ public class LinkSetImpl extends TrackedSet<Identifiable> implements IdentityCha
       return false;
     }
 
-    var result = super.remove(o);
-    if (result) {
-      if (o instanceof ChangeableIdentity changeableIdentity) {
-        changeableIdentity.removeIdentityChangeListener(this);
-      }
-    }
-
-    return result;
+    return super.remove(o);
   }
 
   @Nullable

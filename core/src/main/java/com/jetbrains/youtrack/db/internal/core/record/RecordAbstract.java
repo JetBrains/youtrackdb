@@ -350,18 +350,21 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   @Override
   public boolean equals(final Object obj) {
-    if (this == obj) {
-      return true;
+    if (session == null) {
+      throw new IllegalStateException(
+          "Record : " + this + "is not bound to any session");
     }
 
-    if (session == null) {
-      return false;
+    if (this == obj) {
+      return true;
     }
 
     switch (obj) {
       case RecordAbstract recordAbstract -> {
         if (session != recordAbstract.getBoundedToSession()) {
-          return false;
+          throw new IllegalStateException(
+              "Records  " + this + " and " + recordAbstract
+                  + " are bound to different sessions and cannot be compared");
         }
         return recordId.equals(((Identifiable) obj).getIdentity())
             && recordVersion == recordAbstract.recordVersion;
@@ -375,14 +378,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
         return false;
       }
     }
-  }
-
-  public int compare(final Identifiable iFirst, final Identifiable iSecond) {
-    if (iFirst == null || iSecond == null) {
-      return -1;
-    }
-
-    return iFirst.compareTo(iSecond);
   }
 
   public int compareTo(@Nonnull final Identifiable iOther) {

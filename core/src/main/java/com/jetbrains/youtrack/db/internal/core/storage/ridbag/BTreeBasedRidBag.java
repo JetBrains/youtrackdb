@@ -20,8 +20,6 @@
 
 package com.jetbrains.youtrack.db.internal.core.storage.ridbag;
 
-import static com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl.DELETED_RECORD;
-
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
@@ -63,12 +61,14 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentSkipListMap;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Persistent Set<Identifiable> implementation that uses the SBTree to handle entries in persistent
  * way.
  */
 public class BTreeBasedRidBag implements RidBagDelegate {
+
   private final BTreeCollectionManager collectionManager;
 
   @Nonnull
@@ -339,7 +339,7 @@ public class BTreeBasedRidBag implements RidBagDelegate {
       if (session.getTransactionInternal().isActive()) {
         if (!key.getIdentity().isPersistent()) {
           var record = session.getTransactionInternal().getRecord(key.getIdentity());
-          if (record != null && record != DELETED_RECORD) {
+          if (record != null) {
             changes.remove(key);
             changes.put(record.getIdentity(), change.getValue());
           }
@@ -502,6 +502,7 @@ public class BTreeBasedRidBag implements RidBagDelegate {
     this.collectionPointer = collectionPointer;
   }
 
+  @Nullable
   private EdgeBTree<RID, Integer> loadTree() {
     if (collectionPointer == null) {
       return null;
@@ -625,6 +626,7 @@ public class BTreeBasedRidBag implements RidBagDelegate {
     }
   }
 
+  @Nullable
   private Map.Entry<RID, Integer> nextChangedNotRemovedSBTreeEntry(
       Iterator<Map.Entry<RID, Integer>> iterator) {
     while (iterator.hasNext()) {
@@ -934,6 +936,7 @@ public class BTreeBasedRidBag implements RidBagDelegate {
       return BTreeBasedRidBag.this.size();
     }
 
+    @Nullable
     private static Map.Entry<RID, Change> nextChangedNotRemovedEntry(
         Iterator<Map.Entry<RID, Change>> iterator) {
       Map.Entry<RID, Change> entry;

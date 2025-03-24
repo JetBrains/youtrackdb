@@ -221,6 +221,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   void checkForClusterPermissions(String name);
 
+  @Nullable
   default ResultSet getActiveQuery(String id) {
     throw new UnsupportedOperationException();
   }
@@ -524,6 +525,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   /**
    * @return an endpoint for Enterprise features. Null in Community Edition
    */
+  @Nullable
   default EnterpriseEndpoint getEnterpriseEndpoint() {
     return null;
   }
@@ -543,6 +545,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    *
    * @return the timer task. Null if this operation is not supported for current db impl.
    */
+  @Nullable
   default TimerTask createInterruptTimerTask() {
     return null;
   }
@@ -793,6 +796,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * @param iClusterId Cluster id
    * @return The name of searched cluster.
    */
+  @Nullable
   String getClusterNameById(int iClusterId);
 
   /**

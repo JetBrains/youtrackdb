@@ -1201,11 +1201,12 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
           Role.PERMISSION_READ,
           getClusterNameById(rid.getClusterId()));
 
-      DBRecord record = getTransactionInternal().getRecord(rid);
-      if (record == FrontendTransactionImpl.DELETED_RECORD) {
+      var txInternal = getTransactionInternal();
+      if (txInternal.isDeletedInTx(rid)) {
         // DELETED IN TX
         return false;
       }
+      DBRecord record = getTransactionInternal().getRecord(rid);
       if (record != null) {
         return true;
       }
@@ -1621,6 +1622,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     });
   }
 
+  @Nullable
   private FreezableStorageComponent getFreezableStorage() {
     var s = storage;
     if (s instanceof FreezableStorageComponent) {

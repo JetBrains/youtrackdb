@@ -55,7 +55,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.RecordBytes;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
@@ -77,13 +76,6 @@ import javax.annotation.Nullable;
 
 public class FrontendTransactionImpl implements
     IdentityChangeListener, FrontendTransaction {
-
-  /**
-   * Indicates the record deleted in a transaction.
-   *
-   * @see #getRecord(RID)
-   */
-  public static final RecordAbstract DELETED_RECORD = new RecordBytes(null);
 
   private static final AtomicLong txSerial = new AtomicLong();
 
@@ -126,13 +118,13 @@ public class FrontendTransactionImpl implements
     this(iDatabase, false);
   }
 
-  public FrontendTransactionImpl(final DatabaseSessionInternal session, boolean readOnly) {
+  public FrontendTransactionImpl(@Nonnull final DatabaseSessionInternal session, boolean readOnly) {
     this.session = session;
     this.id = txSerial.incrementAndGet();
     this.readOnly = readOnly;
   }
 
-  public FrontendTransactionImpl(final DatabaseSessionInternal session, long txId,
+  public FrontendTransactionImpl(@Nonnull final DatabaseSessionInternal session, long txId,
       boolean readOnly) {
     this.session = session;
     this.id = txId;
@@ -140,7 +132,7 @@ public class FrontendTransactionImpl implements
   }
 
 
-  protected FrontendTransactionImpl(final DatabaseSessionInternal session, long id) {
+  protected FrontendTransactionImpl(@Nonnull final DatabaseSessionInternal session, long id) {
     this.session = session;
     this.id = id;
     readOnly = false;
@@ -212,7 +204,7 @@ public class FrontendTransactionImpl implements
     final var e = getRecordEntry(rid);
     if (e != null) {
       if (e.type == RecordOperation.DELETED) {
-        return DELETED_RECORD;
+        return null;
       } else {
         assert e.record.getSession() == session;
         return e.record;
@@ -370,7 +362,7 @@ public class FrontendTransactionImpl implements
     checkTransactionValid();
 
     final DBRecord txRecord = getRecord(rid);
-    if (txRecord == DELETED_RECORD) {
+    if (isDeletedInTx(rid)) {
       return false;
     }
 
@@ -385,12 +377,10 @@ public class FrontendTransactionImpl implements
   public @Nonnull LoadRecordResult loadRecord(RID rid) {
     checkTransactionValid();
 
-    final var txRecord = getRecord(rid);
-    if (txRecord == DELETED_RECORD) {
-      // DELETED IN TX
+    if (isDeletedInTx(rid)) {
       throw new RecordNotFoundException(session, rid);
     }
-
+    final var txRecord = getRecord(rid);
     if (txRecord != null) {
       return new LoadRecordResult(txRecord, null, null);
     }
@@ -857,6 +847,7 @@ public class FrontendTransactionImpl implements
     return userData.get(iName);
   }
 
+  @Nullable
   private static Dependency[] getIndexFieldRidDependencies(Index index) {
     final var definition = index.getDefinition();
 
@@ -1350,7 +1341,6 @@ public class FrontendTransactionImpl implements
     return session.loadEdge(id.getIdentity());
   }
 
-  @Nonnull
   @Override
   public StatefulEdge loadEdgeOrNull(@Nonnull Identifiable id) throws DatabaseException {
     checkIfActive();
@@ -1404,7 +1394,6 @@ public class FrontendTransactionImpl implements
     return session.loadBlob(id.getIdentity());
   }
 
-  @Nonnull
   @Override
   public Blob loadBlobOrNull(@Nonnull Identifiable id) throws DatabaseException {
     checkIfActive();
@@ -1549,6 +1538,7 @@ public class FrontendTransactionImpl implements
 
     if (identifiable instanceof DBRecord record) {
       if (record instanceof Entity entity && entity.isEmbedded()) {
+        //noinspection unchecked
         return (RET) record;
       }
       if (record.isNotBound(session)) {
@@ -1599,7 +1589,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public ResultSet query(String query, Map args)
+  public ResultSet query(String query, @SuppressWarnings("rawtypes") Map args)
       throws CommandSQLParsingException, CommandExecutionException {
     checkIfActive();
     return session.query(query, args);
@@ -1613,7 +1603,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public ResultSet execute(String query, Map args)
+  public ResultSet execute(String query, @SuppressWarnings("rawtypes") Map args)
       throws CommandSQLParsingException, CommandExecutionException {
     checkIfActive();
     return session.execute(query, args);
@@ -1627,7 +1617,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public void command(String query, Map args)
+  public void command(String query, @SuppressWarnings("rawtypes") Map args)
       throws CommandSQLParsingException, CommandExecutionException {
     checkIfActive();
     session.command(query, args);
