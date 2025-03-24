@@ -21,9 +21,15 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequestWrapper;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
@@ -61,39 +67,50 @@ public abstract class ServerCommandAbstractLogic extends ServerCommandAuthentica
       Object[] args = new String[parts.length - 3];
       System.arraycopy(parts, 3, args, 0, parts.length - 3);
 
-      // BIND CONTEXT VARIABLES
-      final var context = new BasicCommandContext();
-      context.setDatabaseSession(session);
-      context.setVariable(
-          "session", server.getHttpSessionManager().getSession(iRequest.getSessionId()));
-      context.setVariable("request", new HttpRequestWrapper(iRequest, (String[]) args));
-      context.setVariable("response", new HttpResponseWrapper(iResponse));
+      var result = session.computeInTx(transaction -> {
+        // BIND CONTEXT VARIABLES
+        final var context = new BasicCommandContext();
+        context.setDatabaseSession(session);
+        context.setVariable(
+            "session", server.getHttpSessionManager().getSession(iRequest.getSessionId()));
+        context.setVariable("request", new HttpRequestWrapper(iRequest, (String[]) args));
+        context.setVariable("response", new HttpResponseWrapper(iResponse));
 
-      final Object functionResult;
-      if (args.length == 0 && iRequest.getContent() != null && !iRequest.getContent().isEmpty()) {
-        // PARSE PARAMETERS FROM CONTENT PAYLOAD
-        try {
-          final var params = new EntityImpl(null);
-          params.updateFromJSON(iRequest.getContent());
-          functionResult = f.executeInContext(context, params.toMap());
-        } catch (Exception e) {
-          throw BaseException.wrapException(
-              new CommandScriptException(session.getDatabaseName(),
-                  "Error on parsing parameters from request body"), e, session);
+        final Object functionResult;
+        if (args.length == 0 && iRequest.getContent() != null && !iRequest.getContent().isEmpty()) {
+          // PARSE PARAMETERS FROM CONTENT PAYLOAD
+          try {
+            final var params = RecordSerializerJackson.mapFromJson(iRequest.getContent());
+            functionResult = f.executeInContext(context, params);
+          } catch (Exception e) {
+            throw BaseException.wrapException(
+                new CommandScriptException(session.getDatabaseName(),
+                    "Error on parsing parameters from request body"), e, session);
+          }
+        } else {
+          functionResult = f.executeInContext(context, args);
         }
-      } else {
-        functionResult = f.executeInContext(context, args);
+
+        if (functionResult instanceof Entity entity) {
+          return new RawPair<Object, Entity>(entity.detach(), entity);
+        }
+
+        return new RawPair<Object, Entity>(functionResult, null);
+      });
+
+      var functionResult = result.first;
+      if (result.second != null) {
+        var resultInternal = (ResultInternal) functionResult;
+        resultInternal.setProperty(EntityHelper.ATTRIBUTE_VERSION, result.second.getVersion());
       }
-
       handleResult(iRequest, iResponse, functionResult, session);
-
     } catch (CommandScriptException e) {
       // EXCEPTION
       final var msg = new StringBuilder(256);
       for (Exception currentException = e;
           currentException != null;
           currentException = (Exception) currentException.getCause()) {
-        if (msg.length() > 0) {
+        if (!msg.isEmpty()) {
           msg.append("\n");
         }
         msg.append(currentException.getMessage());
