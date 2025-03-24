@@ -2217,6 +2217,70 @@ public class EntityImpl extends RecordAbstract implements Entity {
       if (key.isEmpty()) {
         continue;
       }
+
+      if (key.equals(EntityHelper.ATTRIBUTE_CLASS)) {
+        var className = (String) entry.getValue();
+
+        if (className == null) {
+          throw new IllegalArgumentException("Invalid  entity class name provided: " + className);
+        }
+
+        if (!Objects.equals(getSchemaClassName(), className)) {
+          var immutableSchemaClass = getImmutableSchemaClass(session);
+          var providedClass = schema.getClass(className);
+
+          if (!providedClass.equals(immutableSchemaClass)) {
+            throw new IllegalArgumentException("Invalid  entity class name provided: "
+                + className + " expected: " + getSchemaClassName());
+          }
+        }
+      }
+
+      if (key.equals(EntityHelper.ATTRIBUTE_RID)) {
+        var ridValue = entry.getValue();
+        RecordId rid;
+
+        if (ridValue instanceof RecordId ridVal) {
+          rid = ridVal;
+        } else if (ridValue instanceof String ridString) {
+          rid = new RecordId(ridString);
+        } else {
+          throw new IllegalArgumentException("Invalid  entity record id provided: " + ridValue);
+        }
+
+        if (!rid.equals(recordId)) {
+          throw new IllegalArgumentException("Invalid  entity record id provided: "
+              + rid + " expected: " + recordId);
+        }
+      }
+
+      if (key.equals(EntityHelper.ATTRIBUTE_EMBEDDED)) {
+        var embedded = (Boolean) entry.getValue();
+
+        if (embedded == null) {
+          throw new IllegalArgumentException("Invalid  entity embedded flag provided: " + embedded);
+        }
+
+        if (embedded != isEmbedded()) {
+          throw new IllegalArgumentException("Invalid  entity embedded flag provided: "
+              + embedded + " expected: " + isEmbedded());
+        }
+      }
+
+      if (key.equals(EntityHelper.ATTRIBUTE_VERSION)) {
+        var version = (Integer) entry.getValue();
+        if (version == null) {
+          throw new IllegalArgumentException("Invalid  entity version provided: " + version);
+        }
+        if (version != getVersion()) {
+          throw new IllegalArgumentException("Invalid  entity version provided: "
+              + version + " expected: " + getVersion());
+        }
+      }
+
+      if (key.charAt(0) == '@') {
+        continue;
+      }
       if (isSystemProperty(key)) {
         throw new IllegalArgumentException(
             "System properties can not be updated from map : " + key);

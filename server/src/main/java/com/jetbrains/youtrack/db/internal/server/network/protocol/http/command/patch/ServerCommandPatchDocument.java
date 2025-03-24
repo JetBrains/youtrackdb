@@ -27,6 +27,7 @@ import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
@@ -43,7 +44,7 @@ public class ServerCommandPatchDocument extends ServerCommandDocumentAbstract {
 
     iRequest.getData().commandInfo = "Edit Document";
     try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
-      RawPair<Boolean, RID> result =
+      var result =
           db.computeInTx(
               transaction -> {
                 RecordId recordId;
@@ -89,7 +90,8 @@ public class ServerCommandPatchDocument extends ServerCommandDocumentAbstract {
                 try {
                   currentEntity = db.load(recordId);
                 } catch (RecordNotFoundException rnf) {
-                  return new RawPair<>(false, recordId);
+                  //noinspection ReturnOfNull
+                  return null;
                 }
                 if (recordVersion != -1
                     && recordVersion != currentEntity.getVersion()) {
@@ -102,10 +104,10 @@ public class ServerCommandPatchDocument extends ServerCommandDocumentAbstract {
 
                 currentEntity.updateFromMap(content);
 
-                return new RawPair<>(true, recordId);
+                return new RawPair<>(currentEntity.detach(), currentEntity);
               });
 
-      if (!result.first) {
+      if (result == null) {
         iResponse.send(
             HttpUtils.STATUS_NOTFOUND_CODE,
             HttpUtils.STATUS_NOTFOUND_DESCRIPTION,
@@ -115,13 +117,16 @@ public class ServerCommandPatchDocument extends ServerCommandDocumentAbstract {
         return false;
       }
 
-      var record = db.load(result.second);
+      var detached = result.first;
+      var unloaded = result.second;
+      ((ResultInternal) detached).setProperty(EntityHelper.ATTRIBUTE_VERSION,
+          unloaded.getVersion());
       iResponse.send(
           HttpUtils.STATUS_OK_CODE,
           HttpUtils.STATUS_OK_DESCRIPTION,
           HttpUtils.CONTENT_TEXT_PLAIN,
-          record.toJSON(),
-          HttpUtils.HEADER_ETAG + record.getVersion());
+          detached.toJSON(),
+          HttpUtils.HEADER_ETAG + unloaded.getVersion());
     }
     return false;
   }

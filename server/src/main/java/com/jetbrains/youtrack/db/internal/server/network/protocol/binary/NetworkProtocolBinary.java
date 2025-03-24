@@ -51,7 +51,6 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.R
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.SerializationThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkFactory;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerSchemaAware2CSV;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.NetworkProtocolException;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
@@ -841,11 +840,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
     try {
       final var stream = getRecordBytes(connection, iRecord);
 
-      // TODO: This Logic should not be here provide an api in the Serializer if asked for trimmed
-      // content.
-      var realLength = trimCsvSerializedContent(connection, stream);
-
-      channel.writeBytes(stream, realLength);
+      channel.writeBytes(stream, stream.length);
     } catch (Exception e) {
       channel.writeBytes(null);
       final var message =
@@ -853,25 +848,6 @@ public class NetworkProtocolBinary extends NetworkProtocol {
 
       throw BaseException.wrapException(new SerializationException(session, message), e, session);
     }
-  }
-
-  protected static int trimCsvSerializedContent(ClientConnection connection, final byte[] stream) {
-    var realLength = stream.length;
-    var session = connection.getDatabaseSession();
-    if (session != null) {
-      if (RecordSerializerSchemaAware2CSV.NAME.equals(
-          connection.getData().getSerializationImpl())) {
-        // TRIM TAILING SPACES (DUE TO OVERSIZE)
-        for (var i = stream.length - 1; i > -1; --i) {
-          if (stream[i] == 32) {
-            --realLength;
-          } else {
-            break;
-          }
-        }
-      }
-    }
-    return realLength;
   }
 
   public int getRequestType() {

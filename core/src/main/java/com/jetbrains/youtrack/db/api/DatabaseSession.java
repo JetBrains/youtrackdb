@@ -155,6 +155,7 @@ public interface DatabaseSession extends AutoCloseable {
    * @param <R>      the type of the returned result
    * @return the result of the code execution
    */
+  @Nullable
   <R> R computeInTx(Function<Transaction, R> supplier);
 
   /**

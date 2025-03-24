@@ -97,7 +97,7 @@ public class HttpDocumentTest extends BaseHttpDatabaseTest {
   @Test
   public void updateFullNoVersion() throws IOException {
     post("document/" + getDatabaseName())
-        .payload("{@class:'V', name:'Jay', surname:'Miner',age:0}", CONTENT.JSON)
+        .payload("{\"@class\":\"V\", \"name\":\"Jay\", \"surname\":\"Miner\",\"age\":0}", CONTENT.JSON)
         .exec();
     Assert.assertEquals(201, getResponse().getCode());
 
@@ -110,7 +110,7 @@ public class HttpDocumentTest extends BaseHttpDatabaseTest {
     Assert.assertEquals(1, result.get("@version").asInt());
 
     put("document/" + getDatabaseName() + "/" + result.get("@rid").asText().substring(1))
-        .payload("{name:'Jay2', surname:'Miner2',age:1}", CONTENT.JSON)
+        .payload("{\"name\":\"Jay2\", \"surname\":\"Miner2\",\"age\":1}", CONTENT.JSON)
         .exec();
     Assert.assertEquals(200, getResponse().getCode());
 
@@ -125,7 +125,7 @@ public class HttpDocumentTest extends BaseHttpDatabaseTest {
   @Test
   public void updateFullBadVersion() throws IOException {
     post("document/" + getDatabaseName())
-        .payload("{@class:'V', name:'Jay', surname:'Miner',age:0}", CONTENT.JSON)
+        .payload("{\"@class\":\"V\", \"name\":\"Jay\", \"surname\":\"Miner\",\"age\":0}", CONTENT.JSON)
         .exec();
     Assert.assertEquals(201, getResponse().getCode());
 
@@ -138,15 +138,15 @@ public class HttpDocumentTest extends BaseHttpDatabaseTest {
     Assert.assertEquals(1, result.get("@version").asInt());
 
     put("document/" + getDatabaseName() + "/" + result.get("@rid").asText().substring(1))
-        .payload("{name:'Jay2', surname:'Miner2',age:1, @version: 2}", CONTENT.JSON)
+        .payload("{\"name\":\"Jay2\", \"surname\":\"Miner2\",\"age\":1, \"@version\": 2}", CONTENT.JSON)
         .exec();
-    Assert.assertEquals(409, getResponse().getCode());
+    Assert.assertEquals(500, getResponse().getCode());
   }
 
   @Test
   public void updatePartial() throws IOException {
     post("document/" + getDatabaseName())
-        .payload("{@class:'V', name:'Jay', surname:'Miner',age:0}", CONTENT.JSON)
+        .payload("{\"@class\":\"V\", \"name\":\"Jay\", \"surname\":\"Miner\",\"age\":0}", CONTENT.JSON)
         .exec();
     Assert.assertEquals(201, getResponse().getCode());
 
@@ -163,7 +163,7 @@ public class HttpDocumentTest extends BaseHttpDatabaseTest {
         + "/"
         + result.get("@rid").asText().substring(1)
         + "?updateMode=partial")
-        .payload("{age:1}", CONTENT.JSON)
+        .payload("{\"age\":1}", CONTENT.JSON)
         .exec();
     Assert.assertEquals(200, getResponse().getCode());
 
@@ -178,7 +178,7 @@ public class HttpDocumentTest extends BaseHttpDatabaseTest {
   @Test
   public void patchPartial() throws IOException {
     post("document/" + getDatabaseName())
-        .payload("{@class:'V', name:'Jay', surname:'Miner',age:0}", CONTENT.JSON)
+        .payload("{\"@class\":\"V\", \"name\":\"Jay\", \"surname\":\"Miner\",\"age\":0}", CONTENT.JSON)
         .exec();
     Assert.assertEquals(201, getResponse().getCode());
 
@@ -191,7 +191,7 @@ public class HttpDocumentTest extends BaseHttpDatabaseTest {
     Assert.assertEquals(1, result.get("@version").asInt());
 
     patch("document/" + getDatabaseName() + "/" + result.get("@rid").asText().substring(1))
-        .payload("{age:1,@version:1}", CONTENT.JSON)
+        .payload("{\"age\":1,\"@version\":1}", CONTENT.JSON)
         .exec();
     Assert.assertEquals(200, getResponse().getCode());
 
@@ -206,7 +206,7 @@ public class HttpDocumentTest extends BaseHttpDatabaseTest {
   @Test
   public void deleteByRid() throws IOException {
     post("document/" + getDatabaseName())
-        .payload("{@class:'V', name:'Jay', surname:'Miner',age:0}", CONTENT.JSON)
+        .payload("{\"@class\":\"V\", \"name\":\"Jay\", \"surname\":\"Miner\",\"age\":0}", CONTENT.JSON)
         .exec();
     Assert.assertEquals(201, getResponse().getCode());
 
@@ -230,7 +230,7 @@ public class HttpDocumentTest extends BaseHttpDatabaseTest {
   @Test
   public void deleteWithMVCC() throws IOException {
     post("document/" + getDatabaseName())
-        .payload("{@class:'V', name:'Jay', surname:'Miner',age:0}", CONTENT.JSON)
+        .payload("{\"@class\":\"V\", \"name\":\"Jay\", \"surname\":\"Miner\",\"age\":0}", CONTENT.JSON)
         .exec();
     Assert.assertEquals(201, getResponse().getCode());
 

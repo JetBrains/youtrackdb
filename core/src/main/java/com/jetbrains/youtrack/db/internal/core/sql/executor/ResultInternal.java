@@ -30,6 +30,7 @@ import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -1038,10 +1039,31 @@ public class ResultInternal implements Result {
       return asEntity().toJSON();
     }
 
+    var propNames = new ArrayList<>(getPropertyNames());
+    //record metadata properties has to be sorted first
+    propNames.sort((v1, v2) -> {
+      if (v1 == null) {
+        return -1;
+      }
+      if (v2 == null) {
+        return 1;
+      }
+
+      if (!v1.isEmpty() && v1.charAt(0) == '@') {
+        if (!v2.isEmpty() && v2.charAt(0) == '@') {
+          return v1.compareTo(v2);
+        }
+
+        return -1;
+      }
+
+      return v1.compareTo(v2);
+    });
     var result = new StringBuilder();
     result.append("{");
     var first = true;
-    for (var prop : getPropertyNames()) {
+
+    for (var prop : propNames) {
       if (!first) {
         result.append(", ");
       }

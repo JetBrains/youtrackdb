@@ -20,11 +20,13 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.put;
 
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
@@ -61,11 +63,11 @@ public class ServerCommandPutDocument extends ServerCommandDocumentAbstract {
         recordId = new ChangeableRecordId();
       }
 
-      var d =
+      var pair =
           db.computeInTx(
               tx -> {
                 var txRecordId = recordId;
-                final Map<String, Object> content = RecordSerializerJackson.mapFromJson(
+                final var content = RecordSerializerJackson.mapFromJson(
                     iRequest.getContent());
                 final int recordVersion;
                 // UNMARSHALL DOCUMENT WITH REQUEST CONTENT
@@ -93,6 +95,7 @@ public class ServerCommandPutDocument extends ServerCommandDocumentAbstract {
                 try {
                   currentEntity = db.load(txRecordId);
                 } catch (RecordNotFoundException rnf) {
+                  //noinspection ReturnOfNull
                   return null;
                 }
                 if (recordVersion >= 0 && recordVersion != currentEntity.getVersion()) {
@@ -119,10 +122,10 @@ public class ServerCommandPutDocument extends ServerCommandDocumentAbstract {
                 }
 
                 currentEntity.updateFromMap(content);
-                return currentEntity;
+                return new RawPair<>(currentEntity.detach(), currentEntity);
               });
 
-      if (d == null) {
+      if (pair == null) {
         iResponse.send(
             HttpUtils.STATUS_NOTFOUND_CODE,
             HttpUtils.STATUS_NOTFOUND_DESCRIPTION,
@@ -132,14 +135,16 @@ public class ServerCommandPutDocument extends ServerCommandDocumentAbstract {
         return false;
       }
 
-      var activeTx = db.getActiveTransaction();
-      d = activeTx.load(d);
+      var detached = pair.getFirst();
+      var unloaded = pair.getSecond();
+      ((ResultInternal) detached).setProperty(EntityHelper.ATTRIBUTE_VERSION,
+          unloaded.getVersion());
       iResponse.send(
           HttpUtils.STATUS_OK_CODE,
           HttpUtils.STATUS_OK_DESCRIPTION,
           HttpUtils.CONTENT_JSON,
-          d.toJSON(),
-          HttpUtils.HEADER_ETAG + d.getVersion());
+          detached.toJSON(),
+          HttpUtils.HEADER_ETAG + unloaded.getVersion());
     }
     return false;
   }

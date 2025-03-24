@@ -211,12 +211,42 @@ public class RecordSerializerJackson {
 
       final var rec = record;
       rec.unsetDirty();
+    } else {
+      if (record.getRecordType() != recordMetaData.recordType) {
+        throw new SerializationException(session,
+            "Record type mismatch: " + record.getRecordType() + " != " + recordMetaData.recordType);
+      }
+      if (recordMetaData.recordVersion != null && record.getVersion() != recordMetaData.recordVersion) {
+        throw new SerializationException(session,
+            "Record version mismatch: " + record.getVersion() + " != "
+                + recordMetaData.recordVersion);
+      }
+      if (record instanceof EntityImpl entity) {
+        var className = entity.getSchemaClassName();
+
+        if (!Objects.equals(className, recordMetaData.className)) {
+          if (recordMetaData.className == null) {
+            throw new SerializationException(session,
+                "Record class name mismatch: " + className + " != " + recordMetaData.className);
+          }
+
+          var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
+          var schemaClass = schemaSnapshot.getClass(recordMetaData.className);
+
+          if (schemaClass == null) {
+            throw new SerializationException(session,
+                "Class not found: " + recordMetaData.className);
+          }
+
+          var entitySchemaClass = entity.getSchemaClass();
+          if (!entitySchemaClass.equals(schemaClass)) {
+            throw new SerializationException(session,
+                "Record class name mismatch: " + className + " != " + recordMetaData.className);
+          }
+        }
+      }
     }
 
-    if (record.getRecordType() != recordMetaData.recordType) {
-      throw new SerializationException(session,
-          "Record type mismatch: " + record.getRecordType() + " != " + recordMetaData.recordType);
-    }
     if (record instanceof EntityImpl entity && !Objects.equals(entity.getSchemaClassName(),
         recordMetaData.className)) {
       throw new SerializationException(session,
