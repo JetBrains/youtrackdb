@@ -96,12 +96,12 @@ public final class CellBTreeMultiValueV2<K> extends DurableComponent
 
   private static final int M_ID_BATCH_SIZE = 131_072;
   private static final int MAX_KEY_SIZE =
-      GlobalConfiguration.SBTREE_MAX_KEY_SIZE.getValueAsInteger();
+      GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger();
   private static final AlwaysLessKey ALWAYS_LESS_KEY = new AlwaysLessKey();
   private static final AlwaysGreaterKey ALWAYS_GREATER_KEY = new AlwaysGreaterKey();
 
   private static final int MAX_PATH_LENGTH =
-      GlobalConfiguration.SBTREE_MAX_DEPTH.getValueAsInteger();
+      GlobalConfiguration.BTREE_MAX_DEPTH.getValueAsInteger();
 
   private static final int ENTRY_POINT_INDEX = 0;
   private static final long ROOT_INDEX = 1;

@@ -5,11 +5,7 @@ import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import java.util.Iterator;
 
-/**
- *
- */
 public class EdgeToVertexIterator implements Iterator<Vertex> {
-
   private final Iterator<Edge> edgeIterator;
   private final Direction direction;
 

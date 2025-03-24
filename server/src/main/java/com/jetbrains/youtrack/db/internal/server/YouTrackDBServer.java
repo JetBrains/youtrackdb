@@ -30,7 +30,6 @@ import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTxInternal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SystemDatabase;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
@@ -60,7 +59,6 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
@@ -71,6 +69,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.locks.ReentrantLock;
+import javax.annotation.Nullable;
 
 public class YouTrackDBServer {
 
@@ -172,39 +171,6 @@ public class YouTrackDBServer {
     return distributedServers.get(iServerId);
   }
 
-  public static YouTrackDBServer getInstanceByPath(final String iPath) {
-    for (var entry : distributedServers.entrySet()) {
-      if (iPath.startsWith(entry.getValue().databaseDirectory)) {
-        return entry.getValue();
-      }
-    }
-    return null;
-  }
-
-  public static void registerServerInstance(final String iServerId,
-      final YouTrackDBServer iServer) {
-    distributedServers.put(iServerId, iServer);
-  }
-
-  public static void unregisterServerInstance(final String iServerId) {
-    distributedServers.remove(iServerId);
-  }
-
-  /**
-   * Set the preferred {@link ClassLoader} used to load extensions.
-   */
-  public void setExtensionClassLoader(/* @Nullable */ final ClassLoader extensionClassLoader) {
-    this.extensionClassLoader = extensionClassLoader;
-  }
-
-  /**
-   * Get the preferred {@link ClassLoader} used to load extensions.
-   */
-  /* @Nullable */
-  public ClassLoader getExtensionClassLoader() {
-    return extensionClassLoader;
-  }
-
   public SecuritySystem getSecurity() {
     return databases.getSecuritySystem();
   }
@@ -223,34 +189,6 @@ public class YouTrackDBServer {
 
   public PushManager getPushManager() {
     return pushManager;
-  }
-
-  public void saveConfiguration() throws IOException {
-    serverCfg.saveConfiguration();
-  }
-
-  public void restart()
-      throws ClassNotFoundException,
-      InvocationTargetException,
-      InstantiationException,
-      NoSuchMethodException,
-      IllegalAccessException,
-      IOException {
-    try {
-      deinit();
-    } finally {
-      YouTrackDBEnginesManager.instance().startup();
-      startup(serverCfg.getConfiguration());
-      activate();
-    }
-  }
-
-  public SystemDatabase getSystemDatabase() {
-    return databases.getSystemDatabase();
-  }
-
-  public String getServerId() {
-    return getSystemDatabase().getServerId();
   }
 
   /**
@@ -273,8 +211,9 @@ public class YouTrackDBServer {
   /**
    * Attempt to load a class from givenstar class-loader.
    */
-  /* @Nullable */
-  private Class<?> tryLoadClass(/* @Nullable */ final ClassLoader classLoader, final String name) {
+  @Nullable
+  private static Class<?> tryLoadClass(/* @Nullable */ final ClassLoader classLoader,
+      final String name) {
     if (classLoader != null) {
       try {
         return classLoader.loadClass(name);
@@ -384,15 +323,7 @@ public class YouTrackDBServer {
             .setSecurityConfig(new ServerSecurityConfig(this, this.serverCfg))
             .build();
 
-    if (contextConfiguration.getValueAsBoolean(
-        GlobalConfiguration.SERVER_BACKWARD_COMPATIBILITY)) {
-
-      databases =
-          DatabaseDocumentTxInternal.getOrCreateEmbeddedFactory(this.databaseDirectory, config);
-    } else {
-      databases = YouTrackDBInternal.embedded(this.databaseDirectory, config);
-    }
-
+    databases = YouTrackDBInternal.embedded(this.databaseDirectory, config);
     if (databases instanceof ServerAware) {
       ((ServerAware) databases).init(this);
     }
@@ -614,9 +545,7 @@ public class YouTrackDBServer {
           LogManager.instance().error(this, "Error during YouTrackDB shutdown", e);
         }
       }
-      if (!contextConfiguration.getValueAsBoolean(
-          GlobalConfiguration.SERVER_BACKWARD_COMPATIBILITY)
-          && databases != null) {
+      if (databases != null) {
         databases.close();
         databases = null;
       }
@@ -690,7 +619,7 @@ public class YouTrackDBServer {
                 + "  |}"));
     System.out.println(
         AnsiCode.format(
-            "$ANSI{yellow | 'storage.encryptionKey' to the key to use.                             "
+            "$ANSI{yellow | 'youtrackdb.storage.encryptionKey' to the key to use.                             "
                 + "  |}"));
     System.out.println(
         AnsiCode.format(
@@ -761,6 +690,7 @@ public class YouTrackDBServer {
   }
 
   @SuppressWarnings("unchecked")
+  @Nullable
   public <RET extends ServerNetworkListener> RET getListenerByProtocol(
       final Class<? extends NetworkProtocol> iProtocolClass) {
     for (var l : networkListeners) {
@@ -772,6 +702,7 @@ public class YouTrackDBServer {
     return null;
   }
 
+  @Nullable
   public Collection<ServerPluginInfo> getPlugins() {
     return pluginManager != null ? pluginManager.getPlugins() : null;
   }
@@ -781,6 +712,7 @@ public class YouTrackDBServer {
   }
 
   @SuppressWarnings("unchecked")
+  @Nullable
   public <RET extends ServerPlugin> RET getPlugin(final String iName) {
     if (startupLatch == null) {
       throw new DatabaseException("Error on plugin lookup: the server did not start correctly");

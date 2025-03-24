@@ -1192,7 +1192,7 @@ class EtlComponent implements OnDestroy {
       }
       if(this.sourcePrototype.source.value == "file") {
         this.sourcePrototype.filePath = etl.source.file.path;
-        this.sourcePrototype.fileLock = etl.source.file.lock;
+        this.sourcePrototype.fileLock = etl.source.youtrackdb.file.lock;
       }
 
       if(direct) {

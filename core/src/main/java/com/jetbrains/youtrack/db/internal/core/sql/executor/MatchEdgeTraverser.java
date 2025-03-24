@@ -12,6 +12,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -135,10 +136,6 @@ public class MatchEdgeTraverser {
       whileCondition = item.getFilter().getWhileCondition();
       maxDepth = item.getFilter().getMaxDepth();
       className = targetClassName(item, iCommandContext);
-      var clusterName = targetClusterName(item, iCommandContext);
-      if (clusterName != null) {
-        clusterId = iCommandContext.getDatabaseSession().getClusterIdByName(clusterName);
-      }
       targetRid = targetRid(item, iCommandContext);
     }
 
@@ -211,6 +208,7 @@ public class MatchEdgeTraverser {
     }
   }
 
+  @Nullable
   private Result filter(
       CommandContext iCommandContext,
       final SQLWhereClause theFilter,
@@ -249,9 +247,6 @@ public class MatchEdgeTraverser {
     return item.getFilter().getClassName(iCommandContext);
   }
 
-  protected String targetClusterName(SQLMatchPathItem item, CommandContext iCommandContext) {
-    return item.getFilter().getClusterName(iCommandContext);
-  }
 
   protected SQLRid targetRid(SQLMatchPathItem item, CommandContext iCommandContext) {
     return item.getFilter().getRid(iCommandContext);

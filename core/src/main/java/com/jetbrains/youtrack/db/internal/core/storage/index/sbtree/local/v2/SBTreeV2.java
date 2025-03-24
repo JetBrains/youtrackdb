@@ -91,14 +91,14 @@ public class SBTreeV2<K, V> extends DurableComponent implements SBTree<K, V> {
   private static final int SPLITERATOR_CACHE_SIZE =
       GlobalConfiguration.INDEX_CURSOR_PREFETCH_SIZE.getValueAsInteger();
   private static final int MAX_KEY_SIZE =
-      GlobalConfiguration.SBTREE_MAX_KEY_SIZE.getValueAsInteger();
+      GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger();
   private static final int MAX_EMBEDDED_VALUE_SIZE =
-      GlobalConfiguration.SBTREE_MAX_EMBEDDED_VALUE_SIZE.getValueAsInteger();
+      GlobalConfiguration.BTREE_MAX_EMBEDDED_VALUE_SIZE.getValueAsInteger();
   private static final AlwaysLessKey ALWAYS_LESS_KEY = new AlwaysLessKey();
   private static final AlwaysGreaterKey ALWAYS_GREATER_KEY = new AlwaysGreaterKey();
 
   private static final int MAX_PATH_LENGTH =
-      GlobalConfiguration.SBTREE_MAX_DEPTH.getValueAsInteger();
+      GlobalConfiguration.BTREE_MAX_DEPTH.getValueAsInteger();
 
   private static final long ROOT_INDEX = 0;
   private final Comparator<? super K> comparator = DefaultComparator.INSTANCE;

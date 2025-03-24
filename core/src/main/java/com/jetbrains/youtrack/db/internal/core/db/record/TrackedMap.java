@@ -181,6 +181,7 @@ public class TrackedMap<T> extends AbstractMap<String, T>
   }
 
   @Override
+  @Nullable
   public T remove(final Object key) {
     var containsKey = containsKey(key);
 
@@ -294,6 +295,7 @@ public class TrackedMap<T> extends AbstractMap<String, T>
   }
 
   @Override
+  @Nullable
   public T get(Object key) {
     return map.get(key);
   }

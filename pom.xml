@@ -203,7 +203,8 @@
           <version>${surefire.version}</version>
           <configuration>
             <systemPropertyVariables>
-              <security.userPasswordSaltIterations>1</security.userPasswordSaltIterations>
+              <youtrackdb.security.userPasswordSaltIterations>1
+              </youtrackdb.security.userPasswordSaltIterations>
             </systemPropertyVariables>
 
             <properties>
@@ -549,7 +550,8 @@
               <configuration>
                 <systemPropertyVariables>
                   <buildDirectory>${project.build.directory}</buildDirectory>
-                  <security.userPasswordSaltIterations>1</security.userPasswordSaltIterations>
+                  <youtrackdb.security.userPasswordSaltIterations>1
+                  </youtrackdb.security.userPasswordSaltIterations>
                   <youtrackdb.test.env>ci</youtrackdb.test.env>
                 </systemPropertyVariables>
                 <useModulePath>false</useModulePath>

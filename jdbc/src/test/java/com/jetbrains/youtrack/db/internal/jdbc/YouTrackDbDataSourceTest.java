@@ -50,8 +50,8 @@ public class YouTrackDbDataSourceTest extends YouTrackDbJdbcDbPerClassTemplateTe
 
     var info = new Properties();
     info.setProperty("db.usePool", "TRUE");
-    info.setProperty("db.pool.min", "1");
-    info.setProperty("db.pool.max", "1");
+    info.setProperty("youtrackdb.db.pool.min", "1");
+    info.setProperty("youtrackdb.db.pool.max", "1");
     info.put("serverUser", "admin");
     info.put("serverPassword", "admin");
 

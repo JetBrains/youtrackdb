@@ -409,6 +409,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return getPropertyInternal(name, isLazyLoad());
   }
 
+  @Nullable
   public <RET> RET getPropertyInternal(String name, boolean lazyLoad) {
     if (name == null) {
       return null;
@@ -459,6 +460,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return getDirtyPropertiesBetweenCallbacksInternal(false, true);
   }
 
+  @Nullable
   public <RET> RET getPropertyOnLoadValueInternal(@Nonnull String name) {
     checkForBinding();
     checkForProperties();
@@ -1384,6 +1386,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
 
+  @Nullable
   public <RET> RET removePropertyInternal(String name) {
     checkForBinding();
     checkForProperties();
@@ -2550,6 +2553,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
    *
    * @param iFieldName Property name to retrieve the original value
    */
+  @Nullable
   public Object getOriginalValue(final String iFieldName) {
     checkForBinding();
 
@@ -2563,6 +2567,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return null;
   }
 
+  @Nullable
   public MultiValueChangeTimeLine<Object, Object> getCollectionTimeLine(final String iFieldName) {
     checkForBinding();
 
@@ -2768,6 +2773,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return null;
   }
 
+  @Nullable
   public PropertyTypeInternal getPropertyTypeInternal(String propertyName) {
     checkForBinding();
     checkForProperties(propertyName);
@@ -3341,6 +3347,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return prop;
   }
 
+  @Nullable
   public SchemaImmutableClass getImmutableSchemaClass(
       @Nonnull DatabaseSessionInternal session) {
     if (this.session != null && this.session != session) {
@@ -3557,6 +3564,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     propertyEncryption = PropertyEncryptionNone.instance();
   }
 
+  @Nullable
   Object accessProperty(final String property) {
     checkForBinding();
 
@@ -3707,6 +3715,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
+  @Nullable
   private String checkPropertyValue(String propertyName, @Nullable Object propertyValue) {
     if (propertyValue == null) {
       return null;
@@ -3821,6 +3830,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @SuppressWarnings("unchecked")
+  @Nullable
   private static <RET> RET convertField(
       @Nonnull DatabaseSessionInternal session, @Nonnull final EntityImpl entity,
       @Nonnull final String fieldName,

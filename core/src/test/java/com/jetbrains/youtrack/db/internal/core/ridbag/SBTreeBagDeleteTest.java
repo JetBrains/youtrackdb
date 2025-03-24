@@ -1,6 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.ridbag;
 
-import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.RID_BAG_SBTREEBONSAI_DELETE_DELAY;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
@@ -21,7 +20,6 @@ public class SBTreeBagDeleteTest extends BaseMemoryInternalDatabase {
 
   public void beforeTest() throws Exception {
     super.beforeTest();
-    session.getConfiguration().setValue(RID_BAG_SBTREEBONSAI_DELETE_DELAY, 50);
   }
 
   @Test

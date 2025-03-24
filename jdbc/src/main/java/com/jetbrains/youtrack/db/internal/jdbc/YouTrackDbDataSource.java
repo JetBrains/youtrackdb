@@ -53,8 +53,8 @@ public class YouTrackDbDataSource implements DataSource {
   public YouTrackDbDataSource() {
     info = new Properties();
     info.setProperty("db.usePool", "TRUE");
-    info.setProperty("db.pool.min", "1");
-    info.setProperty("db.pool.max", "10");
+    info.setProperty("youtrackdb.db.pool.min", "1");
+    info.setProperty("youtrackdb.db.pool.max", "10");
   }
 
   /**
@@ -126,10 +126,10 @@ public class YouTrackDbDataSource implements DataSource {
           YouTrackDBConfig.builder()
               .addGlobalConfigurationParameter(
                   GlobalConfiguration.DB_POOL_MIN,
-                  Integer.valueOf(info.getProperty("db.pool.min", "1")))
+                  Integer.valueOf(info.getProperty("youtrackdb.db.pool.min", "1")))
               .addGlobalConfigurationParameter(
                   GlobalConfiguration.DB_POOL_MAX,
-                  Integer.valueOf(info.getProperty("db.pool.max", "10")))
+                  Integer.valueOf(info.getProperty("youtrackdb.db.pool.max", "10")))
               .build();
 
       youTrackDB =

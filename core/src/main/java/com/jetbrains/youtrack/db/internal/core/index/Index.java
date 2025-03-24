@@ -38,6 +38,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  * Basic interface to handle index.
@@ -51,6 +52,7 @@ public interface Index extends Comparable<Index> {
    * elements from which this index consist will be returned, otherwise single element (key type
    * obviously) will be returned.
    */
+  @Nullable
   PropertyTypeInternal[] getKeyTypes();
 
   /**

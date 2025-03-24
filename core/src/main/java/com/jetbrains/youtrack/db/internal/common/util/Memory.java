@@ -19,9 +19,9 @@
 
 package com.jetbrains.youtrack.db.internal.common.util;
 
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.common.jnr.Native;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 
 /**
  * Provides various utilities related to memory management and configuration.
@@ -72,7 +72,7 @@ public class Memory {
                   + physicalMemory.memoryLimit
                   + " bytes). That may cause out of memory errors, please tune the configuration"
                   + " up. Use the -Xmx JVM option to lower the JVM maximum heap memory size or"
-                  + " storage.diskCache.bufferSize YouTrackDB option to lower memory requirements of"
+                  + " youtrackdb.storage.diskCache.bufferSize YouTrackDB option to lower memory requirements of"
                   + " the cache.");
     }
   }

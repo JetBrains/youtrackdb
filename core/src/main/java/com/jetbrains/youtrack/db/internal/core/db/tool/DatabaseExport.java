@@ -579,7 +579,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
       long recordTot, long recordNum, RecordAbstract rec, Set<RID> brokenRids) {
     if (rec != null) {
       try {
-        final var format = "version,class,type,keepTypes,internal,markEmbeddedDocs";
+        final var format = "version,class,type,keepTypes,internal,markEmbeddedEntities";
         RecordSerializerJackson.recordToJson(session, rec, jsonGenerator, format);
 
         recordExported++;

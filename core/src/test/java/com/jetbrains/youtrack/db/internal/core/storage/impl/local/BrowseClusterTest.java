@@ -26,7 +26,7 @@ public class BrowseClusterTest {
         new YouTrackDBImpl(
             DbTestBase.embeddedDBUrl(getClass()),
             YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_MINIMUM_CLUSTERS, 1)
+                .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_CLUSTERS_COUNT, 1)
                 .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
                 .build());
     youTrackDb.execute(

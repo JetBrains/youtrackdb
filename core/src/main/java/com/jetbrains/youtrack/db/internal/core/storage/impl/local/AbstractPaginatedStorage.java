@@ -443,12 +443,12 @@ public abstract class AbstractPaginatedStorage
 
   private static void checkPageSizeAndRelatedParametersInGlobalConfiguration(String dbName) {
     final var pageSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10;
-    var maxKeySize = GlobalConfiguration.SBTREE_MAX_KEY_SIZE.getValueAsInteger();
+    var maxKeySize = GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger();
     var bTreeMaxKeySize = (int) (pageSize * 0.3);
 
     if (maxKeySize <= 0) {
       maxKeySize = bTreeMaxKeySize;
-      GlobalConfiguration.SBTREE_MAX_KEY_SIZE.setValue(maxKeySize);
+      GlobalConfiguration.BTREE_MAX_KEY_SIZE.setValue(maxKeySize);
     }
 
     if (maxKeySize > bTreeMaxKeySize) {
@@ -456,13 +456,13 @@ public abstract class AbstractPaginatedStorage
           "Value of parameter "
               + GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getKey()
               + " should be at least 4 times bigger than value of parameter "
-              + GlobalConfiguration.SBTREE_MAX_KEY_SIZE.getKey()
+              + GlobalConfiguration.BTREE_MAX_KEY_SIZE.getKey()
               + " but real values are :"
               + GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getKey()
               + " = "
               + pageSize
               + " , "
-              + GlobalConfiguration.SBTREE_MAX_KEY_SIZE.getKey()
+              + GlobalConfiguration.BTREE_MAX_KEY_SIZE.getKey()
               + " = "
               + maxKeySize);
     }
@@ -904,7 +904,7 @@ public abstract class AbstractPaginatedStorage
                   GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10);
           ((ClusterBasedStorageConfiguration) configuration)
               .setMaxKeySize(
-                  atomicOperation, GlobalConfiguration.SBTREE_MAX_KEY_SIZE.getValueAsInteger());
+                  atomicOperation, GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger());
 
           generateDatabaseInstanceId(atomicOperation);
           clearStorageDirty();
@@ -947,7 +947,7 @@ public abstract class AbstractPaginatedStorage
 
   private void checkPageSizeAndRelatedParameters() {
     final var pageSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10;
-    final var maxKeySize = GlobalConfiguration.SBTREE_MAX_KEY_SIZE.getValueAsInteger();
+    final var maxKeySize = GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger();
 
     if (configuration.getPageSize() != -1 && configuration.getPageSize() != pageSize) {
       throw new StorageException(name,
@@ -964,7 +964,7 @@ public abstract class AbstractPaginatedStorage
           "Storage is created with value of "
               + configuration.getMaxKeySize()
               + " parameter equal to "
-              + GlobalConfiguration.SBTREE_MAX_KEY_SIZE.getKey()
+              + GlobalConfiguration.BTREE_MAX_KEY_SIZE.getKey()
               + " but current value is "
               + maxKeySize);
     }
@@ -2707,6 +2707,7 @@ public abstract class AbstractPaginatedStorage
     }
   }
 
+  @Nullable
   public <T> T callIndexEngine(
       final boolean readOperation, int indexId, final IndexEngineCallback<T> callback)
       throws InvalidIndexEngineIdException {

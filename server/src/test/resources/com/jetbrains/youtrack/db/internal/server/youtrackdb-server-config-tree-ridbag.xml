@@ -49,7 +49,7 @@
           </command>
         </commands>
         <parameters>
-          <parameter value="utf-8" name="network.http.charset"/>
+          <parameter value="utf-8" name="youtrackdb.network.http.charset"/>
         </parameters>
       </listener>
     </listeners>
@@ -64,7 +64,7 @@
     <entry name="log.console.level" value="info"/>
     <entry name="log.file.level" value="fine"/>
     <entry name="server.database.path" value="./target/server_test_database"/>
-    <entry name="ridBag.embeddedToSbtreeBonsaiThreshold" value="-1"/>
+    <entry name="youtrackdb.linkcollection.embeddedToBtreeThreshold" value="-1"/>
 
   </properties>
   <isAfterFirstTime>true</isAfterFirstTime>

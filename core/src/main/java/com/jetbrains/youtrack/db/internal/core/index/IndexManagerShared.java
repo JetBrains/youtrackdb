@@ -47,6 +47,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * Manages indexes at database level. A single instance is shared among multiple databases.
@@ -294,6 +295,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
     return null;
   }
 
+  @Nullable
   public Index getClassIndex(
       DatabaseSessionInternal session, String className, String indexName) {
     className = className.toLowerCase();
@@ -504,7 +506,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
             || indexDefinition.getFields() == null
             || indexDefinition.getFields().isEmpty();
     if (manualIndexesAreUsed) {
-      IndexAbstract.manualIndexesWarning(session.getDatabaseName());
+      throw new UnsupportedOperationException("Manual indexes are not supported");
     } else {
       checkSecurityConstraintsForIndexCreate(session, indexDefinition);
     }

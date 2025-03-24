@@ -1229,15 +1229,15 @@ public abstract class RidBagTest extends BaseDBTest {
   }
 
   public void testFromEmbeddedToSBTreeAndBack() throws IOException {
-    GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.setValue(7);
-    GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD.setValue(-1);
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(7);
+    GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(-1);
 
     if (session.getStorage() instanceof StorageProxy) {
       var server = new ServerAdmin(session.getURL()).connect("root", SERVER_PASSWORD);
       server.setGlobalConfiguration(
-          GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD, 7);
+          GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD, 7);
       server.setGlobalConfiguration(
-          GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD, -1);
+          GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD, -1);
       server.close();
     }
 
@@ -1355,15 +1355,15 @@ public abstract class RidBagTest extends BaseDBTest {
   }
 
   public void testFromEmbeddedToSBTreeAndBackTx() throws IOException {
-    GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.setValue(7);
-    GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD.setValue(-1);
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(7);
+    GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(-1);
 
     if (session.isRemote()) {
       var server = new ServerAdmin(session.getURL()).connect("root", SERVER_PASSWORD);
       server.setGlobalConfiguration(
-          GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD, 7);
+          GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD, 7);
       server.setGlobalConfiguration(
-          GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD, -1);
+          GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD, -1);
       server.close();
     }
 

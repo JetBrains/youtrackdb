@@ -18,8 +18,5 @@
         <module name="youtrackdb-client" />
       </profile>
     </annotationProcessing>
-    <bytecodeTargetLevel>
-      <module name="youtrackdb-tools-distribution" target="21" />
-    </bytecodeTargetLevel>
   </component>
 </project>

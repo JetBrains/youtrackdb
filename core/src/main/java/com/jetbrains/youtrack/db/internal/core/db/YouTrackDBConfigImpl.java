@@ -61,7 +61,6 @@ public class YouTrackDBConfigImpl implements YouTrackDBConfig {
       ContextConfiguration configuration,
       Map<ATTRIBUTES, Object> attributes,
       Set<SessionListener> listeners,
-      ClassLoader classLoader,
       SecurityConfig securityConfig,
       List<GlobalUser> users) {
     this.configuration = configuration;
@@ -71,11 +70,9 @@ public class YouTrackDBConfigImpl implements YouTrackDBConfig {
     } else {
       this.listeners = Collections.emptySet();
     }
-    if (classLoader != null) {
-      this.classLoader = classLoader;
-    } else {
-      this.classLoader = this.getClass().getClassLoader();
-    }
+
+    this.classLoader = this.getClass().getClassLoader();
+
     this.securityConfig = securityConfig;
     this.users = users;
   }

@@ -46,19 +46,19 @@ public class LinkMap extends TrackedMap<Identifiable> implements Sizeable,
   @Nonnull
   private final WeakReference<DatabaseSessionInternal> session;
 
-  public LinkMap(DatabaseSessionInternal session) {
+  public LinkMap(@Nonnull DatabaseSessionInternal session) {
     super();
     this.session = new WeakReference<>(session);
     this.keySizeLimit = DEFAULT_KEY_SIZE_LIMIT;
   }
 
-  public LinkMap(DatabaseSessionInternal session, int keySizeLimit) {
+  public LinkMap(@Nonnull DatabaseSessionInternal session, int keySizeLimit) {
     super();
     this.session = new WeakReference<>(session);
     this.keySizeLimit = keySizeLimit;
   }
 
-  public LinkMap(int size, DatabaseSessionInternal session) {
+  public LinkMap(int size, @Nonnull DatabaseSessionInternal session) {
     super(size);
     this.session = new WeakReference<>(session);
     this.keySizeLimit = DEFAULT_KEY_SIZE_LIMIT;

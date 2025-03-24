@@ -4,10 +4,8 @@ import com.jetbrains.youtrack.db.api.DatabaseSession.ATTRIBUTES;
 import com.jetbrains.youtrack.db.api.SessionListener;
 import java.util.Map;
 import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 
 public interface YouTrackDBConfigBuilder {
-
   @Nonnull
   YouTrackDBConfigBuilder fromGlobalConfigurationParameters(
       @Nonnull Map<GlobalConfiguration, Object> values);
@@ -25,7 +23,7 @@ public interface YouTrackDBConfigBuilder {
   @Nonnull
   YouTrackDBConfigBuilder addGlobalConfigurationParameter(
       @Nonnull GlobalConfiguration configuration,
-      @Nullable Object value);
+      @Nonnull Object value);
 
   @Nonnull
   YouTrackDBConfig build();

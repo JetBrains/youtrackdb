@@ -430,7 +430,7 @@ public class GraphRepair {
                         vertex.removePropertyInternal(fieldName);
                       } else if (!ridbag.isEmbedded()
                           && ridbag.size()
-                          < GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD
+                          < GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD
                           .getValueAsInteger()) {
                         vertex.setDirty();
                       }

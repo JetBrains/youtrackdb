@@ -44,18 +44,6 @@ public class UpsertStep extends AbstractExecutionStep {
     if (commandTarget.getItem().getIdentifier() != null) {
       entity = (EntityImpl) session.newEntity(
           commandTarget.getItem().getIdentifier().getStringValue());
-    } else if (commandTarget.getItem().getCluster() != null) {
-      var cluster = commandTarget.getItem().getCluster();
-      var clusterId = cluster.getClusterNumber();
-      if (clusterId == null) {
-        clusterId = ctx.getDatabaseSession().getClusterIdByName(cluster.getClusterName());
-      }
-      var clazz =
-          ctx.getDatabaseSession()
-              .getMetadata()
-              .getImmutableSchemaSnapshot()
-              .getClassByClusterId(clusterId);
-      entity = (EntityImpl) session.newEntity(clazz);
     } else {
       throw new CommandExecutionException(session,
           "Cannot execute UPSERT on target '" + commandTarget + "'");
@@ -77,7 +65,7 @@ public class UpsertStep extends AbstractExecutionStep {
       throw new CommandExecutionException(res.getBoundedToSession(),
           "Cannot UPSERT on OR conditions");
     }
-    var andCond = flattened.get(0);
+    var andCond = flattened.getFirst();
     for (var condition : andCond.getSubBlocks()) {
       condition.transformToUpdateItem().ifPresent(x -> x.applyUpdate(res, ctx));
     }

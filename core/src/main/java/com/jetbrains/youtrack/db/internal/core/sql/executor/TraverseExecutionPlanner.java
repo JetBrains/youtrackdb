@@ -8,11 +8,9 @@ import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.sql.CommandExecutorSQLAbstract;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLCluster;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromClause;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromItem;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIdentifier;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIndexIdentifier;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLInputParameter;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLInteger;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLLimit;
@@ -50,7 +48,8 @@ public class TraverseExecutionPlanner {
       this.projections = null;
     } else {
       this.projections =
-          statement.getProjections().stream().map(x -> x.copy()).collect(Collectors.toList());
+          statement.getProjections().stream().map(SQLTraverseProjectionItem::copy)
+              .collect(Collectors.toList());
     }
 
     this.target = statement.getTarget();
@@ -109,12 +108,6 @@ public class TraverseExecutionPlanner {
       handleNoTarget(result, ctx, profilingEnabled);
     } else if (target.getIdentifier() != null) {
       handleClassAsTarget(result, this.target, ctx, profilingEnabled);
-    } else if (target.getCluster() != null) {
-      handleClustersAsTarget(
-          result, Collections.singletonList(target.getCluster()), ctx, profilingEnabled);
-    } else if (target.getClusterList() != null) {
-      handleClustersAsTarget(
-          result, target.getClusterList().toListOfClusters(), ctx, profilingEnabled);
     } else if (target.getStatement() != null) {
       handleSubqueryAsTarget(result, target.getStatement(), ctx, profilingEnabled);
     } else if (target.getFunctionCall() != null) {
@@ -123,133 +116,86 @@ public class TraverseExecutionPlanner {
           "function call as target is not supported yet");
     } else if (target.getInputParam() != null) {
       handleInputParamAsTarget(result, target.getInputParam(), ctx, profilingEnabled);
-    } else if (target.getIndex() != null) {
-      handleIndexAsTarget(result, target.getIndex(), ctx, profilingEnabled);
     } else if (target.getMetadata() != null) {
       handleMetadataAsTarget(result, target.getMetadata(), ctx, profilingEnabled);
-    } else if (target.getRids() != null && target.getRids().size() > 0) {
+    } else if (target.getRids() != null && !target.getRids().isEmpty()) {
       handleRidsAsTarget(result, target.getRids(), ctx, profilingEnabled);
     } else {
       throw new UnsupportedOperationException();
     }
   }
 
-  private void handleInputParamAsTarget(
+  private static void handleInputParamAsTarget(
       SelectExecutionPlan result,
       SQLInputParameter inputParam,
       CommandContext ctx,
       boolean profilingEnabled) {
     var paramValue = inputParam.getValue(ctx.getInputParameters());
-    if (paramValue == null) {
-      result.chain(new EmptyStep(ctx, profilingEnabled)); // nothing to return
-    } else if (paramValue instanceof SchemaClass) {
-      var from = new SQLFromClause(-1);
-      var item = new SQLFromItem(-1);
-      from.setItem(item);
-      item.setIdentifier(
-          new SQLIdentifier(((SchemaClass) paramValue).getName()));
-      handleClassAsTarget(result, from, ctx, profilingEnabled);
-    } else if (paramValue instanceof String) {
-      // strings are treated as classes
-      var from = new SQLFromClause(-1);
-      var item = new SQLFromItem(-1);
-      from.setItem(item);
-      item.setIdentifier(new SQLIdentifier((String) paramValue));
-      handleClassAsTarget(result, from, ctx, profilingEnabled);
-    } else if (paramValue instanceof Identifiable) {
-      var orid = ((Identifiable) paramValue).getIdentity();
-
-      var rid = new SQLRid(-1);
-      var cluster = new SQLInteger(-1);
-      cluster.setValue(orid.getClusterId());
-      var position = new SQLInteger(-1);
-      position.setValue(orid.getClusterPosition());
-      rid.setLegacy(true);
-      rid.setCluster(cluster);
-      rid.setPosition(position);
-
-      handleRidsAsTarget(result, Collections.singletonList(rid), ctx, profilingEnabled);
-    } else if (paramValue instanceof Iterable) {
-      // try list of RIDs
-      List<SQLRid> rids = new ArrayList<>();
-      for (var x : (Iterable) paramValue) {
-        if (!(x instanceof Identifiable)) {
-          throw new CommandExecutionException(ctx.getDatabaseSession(),
-              "Cannot use colleciton as target: " + paramValue);
-        }
-        var orid = ((Identifiable) x).getIdentity();
+    switch (paramValue) {
+      case null -> result.chain(new EmptyStep(ctx, profilingEnabled)); // nothing to return
+      case SchemaClass schemaClass -> {
+        var from = new SQLFromClause(-1);
+        var item = new SQLFromItem(-1);
+        from.setItem(item);
+        item.setIdentifier(
+            new SQLIdentifier(schemaClass.getName()));
+        handleClassAsTarget(result, from, ctx, profilingEnabled);
+      }
+      case String propertyName -> {
+        // strings are treated as classes
+        var from = new SQLFromClause(-1);
+        var item = new SQLFromItem(-1);
+        from.setItem(item);
+        item.setIdentifier(new SQLIdentifier(propertyName));
+        handleClassAsTarget(result, from, ctx, profilingEnabled);
+      }
+      case Identifiable identifiable -> {
+        var orid = identifiable.getIdentity();
 
         var rid = new SQLRid(-1);
         var cluster = new SQLInteger(-1);
         cluster.setValue(orid.getClusterId());
         var position = new SQLInteger(-1);
         position.setValue(orid.getClusterPosition());
+        rid.setLegacy(true);
         rid.setCluster(cluster);
         rid.setPosition(position);
 
-        rids.add(rid);
+        handleRidsAsTarget(result, Collections.singletonList(rid), ctx, profilingEnabled);
       }
-      handleRidsAsTarget(result, rids, ctx, profilingEnabled);
-    } else {
-      throw new CommandExecutionException(ctx.getDatabaseSession(),
+      case Iterable<?> iterable -> {
+        // try list of RIDs
+        List<SQLRid> rids = new ArrayList<>();
+        for (var x : iterable) {
+          if (!(x instanceof Identifiable)) {
+            throw new CommandExecutionException(ctx.getDatabaseSession(),
+                "Cannot use colleciton as target: " + paramValue);
+          }
+          var orid = ((Identifiable) x).getIdentity();
+
+          var rid = new SQLRid(-1);
+          var cluster = new SQLInteger(-1);
+          cluster.setValue(orid.getClusterId());
+          var position = new SQLInteger(-1);
+          position.setValue(orid.getClusterPosition());
+          rid.setCluster(cluster);
+          rid.setPosition(position);
+
+          rids.add(rid);
+        }
+        handleRidsAsTarget(result, rids, ctx, profilingEnabled);
+      }
+      default -> throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Invalid target: " + paramValue);
     }
   }
 
-  private void handleNoTarget(
+  private static void handleNoTarget(
       SelectExecutionPlan result, CommandContext ctx, boolean profilingEnabled) {
     result.chain(new EmptyDataGeneratorStep(1, ctx, profilingEnabled));
   }
 
-  private void handleIndexAsTarget(
-      SelectExecutionPlan result,
-      SQLIndexIdentifier indexIdentifier,
-      CommandContext ctx,
-      boolean profilingEnabled) {
-    var indexName = indexIdentifier.getIndexName();
-    final var database = ctx.getDatabaseSession();
-    var index = database.getMetadata().getIndexManagerInternal().getIndex(database, indexName);
-    if (index == null) {
-      throw new CommandExecutionException(ctx.getDatabaseSession(),
-          "Index not found: " + indexName);
-    }
-
-    switch (indexIdentifier.getType()) {
-      case INDEX:
-        if (!index.supportsOrderedIterations()) {
-          throw new CommandExecutionException(ctx.getDatabaseSession(),
-              "Index " + indexName + " does not allow iteration without a condition");
-        }
-
-        result.chain(
-            new FetchFromIndexStep(new IndexSearchDescriptor(index), true, ctx, profilingEnabled));
-        result.chain(new GetValueFromIndexEntryStep(ctx, null, profilingEnabled));
-        break;
-      case VALUES:
-      case VALUESASC:
-        if (!index.supportsOrderedIterations()) {
-          throw new CommandExecutionException(ctx.getDatabaseSession(),
-              "Index " + indexName + " does not allow iteration on values");
-        }
-        result.chain(
-            new FetchFromIndexValuesStep(
-                new IndexSearchDescriptor(index), true, ctx, profilingEnabled));
-        result.chain(new GetValueFromIndexEntryStep(ctx, null, profilingEnabled));
-        break;
-      case VALUESDESC:
-        if (!index.supportsOrderedIterations()) {
-          throw new CommandExecutionException(ctx.getDatabaseSession(),
-              "Index " + indexName + " does not allow iteration on values");
-        }
-        result.chain(
-            new FetchFromIndexValuesStep(
-                new IndexSearchDescriptor(index), false, ctx, profilingEnabled));
-        result.chain(new GetValueFromIndexEntryStep(ctx, null, profilingEnabled));
-        break;
-    }
-  }
-
-  private void handleMetadataAsTarget(
+  private static void handleMetadataAsTarget(
       SelectExecutionPlan plan,
       SQLMetadataIdentifier metadata,
       CommandContext ctx,
@@ -267,7 +213,7 @@ public class TraverseExecutionPlanner {
     plan.chain(new FetchFromRidsStep(Collections.singleton(schemaRid), ctx, profilingEnabled));
   }
 
-  private void handleRidsAsTarget(
+  private static void handleRidsAsTarget(
       SelectExecutionPlan plan, List<SQLRid> rids, CommandContext ctx, boolean profilingEnabled) {
     List<RecordId> actualRids = new ArrayList<>();
     for (var rid : rids) {
@@ -276,7 +222,7 @@ public class TraverseExecutionPlanner {
     plan.chain(new FetchFromRidsStep(actualRids, ctx, profilingEnabled));
   }
 
-  private void handleClassAsTarget(
+  private static void handleClassAsTarget(
       SelectExecutionPlan plan,
       SQLFromClause queryTarget,
       CommandContext ctx,
@@ -290,52 +236,7 @@ public class TraverseExecutionPlanner {
     plan.chain(fetcher);
   }
 
-  private void handleClustersAsTarget(
-      SelectExecutionPlan plan,
-      List<SQLCluster> clusters,
-      CommandContext ctx,
-      boolean profilingEnabled) {
-    var db = ctx.getDatabaseSession();
-    Boolean orderByRidAsc = null; // null: no order. true: asc, false:desc
-    if (clusters.size() == 1) {
-      var cluster = clusters.get(0);
-      var clusterId = cluster.getClusterNumber();
-      if (clusterId == null) {
-        clusterId = db.getClusterIdByName(cluster.getClusterName());
-      }
-      if (clusterId == null) {
-        throw new CommandExecutionException(ctx.getDatabaseSession(),
-            "Cluster " + cluster + " does not exist");
-      }
-      var step =
-          new FetchFromClusterExecutionStep(clusterId, ctx, profilingEnabled);
-      if (Boolean.TRUE.equals(orderByRidAsc)) {
-        step.setOrder(FetchFromClusterExecutionStep.ORDER_ASC);
-      } else if (Boolean.FALSE.equals(orderByRidAsc)) {
-        step.setOrder(FetchFromClusterExecutionStep.ORDER_DESC);
-      }
-      plan.chain(step);
-    } else {
-      var clusterIds = new int[clusters.size()];
-      for (var i = 0; i < clusters.size(); i++) {
-        var cluster = clusters.get(i);
-        var clusterId = cluster.getClusterNumber();
-        if (clusterId == null) {
-          clusterId = db.getClusterIdByName(cluster.getClusterName());
-        }
-        if (clusterId == null) {
-          throw new CommandExecutionException(ctx.getDatabaseSession(),
-              "Cluster " + cluster + " does not exist");
-        }
-        clusterIds[i] = clusterId;
-      }
-      var step =
-          new FetchFromClustersExecutionStep(clusterIds, ctx, orderByRidAsc, profilingEnabled);
-      plan.chain(step);
-    }
-  }
-
-  private void handleSubqueryAsTarget(
+  private static void handleSubqueryAsTarget(
       SelectExecutionPlan plan,
       SQLStatement subQuery,
       CommandContext ctx,

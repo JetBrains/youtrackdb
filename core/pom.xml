@@ -29,26 +29,26 @@
     <project.build.outputTimestamp>2023-01-01T00:00:00Z</project.build.outputTimestamp>
     <argLine>-ea
       -Xmx${heapSize}
-      -Dstorage.diskCache.bufferSize=4096
+      -Dyoutrackdb.storage.diskCache.bufferSize=4096
       -Dindex.flushAfterCreate=false
-      -Dstorage.makeFullCheckpointAfterCreate=false
+      -Dyoutrackdb.storage.makeFullCheckpointAfterCreate=false
       -Dstorage.makeFullCheckpointAfterOpen=false
       -Dstorage.makeFullCheckpointAfterClusterCreate=false
       -Dstorage.wal.syncOnPageFlush=false
       -Dstorage.configuration.syncOnUpdate=false
       -Ddb.makeFullCheckpointOnIndexChange=false
       -Ddb.makeFullCheckpointOnSchemaChange=false
-      -Dsecurity.userPasswordSaltIterations=10
-      -Dmemory.directMemory.trackMode=true
+      -Dyoutrackdb.security.userPasswordSaltIterations=10
+      -Dyoutrackdb.memory.directMemory.trackMode=true
       -Djava.util.logging.manager=com.jetbrains.youtrack.db.internal.common.log.ShutdownLogManager
-      -Dstorage.diskCache.checksumMode=storeAndThrow
-      -Dsecurity.warningDefaultUsers=false
+      -Dyoutrackdb.storage.diskCache.checksumMode=storeAndThrow
+      -Dyoutrackdb.security.warningDefaultUsers=false
       <!-- new security feature -->
-      -Dsecurity.createDefaultUsers=false
+      -Dyoutrackdb.security.createDefaultUsers=false
       --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED
       --add-opens java.base/sun.security.x509=ALL-UNNAMED
-      -Dmemory.directMemory.preallocate=false
-      -Dfile.log.deletion=false
+      -Dyoutrackdb.memory.directMemory.preallocate=false
+      -Dyoutrackdb.file.log.deletion=false
     </argLine>
   </properties>
 

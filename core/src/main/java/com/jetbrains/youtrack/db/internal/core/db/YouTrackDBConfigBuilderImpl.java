@@ -25,8 +25,6 @@ import com.jetbrains.youtrack.db.api.SessionListener;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfigBuilder;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
-import com.jetbrains.youtrack.db.internal.core.db.config.NodeConfiguration;
-import com.jetbrains.youtrack.db.internal.core.db.config.NodeConfigurationBuilder;
 import com.jetbrains.youtrack.db.internal.core.security.GlobalUser;
 import com.jetbrains.youtrack.db.internal.core.security.GlobalUserImpl;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityConfig;
@@ -43,8 +41,6 @@ public class YouTrackDBConfigBuilderImpl implements YouTrackDBConfigBuilder {
   private ContextConfiguration configurations = new ContextConfiguration();
   private final Map<ATTRIBUTES, Object> attributes = new EnumMap<>(ATTRIBUTES.class);
   private final Set<SessionListener> listeners = new HashSet<>();
-  private ClassLoader classLoader;
-  private final NodeConfigurationBuilder nodeConfigurationBuilder = NodeConfiguration.builder();
   private SecurityConfig securityConfig;
   private final List<GlobalUser> users = new ArrayList<GlobalUser>();
 
@@ -77,7 +73,7 @@ public class YouTrackDBConfigBuilderImpl implements YouTrackDBConfigBuilder {
   @Nonnull
   @Override
   public YouTrackDBConfigBuilderImpl addGlobalConfigurationParameter(
-      final @Nonnull GlobalConfiguration configuration, final Object value) {
+      final @Nonnull GlobalConfiguration configuration, final @Nonnull Object value) {
     configurations.setValue(configuration, value);
     return this;
   }
@@ -88,15 +84,6 @@ public class YouTrackDBConfigBuilderImpl implements YouTrackDBConfigBuilder {
       final @Nonnull Object value) {
     attributes.put(attribute, value);
     return this;
-  }
-
-  public YouTrackDBConfigBuilderImpl setClassLoader(ClassLoader classLoader) {
-    this.classLoader = classLoader;
-    return this;
-  }
-
-  public NodeConfigurationBuilder getNodeConfigurationBuilder() {
-    return nodeConfigurationBuilder;
   }
 
   public YouTrackDBConfigBuilderImpl setSecurityConfig(SecurityConfig securityConfig) {
@@ -111,7 +98,6 @@ public class YouTrackDBConfigBuilderImpl implements YouTrackDBConfigBuilder {
         configurations,
         attributes,
         listeners,
-        classLoader,
         securityConfig,
         users);
   }
@@ -121,9 +107,8 @@ public class YouTrackDBConfigBuilderImpl implements YouTrackDBConfigBuilder {
     return this;
   }
 
-  public YouTrackDBConfigBuilderImpl addGlobalUser(
+  public void addGlobalUser(
       final String user, final String password, final String resource) {
     users.add(new GlobalUserImpl(user, password, resource));
-    return this;
   }
 }

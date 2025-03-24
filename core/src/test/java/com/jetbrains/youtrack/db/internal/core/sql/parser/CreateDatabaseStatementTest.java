@@ -9,7 +9,7 @@ public class CreateDatabaseStatementTest extends ParserTestAbstract {
     checkRightSyntaxServer("CREATE DATABASE foo disk");
     checkRightSyntaxServer("CREATE DATABASE ? disk");
     checkRightSyntaxServer(
-        "CREATE DATABASE foo disk {\"config\":{\"security.createDefaultUsers\": true}}");
+        "CREATE DATABASE foo disk {\"config\":{\"youtrackdb.security.createDefaultUsers\": true}}");
 
     checkRightSyntaxServer(
         "CREATE DATABASE foo disk users (foo identified by 'pippo' role admin)");
@@ -19,7 +19,7 @@ public class CreateDatabaseStatementTest extends ParserTestAbstract {
 
     checkRightSyntaxServer(
         "CREATE DATABASE foo disk users (foo identified by 'pippo' role admin)"
-            + " {\"config\":{\"security.createDefaultUsers\": true}}");
+            + " {\"config\":{\"youtrackdb.security.createDefaultUsers\": true}}");
 
     checkWrongSyntax("CREATE DATABASE foo");
     checkWrongSyntax("CREATE DATABASE");

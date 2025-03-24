@@ -15,10 +15,10 @@ public class SchemaPropertyEmbeddedRidBagIndexDefinitionTest extends
   @Override
   protected YouTrackDBConfig createConfig(YouTrackDBConfigBuilderImpl builder) {
     builder.addGlobalConfigurationParameter(
-        GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD,
+        GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD,
         Integer.MAX_VALUE);
     builder.addGlobalConfigurationParameter(
-        GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD,
+        GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD,
         Integer.MAX_VALUE);
 
     return builder.build();

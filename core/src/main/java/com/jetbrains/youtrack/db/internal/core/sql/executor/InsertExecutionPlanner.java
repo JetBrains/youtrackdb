@@ -1,7 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIndexIdentifier;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLInsertBody;
@@ -43,8 +42,7 @@ public class InsertExecutionPlanner {
 
     var session = ctx.getDatabaseSession();
     if (targetIndex != null) {
-      IndexAbstract.manualIndexesWarning(session.getDatabaseName());
-      result.chain(new InsertIntoIndexStep(targetIndex, insertBody, ctx, enableProfiling));
+      throw new UnsupportedOperationException("Manual indexes are not supported");
     } else {
       if (selectStatement != null) {
         handleInsertSelect(result, this.selectStatement, ctx,

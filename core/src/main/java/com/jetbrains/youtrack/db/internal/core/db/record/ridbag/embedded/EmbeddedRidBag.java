@@ -291,7 +291,7 @@ public class EmbeddedRidBag implements RidBagDelegate {
     if (entries.length == entriesLength) {
       if (entriesLength == 0) {
         final var cfgValue =
-            GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.getValueAsInteger();
+            GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getValueAsInteger();
         entries = new Object[cfgValue > 0 ? Math.min(cfgValue, 40) : 40];
       } else {
         final var oldEntries = entries;

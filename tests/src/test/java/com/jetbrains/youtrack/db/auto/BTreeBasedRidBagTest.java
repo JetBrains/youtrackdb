@@ -66,38 +66,38 @@ public class BTreeBasedRidBagTest extends RidBagTest {
   @BeforeMethod
   public void beforeMethod() throws IOException {
     topThreshold =
-        GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.getValueAsInteger();
+        GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getValueAsInteger();
     bottomThreshold =
-        GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD.getValueAsInteger();
+        GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.getValueAsInteger();
 
     if (session.isRemote()) {
       var server =
           new ServerAdmin(session.getURL())
               .connect("root", SERVER_PASSWORD);
       server.setGlobalConfiguration(
-          GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD, -1);
+          GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD, -1);
       server.setGlobalConfiguration(
-          GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD, -1);
+          GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD, -1);
       server.close();
     }
 
-    GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.setValue(-1);
-    GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD.setValue(-1);
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(-1);
+    GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(-1);
   }
 
   @AfterMethod
   public void afterMethod() throws IOException {
-    GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.setValue(topThreshold);
-    GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD.setValue(bottomThreshold);
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(topThreshold);
+    GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(bottomThreshold);
 
     if (session.isRemote()) {
       var server =
           new ServerAdmin(session.getURL())
               .connect("root", SERVER_PASSWORD);
       server.setGlobalConfiguration(
-          GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD, topThreshold);
+          GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD, topThreshold);
       server.setGlobalConfiguration(
-          GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD, bottomThreshold);
+          GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD, bottomThreshold);
       server.close();
     }
   }
@@ -193,8 +193,8 @@ public class BTreeBasedRidBagTest extends RidBagTest {
 
   public void testRidBagConversion() {
     final var oldThreshold =
-        GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.getValueAsInteger();
-    GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.setValue(5);
+        GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getValueAsInteger();
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(5);
 
     session.begin();
     var doc_1 = ((EntityImpl) session.newEntity());
@@ -251,7 +251,7 @@ public class BTreeBasedRidBagTest extends RidBagTest {
 
     Assert.assertTrue(docs.isEmpty());
 
-    GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.setValue(oldThreshold);
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(oldThreshold);
     session.rollback();
   }
 
@@ -260,10 +260,6 @@ public class BTreeBasedRidBagTest extends RidBagTest {
         || session.getStorage().getType().equals(EngineMemory.NAME)) {
       return;
     }
-
-    var reuseTrigger =
-        GlobalConfiguration.SBTREEBOSAI_FREE_SPACE_REUSE_TRIGGER.getValueAsFloat();
-    GlobalConfiguration.SBTREEBOSAI_FREE_SPACE_REUSE_TRIGGER.setValue(Float.MIN_VALUE);
 
     var realDoc = ((EntityImpl) session.newEntity());
     var realDocRidBag = new RidBag(session);
@@ -308,7 +304,6 @@ public class BTreeBasedRidBagTest extends RidBagTest {
     session.freeze();
     session.release();
 
-    GlobalConfiguration.SBTREEBOSAI_FREE_SPACE_REUSE_TRIGGER.setValue(reuseTrigger);
     testRidBagFile =
         new File(
             directory,

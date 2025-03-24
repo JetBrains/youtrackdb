@@ -2,8 +2,8 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
@@ -15,9 +15,6 @@ public class SQLFromItem extends SimpleNode {
 
   protected List<SQLRid> rids;
   protected List<SQLInputParameter> inputParams;
-  protected SQLCluster cluster;
-  protected SQLClusterList clusterList;
-  protected SQLIndexIdentifier index;
   protected SQLMetadataIdentifier metadata;
   protected SQLStatement statement;
   protected SQLInputParameter inputParam;
@@ -34,9 +31,9 @@ public class SQLFromItem extends SimpleNode {
   }
 
   public void toString(Map<Object, Object> params, StringBuilder builder) {
-    if (rids != null && rids.size() > 0) {
+    if (rids != null && !rids.isEmpty()) {
       if (rids.size() == 1) {
-        rids.get(0).toString(params, builder);
+        rids.getFirst().toString(params, builder);
         return;
       } else {
         builder.append("[");
@@ -51,9 +48,9 @@ public class SQLFromItem extends SimpleNode {
         builder.append("]");
         return;
       }
-    } else if (inputParams != null && inputParams.size() > 0) {
+    } else if (inputParams != null && !inputParams.isEmpty()) {
       if (inputParams.size() == 1) {
-        inputParams.get(0).toString(params, builder);
+        inputParams.getFirst().toString(params, builder);
         return;
       } else {
         builder.append("[");
@@ -68,14 +65,6 @@ public class SQLFromItem extends SimpleNode {
         builder.append("]");
         return;
       }
-    } else if (cluster != null) {
-      cluster.toString(params, builder);
-      return;
-      // } else if (className != null) {
-      // return className.getValue();
-    } else if (clusterList != null) {
-      clusterList.toString(params, builder);
-      return;
     } else if (metadata != null) {
       metadata.toString(params, builder);
       return;
@@ -83,9 +72,6 @@ public class SQLFromItem extends SimpleNode {
       builder.append("(");
       statement.toString(params, builder);
       builder.append(")");
-      return;
-    } else if (index != null) {
-      index.toString(params, builder);
       return;
     } else if (inputParam != null) {
       inputParam.toString(params, builder);
@@ -100,9 +86,9 @@ public class SQLFromItem extends SimpleNode {
   }
 
   public void toGenericStatement(StringBuilder builder) {
-    if (rids != null && rids.size() > 0) {
+    if (rids != null && !rids.isEmpty()) {
       if (rids.size() == 1) {
-        rids.get(0).toGenericStatement(builder);
+        rids.getFirst().toGenericStatement(builder);
         return;
       } else {
         builder.append("[");
@@ -117,9 +103,9 @@ public class SQLFromItem extends SimpleNode {
         builder.append("]");
         return;
       }
-    } else if (inputParams != null && inputParams.size() > 0) {
+    } else if (inputParams != null && !inputParams.isEmpty()) {
       if (inputParams.size() == 1) {
-        inputParams.get(0).toGenericStatement(builder);
+        inputParams.getFirst().toGenericStatement(builder);
         return;
       } else {
         builder.append("[");
@@ -134,12 +120,6 @@ public class SQLFromItem extends SimpleNode {
         builder.append("]");
         return;
       }
-    } else if (cluster != null) {
-      cluster.toGenericStatement(builder);
-      return;
-    } else if (clusterList != null) {
-      clusterList.toGenericStatement(builder);
-      return;
     } else if (metadata != null) {
       metadata.toGenericStatement(builder);
       return;
@@ -147,9 +127,6 @@ public class SQLFromItem extends SimpleNode {
       builder.append("(");
       statement.toGenericStatement(builder);
       builder.append(")");
-      return;
-    } else if (index != null) {
-      index.toGenericStatement(builder);
       return;
     } else if (inputParam != null) {
       inputParam.toGenericStatement(builder);
@@ -169,18 +146,6 @@ public class SQLFromItem extends SimpleNode {
 
   public List<SQLRid> getRids() {
     return rids;
-  }
-
-  public SQLCluster getCluster() {
-    return cluster;
-  }
-
-  public SQLClusterList getClusterList() {
-    return clusterList;
-  }
-
-  public SQLIndexIdentifier getIndex() {
-    return index;
   }
 
   public SQLMetadataIdentifier getMetadata() {
@@ -210,14 +175,12 @@ public class SQLFromItem extends SimpleNode {
   public SQLFromItem copy() {
     var result = new SQLFromItem(-1);
     if (rids != null) {
-      result.rids = rids.stream().map(r -> r.copy()).collect(Collectors.toList());
+      result.rids = rids.stream().map(SQLRid::copy).collect(Collectors.toList());
     }
     if (inputParams != null) {
-      result.inputParams = inputParams.stream().map(r -> r.copy()).collect(Collectors.toList());
+      result.inputParams = inputParams.stream().map(SQLInputParameter::copy)
+          .collect(Collectors.toList());
     }
-    result.cluster = cluster == null ? null : cluster.copy();
-    result.clusterList = clusterList == null ? null : clusterList.copy();
-    result.index = index == null ? null : index.copy();
     result.metadata = metadata == null ? null : metadata.copy();
     result.statement = statement == null ? null : statement.copy();
     result.inputParam = inputParam == null ? null : inputParam.copy();
@@ -245,15 +208,6 @@ public class SQLFromItem extends SimpleNode {
     if (!Objects.equals(inputParams, oFromItem.inputParams)) {
       return false;
     }
-    if (!Objects.equals(cluster, oFromItem.cluster)) {
-      return false;
-    }
-    if (!Objects.equals(clusterList, oFromItem.clusterList)) {
-      return false;
-    }
-    if (!Objects.equals(index, oFromItem.index)) {
-      return false;
-    }
     if (!Objects.equals(metadata, oFromItem.metadata)) {
       return false;
     }
@@ -276,9 +230,6 @@ public class SQLFromItem extends SimpleNode {
   public int hashCode() {
     var result = rids != null ? rids.hashCode() : 0;
     result = 31 * result + (inputParams != null ? inputParams.hashCode() : 0);
-    result = 31 * result + (cluster != null ? cluster.hashCode() : 0);
-    result = 31 * result + (clusterList != null ? clusterList.hashCode() : 0);
-    result = 31 * result + (index != null ? index.hashCode() : 0);
     result = 31 * result + (metadata != null ? metadata.hashCode() : 0);
     result = 31 * result + (statement != null ? statement.hashCode() : 0);
     result = 31 * result + (inputParam != null ? inputParam.hashCode() : 0);
@@ -290,18 +241,6 @@ public class SQLFromItem extends SimpleNode {
 
   public void setRids(List<SQLRid> rids) {
     this.rids = rids;
-  }
-
-  public void setCluster(SQLCluster cluster) {
-    this.cluster = cluster;
-  }
-
-  public void setClusterList(SQLClusterList clusterList) {
-    this.clusterList = clusterList;
-  }
-
-  public void setIndex(SQLIndexIdentifier index) {
-    this.index = index;
   }
 
   public void setMetadata(SQLMetadataIdentifier metadata) {
@@ -342,15 +281,6 @@ public class SQLFromItem extends SimpleNode {
       result.setProperty(
           "inputParams", rids.stream().map(x -> x.serialize(db)).collect(Collectors.toList()));
     }
-    if (cluster != null) {
-      result.setProperty("cluster", cluster.serialize(db));
-    }
-    if (clusterList != null) {
-      result.setProperty("clusterList", clusterList.serialize(db));
-    }
-    if (index != null) {
-      result.setProperty("index", index.serialize(db));
-    }
     if (metadata != null) {
       result.setProperty("metadata", metadata.serialize(db));
     }
@@ -390,20 +320,6 @@ public class SQLFromItem extends SimpleNode {
       for (var res : ser) {
         inputParams.add(SQLInputParameter.deserializeFromOResult(res));
       }
-    }
-
-    if (fromResult.getProperty("cluster") != null) {
-      cluster = new SQLCluster(-1);
-      cluster.deserialize(fromResult.getProperty("cluster"));
-    }
-    if (fromResult.getProperty("clusterList") != null) {
-      clusterList = new SQLClusterList(-1);
-      clusterList.deserialize(fromResult.getProperty("clusterList"));
-    }
-
-    if (fromResult.getProperty("index") != null) {
-      index = new SQLIndexIdentifier(-1);
-      index.deserialize(fromResult.getProperty("index"));
     }
     if (fromResult.getProperty("metadata") != null) {
       metadata = new SQLMetadataIdentifier(-1);

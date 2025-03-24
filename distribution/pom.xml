@@ -101,8 +101,8 @@
               <workingDirectory>${project.basedir}</workingDirectory>
               <arguments>
                 <argument>-Xmx${heapSize}</argument>
-                <argument>-DridBag.embeddedToSbtreeBonsaiThreshold=10000000</argument>
-                <argument>-Dmemory.directMemory.preallocate=false</argument>
+                <argument>-Dyoutrackdb.linkcollection.embeddedToBtreeThreshold=10000000</argument>
+                <argument>-Dyoutrackdb.memory.directMemory.preallocate=false</argument>
                 <argument>-classpath</argument>
                 <classpath/>
                 <argument>com.jetbrains.youtrack.db.internal.tools.console.ConsoleDatabaseApp
@@ -157,7 +157,7 @@
         <jdk>[17,)</jdk>
       </activation>
       <properties>
-        <argLine>-Xmx${heapSize} -Xms${heapSize} -Dstorage.diskCache.bufferSize=4096
+        <argLine>-Xmx${heapSize} -Xms${heapSize} -Dyoutrackdb.storage.diskCache.bufferSize=4096
           --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED --add-opens
           java.base/sun.security.x509=ALL-UNNAMED
         </argLine>

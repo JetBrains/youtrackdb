@@ -73,8 +73,8 @@ import javax.annotation.Nonnull;
  * The representation is automatically converted to tree-based implementation when top threshold is
  * reached. And backward to embedded one when size is decreased to bottom threshold. <br>
  * The thresholds could be configured by {@link
- * GlobalConfiguration#RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD} and {@link
- * GlobalConfiguration#RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD}. <br>
+ * GlobalConfiguration#LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD} and {@link
+ * GlobalConfiguration#LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD}. <br>
  * <br>
  * This collection is used to efficiently manage relationships in graph model.<br>
  * <br>
@@ -486,10 +486,10 @@ public class RidBag
     assert session.assertIfNotActive();
     var conf = session.getConfiguration();
     topThreshold =
-        conf.getValueAsInteger(GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD);
+        conf.getValueAsInteger(GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD);
 
     bottomThreshold =
-        conf.getValueAsInteger(GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD);
+        conf.getValueAsInteger(GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD);
   }
 
   protected void init() {

@@ -27,6 +27,7 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * Abstract class to manage indexes.
@@ -101,6 +102,7 @@ public interface IndexManagerAbstract extends CloseableInStorage {
 
   Index getClassIndex(DatabaseSessionInternal session, String className, String indexName);
 
+  @Nullable
   IndexUnique getClassUniqueIndex(DatabaseSessionInternal session, String className);
 
   void create(DatabaseSessionInternal session);

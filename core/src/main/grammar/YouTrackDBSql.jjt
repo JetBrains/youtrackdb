@@ -2479,11 +2479,8 @@ SQLFromItem FromItem():
                 lastParam = NamedParameter() { jjtThis.addInputParam(lastParam); }
             )* <RBRACKET>
         )
-    	|
-    	LOOKAHEAD(IndexIdentifier())
-    	jjtThis.index = IndexIdentifier()
-    	|
-        jjtThis.metadata = MetadataIdentifier()
+      |
+    	jjtThis.metadata = MetadataIdentifier()
     	|
     	(
     	    <LPAREN> jjtThis.statement = QueryStatement() <RPAREN>
@@ -2513,32 +2510,6 @@ SQLFromItem FromItem():
         )
 
     )
-    { return jjtThis; }
-}
-
-SQLCluster Cluster():
-{ Token cName; }
-{
-    (
-	    cName = <CLUSTER_IDENTIFIER> {jjtThis.clusterName = cName.image.split(":")[1];}
-		|
-	    cName = <CLUSTER_NUMBER_IDENTIFIER> {jjtThis.clusterNumber = Integer.parseInt(cName.image.split(":")[1]);}
-
-	)
-    { return jjtThis; }
-}
-
-SQLClusterList ClusterList():
-{ SQLIdentifier lastIdentifier; }
-{
-    (
-	     <CLUSTER> <COLON> <LBRACKET>
-	     [
-	        lastIdentifier = Identifier() { jjtThis.addCluster(lastIdentifier); }
-	        ( <COMMA> lastIdentifier = Identifier() { jjtThis.addCluster(lastIdentifier); } )*
-	     ]
-	     <RBRACKET>
-	)
     { return jjtThis; }
 }
 
@@ -3832,15 +3803,11 @@ SQLFindReferencesStatement FindReferencesStatement():
     	<LBRACKET> { jjtThis.targets = new ArrayList<SimpleNode>(); }
     	(
     	    lastTarget = Identifier()
-            |
-            lastTarget = Cluster()
     	){ jjtThis.addTarget(lastTarget); }
     	(
     		<COMMA>
     		(
 				lastTarget = Identifier()
-				|
-				lastTarget = Cluster()
 			){ jjtThis.addTarget(lastTarget); }
     	)*
     	<RBRACKET>

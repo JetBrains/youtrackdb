@@ -583,7 +583,7 @@ public class RecordSerializerJackson {
           jsonGenerator.writeFieldName(EntityHelper.ATTRIBUTE_RID);
           serializeLink(jsonGenerator, entity.getIdentity());
         }
-      } else if (formatSettings.markEmbeddedDocs) {
+      } else if (formatSettings.markEmbeddedEntities) {
         jsonGenerator.writeFieldName(EntityHelper.ATTRIBUTE_EMBEDDED);
         jsonGenerator.writeBoolean(true);
       }
@@ -1111,7 +1111,7 @@ public class RecordSerializerJackson {
     public boolean includeId;
     public boolean includeClazz;
     public boolean keepTypes = true;
-    public boolean markEmbeddedDocs = true;
+    public boolean markEmbeddedEntities = true;
     public boolean includeVersion = true;
 
     public FormatSettings(final String stringFormat) {
@@ -1125,7 +1125,7 @@ public class RecordSerializerJackson {
         includeId = false;
         includeClazz = false;
         keepTypes = false;
-        markEmbeddedDocs = false;
+        markEmbeddedEntities = false;
 
         if (!stringFormat.isEmpty()) {
           final var format = stringFormat.split(",");
@@ -1136,10 +1136,10 @@ public class RecordSerializerJackson {
               case "class" -> includeClazz = true;
               case "keepTypes" -> keepTypes = true;
               case "internal" -> internalRecords = true;
-              case "markEmbeddedDocs" -> markEmbeddedDocs = true;
+              case "markEmbeddedEntities" -> markEmbeddedEntities = true;
               case "version" -> includeVersion = true;
               default -> LogManager.instance().warn(this, "Unknown format option: %s. "
-                      + "Expected: type, rid, class, keepTypes, internal, markEmbeddedDocs,version",
+                      + "Expected: type, rid, class, keepTypes, internal, markEmbeddedEntities,version",
                   null, f);
             }
           }

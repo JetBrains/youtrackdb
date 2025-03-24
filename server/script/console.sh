@@ -39,7 +39,7 @@ KEYSTORE="$YOUTRACKDB_HOME/config/cert/youtrackdb-console.ks"
 KEYSTORE_PASS=password
 TRUSTSTORE="$YOUTRACKDB_HOME/config/cert/youtrackdb-console.ts"
 TRUSTSTORE_PASS=password
-SSL_OPTS="-Dclient.ssl.enabled=false "
+SSL_OPTS="-Dyoutrackdb.client.ssl.enabled=false "
 
 exec "$JAVA" -client $JAVA_OPTS $YOUTRACKDB_OPTS_MEMORY $YOUTRACKDB_SETTINGS $SSL_OPTS \
     -Dfile.encoding=utf-8 -Dyoutrackdb.build.number="@BUILD@" \

@@ -19,11 +19,9 @@
  */
 package com.jetbrains.youtrack.db.internal.core.index;
 
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
-import com.jetbrains.youtrack.db.api.exception.ManualIndexesAreProhibited;
 import com.jetbrains.youtrack.db.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -54,6 +52,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  * Handles indexing when records change. The underlying lock manager for keys can be the
@@ -352,6 +351,7 @@ public abstract class IndexAbstract implements Index {
   }
 
   @Deprecated
+  @Nullable
   public Object getFirstKey() {
     try (final var stream = keyStream()) {
       final var iterator = stream.iterator();
@@ -364,6 +364,7 @@ public abstract class IndexAbstract implements Index {
   }
 
   @Deprecated
+  @Nullable
   public Object getLastKey(DatabaseSessionInternal session) {
     try (final var stream = descStream(session)) {
       final var iterator = stream.iterator();
@@ -393,6 +394,7 @@ public abstract class IndexAbstract implements Index {
       private final Iterator<Object> keyIterator = keyStream().iterator();
 
       @Override
+      @Nullable
       public Object next(int prefetchSize) {
         if (keyIterator.hasNext()) {
           return keyIterator.next();
@@ -936,26 +938,6 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
-  public static void manualIndexesWarning(String dbName) {
-    if (!GlobalConfiguration.INDEX_ALLOW_MANUAL_INDEXES.getValueAsBoolean()) {
-      throw new ManualIndexesAreProhibited(dbName,
-          "Manual indexes are deprecated, not supported any more and will be removed in next"
-              + " versions if you still want to use them, please set global property `"
-              + GlobalConfiguration.INDEX_ALLOW_MANUAL_INDEXES.getKey()
-              + "` to `true`");
-    }
-
-    if (GlobalConfiguration.INDEX_ALLOW_MANUAL_INDEXES_WARNING.getValueAsBoolean()) {
-      LogManager.instance()
-          .warn(
-              IndexAbstract.class,
-              "Seems you use manual indexes. Manual indexes are deprecated, not supported any more"
-                  + " and will be removed in next versions if you do not want to see warning,"
-                  + " please set global property `"
-                  + GlobalConfiguration.INDEX_ALLOW_MANUAL_INDEXES_WARNING.getKey()
-                  + "` to `false`");
-    }
-  }
 
   /**
    * Indicates search behavior in case of {@link CompositeKey} keys that have less amount of

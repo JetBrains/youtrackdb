@@ -58,7 +58,7 @@ public class CreateDatabaseStatementExecutionTest {
         youTrackDb.execute(
             "create database "
                 + dbName
-                + " disk {'config':{'security.createDefaultUsers': false}}")) {
+                + " disk {'config':{'youtrackdb.security.createDefaultUsers': false}}")) {
       Assert.assertTrue(result.hasNext());
       var item = result.next();
       Assert.assertEquals(true, item.getProperty("created"));

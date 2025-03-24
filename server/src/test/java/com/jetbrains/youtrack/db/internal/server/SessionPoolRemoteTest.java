@@ -23,7 +23,6 @@ public class SessionPoolRemoteTest {
 
   @Before
   public void before() throws Exception {
-    GlobalConfiguration.SERVER_BACKWARD_COMPATIBILITY.setValue(false);
     server = new YouTrackDBServer(false);
     server.setServerRootDirectory(SERVER_DIRECTORY);
     server.startup(

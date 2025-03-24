@@ -333,26 +333,27 @@ private int jjStopAtPos(int pos, int kind)
           return jjStopAtPos(1, 194);
         } else if ((active3 & 0x200L) != 0L) {
           return jjStopAtPos(1, 201);
-        } else if ((active3 & 0x400L) != 0L)
+        } else if ((active3 & 0x400L) != 0L) {
           return jjStopAtPos(1, 202);
-        else if ((active3 & 0x800L) != 0L)
+        } else if ((active3 & 0x800L) != 0L) {
           return jjStopAtPos(1, 203);
-        else if ((active3 & 0x8000000L) != 0L) {
+        } else if ((active3 & 0x8000000L) != 0L) {
           return jjStopAtPos(1, 219);
-        } else if ((active3 & 0x10000000L) != 0L)
+        } else if ((active3 & 0x10000000L) != 0L) {
           return jjStopAtPos(1, 220);
-        else if ((active3 & 0x20000000L) != 0L)
+        } else if ((active3 & 0x20000000L) != 0L) {
           return jjStopAtPos(1, 221);
-        else if ((active3 & 0x40000000L) != 0L)
+        } else if ((active3 & 0x40000000L) != 0L) {
           return jjStopAtPos(1, 222);
-        else if ((active3 & 0x80000000L) != 0L)
+        } else if ((active3 & 0x80000000L) != 0L) {
           return jjStopAtPos(1, 223);
-        else if ((active3 & 0x100000000L) != 0L)
+        } else if ((active3 & 0x100000000L) != 0L) {
           return jjStopAtPos(1, 224);
-        else if ((active3 & 0x200000000L) != 0L)
+        } else if ((active3 & 0x200000000L) != 0L) {
           return jjStopAtPos(1, 225);
-        else if ((active3 & 0x400000000L) != 0L)
+        } else if ((active3 & 0x400000000L) != 0L) {
           return jjStopAtPos(1, 226);
+        }
          break;
       case 62:
         if ((active3 & 0x1000L) != 0L) {
@@ -399,8 +400,9 @@ private int jjStopAtPos(int pos, int kind)
       case 61:
         if ((active3 & 0x800000000L) != 0L) {
           return jjStopAtPos(2, 227);
-        } else if ((active3 & 0x1000000000L) != 0L)
+        } else if ((active3 & 0x1000000000L) != 0L) {
           return jjStopAtPos(2, 228);
+        }
          break;
       case 62:
         if ((active3 & 0x8000000000L) != 0L)
@@ -1141,9 +1143,9 @@ private int jjMoveNfa_0(int startState, int curPos)
               }
                   break;
               case 547:
-                  if (curChar == 58) {
-                    jjAddStates(76, 77);
-                  }
+                if (curChar == 58) {
+                  jjAddStates(76, 77);
+                }
                   break;
               case 548:
                 if ((0x3fe000000000000L & l) == 0L)
@@ -1289,9 +1291,9 @@ private int jjMoveNfa_0(int startState, int curPos)
                 }
                   break;
                case 1104:
-                  if (curChar == 46) {
-                    jjCheckNAddStates(87, 89);
-                  }
+                 if (curChar == 46) {
+                   jjCheckNAddStates(87, 89);
+                 }
                   break;
                case 1105:
                  if (curChar == 45) {
@@ -5555,9 +5557,9 @@ private int jjMoveNfa_0(int startState, int curPos)
                  }
                   break;
                case 935:
-                  if ((0x400000004000L & l) != 0L) {
-                    jjAddStates(143, 150);
-                  }
+                 if ((0x400000004000L & l) != 0L) {
+                   jjAddStates(143, 150);
+                 }
                   break;
                case 936:
                  if ((0x20000000200000L & l) != 0L)
@@ -6038,9 +6040,9 @@ private int jjMoveNfa_0(int startState, int curPos)
                   break;
                case 1044:
               case 1072:
-                  if ((0x20000000200L & l) != 0L) {
-                    jjCheckNAdd(1045);
-                  }
+                if ((0x20000000200L & l) != 0L) {
+                  jjCheckNAdd(1045);
+                }
                   break;
                case 1045:
                  if ((0x1000000010L & l) != 0L && kind > 155)
@@ -6405,9 +6407,9 @@ private int jjMoveNfa_0(int startState, int curPos)
                      kind = 6;
                   break;
                case 19:
-                  if (jjCanMove_0(hiByte, i1, i2, l1, l2)) {
-                    jjAddStates(19, 21);
-                  }
+                 if (jjCanMove_0(hiByte, i1, i2, l1, l2)) {
+                   jjAddStates(19, 21);
+                 }
                   break;
               case 1116:
                 if (jjCanMove_0(hiByte, i1, i2, l1, l2)) {
@@ -6509,8 +6511,8 @@ null, null, null, null, null, null, null, null, null, null, null, null, null, nu
 null, null, null, null, null, null, null, null, null, null, null, null, null, null, 
 null, null, null, null, null, null, null, null, null, null, null, null, null, null, 
 null, null, null, null, null, null, null, null, null, null, null, null, null, null, 
-null, null, null, null, null, null, null, null, null, null, null, null, null, null, 
 null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+    null, null, null, null, null, null, null, null, null, null, null, null, null, null,
     "\50", "\51", "\173", "\175", "\133", "\135", "\73", "\54", "\56", "\100", "\44",
     "\140", "\75", "\75\75", "\74", "\76", "\41", "\176", "\77", "\72", "\74\75",
 "\76\75", "\41\75", "\74\76", "\174\174", "\46\46", "\53\53", "\55\55", "\53", "\55", 
@@ -6791,7 +6793,7 @@ private void jjCheckNAddStates(int start, int end)
   public void ReInit(CharStream stream) {
 
     jjmatchedPos =
-        jjnewStateCnt =
+    jjnewStateCnt =
     0;
     curLexState = defaultLexState;
     input_stream = stream;
@@ -6806,9 +6808,7 @@ private void jjCheckNAddStates(int start, int end)
       jjrounds[i] = 0x80000000;
   }
 
-  /**
-   * Reinitialise parser.
-   */
+  /** Reinitialise parser. */
   public void ReInit(CharStream stream, int lexState)
   
   {
@@ -6887,6 +6887,6 @@ private void jjCheckNAddStates(int start, int end)
   private final StringBuilder jjimage = new StringBuilder();
   private StringBuilder image = jjimage;
   private int jjimageLen;
-  private int lengthOfMatch;
+    private int lengthOfMatch;
     protected int curChar;
 }

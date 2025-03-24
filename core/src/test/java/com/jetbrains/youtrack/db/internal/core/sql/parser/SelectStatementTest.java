@@ -169,6 +169,7 @@ public class SelectStatementTest {
     var select = (SQLSelectStatement) result;
   }
 
+  @Test
   public void testMath2() {
     var result =
         checkRightSyntax("select * from sqlSelectIndexReuseTestClass where prop1 = foo + 1");
@@ -465,6 +466,7 @@ public class SelectStatementTest {
     checkWrongSyntax("select from [#12:0, #12:1] where a lucene 'b'");
   }
 
+  @Test
   public void testBacktick() {
     checkRightSyntax("select `foo` from foo where `foo` = 'bar'");
     checkRightSyntax("select `SELECT` from foo where `SELECT` = 'bar'");
@@ -773,15 +775,6 @@ public class SelectStatementTest {
     checkWrongSyntax("select from V order by foo asc collate ");
   }
 
-  @Test
-  public void testQueryIndex() {
-    checkRightSyntax("select from index:foo WHERE key = 'foo'");
-    checkRightSyntax("select from index:foo WHERE key = ['foo', 'bar']");
-    checkRightSyntax("select from index:foo WHERE key > 10");
-    checkRightSyntax("select from index:foo WHERE key CONTAINS 'foo'");
-    checkRightSyntax("select from index:foo WHERE key BETWEEN 'bar' AND 'foo'");
-  }
-
   protected void checkGenericStatement(String query, String expectedGeneric) {
     var result = checkSyntax(query, true);
     Assert.assertEquals(expectedGeneric, result.toGenericStatement());
@@ -789,8 +782,6 @@ public class SelectStatementTest {
 
   @Test
   public void testGenericStatementGeneration() {
-    checkGenericStatement(
-        "select from index:foo WHERE key = 'foo'", "SELECT FROM INDEX:foo WHERE key = ?");
     checkGenericStatement(
         "select from Clazz WHERE key = ['foo', 'bar']", "SELECT FROM Clazz WHERE key = [?, ?]");
     checkGenericStatement("select from test WHERE key > 10", "SELECT FROM test WHERE key > ?");

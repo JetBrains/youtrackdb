@@ -49,8 +49,10 @@ public interface RecordElement {
   /**
    * @return Returns record element which contains given one.
    */
+  @Nullable
   RecordElement getOwner();
 
+  @Nullable
   default EntityImpl getOwnerEntity() {
     if (this instanceof EntityImpl entity) {
       return entity;

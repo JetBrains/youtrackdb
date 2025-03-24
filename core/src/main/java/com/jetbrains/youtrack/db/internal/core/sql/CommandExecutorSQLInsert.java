@@ -34,7 +34,6 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.command.CommandResultListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.QueryParsingException;
-import com.jetbrains.youtrack.db.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -43,7 +42,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -228,33 +226,7 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
         throw new CommandExecutionException(session, "No key/value found");
       }
 
-      IndexAbstract.manualIndexesWarning(session.getDatabaseName());
-
-      final var index =
-          session.getMetadata().getIndexManagerInternal().getIndex(session, indexName);
-      if (index == null) {
-        throw new CommandExecutionException(session, "Target index '" + indexName + "' not found");
-      }
-
-      // BIND VALUES
-      Map<String, Object> result = new HashMap<String, Object>();
-
-      for (var candidate : newRecords) {
-        var indexKey = getIndexKeyValue(session, commandParameters, candidate);
-        var indexValue = getIndexValue(session, commandParameters, candidate);
-        index.put(session, indexKey, indexValue);
-
-        result.put(KEYWORD_KEY, indexKey);
-        result.put(KEYWORD_RID, indexValue);
-      }
-
-      // RETURN LAST ENTRY
-      var resultInternal = new ResultInternal(session);
-      for (var entry : result.entrySet()) {
-        resultInternal.setProperty(entry.getKey(), entry.getValue());
-      }
-
-      return prepareReturnItem(session, resultInternal);
+      throw new UnsupportedOperationException("Manual indexes are not supported");
     } else {
       // CREATE NEW DOCUMENTS
       final List<EntityImpl> docs = new ArrayList<EntityImpl>();

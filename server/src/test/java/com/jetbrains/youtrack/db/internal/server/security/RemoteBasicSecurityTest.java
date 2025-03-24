@@ -3,7 +3,6 @@ package com.jetbrains.youtrack.db.internal.server.security;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
@@ -33,7 +32,6 @@ public class RemoteBasicSecurityTest {
       NotCompliantMBeanException,
       ClassNotFoundException,
       MalformedObjectNameException {
-    GlobalConfiguration.SERVER_BACKWARD_COMPATIBILITY.setValue(false);
     server = YouTrackDBServer.startFromClasspathConfig("abstract-youtrackdb-server-config.xml");
 
     YouTrackDB youTrackDB =

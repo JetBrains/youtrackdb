@@ -10,7 +10,7 @@ import org.junit.Test;
 public class RemoteDropClusterTest extends BaseServerMemoryDatabase {
 
   public void beforeTest() {
-    GlobalConfiguration.CLASS_MINIMUM_CLUSTERS.setValue(1);
+    GlobalConfiguration.CLASS_CLUSTERS_COUNT.setValue(1);
     super.beforeTest();
   }
 

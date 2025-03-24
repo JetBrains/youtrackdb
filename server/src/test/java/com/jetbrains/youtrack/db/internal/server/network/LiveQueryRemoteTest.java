@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.server.network;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
@@ -41,7 +40,6 @@ public class LiveQueryRemoteTest {
 
   @Before
   public void before() throws Exception {
-    GlobalConfiguration.SERVER_BACKWARD_COMPATIBILITY.setValue(false);
     server = new YouTrackDBServer(false);
     server.startup(
         getClass()

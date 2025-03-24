@@ -30,12 +30,12 @@
     <project.build.outputTimestamp>2023-01-01T00:00:00Z</project.build.outputTimestamp>
     <argLine>
       -Xmx${heapSize}
-      -Dstorage.diskCache.bufferSize=4096
-      -Dmemory.directMemory.trackMode=true
+      -Dyoutrackdb.storage.diskCache.bufferSize=4096
+      -Dyoutrackdb.memory.directMemory.trackMode=true
       -Djava.util.logging.manager=com.jetbrains.youtrack.db.internal.common.log.ShutdownLogManager
-      -Dstorage.diskCache.checksumMode=storeAndThrow
-      -Dsecurity.warningDefaultUsers=false
-      -Dfile.log.deletion=false
+      -Dyoutrackdb.storage.diskCache.checksumMode=storeAndThrow
+      -Dyoutrackdb.security.warningDefaultUsers=false
+      -Dyoutrackdb.file.log.deletion=false
       --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED
     </argLine>
   </properties>
@@ -172,17 +172,20 @@
         <artifactId>maven-surefire-plugin</artifactId>
         <configuration>
           <systemPropertyVariables>
-            <storage.lockTimeout>60000</storage.lockTimeout>
-            <storage.makeFullCheckpointAfterCreate>false</storage.makeFullCheckpointAfterCreate>
+            <youtrackdb.storage.lockTimeout>60000</youtrackdb.storage.lockTimeout>
+            <youtrackdb.storage.makeFullCheckpointAfterCreate>false
+            </youtrackdb.storage.makeFullCheckpointAfterCreate>
             <storage.makeFullCheckpointAfterClusterCreate>false
             </storage.makeFullCheckpointAfterClusterCreate>
             <storage.wal.syncOnPageFlush>false</storage.wal.syncOnPageFlush>
             <storage.configuration.syncOnUpdate>false</storage.configuration.syncOnUpdate>
             <index.flushAfterCreate>false</index.flushAfterCreate>
-            <security.userPasswordSaltIterations>10</security.userPasswordSaltIterations>
+            <youtrackdb.security.userPasswordSaltIterations>10
+            </youtrackdb.security.userPasswordSaltIterations>
             <buildDirectory>${project.build.directory}</buildDirectory>
             <testPath>${project.basedir}</testPath>
-            <memory.directMemory.preallocate>false</memory.directMemory.preallocate>
+            <youtrackdb.memory.directMemory.preallocate>false
+            </youtrackdb.memory.directMemory.preallocate>
           </systemPropertyVariables>
           <properties>
             <property>

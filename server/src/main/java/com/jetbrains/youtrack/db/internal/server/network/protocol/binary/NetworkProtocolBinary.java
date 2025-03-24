@@ -77,7 +77,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.SynchronousQueue;
 import java.util.function.Function;
 import java.util.logging.Level;
-import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class NetworkProtocolBinary extends NetworkProtocol {
 
@@ -259,7 +259,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
     }
   }
 
-  private void sessionRequest(@Nonnull ClientConnection connection, int requestType,
+  private void sessionRequest(@Nullable ClientConnection connection, int requestType,
       int clientTxId) {
 
     LogManager.instance().debug(this, "Request id:" + clientTxId + " type:" + requestType);
@@ -455,6 +455,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
     return connection;
   }
 
+  @Nullable
   private ClientConnection onBeforeOperationalRequest(
       ClientConnection connection, byte[] tokenBytes) {
     try {
@@ -877,6 +878,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
     return requestType;
   }
 
+  @Nullable
   public String getRemoteAddress() {
     final var socket = channel.socket;
     if (socket != null) {
@@ -891,6 +893,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
     return new ConnectionBinaryExecutor(connection, server, handshakeInfo);
   }
 
+  @Nullable
   public BinaryPushResponse push(DatabaseSessionInternal session, BinaryPushRequest request)
       throws IOException {
     expectedPushResponse = request.createResponse();

@@ -32,10 +32,8 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.collection.SortedMultiIterator;
-import com.jetbrains.youtrack.db.internal.common.concur.resource.SharedResource;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.common.stream.BreakingForEach;
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.common.util.PatternConst;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
@@ -52,14 +50,12 @@ import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionMultiValue;
 import com.jetbrains.youtrack.db.internal.core.index.IndexEngineException;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClusters;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
@@ -80,7 +76,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.functions.coll.SQLFunctionDis
 import com.jetbrains.youtrack.db.internal.core.sql.functions.misc.SQLFunctionCount;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorAnd;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorBetween;
-import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorIn;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorMajor;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorMajorEquals;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorMinor;
@@ -109,6 +104,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Executes the SQL SELECT statement. the parse() method compiles the query and builds the meta
@@ -769,6 +765,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
     return result;
   }
 
+  @Nullable
   private EntityImpl applyGroupBy(final Identifiable iRecord, final CommandContext iContext) {
     if (!aggregate) {
       return null;
@@ -1429,6 +1426,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
     }
   }
 
+  @Nullable
   private SQLFilterCondition convertToBetweenClause(DatabaseSessionInternal session,
       final SQLFilterCondition condition) {
     if (condition == null) {
@@ -1881,6 +1879,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
     return Math.min(sqlLimit, 0);
   }
 
+  @Nullable
   private Stream<RawPair<Object, RID>> tryGetOptimizedSortStream(
       final SchemaClassInternal iSchemaClass,
       DatabaseSessionInternal session) {
@@ -1973,7 +1972,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
     return true;
   }
 
-  @SuppressWarnings("rawtypes")
+  @Nullable
   private List<Stream<RawPair<Object, RID>>> getIndexCursors(
       DatabaseSessionInternal session, final SchemaClassInternal iSchemaClass) {
     // Leaving this in for reference, for the moment.
@@ -2352,6 +2351,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
     }
   }
 
+  @Nullable
   private Iterator<Identifiable> tryIndexedFunctions(DatabaseSessionInternal db,
       SchemaClass iSchemaClass) {
     // TODO profiler
@@ -2420,6 +2420,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
     return false;
   }
 
+  @Nullable
   private Stream<RawPair<Object, RID>> getOptimizedSortStream(SchemaClassInternal iSchemaClass,
       DatabaseSessionInternal session) {
     final List<String> fieldNames = new ArrayList<>();
@@ -2655,197 +2656,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
   }
 
   private void searchInIndex(DatabaseSessionInternal session) {
-    IndexAbstract.manualIndexesWarning(session.getDatabaseName());
-
-    final var index =
-        session
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(session, parsedTarget.getTargetIndex());
-
-    if (index == null) {
-      throw new CommandExecutionException(session,
-          "Target index '" + parsedTarget.getTargetIndex() + "' not found");
-    }
-
-    var ascOrder = true;
-    if (!orderedFields.isEmpty()) {
-      if (orderedFields.size() != 1) {
-        throw new CommandExecutionException(session, "Index can be ordered only by key field");
-      }
-
-      final var fieldName = orderedFields.get(0).getKey();
-      if (!fieldName.equalsIgnoreCase("key")) {
-        throw new CommandExecutionException(session, "Index can be ordered only by key field");
-      }
-
-      final var order = orderedFields.get(0).getValue();
-      ascOrder = order.equalsIgnoreCase(KEYWORD_ASC);
-    }
-
-    // nothing was added yet, so index definition for manual index was not calculated
-    if (index.getDefinition() == null) {
-      return;
-    }
-
-    if (compiledFilter != null && compiledFilter.getRootCondition() != null) {
-      if (!"KEY".equalsIgnoreCase(compiledFilter.getRootCondition().getLeft().toString())) {
-        throw new CommandExecutionException(session,
-            "'Key' field is required for queries against indexes");
-      }
-
-      final var indexOperator = compiledFilter.getRootCondition().getOperator();
-
-      if (indexOperator instanceof QueryOperatorBetween) {
-        final var values = (Object[]) compiledFilter.getRootCondition().getRight();
-
-        try (var stream =
-            index
-                .streamEntriesBetween(session,
-                    getIndexKey(session, index.getDefinition(), values[0], context),
-                    true,
-                    getIndexKey(session, index.getDefinition(), values[2], context),
-                    true, ascOrder)) {
-          fetchEntriesFromIndexStream(session, stream);
-        }
-      } else if (indexOperator instanceof QueryOperatorMajor) {
-        final var value = compiledFilter.getRootCondition().getRight();
-
-        try (var stream =
-            index
-                .streamEntriesMajor(session,
-                    getIndexKey(session, index.getDefinition(), value, context),
-                    false, ascOrder)) {
-          fetchEntriesFromIndexStream(session, stream);
-        }
-      } else if (indexOperator instanceof QueryOperatorMajorEquals) {
-        final var value = compiledFilter.getRootCondition().getRight();
-        try (var stream =
-            index
-                .streamEntriesMajor(session,
-                    getIndexKey(session, index.getDefinition(), value, context), true, ascOrder)) {
-          fetchEntriesFromIndexStream(session, stream);
-        }
-
-      } else if (indexOperator instanceof QueryOperatorMinor) {
-        final var value = compiledFilter.getRootCondition().getRight();
-
-        try (var stream =
-            index
-                .streamEntriesMinor(session,
-                    getIndexKey(session, index.getDefinition(), value, context),
-                    false, ascOrder)) {
-          fetchEntriesFromIndexStream(session, stream);
-        }
-      } else if (indexOperator instanceof QueryOperatorMinorEquals) {
-        final var value = compiledFilter.getRootCondition().getRight();
-
-        try (var stream =
-            index
-                .streamEntriesMinor(session,
-                    getIndexKey(session, index.getDefinition(), value, context), true, ascOrder)) {
-          fetchEntriesFromIndexStream(session, stream);
-        }
-      } else if (indexOperator instanceof QueryOperatorIn) {
-        final var origValues = (List<Object>) compiledFilter.getRootCondition().getRight();
-        final List<Object> values = new ArrayList<Object>(origValues.size());
-        for (var val : origValues) {
-          if (index.getDefinition() instanceof CompositeIndexDefinition) {
-            throw new CommandExecutionException(session, "Operator IN not supported yet.");
-          }
-
-          val = getIndexKey(session, index.getDefinition(), val, context);
-          values.add(val);
-        }
-
-        try (var stream =
-            index.streamEntries(session, values, true)) {
-          fetchEntriesFromIndexStream(session, stream);
-        }
-      } else {
-        final var right = compiledFilter.getRootCondition().getRight();
-        var keyValue = getIndexKey(session, index.getDefinition(), right, context);
-        if (keyValue == null) {
-          return;
-        }
-
-        final Stream<RID> res;
-        if (index.getDefinition().getParamCount() == 1) {
-          // CONVERT BEFORE SEARCH IF NEEDED
-          final var type = index.getDefinition().getTypes()[0];
-          keyValue = PropertyTypeInternal.convert(session, keyValue, type.getDefaultJavaType());
-
-          res = index.getRids(session, keyValue);
-        } else {
-          final var secondKey = getIndexKey(session, index.getDefinition(), right, context);
-          if (keyValue instanceof CompositeKey
-              && secondKey instanceof CompositeKey
-              && ((CompositeKey) keyValue).getKeys().size()
-              == index.getDefinition().getParamCount()
-              && ((CompositeKey) secondKey).getKeys().size()
-              == index.getDefinition().getParamCount()) {
-            res = index.getRids(session, keyValue);
-          } else {
-            try (var stream =
-                index
-                    .streamEntriesBetween(session, keyValue, true, secondKey, true, true)) {
-              fetchEntriesFromIndexStream(session, stream);
-            }
-            return;
-          }
-        }
-
-        final var resultKey = keyValue;
-        BreakingForEach.forEach(
-            res,
-            (rid, breaker) -> {
-              final var record = createIndexEntryAsEntity(session, resultKey, rid);
-              applyGroupBy(record, context);
-              if (!handleResult(record, context)) {
-                // LIMIT REACHED
-                breaker.stop();
-              }
-            });
-      }
-
-    } else {
-      if (isIndexSizeQuery(session)) {
-        getProjectionGroup(null, context)
-            .applyValue(projections.keySet().iterator().next(), index.size(session));
-        return;
-      }
-
-      if (isIndexKeySizeQuery(session)) {
-        getProjectionGroup(null, context)
-            .applyValue(projections.keySet().iterator().next(), index.size(session));
-        return;
-      }
-
-      if (index instanceof SharedResource) {
-        ((SharedResource) index).acquireExclusiveLock();
-      }
-
-      try {
-
-        // ADD ALL THE ITEMS AS RESULT
-        if (ascOrder) {
-          try (var stream = index.stream(session)) {
-            fetchEntriesFromIndexStream(session, stream);
-          }
-          fetchNullKeyEntries(session, index);
-        } else {
-
-          try (var stream = index.descStream(session)) {
-            fetchNullKeyEntries(session, index);
-            fetchEntriesFromIndexStream(session, stream);
-          }
-        }
-      } finally {
-        if (index instanceof SharedResource) {
-          ((SharedResource) index).releaseExclusiveLock();
-        }
-      }
-    }
+    throw new UnsupportedOperationException("Manual indexes are not supported");
   }
 
   private void fetchNullKeyEntries(DatabaseSessionInternal db, Index index) {

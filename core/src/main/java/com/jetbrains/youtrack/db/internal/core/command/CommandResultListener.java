@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.command;
 
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Callback interface called when the command returns results.
@@ -40,5 +41,6 @@ public interface CommandResultListener {
    */
   void end(@Nonnull DatabaseSessionInternal session);
 
+  @Nullable
   Object getResult();
 }

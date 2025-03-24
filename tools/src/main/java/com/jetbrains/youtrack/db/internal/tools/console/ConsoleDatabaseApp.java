@@ -277,7 +277,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
   @ConsoleCommand(
       description =
           "Create a new database. For encrypted database or portion of database, set the variable"
-              + " 'storage.encryptionKey' with the key to use",
+              + " 'youtrackdb.storage.encryptionKey' with the key to use",
       onlineHelp = "Console-Command-Create-Database")
   public void createDatabase(
       @ConsoleParameter(
@@ -2110,8 +2110,8 @@ public class ConsoleDatabaseApp extends ConsoleApplication
         iOptions == null || iOptions.contains("--force-embedded-ridbags");
     final var fix_graph = iOptions == null || iOptions.contains("--fix-graph");
     if (force_embedded) {
-      GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD.setValue(Integer.MAX_VALUE);
-      GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.setValue(Integer.MAX_VALUE);
+      GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(Integer.MAX_VALUE);
+      GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(Integer.MAX_VALUE);
     }
     if (fix_graph || force_embedded) {
       // REPAIR GRAPH

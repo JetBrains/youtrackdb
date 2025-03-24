@@ -33,12 +33,12 @@
     <argLine>
       -ea
       -Xmx${heapSize}
-      -Dmemory.directMemory.trackMode=true
+      -Dyoutrackdb.memory.directMemory.trackMode=true
       -Djava.util.logging.manager=com.jetbrains.youtrack.db.internal.common.log.ShutdownLogManager
-      -Dstorage.diskCache.checksumMode=storeAndThrow
-      -Dstorage.diskCache.bufferSize=4096
-      -Dsecurity.warningDefaultUsers=false
-      -Dfile.log.deletion=false
+      -Dyoutrackdb.storage.diskCache.checksumMode=storeAndThrow
+      -Dyoutrackdb.storage.diskCache.bufferSize=4096
+      -Dyoutrackdb.security.warningDefaultUsers=false
+      -Dyoutrackdb.file.log.deletion=false
     </argLine>
   </properties>
 

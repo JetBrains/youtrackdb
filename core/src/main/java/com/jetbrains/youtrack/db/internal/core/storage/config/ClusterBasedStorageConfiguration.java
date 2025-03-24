@@ -296,7 +296,7 @@ public final class ClusterBasedStorageConfiguration implements StorageConfigurat
     lock.writeLock().lock();
     try {
       getContextConfiguration()
-          .setValue(GlobalConfiguration.CLASS_MINIMUM_CLUSTERS, minimumClusters);
+          .setValue(GlobalConfiguration.CLASS_CLUSTERS_COUNT, minimumClusters);
       autoInitClusters();
     } finally {
       lock.writeLock().unlock();
@@ -317,11 +317,11 @@ public final class ClusterBasedStorageConfiguration implements StorageConfigurat
     lock.readLock().lock();
     try {
       final var mc =
-          getContextConfiguration().getValueAsInteger(GlobalConfiguration.CLASS_MINIMUM_CLUSTERS);
+          getContextConfiguration().getValueAsInteger(GlobalConfiguration.CLASS_CLUSTERS_COUNT);
       if (mc == 0) {
         autoInitClusters();
         return (Integer)
-            getContextConfiguration().getValue(GlobalConfiguration.CLASS_MINIMUM_CLUSTERS);
+            getContextConfiguration().getValue(GlobalConfiguration.CLASS_CLUSTERS_COUNT);
       }
       return mc;
     } finally {
@@ -1850,10 +1850,10 @@ public final class ClusterBasedStorageConfiguration implements StorageConfigurat
 
     if (!configuration
         .getContextKeys()
-        .contains(GlobalConfiguration.CLASS_MINIMUM_CLUSTERS.getKey())) {
+        .contains(GlobalConfiguration.CLASS_CLUSTERS_COUNT.getKey())) {
       configuration.setValue(
-          GlobalConfiguration.CLASS_MINIMUM_CLUSTERS,
-          GlobalConfiguration.CLASS_MINIMUM_CLUSTERS.getValueAsInteger()); // 0 = AUTOMATIC
+          GlobalConfiguration.CLASS_CLUSTERS_COUNT,
+          GlobalConfiguration.CLASS_CLUSTERS_COUNT.getValueAsInteger()); // 0 = AUTOMATIC
     }
     autoInitClusters();
 
@@ -1916,9 +1916,9 @@ public final class ClusterBasedStorageConfiguration implements StorageConfigurat
   }
 
   private void autoInitClusters() {
-    if (getContextConfiguration().getValueAsInteger(GlobalConfiguration.CLASS_MINIMUM_CLUSTERS)
+    if (getContextConfiguration().getValueAsInteger(GlobalConfiguration.CLASS_CLUSTERS_COUNT)
         == 0) {
-      getContextConfiguration().setValue(GlobalConfiguration.CLASS_MINIMUM_CLUSTERS, 8);
+      getContextConfiguration().setValue(GlobalConfiguration.CLASS_CLUSTERS_COUNT, 8);
     }
   }
 

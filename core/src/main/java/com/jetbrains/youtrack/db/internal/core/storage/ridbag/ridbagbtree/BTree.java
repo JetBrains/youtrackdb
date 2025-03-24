@@ -23,7 +23,7 @@ import java.util.stream.StreamSupport;
 public final class BTree extends DurableComponent {
 
   private static final int MAX_PATH_LENGTH =
-      GlobalConfiguration.SBTREE_MAX_DEPTH.getValueAsInteger();
+      GlobalConfiguration.BTREE_MAX_DEPTH.getValueAsInteger();
 
   private static final int ENTRY_POINT_INDEX = 0;
   private static final int ROOT_INDEX = 1;

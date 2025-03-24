@@ -26,10 +26,6 @@ public class MatchReverseEdgeTraverser extends MatchEdgeTraverser {
     return edge.getLeftClass();
   }
 
-  protected String targetClusterName(SQLMatchPathItem item, CommandContext iCommandContext) {
-    return edge.getLeftCluster();
-  }
-
   protected SQLRid targetRid(SQLMatchPathItem item, CommandContext iCommandContext) {
     return edge.getLeftRid();
   }

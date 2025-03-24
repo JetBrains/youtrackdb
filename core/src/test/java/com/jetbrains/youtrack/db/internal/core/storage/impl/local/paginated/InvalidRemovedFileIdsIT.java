@@ -32,7 +32,7 @@ public class InvalidRemovedFileIdsIT {
 
     final var config =
         YouTrackDBConfig.builder()
-            .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_MINIMUM_CLUSTERS, 1)
+            .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_CLUSTERS_COUNT, 1)
             .build();
 
     YouTrackDB youTrackDB = new YouTrackDBImpl("disk:" + buildDirectory, config);

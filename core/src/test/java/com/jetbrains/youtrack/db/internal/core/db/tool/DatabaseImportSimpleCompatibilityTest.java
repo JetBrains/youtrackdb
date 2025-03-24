@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.core.db.tool;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -70,7 +69,7 @@ public class DatabaseImportSimpleCompatibilityTest {
   @Test
   public void testImportExportNewerSimple() throws Exception {
     // Only required in case of manual indexes:
-    System.setProperty("index.allowManualIndexes", String.valueOf(true));
+    System.setProperty("youtrackdb.index.allowManualIndexes", String.valueOf(true));
 
     final var simpleDbV3 = load("/databases/databases_3_1/OrderCustomer-sl-0.json");
     Assert.assertNotNull("Input must not be null!", simpleDbV3);
@@ -86,8 +85,6 @@ public class DatabaseImportSimpleCompatibilityTest {
 
     this.tearDown(databaseName);
     Assert.assertTrue(output.size() > 0);
-    System.setProperty(
-        GlobalConfiguration.INDEX_ALLOW_MANUAL_INDEXES.getKey(), String.valueOf(false));
   }
 
   private InputStream load(final String path) throws FileNotFoundException {

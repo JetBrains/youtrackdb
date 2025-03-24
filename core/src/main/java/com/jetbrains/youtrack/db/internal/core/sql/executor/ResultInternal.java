@@ -90,6 +90,7 @@ public class ResultInternal implements Result {
     }
   }
 
+  @Nullable
   public static Object toMapValue(Object value, boolean includeEntityMetadata) {
     return switch (value) {
       case null -> null;
@@ -205,6 +206,7 @@ public class ResultInternal implements Result {
     return identifiable != null;
   }
 
+  @Nullable
   private Object convertPropertyValue(Object value) {
     if (value == null) {
       return null;
@@ -397,6 +399,7 @@ public class ResultInternal implements Result {
     }
   }
 
+  @Nullable
   public Object getTemporaryProperty(String name) {
     checkSession();
     if (name == null || temporaryContent == null) {
@@ -845,6 +848,7 @@ public class ResultInternal implements Result {
     return null;
   }
 
+  @Nullable
   public Object getMetadata(String key) {
     checkSession();
     if (key == null) {
