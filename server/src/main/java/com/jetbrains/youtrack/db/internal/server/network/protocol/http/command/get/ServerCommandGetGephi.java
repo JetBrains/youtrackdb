@@ -20,6 +20,8 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Edge;
@@ -67,27 +69,28 @@ public class ServerCommandGetGephi extends ServerCommandAuthenticatedDbAbstract 
     iRequest.getData().commandDetail = text;
 
     try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
-      final ResultSet resultSet;
-      if (language.equals("sql")) {
-        resultSet = executeStatement(language, text, new HashMap<>(), db);
-      } else {
-        throw new IllegalArgumentException(
-            "Language '" + language + "' is not supported. Use 'sql' or 'gremlin'");
-      }
+      db.executeInTx(transaction -> {
+        final ResultSet resultSet;
+        if (language.equals("sql")) {
+          resultSet = executeStatement(language, text, new HashMap<>(), db);
+        } else {
+          throw new IllegalArgumentException(
+              "Language '" + language + "' is not supported. Use 'sql' or 'gremlin'");
+        }
 
-      sendRecordsContent(db, iRequest, iResponse, resultSet, fetchPlan, limit);
+        sendRecordsContent(db, iRequest, iResponse, resultSet, fetchPlan, limit);
+      });
     }
 
     return false;
   }
 
-  protected void sendRecordsContent(
+  protected static void sendRecordsContent(
       DatabaseSessionInternal db, final HttpRequest iRequest,
       final HttpResponse iResponse,
       ResultSet resultSet,
       String iFetchPlan,
-      int limit)
-      throws IOException {
+      int limit) {
 
     final var buffer = new StringWriter();
     final var json = new JSONWriter(buffer, HttpResponse.JSON_FORMAT);
@@ -103,9 +106,8 @@ public class ServerCommandGetGephi extends ServerCommandAuthenticatedDbAbstract 
         null);
   }
 
-  protected void generateGraphDbOutput(
-      DatabaseSessionInternal db, final ResultSet resultSet, int limit, final JSONWriter json)
-      throws IOException {
+  protected static void generateGraphDbOutput(
+      DatabaseSessionInternal db, final ResultSet resultSet, int limit, final JSONWriter json) {
     if (resultSet == null) {
       return;
     }
@@ -129,56 +131,61 @@ public class ServerCommandGetGephi extends ServerCommandAuthenticatedDbAbstract 
     }
     resultSet.close();
 
-    for (var vertex : vertexes) {
-      json.resetAttributes();
-      json.beginObject(0, false, null);
-      json.beginObject(1, false, "an");
-      json.beginObject(2, false, vertex.getIdentity());
+    try {
+      for (var vertex : vertexes) {
+        json.resetAttributes();
+        json.beginObject(0, false, null);
+        json.beginObject(1, false, "an");
+        json.beginObject(2, false, vertex.getIdentity());
 
-      // ADD ALL THE EDGES
-      vertex.getEdges(Direction.BOTH).forEach(edges::add);
+        // ADD ALL THE EDGES
+        vertex.getEdges(Direction.BOTH).forEach(edges::add);
 
-      // ADD ALL THE PROPERTIES
-      for (var field : vertex.getPropertyNames()) {
-        final var v = vertex.getProperty(field);
-        if (v != null) {
-          json.writeAttribute(db, 3, false, field, v);
-        }
-      }
-      json.endObject(2, false);
-      json.endObject(1, false);
-      json.endObject(0, false);
-      json.newline();
-    }
-
-    for (var edge : edges) {
-      json.resetAttributes();
-      json.beginObject();
-      json.beginObject(1, false, "ae");
-      if (edge.isStateful()) {
-        json.beginObject(2, false, edge.asStatefulEdge().getIdentity());
-      }
-
-      json.writeAttribute(db, 3, false, "directed", false);
-
-      json.writeAttribute(db, 3, false, "source", edge.getToLink());
-      json.writeAttribute(db, 3, false, "target", edge.getFromLink());
-
-      if (edge.isStateful()) {
-        var statefulEdge = edge.asStatefulEdge();
-        for (var field : statefulEdge.getPropertyNames()) {
-          final var v = statefulEdge.getProperty(field);
-
+        // ADD ALL THE PROPERTIES
+        for (var field : vertex.getPropertyNames()) {
+          final var v = vertex.getProperty(field);
           if (v != null) {
             json.writeAttribute(db, 3, false, field, v);
           }
         }
+        json.endObject(2, false);
+        json.endObject(1, false);
+        json.endObject(0, false);
+        json.newline();
       }
 
-      json.endObject(2, false);
-      json.endObject(1, false);
-      json.endObject(0, false);
-      json.newline();
+      for (var edge : edges) {
+        json.resetAttributes();
+        json.beginObject();
+        json.beginObject(1, false, "ae");
+        if (edge.isStateful()) {
+          json.beginObject(2, false, edge.asStatefulEdge().getIdentity());
+        }
+
+        json.writeAttribute(db, 3, false, "directed", false);
+
+        json.writeAttribute(db, 3, false, "source", edge.getToLink());
+        json.writeAttribute(db, 3, false, "target", edge.getFromLink());
+
+        if (edge.isStateful()) {
+          var statefulEdge = edge.asStatefulEdge();
+          for (var field : statefulEdge.getPropertyNames()) {
+            final var v = statefulEdge.getProperty(field);
+
+            if (v != null) {
+              json.writeAttribute(db, 3, false, field, v);
+            }
+          }
+        }
+
+        json.endObject(2, false);
+        json.endObject(1, false);
+        json.endObject(0, false);
+        json.newline();
+      }
+    } catch (IOException e) {
+      throw BaseException.wrapException(
+          new CommandExecutionException(db, "Error while writing graph output"), e, db);
     }
   }
 
@@ -187,7 +194,7 @@ public class ServerCommandGetGephi extends ServerCommandAuthenticatedDbAbstract 
     return NAMES;
   }
 
-  protected ResultSet executeStatement(
+  protected static ResultSet executeStatement(
       String language, String text, Object params, DatabaseSession db) {
     ResultSet result;
     if (params instanceof Map) {
