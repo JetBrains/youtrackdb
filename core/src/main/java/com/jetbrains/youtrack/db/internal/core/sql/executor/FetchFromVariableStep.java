@@ -10,6 +10,8 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Collections;
+import java.util.Iterator;
+import org.apache.commons.collections4.IteratorUtils;
 
 /**
  *
@@ -29,29 +31,61 @@ public class FetchFromVariableStep extends AbstractExecutionStep {
     if (prev != null) {
       prev.start(ctx).close(ctx);
     }
-
     var src = ctx.getVariable(variableName);
+    var session = ctx.getDatabaseSession();
+
     ExecutionStream source;
-    if (src instanceof ExecutionStream) {
-      source = (ExecutionStream) src;
-    } else if (src instanceof ResultSet) {
-      source =
-          ExecutionStream.resultIterator(((ResultSet) src).stream().iterator())
-              .onClose((context) -> ((ResultSet) src).close());
-    } else if (src instanceof Entity) {
-      source =
+    switch (src) {
+      case ExecutionStream executionStream -> source = executionStream;
+      case ResultSet resultSet -> source =
           ExecutionStream.resultIterator(
-              Collections.singleton(
-                  (Result) new ResultInternal(ctx.getDatabaseSession(), (Entity) src)).iterator());
-    } else if (src instanceof Result) {
-      source = ExecutionStream.resultIterator(Collections.singleton((Result) src).iterator());
-    } else if (src instanceof Iterable) {
-      source = ExecutionStream.iterator(((Iterable<?>) src).iterator());
-    } else {
-      throw new CommandExecutionException(ctx.getDatabaseSession(),
+                  resultSet.stream().map(result -> loadEntity(session, result)).iterator())
+              .onClose((context) -> ((ResultSet) src).close());
+      case Entity entity -> {
+        //case when we pass variable between txs
+        entity = (Entity) loadEntity(session, entity);
+        source =
+            ExecutionStream.resultIterator(
+                Collections.singleton(
+                    (Result) new ResultInternal(ctx.getDatabaseSession(), entity)).iterator());
+      }
+      case Result result -> {
+        source = ExecutionStream.resultIterator(
+            Collections.singleton(loadEntity(session, result)).iterator());
+      }
+      case Iterable<?> iterable ->
+          source = ExecutionStream.iterator(IteratorUtils.transformedIterator(
+              iterable.iterator(), result -> {
+                if (result instanceof Result sqlResult) {
+                  return loadEntity(session, sqlResult);
+                }
+
+                return result;
+              }));
+      case null, default -> throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Cannot use variable as query target: " + variableName);
     }
     return source;
+  }
+
+  private static Result loadEntity(DatabaseSessionInternal session, Result result) {
+    if (result instanceof Entity entity) {
+      if (entity.isUnloaded()) {
+        var tx = session.getActiveTransaction();
+        return tx.loadEntity(entity);
+      }
+    } else if (result instanceof Result sqlResult) {
+      if (sqlResult.isEntity()) {
+        var entity = sqlResult.asEntity();
+        if (entity.isUnloaded()) {
+          var tx = session.getActiveTransaction();
+          return tx.loadEntity(entity);
+        }
+
+        return new ResultInternal(session, entity);
+      }
+    }
+    return result;
   }
 
   @Override

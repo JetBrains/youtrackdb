@@ -10,7 +10,6 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
@@ -26,149 +25,148 @@ public class UpdatableResult extends ResultInternal {
 
   @Override
   public void setProperty(@Nonnull String name, Object value) {
-    checkSession();
+    assert checkSession();
     asEntity().setProperty(name, value);
   }
 
   public void removeProperty(String name) {
-    checkSession();
+    assert checkSession();
     asEntity().removeProperty(name);
   }
 
   @Override
   public boolean isRecord() {
-    checkSession();
+    assert checkSession();
     return true;
   }
 
   @Override
   public Entity getEntity(@Nonnull String name) {
-    checkSession();
+    assert checkSession();
     return this.asEntity().getEntity(name);
   }
 
   @Nullable
   @Override
   public Result getResult(@Nonnull String name) {
-    checkSession();
+    assert checkSession();
     return this.asEntity().getResult(name);
   }
 
   @Override
   public Vertex getVertex(@Nonnull String name) {
-    checkSession();
+    assert checkSession();
     return this.asEntity().getVertex(name);
   }
 
   @Override
   public Edge getEdge(@Nonnull String name) {
-    checkSession();
+    assert checkSession();
     return this.asEntity().getEdge(name);
   }
 
   @Nullable
   @Override
   public RID getLink(@Nonnull String name) {
-    checkSession();
+    assert checkSession();
     return this.asEntity().getLink(name);
   }
 
   @Override
   public Blob getBlob(String name) {
-    checkSession();
+    assert checkSession();
     return this.asEntity().getBlob(name);
   }
 
   @Nonnull
   @Override
   public List<String> getPropertyNames() {
-    checkSession();
+    assert checkSession();
     return this.asEntity().getPropertyNames();
   }
 
   @Override
   public boolean hasProperty(@Nonnull String propName) {
-    checkSession();
+    assert checkSession();
     return this.asEntity().hasProperty(propName);
   }
 
   @Override
   @Nonnull
   public Result detach() {
-    checkSession();
+    assert checkSession();
     return this.asEntity().detach();
   }
 
   @Override
   public boolean isEntity() {
-    checkSession();
+    assert checkSession();
     return true;
   }
 
   @Nonnull
   @Override
   public Entity asEntity() {
-    checkSession();
-    bindToSession();
+    assert checkSession();
     return ((Entity) identifiable);
   }
 
   @Nullable
   @Override
   public Entity asEntityOrNull() {
-    checkSession();
+    assert checkSession();
     return this.asEntity();
   }
 
   @Override
   public RID getIdentity() {
-    checkSession();
+    assert checkSession();
     return identifiable.getIdentity();
   }
 
   @Override
   public boolean isProjection() {
-    checkSession();
+    assert checkSession();
     return false;
   }
 
   @Nonnull
   @Override
   public DBRecord asRecord() {
-    checkSession();
+    assert checkSession();
     return this.asEntity();
   }
 
   @Nullable
   @Override
   public DBRecord asRecordOrNull() {
-    checkSession();
+    assert checkSession();
     return this.asEntity();
   }
 
   @Override
   public boolean isBlob() {
-    checkSession();
+    assert checkSession();
     return false;
   }
 
   @Nonnull
   @Override
   public Blob asBlob() {
-    checkSession();
+    assert checkSession();
     throw new DatabaseException("Result is not a blob");
   }
 
   @Nullable
   @Override
   public Blob asBlobOrNull() {
-    checkSession();
+    assert checkSession();
     return null;
   }
 
   @Override
   public void setIdentifiable(Identifiable identifiable) {
-    checkSession();
+    assert checkSession();
     if (identifiable instanceof Entity) {
       this.identifiable = identifiable;
     } else {
@@ -180,55 +178,48 @@ public class UpdatableResult extends ResultInternal {
 
   @Override
   public void setLightweightEdge(Edge edge) {
-    checkSession();
+    assert checkSession();
     throw new UnsupportedOperationException();
   }
 
   @Nonnull
   @Override
   public Map<String, Object> toMap() {
-    checkSession();
+    assert checkSession();
     return this.asEntity().toMap();
   }
 
   @Override
   public boolean isEdge() {
-    checkSession();
+    assert checkSession();
     return this.asEntity().isEdge();
   }
 
   @Override
   public boolean isStatefulEdge() {
-    checkSession();
+    assert checkSession();
     return this.asEntity().isStatefulEdge();
   }
 
   @Nonnull
   @Override
   public Edge asEdge() {
-    checkSession();
+    assert checkSession();
     return this.asEntity().asEdge();
   }
 
   @Nullable
   @Override
   public Edge asEdgeOrNull() {
-    checkSession();
+    assert checkSession();
     return this.asEntity().asEdgeOrNull();
   }
 
   @Nonnull
   @Override
   public String toJSON() {
-    checkSession();
+    assert checkSession();
     return this.asEntity().toJSON();
-  }
-
-  @Override
-  protected void bindToSession() {
-    if (((EntityImpl) identifiable).isNotBound(session)) {
-      identifiable = session.getActiveTransaction().load(identifiable);
-    }
   }
 
   @Override

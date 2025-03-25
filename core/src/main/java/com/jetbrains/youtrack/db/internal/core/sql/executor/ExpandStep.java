@@ -38,19 +38,24 @@ public class ExpandStep extends AbstractExecutionStep {
     if (nextAggregateItem.getPropertyNames().isEmpty()) {
       return ExecutionStream.empty();
     }
-    if (nextAggregateItem.getPropertyNames().size() > 1) {
-      throw new IllegalStateException("Invalid EXPAND on record " + nextAggregateItem);
+
+    Object projValue;
+    if (nextAggregateItem.isEntity()) {
+      projValue = nextAggregateItem.asEntity();
+    } else {
+      if (nextAggregateItem.getPropertyNames().size() > 1) {
+        throw new IllegalStateException("Invalid EXPAND on record " + nextAggregateItem);
+      }
+      var propName = nextAggregateItem.getPropertyNames().getFirst();
+      projValue = nextAggregateItem.getProperty(propName);
     }
 
-    var propName = nextAggregateItem.getPropertyNames().iterator().next();
-    var projValue = nextAggregateItem.getProperty(propName);
     var db = ctx.getDatabaseSession();
     switch (projValue) {
       case null -> {
         return ExecutionStream.empty();
       }
       case Identifiable identifiable -> {
-
         if (expandAlias != null) {
           throw new CommandExecutionException(db,
               "Cannot expand a record with a non-null alias: " + expandAlias);

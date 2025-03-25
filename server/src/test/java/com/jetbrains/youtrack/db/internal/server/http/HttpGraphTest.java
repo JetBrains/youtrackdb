@@ -3,7 +3,9 @@ package com.jetbrains.youtrack.db.internal.server.http;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import java.io.IOException;
+import java.util.HashMap;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -31,8 +33,9 @@ public class HttpGraphTest extends BaseHttpDatabaseTest {
     script += "let $v1 = create vertex Foo set name = 'foo1';";
     script += "let $v2 = create vertex Foo set name = 'foo2';";
     script += "create edge FooEdge from $v1 to $v2;";
+    script += "let $v3 = select detach() from $v1;";
     script += "commit;";
-    script += "return $v1;";
+    script += "return $v3;";
 
     final var scriptPayload =
         "{ \"operations\" : [{ \"type\" : \"script\", \"language\" : \"SQL\",  \"script\" :"
@@ -50,7 +53,7 @@ public class HttpGraphTest extends BaseHttpDatabaseTest {
     var res = result.get("result");
     Assert.assertEquals(1, res.size());
 
-    var created = res.get(0);
+    var created = res.get(0).get("value").get(0);
     Assert.assertEquals("foo1", created.get("name").asText());
     Assert.assertEquals(1, created.get("@version").asInt());
 
@@ -94,8 +97,9 @@ public class HttpGraphTest extends BaseHttpDatabaseTest {
     script += "let $v1 = create vertex Foo set name = 'foo1';";
     script += "let $v2 = create vertex Foo set name = 'foo2';";
     script += "create edge FooEdge from $v1 to $v2;";
+    script += "let $v3 = select detach() from $v1;";
     script += "commit;";
-    script += "return $v1;";
+    script += "return $v3;";
 
     final var scriptPayload =
         "{ \"operations\" : [{ \"type\" : \"script\", \"language\" : \"SQL\",  \"script\" :"
@@ -107,11 +111,10 @@ public class HttpGraphTest extends BaseHttpDatabaseTest {
             .getResponse();
     Assert.assertEquals(200, response.getCode());
 
-    final var payload =
-        new EntityImpl(null);
-    payload.setProperty("command", "select from E");
-    payload.setProperty("mode", "graph");
-    var json = payload.toJSON();
+    final var payload = new HashMap<String, String>();
+    payload.put("command", "select from E");
+    payload.put("mode", "graph");
+    var json = RecordSerializerJackson.mapToJson(payload);
 
     response =
         post("command/" + getDatabaseName() + "/sql/").payload(json, CONTENT.JSON).getResponse();

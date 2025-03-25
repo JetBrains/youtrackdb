@@ -136,7 +136,7 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
         if (limit >= 0 && i >= limit) {
           break;
         }
-        response.add(result.next().detach());
+        response.add(result.next());
         i++;
       }
 
@@ -147,7 +147,7 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
         }
       }
 
-      result.close();
+
       var elapsedMs = System.currentTimeMillis() - begin;
       if (fetchPlan != null) {
         format = "fetchPlan:" + fetchPlan;
@@ -160,6 +160,9 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
       additionalContent.put("elapsedMs", elapsedMs);
       var dbStats = session.getStats();
       additionalContent.put("dbStats", dbStats.toResult(session).toMap());
+
+      iResponse.writeResult(response, format, accept, additionalContent, mode, session);
+      result.close();
 
       ok = true;
     } finally {
@@ -174,8 +177,6 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
         session.close();
       }
     }
-
-    iResponse.writeResult(response, format, accept, additionalContent, mode, session);
 
     return false;
   }

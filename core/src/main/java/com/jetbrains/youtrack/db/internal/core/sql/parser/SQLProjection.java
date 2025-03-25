@@ -8,7 +8,6 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import com.jetbrains.youtrack.db.internal.core.sql.query.LegacyResultSet;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -16,6 +15,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class SQLProjection extends SimpleNode {
 
@@ -127,11 +127,40 @@ public class SQLProjection extends SimpleNode {
     }
 
     if (items.isEmpty()
-        || (items.size() == 1 && items.get(0).isAll()) && items.get(0).nestedProjection == null) {
+        || (items.size() == 1 && items.getFirst().isAll()) && items.getFirst().nestedProjection == null) {
       return inResult;
     }
 
     var session = iContext.getDatabaseSession();
+    if (items.size() == 1) {
+      var item = items.getFirst();
+
+      if (!item.exclude && excludes.isEmpty()) {
+        var executionResult = item.execute(inResult, iContext);
+        var projectionAlias = item.getAlias();
+
+        if (executionResult instanceof Result projectionResult && projectionAlias == null) {
+          if (projectionResult.isEntity()) {
+            var entity = projectionResult.asEntity();
+            if (entity.isEmbedded()) {
+              var result = new ResultInternal(session);
+              for (var propertyName : entity.getPropertyNames()) {
+                result.setProperty(propertyName, entity.getProperty(propertyName));
+              }
+            }
+
+            return entity;
+          }
+
+          return projectionResult;
+        }
+
+        var result = new ResultInternal(session);
+        result.setProperty(item.getProjectionAliasAsString(), executionResult);
+        return result;
+      }
+    }
+
     var result = new ResultInternal(session);
     for (var item : items) {
       if (item.exclude) {
@@ -169,12 +198,12 @@ public class SQLProjection extends SimpleNode {
       } else {
         result.setProperty(item.getProjectionAliasAsString(), item.execute(inResult, iContext));
       }
-    }
 
-    if (inResult instanceof ResultInternal resultInternal) {
-      for (var key : resultInternal.getMetadataKeys()) {
-        if (!result.getMetadataKeys().contains(key)) {
-          result.setMetadata(key, resultInternal.getMetadata(key));
+      if (inResult instanceof ResultInternal resultInternal) {
+        for (var key : resultInternal.getMetadataKeys()) {
+          if (!result.getMetadataKeys().contains(key)) {
+            result.setMetadata(key, resultInternal.getMetadata(key));
+          }
         }
       }
     }
@@ -193,13 +222,6 @@ public class SQLProjection extends SimpleNode {
     }
   }
 
-  public LegacyResultSet calculateExpand(CommandContext iContext, Result iRecord) {
-    if (!isExpand()) {
-      throw new IllegalStateException("This is not an expand projection:" + this);
-    }
-    throw new UnsupportedOperationException("Implement expand in projection");
-  }
-
   public boolean isExpand() {
     final var isExpand = items != null && items.stream().anyMatch(SQLProjectionItem::isExpand);
     if (isExpand && items.size() > 1) {
@@ -210,6 +232,7 @@ public class SQLProjection extends SimpleNode {
     return isExpand;
   }
 
+  @Nullable
   public String getExpandAlias() {
     final var alias = isExpand() ? items.getFirst().getAlias() : null;
     return alias == null ? null : alias.getStringValue();
@@ -229,18 +252,18 @@ public class SQLProjection extends SimpleNode {
   public SQLProjection getExpandContent() {
     var result = new SQLProjection(-1);
     result.items = new ArrayList<>();
-    result.items.add(this.items.get(0).getExpandContent());
+    result.items.add(this.items.getFirst().getExpandContent());
     return result;
   }
 
   public Set<String> getAllAliases() {
-    return items.stream().map(i -> i.getProjectionAliasAsString()).collect(Collectors.toSet());
+    return items.stream().map(SQLProjectionItem::getProjectionAliasAsString).collect(Collectors.toSet());
   }
 
   public SQLProjection copy() {
     var result = new SQLProjection(-1);
     if (items != null) {
-      result.items = items.stream().map(x -> x.copy()).collect(Collectors.toList());
+      result.items = items.stream().map(SQLProjectionItem::copy).collect(Collectors.toList());
     }
     result.distinct = distinct;
     return result;

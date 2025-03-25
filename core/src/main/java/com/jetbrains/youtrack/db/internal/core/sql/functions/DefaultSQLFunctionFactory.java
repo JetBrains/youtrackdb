@@ -62,6 +62,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.functions.misc.SQLFunctionStr
 import com.jetbrains.youtrack.db.internal.core.sql.functions.misc.SQLFunctionSysdate;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.misc.SQLFunctionThrowCME;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.misc.SQLFunctionUUID;
+import com.jetbrains.youtrack.db.internal.core.sql.functions.result.SQLFunctionDetachResult;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.sequence.SQLFunctionSequence;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.stat.SQLFunctionMedian;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.stat.SQLFunctionMode;
@@ -134,5 +135,7 @@ public final class DefaultSQLFunctionFactory extends SQLFunctionFactoryTemplate 
     register(SQLFunctionShortestPath.NAME, SQLFunctionShortestPath.class);
     register(SQLFunctionDijkstra.NAME, SQLFunctionDijkstra.class);
     register(SQLFunctionAstar.NAME, SQLFunctionAstar.class);
+    //result set functions
+    register(SQLFunctionDetachResult.NAME, SQLFunctionDetachResult.class);
   }
 }

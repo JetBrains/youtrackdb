@@ -56,9 +56,6 @@ public interface SQLMethod extends Comparable<SQLMethod> {
   int getMaxParams(DatabaseSession session);
 
   /**
-   * Process a record.
-   *
-   * @param iThis
    * @param iCurrentRecord : current record
    * @param iContext       execution context
    * @param ioResult       : field value

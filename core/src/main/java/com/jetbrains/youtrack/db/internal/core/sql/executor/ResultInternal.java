@@ -14,9 +14,6 @@ import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
@@ -24,7 +21,6 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedListResultImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedMapResultImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedSetResultImpl;
@@ -188,7 +184,7 @@ public class ResultInternal implements Result {
   }
 
   public void setProperty(@Nonnull String name, Object value) {
-    checkSession();
+    assert checkSession();
 
     if (content == null) {
       if (identifiable != null) {
@@ -207,7 +203,7 @@ public class ResultInternal implements Result {
 
   @Override
   public boolean isRecord() {
-    checkSession();
+    assert checkSession();
 
     return identifiable != null;
   }
@@ -273,7 +269,8 @@ public class ResultInternal implements Result {
           return convertPropertyValue(result.asStatefulEdge());
         }
 
-        if (result.getBoundedToSession() != session) {
+        var resultSession = result.getBoundedToSession();
+        if (resultSession != null && resultSession != session) {
           throw new DatabaseException(
               "Result is bound to different session, cannot use it as property value");
         }
@@ -361,7 +358,7 @@ public class ResultInternal implements Result {
           if (res instanceof Identifiable) {
             allIdentifiable = true;
             if (mapCopy == null) {
-              //noinspection unchecked
+              //noinspection unchecked,rawtypes
               mapCopy = (Map<String, Object>) (Map) new LinkMapResultImpl(map.size());
             }
           } else {
@@ -394,7 +391,7 @@ public class ResultInternal implements Result {
 
 
   public void setTemporaryProperty(String name, Object value) {
-    checkSession();
+    assert checkSession();
     if (temporaryContent == null) {
       temporaryContent = new HashMap<>();
     }
@@ -408,7 +405,7 @@ public class ResultInternal implements Result {
 
   @Nullable
   public Object getTemporaryProperty(String name) {
-    checkSession();
+    assert checkSession();
     if (name == null || temporaryContent == null) {
       return null;
     }
@@ -420,7 +417,7 @@ public class ResultInternal implements Result {
   }
 
   public void removeProperty(String name) {
-    checkSession();
+    assert checkSession();
 
     if (content != null) {
       content.remove(name);
@@ -428,7 +425,7 @@ public class ResultInternal implements Result {
   }
 
   public <T> T getProperty(@Nonnull String name) {
-    checkSession();
+    assert checkSession();
 
     T result = null;
     if (content != null && content.containsKey(name)) {
@@ -445,7 +442,7 @@ public class ResultInternal implements Result {
 
   @Override
   public Entity getEntity(@Nonnull String name) {
-    checkSession();
+    assert checkSession();
 
     Object result = null;
     if (content != null && content.containsKey(name)) {
@@ -475,7 +472,7 @@ public class ResultInternal implements Result {
   @Nullable
   @Override
   public Result getResult(@Nonnull String name) {
-    checkSession();
+    assert checkSession();
 
     Object result = null;
     if (content != null && content.containsKey(name)) {
@@ -579,7 +576,7 @@ public class ResultInternal implements Result {
   @Nullable
   @Override
   public RID getLink(@Nonnull String name) {
-    checkSession();
+    assert checkSession();
 
     Object result = null;
     if (content != null && content.containsKey(name)) {
@@ -600,7 +597,7 @@ public class ResultInternal implements Result {
 
 
   public @Nonnull List<String> getPropertyNames() {
-    checkSession();
+    assert checkSession();
     if (content != null) {
       return new ArrayList<>(content.keySet());
     }
@@ -613,7 +610,7 @@ public class ResultInternal implements Result {
   }
 
   public boolean hasProperty(@Nonnull String propName) {
-    checkSession();
+    assert checkSession();
     if (isEntity() && asEntity().hasProperty(propName)) {
       return true;
     }
@@ -629,13 +626,13 @@ public class ResultInternal implements Result {
     return session;
   }
 
-  public void setSession(@Nonnull DatabaseSessionInternal session) {
+  public void setSession(@Nullable DatabaseSessionInternal session) {
     this.session = session;
   }
 
   @Override
   public @Nonnull Result detach() {
-    checkSession();
+    assert checkSession();
     if (lightweightEdge != null) {
       throw new DatabaseException("Cannot detach lightweight edge");
     }
@@ -678,7 +675,7 @@ public class ResultInternal implements Result {
 
   @Override
   public boolean isEntity() {
-    checkSession();
+    assert checkSession();
     if (identifiable == null) {
       return false;
     }
@@ -698,10 +695,9 @@ public class ResultInternal implements Result {
 
   @Nonnull
   public Entity asEntity() {
-    checkSession();
+    assert checkSession();
 
     if (identifiable instanceof Entity) {
-      bindToSession();
       return (Entity) identifiable;
     }
 
@@ -714,21 +710,12 @@ public class ResultInternal implements Result {
     throw new IllegalStateException("Result is not an entity");
   }
 
-  protected void bindToSession() {
-    if (session != null && identifiable instanceof RecordAbstract recordAbstract) {
-      if (recordAbstract.isNotBound(session)) {
-        identifiable = session.getActiveTransaction().load(identifiable);
-      }
-    }
-  }
-
 
   @Nullable
   @Override
   public Entity asEntityOrNull() {
-    checkSession();
+    assert checkSession();
     if (identifiable instanceof Entity) {
-      bindToSession();
       return (Entity) identifiable;
     }
 
@@ -744,7 +731,7 @@ public class ResultInternal implements Result {
 
   @Override
   public RID getIdentity() {
-    checkSession();
+    assert checkSession();
 
     if (identifiable == null) {
       return null;
@@ -755,7 +742,7 @@ public class ResultInternal implements Result {
 
   @Override
   public boolean isProjection() {
-    checkSession();
+    assert checkSession();
 
     return this.content != null;
   }
@@ -763,14 +750,13 @@ public class ResultInternal implements Result {
   @Nonnull
   @Override
   public DBRecord asRecord() {
-    checkSession();
+    assert checkSession();
 
     if (identifiable == null) {
       throw new IllegalStateException("Result is not a record");
     }
 
     if (identifiable instanceof DBRecord) {
-      bindToSession();
       return (DBRecord) identifiable;
     }
 
@@ -782,13 +768,12 @@ public class ResultInternal implements Result {
   @Nullable
   @Override
   public DBRecord asRecordOrNull() {
-    checkSession();
+    assert checkSession();
     if (identifiable == null) {
       return null;
     }
 
     if (identifiable instanceof DBRecord) {
-      bindToSession();
       return (DBRecord) identifiable;
     }
 
@@ -799,7 +784,7 @@ public class ResultInternal implements Result {
 
   @Override
   public boolean isBlob() {
-    checkSession();
+    assert checkSession();
     if (identifiable == null) {
       return false;
     }
@@ -817,10 +802,9 @@ public class ResultInternal implements Result {
   @Nonnull
   @Override
   public Blob asBlob() {
-    checkSession();
+    assert checkSession();
 
     if (identifiable instanceof Blob) {
-      bindToSession();
       return (Blob) identifiable;
     }
 
@@ -833,16 +817,16 @@ public class ResultInternal implements Result {
     throw new IllegalStateException("Result is not a blob");
   }
 
-  protected final void checkSession() {
+  protected final boolean checkSession() {
     assert session == null || session.assertIfNotActive();
+    return true;
   }
 
   @Nullable
   @Override
   public Blob asBlobOrNull() {
-    checkSession();
+    assert checkSession();
     if (identifiable instanceof Blob) {
-      bindToSession();
       return (Blob) identifiable;
     }
 
@@ -857,7 +841,7 @@ public class ResultInternal implements Result {
 
   @Nullable
   public Object getMetadata(String key) {
-    checkSession();
+    assert checkSession();
     if (key == null) {
       return null;
     }
@@ -865,7 +849,7 @@ public class ResultInternal implements Result {
   }
 
   public void setMetadata(String key, Object value) {
-    checkSession();
+    assert checkSession();
     if (key == null) {
       return;
     }
@@ -877,7 +861,7 @@ public class ResultInternal implements Result {
   }
 
   public void addMetadata(Map<String, Object> values) {
-    checkSession();
+    assert checkSession();
     if (values == null) {
       return;
     }
@@ -888,21 +872,26 @@ public class ResultInternal implements Result {
   }
 
   public Set<String> getMetadataKeys() {
-    checkSession();
+    assert checkSession();
     return metadata == null ? Collections.emptySet() : metadata.keySet();
   }
 
   public void setIdentifiable(Identifiable identifiable) {
-    checkSession();
+    assert checkSession();
 
+    this.lightweightEdge = null;
     if (identifiable instanceof Entity entity && entity.isEmbedded()) {
+      content = new HashMap<>();
+      this.identifiable = null;
+
       var map = entity.toMap();
       for (var entry : map.entrySet()) {
         setProperty(entry.getKey(), entry.getValue());
       }
+
+      return;
     }
 
-    this.lightweightEdge = null;
     this.content = null;
 
     if (identifiable instanceof ContextualRecordId contextualRecordId) {
@@ -915,7 +904,7 @@ public class ResultInternal implements Result {
   }
 
   public void setLightweightEdge(Edge edge) {
-    checkSession();
+    assert checkSession();
 
     this.identifiable = null;
     this.lightweightEdge = edge;
@@ -925,7 +914,7 @@ public class ResultInternal implements Result {
   @Nonnull
   @Override
   public Map<String, Object> toMap() {
-    checkSession();
+    assert checkSession();
 
     if (lightweightEdge != null) {
       return lightweightEdge.toMap();
@@ -946,7 +935,7 @@ public class ResultInternal implements Result {
 
   @Override
   public boolean isEdge() {
-    checkSession();
+    assert checkSession();
     if (content != null) {
       return false;
     }
@@ -960,7 +949,7 @@ public class ResultInternal implements Result {
 
   @Override
   public boolean isStatefulEdge() {
-    checkSession();
+    assert checkSession();
     switch (identifiable) {
       case null -> {
         return false;
@@ -982,7 +971,7 @@ public class ResultInternal implements Result {
 
   @Override
   public boolean isVertex() {
-    checkSession();
+    assert checkSession();
 
     switch (identifiable) {
       case null -> {
@@ -1006,7 +995,7 @@ public class ResultInternal implements Result {
   @Nonnull
   @Override
   public Edge asEdge() {
-    checkSession();
+    assert checkSession();
     if (lightweightEdge != null) {
       return lightweightEdge;
     }
@@ -1021,7 +1010,7 @@ public class ResultInternal implements Result {
   @Nullable
   @Override
   public Edge asEdgeOrNull() {
-    checkSession();
+    assert checkSession();
 
     if (lightweightEdge != null) {
       return lightweightEdge;
@@ -1035,7 +1024,7 @@ public class ResultInternal implements Result {
   }
 
   public @Nonnull String toJSON() {
-    checkSession();
+    assert checkSession();
 
     if (lightweightEdge != null) {
       return lightweightEdge.toJSON();

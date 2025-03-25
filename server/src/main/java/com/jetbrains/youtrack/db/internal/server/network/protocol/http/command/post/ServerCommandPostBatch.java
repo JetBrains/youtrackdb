@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
@@ -87,10 +88,9 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
 
     iRequest.getData().commandInfo = "Execute multiple requests in one shot";
 
-    EntityImpl batch = null;
     Object lastResult = null;
     try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
-      if (db.getActiveTransaction() != null) {
+      if (db.isTxActive()) {
         // TEMPORARY PATCH TO UNDERSTAND WHY UNDER HIGH LOAD TX IS NOT COMMITTED AFTER BATCH. MAYBE
         // A PENDING TRANSACTION?
         LogManager.instance()
@@ -101,17 +101,17 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
         db.rollback(true);
       }
 
-      batch = new EntityImpl(null);
-      batch.updateFromJSON(iRequest.getContent());
+      var batch = RecordSerializerJackson.mapFromJson(iRequest.getContent());
 
-      Boolean tx = batch.getProperty("transaction");
+      var tx = (Boolean) batch.get("transaction");
       if (tx == null) {
         tx = false;
       }
 
       final Collection<Map<Object, Object>> operations;
       try {
-        operations = batch.getProperty("operations");
+        //noinspection unchecked
+        operations = (Collection<Map<Object, Object>>) batch.get("operations");
       } catch (Exception e) {
         throw new IllegalArgumentException(
             "Expected 'operations' field as a collection of objects", e);
@@ -122,7 +122,7 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
       }
 
       var txBegun = false;
-      if (tx && db.getActiveTransaction() == null) {
+      if (tx && !db.isTxActive()) {
         db.begin();
         txBegun = true;
       }
@@ -131,111 +131,107 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
       for (var operation : operations) {
         final var type = (String) operation.get("type");
 
-        if (type.equals("c")) {
-          // CREATE
-          final var entity = getRecord(db, operation);
+        switch (type) {
+          case "c" ->
+            // CREATE
+              lastResult = getRecord(db, operation);
+          case "u" ->
+            // UPDATE
+              lastResult = getRecord(db, operation);
+          case "d" -> {
+            // DELETE
+            final var entity = getRecord(db, operation);
+            if (entity.isRecord()) {
+              entity.asRecord().delete();
+            } else {
+              throw new IllegalArgumentException("Cannot delete a non-record entity");
+            }
 
-          lastResult = entity;
-        } else if (type.equals("u")) {
-          // UPDATE
-          final var entity = getRecord(db, operation);
-
-          lastResult = entity;
-        } else if (type.equals("d")) {
-          // DELETE
-          final var entity = getRecord(db, operation);
-          if (entity.isRecord()) {
-            entity.asRecord().delete();
-          } else {
-            throw new IllegalArgumentException("Cannot delete a non-record entity");
+            lastResult = entity.getIdentity();
           }
+          case "cmd" -> {
+            // COMMAND
+            final var language = (String) operation.get("language");
+            if (language == null) {
+              throw new IllegalArgumentException("language parameter is null");
+            }
 
-          lastResult = entity.getIdentity();
-        } else if (type.equals("cmd")) {
-          // COMMAND
-          final var language = (String) operation.get("language");
-          if (language == null) {
-            throw new IllegalArgumentException("language parameter is null");
-          }
+            final var command = operation.get("command");
+            if (command == null) {
+              throw new IllegalArgumentException("command parameter is null");
+            }
 
-          final var command = operation.get("command");
-          if (command == null) {
-            throw new IllegalArgumentException("command parameter is null");
-          }
+            var params = operation.get("parameters");
+            if (params instanceof Collection<?> collection) {
+              params = collection.toArray();
+            }
 
-          var params = operation.get("parameters");
-          if (params instanceof Collection) {
-            params = ((Collection) params).toArray();
-          }
-
-          String commandAsString = null;
-          if (command != null) {
+            var commandAsString = new StringBuilder();
             if (MultiValue.isMultiValue(command)) {
               for (var c : MultiValue.getMultiValueIterable(command)) {
-                if (commandAsString == null) {
-                  commandAsString = c.toString();
-                } else {
-                  commandAsString += ";" + c.toString();
+                commandAsString.append(";").append(c.toString());
+              }
+            } else {
+              commandAsString.append(command);
+            }
+
+            ResultSet result;
+            if (params == null) {
+              result = db.runScript(language, commandAsString.toString());
+            } else {
+              result = db.runScript(language, commandAsString.toString(), (Object[]) params);
+            }
+            lastResult = result.stream().map(Result::toMap).collect(Collectors.toList());
+            result.close();
+          }
+          case "script" -> {
+            // COMMAND
+            final var language = (String) operation.get("language");
+            if (language == null) {
+              throw new IllegalArgumentException("language parameter is null");
+            }
+
+            final var script = operation.get("script");
+            if (script == null) {
+              throw new IllegalArgumentException("script parameter is null");
+            }
+
+            var text = new StringBuilder(1024);
+            if (MultiValue.isMultiValue(script)) {
+              // ENSEMBLE ALL THE SCRIPT LINES IN JUST ONE SEPARATED BY LINEFEED
+              var i = 0;
+              for (var o : MultiValue.getMultiValueIterable(script)) {
+                if (o != null) {
+                  if (i++ > 0) {
+                    var trimmed = text.toString().trim();
+                    if (!(!trimmed.isEmpty()
+                        && trimmed.charAt(trimmed.length() - 1) == ';')) {
+                      text.append(";");
+                    }
+                    text.append("\n");
+                  }
+                  text.append(o);
                 }
               }
             } else {
-              commandAsString = command.toString();
+              text.append(script);
             }
-          }
 
-          ResultSet result;
-          if (params == null) {
-            result = db.runScript(language, commandAsString);
-          } else {
-            result = db.runScript(language, commandAsString, (Object[]) params);
-          }
-          lastResult = result.stream().map(Result::toMap).collect(Collectors.toList());
-          result.close();
-        } else if (type.equals("script")) {
-          // COMMAND
-          final var language = (String) operation.get("language");
-          if (language == null) {
-            throw new IllegalArgumentException("language parameter is null");
-          }
-
-          final var script = operation.get("script");
-          if (script == null) {
-            throw new IllegalArgumentException("script parameter is null");
-          }
-
-          var text = new StringBuilder(1024);
-          if (MultiValue.isMultiValue(script)) {
-            // ENSEMBLE ALL THE SCRIPT LINES IN JUST ONE SEPARATED BY LINEFEED
-            var i = 0;
-            for (var o : MultiValue.getMultiValueIterable(script)) {
-              if (o != null) {
-                if (i++ > 0) {
-                  if (!text.toString().trim().endsWith(";")) {
-                    text.append(";");
-                  }
-                  text.append("\n");
-                }
-                text.append(o);
-              }
+            var params = operation.get("parameters");
+            if (params instanceof Collection<?> collection) {
+              params = collection.toArray();
             }
-          } else {
-            text.append(script);
-          }
 
-          var params = operation.get("parameters");
-          if (params instanceof Collection) {
-            params = ((Collection) params).toArray();
-          }
+            ResultSet result;
+            if (params == null) {
+              result = db.runScript(language, text.toString());
+            } else {
+              result = db.runScript(language, text.toString(), (Object[]) params);
+            }
 
-          ResultSet result;
-          if (params == null) {
-            result = db.runScript(language, text.toString());
-          } else {
-            result = db.runScript(language, text.toString(), (Object[]) params);
+            lastResult = result.stream().map(Result::toMap).collect(Collectors.toList());
+            result.close();
           }
-
-          lastResult = result.stream().map(Result::toMap).collect(Collectors.toList());
-          result.close();
         }
       }
 
@@ -251,7 +247,7 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
                 this,
                 "Error (%s) on serializing result of batch command:\n%s",
                 e,
-                batch.toJSON("prettyPrint"));
+                RecordSerializerJackson.mapToJson(batch));
         throw e;
       }
 
@@ -263,10 +259,11 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
     var record = operation.get("record");
 
     Result result;
-    if (record instanceof Map<?, ?>)
+    if (record instanceof Map<?, ?> map)
     // CONVERT MAP IN DOCUMENT
     {
-      result = new ResultInternal(db, (Map<String, Object>) record);
+      //noinspection unchecked
+      result = new ResultInternal(db, (Map<String, Object>) map);
     } else {
       result = (EntityImpl) record;
     }

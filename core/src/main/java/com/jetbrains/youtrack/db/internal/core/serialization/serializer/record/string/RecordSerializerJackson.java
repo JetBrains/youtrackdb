@@ -90,7 +90,7 @@ public class RecordSerializerJackson {
   }
 
   @Nonnull
-  public static String mapToJson(@Nonnull Map<String, Object> value) {
+  public static String mapToJson(@Nonnull Map<String, ?> value) {
     try {
       return OBJECT_MAPPER.writeValueAsString(value);
     } catch (JsonProcessingException e) {
@@ -216,7 +216,8 @@ public class RecordSerializerJackson {
         throw new SerializationException(session,
             "Record type mismatch: " + record.getRecordType() + " != " + recordMetaData.recordType);
       }
-      if (recordMetaData.recordVersion != null && record.getVersion() != recordMetaData.recordVersion) {
+      if (recordMetaData.recordVersion != null
+          && record.getVersion() != recordMetaData.recordVersion) {
         throw new SerializationException(session,
             "Record version mismatch: " + record.getVersion() + " != "
                 + recordMetaData.recordVersion);
@@ -452,7 +453,12 @@ public class RecordSerializerJackson {
         embeddedValue = asValue && recordId == null;
       } else {
         var cls = session.getMetadata().getImmutableSchemaSnapshot().getClass(className);
-        embeddedValue = cls.isAbstract();
+        if (cls != null) {
+          embeddedValue = cls.isAbstract();
+        } else {
+          throw new SerializationException(session,
+              "Class not found: " + className);
+        }
       }
     } else {
       embeddedValue = embeddedFlag;
@@ -993,7 +999,8 @@ public class RecordSerializerJackson {
     };
   }
 
-  private static EntityLinkMapIml parseLinkMap(EntityImpl entity, JsonParser jsonParser, EntityLinkMapIml map)
+  private static EntityLinkMapIml parseLinkMap(EntityImpl entity, JsonParser jsonParser,
+      EntityLinkMapIml map)
       throws IOException {
     if (map == null) {
       map = new EntityLinkMapIml(entity);
@@ -1039,8 +1046,10 @@ public class RecordSerializerJackson {
     return embedded;
   }
 
-  private static EntityEmbeddedMapImpl<Object> parseEmbeddedMap(@Nonnull DatabaseSessionInternal session,
-      @Nonnull EntityImpl entity, @Nonnull JsonParser jsonParser, @Nullable EntityEmbeddedMapImpl<Object> map,
+  private static EntityEmbeddedMapImpl<Object> parseEmbeddedMap(
+      @Nonnull DatabaseSessionInternal session,
+      @Nonnull EntityImpl entity, @Nonnull JsonParser jsonParser,
+      @Nullable EntityEmbeddedMapImpl<Object> map,
       SchemaProperty schemaProperty)
       throws IOException {
     if (map == null) {
