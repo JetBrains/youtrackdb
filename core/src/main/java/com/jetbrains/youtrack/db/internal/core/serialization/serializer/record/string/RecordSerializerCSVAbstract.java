@@ -30,13 +30,13 @@ import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionItera
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
@@ -170,7 +170,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         // REMOVE BEGIN & END MAP CHARACTERS
         var value = iValue.substring(1, iValue.length() - 1);
 
-        @SuppressWarnings("rawtypes") final Map map = new LinkMap((EntityImpl) iSourceRecord
+        @SuppressWarnings("rawtypes") final Map map = new EntityLinkMapIml((EntityImpl) iSourceRecord
         );
 
         if (value.length() == 0) {
@@ -276,9 +276,9 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
     @SuppressWarnings("rawtypes")
     Map map;
     if (iLinkedType == PropertyTypeInternal.LINK || iLinkedType == PropertyTypeInternal.EMBEDDED) {
-      map = new LinkMap(iSourceDocument);
+      map = new EntityLinkMapIml(iSourceDocument);
     } else {
-      map = new TrackedMap<Object>(iSourceDocument);
+      map = new EntityEmbeddedMapImpl<Object>(iSourceDocument);
     }
 
     if (value.length() == 0) {
@@ -311,9 +311,9 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
                     || iSourceDocument.getPropertyType(iName) != PropertyType.EMBEDDEDMAP)
                     && isConvertToLinkedMap(map, linkedType)) {
                   // CONVERT IT TO A LAZY MAP
-                  map = new LinkMap(iSourceDocument);
-                } else if (map instanceof LinkMap && linkedType != PropertyTypeInternal.LINK) {
-                  map = new TrackedMap<Object>(iSourceDocument, map, null);
+                  map = new EntityLinkMapIml(iSourceDocument);
+                } else if (map instanceof EntityLinkMapIml && linkedType != PropertyTypeInternal.LINK) {
+                  map = new EntityEmbeddedMapImpl<Object>(iSourceDocument, map, null);
                 }
               } else {
                 linkedType = PropertyTypeInternal.EMBEDDED;
@@ -406,7 +406,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
 
       case LINKLIST: {
         iOutput.append(StringSerializerHelper.LIST_BEGIN);
-        final LinkListImpl coll;
+        final EntityLinkListImpl coll;
         final Iterator<Identifiable> it;
         if (iValue instanceof MultiCollectionIterator<?>) {
           final var iterator =
@@ -414,9 +414,9 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
           iterator.reset();
           it = iterator;
           coll = null;
-        } else if (!(iValue instanceof LinkListImpl)) {
+        } else if (!(iValue instanceof EntityLinkListImpl)) {
           // FIRST TIME: CONVERT THE ENTIRE COLLECTION
-          coll = new LinkListImpl(iRecord);
+          coll = new EntityLinkListImpl(iRecord);
 
           if (iValue.getClass().isArray()) {
             var iterab = MultiValue.getMultiValueIterable(iValue);
@@ -432,7 +432,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
           it = coll.iterator();
         } else {
           // LAZY LIST
-          coll = (LinkListImpl) iValue;
+          coll = (EntityLinkListImpl) iValue;
           it = coll.iterator();
         }
 
@@ -462,8 +462,8 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         if (!(iValue instanceof StringWriterSerializable coll)) {
           final Collection<Identifiable> coll;
           // FIRST TIME: CONVERT THE ENTIRE COLLECTION
-          if (!(iValue instanceof LinkSetImpl)) {
-            final var set = new LinkSetImpl(iRecord);
+          if (!(iValue instanceof EntityLinkSetImpl)) {
+            final var set = new EntityLinkSetImpl(iRecord);
             set.addAll((Collection<Identifiable>) iValue);
             iRecord.setProperty(iName, set);
             coll = set;
@@ -504,7 +504,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         }
 
         if (invalidMap) {
-          final var newMap = new LinkMap(iRecord);
+          final var newMap = new EntityLinkMapIml(iRecord);
 
           // REPLACE ALL CHANGED ITEMS
           for (var entry : map.entrySet()) {
@@ -662,8 +662,8 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
     } else {
       coll =
           iType == PropertyTypeInternal.EMBEDDEDLIST
-              ? new EmbeddedListImpl<>(e)
-              : new EmbeddedSetImpl<>(e);
+              ? new EntityEmbeddedListImpl<>(e)
+              : new EntityEmbeddedSetImpl<>(e);
     }
 
     if (value.isEmpty()) {
@@ -834,7 +834,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
 
   protected static boolean isConvertToLinkedMap(Map<?, ?> map,
       final PropertyTypeInternal linkedType) {
-    var convert = (linkedType == PropertyTypeInternal.LINK && !(map instanceof LinkMap));
+    var convert = (linkedType == PropertyTypeInternal.LINK && !(map instanceof EntityLinkMapIml));
     if (convert) {
       for (var value : map.values()) {
         if (!(value instanceof Identifiable)) {
@@ -858,9 +858,9 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
     iOutput.append(StringSerializerHelper.SET_END);
   }
 
-  private LinkListImpl unserializeList(DatabaseSessionInternal db, final EntityImpl iSourceRecord,
+  private EntityLinkListImpl unserializeList(DatabaseSessionInternal db, final EntityImpl iSourceRecord,
       final String value) {
-    final var coll = new LinkListImpl(iSourceRecord);
+    final var coll = new EntityLinkListImpl(iSourceRecord);
     final var items =
         StringSerializerHelper.smartSplit(value, StringSerializerHelper.RECORD_SEPARATOR);
     for (var item : items) {
@@ -882,9 +882,9 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
     return coll;
   }
 
-  private LinkSetImpl unserializeSet(DatabaseSessionInternal db, final EntityImpl iSourceRecord,
+  private EntityLinkSetImpl unserializeSet(DatabaseSessionInternal db, final EntityImpl iSourceRecord,
       final String value) {
-    final var coll = new LinkSetImpl(iSourceRecord);
+    final var coll = new EntityLinkSetImpl(iSourceRecord);
     final var items =
         StringSerializerHelper.smartSplit(value, StringSerializerHelper.RECORD_SEPARATOR);
     for (var item : items) {

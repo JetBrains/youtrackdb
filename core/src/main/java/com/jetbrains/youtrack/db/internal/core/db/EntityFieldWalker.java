@@ -22,7 +22,6 @@ package com.jetbrains.youtrack.db.internal.core.db;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
-import com.jetbrains.youtrack.db.internal.core.db.record.IdentifiableMultiValue;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collections;
@@ -121,11 +120,11 @@ public class EntityFieldWalker {
       // 3. entity is not not embedded.
       if (!updated
           && fieldValue != null
-          && !(PropertyType.LINK.equals(fieldType)
-          || PropertyType.LINKBAG.equals(fieldType)
-          || PropertyType.LINKLIST.equals(fieldType)
-          || PropertyType.LINKSET.equals(fieldType)
-          || (fieldValue instanceof IdentifiableMultiValue))) {
+          && !(PropertyType.LINK == fieldType
+          || PropertyType.LINKBAG == fieldType
+          || PropertyType.LINKLIST == fieldType
+          || PropertyType.LINKSET == fieldType
+          || PropertyType.LINKMAP == fieldType)) {
         if (fieldWalker.goDeeper(fieldType, linkedType, fieldValue)) {
           if (fieldValue instanceof Map) {
             walkMap(session, (Map) fieldValue, fieldType, fieldWalker, walked);

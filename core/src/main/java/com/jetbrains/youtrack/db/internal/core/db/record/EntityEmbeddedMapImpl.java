@@ -39,22 +39,20 @@ import javax.annotation.Nullable;
  * Implementation of LinkedHashMap bound to a source Record object to keep track of changes. This
  * avoid to call the makeDirty() by hand when the map is changed.
  */
-public class TrackedMap<T> extends AbstractMap<String, T>
-    implements RecordElement, TrackedMultiValue<String, T>, Serializable {
+public class EntityEmbeddedMapImpl<T> extends AbstractMap<String, T>
+    implements RecordElement, EmbeddedTrackedMultiValue<String, T>, Serializable {
 
   protected RecordElement sourceRecord;
   protected Class<?> genericClass;
   private final boolean embeddedCollection;
   private boolean dirty = false;
   private boolean transactionDirty = false;
-  private final boolean linkCollectionsProhibited;
-  private final boolean resultAllowed;
 
   @Nonnull
   private final HashMap<String, T> map;
   private final SimpleMultiValueTracker<String, T> tracker = new SimpleMultiValueTracker<>(this);
 
-  public TrackedMap(
+  public EntityEmbeddedMapImpl(
       final RecordElement iRecord, final Map<String, T> iOrigin, final Class<?> cls) {
     this(iRecord);
     genericClass = cls;
@@ -63,45 +61,28 @@ public class TrackedMap<T> extends AbstractMap<String, T>
     }
   }
 
-  public TrackedMap(final RecordElement iSourceRecord) {
+  public EntityEmbeddedMapImpl(final RecordElement iSourceRecord) {
     this.map = new HashMap<>();
     this.sourceRecord = iSourceRecord;
-    embeddedCollection = this.getClass().equals(TrackedMap.class);
-    this.linkCollectionsProhibited = true;
-    this.resultAllowed = false;
+    embeddedCollection = this.getClass().equals(EntityEmbeddedMapImpl.class);
   }
 
-  public TrackedMap(final RecordElement iSourceRecord, int size) {
+  public EntityEmbeddedMapImpl(final RecordElement iSourceRecord, int size) {
     this.map = new HashMap<>(size);
     this.sourceRecord = iSourceRecord;
-    embeddedCollection = this.getClass().equals(TrackedMap.class);
-    this.linkCollectionsProhibited = true;
-    this.resultAllowed = false;
+    embeddedCollection = this.getClass().equals(EntityEmbeddedMapImpl.class);
   }
 
-  public TrackedMap() {
-    this(true, false);
-  }
-
-  public TrackedMap(boolean linkCollectionsProhibited, boolean resultAllowed) {
+  public EntityEmbeddedMapImpl() {
     this.map = new HashMap<>();
-    embeddedCollection = this.getClass().equals(TrackedMap.class);
+    embeddedCollection = this.getClass().equals(EntityEmbeddedMapImpl.class);
     tracker.enable();
-    this.linkCollectionsProhibited = linkCollectionsProhibited;
-    this.resultAllowed = resultAllowed;
   }
 
-  public TrackedMap(int size) {
+  public EntityEmbeddedMapImpl(int size) {
     this.map = new HashMap<>(size);
-    embeddedCollection = this.getClass().equals(TrackedMap.class);
+    embeddedCollection = this.getClass().equals(EntityEmbeddedMapImpl.class);
     tracker.enable();
-    this.linkCollectionsProhibited = true;
-    this.resultAllowed = false;
-  }
-
-  @Override
-  public boolean isResultAllowed() {
-    return resultAllowed;
   }
 
   @Override
@@ -441,7 +422,7 @@ public class TrackedMap<T> extends AbstractMap<String, T>
   }
 
   @Override
-  public MultiValueChangeTimeLine<Object, Object> getTimeLine() {
+  public MultiValueChangeTimeLine<String, T> getTimeLine() {
     return tracker.getTimeLine();
   }
 
@@ -464,7 +445,7 @@ public class TrackedMap<T> extends AbstractMap<String, T>
 
     @Override
     public void clear() {
-      TrackedMap.this.clear();
+      EntityEmbeddedMapImpl.this.clear();
     }
 
     @Override
@@ -515,11 +496,6 @@ public class TrackedMap<T> extends AbstractMap<String, T>
       map.remove(key, value);
       lastEntry = null;
     }
-  }
-
-  @Override
-  public boolean isLinkCollectionsProhibited() {
-    return linkCollectionsProhibited;
   }
 
   private final class TrackerEntry implements Entry<String, T> {

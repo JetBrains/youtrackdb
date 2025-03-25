@@ -11,7 +11,6 @@ import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPo
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.function.Function;
@@ -19,7 +18,7 @@ import java.util.stream.Stream;
 
 public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
 
-  private final BTree bTree;
+  private final LinkBagBTree bTree;
   private final int intFileId;
   private final long ridBagId;
 
@@ -27,7 +26,7 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
   private final BinarySerializer<Integer> valueSerializer;
 
   public EdgeBTreeImpl(
-      final BTree bTree,
+      final LinkBagBTree bTree,
       final int intFileId,
       final long ridBagId,
       BinarySerializer<RID> keySerializer,

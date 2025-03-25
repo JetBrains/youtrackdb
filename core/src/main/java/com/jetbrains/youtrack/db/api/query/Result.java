@@ -14,8 +14,8 @@ import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
-import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import java.math.BigDecimal;
 import java.util.Date;
@@ -206,7 +206,7 @@ public interface Result {
       return null;
     }
 
-    if (value instanceof EmbeddedListImpl<?> embeddedList) {
+    if (value instanceof EmbeddedList<?> embeddedList) {
       //noinspection unchecked
       return (EmbeddedList<T>) embeddedList;
     }
@@ -266,7 +266,7 @@ public interface Result {
       return null;
     }
 
-    if (value instanceof LinkSetImpl linkSet) {
+    if (value instanceof LinkSet linkSet) {
       return linkSet;
     }
 

@@ -3,9 +3,9 @@ package com.jetbrains.youtrack.db.internal.core.record.impl;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import org.junit.Assert;
 import org.junit.Test;
@@ -34,15 +34,18 @@ public class TestSerializationCompatibilityDBRecord extends DbTestBase {
         (PropertyTypeInternal) null, true);
 
     session.begin();
+    session.setValidationEnabled(false);
     var record = session.loadEntity(id);
     // Force deserialize + serialize;
     record.setProperty("some", "aa");
     session.commit();
 
+    session.setValidationEnabled(true);
+
     session.begin();
     EntityImpl record1 = session.load(id);
 
-    Assert.assertTrue(record1.getProperty("map") instanceof LinkMap);
+    Assert.assertTrue(record1.getProperty("map") instanceof EntityLinkMapIml);
     assertEquals(PropertyType.LINKMAP, record1.getPropertyType("map"));
     assertEquals("aa", record1.getString("some"));
     session.commit();

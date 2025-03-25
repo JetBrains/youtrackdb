@@ -202,6 +202,7 @@ public class RidBag
     return false;
   }
 
+
   public boolean isEmpty() {
     return delegate.isEmpty();
   }
@@ -277,7 +278,7 @@ public class RidBag
   }
 
   public void checkAndConvert() {
-    if (session != null && !session.isRemote()) {
+    if (!session.isRemote()) {
       if (isEmbedded()
           && session.getBTreeCollectionManager() != null
           && delegate.size() >= topThreshold) {
@@ -387,10 +388,6 @@ public class RidBag
         (RidBagDelegate) delegate.returnOriginalState(session, multiValueChangeEvents));
   }
 
-  @Override
-  public Class<?> getGenericClass() {
-    return delegate.getGenericClass();
-  }
 
   public void setOwner(RecordElement owner) {
     if ((!(owner instanceof EntityImpl) && owner != null)
@@ -572,7 +569,7 @@ public class RidBag
   }
 
   @Override
-  public MultiValueChangeTimeLine<Object, Object> getTimeLine() {
+  public MultiValueChangeTimeLine<RID, RID> getTimeLine() {
     return delegate.getTimeLine();
   }
 
@@ -619,15 +616,5 @@ public class RidBag
     if (!isEmbedded()) {
       convertToEmbedded();
     }
-  }
-
-  @Override
-  public boolean isLinkCollectionsProhibited() {
-    return true;
-  }
-
-  @Override
-  public boolean isResultAllowed() {
-    return false;
   }
 }

@@ -16,7 +16,7 @@ final class SpliteratorForward<K> implements Spliterator<RawPair<K, RID>> {
   /**
    *
    */
-  private final CellBTreeSingleValueV3<K> btree;
+  private final BTree<K> btree;
 
   private final K fromKey;
   private final K toKey;
@@ -32,12 +32,12 @@ final class SpliteratorForward<K> implements Spliterator<RawPair<K, RID>> {
   private Iterator<RawPair<K, RID>> cacheIterator = Collections.emptyIterator();
 
   SpliteratorForward(
-      CellBTreeSingleValueV3<K> cellBTreeSingleValueV3,
+      BTree<K> BTree,
       final K fromKey,
       final K toKey,
       final boolean fromKeyInclusive,
       final boolean toKeyInclusive) {
-    btree = cellBTreeSingleValueV3;
+    btree = BTree;
     this.fromKey = fromKey;
     this.toKey = toKey;
 

@@ -14,8 +14,8 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
@@ -370,13 +370,13 @@ public class SQLUpdateItem extends SimpleNode {
               .map(item -> convertToType(item, linkedClass, ctx))
               .collect(Collectors.toSet());
         }
-        if (type == PropertyTypeInternal.LINKSET && !(value instanceof LinkSetImpl)) {
+        if (type == PropertyTypeInternal.LINKSET && !(value instanceof EntityLinkSetImpl)) {
           var db = ctx.getDatabaseSession();
           return ((Collection<?>) value)
               .stream()
               .map(item -> PropertyTypeInternal.convert(db, item, Identifiable.class))
               .collect(Collectors.toSet());
-        } else if (type == PropertyTypeInternal.LINKLIST && !(value instanceof LinkListImpl)) {
+        } else if (type == PropertyTypeInternal.LINKLIST && !(value instanceof EntityLinkListImpl)) {
           var db = ctx.getDatabaseSession();
           return ((Collection<?>) value)
               .stream()

@@ -277,11 +277,6 @@ public class EmbeddedRidBag implements RidBagDelegate {
   public void requestDelete() {
   }
 
-  @Override
-  public Class<?> getGenericClass() {
-    return RID.class;
-  }
-
   public boolean addInternal(final RID rid) {
     addEntry(rid);
     return true;
@@ -367,7 +362,7 @@ public class EmbeddedRidBag implements RidBagDelegate {
   }
 
   @Override
-  public MultiValueChangeTimeLine<Object, Object> getTimeLine() {
+  public MultiValueChangeTimeLine<RID, RID> getTimeLine() {
     return tracker.getTimeLine();
   }
 
@@ -405,16 +400,6 @@ public class EmbeddedRidBag implements RidBagDelegate {
   @Override
   public MultiValueChangeTimeLine<RID, RID> getTransactionTimeLine() {
     return tracker.getTransactionTimeLine();
-  }
-
-  @Override
-  public boolean isLinkCollectionsProhibited() {
-    return true;
-  }
-
-  @Override
-  public boolean isResultAllowed() {
-    return false;
   }
 
   private RID refreshNonPersistentRid(RID identifiable) {

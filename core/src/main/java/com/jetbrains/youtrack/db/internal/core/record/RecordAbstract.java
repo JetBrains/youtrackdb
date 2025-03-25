@@ -202,10 +202,12 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
         || dirty == txEntry.dirtyCounterOnClientSide + 1) {
       if (!isEmbedded()) {
         var tx = session.getTransactionInternal();
-        var optimistic = (FrontendTransactionImpl) tx;
-
-        optimistic.addRecordOperation(this, RecordOperation.UPDATED);
+        tx.addRecordOperation(this, RecordOperation.UPDATED);
       }
+    } else {
+      assert isEmbedded()
+          || ((FrontendTransactionImpl) session.getTransactionInternal()).isScheduledForNextCallback(
+          recordId);
     }
   }
 

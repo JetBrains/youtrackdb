@@ -21,7 +21,6 @@ package com.jetbrains.youtrack.db.internal.core.db.record;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
@@ -52,8 +51,6 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
   Object returnOriginalState(DatabaseSessionInternal session,
       List<MultiValueChangeEvent<K, V>> changeEvents);
 
-  Class<?> getGenericClass();
-
   void enableTracking(RecordElement parent);
 
   void disableTracking(RecordElement entity);
@@ -62,97 +59,9 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
 
   boolean isTransactionModified();
 
-  MultiValueChangeTimeLine<Object, Object> getTimeLine();
+  MultiValueChangeTimeLine<K, V> getTimeLine();
 
   boolean isEmbeddedContainer();
-
-  default void checkValue(V value) {
-    if (isEmbeddedContainer()) {
-      if ((value instanceof RID
-          || value instanceof Entity entity && !entity.isEmbedded())) {
-        throw new SchemaException(
-            "Cannot add a RID or a non-embedded entity to a embedded data container");
-      }
-
-      if (PropertyTypeInternal.isSingleValueType(value) || ((value instanceof Entity entity)
-          && entity.isEmbedded())) {
-        return;
-      }
-
-      if (value instanceof Collection<?>) {
-        if (value instanceof EmbeddedListImpl<?> || value instanceof EmbeddedSetImpl<?>) {
-          var trackedMultiValue = (TrackedMultiValue<?, ?>) value;
-          checkResultsAndLinkCollectionsAreProhibited(trackedMultiValue);
-          return;
-        }
-
-        //case whew we use it inside query result set
-        if ((value instanceof LinkListImpl
-            || value instanceof LinkSetImpl) && !isLinkCollectionsProhibited()) {
-          return;
-        }
-      }
-
-      if (value instanceof Map<?, ?>) {
-        if (value instanceof TrackedMap<?> trackedMap) {
-          checkResultsAndLinkCollectionsAreProhibited(trackedMap);
-          if (trackedMap instanceof LinkMap linkMap
-              && linkMap.getKeySizeLimit() > LinkMap.DEFAULT_KEY_SIZE_LIMIT) {
-            throw new SchemaException(
-                "Cannot add a map with key size limit bigger than " + LinkMap.DEFAULT_KEY_SIZE_LIMIT
-                    + " to a embedded data container");
-          }
-          return;
-        }
-      }
-
-      if ((value instanceof Collection<?>) || (value instanceof Map<?, ?>)) {
-        throw new SchemaException(
-            "Cannot add a non embedded collection to a embedded data container. Please use "
-                + DatabaseSession.class.getName() +
-                " factory methods instead : "
-                + "newEmbeddedList(), newEmbeddedSet(), newEmbeddedMap().");
-      }
-
-      //case whew we use it inside query result set
-      if ((value instanceof Result) && isResultAllowed()) {
-        return;
-      }
-
-      throw new SchemaException("Value " + value + " is not supported by data container.");
-    } else {
-      if (value == null) {
-        return;
-      }
-
-      if (value instanceof Entity entity && entity.isEmbedded()) {
-        throw new SchemaException(
-            "Cannot add an embedded entity to a link based data container");
-      }
-      if (!(value instanceof Identifiable)) {
-        throw new SchemaException(
-            "Cannot add a non-identifiable entity to a link based data container");
-      }
-    }
-  }
-
-  private void checkResultsAndLinkCollectionsAreProhibited(
-      TrackedMultiValue<?, ?> trackedMultiValue) {
-    if (!isResultAllowed() && trackedMultiValue.isResultAllowed()) {
-      throw new SchemaException(
-          "Cannot add a collection to a embedded data container. Please use "
-              + DatabaseSession.class.getName() +
-              " factory methods instead : "
-              + "newEmbeddedList(), newEmbeddedSet(), newEmbeddedMap().");
-    }
-    if (isLinkCollectionsProhibited() && !trackedMultiValue.isLinkCollectionsProhibited()) {
-      throw new SchemaException(
-          "Cannot add a collection to a embedded data container. Please use "
-              + DatabaseSession.class.getName() +
-              " factory methods instead : "
-              + "newEmbeddedList(), newEmbeddedSet(), newEmbeddedMap().");
-    }
-  }
 
   static <X> void nestedEnabled(Iterator<X> iterator, RecordElement parent) {
     while (iterator.hasNext()) {
@@ -190,10 +99,6 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
   boolean addInternal(final V e);
 
   MultiValueChangeTimeLine<K, V> getTransactionTimeLine();
-
-  boolean isLinkCollectionsProhibited();
-
-  boolean isResultAllowed();
 
   default void addOwner(V e) {
     if (isEmbeddedContainer()) {

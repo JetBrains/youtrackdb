@@ -32,7 +32,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.BTree;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.LinkBagBTree;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.EdgeBTree;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.EdgeBTreeImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.EdgeKey;
@@ -52,7 +52,7 @@ public final class BTreeCollectionManagerShared
 
   private final AbstractPaginatedStorage storage;
 
-  private final ConcurrentHashMap<Integer, BTree> fileIdBTreeMap = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<Integer, LinkBagBTree> fileIdBTreeMap = new ConcurrentHashMap<>();
 
   private final AtomicLong ridBagIdCounter = new AtomicLong();
 
@@ -67,7 +67,7 @@ public final class BTreeCollectionManagerShared
       final var fileName = entry.getKey();
       if (fileName.endsWith(FILE_EXTENSION) && fileName.startsWith(FILE_NAME_PREFIX)) {
         final var bTree =
-            new BTree(
+            new LinkBagBTree(
                 storage,
                 fileName.substring(0, fileName.length() - FILE_EXTENSION.length()),
                 FILE_EXTENSION);
@@ -88,7 +88,7 @@ public final class BTreeCollectionManagerShared
 
   public void createComponent(final AtomicOperation operation, final int clusterId) {
     // lock is already acquired on storage level, during storage open
-    final var bTree = new BTree(storage, FILE_NAME_PREFIX + clusterId, FILE_EXTENSION);
+    final var bTree = new LinkBagBTree(storage, FILE_NAME_PREFIX + clusterId, FILE_EXTENSION);
     bTree.create(operation);
 
     final var intFileId = WOWCache.extractFileId(bTree.getFileId());
@@ -113,7 +113,7 @@ public final class BTreeCollectionManagerShared
     // lock is already acquired on storage level, during start fo the transaction so we
     // are thread safe here.
     if (fileId < 0) {
-      final var bTree = new BTree(storage, FILE_NAME_PREFIX + clusterId, FILE_EXTENSION);
+      final var bTree = new LinkBagBTree(storage, FILE_NAME_PREFIX + clusterId, FILE_EXTENSION);
       bTree.create(atomicOperation);
 
       fileId = bTree.getFileId();

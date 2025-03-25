@@ -15,7 +15,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
-import com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.singlevalue.v3.CellBTreeSingleValueV3;
+import com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
 import java.io.IOException;
 import java.util.stream.Stream;
 
@@ -38,7 +38,7 @@ public final class CellBTreeSingleValueIndexEngine
 
     if (version == 3 || version == 4) {
       this.sbTree =
-          new CellBTreeSingleValueV3<>(
+          new BTree<>(
               name, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
     } else {
       throw new IllegalStateException("Invalid tree version " + version);

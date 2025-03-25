@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -105,6 +106,11 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
 
     DatabaseSessionInternal session = null;
 
+    var response = new ArrayList<Result>();
+    Map<String, Object> additionalContent = new HashMap<>();
+    String format = null;
+
+
     var ok = false;
     var txBegun = false;
     try {
@@ -123,26 +129,17 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
       if (localFetchPlan != null) {
         fetchPlan = localFetchPlan;
       }
+
       var i = 0;
-      List response = new ArrayList();
-      TimerTask commandInterruptTimer = null;
-      if (session.getConfiguration().getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT) > 0
-          && !language.equalsIgnoreCase("sql")) {
-      }
-      try {
-        while (result.hasNext()) {
-          if (limit >= 0 && i >= limit) {
-            break;
-          }
-          response.add(result.next());
-          i++;
+      session.getConfiguration().getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
+      while (result.hasNext()) {
+        if (limit >= 0 && i >= limit) {
+          break;
         }
-      } finally {
-        if (commandInterruptTimer != null) {
-          commandInterruptTimer.cancel();
-        }
+        response.add(result.next().detach());
+        i++;
       }
-      Map<String, Object> additionalContent = new HashMap<>();
+
       if (returnExecutionPlan) {
         var plan = result.getExecutionPlan();
         if (plan != null) {
@@ -152,8 +149,6 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
 
       result.close();
       var elapsedMs = System.currentTimeMillis() - begin;
-
-      String format = null;
       if (fetchPlan != null) {
         format = "fetchPlan:" + fetchPlan;
       }
@@ -166,7 +161,6 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
       var dbStats = session.getStats();
       additionalContent.put("dbStats", dbStats.toResult(session).toMap());
 
-      iResponse.writeResult(response, format, accept, additionalContent, mode, session);
       ok = true;
     } finally {
       if (session != null) {
@@ -180,6 +174,8 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
         session.close();
       }
     }
+
+    iResponse.writeResult(response, format, accept, additionalContent, mode, session);
 
     return false;
   }

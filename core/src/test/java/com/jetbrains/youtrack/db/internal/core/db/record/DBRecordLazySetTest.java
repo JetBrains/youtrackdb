@@ -33,7 +33,7 @@ public class DBRecordLazySetTest extends DbTestBase {
   @Test
   public void testDocumentNotEmbedded() {
     session.begin();
-    var set = new LinkSetImpl((EntityImpl) session.newEntity());
+    var set = new EntityLinkSetImpl((EntityImpl) session.newEntity());
     var doc = (EntityImpl) session.newEntity();
     set.add(doc);
     assertFalse(doc.isEmbedded());
@@ -43,7 +43,7 @@ public class DBRecordLazySetTest extends DbTestBase {
   @Test()
   public void testSetAddRemove() {
     session.begin();
-    var set = new LinkSetImpl((EntityImpl) session.newEntity());
+    var set = new EntityLinkSetImpl((EntityImpl) session.newEntity());
     var doc = (EntityImpl) session.newEntity();
     set.add(doc);
     set.remove(doc);
@@ -54,7 +54,7 @@ public class DBRecordLazySetTest extends DbTestBase {
   @Test
   public void testSetRemoveNotPersistent() {
     session.begin();
-    var set = new LinkSetImpl((EntityImpl) session.newEntity());
+    var set = new EntityLinkSetImpl((EntityImpl) session.newEntity());
     var activeTx1 = session.getActiveTransaction();
     doc1 = activeTx1.load(doc1);
     var activeTx = session.getActiveTransaction();
@@ -81,7 +81,7 @@ public class DBRecordLazySetTest extends DbTestBase {
 
     session.begin();
     var doc = (EntityImpl) session.newEntity(test);
-    var set = new LinkSetImpl(doc);
+    var set = new EntityLinkSetImpl(doc);
     set.add(stubEntity.getIdentity());
     doc.setProperty("fi", set);
     session.commit();

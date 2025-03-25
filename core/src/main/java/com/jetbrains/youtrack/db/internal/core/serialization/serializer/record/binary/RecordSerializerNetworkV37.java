@@ -32,13 +32,13 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSeri
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.UUIDSerializer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -471,7 +471,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
   private Map<String, Identifiable> readLinkMap(
       DatabaseSessionInternal db, final BytesContainer bytes, final RecordElement owner) {
     var size = VarIntSerializer.readAsInteger(bytes);
-    var result = new LinkMap(owner);
+    var result = new EntityLinkMapIml(owner);
     while ((size--) > 0) {
       var keyType = readOType(bytes);
       var key = deserializeValue(db, bytes, keyType, result);
@@ -488,7 +488,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
   private Object readEmbeddedMap(DatabaseSessionInternal db, final BytesContainer bytes,
       final RecordElement owner) {
     var size = VarIntSerializer.readAsInteger(bytes);
-    final var result = new TrackedMap<>(owner);
+    final var result = new EntityEmbeddedMapImpl<>(owner);
     while ((size--) > 0) {
       var key = readString(bytes);
       var valType = readOType(bytes);
@@ -503,7 +503,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
 
   private static Collection<Identifiable> readLinkList(
       DatabaseSessionInternal db, BytesContainer bytes, RecordElement owner) {
-    var found = new LinkListImpl(owner);
+    var found = new EntityLinkListImpl(owner);
     final var items = VarIntSerializer.readAsInteger(bytes);
     for (var i = 0; i < items; i++) {
       Identifiable id = readOptimizedLink(db, bytes);
@@ -519,7 +519,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
   private static Collection<Identifiable> readLinkSet(DatabaseSessionInternal db,
       BytesContainer bytes,
       RecordElement owner) {
-    var found = new LinkSetImpl(owner);
+    var found = new EntityLinkSetImpl(owner);
     final var items = VarIntSerializer.readAsInteger(bytes);
     for (var i = 0; i < items; i++) {
       Identifiable id = readOptimizedLink(db, bytes);
@@ -543,10 +543,10 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
     return rid;
   }
 
-  private EmbeddedListImpl<?> readEmbeddedList(DatabaseSessionInternal db,
+  private EntityEmbeddedListImpl<?> readEmbeddedList(DatabaseSessionInternal db,
       final BytesContainer bytes,
       final RecordElement owner) {
-    var found = new EmbeddedListImpl<>(owner);
+    var found = new EntityEmbeddedListImpl<>(owner);
     final var items = VarIntSerializer.readAsInteger(bytes);
     for (var i = 0; i < items; i++) {
       var itemType = readOType(bytes);
@@ -561,7 +561,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
 
   private Collection<?> readEmbeddedSet(DatabaseSessionInternal db, final BytesContainer bytes,
       final RecordElement owner) {
-    var found = new EmbeddedSetImpl<>(owner);
+    var found = new EntityEmbeddedSetImpl<>(owner);
     final var items = VarIntSerializer.readAsInteger(bytes);
     for (var i = 0; i < items; i++) {
       var itemType = readOType(bytes);

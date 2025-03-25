@@ -1170,9 +1170,6 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     doc.<List<String>>getProperty("list").add(null);
     doc.<Set<String>>getProperty("set").add(null);
     doc.<Map<String, String>>getProperty("map").put("nullValue", null);
-    doc.<List<Identifiable>>getProperty("linkList").add(null);
-    doc.<Set<Identifiable>>getProperty("linkSet").add(null);
-    doc.<Map<String, Identifiable>>getProperty("linkMap").put("nullValue", null);
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
 
@@ -1185,9 +1182,6 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     assertTrue(doc.getEmbeddedList("list").contains(null));
     assertTrue(doc.getEmbeddedSet("set").contains(null));
     assertTrue(doc.getEmbeddedMap("map").containsKey("nullValue"));
-    assertTrue(doc.getLinkList("linkList").contains(null));
-    assertTrue(doc.getLinkSet("linkSet").contains(null));
-    assertTrue(doc.getLinkMap("linkMap").containsKey("nullValue"));
     session.rollback();
   }
 

@@ -31,13 +31,13 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.DecimalSeri
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -394,18 +394,18 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
 
         break;
       case EMBEDDEDSET:
-        var set = new EmbeddedSetImpl<>(owner);
+        var set = new EntityEmbeddedSetImpl<>(owner);
         value = readEmbeddedCollection(session, bytes, set, set);
         break;
       case EMBEDDEDLIST:
-        var list = new EmbeddedListImpl<>(owner);
+        var list = new EntityEmbeddedListImpl<>(owner);
         value = readEmbeddedCollection(session, bytes, list, list);
         break;
       case LINKSET:
-        value = readLinkCollection(bytes, new LinkSetImpl(owner));
+        value = readLinkCollection(bytes, new EntityLinkSetImpl(owner));
         break;
       case LINKLIST:
-        value = readLinkCollection(bytes, new LinkListImpl(owner));
+        value = readLinkCollection(bytes, new EntityLinkListImpl(owner));
         break;
       case BINARY:
         value = readBinary(bytes);
@@ -444,7 +444,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
   private Map<String, Identifiable> readLinkMap(
       DatabaseSessionInternal db, final BytesContainer bytes, final RecordElement owner) {
     var size = VarIntSerializer.readAsInteger(bytes);
-    var result = new LinkMap(owner);
+    var result = new EntityLinkMapIml(owner);
     while ((size--) > 0) {
       var keyType = readOType(bytes);
       var key = deserializeValue(db, bytes, keyType, result);
@@ -461,7 +461,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
   private Object readEmbeddedMap(DatabaseSessionInternal db, final BytesContainer bytes,
       final RecordElement owner) {
     var size = VarIntSerializer.readAsInteger(bytes);
-    final var result = new TrackedMap<Object>(owner);
+    final var result = new EntityEmbeddedMapImpl<Object>(owner);
     var last = 0;
     while ((size--) > 0) {
       var keyType = readOType(bytes);

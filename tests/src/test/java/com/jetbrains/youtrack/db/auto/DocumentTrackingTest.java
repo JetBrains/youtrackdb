@@ -2,12 +2,12 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent.ChangeType;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeTimeLine;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
@@ -764,7 +764,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     final List<String> trackedList = document.getProperty("embeddedlist");
     trackedList.add("value2");
 
-    final List<String> newTrackedList = new EmbeddedListImpl<>(document);
+    final List<String> newTrackedList = new EntityEmbeddedListImpl<>(document);
     document.setProperty("embeddedlist", newTrackedList);
     newTrackedList.add("value3");
 
@@ -799,7 +799,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     final Map<String, String> trackedMap = document.getProperty("embeddedmap");
     trackedMap.put("key2", "value2");
 
-    final Map<String, String> newTrackedMap = new TrackedMap<>(document);
+    final Map<String, String> newTrackedMap = new EntityEmbeddedMapImpl<>(document);
     document.setProperty("embeddedmap", newTrackedMap);
     newTrackedMap.put("key3", "value3");
 
@@ -833,7 +833,7 @@ public class DocumentTrackingTest extends BaseDBTest {
     final Set<String> trackedSet = document.getProperty("embeddedset");
     trackedSet.add("value2");
 
-    final Set<String> newTrackedSet = new EmbeddedSetImpl<>(document);
+    final Set<String> newTrackedSet = new EntityEmbeddedSetImpl<>(document);
     document.setProperty("embeddedset", newTrackedSet);
     newTrackedSet.add("value3");
 

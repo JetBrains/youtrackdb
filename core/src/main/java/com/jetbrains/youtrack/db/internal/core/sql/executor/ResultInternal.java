@@ -14,23 +14,28 @@ import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedListResultImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedMapResultImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedSetResultImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.LinkListResultImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.LinkMapResultImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.LinkSetResultImpl;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -119,7 +124,7 @@ public class ResultInternal implements Result {
 
       case Result result -> result.toMap();
 
-      case LinkListImpl linkList -> {
+      case EntityLinkListImpl linkList -> {
         List<RID> list = new ArrayList<>(linkList.size());
         for (var item : linkList) {
           list.add(item.getIdentity());
@@ -127,14 +132,14 @@ public class ResultInternal implements Result {
         yield list;
       }
 
-      case LinkSetImpl linkSet -> {
+      case EntityLinkSetImpl linkSet -> {
         Set<RID> set = new HashSet<>(linkSet.size());
         for (var item : linkSet) {
           set.add(item.getIdentity());
         }
         yield set;
       }
-      case LinkMap linkMap -> {
+      case EntityLinkMapIml linkMap -> {
         Map<Object, RID> map = new HashMap<>(linkMap.size());
         for (var entry : linkMap.entrySet()) {
           map.put(entry.getKey(), entry.getValue().getIdentity());
@@ -286,7 +291,7 @@ public class ResultInternal implements Result {
             allIdentifiable = true;
             if (listCopy == null) {
               //noinspection unchecked,rawtypes
-              listCopy = (List<Object>) (List) new LinkListImpl(session);
+              listCopy = (List<Object>) (List) new LinkListResultImpl(collection.size());
             }
           } else {
             if (allIdentifiable) {
@@ -294,7 +299,7 @@ public class ResultInternal implements Result {
                   "Invalid property value, if list contains identifiables, it should contain only them");
             }
             if (listCopy == null) {
-              listCopy = new EmbeddedListImpl<>(false, true);
+              listCopy = new EmbeddedListResultImpl<>(collection.size());
             }
           }
 
@@ -302,7 +307,7 @@ public class ResultInternal implements Result {
         }
 
         if (listCopy == null) {
-          listCopy = new EmbeddedListImpl<>(false, true);
+          listCopy = new EmbeddedListResultImpl<>();
         }
         return listCopy;
       }
@@ -316,7 +321,7 @@ public class ResultInternal implements Result {
           if (res instanceof Identifiable) {
             if (setCopy == null) {
               //noinspection unchecked,rawtypes
-              setCopy = (Set<Object>) (Set) new LinkSetImpl(session);
+              setCopy = (Set<Object>) (Set) new LinkSetResultImpl(set.size());
             }
             allIdentifiable = true;
           } else {
@@ -325,7 +330,7 @@ public class ResultInternal implements Result {
                   "Invalid property value, if set contains identifiables, it should contain only them");
             }
             if (setCopy == null) {
-              setCopy = new EmbeddedSetImpl<>(false, true);
+              setCopy = new EmbeddedSetResultImpl<>(set.size());
             }
           }
 
@@ -333,8 +338,9 @@ public class ResultInternal implements Result {
         }
 
         if (setCopy == null) {
-          setCopy = new EmbeddedSetImpl<>(false, true);
+          setCopy = new EmbeddedSetResultImpl<>();
         }
+
         return setCopy;
       }
 
@@ -355,8 +361,8 @@ public class ResultInternal implements Result {
           if (res instanceof Identifiable) {
             allIdentifiable = true;
             if (mapCopy == null) {
-              //noinspection unchecked,rawtypes
-              mapCopy = (Map<String, Object>) (Map) new LinkMap(session);
+              //noinspection unchecked
+              mapCopy = (Map<String, Object>) (Map) new LinkMapResultImpl(map.size());
             }
           } else {
             if (allIdentifiable) {
@@ -365,7 +371,7 @@ public class ResultInternal implements Result {
 
             }
             if (mapCopy == null) {
-              mapCopy = new TrackedMap<>(false, true);
+              mapCopy = new EmbeddedMapResultImpl<>(map.size());
             }
           }
 
@@ -373,7 +379,7 @@ public class ResultInternal implements Result {
         }
 
         if (mapCopy == null) {
-          mapCopy = new TrackedMap<>(false, true);
+          mapCopy = new EmbeddedMapResultImpl<>();
         }
 
         return mapCopy;

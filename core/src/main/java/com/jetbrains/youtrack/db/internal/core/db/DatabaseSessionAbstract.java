@@ -61,14 +61,14 @@ import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
-import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
 import com.jetbrains.youtrack.db.internal.core.exception.SessionNotActivatedException;
 import com.jetbrains.youtrack.db.internal.core.exception.TransactionBlockedException;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
@@ -2423,38 +2423,38 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Override
   public <T> EmbeddedList<T> newEmbeddedList() {
-    return new EmbeddedListImpl<>();
+    return new EntityEmbeddedListImpl<>();
   }
 
   @Override
   public <T> EmbeddedList<T> newEmbeddedList(int size) {
-    return new EmbeddedListImpl<>(size);
+    return new EntityEmbeddedListImpl<>(size);
   }
 
   @Override
   public <T> EmbeddedList<T> newEmbeddedList(List<T> list) {
-    var trackedList = new EmbeddedListImpl<T>(list.size());
+    var trackedList = new EntityEmbeddedListImpl<T>(list.size());
     trackedList.addAll(list);
     return trackedList;
   }
 
   @Override
   public EmbeddedList<String> newEmbeddedList(String[] source) {
-    var trackedList = new EmbeddedListImpl<String>(source.length);
+    var trackedList = new EntityEmbeddedListImpl<String>(source.length);
     trackedList.addAll(Arrays.asList(source));
     return trackedList;
   }
 
   @Override
   public EmbeddedList<Date> newEmbeddedList(Date[] source) {
-    var trackedList = new EmbeddedListImpl<Date>(source.length);
+    var trackedList = new EntityEmbeddedListImpl<Date>(source.length);
     trackedList.addAll(Arrays.asList(source));
     return trackedList;
   }
 
   @Override
   public EmbeddedList<Byte> newEmbeddedList(byte[] source) {
-    var trackedList = new EmbeddedListImpl<Byte>(source.length);
+    var trackedList = new EntityEmbeddedListImpl<Byte>(source.length);
     for (var b : source) {
       trackedList.add(b);
     }
@@ -2463,7 +2463,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Override
   public EmbeddedList<Short> newEmbeddedList(short[] source) {
-    var trackedList = new EmbeddedListImpl<Short>(source.length);
+    var trackedList = new EntityEmbeddedListImpl<Short>(source.length);
     for (var s : source) {
       trackedList.add(s);
     }
@@ -2472,7 +2472,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Override
   public EmbeddedList<Integer> newEmbeddedList(int[] source) {
-    var trackedList = new EmbeddedListImpl<Integer>(source.length);
+    var trackedList = new EntityEmbeddedListImpl<Integer>(source.length);
     for (var i : source) {
       trackedList.add(i);
     }
@@ -2481,7 +2481,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Override
   public EmbeddedList<Long> newEmbeddedList(long[] source) {
-    var trackedList = new EmbeddedListImpl<Long>(source.length);
+    var trackedList = new EntityEmbeddedListImpl<Long>(source.length);
     for (var l : source) {
       trackedList.add(l);
     }
@@ -2490,7 +2490,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Override
   public EmbeddedList<Float> newEmbeddedList(float[] source) {
-    var trackedList = new EmbeddedListImpl<Float>(source.length);
+    var trackedList = new EntityEmbeddedListImpl<Float>(source.length);
     for (var f : source) {
       trackedList.add(f);
     }
@@ -2499,7 +2499,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Override
   public EmbeddedList<Double> newEmbeddedList(double[] source) {
-    var trackedList = new EmbeddedListImpl<Double>(source.length);
+    var trackedList = new EntityEmbeddedListImpl<Double>(source.length);
     for (var d : source) {
       trackedList.add(d);
     }
@@ -2508,7 +2508,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Override
   public EmbeddedList<Boolean> newEmbeddedList(boolean[] source) {
-    var trackedList = new EmbeddedListImpl<Boolean>(source.length);
+    var trackedList = new EntityEmbeddedListImpl<Boolean>(source.length);
     for (var b : source) {
       trackedList.add(b);
     }
@@ -2517,85 +2517,85 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Override
   public LinkList newLinkList() {
-    return new LinkListImpl(this);
+    return new EntityLinkListImpl(this);
   }
 
   @Override
   public LinkList newLinkList(int size) {
-    return new LinkListImpl(size, this);
+    return new EntityLinkListImpl(this, size);
   }
 
   @Override
   public LinkList newLinkList(Collection<Identifiable> source) {
-    var list = new LinkListImpl(source.size(), this);
+    var list = new EntityLinkListImpl(this, source.size());
     list.addAll(source);
     return list;
   }
 
   @Override
   public <T> EmbeddedSet<T> newEmbeddedSet() {
-    return new EmbeddedSetImpl<>();
+    return new EntityEmbeddedSetImpl<>();
   }
 
   @Override
   public <T> EmbeddedSet<T> newEmbeddedSet(int size) {
-    return new EmbeddedSetImpl<>(size);
+    return new EntityEmbeddedSetImpl<>(size);
   }
 
   @Override
   public <T> EmbeddedSet<T> newEmbeddedSet(Collection<T> set) {
-    var trackedSet = new EmbeddedSetImpl<T>(set.size());
+    var trackedSet = new EntityEmbeddedSetImpl<T>(set.size());
     trackedSet.addAll(set);
     return trackedSet;
   }
 
   @Override
   public LinkSet newLinkSet() {
-    return new LinkSetImpl(this);
+    return new EntityLinkSetImpl(this);
   }
 
   @Override
   public LinkSet newLinkSet(int size) {
-    return new LinkSetImpl(size, this);
+    return new EntityLinkSetImpl(size, this);
   }
 
   @Override
   public LinkSet newLinkSet(Collection<Identifiable> source) {
-    var linkSet = new LinkSetImpl(source.size(), this);
+    var linkSet = new EntityLinkSetImpl(source.size(), this);
     linkSet.addAll(source);
     return linkSet;
   }
 
   @Override
   public <V> Map<String, V> newEmbeddedMap() {
-    return new TrackedMap<>();
+    return new EntityEmbeddedMapImpl<>();
   }
 
   @Override
   public <V> Map<String, V> newEmbeddedMap(int size) {
-    return new TrackedMap<>(size);
+    return new EntityEmbeddedMapImpl<>(size);
   }
 
   @Override
   public <V> Map<String, V> newEmbeddedMap(Map<String, V> map) {
-    var trackedMap = new TrackedMap<V>(map.size());
+    var trackedMap = new EntityEmbeddedMapImpl<V>(map.size());
     trackedMap.putAll(map);
     return trackedMap;
   }
 
   @Override
   public Map<String, Identifiable> newLinkMap() {
-    return new LinkMap(this);
+    return new EntityLinkMapIml(this);
   }
 
   @Override
   public Map<String, Identifiable> newLinkMap(int size) {
-    return new LinkMap(size, this);
+    return new EntityLinkMapIml(size, this);
   }
 
   @Override
   public Map<String, Identifiable> newLinkMap(Map<String, Identifiable> source) {
-    var linkMap = new LinkMap(source.size(), this);
+    var linkMap = new EntityLinkMapIml(source.size(), this);
     linkMap.putAll(source);
     return linkMap;
   }

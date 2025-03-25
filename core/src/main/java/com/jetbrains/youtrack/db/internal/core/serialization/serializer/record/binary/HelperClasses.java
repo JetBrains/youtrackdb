@@ -26,7 +26,7 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.ByteSeriali
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
@@ -321,9 +321,9 @@ public class HelperClasses {
   public static Map<String, Identifiable> readLinkMap(
       final BytesContainer bytes, final RecordElement owner, boolean justRunThrough) {
     var size = VarIntSerializer.readAsInteger(bytes);
-    LinkMap result = null;
+    EntityLinkMapIml result = null;
     if (!justRunThrough) {
-      result = new LinkMap(owner);
+      result = new EntityLinkMapIml(owner);
     }
     while ((size--) > 0) {
       final var key = readString(bytes);

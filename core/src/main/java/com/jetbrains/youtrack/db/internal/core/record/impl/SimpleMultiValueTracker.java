@@ -34,9 +34,8 @@ import java.lang.ref.WeakReference;
  * @param <V> Item value.
  */
 public final class SimpleMultiValueTracker<K, V> {
-
   private final WeakReference<RecordElement> element;
-  private MultiValueChangeTimeLine<Object, Object> timeLine;
+  private MultiValueChangeTimeLine<K, V> timeLine;
   private boolean enabled;
   private MultiValueChangeTimeLine<K, V> transactionTimeLine;
 
@@ -90,7 +89,7 @@ public final class SimpleMultiValueTracker<K, V> {
     if (timeLine == null) {
       timeLine = new MultiValueChangeTimeLine<>();
     }
-    timeLine.addCollectionChangeEvent((MultiValueChangeEvent<Object, Object>) event);
+    timeLine.addCollectionChangeEvent(event);
 
     if (transactionTimeLine == null) {
       transactionTimeLine = new MultiValueChangeTimeLine<>();
@@ -127,7 +126,7 @@ public final class SimpleMultiValueTracker<K, V> {
     this.enabled = tracker.enabled;
   }
 
-  public MultiValueChangeTimeLine<Object, Object> getTimeLine() {
+  public MultiValueChangeTimeLine<K, V> getTimeLine() {
     return timeLine;
   }
 

@@ -19,7 +19,7 @@ public class TrackedListTest extends DbTestBase {
     rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedList = new EmbeddedListImpl<String>(doc);
+    final var trackedList = new EntityEmbeddedListImpl<String>(doc);
     trackedList.enableTracking(doc);
     var event =
         new MultiValueChangeEvent<Object, Object>(
@@ -40,7 +40,7 @@ public class TrackedListTest extends DbTestBase {
     rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedList = new EmbeddedListImpl<String>(doc);
+    final var trackedList = new EntityEmbeddedListImpl<String>(doc);
     trackedList.add("value1");
     trackedList.add("value2");
 
@@ -65,7 +65,7 @@ public class TrackedListTest extends DbTestBase {
     rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedList = new EmbeddedListImpl<String>(doc);
+    final var trackedList = new EntityEmbeddedListImpl<String>(doc);
     doc.setPropertyInternal("tracked", trackedList);
     trackedList.add("value1");
     Assert.assertTrue(doc.isDirty());
@@ -80,7 +80,7 @@ public class TrackedListTest extends DbTestBase {
     rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedList = new EmbeddedListImpl<String>(doc);
+    final var trackedList = new EntityEmbeddedListImpl<String>(doc);
     trackedList.add("value1");
     trackedList.add("value2");
 
@@ -105,7 +105,7 @@ public class TrackedListTest extends DbTestBase {
     rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedList = new EmbeddedListImpl<String>(doc);
+    final var trackedList = new EntityEmbeddedListImpl<String>(doc);
     final List<String> valuesToAdd = new ArrayList<String>();
     valuesToAdd.add("value1");
     valuesToAdd.add("value3");
@@ -138,7 +138,7 @@ public class TrackedListTest extends DbTestBase {
     rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedList = new EmbeddedListImpl<String>(doc);
+    final var trackedList = new EntityEmbeddedListImpl<String>(doc);
     doc.setPropertyInternal("tracked", trackedList);
     final List<String> valuesToAdd = new ArrayList<String>();
     valuesToAdd.add("value1");
@@ -158,7 +158,7 @@ public class TrackedListTest extends DbTestBase {
     rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedList = new EmbeddedListImpl<String>(doc);
+    final var trackedList = new EntityEmbeddedListImpl<String>(doc);
     final List<String> valuesToAdd = new ArrayList<String>();
     valuesToAdd.add("value1");
     valuesToAdd.add("value3");
@@ -186,7 +186,7 @@ public class TrackedListTest extends DbTestBase {
     rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedList = new EmbeddedListImpl<String>(doc);
+    final var trackedList = new EntityEmbeddedListImpl<String>(doc);
     trackedList.add("value1");
     trackedList.add("value2");
 
@@ -214,7 +214,7 @@ public class TrackedListTest extends DbTestBase {
     rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedList = new EmbeddedListImpl<String>(doc);
+    final var trackedList = new EntityEmbeddedListImpl<String>(doc);
     doc.setPropertyInternal("aa", trackedList);
     trackedList.add("value1");
     trackedList.add("value2");
@@ -235,7 +235,7 @@ public class TrackedListTest extends DbTestBase {
     rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedList = new EmbeddedListImpl<String>(doc);
+    final var trackedList = new EntityEmbeddedListImpl<String>(doc);
     trackedList.add("value1");
     trackedList.add("value2");
     trackedList.add("value3");
@@ -262,7 +262,7 @@ public class TrackedListTest extends DbTestBase {
     rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedList = new EmbeddedListImpl<String>(doc);
+    final var trackedList = new EntityEmbeddedListImpl<String>(doc);
     doc.setPropertyInternal("tracked", trackedList);
     trackedList.add("value1");
     trackedList.add("value2");
@@ -285,7 +285,7 @@ public class TrackedListTest extends DbTestBase {
     rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedList = new EmbeddedListImpl<String>(doc);
+    final var trackedList = new EntityEmbeddedListImpl<String>(doc);
     trackedList.add("value1");
     trackedList.add("value2");
     trackedList.add("value3");
@@ -311,7 +311,7 @@ public class TrackedListTest extends DbTestBase {
     rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedList = new EmbeddedListImpl<String>(doc);
+    final var trackedList = new EntityEmbeddedListImpl<String>(doc);
     doc.setPropertyInternal("tracked", trackedList);
     trackedList.add("value1");
     trackedList.add("value2");
@@ -334,7 +334,7 @@ public class TrackedListTest extends DbTestBase {
     rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedList = new EmbeddedListImpl<String>(doc);
+    final var trackedList = new EntityEmbeddedListImpl<String>(doc);
     trackedList.add("value1");
     trackedList.add("value2");
     trackedList.add("value3");
@@ -358,7 +358,7 @@ public class TrackedListTest extends DbTestBase {
     rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedList = new EmbeddedListImpl<String>(doc);
+    final var trackedList = new EntityEmbeddedListImpl<String>(doc);
     trackedList.add("value1");
     trackedList.add("value2");
     trackedList.add("value3");
@@ -386,7 +386,7 @@ public class TrackedListTest extends DbTestBase {
     rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedList = new EmbeddedListImpl<String>(doc);
+    final var trackedList = new EntityEmbeddedListImpl<String>(doc);
     trackedList.add("value1");
     trackedList.add("value2");
     trackedList.add("value3");
@@ -422,7 +422,7 @@ public class TrackedListTest extends DbTestBase {
     rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
 
-    final var trackedList = new EmbeddedListImpl<String>(doc);
+    final var trackedList = new EntityEmbeddedListImpl<String>(doc);
     doc.setPropertyInternal("tracked", trackedList);
     trackedList.add("value1");
     trackedList.add("value2");
@@ -442,7 +442,7 @@ public class TrackedListTest extends DbTestBase {
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
 
-    final var trackedList = new EmbeddedListImpl<String>(doc);
+    final var trackedList = new EntityEmbeddedListImpl<String>(doc);
     trackedList.add("value1");
     trackedList.add("value2");
     trackedList.add("value3");
@@ -478,7 +478,7 @@ public class TrackedListTest extends DbTestBase {
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
 
-    final var trackedList = new EmbeddedListImpl<String>(doc);
+    final var trackedList = new EntityEmbeddedListImpl<String>(doc);
     trackedList.add("value1");
     trackedList.add("value2");
     trackedList.add("value3");

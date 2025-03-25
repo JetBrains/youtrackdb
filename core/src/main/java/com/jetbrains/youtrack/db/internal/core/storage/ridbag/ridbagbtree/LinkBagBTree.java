@@ -20,8 +20,7 @@ import java.util.Spliterator;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
-public final class BTree extends DurableComponent {
-
+public final class LinkBagBTree extends DurableComponent {
   private static final int MAX_PATH_LENGTH =
       GlobalConfiguration.BTREE_MAX_DEPTH.getValueAsInteger();
 
@@ -31,7 +30,7 @@ public final class BTree extends DurableComponent {
   private volatile long fileId;
   private final BinarySerializerFactory serializerFactory;
 
-  public BTree(final AbstractPaginatedStorage storage, final String name,
+  public LinkBagBTree(final AbstractPaginatedStorage storage, final String name,
       final String fileExtension) {
     super(storage, name, fileExtension, name + fileExtension);
 
@@ -907,7 +906,7 @@ public final class BTree extends DurableComponent {
 
     iter.clearCache();
 
-    atomicOperationsManager.acquireReadLock(BTree.this);
+    atomicOperationsManager.acquireReadLock(LinkBagBTree.this);
     try {
       acquireSharedLock();
       try {
@@ -970,7 +969,7 @@ public final class BTree extends DurableComponent {
           new StorageException(storage.getName(), "Error during entity iteration"),
           e, storage.getName());
     } finally {
-      atomicOperationsManager.releaseReadLock(BTree.this);
+      atomicOperationsManager.releaseReadLock(LinkBagBTree.this);
     }
   }
 
@@ -1043,7 +1042,7 @@ public final class BTree extends DurableComponent {
 
     iter.clearCache();
 
-    atomicOperationsManager.acquireReadLock(BTree.this);
+    atomicOperationsManager.acquireReadLock(LinkBagBTree.this);
     try {
       acquireSharedLock();
       try {
@@ -1105,7 +1104,7 @@ public final class BTree extends DurableComponent {
           new StorageException(storage.getName(), "Error during entity iteration"),
           e, storage.getName());
     } finally {
-      atomicOperationsManager.releaseReadLock(BTree.this);
+      atomicOperationsManager.releaseReadLock(LinkBagBTree.this);
     }
   }
 

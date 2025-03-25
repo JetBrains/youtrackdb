@@ -38,12 +38,12 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -805,14 +805,14 @@ public class RecordSerializerJackson {
         }
 
         case RID link -> serializeLink(jsonGenerator, link);
-        case LinkListImpl linkList -> {
+        case EntityLinkListImpl linkList -> {
           jsonGenerator.writeStartArray();
           for (var link : linkList) {
             serializeLink(jsonGenerator, link.getIdentity());
           }
           jsonGenerator.writeEndArray();
         }
-        case LinkSetImpl linkSet -> {
+        case EntityLinkSetImpl linkSet -> {
           jsonGenerator.writeStartArray();
           for (var link : linkSet) {
             serializeLink(jsonGenerator, link.getIdentity());
@@ -826,7 +826,7 @@ public class RecordSerializerJackson {
           }
           jsonGenerator.writeEndArray();
         }
-        case LinkMap linkMap -> {
+        case EntityLinkMapIml linkMap -> {
           jsonGenerator.writeStartObject();
           for (var entry : linkMap.entrySet()) {
             jsonGenerator.writeFieldName(entry.getKey());
@@ -835,21 +835,21 @@ public class RecordSerializerJackson {
           jsonGenerator.writeEndObject();
         }
 
-        case EmbeddedListImpl<?> trackedList -> {
+        case EntityEmbeddedListImpl<?> trackedList -> {
           jsonGenerator.writeStartArray();
           for (var value : trackedList) {
             serializeValue(session, jsonGenerator, value, formatSettings);
           }
           jsonGenerator.writeEndArray();
         }
-        case EmbeddedSetImpl<?> trackedSet -> {
+        case EntityEmbeddedSetImpl<?> trackedSet -> {
           jsonGenerator.writeStartArray();
           for (var value : trackedSet) {
             serializeValue(session, jsonGenerator, value, formatSettings);
           }
           jsonGenerator.writeEndArray();
         }
-        case TrackedMap<?> trackedMap -> {
+        case EntityEmbeddedMapImpl<?> trackedMap -> {
           serializeEmbeddedMap(session, jsonGenerator, formatSettings, trackedMap);
         }
 
@@ -963,7 +963,7 @@ public class RecordSerializerJackson {
 
           if (jsonParser.currentToken() == JsonToken.END_OBJECT) {
             // empty map
-            yield new TrackedMap<>(entity);
+            yield new EntityEmbeddedMapImpl<>(entity);
           }
 
           //we have read the filed name already, so we need to read the value
@@ -974,12 +974,12 @@ public class RecordSerializerJackson {
 
           if (value instanceof Identifiable identifiable) {
 
-            final var map = new LinkMap(entity);
+            final var map = new EntityLinkMapIml(entity);
             map.put(fieldName, identifiable);
 
             yield parseLinkMap(entity, jsonParser, map);
           } else {
-            final var map = new TrackedMap<>(entity);
+            final var map = new EntityEmbeddedMapImpl<>(entity);
             map.put(fieldName, value);
 
             yield parseEmbeddedMap(session, entity, jsonParser, map, schemaProperty);
@@ -993,10 +993,10 @@ public class RecordSerializerJackson {
     };
   }
 
-  private static LinkMap parseLinkMap(EntityImpl entity, JsonParser jsonParser, LinkMap map)
+  private static EntityLinkMapIml parseLinkMap(EntityImpl entity, JsonParser jsonParser, EntityLinkMapIml map)
       throws IOException {
     if (map == null) {
-      map = new LinkMap(entity);
+      map = new EntityLinkMapIml(entity);
     }
     while (jsonParser.nextToken() != JsonToken.END_OBJECT) {
       var fieldName = jsonParser.currentName();
@@ -1039,12 +1039,12 @@ public class RecordSerializerJackson {
     return embedded;
   }
 
-  private static TrackedMap<Object> parseEmbeddedMap(@Nonnull DatabaseSessionInternal session,
-      @Nonnull EntityImpl entity, @Nonnull JsonParser jsonParser, @Nullable TrackedMap<Object> map,
+  private static EntityEmbeddedMapImpl<Object> parseEmbeddedMap(@Nonnull DatabaseSessionInternal session,
+      @Nonnull EntityImpl entity, @Nonnull JsonParser jsonParser, @Nullable EntityEmbeddedMapImpl<Object> map,
       SchemaProperty schemaProperty)
       throws IOException {
     if (map == null) {
-      map = new TrackedMap<>(entity);
+      map = new EntityEmbeddedMapImpl<>(entity);
     }
 
     while (jsonParser.nextToken() != JsonToken.END_OBJECT) {
@@ -1059,9 +1059,9 @@ public class RecordSerializerJackson {
     return map;
   }
 
-  private static LinkListImpl parseLinkList(EntityImpl entity, JsonParser jsonParser)
+  private static EntityLinkListImpl parseLinkList(EntityImpl entity, JsonParser jsonParser)
       throws IOException {
-    var list = new LinkListImpl(entity);
+    var list = new EntityLinkListImpl(entity);
 
     while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
       var ridText = jsonParser.getText();
@@ -1071,9 +1071,9 @@ public class RecordSerializerJackson {
     return list;
   }
 
-  private static LinkSetImpl parseLinkSet(EntityImpl entity, JsonParser jsonParser)
+  private static EntityLinkSetImpl parseLinkSet(EntityImpl entity, JsonParser jsonParser)
       throws IOException {
-    var list = new LinkSetImpl(entity);
+    var list = new EntityLinkSetImpl(entity);
 
     while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
       var ridText = jsonParser.getText();
@@ -1095,10 +1095,10 @@ public class RecordSerializerJackson {
     return bag;
   }
 
-  private static EmbeddedListImpl<Object> parseEmbeddedList(DatabaseSessionInternal session,
+  private static EntityEmbeddedListImpl<Object> parseEmbeddedList(DatabaseSessionInternal session,
       EntityImpl entity,
       JsonParser jsonParser, @Nullable SchemaProperty schemaProperty) throws IOException {
-    var list = new EmbeddedListImpl<>(entity);
+    var list = new EntityEmbeddedListImpl<>(entity);
 
     while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
       list.add(parseValue(session, null, jsonParser,
@@ -1109,10 +1109,10 @@ public class RecordSerializerJackson {
     return list;
   }
 
-  private static EmbeddedSetImpl<Object> parseEmbeddedSet(DatabaseSessionInternal session,
+  private static EntityEmbeddedSetImpl<Object> parseEmbeddedSet(DatabaseSessionInternal session,
       EntityImpl entity,
       JsonParser jsonParser, SchemaProperty schemaProperty) throws IOException {
-    var list = new EmbeddedSetImpl<>(entity);
+    var list = new EntityEmbeddedSetImpl<>(entity);
 
     while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
       list.add(parseValue(session, null, jsonParser,

@@ -6,12 +6,12 @@ import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
@@ -98,7 +98,7 @@ public class TestSchemaPropertyTypeDetection extends DbTestBase {
         PropertyTypeInternal.getTypeByClass(List.class));
 
     assertEquals(PropertyTypeInternal.EMBEDDEDLIST,
-        PropertyTypeInternal.getTypeByClass(EmbeddedListImpl.class));
+        PropertyTypeInternal.getTypeByClass(EntityEmbeddedListImpl.class));
 
     assertEquals(PropertyTypeInternal.EMBEDDEDSET, PropertyTypeInternal.getTypeByClass(Set.class));
 
@@ -106,7 +106,7 @@ public class TestSchemaPropertyTypeDetection extends DbTestBase {
         PropertyTypeInternal.getTypeByClass(HashSet.class));
 
     assertEquals(PropertyTypeInternal.EMBEDDEDSET,
-        PropertyTypeInternal.getTypeByClass(EmbeddedSetImpl.class));
+        PropertyTypeInternal.getTypeByClass(EntityEmbeddedSetImpl.class));
 
     assertEquals(PropertyTypeInternal.EMBEDDEDMAP, PropertyTypeInternal.getTypeByClass(Map.class));
 
@@ -114,15 +114,15 @@ public class TestSchemaPropertyTypeDetection extends DbTestBase {
         PropertyTypeInternal.getTypeByClass(HashMap.class));
 
     assertEquals(PropertyTypeInternal.EMBEDDEDMAP,
-        PropertyTypeInternal.getTypeByClass(TrackedMap.class));
+        PropertyTypeInternal.getTypeByClass(EntityEmbeddedMapImpl.class));
 
     assertEquals(PropertyTypeInternal.LINKSET,
-        PropertyTypeInternal.getTypeByClass(LinkSetImpl.class));
+        PropertyTypeInternal.getTypeByClass(EntityLinkSetImpl.class));
 
     assertEquals(PropertyTypeInternal.LINKLIST,
-        PropertyTypeInternal.getTypeByClass(LinkListImpl.class));
+        PropertyTypeInternal.getTypeByClass(EntityLinkListImpl.class));
 
-    assertEquals(PropertyTypeInternal.LINKMAP, PropertyTypeInternal.getTypeByClass(LinkMap.class));
+    assertEquals(PropertyTypeInternal.LINKMAP, PropertyTypeInternal.getTypeByClass(EntityLinkMapIml.class));
 
     assertEquals(PropertyTypeInternal.LINKBAG, PropertyTypeInternal.getTypeByClass(RidBag.class));
 
@@ -182,7 +182,7 @@ public class TestSchemaPropertyTypeDetection extends DbTestBase {
 
     assertEquals(
         PropertyTypeInternal.EMBEDDEDLIST,
-        PropertyTypeInternal.getTypeByValue(new EmbeddedListImpl<>((EntityImpl) session.newEntity()
+        PropertyTypeInternal.getTypeByValue(new EntityEmbeddedListImpl<>((EntityImpl) session.newEntity()
         )));
 
     assertEquals(PropertyTypeInternal.EMBEDDEDSET,
@@ -192,13 +192,13 @@ public class TestSchemaPropertyTypeDetection extends DbTestBase {
         PropertyTypeInternal.getTypeByValue(new HashMap<Object, Object>()));
 
     assertEquals(PropertyTypeInternal.LINKSET,
-        PropertyTypeInternal.getTypeByValue(new LinkSetImpl((EntityImpl) session.newEntity())));
+        PropertyTypeInternal.getTypeByValue(new EntityLinkSetImpl((EntityImpl) session.newEntity())));
 
     assertEquals(PropertyTypeInternal.LINKLIST,
-        PropertyTypeInternal.getTypeByValue(new LinkListImpl((EntityImpl) session.newEntity())));
+        PropertyTypeInternal.getTypeByValue(new EntityLinkListImpl((EntityImpl) session.newEntity())));
 
     assertEquals(PropertyTypeInternal.LINKMAP,
-        PropertyTypeInternal.getTypeByValue(new LinkMap((EntityImpl) session.newEntity())));
+        PropertyTypeInternal.getTypeByValue(new EntityLinkMapIml((EntityImpl) session.newEntity())));
 
     assertEquals(PropertyTypeInternal.LINKBAG,
         PropertyTypeInternal.getTypeByValue(new RidBag(session)));

@@ -17,84 +17,123 @@
  *
  *
  */
-
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
+import com.jetbrains.youtrack.db.api.exception.SchemaException;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.SimpleMultiValueTracker;
 import java.io.Serializable;
+import java.lang.ref.WeakReference;
 import java.util.AbstractSet;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
-import java.util.Spliterator;
 import java.util.function.Consumer;
 import java.util.function.IntFunction;
-import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- * Implementation of Set bound to a source Record object to keep track of changes. This avoid to
- * call the makeDirty() by hand when the set is changed.
- */
-public abstract class TrackedSet<T> extends AbstractSet<T>
-    implements RecordElement, TrackedMultiValue<T, T>, Serializable {
+public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
+    LinkTrackedMultiValue<Identifiable>,
+    LinkSet, RecordElement,
+    Serializable {
+
+  @Nonnull
+  private final WeakReference<DatabaseSessionInternal> session;
+  private final SimpleMultiValueTracker<Identifiable, Identifiable> tracker = new SimpleMultiValueTracker<>(
+      this);
+
 
   protected RecordElement sourceRecord;
-  protected Class<?> genericClass;
   private boolean dirty = false;
   private boolean transactionDirty = false;
   @Nonnull
-  private final HashSet<T> set;
+  private final HashSet<RID> set;
 
-  private final boolean linkCollectionsProhibited;
-  private final boolean resultAllowed;
 
-  private final SimpleMultiValueTracker<T, T> tracker = new SimpleMultiValueTracker<>(this);
-
-  public TrackedSet(final RecordElement iSourceRecord) {
+  public EntityLinkSetImpl(DatabaseSessionInternal session) {
+    this.session = new WeakReference<>(session);
     this.set = new HashSet<>();
-    this.sourceRecord = iSourceRecord;
-    this.linkCollectionsProhibited = true;
-    this.resultAllowed = false;
+
   }
 
-  public TrackedSet(final RecordElement iSourceRecord, int size) {
+  public EntityLinkSetImpl(int size, DatabaseSessionInternal session) {
+    this.session = new WeakReference<>(session);
+    this.set = new HashSet<>(size);
+  }
+
+  public EntityLinkSetImpl(final RecordElement sourceRecord) {
+    this.sourceRecord = sourceRecord;
+    this.set = new HashSet<>();
+    this.session = new WeakReference<>(sourceRecord.getSession());
+  }
+
+  public EntityLinkSetImpl(final RecordElement iSourceRecord, int size) {
     this.set = new HashSet<>(size);
     this.sourceRecord = iSourceRecord;
-    this.linkCollectionsProhibited = true;
-    this.resultAllowed = false;
+    this.session = new WeakReference<>(iSourceRecord.getSession());
   }
 
-  public TrackedSet() {
-    this(true, false);
+  public EntityLinkSetImpl(RecordElement iSourceRecord, Collection<Identifiable> iOrigin) {
+    this(iSourceRecord);
+
+    if (iOrigin != null && !iOrigin.isEmpty()) {
+      addAll(iOrigin);
+    }
   }
 
-  public TrackedSet(boolean linkCollectionsProhibited, boolean resultAllowed) {
-    this.set = new HashSet<>();
-    tracker.enable();
-    this.linkCollectionsProhibited = linkCollectionsProhibited;
-    this.resultAllowed = resultAllowed;
+  public boolean addInternal(Identifiable e) {
+    checkValue(e);
+    var rid = convertToRid(e);
+
+    if (set.add(rid)) {
+      addOwner(e);
+      return true;
+    }
+
+    return false;
   }
 
-  public TrackedSet(int size) {
-    this.set = new HashSet<>(size);
-    tracker.enable();
-    this.linkCollectionsProhibited = true;
-    this.resultAllowed = false;
+  public boolean remove(Object o) {
+    if (o == null) {
+      return false;
+    }
+
+    if (!(o instanceof Identifiable identifiable)) {
+      return false;
+    }
+
+    try {
+      checkValue(identifiable);
+    } catch (IllegalArgumentException | SchemaException e) {
+      return false;
+    }
+
+    var rid = convertToRid(identifiable);
+
+    if (set.remove(rid)) {
+      removeEvent(rid);
+      return true;
+    }
+
+    return false;
   }
 
+  @Nullable
   @Override
-  public boolean isResultAllowed() {
-    return resultAllowed;
+  public DatabaseSessionInternal getSession() {
+    return session.get();
   }
 
   @Override
   public void setOwner(RecordElement newOwner) {
+    LinkTrackedMultiValue.checkEntityAsOwner(newOwner);
     if (newOwner != null) {
       var owner = sourceRecord;
 
@@ -119,10 +158,10 @@ public abstract class TrackedSet<T> extends AbstractSet<T>
 
   @Nonnull
   @Override
-  public Iterator<T> iterator() {
-    return new Iterator<T>() {
-      private T current;
-      private final Iterator<T> underlying = set.iterator();
+  public Iterator<Identifiable> iterator() {
+    return new Iterator<>() {
+      private RID current;
+      private final Iterator<RID> underlying = set.iterator();
 
       @Override
       public boolean hasNext() {
@@ -130,7 +169,7 @@ public abstract class TrackedSet<T> extends AbstractSet<T>
       }
 
       @Override
-      public T next() {
+      public Identifiable next() {
         current = underlying.next();
         return current;
       }
@@ -148,43 +187,29 @@ public abstract class TrackedSet<T> extends AbstractSet<T>
     return set.size();
   }
 
-  public boolean add(@Nullable final T e) {
+  public boolean add(@Nullable final Identifiable e) {
     checkValue(e);
-    if (set.add(e)) {
-      addEvent(e);
+    var rid = convertToRid(e);
+
+    if (set.add(rid)) {
+      addEvent(rid);
       return true;
     }
+
     return false;
   }
 
-  public boolean addInternal(final T e) {
-    checkValue(e);
-    if (set.add(e)) {
-      addOwner(e);
-      return true;
-    }
-    return false;
-  }
-
-  @SuppressWarnings("unchecked")
-  @Override
-  public boolean remove(final Object o) {
-    if (set.remove(o)) {
-      removeEvent((T) o);
-      return true;
-    }
-    return false;
-  }
 
   @Override
   public void clear() {
-    for (final var item : this) {
+    for (final var item : set) {
       removeEvent(item);
     }
+
     set.clear();
   }
 
-  protected void addEvent(T added) {
+  protected void addEvent(RID added) {
     addOwner(added);
 
     if (tracker.isEnabled()) {
@@ -194,7 +219,7 @@ public abstract class TrackedSet<T> extends AbstractSet<T>
     }
   }
 
-  private void removeEvent(T removed) {
+  private void removeEvent(RID removed) {
     removeOwner(removed);
 
     if (tracker.isEnabled()) {
@@ -225,10 +250,10 @@ public abstract class TrackedSet<T> extends AbstractSet<T>
     }
   }
 
-  public Set<T> returnOriginalState(
+  public Set<Identifiable> returnOriginalState(
       DatabaseSessionInternal session,
-      final List<MultiValueChangeEvent<T, T>> multiValueChangeEvents) {
-    final Set<T> reverted = new HashSet<T>(this);
+      final List<MultiValueChangeEvent<Identifiable, Identifiable>> multiValueChangeEvents) {
+    var reverted = new HashSet<>(this);
 
     final var listIterator =
         multiValueChangeEvents.listIterator(multiValueChangeEvents.size());
@@ -248,10 +273,6 @@ public abstract class TrackedSet<T> extends AbstractSet<T>
     }
 
     return reverted;
-  }
-
-  public Class<?> getGenericClass() {
-    return genericClass;
   }
 
   public void enableTracking(RecordElement parent) {
@@ -281,6 +302,7 @@ public abstract class TrackedSet<T> extends AbstractSet<T>
   @Override
   public void transactionClear() {
     tracker.transactionClear();
+
     TrackedMultiValue.nestedTransactionClear(this.iterator());
     this.transactionDirty = false;
   }
@@ -296,17 +318,12 @@ public abstract class TrackedSet<T> extends AbstractSet<T>
   }
 
   @Override
-  public MultiValueChangeTimeLine<Object, Object> getTimeLine() {
+  public MultiValueChangeTimeLine<Identifiable, Identifiable> getTimeLine() {
     return tracker.getTimeLine();
   }
 
-  public MultiValueChangeTimeLine<T, T> getTransactionTimeLine() {
+  public MultiValueChangeTimeLine<Identifiable, Identifiable> getTransactionTimeLine() {
     return tracker.getTransactionTimeLine();
-  }
-
-  @Override
-  public boolean isLinkCollectionsProhibited() {
-    return linkCollectionsProhibited;
   }
 
   @Override
@@ -314,27 +331,8 @@ public abstract class TrackedSet<T> extends AbstractSet<T>
     return set.toArray(generator);
   }
 
-
-  @Nonnull
   @Override
-  public Stream<T> stream() {
-    return set.stream();
-  }
-
-  @Nonnull
-  @Override
-  public Stream<T> parallelStream() {
-    return set.parallelStream();
-  }
-
-  @Nonnull
-  @Override
-  public Spliterator<T> spliterator() {
-    return set.spliterator();
-  }
-
-  @Override
-  public void forEach(Consumer<? super T> action) {
+  public void forEach(Consumer<? super Identifiable> action) {
     set.forEach(action);
   }
 
@@ -361,7 +359,16 @@ public abstract class TrackedSet<T> extends AbstractSet<T>
 
   @Override
   public boolean contains(Object o) {
-    return set.contains(o);
+    if (!(o instanceof Identifiable identifiable)) {
+      return false;
+    }
+    try {
+      checkValue(identifiable);
+    } catch (IllegalArgumentException | SchemaException e) {
+      return false;
+    }
+    var rid = convertToRid(identifiable);
+    return set.contains(rid);
   }
 
   @Nonnull
@@ -374,11 +381,6 @@ public abstract class TrackedSet<T> extends AbstractSet<T>
   @Override
   public <T1> T1[] toArray(@Nonnull T1[] a) {
     return set.toArray(a);
-  }
-
-  @Override
-  public boolean containsAll(@Nonnull Collection<?> c) {
-    return set.containsAll(c);
   }
 
   @Override

@@ -58,6 +58,7 @@ import java.util.Spliterator;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 /**
  * This is implementation which is based on B+-tree implementation threaded tree. The main
@@ -87,8 +88,7 @@ import javax.annotation.Nonnull;
  *
  * @since 8/7/13
  */
-public final class CellBTreeSingleValueV3<K> extends DurableComponent
-    implements CellBTreeSingleValue<K> {
+public final class BTree<K> extends DurableComponent implements CellBTreeSingleValue<K> {
 
   private static final int SPLITERATOR_CACHE_SIZE =
       GlobalConfiguration.INDEX_CURSOR_PREFETCH_SIZE.getValueAsInteger();
@@ -112,7 +112,7 @@ public final class CellBTreeSingleValueV3<K> extends DurableComponent
   private final BinarySerializerFactory serializerFactory;
   private PropertyTypeInternal[] keyTypes;
 
-  public CellBTreeSingleValueV3(
+  public BTree(
       @Nonnull final String name,
       final String dataFileExtension,
       final String nullFileExtension,
@@ -122,6 +122,21 @@ public final class CellBTreeSingleValueV3<K> extends DurableComponent
     try {
       this.nullFileExtension = nullFileExtension;
       serializerFactory = storage.getComponentsFactory().binarySerializerFactory;
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  public BTree(
+      @Nonnull final String name,
+      final String dataFileExtension,
+      final String nullFileExtension,
+      final AbstractPaginatedStorage storage, BinarySerializerFactory serializerFactory) {
+    super(storage, name, dataFileExtension, name + dataFileExtension);
+    acquireExclusiveLock();
+    try {
+      this.nullFileExtension = nullFileExtension;
+      this.serializerFactory = serializerFactory;
     } finally {
       releaseExclusiveLock();
     }
@@ -173,6 +188,7 @@ public final class CellBTreeSingleValueV3<K> extends DurableComponent
         });
   }
 
+  @Nullable
   public RID get(K key) {
     atomicOperationsManager.acquireReadLock(this);
     try {
@@ -480,7 +496,6 @@ public final class CellBTreeSingleValueV3<K> extends DurableComponent
                 final var removeSearchResult = bucketSearchResult.get();
 
                 final byte[] rawValue;
-                final int bucketSize;
                 try (final var keyBucketCacheEntry =
                     loadPageForWrite(
                         atomicOperation, fileId, removeSearchResult.getLeafPageIndex(), true)) {
@@ -494,9 +509,8 @@ public final class CellBTreeSingleValueV3<K> extends DurableComponent
                       keyBucket.getRawKey(
                           removeSearchResult.getLeafEntryPageIndex(), keySerializer,
                           serializerFactory);
-                  bucketSize =
-                      keyBucket.removeLeafEntry(
-                          removeSearchResult.getLeafEntryPageIndex(), serializedKey);
+                  keyBucket.removeLeafEntry(
+                      removeSearchResult.getLeafEntryPageIndex(), serializedKey);
                   updateSize(-1, atomicOperation);
 
                   final int clusterId = ShortSerializer.INSTANCE.deserializeNative(rawValue, 0);
@@ -505,17 +519,6 @@ public final class CellBTreeSingleValueV3<K> extends DurableComponent
                           rawValue, ShortSerializer.SHORT_SIZE);
 
                   removedValue = new RecordId(clusterId, clusterPosition);
-
-                  // skip balancing of the tree if leaf is a root.
-                  if (bucketSize == 0 && !removeSearchResult.getPath().isEmpty()) {
-                    final var balanceResult =
-                        balanceLeafNodeAfterItemDelete(
-                            atomicOperation, removeSearchResult, keyBucket);
-
-                    if (balanceResult) {
-                      addToFreeList(atomicOperation, (int) removeSearchResult.getLeafPageIndex());
-                    }
-                  }
                 }
               } else {
                 return null;
@@ -531,6 +534,13 @@ public final class CellBTreeSingleValueV3<K> extends DurableComponent
         });
   }
 
+
+  /**
+   * Balance leaf node after item deletion. If the node reaches the minimal size, it will be merged
+   * with its sibling. If the sibling is also too small, the parent node will be merged as well. It
+   * is planned to be used in the future in periodic B-Tree GC.
+   */
+  @SuppressWarnings("unused")
   private boolean balanceLeafNodeAfterItemDelete(
       final AtomicOperation atomicOperation,
       final RemoveSearchResult removeSearchResult,
@@ -994,6 +1004,7 @@ public final class CellBTreeSingleValueV3<K> extends DurableComponent
     }
   }
 
+  @Nullable
   public K firstKey() {
     atomicOperationsManager.acquireReadLock(this);
     try {
@@ -1027,6 +1038,7 @@ public final class CellBTreeSingleValueV3<K> extends DurableComponent
     }
   }
 
+  @Nullable
   public K lastKey() {
     atomicOperationsManager.acquireReadLock(this);
     try {
@@ -1965,7 +1977,7 @@ public final class CellBTreeSingleValueV3<K> extends DurableComponent
     iter.getDataCache().clear();
     iter.setCacheIterator(Collections.emptyIterator());
 
-    atomicOperationsManager.acquireReadLock(CellBTreeSingleValueV3.this);
+    atomicOperationsManager.acquireReadLock(BTree.this);
     try {
       acquireSharedLock();
       try {
@@ -2026,10 +2038,10 @@ public final class CellBTreeSingleValueV3<K> extends DurableComponent
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new CellBTreeSingleValueV3Exception(
-              "Error during entity iteration", CellBTreeSingleValueV3.this),
+              "Error during entity iteration", BTree.this),
           e, storage.getName());
     } finally {
-      atomicOperationsManager.releaseReadLock(CellBTreeSingleValueV3.this);
+      atomicOperationsManager.releaseReadLock(BTree.this);
     }
   }
 

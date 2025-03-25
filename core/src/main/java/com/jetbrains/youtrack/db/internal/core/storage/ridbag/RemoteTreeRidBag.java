@@ -175,11 +175,6 @@ public class RemoteTreeRidBag implements RidBagDelegate {
   }
 
   @Override
-  public Class<?> getGenericClass() {
-    return RID.class;
-  }
-
-  @Override
   public Object returnOriginalState(
       DatabaseSessionInternal session,
       List<MultiValueChangeEvent<RID, RID>> multiValueChangeEvents) {
@@ -286,7 +281,7 @@ public class RemoteTreeRidBag implements RidBagDelegate {
   }
 
   @Override
-  public MultiValueChangeTimeLine<Object, Object> getTimeLine() {
+  public MultiValueChangeTimeLine<RID, RID> getTimeLine() {
     return tracker.getTimeLine();
   }
 
@@ -326,16 +321,6 @@ public class RemoteTreeRidBag implements RidBagDelegate {
   @Override
   public MultiValueChangeTimeLine<RID, RID> getTransactionTimeLine() {
     return this.tracker.getTransactionTimeLine();
-  }
-
-  @Override
-  public boolean isLinkCollectionsProhibited() {
-    return true;
-  }
-
-  @Override
-  public boolean isResultAllowed() {
-    return false;
   }
 
   public void setRecordAndField(RecordId id, String fieldName) {

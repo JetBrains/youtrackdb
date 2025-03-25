@@ -30,7 +30,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalPaginatedStorag
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.PaginatedClusterFactory;
-import com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.singlevalue.v1.CellBTreeSingleValueV1;
+import com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -45,6 +45,7 @@ import java.util.Set;
 import java.util.TimeZone;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public final class ClusterBasedStorageConfiguration implements StorageConfiguration {
 
@@ -124,7 +125,7 @@ public final class ClusterBasedStorageConfiguration implements StorageConfigurat
   private ContextConfiguration configuration;
   private boolean validation;
 
-  private final CellBTreeSingleValueV1<String> btree;
+  private final BTree<String> btree;
   private final PaginatedCluster cluster;
 
   private final AbstractPaginatedStorage storage;
@@ -151,8 +152,8 @@ public final class ClusterBasedStorageConfiguration implements StorageConfigurat
             MAP_FILE_EXTENSION,
             FREE_MAP_FILE_EXTENSION);
     btree =
-        new CellBTreeSingleValueV1<>(
-            COMPONENT_NAME, TREE_DATA_FILE_EXTENSION, TREE_NULL_FILE_EXTENSION, storage, null);
+        new BTree<>(COMPONENT_NAME, TREE_DATA_FILE_EXTENSION, TREE_NULL_FILE_EXTENSION, storage,
+            null);
     this.storage = storage;
   }
 
@@ -557,6 +558,7 @@ public final class ClusterBasedStorageConfiguration implements StorageConfigurat
   }
 
   @Override
+  @Nullable
   public String getName() {
     return null;
   }
@@ -749,6 +751,7 @@ public final class ClusterBasedStorageConfiguration implements StorageConfigurat
   }
 
   @Override
+  @Nullable
   public TimeZone getTimeZone() {
     lock.readLock().lock();
     try {
@@ -1057,6 +1060,7 @@ public final class ClusterBasedStorageConfiguration implements StorageConfigurat
   }
 
   @Override
+  @Nullable
   public String getDirectory() {
     if (storage instanceof LocalPaginatedStorage) {
       return ((LocalPaginatedStorage) storage).getStoragePath().toString();
@@ -1282,6 +1286,7 @@ public final class ClusterBasedStorageConfiguration implements StorageConfigurat
   }
 
   @Override
+  @Nullable
   public IndexEngineData getIndexEngine(final String name, int defaultIndexId) {
     lock.readLock().lock();
     try {
@@ -1715,6 +1720,7 @@ public final class ClusterBasedStorageConfiguration implements StorageConfigurat
     return property;
   }
 
+  @Nullable
   private static String deserializeStringValue(final byte[] raw, final int start) {
     if (raw[start] == 0) {
       return null;
@@ -1769,6 +1775,7 @@ public final class ClusterBasedStorageConfiguration implements StorageConfigurat
     }
   }
 
+  @Nullable
   private RawPairObjectInteger<byte[]> readProperty(final String name) {
     try {
       final var rid = btree.get(name);

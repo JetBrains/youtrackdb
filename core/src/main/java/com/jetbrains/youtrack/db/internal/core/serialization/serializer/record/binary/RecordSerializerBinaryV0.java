@@ -52,13 +52,13 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.DecimalSeri
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
@@ -706,16 +706,16 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
         }
         break;
       case LINKSET:
-        LinkSetImpl collectionSet = null;
+        EntityLinkSetImpl collectionSet = null;
         if (!justRunThrough) {
-          collectionSet = new LinkSetImpl(owner);
+          collectionSet = new EntityLinkSetImpl(owner);
         }
         value = readLinkCollection(bytes, collectionSet, justRunThrough);
         break;
       case LINKLIST:
-        LinkListImpl collectionList = null;
+        EntityLinkListImpl collectionList = null;
         if (!justRunThrough) {
-          collectionList = new LinkListImpl(owner);
+          collectionList = new EntityLinkListImpl(owner);
         }
         value = readLinkCollection(bytes, collectionList, justRunThrough);
         break;
@@ -797,9 +797,9 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
       boolean justRunThrough,
       ImmutableSchema schema) {
     var size = VarIntSerializer.readAsInteger(bytes);
-    LinkMap result = null;
+    EntityLinkMapIml result = null;
     if (!justRunThrough) {
-      result = new LinkMap(owner);
+      result = new EntityLinkMapIml(owner);
     }
     while ((size--) > 0) {
       final var keyType = readOType(bytes, justRunThrough);
@@ -818,7 +818,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
   protected Object readEmbeddedMap(DatabaseSessionInternal db, final BytesContainer bytes,
       final RecordElement owner) {
     var size = VarIntSerializer.readAsInteger(bytes);
-    final var result = new TrackedMap<>(owner);
+    final var result = new EntityEmbeddedMapImpl<>(owner);
 
     var last = 0;
     while ((size--) > 0) {
@@ -845,7 +845,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
     return result;
   }
 
-  protected EmbeddedSetImpl<?> readEmbeddedSet(DatabaseSessionInternal db,
+  protected EntityEmbeddedSetImpl<?> readEmbeddedSet(DatabaseSessionInternal db,
       final BytesContainer bytes,
       final RecordElement owner) {
 
@@ -853,7 +853,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
     var type = readOType(bytes, false);
 
     if (type != null) {
-      final var found = new EmbeddedSetImpl<>(owner);
+      final var found = new EntityEmbeddedSetImpl<>(owner);
       for (var i = 0; i < items; i++) {
         var itemType = readOType(bytes, false);
         if (itemType == null) {
@@ -868,7 +868,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
     return null;
   }
 
-  protected EmbeddedListImpl<?> readEmbeddedList(DatabaseSessionInternal db,
+  protected EntityEmbeddedListImpl<?> readEmbeddedList(DatabaseSessionInternal db,
       final BytesContainer bytes,
       final RecordElement owner) {
 
@@ -878,7 +878,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
       return null;
     }
 
-    final var found = new EmbeddedListImpl<>(owner);
+    final var found = new EntityEmbeddedListImpl<>(owner);
     for (var i = 0; i < items; i++) {
       var itemType = readOType(bytes, false);
       if (itemType == null) {

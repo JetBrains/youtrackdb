@@ -13,7 +13,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
@@ -676,7 +676,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
         if (propType == PropertyType.LINKLIST
             || (prop != null
             && "true".equalsIgnoreCase(prop.getCustom("ordered")))) { // TODO constant
-          var coll = new LinkListImpl(fromVertex);
+          var coll = new EntityLinkListImpl(fromVertex);
           coll.add(to);
           out = coll;
           outType = PropertyTypeInternal.LINKLIST;
@@ -705,7 +705,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
         if (prop != null && "true".equalsIgnoreCase(
             prop.getCustom("ordered"))) { // TODO constant
-          var coll = new LinkListImpl(fromVertex);
+          var coll = new EntityLinkListImpl(fromVertex);
           coll.add(foundId);
           coll.add(to);
           out = coll;

@@ -279,7 +279,9 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
       optimistic.preProcessRecordsAndExecuteCallCallbacks();
 
       var operationsToSend = optimistic.getOperationsToSendOnClient();
-      if (!operationsToSend.isEmpty()) {
+      var dirtyCountersToSend = optimistic.getReceivedDirtyCounters();
+
+      if (!operationsToSend.isEmpty() || !dirtyCountersToSend.isEmpty()) {
         storage.sendTransactionState(optimistic);
       }
     }

@@ -46,9 +46,9 @@ import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrack.db.internal.core.db.record.ClassTrigger;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -1833,7 +1833,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
                         + " from opposite entity because it does not exist");
               }
             }
-            case LinkListImpl linkList -> {
+            case EntityLinkListImpl linkList -> {
               var removed = linkList.remove(entity);
               if (!removed) {
                 throw new IllegalStateException(
@@ -1841,7 +1841,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
                         + " from opposite entity because it does not exist in the list");
               }
             }
-            case LinkSetImpl linkSet -> {
+            case EntityLinkSetImpl linkSet -> {
               var removed = linkSet.remove(entity);
               if (!removed) {
                 throw new IllegalStateException(
@@ -1849,7 +1849,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
                         + " from opposite entity because it does not exist in the set");
               }
             }
-            case LinkMap linkMap -> {
+            case EntityLinkMapIml linkMap -> {
               var removed = false;
               var entrySetIterator = linkMap.entrySet().iterator();
               while (entrySetIterator.hasNext()) {
@@ -1870,7 +1870,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
             }
             case RidBag ridBag -> {
               assert ridBag.contains(entity.getIdentity());
-              ridBag.remove(entity.getIdentity());
+              do {
+                ridBag.remove(entity.getIdentity());
+              } while (ridBag.contains(entity.getIdentity()));
             }
             default -> {
               throw new IllegalStateException("Unexpected type of link property: "
@@ -1904,7 +1906,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       if (originalValue == currentPropertyValue) {
         var timeLine = entity.getCollectionTimeLine(propertyName);
         if (timeLine != null) {
-          if (originalValue instanceof LinkListImpl || originalValue instanceof LinkSetImpl) {
+          if (originalValue instanceof EntityLinkListImpl
+              || originalValue instanceof EntityLinkSetImpl) {
             for (var event : timeLine.getMultiValueChangeEvents()) {
               switch (event.getChangeType()) {
                 case ADD -> {
@@ -1919,7 +1922,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
                 }
               }
             }
-          } else if (originalValue instanceof LinkMap) {
+          } else if (originalValue instanceof EntityLinkMapIml) {
             for (var event : timeLine.getMultiValueChangeEvents()) {
               switch (event.getChangeType()) {
                 case ADD -> {
@@ -1993,17 +1996,17 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
           links.add((RecordId) identifiable.getIdentity());
         }
       }
-      case LinkListImpl linkList -> {
+      case EntityLinkListImpl linkList -> {
         for (var link : linkList) {
           links.add((RecordId) link);
         }
       }
-      case LinkSetImpl linkSet -> {
+      case EntityLinkSetImpl linkSet -> {
         for (var link : linkSet) {
           links.add((RecordId) link);
         }
       }
-      case LinkMap linkMap -> {
+      case EntityLinkMapIml linkMap -> {
         for (var link : linkMap.values()) {
           links.add((RecordId) link);
         }

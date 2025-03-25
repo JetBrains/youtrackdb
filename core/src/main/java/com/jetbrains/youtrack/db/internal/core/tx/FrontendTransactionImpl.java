@@ -455,6 +455,7 @@ public class FrontendTransactionImpl implements
             throw new IllegalStateException(
                 "Temporary records can not be added to the transaction");
           }
+
           if (record.txEntry != null) {
             throw new TransactionException(session,
                 "Record is already in transaction with different associated transaction entry");
@@ -475,11 +476,10 @@ public class FrontendTransactionImpl implements
             throw new TransactionException(session,
                 "Found record in transaction with the same RID but different instance");
           }
-          if (record.txEntry != null && record.txEntry != txEntry) {
+          if (record.txEntry != txEntry) {
             throw new TransactionException(session,
                 "Record is already in transaction with different associated transaction entry");
           }
-          record.txEntry = txEntry;
 
           switch (txEntry.type) {
             case RecordOperation.UPDATED:
@@ -555,6 +555,10 @@ public class FrontendTransactionImpl implements
     status = TXSTATUS.COMPLETED;
   }
 
+  public boolean isScheduledForNextCallback(RecordId rid) {
+    return operationsBetweenCallbacks.get(rid) != null;
+  }
+
   @Nullable
   public List<RecordId> preProcessRecordsAndExecuteCallCallbacks() {
     if (operationsBetweenCallbacks.isEmpty()) {
@@ -568,9 +572,9 @@ public class FrontendTransactionImpl implements
       operations.sort(
           Comparator.<RecordOperation>comparingInt(recordOperation -> recordOperation.type)
               .reversed());
-      operationsBetweenCallbacks.clear();
-
       for (var recordOperation : operations) {
+
+        //operations are processed and deleted from the map
         preProcessRecordOperationAndExecuteCallbacks(recordOperation, serializer);
         if (recordOperation.type == RecordOperation.DELETED && recordOperation.record.getIdentity()
             .isNew()) {
@@ -664,10 +668,10 @@ public class FrontendTransactionImpl implements
                 className);
           }
         }
-        processRecordDelete(recordOperation, record);
         if (className != null && !session.isRemote()) {
           ClassIndexManager.checkIndexesAfterDelete(entityImpl, session);
         }
+        processRecordDelete(recordOperation, record);
       }
     } else {
       throw new IllegalStateException(
@@ -680,6 +684,7 @@ public class FrontendTransactionImpl implements
 
     var clusterName = session.getClusterNameById(record.getIdentity().getClusterId());
     recordOperation.recordCallBackDirtyCounter = dirtyCounter;
+    operationsBetweenCallbacks.remove(record.getIdentity());
 
     session.afterDeleteOperations(record, clusterName);
     if (record instanceof EntityImpl) {
@@ -690,8 +695,9 @@ public class FrontendTransactionImpl implements
   private void processRecordUpdate(RecordOperation recordOperation, RecordAbstract record) {
     var dirtyCounter = record.getDirtyCounter();
     var clusterName = session.getClusterNameById(record.getIdentity().getClusterId());
-
     recordOperation.recordCallBackDirtyCounter = dirtyCounter;
+    operationsBetweenCallbacks.remove(record.getIdentity());
+
     session.afterUpdateOperations(record, clusterName);
     if (record instanceof EntityImpl) {
       ((EntityImpl) record).clearTrackData();
@@ -701,6 +707,8 @@ public class FrontendTransactionImpl implements
   private void processRecordCreation(RecordOperation recordOperation, RecordAbstract record) {
     var clusterName = session.getClusterNameById(record.getIdentity().getClusterId());
     recordOperation.recordCallBackDirtyCounter = record.getDirtyCounter();
+    operationsBetweenCallbacks.remove(record.getIdentity());
+
     session.afterCreateOperations(record, clusterName);
 
     if (record instanceof EntityImpl) {

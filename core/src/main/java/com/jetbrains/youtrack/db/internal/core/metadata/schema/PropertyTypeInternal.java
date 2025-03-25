@@ -32,12 +32,12 @@ import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionItera
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
@@ -61,7 +61,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
 import javax.annotation.Nullable;
 
 /**
@@ -421,7 +420,7 @@ public enum PropertyTypeInternal {
   },
 
   EMBEDDEDLIST(
-      "EmbeddedList", 10, EmbeddedListImpl.class,
+      "EmbeddedList", 10, EntityEmbeddedListImpl.class,
       new Class<?>[]{List.class, MultiCollectionIterator.class}) {
     @Override
     public List<Object> convert(Object value, PropertyTypeInternal linkedType,
@@ -431,7 +430,7 @@ public enum PropertyTypeInternal {
         case null -> {
           return null;
         }
-        case EmbeddedListImpl<?> trackedList -> {
+        case EntityEmbeddedListImpl<?> trackedList -> {
           //noinspection unchecked
           return (List<Object>) trackedList;
         }
@@ -484,7 +483,7 @@ public enum PropertyTypeInternal {
 
     @Override
     public boolean isTypeInstance(Object value) {
-      if (value instanceof LinkListImpl) {
+      if (value instanceof EntityLinkListImpl) {
         return false;
       }
 
@@ -493,7 +492,7 @@ public enum PropertyTypeInternal {
 
     @Override
     public boolean isConvertibleFrom(Object value) {
-      if (value instanceof LinkListImpl) {
+      if (value instanceof EntityLinkListImpl) {
         return false;
       }
 
@@ -508,7 +507,7 @@ public enum PropertyTypeInternal {
         return null;
       }
 
-      var trackedList = (EmbeddedListImpl<?>) value;
+      var trackedList = (EntityEmbeddedListImpl<?>) value;
       var copy = session.newEmbeddedList(trackedList.size());
       for (var item : trackedList) {
         var type = PropertyTypeInternal.getTypeByValue(item);
@@ -529,7 +528,7 @@ public enum PropertyTypeInternal {
     }
   },
 
-  EMBEDDEDSET("EmbeddedSet", 11, EmbeddedSetImpl.class, new Class<?>[]{Set.class}) {
+  EMBEDDEDSET("EmbeddedSet", 11, EntityEmbeddedSetImpl.class, new Class<?>[]{Set.class}) {
     @Override
     public Set<Object> convert(Object value, PropertyTypeInternal linkedType,
         SchemaClass linkedClass,
@@ -538,7 +537,7 @@ public enum PropertyTypeInternal {
         case null -> {
           return null;
         }
-        case EmbeddedSetImpl<?> trackedSet -> {
+        case EntityEmbeddedSetImpl<?> trackedSet -> {
           //noinspection unchecked
           return (Set<Object>) trackedSet;
         }
@@ -582,7 +581,7 @@ public enum PropertyTypeInternal {
 
     @Override
     public boolean isTypeInstance(Object value) {
-      if (value instanceof LinkSetImpl) {
+      if (value instanceof EntityLinkSetImpl) {
         return false;
       }
       return super.isTypeInstance(value);
@@ -590,7 +589,7 @@ public enum PropertyTypeInternal {
 
     @Override
     public boolean isConvertibleFrom(Object value) {
-      if (value instanceof LinkSetImpl) {
+      if (value instanceof EntityLinkSetImpl) {
         return false;
       }
       return super.isConvertibleFrom(value);
@@ -603,7 +602,7 @@ public enum PropertyTypeInternal {
         return null;
       }
 
-      var trackedSet = (EmbeddedSetImpl<?>) value;
+      var trackedSet = (EntityEmbeddedSetImpl<?>) value;
       var copy = session.newEmbeddedSet(trackedSet.size());
 
       for (var item : trackedSet) {
@@ -627,7 +626,7 @@ public enum PropertyTypeInternal {
     }
   },
 
-  EMBEDDEDMAP("EmbeddedMap", 12, TrackedMap.class, new Class<?>[]{Map.class}) {
+  EMBEDDEDMAP("EmbeddedMap", 12, EntityEmbeddedMapImpl.class, new Class<?>[]{Map.class}) {
     @Override
     public Map<String, Object> convert(Object value, PropertyTypeInternal linkedType,
         SchemaClass linkedClass,
@@ -636,7 +635,7 @@ public enum PropertyTypeInternal {
         case null -> {
           return null;
         }
-        case TrackedMap<?> trackedMap -> {
+        case EntityEmbeddedMapImpl<?> trackedMap -> {
           //noinspection unchecked
           return (Map<String, Object>) trackedMap;
         }
@@ -670,7 +669,7 @@ public enum PropertyTypeInternal {
 
           for (var element : iterable) {
             if ((element instanceof Map<?, ?> map) &&
-                !(element instanceof LinkMap) &&
+                !(element instanceof EntityLinkMapIml) &&
                 (map.isEmpty() || map.keySet().iterator().next() instanceof String)
             ) {
               //noinspection unchecked
@@ -695,7 +694,7 @@ public enum PropertyTypeInternal {
 
     @Override
     public boolean isTypeInstance(Object value) {
-      if (value instanceof LinkMap) {
+      if (value instanceof EntityLinkMapIml) {
         return false;
       }
       return super.isTypeInstance(value);
@@ -703,7 +702,7 @@ public enum PropertyTypeInternal {
 
     @Override
     public boolean isConvertibleFrom(Object value) {
-      if (value instanceof LinkMap) {
+      if (value instanceof EntityLinkMapIml) {
         return false;
       }
 
@@ -711,7 +710,7 @@ public enum PropertyTypeInternal {
         var iterator = iterable.iterator();
         if (iterator.hasNext()) {
           var firstValue = iterator.next();
-          if (firstValue instanceof Map<?, ?> map && !(firstValue instanceof LinkMap) &&
+          if (firstValue instanceof Map<?, ?> map && !(firstValue instanceof EntityLinkMapIml) &&
               (map.isEmpty() || map.keySet().iterator().next() instanceof String)) {
             return true;
           }
@@ -731,7 +730,7 @@ public enum PropertyTypeInternal {
         return null;
       }
 
-      var trackedMap = (TrackedMap<?>) value;
+      var trackedMap = (EntityEmbeddedMapImpl<?>) value;
       var copy = session.newEmbeddedMap(trackedMap.size());
       for (var entry : trackedMap.entrySet()) {
         var type = PropertyTypeInternal.getTypeByValue(entry.getValue());
@@ -850,7 +849,7 @@ public enum PropertyTypeInternal {
     }
   },
 
-  LINKLIST("LinkList", 14, LinkListImpl.class, new Class<?>[]{List.class}) {
+  LINKLIST("LinkList", 14, EntityLinkListImpl.class, new Class<?>[]{List.class}) {
     @Override
     public Object convert(Object value, PropertyTypeInternal linkedType, SchemaClass linkedClass,
         DatabaseSessionInternal session) {
@@ -858,7 +857,7 @@ public enum PropertyTypeInternal {
         case null -> {
           return null;
         }
-        case LinkListImpl linkList -> {
+        case EntityLinkListImpl linkList -> {
           return linkList;
         }
         case Collection<?> collection -> {
@@ -920,7 +919,7 @@ public enum PropertyTypeInternal {
         return null;
       }
 
-      var linkList = (LinkListImpl) value;
+      var linkList = (EntityLinkListImpl) value;
       var copy = session.newLinkList(linkList.size());
       copy.addAll(linkList);
 
@@ -933,7 +932,7 @@ public enum PropertyTypeInternal {
     }
   },
 
-  LINKSET("LinkSet", 15, LinkSetImpl.class, new Class<?>[]{Set.class}) {
+  LINKSET("LinkSet", 15, EntityLinkSetImpl.class, new Class<?>[]{Set.class}) {
     @Override
     public Set<Identifiable> convert(Object value, PropertyTypeInternal linkedType,
         SchemaClass linkedClass,
@@ -942,7 +941,7 @@ public enum PropertyTypeInternal {
         case null -> {
           return null;
         }
-        case LinkSetImpl linkSet -> {
+        case EntityLinkSetImpl linkSet -> {
           return linkSet;
         }
         case Collection<?> collection -> {
@@ -1002,7 +1001,7 @@ public enum PropertyTypeInternal {
         return null;
       }
 
-      var linkSet = (LinkSetImpl) value;
+      var linkSet = (EntityLinkSetImpl) value;
       var copy = session.newLinkSet(linkSet.size());
       copy.addAll(linkSet);
 
@@ -1015,7 +1014,7 @@ public enum PropertyTypeInternal {
     }
   },
 
-  LINKMAP("LinkMap", 16, LinkMap.class, new Class<?>[]{Map.class}) {
+  LINKMAP("LinkMap", 16, EntityLinkMapIml.class, new Class<?>[]{Map.class}) {
     @Override
     public Map<String, Identifiable> convert(Object value, PropertyTypeInternal linkedType,
         SchemaClass linkedClass,
@@ -1024,7 +1023,7 @@ public enum PropertyTypeInternal {
         case null -> {
           return null;
         }
-        case LinkMap linkMap -> {
+        case EntityLinkMapIml linkMap -> {
           return linkMap;
         }
         case Map<?, ?> map -> {
@@ -1082,7 +1081,7 @@ public enum PropertyTypeInternal {
         return null;
       }
 
-      var linkMap = (LinkMap) value;
+      var linkMap = (EntityLinkMapIml) value;
       var copy = session.newLinkMap(linkMap.size());
       copy.putAll(linkMap);
 
@@ -1261,12 +1260,12 @@ public enum PropertyTypeInternal {
     TYPES_BY_CLASS.put(BigDecimal.class, DECIMAL);
     TYPES_BY_CLASS.put(BigInteger.class, DECIMAL);
     TYPES_BY_CLASS.put(RidBag.class, LINKBAG);
-    TYPES_BY_CLASS.put(EmbeddedSetImpl.class, EMBEDDEDSET);
-    TYPES_BY_CLASS.put(LinkSetImpl.class, LINKSET);
-    TYPES_BY_CLASS.put(EmbeddedListImpl.class, EMBEDDEDLIST);
-    TYPES_BY_CLASS.put(LinkListImpl.class, LINKLIST);
-    TYPES_BY_CLASS.put(TrackedMap.class, EMBEDDEDMAP);
-    TYPES_BY_CLASS.put(LinkMap.class, LINKMAP);
+    TYPES_BY_CLASS.put(EntityEmbeddedSetImpl.class, EMBEDDEDSET);
+    TYPES_BY_CLASS.put(EntityLinkSetImpl.class, LINKSET);
+    TYPES_BY_CLASS.put(EntityEmbeddedListImpl.class, EMBEDDEDLIST);
+    TYPES_BY_CLASS.put(EntityLinkListImpl.class, LINKLIST);
+    TYPES_BY_CLASS.put(EntityEmbeddedMapImpl.class, EMBEDDEDMAP);
+    TYPES_BY_CLASS.put(EntityLinkMapIml.class, LINKMAP);
     BYTE.castable.add(BOOLEAN);
     SHORT.castable.addAll(Arrays.asList(BOOLEAN, BYTE));
     INTEGER.castable.addAll(Arrays.asList(BOOLEAN, BYTE, SHORT));
@@ -1584,15 +1583,15 @@ public enum PropertyTypeInternal {
         return (T) DOUBLE.convert(value, null, null, session);
       } else if (targetClass.equals(Boolean.TYPE) || targetClass.equals(Boolean.class)) {
         return (T) BOOLEAN.convert(value, null, null, session);
-      } else if (LinkSetImpl.class.isAssignableFrom(targetClass)) {
+      } else if (EntityLinkSetImpl.class.isAssignableFrom(targetClass)) {
         return (T) LINKSET.convert(value, null, null, session);
       } else if (Set.class.isAssignableFrom(targetClass)) {
         return (T) EMBEDDEDSET.convert(value, null, null, session);
-      } else if (LinkListImpl.class.isAssignableFrom(targetClass)) {
+      } else if (EntityLinkListImpl.class.isAssignableFrom(targetClass)) {
         return (T) LINKLIST.convert(value, null, null, session);
       } else if (Collection.class.isAssignableFrom(targetClass)) {
         return (T) EMBEDDEDLIST.convert(value, null, null, session);
-      } else if (LinkMap.class.isAssignableFrom(targetClass)) {
+      } else if (EntityLinkMapIml.class.isAssignableFrom(targetClass)) {
         return (T) LINKMAP.convert(value, null, null, session);
       } else if (Map.class.isAssignableFrom(targetClass)) {
         return (T) EMBEDDEDMAP.convert(value, null, null, session);

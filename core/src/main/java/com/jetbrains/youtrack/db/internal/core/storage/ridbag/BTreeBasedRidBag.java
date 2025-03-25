@@ -290,11 +290,6 @@ public class BTreeBasedRidBag implements RidBagDelegate {
   }
 
   @Override
-  public Class<?> getGenericClass() {
-    return Identifiable.class;
-  }
-
-  @Override
   public Object returnOriginalState(
       DatabaseSessionInternal session,
       List<MultiValueChangeEvent<RID, RID>> multiValueChangeEvents) {
@@ -698,7 +693,7 @@ public class BTreeBasedRidBag implements RidBagDelegate {
   }
 
   @Override
-  public MultiValueChangeTimeLine<Object, Object> getTimeLine() {
+  public MultiValueChangeTimeLine<RID, RID> getTimeLine() {
     return tracker.getTimeLine();
   }
 
@@ -738,16 +733,6 @@ public class BTreeBasedRidBag implements RidBagDelegate {
   @Override
   public MultiValueChangeTimeLine<RID, RID> getTransactionTimeLine() {
     return this.tracker.getTransactionTimeLine();
-  }
-
-  @Override
-  public boolean isLinkCollectionsProhibited() {
-    return true;
-  }
-
-  @Override
-  public boolean isResultAllowed() {
-    return false;
   }
 
   private RID refreshNonPersistentRid(RID identifiable) {

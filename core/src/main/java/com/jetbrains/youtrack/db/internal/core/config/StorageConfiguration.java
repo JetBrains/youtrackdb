@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.TimeZone;
+import javax.annotation.Nullable;
 
 public interface StorageConfiguration {
 
@@ -31,6 +32,7 @@ public interface StorageConfiguration {
 
   String getIndexMgrRecordId();
 
+  @Nullable
   TimeZone getTimeZone();
 
   String getDateFormat();
@@ -51,6 +53,7 @@ public interface StorageConfiguration {
 
   boolean isValidationEnabled();
 
+  @Nullable
   IndexEngineData getIndexEngine(String name, int defaultIndexId);
 
   String getRecordSerializer();
@@ -61,10 +64,12 @@ public interface StorageConfiguration {
 
   int getVersion();
 
+  @Nullable
   String getName();
 
   String getProperty(String graphConsistencyMode);
 
+  @Nullable
   String getDirectory();
 
   List<StorageClusterConfiguration> getClusters();

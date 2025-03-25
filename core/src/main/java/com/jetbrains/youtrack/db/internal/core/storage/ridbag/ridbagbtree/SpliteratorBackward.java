@@ -15,7 +15,7 @@ public final class SpliteratorBackward implements Spliterator<RawPairObjectInteg
   /**
    *
    */
-  private final BTree bTree;
+  private final LinkBagBTree bTree;
 
   private final EdgeKey fromKey;
   private final EdgeKey toKey;
@@ -31,7 +31,7 @@ public final class SpliteratorBackward implements Spliterator<RawPairObjectInteg
   private Iterator<RawPairObjectInteger<EdgeKey>> cacheIterator = Collections.emptyIterator();
 
   SpliteratorBackward(
-      BTree bTree,
+      LinkBagBTree bTree,
       final EdgeKey fromKey,
       final EdgeKey toKey,
       final boolean fromKeyInclusive,

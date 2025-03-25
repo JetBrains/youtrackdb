@@ -24,11 +24,12 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
-import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.ByteArrayOutputStream;
@@ -193,7 +194,7 @@ public class CRUDTest extends BaseDBTest {
       cal.set(Calendar.DAY_OF_MONTH, (i + 1));
       dateArray[i] = cal.getTime();
     }
-   final var values = List.of(
+    final var values = List.of(
         new Pair<>("text", textArray),
         new Pair<>("dateField", dateArray),
         new Pair<>("doubleSimple", doubleArray),
@@ -530,8 +531,8 @@ public class CRUDTest extends BaseDBTest {
   protected static void checkCollectionImplementations(Entity doc) {
     var collectionObj = doc.getProperty("list");
     var validImplementation =
-        (collectionObj instanceof EmbeddedListImpl<?>) || (doc.getProperty(
-            "list") instanceof LinkListImpl);
+        (collectionObj instanceof EntityEmbeddedListImpl<?>) || (doc.getProperty(
+            "list") instanceof EntityLinkListImpl);
     if (!validImplementation) {
       fail(
           "Document list implementation "
@@ -539,8 +540,7 @@ public class CRUDTest extends BaseDBTest {
               + " not compatible with current Object Database loading management");
     }
     collectionObj = doc.getProperty("set");
-    validImplementation =
-        collectionObj instanceof TrackedSet<?>;
+    validImplementation = collectionObj instanceof EntityEmbeddedSetImpl<?>;
     if (!validImplementation) {
       fail(
           "Document set implementation "
@@ -548,7 +548,7 @@ public class CRUDTest extends BaseDBTest {
               + " not compatible with current Object Database management");
     }
     collectionObj = doc.getProperty("children");
-    validImplementation = collectionObj instanceof TrackedMap<?>;
+    validImplementation = collectionObj instanceof EntityLinkMapIml;
     if (!validImplementation) {
       fail(
           "Document map implementation "
@@ -2542,7 +2542,7 @@ public class CRUDTest extends BaseDBTest {
     while (entityIterator.hasNext()) {
       var obj = entityIterator.next();
       var followersList = obj.<Set<Identifiable>>getProperty("followers");
-      Assert.assertTrue(followersList == null || followersList instanceof LinkSetImpl);
+      Assert.assertTrue(followersList == null || followersList instanceof EntityLinkSetImpl);
       if (obj.<String>getProperty("nick").equals("Neo")) {
         Assert.assertEquals(obj.<Set<Identifiable>>getProperty("followers").size(), 2);
         Identifiable identifiable = obj.<Set<Identifiable>>getProperty("followers")

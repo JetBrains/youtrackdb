@@ -8,6 +8,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInter
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 public interface CellBTreeSingleValue<K> {
 
@@ -18,6 +19,7 @@ public interface CellBTreeSingleValue<K> {
       int keySize)
       throws IOException;
 
+  @Nullable
   RID get(K key);
 
   void put(AtomicOperation atomicOperation, K key, RID value) throws IOException;
@@ -39,14 +41,17 @@ public interface CellBTreeSingleValue<K> {
 
   long size();
 
+  @Nullable
   RID remove(AtomicOperation atomicOperation, K key) throws IOException;
 
   Stream<RawPair<K, RID>> iterateEntriesMinor(K key, boolean inclusive, boolean ascSortOrder);
 
   Stream<RawPair<K, RID>> iterateEntriesMajor(K key, boolean inclusive, boolean ascSortOrder);
 
+  @Nullable
   K firstKey();
 
+  @Nullable
   K lastKey();
 
   Stream<K> keyStream();

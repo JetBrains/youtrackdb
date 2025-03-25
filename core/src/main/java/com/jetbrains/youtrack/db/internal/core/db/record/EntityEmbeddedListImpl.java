@@ -1,24 +1,6 @@
-/*
- *
- *
- *  *
- *  *  Licensed under the Apache License, Version 2.0 (the "License");
- *  *  you may not use this file except in compliance with the License.
- *  *  You may obtain a copy of the License at
- *  *
- *  *       http://www.apache.org/licenses/LICENSE-2.0
- *  *
- *  *  Unless required by applicable law or agreed to in writing, software
- *  *  distributed under the License is distributed on an "AS IS" BASIS,
- *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  *  See the License for the specific language governing permissions and
- *  *  limitations under the License.
- *  *
- *
- *
- */
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -29,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
+import java.util.RandomAccess;
 import java.util.Spliterator;
 import java.util.function.Consumer;
 import java.util.function.IntFunction;
@@ -36,16 +19,12 @@ import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- * Implementation of ArrayList bound to a source Record object to keep track of changes for literal
- * types. This avoids to call the makeDirty() by hand when the list is changed.
- */
-public abstract class TrackedList<T> extends AbstractList<T>
-    implements RecordElement, TrackedMultiValue<Integer, T>, Serializable {
+public class EntityEmbeddedListImpl<T> extends AbstractList<T>
+    implements RecordElement, EmbeddedTrackedMultiValue<Integer, T>, Serializable, EmbeddedList<T>,
+    RandomAccess {
 
   @Nullable
   protected RecordElement sourceRecord;
-  protected Class<?> genericClass;
 
   private boolean dirty = false;
   private boolean transactionDirty = false;
@@ -55,56 +34,34 @@ public abstract class TrackedList<T> extends AbstractList<T>
   @Nonnull
   private final ArrayList<T> list;
 
-  private final boolean linkCollectionsProhibited;
-  private final boolean resultAllowed;
 
-  public TrackedList(
-      @Nonnull final RecordElement iRecord,
-      final Collection<? extends T> iOrigin,
-      final Class<?> iGenericClass) {
-    this(iRecord);
-    genericClass = iGenericClass;
+  public EntityEmbeddedListImpl(
+      @Nonnull final RecordElement record, final Collection<? extends T> origin) {
+    this(record);
 
-    if (iOrigin != null && !iOrigin.isEmpty()) {
-      addAll(iOrigin);
+    if (origin != null && !origin.isEmpty()) {
+      addAll(origin);
     }
   }
 
-  public TrackedList(@Nonnull final RecordElement iSourceRecord) {
-    this.linkCollectionsProhibited = true;
+  public EntityEmbeddedListImpl(@Nonnull final RecordElement iSourceRecord) {
     this.list = new ArrayList<>();
     this.sourceRecord = iSourceRecord;
-    this.resultAllowed = false;
   }
 
-  public TrackedList(@Nonnull final RecordElement iSourceRecord, int size) {
-    this.linkCollectionsProhibited = true;
+  public EntityEmbeddedListImpl(@Nonnull final RecordElement iSourceRecord, int size) {
     this.list = new ArrayList<>(size);
     this.sourceRecord = iSourceRecord;
-    this.resultAllowed = false;
   }
 
-  public TrackedList() {
-    this(true, false);
-  }
-
-  public TrackedList(boolean linkCollectionsProhibited, boolean resultAllowed) {
-    this.linkCollectionsProhibited = linkCollectionsProhibited;
-    this.resultAllowed = resultAllowed;
+  public EntityEmbeddedListImpl() {
     this.list = new ArrayList<>();
     tracker.enable();
   }
 
-  public TrackedList(int size) {
-    this.linkCollectionsProhibited = true;
-    this.resultAllowed = false;
+  public EntityEmbeddedListImpl(int size) {
     this.list = new ArrayList<>(size);
     tracker.enable();
-  }
-
-  @Override
-  public boolean isResultAllowed() {
-    return resultAllowed;
   }
 
   @Override
@@ -312,10 +269,6 @@ public abstract class TrackedList<T> extends AbstractList<T>
     return reverted;
   }
 
-  public Class<?> getGenericClass() {
-    return genericClass;
-  }
-
   public void enableTracking(RecordElement parent) {
     if (!tracker.isEnabled()) {
       tracker.enable();
@@ -357,17 +310,12 @@ public abstract class TrackedList<T> extends AbstractList<T>
   }
 
   @Override
-  public MultiValueChangeTimeLine<Object, Object> getTimeLine() {
+  public MultiValueChangeTimeLine<Integer, T> getTimeLine() {
     return tracker.getTimeLine();
   }
 
   public MultiValueChangeTimeLine<Integer, T> getTransactionTimeLine() {
     return tracker.getTransactionTimeLine();
-  }
-
-  @Override
-  public boolean isLinkCollectionsProhibited() {
-    return linkCollectionsProhibited;
   }
 
   @Override
@@ -502,5 +450,10 @@ public abstract class TrackedList<T> extends AbstractList<T>
   @Override
   public void forEach(Consumer<? super T> action) {
     list.forEach(action);
+  }
+
+  @Override
+  public boolean isEmbeddedContainer() {
+    return true;
   }
 }

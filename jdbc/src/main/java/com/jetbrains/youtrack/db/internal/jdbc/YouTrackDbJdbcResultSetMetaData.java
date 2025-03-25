@@ -19,7 +19,7 @@ import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.math.BigDecimal;
 import java.sql.ResultSetMetaData;
@@ -148,7 +148,7 @@ public class YouTrackDbJdbcResultSetMetaData implements ResultSetMetaData {
           // Check if the type is a binary record or a collection of binary
           // records
         }
-        case LinkListImpl list -> {
+        case EntityLinkListImpl list -> {
           // check if all the list items are instances of RecordBytes
           var iterator = list.listIterator();
           Identifiable listElement;
@@ -183,7 +183,7 @@ public class YouTrackDbJdbcResultSetMetaData implements ResultSetMetaData {
           if (value == null) {
             return Types.NULL;
           }
-          if (value instanceof LinkListImpl list) {
+          if (value instanceof EntityLinkListImpl list) {
             // check if all the list items are instances of RecordBytes
             var iterator = list.listIterator();
             Identifiable listElement;

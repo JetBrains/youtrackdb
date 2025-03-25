@@ -27,7 +27,7 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.MultiKey;
 import com.jetbrains.youtrack.db.internal.common.util.UncaughtExceptionHandler;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.EmbeddedSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityResourceProperty;
@@ -702,7 +702,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
     internalAcquireExclusiveLock(session);
     try {
       EntityImpl entity = session.load(identity);
-      final var indexes = new EmbeddedSetImpl<Map<String, ?>>(entity);
+      final var indexes = new EntityEmbeddedSetImpl<Map<String, ?>>(entity);
 
       for (final var index : this.indexes.values()) {
         indexes.add(index.updateConfiguration(session));

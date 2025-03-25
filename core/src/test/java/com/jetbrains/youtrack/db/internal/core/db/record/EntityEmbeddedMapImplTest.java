@@ -11,14 +11,14 @@ import java.util.Map;
 import org.junit.Assert;
 import org.junit.Test;
 
-public class TrackedMapTest extends DbTestBase {
+public class EntityEmbeddedMapImplTest extends DbTestBase {
 
   @Test
   public void testPutOne() {
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
 
-    final var map = new TrackedMap<String>(doc);
+    final var map = new EntityEmbeddedMapImpl<String>(doc);
     final var rec = (RecordAbstract) doc;
     rec.unsetDirty();
     Assert.assertFalse(doc.isDirty());
@@ -40,7 +40,7 @@ public class TrackedMapTest extends DbTestBase {
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
 
-    final var map = new TrackedMap<String>(doc);
+    final var map = new EntityEmbeddedMapImpl<String>(doc);
     final var rec1 = (RecordAbstract) doc;
     rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
@@ -68,7 +68,7 @@ public class TrackedMapTest extends DbTestBase {
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
 
-    final var map = new TrackedMap<String>(doc);
+    final var map = new EntityEmbeddedMapImpl<String>(doc);
     final var rec1 = (RecordAbstract) doc;
     rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
@@ -92,7 +92,7 @@ public class TrackedMapTest extends DbTestBase {
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
 
-    final var map = new TrackedMap<String>(doc);
+    final var map = new EntityEmbeddedMapImpl<String>(doc);
     final var rec1 = (RecordAbstract) doc;
     rec1.unsetDirty();
     Assert.assertFalse(doc.isDirty());
@@ -117,7 +117,7 @@ public class TrackedMapTest extends DbTestBase {
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
 
-    final var map = new TrackedMap<String>(doc);
+    final var map = new EntityEmbeddedMapImpl<String>(doc);
 
     final var rec = (RecordAbstract) doc;
     rec.unsetDirty();
@@ -136,7 +136,7 @@ public class TrackedMapTest extends DbTestBase {
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
 
-    final var map = new TrackedMap<String>(doc);
+    final var map = new EntityEmbeddedMapImpl<String>(doc);
 
     map.put("key1", "value1");
 
@@ -161,7 +161,7 @@ public class TrackedMapTest extends DbTestBase {
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
 
-    final var map = new TrackedMap<String>(doc);
+    final var map = new EntityEmbeddedMapImpl<String>(doc);
 
     map.put("key1", "value1");
 
@@ -183,7 +183,7 @@ public class TrackedMapTest extends DbTestBase {
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
 
-    final var trackedMap = new TrackedMap<String>(doc);
+    final var trackedMap = new EntityEmbeddedMapImpl<String>(doc);
 
     trackedMap.put("key1", "value1");
     trackedMap.put("key2", "value2");
@@ -219,7 +219,7 @@ public class TrackedMapTest extends DbTestBase {
     final var doc = (EntityImpl) session.newEntity();
 
     @SuppressWarnings("MismatchedQueryAndUpdateOfCollection")
-    final var trackedMap = new TrackedMap<String>(doc);
+    final var trackedMap = new EntityEmbeddedMapImpl<String>(doc);
 
     trackedMap.put("key1", "value1");
     trackedMap.put("key2", "value2");
@@ -240,7 +240,7 @@ public class TrackedMapTest extends DbTestBase {
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
 
-    final var trackedMap = new TrackedMap<String>(doc);
+    final var trackedMap = new EntityEmbeddedMapImpl<String>(doc);
     trackedMap.put("key1", "value1");
     trackedMap.put("key2", "value2");
     trackedMap.put("key3", "value3");
@@ -274,7 +274,7 @@ public class TrackedMapTest extends DbTestBase {
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
 
-    final var trackedMap = new TrackedMap<String>(doc);
+    final var trackedMap = new EntityEmbeddedMapImpl<String>(doc);
     trackedMap.put("key1", "value1");
     trackedMap.put("key2", "value2");
     trackedMap.put("key3", "value3");

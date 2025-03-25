@@ -1,4 +1,4 @@
-package com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.singlevalue.v1;
+package com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.singlevalue.v3;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
@@ -26,10 +26,10 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-public class CellBTreeSingleValueV1TestIT {
+public class BTreeTestIT {
 
   private AtomicOperationsManager atomicOperationsManager;
-  private CellBTreeSingleValueV1<String> singleValueTree;
+  private BTree<String> singleValueTree;
   private YouTrackDB youTrackDB;
 
   private String dbName;
@@ -39,13 +39,13 @@ public class CellBTreeSingleValueV1TestIT {
     final var buildDirectory =
         System.getProperty("buildDirectory", ".")
             + File.separator
-            + CellBTreeSingleValueV1TestIT.class.getSimpleName();
+            + BTreeTestIT.class.getSimpleName();
 
     dbName = "localSingleBTreeTest";
     final var dbDirectory = new File(buildDirectory, dbName);
     FileUtils.deleteRecursively(dbDirectory);
 
-    var config = YouTrackDBConfig.builder().build();
+    final var config = YouTrackDBConfig.builder().build();
     youTrackDB = new YouTrackDBImpl("disk:" + buildDirectory, config);
     youTrackDB.execute(
         "create database " + dbName + " disk users ( admin identified by 'admin' role admin)");
@@ -55,9 +55,8 @@ public class CellBTreeSingleValueV1TestIT {
       storage =
           (AbstractPaginatedStorage) ((DatabaseSessionInternal) databaseDocumentTx).getStorage();
     }
-
+    singleValueTree = new BTree<>("singleBTree", ".sbt", ".nbt", storage);
     atomicOperationsManager = storage.getAtomicOperationsManager();
-    singleValueTree = new CellBTreeSingleValueV1<>("singleBTree", ".sbt", ".nbt", storage);
     atomicOperationsManager.executeInsideAtomicOperation(
         null,
         atomicOperation ->
@@ -76,7 +75,7 @@ public class CellBTreeSingleValueV1TestIT {
     final var keysCount = 1_000_000;
 
     final var rollbackInterval = 100;
-    final var lastKey = new String[1];
+    var lastKey = new String[1];
     for (var i = 0; i < keysCount / rollbackInterval; i++) {
       for (var n = 0; n < 2; n++) {
         final var iterationCounter = i;
@@ -114,7 +113,6 @@ public class CellBTreeSingleValueV1TestIT {
         } catch (RollbackException ignore) {
         }
       }
-
       Assert.assertEquals("0", singleValueTree.firstKey());
       Assert.assertEquals(lastKey[0], singleValueTree.lastKey());
     }
@@ -128,7 +126,6 @@ public class CellBTreeSingleValueV1TestIT {
         System.out.printf("%d items tested out of %d%n", i, keysCount);
       }
     }
-
     for (var i = keysCount; i < 2 * keysCount; i++) {
       Assert.assertNull(singleValueTree.get(Integer.toString(i)));
     }
@@ -144,7 +141,6 @@ public class CellBTreeSingleValueV1TestIT {
     while (keys.size() < keysCount) {
       for (var n = 0; n < 2; n++) {
         final var rollbackCounter = n;
-
         try {
           atomicOperationsManager.executeInsideAtomicOperation(
               null,
@@ -152,7 +148,6 @@ public class CellBTreeSingleValueV1TestIT {
                 for (var i = 0; i < rollbackRange; i++) {
                   var val = random.nextInt(Integer.MAX_VALUE);
                   var key = Integer.toString(val);
-
                   singleValueTree.put(atomicOperation, key, new RecordId(val % 32000, val));
 
                   if (rollbackCounter == 1) {
@@ -171,7 +166,6 @@ public class CellBTreeSingleValueV1TestIT {
 
     Assert.assertEquals(singleValueTree.firstKey(), keys.first());
     Assert.assertEquals(singleValueTree.lastKey(), keys.last());
-
     for (var key : keys) {
       final var val = Integer.parseInt(key);
       Assert.assertEquals(singleValueTree.get(key), new RecordId(val % 32000, val));
@@ -182,7 +176,6 @@ public class CellBTreeSingleValueV1TestIT {
   public void testKeyPutRandomGaussian() throws Exception {
     NavigableSet<String> keys = new TreeSet<>();
     var seed = System.currentTimeMillis();
-
     System.out.println("testKeyPutRandomGaussian seed : " + seed);
 
     var random = new Random(seed);
@@ -192,7 +185,6 @@ public class CellBTreeSingleValueV1TestIT {
     while (keys.size() < keysCount) {
       for (var n = 0; n < 2; n++) {
         final var rollbackCounter = n;
-
         try {
           atomicOperationsManager.executeInsideAtomicOperation(
               null,
@@ -208,7 +200,6 @@ public class CellBTreeSingleValueV1TestIT {
                   if (rollbackCounter == 1) {
                     keys.add(key);
                   }
-
                   Assert.assertEquals(singleValueTree.get(key), new RecordId(val % 32000, val));
                 }
                 if (rollbackCounter == 0) {
@@ -219,7 +210,6 @@ public class CellBTreeSingleValueV1TestIT {
         }
       }
     }
-
     Assert.assertEquals(singleValueTree.firstKey(), keys.first());
     Assert.assertEquals(singleValueTree.lastKey(), keys.last());
 
@@ -248,7 +238,6 @@ public class CellBTreeSingleValueV1TestIT {
     var keysIterator = keys.iterator();
     while (keysIterator.hasNext()) {
       var key = keysIterator.next();
-
       if (Integer.parseInt(key) % 3 == 0) {
         atomicOperationsManager.executeInsideAtomicOperation(
             null, atomicOperation -> singleValueTree.remove(atomicOperation, key));
@@ -271,7 +260,6 @@ public class CellBTreeSingleValueV1TestIT {
       } catch (RollbackException ignore) {
       }
     }
-
     Assert.assertEquals(singleValueTree.firstKey(), keys.first());
     Assert.assertEquals(singleValueTree.lastKey(), keys.last());
 
@@ -289,9 +277,7 @@ public class CellBTreeSingleValueV1TestIT {
   public void testKeyDeleteRandomGaussian() throws Exception {
     NavigableSet<String> keys = new TreeSet<>();
     final var keysCount = 1_000_000;
-
     var seed = System.currentTimeMillis();
-
     System.out.println("testKeyDeleteRandomGaussian seed : " + seed);
     var random = new Random(seed);
 
@@ -300,7 +286,6 @@ public class CellBTreeSingleValueV1TestIT {
       if (val < 0) {
         continue;
       }
-
       var key = Integer.toString(val);
       atomicOperationsManager.executeInsideAtomicOperation(
           null,
@@ -310,7 +295,6 @@ public class CellBTreeSingleValueV1TestIT {
 
       Assert.assertEquals(singleValueTree.get(key), new RecordId(val % 32000, val));
     }
-
     var keysIterator = keys.iterator();
 
     final var rollbackInterval = 10;
@@ -322,7 +306,6 @@ public class CellBTreeSingleValueV1TestIT {
             null, atomicOperation -> singleValueTree.remove(atomicOperation, key));
         keysIterator.remove();
       }
-
       try {
         atomicOperationsManager.executeInsideAtomicOperation(
             null,
@@ -339,7 +322,6 @@ public class CellBTreeSingleValueV1TestIT {
       } catch (RollbackException ignore) {
       }
     }
-
     Assert.assertEquals(singleValueTree.firstKey(), keys.first());
     Assert.assertEquals(singleValueTree.lastKey(), keys.last());
 
@@ -358,26 +340,26 @@ public class CellBTreeSingleValueV1TestIT {
     final var keysCount = 1_000_000;
 
     for (var i = 0; i < keysCount; i++) {
-      final var key = i;
+      final var k = i;
       atomicOperationsManager.executeInsideAtomicOperation(
           null,
           atomicOperation ->
               singleValueTree.put(
-                  atomicOperation, Integer.toString(key), new RecordId(key % 32000, key)));
+                  atomicOperation, Integer.toString(k), new RecordId(k % 32000, k)));
     }
-
     final var rollbackInterval = 100;
 
     for (var i = 0; i < keysCount / rollbackInterval; i++) {
       for (var n = 0; n < 2; n++) {
-        final var iterationCounter = i;
         final var rollbackCounter = n;
+        final var iterationsCounter = i;
+
         try {
           atomicOperationsManager.executeInsideAtomicOperation(
               null,
               atomicOperation -> {
                 for (var j = 0; j < rollbackInterval; j++) {
-                  final var key = iterationCounter * rollbackInterval + j;
+                  final var key = iterationsCounter * rollbackInterval + j;
                   if (key % 3 == 0) {
                     Assert.assertEquals(
                         singleValueTree.remove(atomicOperation, Integer.toString(key)),
@@ -392,7 +374,6 @@ public class CellBTreeSingleValueV1TestIT {
         }
       }
     }
-
     for (var i = 0; i < keysCount; i++) {
       if (i % 3 == 0) {
         Assert.assertNull(singleValueTree.get(Integer.toString(i)));
@@ -416,20 +397,19 @@ public class CellBTreeSingleValueV1TestIT {
 
       Assert.assertEquals(singleValueTree.get(Integer.toString(i)), new RecordId(i % 32000, i));
     }
-
     final var rollbackInterval = 100;
 
     for (var i = 0; i < keysCount / rollbackInterval; i++) {
       for (var n = 0; n < 2; n++) {
-        final var iterationCounter = i;
         final var rollbackCounter = n;
+        final var iterationsCounter = i;
 
         try {
           atomicOperationsManager.executeInsideAtomicOperation(
               null,
               atomicOperation -> {
                 for (var j = 0; j < rollbackInterval; j++) {
-                  final var key = iterationCounter * rollbackInterval + j;
+                  final var key = iterationsCounter * rollbackInterval + j;
 
                   if (key % 3 == 0) {
                     Assert.assertEquals(
@@ -469,6 +449,110 @@ public class CellBTreeSingleValueV1TestIT {
   }
 
   @Test
+  public void testKeyAddDeleteAll() throws Exception {
+    for (var iterations = 0; iterations < 4; iterations++) {
+      System.out.println("testKeyAddDeleteAll : iteration " + iterations);
+
+      final var keysCount = 1_000_000;
+
+      for (var i = 0; i < keysCount; i++) {
+        final var key = i;
+        atomicOperationsManager.executeInsideAtomicOperation(
+            null,
+            atomicOperation ->
+                singleValueTree.put(
+                    atomicOperation, Integer.toString(key), new RecordId(key % 32000, key)));
+
+        Assert.assertEquals(singleValueTree.get(Integer.toString(i)), new RecordId(i % 32000, i));
+      }
+
+      for (var i = 0; i < keysCount; i++) {
+        final var key = i;
+        atomicOperationsManager.executeInsideAtomicOperation(
+            null,
+            atomicOperation -> {
+              Assert.assertEquals(
+                  singleValueTree.remove(atomicOperation, Integer.toString(key)),
+                  new RecordId(key % 32000, key));
+
+              if (key > 0 && key % 100_000 == 0) {
+                for (var keyToVerify = 0; keyToVerify < keysCount; keyToVerify++) {
+                  if (keyToVerify > key) {
+                    Assert.assertEquals(
+                        new RecordId(keyToVerify % 32000, keyToVerify),
+                        singleValueTree.get(Integer.toString(keyToVerify)));
+                  } else {
+                    Assert.assertNull(singleValueTree.get(Integer.toString(keyToVerify)));
+                  }
+                }
+              }
+            });
+      }
+      for (var i = 0; i < keysCount; i++) {
+        Assert.assertNull(singleValueTree.get(Integer.toString(i)));
+      }
+
+      singleValueTree.assertFreePages(atomicOperationsManager.getCurrentOperation());
+    }
+  }
+
+  @Test
+  public void testKeyAddDeleteHalf() throws Exception {
+    final var keysCount = 1_000_000;
+
+    for (var i = 0; i < keysCount / 2; i++) {
+      final var key = i;
+      atomicOperationsManager.executeInsideAtomicOperation(
+          null,
+          atomicOperation ->
+              singleValueTree.put(
+                  atomicOperation, Integer.toString(key), new RecordId(key % 32000, key)));
+
+      Assert.assertEquals(singleValueTree.get(Integer.toString(i)), new RecordId(i % 32000, i));
+    }
+
+    for (var iterations = 0; iterations < 4; iterations++) {
+      System.out.println("testKeyAddDeleteHalf : iteration " + iterations);
+
+      for (var i = 0; i < keysCount / 2; i++) {
+        final var key = i + (iterations + 1) * keysCount / 2;
+        atomicOperationsManager.executeInsideAtomicOperation(
+            null,
+            atomicOperation ->
+                singleValueTree.put(
+                    atomicOperation, Integer.toString(key), new RecordId(key % 32000, key)));
+
+        Assert.assertEquals(
+            singleValueTree.get(Integer.toString(key)), new RecordId(key % 32000, key));
+      }
+
+      final var offset = iterations * (keysCount / 2);
+
+      for (var i = 0; i < keysCount / 2; i++) {
+        final var key = i + offset;
+        atomicOperationsManager.executeInsideAtomicOperation(
+            null,
+            atomicOperation ->
+                Assert.assertEquals(
+                    singleValueTree.remove(atomicOperation, Integer.toString(key)),
+                    new RecordId(key % 32000, key)));
+      }
+
+      final var start = (iterations + 1) * (keysCount / 2);
+      for (var i = 0; i < (iterations + 2) * keysCount / 2; i++) {
+        if (i < start) {
+          Assert.assertNull(singleValueTree.get(Integer.toString(i)));
+        } else {
+          Assert.assertEquals(
+              new RecordId(i % 32000, i), singleValueTree.get(Integer.toString(i)));
+        }
+      }
+
+      singleValueTree.assertFreePages(atomicOperationsManager.getCurrentOperation());
+    }
+  }
+
+  @Test
   public void testKeyCursor() throws Exception {
     final var keysCount = 1_000_000;
 
@@ -497,7 +581,6 @@ public class CellBTreeSingleValueV1TestIT {
                     keyValues.put(key, new RecordId(val % 32000, val));
                   }
                 }
-
                 if (rollbackCounter == 0) {
                   throw new RollbackException();
                 }
@@ -505,13 +588,11 @@ public class CellBTreeSingleValueV1TestIT {
         } catch (RollbackException ignore) {
         }
       }
-
       if (keyValues.size() > printCounter * 100_000) {
         System.out.println(keyValues.size() + " entries were added.");
         printCounter++;
       }
     }
-
     Assert.assertEquals(singleValueTree.firstKey(), keyValues.firstKey());
     Assert.assertEquals(singleValueTree.lastKey(), keyValues.lastKey());
 
@@ -536,6 +617,7 @@ public class CellBTreeSingleValueV1TestIT {
     final var random = new Random(seed);
 
     final var rollbackInterval = 100;
+
     var printCounter = 0;
 
     while (keyValues.size() < keysCount) {
@@ -555,7 +637,6 @@ public class CellBTreeSingleValueV1TestIT {
                     keyValues.put(key, new RecordId(val % 32000, val));
                   }
                 }
-
                 if (rollbackCounter == 0) {
                   throw new RollbackException();
                 }
@@ -591,7 +672,6 @@ public class CellBTreeSingleValueV1TestIT {
     final var random = new Random(seed);
 
     final var rollbackInterval = 100;
-
     var printCounter = 0;
 
     while (keyValues.size() < keysCount) {
@@ -623,7 +703,6 @@ public class CellBTreeSingleValueV1TestIT {
         printCounter++;
       }
     }
-
     assertIterateMinorEntries(keyValues, random, true, true);
     assertIterateMinorEntries(keyValues, random, false, true);
 
@@ -641,6 +720,7 @@ public class CellBTreeSingleValueV1TestIT {
     final var random = new Random();
 
     final var rollbackInterval = 100;
+
     var printCounter = 0;
 
     while (keyValues.size() < keysCount) {
@@ -666,14 +746,13 @@ public class CellBTreeSingleValueV1TestIT {
               });
         } catch (RollbackException ignore) {
         }
+      }
 
-        if (keyValues.size() > printCounter * 100_000) {
-          System.out.println(keyValues.size() + " entries were added.");
-          printCounter++;
-        }
+      if (keyValues.size() > printCounter * 100_000) {
+        System.out.println(keyValues.size() + " entries were added.");
+        printCounter++;
       }
     }
-
     assertIterateBetweenEntries(keyValues, random, true, true, true);
     assertIterateBetweenEntries(keyValues, random, true, false, true);
     assertIterateBetweenEntries(keyValues, random, false, true, true);
@@ -683,6 +762,34 @@ public class CellBTreeSingleValueV1TestIT {
     assertIterateBetweenEntries(keyValues, random, true, false, false);
     assertIterateBetweenEntries(keyValues, random, false, true, false);
     assertIterateBetweenEntries(keyValues, random, false, false, false);
+
+    Assert.assertEquals(singleValueTree.firstKey(), keyValues.firstKey());
+    Assert.assertEquals(singleValueTree.lastKey(), keyValues.lastKey());
+  }
+
+  @Test
+  public void testIterateEntriesBetweenString() throws Exception {
+    final var keysCount = 10;
+    final NavigableMap<String, RID> keyValues = new TreeMap<>();
+    final var random = new Random();
+    try {
+      atomicOperationsManager.executeInsideAtomicOperation(
+          null,
+          atomicOperation -> {
+            for (var j = 0; j < keysCount; j++) {
+              final var key = "name" + j;
+              final var val = random.nextInt(Integer.MAX_VALUE);
+              final var clusterId = val % 32000;
+              singleValueTree.put(atomicOperation, key, new RecordId(clusterId, val));
+              System.out.println("Added key=" + key + ", value=" + val);
+
+              keyValues.put(key, new RecordId(clusterId, val));
+            }
+          });
+    } catch (final RollbackException ignore) {
+      Assert.fail();
+    }
+    assertIterateBetweenEntriesNonRandom("name5", keyValues, true, true, true, 5);
 
     Assert.assertEquals(singleValueTree.firstKey(), keyValues.firstKey());
     Assert.assertEquals(singleValueTree.lastKey(), keyValues.lastKey());
@@ -714,6 +821,7 @@ public class CellBTreeSingleValueV1TestIT {
       try (var stream =
           singleValueTree.iterateEntriesMajor(fromKey, keyInclusive, ascSortOrder)) {
         indexIterator = stream.iterator();
+
         Iterator<Map.Entry<String, RID>> iterator;
         if (ascSortOrder) {
           iterator = keyValues.tailMap(fromKey, keyInclusive).entrySet().iterator();
@@ -765,6 +873,7 @@ public class CellBTreeSingleValueV1TestIT {
       try (var stream =
           singleValueTree.iterateEntriesMinor(toKey, keyInclusive, ascSortOrder)) {
         indexIterator = stream.iterator();
+
         Iterator<Map.Entry<String, RID>> iterator;
         if (ascSortOrder) {
           iterator = keyValues.headMap(toKey, keyInclusive).entrySet().iterator();
@@ -859,12 +968,41 @@ public class CellBTreeSingleValueV1TestIT {
     }
   }
 
+  private void assertIterateBetweenEntriesNonRandom(
+      final String fromKey,
+      final NavigableMap<String, RID> keyValues,
+      final boolean fromInclusive,
+      final boolean toInclusive,
+      final boolean ascSortOrder,
+      final int startFrom) {
+    var keys = new String[keyValues.size()];
+    var index = 0;
+
+    for (final var key : keyValues.keySet()) {
+      keys[index] = key;
+      index++;
+    }
+
+    for (var i = startFrom; i < keyValues.size(); i++) {
+      final var toKey = keys[i];
+      final Iterator<RawPair<String, RID>> indexIterator;
+      try (final var stream =
+          singleValueTree.iterateEntriesBetween(
+              fromKey, fromInclusive, toKey, toInclusive, ascSortOrder)) {
+        indexIterator = stream.iterator();
+        Assert.assertTrue(indexIterator.hasNext());
+      }
+    }
+  }
+
   static final class RollbackException extends BaseException implements HighLevelException {
 
+    @SuppressWarnings("WeakerAccess")
     public RollbackException() {
       this("");
     }
 
+    @SuppressWarnings("WeakerAccess")
     public RollbackException(String message) {
       super(message);
     }

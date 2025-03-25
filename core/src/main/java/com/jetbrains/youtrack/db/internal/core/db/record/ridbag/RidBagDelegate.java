@@ -31,6 +31,7 @@ import java.util.Collection;
 import java.util.NavigableMap;
 import java.util.UUID;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public interface RidBagDelegate
     extends Iterable<RID>,
@@ -87,6 +88,7 @@ public interface RidBagDelegate
 
   String toString();
 
+  @Nullable
   NavigableMap<RID, Change> getChanges();
 
   void setSize(int size);

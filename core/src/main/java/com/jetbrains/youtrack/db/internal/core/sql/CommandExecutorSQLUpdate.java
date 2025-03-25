@@ -33,7 +33,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.command.CommandResultListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
@@ -769,7 +769,7 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
           }
           if (PropertyTypeInternal.LINKMAP.equals(PropertyTypeInternal.getTypeByValue(fieldValue))
               && !(value instanceof Identifiable)) {
-            map = new TrackedMap(record, map, Object.class);
+            map = new EntityEmbeddedMapImpl(record, map, Object.class);
             String fieldName = entry.getKey();
             record.setProperty(fieldName, map, PropertyType.EMBEDDEDMAP);
           }

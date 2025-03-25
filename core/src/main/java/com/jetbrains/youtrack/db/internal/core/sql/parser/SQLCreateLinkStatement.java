@@ -10,8 +10,8 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -197,11 +197,11 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
               } else {
                 if (txLinkType != null) {
                   if (txLinkType == PropertyTypeInternal.LINKSET) {
-                    value = new LinkSetImpl(target);
+                    value = new EntityLinkSetImpl(target);
                     ((Set<Identifiable>) value).add(entity);
                   } else if (txLinkType == PropertyTypeInternal.LINKLIST) {
-                    value = new LinkListImpl(target);
-                    ((LinkListImpl) value).add(entity);
+                    value = new EntityLinkListImpl(target);
+                    ((EntityLinkListImpl) value).add(entity);
                   } else
                   // IGNORE THE TYPE, SET IT AS LINK
                   {

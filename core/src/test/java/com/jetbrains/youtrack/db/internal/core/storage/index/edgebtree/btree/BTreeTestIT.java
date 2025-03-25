@@ -8,7 +8,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.BTree;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.LinkBagBTree;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.EdgeKey;
 import java.io.File;
 import java.util.Iterator;
@@ -36,7 +36,7 @@ public class BTreeTestIT {
   public static final String DB_NAME = "bTreeTest";
   public static final String DIR_NAME = "/globalBTreeTest";
   private static YouTrackDB youTrackDB;
-  private static BTree bTree;
+  private static LinkBagBTree bTree;
   private static AtomicOperationsManager atomicOperationsManager;
   private static AbstractPaginatedStorage storage;
   private static String buildDirectory;
@@ -89,7 +89,7 @@ public class BTreeTestIT {
   @Before
   public void beforeMethod() throws Exception {
 
-    bTree = new BTree(storage, "bTree", ".sbc");
+    bTree = new LinkBagBTree(storage, "bTree", ".sbc");
     atomicOperationsManager.executeInsideAtomicOperation(
         null, atomicOperation -> bTree.create(atomicOperation));
   }
