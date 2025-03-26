@@ -219,7 +219,13 @@ public class UpdatableResult extends ResultInternal {
   @Override
   public String toJSON() {
     assert checkSession();
-    return this.asEntity().toJSON();
+    var entity = this.asEntity();
+    if (entity.isUnloaded() && session != null) {
+      var transaction = session.getActiveTransaction();
+      entity = transaction.loadEntity(entity);
+    }
+
+    return entity.toJSON();
   }
 
   @Override

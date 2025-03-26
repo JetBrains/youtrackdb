@@ -42,6 +42,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TimerTask;
+import javax.annotation.Nullable;
 
 public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstract {
 
@@ -110,70 +111,82 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
     Map<String, Object> additionalContent = new HashMap<>();
     String format = null;
 
-
     var ok = false;
     var txBegun = false;
     try {
       session = getProfiledDatabaseSessionInstance(iRequest);
-      session.resetRecordLoadStats();
-      var stm = parseStatement(language, text, session);
+      try {
 
-      if (stm != null && !(stm instanceof DDLStatement)) {
-        session.begin();
-        txBegun = true;
-      }
+        session.resetRecordLoadStats();
+        var stm = parseStatement(language, text, session);
 
-      var result = executeStatement(language, text, params, session);
-      limit = getLimitFromStatement(stm, limit);
-      var localFetchPlan = getFetchPlanFromStatement(stm);
-      if (localFetchPlan != null) {
-        fetchPlan = localFetchPlan;
-      }
-
-      var i = 0;
-      session.getConfiguration().getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
-      while (result.hasNext()) {
-        if (limit >= 0 && i >= limit) {
-          break;
+        if (stm != null && !(stm instanceof DDLStatement)) {
+          session.begin();
+          txBegun = true;
         }
-        response.add(result.next());
-        i++;
-      }
 
-      if (returnExecutionPlan) {
-        var plan = result.getExecutionPlan();
-        if (plan != null) {
-          additionalContent.put("executionPlan", plan.toResult(session).toMap());
+        var result = executeStatement(language, text, params, session);
+        limit = getLimitFromStatement(stm, limit);
+        var localFetchPlan = getFetchPlanFromStatement(stm);
+        if (localFetchPlan != null) {
+          fetchPlan = localFetchPlan;
         }
-      }
 
+        var i = 0;
+        session.getConfiguration().getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
+        while (result.hasNext()) {
+          if (limit >= 0 && i >= limit) {
+            break;
+          }
+          response.add(result.next());
+          i++;
+        }
 
-      var elapsedMs = System.currentTimeMillis() - begin;
-      if (fetchPlan != null) {
-        format = "fetchPlan:" + fetchPlan;
-      }
-
-      if (iRequest.getHeader("TE") != null) {
-        iResponse.setStreaming(true);
-      }
-
-      additionalContent.put("elapsedMs", elapsedMs);
-      var dbStats = session.getStats();
-      additionalContent.put("dbStats", dbStats.toResult(session).toMap());
-
-      iResponse.writeResult(response, format, accept, additionalContent, mode, session);
-      result.close();
-
-      ok = true;
-    } finally {
-      if (session != null) {
-        if (txBegun && session.getActiveTransactionOrNull() != null) {
-          if (ok) {
-            session.commit();
-          } else {
-            session.rollback();
+        if (returnExecutionPlan) {
+          var plan = result.getExecutionPlan();
+          if (plan != null) {
+            additionalContent.put("executionPlan", plan.toResult(session).toMap());
           }
         }
+
+        var elapsedMs = System.currentTimeMillis() - begin;
+        if (fetchPlan != null) {
+          format = "fetchPlan:" + fetchPlan;
+        }
+
+        if (iRequest.getHeader("TE") != null) {
+          iResponse.setStreaming(true);
+        }
+
+        additionalContent.put("elapsedMs", elapsedMs);
+        var dbStats = session.getStats();
+        additionalContent.put("dbStats", dbStats.toResult(session).toMap());
+
+        result.close();
+
+        ok = true;
+      } finally {
+        if (session != null) {
+          if (txBegun && session.getActiveTransactionOrNull() != null) {
+            if (ok) {
+              session.commit();
+            } else {
+              session.rollback();
+            }
+          }
+
+        }
+      }
+
+      var formatCopy = format;
+      var modeCopy = mode;
+
+      session.executeInTx(transaction -> {
+        iResponse.writeResult(response, formatCopy, accept, additionalContent, modeCopy,
+            (DatabaseSessionInternal) transaction.getSession());
+      });
+    } finally {
+      if (session != null) {
         session.close();
       }
     }
@@ -181,6 +194,7 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
     return false;
   }
 
+  @Nullable
   public static String getFetchPlanFromStatement(SQLStatement statement) {
     if (statement instanceof SQLSelectStatement) {
       var fp = ((SQLSelectStatement) statement).getFetchPlan();
@@ -192,6 +206,7 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
     return null;
   }
 
+  @Nullable
   public static SQLStatement parseStatement(String language, String text, DatabaseSession db) {
     try {
       if (language != null && language.equalsIgnoreCase("sql")) {

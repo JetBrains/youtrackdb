@@ -555,10 +555,6 @@ public class FrontendTransactionImpl implements
     status = TXSTATUS.COMPLETED;
   }
 
-  public boolean isScheduledForNextCallback(RecordId rid) {
-    return operationsBetweenCallbacks.get(rid) != null;
-  }
-
   @Nullable
   public List<RecordId> preProcessRecordsAndExecuteCallCallbacks() {
     if (operationsBetweenCallbacks.isEmpty()) {
@@ -569,6 +565,8 @@ public class FrontendTransactionImpl implements
     ArrayList<RecordId> newDeletedRecords = null;
     while (!operationsBetweenCallbacks.isEmpty()) {
       var operations = new ArrayList<>(operationsBetweenCallbacks.values());
+      operationsBetweenCallbacks.clear();
+
       operations.sort(
           Comparator.<RecordOperation>comparingInt(recordOperation -> recordOperation.type)
               .reversed());
@@ -684,7 +682,6 @@ public class FrontendTransactionImpl implements
 
     var clusterName = session.getClusterNameById(record.getIdentity().getClusterId());
     recordOperation.recordCallBackDirtyCounter = dirtyCounter;
-    operationsBetweenCallbacks.remove(record.getIdentity());
 
     session.afterDeleteOperations(record, clusterName);
     if (record instanceof EntityImpl) {
@@ -696,7 +693,6 @@ public class FrontendTransactionImpl implements
     var dirtyCounter = record.getDirtyCounter();
     var clusterName = session.getClusterNameById(record.getIdentity().getClusterId());
     recordOperation.recordCallBackDirtyCounter = dirtyCounter;
-    operationsBetweenCallbacks.remove(record.getIdentity());
 
     session.afterUpdateOperations(record, clusterName);
     if (record instanceof EntityImpl) {
@@ -707,8 +703,6 @@ public class FrontendTransactionImpl implements
   private void processRecordCreation(RecordOperation recordOperation, RecordAbstract record) {
     var clusterName = session.getClusterNameById(record.getIdentity().getClusterId());
     recordOperation.recordCallBackDirtyCounter = record.getDirtyCounter();
-    operationsBetweenCallbacks.remove(record.getIdentity());
-
     session.afterCreateOperations(record, clusterName);
 
     if (record instanceof EntityImpl) {

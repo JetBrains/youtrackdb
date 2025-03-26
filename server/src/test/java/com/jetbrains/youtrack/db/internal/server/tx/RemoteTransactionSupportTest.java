@@ -236,7 +236,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     var tx = session.begin();
     var result1 = session.query("select ref from SomeTx where name='bar'");
     assertTrue(result1.hasNext());
-    assertEquals(someTx.getIdentity(), result1.next().getProperty("ref"));
+    assertEquals(someTx.getIdentity(), result1.next().getIdentity());
     result1.close();
     tx.commit();
   }

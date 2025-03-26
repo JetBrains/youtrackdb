@@ -22,6 +22,7 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedServerAbstract;
@@ -60,12 +61,11 @@ public class ServerCommandPostServerCommand extends ServerCommandAuthenticatedSe
       // CONTENT REPLACES TEXT
       if (iRequest.getContent().startsWith("{")) {
         // JSON PAYLOAD
-        final var entity = new EntityImpl(null);
-        entity.updateFromJSON(iRequest.getContent());
-        text = entity.getProperty("command");
-        params = entity.getProperty("parameters");
+        final var content = RecordSerializerJackson.mapFromJson(iRequest.getContent());
+        text = (String) content.get("command");
+        params = content.get("parameters");
 
-        if ("false".equalsIgnoreCase("" + entity.getProperty("returnExecutionPlan"))) {
+        if ("false".equalsIgnoreCase("" + content.get("returnExecutionPlan"))) {
           returnExecutionPlan = false;
         }
 

@@ -126,8 +126,7 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
     var res = tx.query("select emb from Some");
 
     var item = res.next();
-    assertNotNull(item.getProperty("emb"));
-    assertEquals("value", ((Result) item.getProperty("emb")).getProperty("one"));
+    assertEquals("value", item.getProperty("one"));
     tx.commit();
   }
 
@@ -148,9 +147,7 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
     var tx = session.begin();
     var res = session.query("select emb from Some");
 
-    var item = res.next();
-    assertNotNull(item.getProperty("emb"));
-    Result resEmb = item.getProperty("emb");
+    var resEmb = res.next();
     assertEquals("value", resEmb.getProperty("one"));
     assertEquals("value", ((Result) resEmb.getProperty("secEmb")).getProperty("two"));
     tx.commit();

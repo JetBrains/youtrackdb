@@ -116,9 +116,14 @@ public class ResultSerializerNetwork {
         if (propertyValue instanceof Result) {
           if (((Result) propertyValue).isEntity()) {
             var elem = ((Result) propertyValue).asEntity();
-            writeOType(bytes, bytes.alloc(1), PropertyTypeInternal.LINK);
-            serializeValue(session, bytes, session.refreshRid(elem.getIdentity()),
-                PropertyTypeInternal.LINK);
+            if (elem.isEmbedded()) {
+              writeOType(bytes, bytes.alloc(1), PropertyTypeInternal.EMBEDDED);
+              serializeValue(session, bytes, propertyValue, PropertyTypeInternal.EMBEDDED);
+            } else {
+              writeOType(bytes, bytes.alloc(1), PropertyTypeInternal.LINK);
+              serializeValue(session, bytes, session.refreshRid(elem.getIdentity()),
+                  PropertyTypeInternal.LINK);
+            }
           } else {
             writeOType(bytes, bytes.alloc(1), PropertyTypeInternal.EMBEDDED);
             serializeValue(session, bytes, propertyValue, PropertyTypeInternal.EMBEDDED);

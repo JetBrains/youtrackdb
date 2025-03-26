@@ -53,8 +53,7 @@ public interface HttpResponse {
       String iAccept,
       Map<String, Object> iAdditionalProperties,
       String mode,
-      DatabaseSessionInternal session)
-      throws InterruptedException, IOException;
+      DatabaseSessionInternal session);
 
   void writeRecords(Object iRecords, DatabaseSessionInternal session)
       throws IOException;

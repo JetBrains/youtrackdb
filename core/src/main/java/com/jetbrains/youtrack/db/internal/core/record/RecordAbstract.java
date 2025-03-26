@@ -204,10 +204,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
         var tx = session.getTransactionInternal();
         tx.addRecordOperation(this, RecordOperation.UPDATED);
       }
-    } else {
-      assert isEmbedded()
-          || ((FrontendTransactionImpl) session.getTransactionInternal()).isScheduledForNextCallback(
-          recordId);
     }
   }
 
