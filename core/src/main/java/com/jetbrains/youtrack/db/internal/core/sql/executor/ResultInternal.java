@@ -1031,7 +1031,12 @@ public class ResultInternal implements Result {
     }
 
     if (isEntity()) {
-      return asEntity().toJSON();
+      var entity = asEntity();
+      if (entity.isUnloaded() & session != null) {
+        entity = session.getActiveTransaction().loadEntity(entity);
+      }
+
+      return entity.toJSON();
     }
 
     var propNames = new ArrayList<>(getPropertyNames());

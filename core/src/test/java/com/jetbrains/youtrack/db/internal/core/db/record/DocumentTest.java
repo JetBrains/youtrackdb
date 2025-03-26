@@ -50,10 +50,11 @@ public class DocumentTest extends DbTestBase {
     doc.setProperty("surname", "Miner");
     var map = doc.toMap();
 
-    Assert.assertEquals(4, map.size());
+    Assert.assertEquals(5, map.size());
     Assert.assertEquals("Jay", map.get("name"));
     Assert.assertEquals("Miner", map.get("surname"));
     Assert.assertEquals("OUser", map.get("@class"));
+    Assert.assertEquals(doc.getVersion() + 1, map.get("@version"));
     Assert.assertTrue(map.containsKey("@rid"));
     session.rollback();
   }
@@ -71,10 +72,11 @@ public class DocumentTest extends DbTestBase {
     var activeTx = session.getActiveTransaction();
     var map = activeTx.<EntityImpl>load(doc).toMap();
 
-    Assert.assertEquals(4, map.size());
+    Assert.assertEquals(5, map.size());
     Assert.assertEquals("Jay", map.get("name"));
     Assert.assertEquals("Miner", map.get("surname"));
     Assert.assertEquals("V", map.get("@class"));
+    Assert.assertEquals(doc.getVersion(), map.get("@version"));
     Assert.assertTrue(map.containsKey("@rid"));
     session.commit();
   }
@@ -89,5 +91,4 @@ public class DocumentTest extends DbTestBase {
     Assert.assertEquals("3", doc.getProperty("some"));
     session.rollback();
   }
-
 }

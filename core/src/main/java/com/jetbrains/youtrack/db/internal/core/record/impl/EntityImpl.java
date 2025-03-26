@@ -81,6 +81,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -2000,18 +2001,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     checkForBinding();
     checkForProperties();
 
-    final Map<String, Object> map = new HashMap<>();
-    for (var entry : properties.entrySet()) {
-      var propertyName = entry.getKey();
-      var value = entry.getValue().value;
-
-      if (propertyAccess == null || propertyAccess.isReadable(propertyName)) {
-        if (!isSystemProperty(propertyName)) {
-          map.put(propertyName, ResultInternal.toMapValue(value, true));
-        }
-      }
-    }
-
+    final Map<String, Object> map = new LinkedHashMap<>();
     if (includeMetadata) {
       if (isEmbedded()) {
         map.put(EntityHelper.ATTRIBUTE_EMBEDDED, true);
@@ -2023,6 +2013,23 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
       if (className != null) {
         map.put(EntityHelper.ATTRIBUTE_CLASS, className);
+      }
+
+      if (isDirty()) {
+        map.put(EntityHelper.ATTRIBUTE_VERSION, getVersion() + 1);
+      } else {
+        map.put(EntityHelper.ATTRIBUTE_VERSION, getVersion());
+      }
+    }
+
+    for (var entry : properties.entrySet()) {
+      var propertyName = entry.getKey();
+      var value = entry.getValue().value;
+
+      if (propertyAccess == null || propertyAccess.isReadable(propertyName)) {
+        if (!isSystemProperty(propertyName)) {
+          map.put(propertyName, ResultInternal.toMapValue(value, true));
+        }
       }
     }
 
@@ -3553,7 +3560,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
           }
           break;
         case EMBEDDEDSET:
-          if (propertyValue instanceof Set<?> && !(propertyValue instanceof EntityEmbeddedSetImpl<?>)) {
+          if (propertyValue instanceof Set<?>
+              && !(propertyValue instanceof EntityEmbeddedSetImpl<?>)) {
             throw new DatabaseException(session.getDatabaseName(),
                 "Property " + propertyEntry.getKey() + " is supposed to be TrackedSet but is "
                     + propertyValue.getClass());
@@ -3561,7 +3569,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
           }
           break;
         case EMBEDDEDMAP:
-          if (propertyValue instanceof Map<?, ?> && !(propertyValue instanceof EntityEmbeddedMapImpl)) {
+          if (propertyValue instanceof Map<?, ?>
+              && !(propertyValue instanceof EntityEmbeddedMapImpl)) {
             throw new DatabaseException(session.getDatabaseName(),
                 "Property " + propertyEntry.getKey() + " is supposed to be TrackedMap but is "
                     + propertyValue.getClass());

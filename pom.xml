@@ -39,8 +39,8 @@
     <module>tests</module>
     <module>lucene</module>
     <module>jdbc</module>
-    <module>distribution</module>
-    <module>console-distribution</module>
+<!--    <module>distribution</module>-->
+<!--    <module>console-distribution</module>-->
   </modules>
 
   <scm>

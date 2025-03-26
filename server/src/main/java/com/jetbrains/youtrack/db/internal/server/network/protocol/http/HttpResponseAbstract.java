@@ -196,35 +196,34 @@ public abstract class HttpResponseAbstract implements HttpResponse {
 
   @Override
   public void writeResult(
-      Object iResult,
+      Object result,
       final String iFormat,
       final String iAccept,
       final Map<String, Object> iAdditionalProperties,
       final String mode,
-      DatabaseSessionInternal session)
-      throws IOException {
-    if (iResult == null) {
+      DatabaseSessionInternal session) {
+    if (result == null) {
       send(HttpUtils.STATUS_OK_NOCONTENT_CODE, "", HttpUtils.CONTENT_TEXT_PLAIN, null, null);
     } else {
       final Object newResult;
 
-      if (iResult instanceof Map) {
-        newResult = Collections.singleton(iResult).iterator();
-      } else if (MultiValue.isMultiValue(iResult)
-          && (MultiValue.getSize(iResult) > 0
-          && !((MultiValue.getFirstValue(iResult) instanceof Identifiable)
-          || ((MultiValue.getFirstValue(iResult) instanceof Result))))) {
-        newResult = Collections.singleton(Map.of("value", iResult)).iterator();
-      } else if (iResult instanceof Identifiable) {
+      if (result instanceof Map) {
+        newResult = Collections.singleton(result).iterator();
+      } else if (MultiValue.isMultiValue(result)
+          && (MultiValue.getSize(result) > 0
+          && !((MultiValue.getFirstValue(result) instanceof Identifiable)
+          || ((MultiValue.getFirstValue(result) instanceof Result))))) {
+        newResult = Collections.singleton(Map.of("value", result)).iterator();
+      } else if (result instanceof Identifiable) {
         // CONVERT SINGLE VALUE IN A COLLECTION
-        newResult = Collections.singleton(iResult).iterator();
-      } else if (iResult instanceof Iterable<?>) {
+        newResult = Collections.singleton(result).iterator();
+      } else if (result instanceof Iterable<?>) {
         //noinspection unchecked
-        newResult = ((Iterable<Identifiable>) iResult).iterator();
-      } else if (MultiValue.isMultiValue(iResult)) {
-        newResult = MultiValue.getMultiValueIterator(iResult);
+        newResult = ((Iterable<Identifiable>) result).iterator();
+      } else if (MultiValue.isMultiValue(result)) {
+        newResult = MultiValue.getMultiValueIterator(result);
       } else {
-        newResult = Collections.singleton(Map.of("value", iResult)).iterator();
+        newResult = Collections.singleton(Map.of("value", result)).iterator();
       }
 
       if (newResult == null) {
@@ -329,6 +328,8 @@ public abstract class HttpResponseAbstract implements HttpResponse {
                   } else if (r instanceof Map<?, ?>) {
                     //noinspection unchecked
                     maps.add((Map<String, ?>) r);
+
+                    colNames.addAll(((Map<String, ?>) r).keySet());
                   }
                 }
 

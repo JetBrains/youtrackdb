@@ -370,8 +370,13 @@ public class MessageHelper {
       channel.writeByte(QueryResponse.RECORD_TYPE_RID);
       writeIdentifiable(session, channel, row.asStatefulEdge().getIdentity());
     } else if (row.isEntity()) {
-      channel.writeByte(QueryResponse.RECORD_TYPE_RID);
-      writeIdentifiable(session, channel, row.getIdentity());
+      var entity = row.asEntity();
+      if (entity.isEmbedded()) {
+        writeProjection(session, entity, channel);
+      } else {
+        channel.writeByte(QueryResponse.RECORD_TYPE_RID);
+        writeIdentifiable(session, channel, row.getIdentity());
+      }
     } else {
       writeProjection(session, row, channel);
     }

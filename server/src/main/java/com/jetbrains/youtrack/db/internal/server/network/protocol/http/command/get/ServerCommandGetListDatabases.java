@@ -21,14 +21,17 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.
 
 import com.jetbrains.youtrack.db.internal.core.db.SystemDatabase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedServerAbstract;
 import com.jetbrains.youtrack.db.internal.tools.config.ServerConfiguration;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 
 public class ServerCommandGetListDatabases extends ServerCommandAuthenticatedServerAbstract {
@@ -52,7 +55,7 @@ public class ServerCommandGetListDatabases extends ServerCommandAuthenticatedSer
 
     iRequest.getData().commandInfo = "Server status";
 
-    final var result = new EntityImpl(null);
+    final var result = new HashMap<String, Object>();
 
     // We copy the returned set so that we can modify it, and we use a LinkedHashSet to preserve the
     // ordering.
@@ -79,8 +82,13 @@ public class ServerCommandGetListDatabases extends ServerCommandAuthenticatedSer
           }
         });
 
-    result.setProperty("databases", orderedStorages);
-    iResponse.writeRecord(result);
+    result.put("databases", orderedStorages);
+    iResponse.send(
+        HttpUtils.STATUS_OK_CODE,
+        HttpUtils.STATUS_OK_DESCRIPTION,
+        HttpUtils.CONTENT_JSON,
+        RecordSerializerJackson.mapToJson(result),
+        null);
 
     return false;
   }
