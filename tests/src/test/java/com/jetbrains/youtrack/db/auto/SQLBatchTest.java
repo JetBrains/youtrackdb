@@ -62,6 +62,7 @@ public class SQLBatchTest extends BaseDBTest {
     session.execute("CREATE CLASS " + className2 + " EXTENDS V").close();
     session.execute("CREATE PROPERTY " + className2 + ".foos LinkList " + className1).close();
 
+    session.begin();
     var script =
         "BEGIN;"
             + "LET a = CREATE VERTEX "
@@ -79,7 +80,9 @@ public class SQLBatchTest extends BaseDBTest {
             + "COMMIT";
 
     session.runScript("sql", script);
+    session.commit();
 
+    session.begin();
     var result = executeQuery("select from " + className2);
     Assert.assertEquals(result.size(), 1);
     List foos = result.getFirst().getProperty("foos");
@@ -87,6 +90,7 @@ public class SQLBatchTest extends BaseDBTest {
     Assert.assertTrue(foos.get(0) instanceof Identifiable);
     Assert.assertTrue(foos.get(1) instanceof Identifiable);
     Assert.assertTrue(foos.get(2) instanceof Identifiable);
+    session.commit();
   }
 
   public void testInlineArray2() {
@@ -96,6 +100,7 @@ public class SQLBatchTest extends BaseDBTest {
     session.execute("CREATE CLASS " + className2 + " EXTENDS V").close();
     session.execute("CREATE PROPERTY " + className2 + ".foos LinkList " + className1).close();
 
+    session.begin();
     var script =
         "BEGIN;\n"
             + "LET a = CREATE VERTEX "
@@ -114,7 +119,9 @@ public class SQLBatchTest extends BaseDBTest {
             + "COMMIT;";
 
     session.runScript("sql", script);
+    session.commit();
 
+    session.begin();
     var result = executeQuery("select from " + className2);
     Assert.assertEquals(result.size(), 1);
     List foos = result.getFirst().getProperty("foos");
@@ -122,5 +129,6 @@ public class SQLBatchTest extends BaseDBTest {
     Assert.assertTrue(foos.get(0) instanceof Identifiable);
     Assert.assertTrue(foos.get(1) instanceof Identifiable);
     Assert.assertTrue(foos.get(2) instanceof Identifiable);
+    session.commit();
   }
 }

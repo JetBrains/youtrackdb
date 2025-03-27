@@ -531,8 +531,8 @@ public class CRUDTest extends BaseDBTest {
   protected static void checkCollectionImplementations(Entity doc) {
     var collectionObj = doc.getProperty("list");
     var validImplementation =
-        (collectionObj instanceof EntityEmbeddedListImpl<?>) || (doc.getProperty(
-            "list") instanceof EntityLinkListImpl);
+        collectionObj instanceof EntityEmbeddedListImpl<?> ||
+            collectionObj instanceof EntityLinkListImpl;
     if (!validImplementation) {
       fail(
           "Document list implementation "
@@ -540,7 +540,8 @@ public class CRUDTest extends BaseDBTest {
               + " not compatible with current Object Database loading management");
     }
     collectionObj = doc.getProperty("set");
-    validImplementation = collectionObj instanceof EntityEmbeddedSetImpl<?>;
+    validImplementation = collectionObj instanceof EntityEmbeddedSetImpl<?> ||
+        collectionObj instanceof EntityLinkSetImpl;
     if (!validImplementation) {
       fail(
           "Document set implementation "
@@ -548,7 +549,8 @@ public class CRUDTest extends BaseDBTest {
               + " not compatible with current Object Database management");
     }
     collectionObj = doc.getProperty("children");
-    validImplementation = collectionObj instanceof EntityLinkMapIml;
+    validImplementation = collectionObj instanceof EntityLinkMapIml ||
+        collectionObj instanceof EntityEmbeddedMapImpl;
     if (!validImplementation) {
       fail(
           "Document map implementation "

@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
@@ -2767,6 +2766,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
     checkForProperties();
     super.setDirty();
 
+    if (status != STATUS.UNMARSHALLING) {
+      source = null;
+    }
+
     if (owner != null) {
       // PROPAGATES TO THE OWNER
       var ownerEntity = owner.get();
@@ -2913,27 +2916,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Nullable
   public ArrayList<RidBag> getRidBagsToDelete() {
     return ridBagsToDelete;
-  }
-
-  /**
-   * Clears all the property values and types. Clears only record content, but saves its identity.
-   *
-   * <p>
-   *
-   * <p>The following code will clear all data from specified entity. <code>
-   * entity.clear(); entity.save(); </code>
-   *
-   * @see #reset()
-   */
-  @Override
-  public void clear() {
-    checkForBinding();
-
-    for (var property : getPropertyNames()) {
-      removeProperty(property);
-    }
-
-    owner = null;
   }
 
   /**
@@ -3305,75 +3287,67 @@ public class EntityImpl extends RecordAbstract implements Entity {
       inspected.add(this);
     }
 
-    final var saveDirtyStatus = dirty;
-    final var oldUpdateContent = contentChanged;
+    final var buffer = new StringBuilder(128);
 
-    try {
-      final var buffer = new StringBuilder(128);
-
-      if (!session.isClosed()) {
-        final var clsName = getSchemaClassName();
-        if (clsName != null) {
-          buffer.append(clsName);
-        }
+    if (!session.isClosed()) {
+      final var clsName = getSchemaClassName();
+      if (clsName != null) {
+        buffer.append(clsName);
       }
+    }
 
-      if (recordId.isValidPosition()) {
-        buffer.append(recordId);
-      }
+    if (recordId.isValidPosition()) {
+      buffer.append(recordId);
+    }
 
-      var first = true;
-      if (sourceIsParsedByProperties()) {
-        for (var propertyName : calculatePropertyNames(false, true)) {
-          buffer.append(first ? '{' : ',');
-          buffer.append(propertyName);
-          buffer.append(':');
-          var propertyValue = getPropertyInternal(propertyName);
-          if (propertyValue == null) {
-            buffer.append("null");
+    var first = true;
+    if (sourceIsParsedByProperties()) {
+      for (var propertyName : calculatePropertyNames(false, true)) {
+        buffer.append(first ? '{' : ',');
+        buffer.append(propertyName);
+        buffer.append(':');
+        var propertyValue = getPropertyInternal(propertyName);
+        if (propertyValue == null) {
+          buffer.append("null");
+        } else {
+          if (propertyValue instanceof Collection<?>
+              || propertyValue instanceof Map<?, ?>
+              || propertyValue.getClass().isArray()) {
+            buffer.append('[');
+            buffer.append(MultiValue.getSize(propertyValue));
+            buffer.append(']');
           } else {
-            if (propertyValue instanceof Collection<?>
-                || propertyValue instanceof Map<?, ?>
-                || propertyValue.getClass().isArray()) {
-              buffer.append('[');
-              buffer.append(MultiValue.getSize(propertyValue));
-              buffer.append(']');
-            } else {
-              if (propertyValue instanceof RecordAbstract record) {
-                if (record.getIdentity().isValidPosition()) {
-                  record.getIdentity().toString(buffer);
-                } else {
-                  if (record instanceof EntityImpl) {
-                    buffer.append(((EntityImpl) record).toString(inspected));
-                  } else {
-                    buffer.append(record);
-                  }
-                }
+            if (propertyValue instanceof RecordAbstract record) {
+              if (record.getIdentity().isValidPosition()) {
+                record.getIdentity().toString(buffer);
               } else {
-                buffer.append(propertyValue);
+                if (record instanceof EntityImpl) {
+                  buffer.append(((EntityImpl) record).toString(inspected));
+                } else {
+                  buffer.append(record);
+                }
               }
+            } else {
+              buffer.append(propertyValue);
             }
           }
-
-          if (first) {
-            first = false;
-          }
         }
-        if (!first) {
-          buffer.append('}');
+
+        if (first) {
+          first = false;
         }
       }
-
-      if (recordId.isValidPosition()) {
-        buffer.append(" v");
-        buffer.append(recordVersion);
+      if (!first) {
+        buffer.append('}');
       }
-
-      return buffer.toString();
-    } finally {
-      dirty = saveDirtyStatus;
-      contentChanged = oldUpdateContent;
     }
+
+    if (recordId.isValidPosition()) {
+      buffer.append(" v");
+      buffer.append(recordVersion);
+    }
+
+    return buffer.toString();
   }
 
   @Override

@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import org.testng.Assert;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -32,19 +33,20 @@ import org.testng.annotations.Test;
 public class FunctionsTest extends BaseDBTest {
 
   @Parameters(value = "remote")
-  public FunctionsTest(boolean remote) {
-    super(remote);
+  public FunctionsTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @Test
   public void createFunctionBug2415() {
-    Identifiable result =
-        session
-            .execute(
-                    "create function FunctionsTest \"return a + b\" PARAMETERS [a,b] IDEMPOTENT"
-                        + " true LANGUAGE Javascript").findFirst(Result::getIdentity);
-
     session.begin();
+    var r1 = session.execute(
+        "create function FunctionsTest \"return a + b\" PARAMETERS [a,b] IDEMPOTENT"
+            + " true LANGUAGE Javascript"
+    );
+    var r2 = r1.next();
+    var result = r2.getIdentity();
+
     var transaction = session.getActiveTransaction();
     final EntityImpl record = transaction.load(result);
     final List<String> parameters = record.getProperty("parameters");

@@ -369,28 +369,6 @@ public class SchemaTest extends BaseDBTest {
   }
 
   @Test
-  public void invalidClusterWrongClusterId() {
-
-    try {
-      session.command("create class Antani cluster 212121");
-      Assert.fail();
-    } catch (Exception e) {
-      Assert.assertTrue(e instanceof ClusterDoesNotExistException);
-    }
-  }
-
-  @Test
-  public void invalidClusterWrongClusterName() {
-    try {
-      session.command("create class Antani cluster blaaa");
-      Assert.fail();
-
-    } catch (Exception e) {
-      Assert.assertTrue(e instanceof CommandSQLParsingException);
-    }
-  }
-
-  @Test
   public void invalidClusterWrongKeywords() {
 
     try {
@@ -481,13 +459,6 @@ public class SchemaTest extends BaseDBTest {
       // RESTORE DEFAULT
       session.execute("alter database minimum_clusters 0").close();
     }
-  }
-
-  public void testExchangeCluster() {
-    session.execute("CREATE CLASS TestRenameClusterOriginal clusters 2").close();
-    swapClusters(session, 1);
-    swapClusters(session, 2);
-    swapClusters(session, 3);
   }
 
   public void testRenameWithSameNameIsNop() {

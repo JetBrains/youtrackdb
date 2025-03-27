@@ -19,6 +19,7 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import java.util.Arrays;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
@@ -30,8 +31,8 @@ import org.testng.annotations.Test;
 @Test
 public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
 
-  private static final PropertyType EXPECTED_PROP1_TYPE = PropertyType.DOUBLE;
-  private static final PropertyType EXPECTED_PROP2_TYPE = PropertyType.INTEGER;
+  private static final PropertyTypeInternal EXPECTED_PROP1_TYPE = PropertyTypeInternal.DOUBLE;
+  private static final PropertyTypeInternal EXPECTED_PROP2_TYPE = PropertyTypeInternal.INTEGER;
 
   @Parameters(value = "remote")
   public SQLDropSchemaPropertyIndexTest(@Optional Boolean remote) {
@@ -44,8 +45,8 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
 
     final Schema schema = session.getMetadata().getSchema();
     final var oClass = schema.createClass("DropPropertyIndexTestClass");
-    oClass.createProperty("prop1", EXPECTED_PROP1_TYPE);
-    oClass.createProperty("prop2", EXPECTED_PROP2_TYPE);
+    oClass.createProperty("prop1", EXPECTED_PROP1_TYPE.getPublicPropertyType());
+    oClass.createProperty("prop2", EXPECTED_PROP2_TYPE.getPublicPropertyType());
   }
 
   @AfterMethod
@@ -152,7 +153,7 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
     Assert.assertTrue(indexDefinition instanceof CompositeIndexDefinition);
     Assert.assertEquals(indexDefinition.getFields(), Arrays.asList("prop1", "prop2"));
     Assert.assertEquals(
-        indexDefinition.getTypes(), new PropertyType[]{EXPECTED_PROP1_TYPE, EXPECTED_PROP2_TYPE});
+        indexDefinition.getTypes(), new PropertyTypeInternal[]{EXPECTED_PROP1_TYPE, EXPECTED_PROP2_TYPE});
     Assert.assertEquals(index.getType(), "UNIQUE");
   }
 
@@ -189,7 +190,7 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
     Assert.assertTrue(indexDefinition instanceof CompositeIndexDefinition);
     Assert.assertEquals(indexDefinition.getFields(), Arrays.asList("prop1", "prop2"));
     Assert.assertEquals(
-        indexDefinition.getTypes(), new PropertyType[]{EXPECTED_PROP1_TYPE, EXPECTED_PROP2_TYPE});
+        indexDefinition.getTypes(), new PropertyTypeInternal[]{EXPECTED_PROP1_TYPE, EXPECTED_PROP2_TYPE});
     Assert.assertEquals(index.getType(), "UNIQUE");
   }
 }

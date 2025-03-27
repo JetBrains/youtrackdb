@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPagina
 import java.util.Arrays;
 import java.util.Random;
 import org.testng.Assert;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -21,8 +22,8 @@ public class RemoteProtocolCommandsTest extends BaseDBTest {
   private static final String serverPort = System.getProperty("youtrackdb.server.port", "2424");
 
   @Parameters(value = "remote")
-  public RemoteProtocolCommandsTest(boolean remote) {
-    super(remote);
+  public RemoteProtocolCommandsTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @Test(enabled = false)

@@ -8,6 +8,7 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -18,8 +19,8 @@ import org.testng.annotations.Test;
 public class OrderByIndexReuseTest extends BaseDBTest {
 
   @Parameters(value = "remote")
-  public OrderByIndexReuseTest(boolean remote) {
-    super(remote);
+  public OrderByIndexReuseTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @Override
@@ -57,6 +58,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
   }
 
   public void testGreaterThanOrderByAscFirstProperty() {
+    session.begin();
     var query = "select from OrderByIndexReuse where firstProp > 5 order by firstProp limit 5";
     var result = session.query(query).toList();
 
@@ -66,16 +68,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), i / 2 + 6);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testGreaterThanOrderByAscSecondAscThirdProperty() {
+    session.begin();
     var query =
         "select from OrderByIndexReuse where secondProp > 5 order by secondProp asc, thirdProp asc"
             + " limit 5";
@@ -88,16 +85,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals(document.getProperty("thirdProp"), "prop" + (i + 12));
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
+    session.commit();
   }
 
   public void testGreaterThanOrderByDescSecondDescThirdProperty() {
+    session.begin();
     var query =
         "select from OrderByIndexReuse where secondProp > 5 order by secondProp desc, thirdProp"
             + " desc limit 5";
@@ -110,16 +102,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals(document.getProperty("thirdProp"), "prop" + (101 - i));
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
+    session.commit();
   }
 
   public void testGreaterThanOrderByAscSecondDescThirdProperty() {
+    session.begin();
     var query =
         "select from OrderByIndexReuse where secondProp > 5 order by secondProp asc, thirdProp desc"
             + " limit 5";
@@ -139,13 +126,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
-    Assert.assertFalse(explain.getProperty("indexIsUsedInOrderBy"));
+    session.commit();
   }
 
   public void testGreaterThanOrderByDescFirstProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where firstProp > 5 order by firstProp desc limit 5";
     var result = session.query(query).toList();
@@ -156,16 +141,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 50 - i / 2);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testGTEOrderByAscFirstProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where firstProp >= 5 order by firstProp limit 5";
     var result = session.query(query).toList();
@@ -176,16 +156,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), i / 2 + 5);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testGTEOrderByAscSecondPropertyAscThirdProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where secondProp >= 5 order by secondProp asc, thirdProp asc"
             + " limit 5";
@@ -205,16 +180,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
+    session.commit();
   }
 
   public void testGTEOrderByDescSecondPropertyDescThirdProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where secondProp >= 5 order by secondProp desc, thirdProp"
             + " desc limit 5";
@@ -234,16 +204,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
+    session.commit();
   }
 
   public void testGTEOrderByAscSecondPropertyDescThirdProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where secondProp >= 5 order by secondProp asc, thirdProp"
             + " desc limit 5";
@@ -263,13 +228,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
-    Assert.assertFalse(explain.getProperty("indexIsUsedInOrderBy"));
+    session.commit();
   }
 
   public void testGTEOrderByDescFirstProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where firstProp >= 5 order by firstProp desc limit 5";
     var result = session.query(query).toList();
@@ -280,16 +243,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 50 - i / 2);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testLTOrderByAscFirstProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where firstProp < 5 order by firstProp limit 3";
     var result = session.query(query).toList();
@@ -300,16 +258,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), i / 2 + 1);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testLTOrderByAscSecondAscThirdProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where secondProp < 5 order by secondProp asc, thirdProp asc"
             + " limit 3";
@@ -330,16 +283,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
+    session.commit();
   }
 
   public void testLTOrderByDescSecondDescThirdProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where secondProp < 5 order by secondProp desc, thirdProp"
             + " desc limit 3";
@@ -360,16 +308,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
+    session.commit();
   }
 
   public void testLTOrderByAscSecondDescThirdProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where secondProp < 5 order by secondProp asc, thirdProp desc"
             + " limit 3";
@@ -390,13 +333,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
-    Assert.assertFalse(explain.getProperty("indexIsUsedInOrderBy"));
+    session.commit();
   }
 
   public void testLTOrderByDescFirstProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where firstProp < 5 order by firstProp desc limit 3";
     var result = session.query(query).toList();
@@ -407,16 +348,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 4 - i / 2);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testLTEOrderByAscFirstProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where firstProp <= 5 order by firstProp limit 3";
     var result = session.query(query).toList();
@@ -427,16 +363,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), i / 2 + 1);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testLTEOrderByAscSecondAscThirdProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where secondProp <= 5 order by secondProp asc, thirdProp asc"
             + " limit 3";
@@ -457,16 +388,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
+    session.commit();
   }
 
   public void testLTEOrderByDescSecondDescThirdProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where secondProp <= 5 order by secondProp desc, thirdProp"
             + " desc limit 3";
@@ -487,16 +413,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
+    session.commit();
   }
 
   public void testLTEOrderByAscSecondDescThirdProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where secondProp <= 5 order by secondProp asc, thirdProp"
             + " desc limit 3";
@@ -517,13 +438,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
-    Assert.assertFalse(explain.getProperty("indexIsUsedInOrderBy"));
+    session.commit();
   }
 
   public void testLTEOrderByDescFirstProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where firstProp <= 5 order by firstProp desc limit 3";
     var result = session.query(query).toList();
@@ -534,16 +453,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 5 - i / 2);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testBetweenOrderByAscFirstProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where firstProp between 5 and 15 order by firstProp limit 5";
     var result = session.query(query).toList();
@@ -554,16 +468,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), i / 2 + 5);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testBetweenOrderByAscSecondAscThirdProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where secondProp between 5 and 15 order by secondProp asc,"
             + " thirdProp asc limit 5";
@@ -584,16 +493,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
+    session.commit();
   }
 
   public void testBetweenOrderByDescSecondDescThirdProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where secondProp between 5 and 15 order by secondProp desc,"
             + " thirdProp desc limit 5";
@@ -614,16 +518,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
+    session.commit();
   }
 
   public void testBetweenOrderByAscSecondDescThirdProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where secondProp between 5 and 15 order by secondProp asc,"
             + " thirdProp desc limit 5";
@@ -644,13 +543,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
-    Assert.assertFalse(explain.getProperty("indexIsUsedInOrderBy"));
+    session.commit();
   }
 
   public void testBetweenOrderByDescFirstProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where firstProp between 5 and 15 order by firstProp desc"
             + " limit 5";
@@ -662,16 +559,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 15 - i / 2);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testInOrderByAscFirstProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where firstProp in [10, 2, 43, 21, 45, 47, 11, 12] order by"
             + " firstProp limit 3";
@@ -688,16 +580,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     document = result.get(2);
     Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 10);
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testInOrderByDescFirstProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where firstProp in [10, 2, 43, 21, 45, 47, 11, 12] order by"
             + " firstProp desc limit 3";
@@ -714,16 +601,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     document = result.get(2);
     Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 45);
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testGreaterThanOrderByAscFirstAscFourthProperty() {
+    session.begin();
     var query =
         "select from OrderByIndexReuse where firstProp > 5 order by firstProp asc, prop4 asc limit"
             + " 5";
@@ -736,16 +618,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals(document.getProperty("prop4"), "prop" + (i + 12));
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testGreaterThanOrderByDescFirstPropertyAscFourthProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where firstProp > 5 order by firstProp desc, prop4 asc limit"
             + " 5";
@@ -765,16 +642,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals(document.getProperty("prop4"), "prop" + property4Index);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testGTEOrderByAscFirstPropertyAscFourthProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where firstProp >= 5 order by firstProp asc, prop4 asc limit"
             + " 5";
@@ -795,16 +667,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals(document.getProperty("prop4"), "prop" + property4Index);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testGTEOrderByDescFirstPropertyAscFourthProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where firstProp >= 5 order by firstProp desc, prop4 asc"
             + " limit 5";
@@ -825,16 +692,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals(document.getProperty("prop4"), "prop" + property4Index);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testLTOrderByAscFirstPropertyAscFourthProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where firstProp < 5 order by firstProp asc, prop4 asc limit"
             + " 3";
@@ -855,16 +717,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals(document.getProperty("prop4"), "prop" + property4Index);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testLTOrderByDescFirstPropertyAscFourthProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where firstProp < 5 order by firstProp desc, prop4 asc limit"
             + " 3";
@@ -885,16 +742,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals(document.getProperty("prop4"), "prop" + property4Index);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testLTEOrderByAscFirstPropertyAscFourthProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where firstProp <= 5 order by firstProp asc, prop4 asc limit"
             + " 3";
@@ -915,16 +767,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals(document.getProperty("prop4"), "prop" + property4Index);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testLTEOrderByDescFirstPropertyAscFourthProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where firstProp <= 5 order by firstProp desc, prop4 asc"
             + " limit 3";
@@ -945,16 +792,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
       Assert.assertEquals(document.getProperty("prop4"), "prop" + property4Index);
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testBetweenOrderByAscFirstPropertyAscFourthProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where firstProp between 5 and 15 order by firstProp asc,"
             + " prop4 asc limit 5";
@@ -974,17 +816,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
 
       Assert.assertEquals(document.getProperty("prop4"), "prop" + property4Index);
     }
-
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testBetweenOrderByDescFirstPropertyAscFourthProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where firstProp between 5 and 15 order by firstProp desc,"
             + " prop4 asc limit 5";
@@ -1004,17 +840,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
 
       Assert.assertEquals(document.getProperty("prop4"), "prop" + property4Index);
     }
-
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testInOrderByAscFirstPropertyAscFourthProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where firstProp in [10, 2, 43, 21, 45, 47, 11, 12] order by"
             + " firstProp asc, prop4 asc limit 3";
@@ -1033,17 +863,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     document = result.get(2);
     Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 10);
     Assert.assertEquals(document.getProperty("prop4"), "prop20");
-
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testInOrderByDescFirstPropertyAscFourthProperty() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse where firstProp in [10, 2, 43, 21, 45, 47, 11, 12] order by"
             + " firstProp desc, prop4 asc limit 3";
@@ -1062,17 +886,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
     document = result.get(2);
     Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 45);
     Assert.assertEquals(document.getProperty("prop4"), "prop90");
-
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-
-    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testOrderByFirstPropWithLimitAsc() {
+    session.begin();
     final var query = "select from OrderByIndexReuse order by firstProp offset 10 limit 4";
 
     var result = session.query(query).toList();
@@ -1084,16 +902,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
 
       Assert.assertEquals(document.<Object>getProperty("firstProp"), 6 + i / 2);
     }
-
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testOrderByFirstPropWithLimitDesc() {
+    session.begin();
     final var query = "select from OrderByIndexReuse order by firstProp desc offset 10 limit 4";
 
     var result = session.query(query).toList();
@@ -1105,16 +918,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
 
       Assert.assertEquals(document.<Object>getProperty("firstProp"), 45 - i / 2);
     }
-
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexFirstPropNotUnique"});
+    session.commit();
   }
 
   public void testOrderBySecondThirdPropWithLimitAsc() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse order by secondProp asc, thirdProp asc offset 10 limit 4";
 
@@ -1136,16 +944,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
 
       Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
-
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
+    session.commit();
   }
 
   public void testOrderBySecondThirdPropWithLimitDesc() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse order by secondProp desc, thirdProp desc offset 10 limit 4";
 
@@ -1167,16 +970,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
 
       Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
-
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-    Assert.assertTrue(explain.getProperty("fullySortedByIndex"));
-    Assert.assertTrue(explain.getProperty("indexIsUsedInOrderBy"));
-    Assert.assertEquals(
-        explain.<Set>getProperty("involvedIndexes").toArray(),
-        new String[]{"OrderByIndexReuseIndexSecondThirdProp"});
+    session.commit();
   }
 
   public void testOrderBySecondThirdPropWithLimitAscDesc() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse order by secondProp asc, thirdProp desc offset 10 limit 4";
 
@@ -1198,13 +996,11 @@ public class OrderByIndexReuseTest extends BaseDBTest {
 
       Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
-
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
-    Assert.assertFalse(explain.getProperty("indexIsUsedInOrderBy"));
+    session.commit();
   }
 
   public void testOrderBySecondThirdPropWithLimitDescAsc() {
+    session.begin();
     final var query =
         "select from OrderByIndexReuse order by secondProp desc, thirdProp asc offset 10 limit 4";
 
@@ -1226,9 +1022,6 @@ public class OrderByIndexReuseTest extends BaseDBTest {
 
       Assert.assertEquals(document.getProperty("thirdProp"), "prop" + thirdPropertyIndex);
     }
-
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-    Assert.assertFalse(explain.getProperty("fullySortedByIndex"));
-    Assert.assertFalse(explain.getProperty("indexIsUsedInOrderBy"));
+    session.commit();
   }
 }

@@ -17,6 +17,7 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.testng.Assert;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -24,8 +25,8 @@ import org.testng.annotations.Test;
 public class SQLCreateLinkTest extends BaseDBTest {
 
   @Parameters(value = "remote")
-  public SQLCreateLinkTest(boolean remote) {
-    super(remote);
+  public SQLCreateLinkTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @Test

@@ -87,7 +87,6 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
   public void validationMandatory() {
     session.begin();
     record = session.newInstance("Whiz");
-    record.clear();
 
     session.commit();
   }
@@ -208,9 +207,9 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "createSchemaForMandatoryNullableTest")
   public void testUpdateDocDefined() {
+    session.begin();
     var result =
         session.query("SELECT FROM MyTestClass WHERE keyField = ?", "K1").stream().toList();
-    session.begin();
     Assert.assertEquals(result.size(), 1);
     var readDoc = result.getFirst().asEntityOrNull();
     assert readDoc != null;

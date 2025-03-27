@@ -22,6 +22,7 @@ import java.util.stream.Collectors;
 import org.apache.commons.collections4.CollectionUtils;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -38,8 +39,8 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
   }
 
   @Parameters(value = "remote")
-  protected BaseDBTest(boolean remote) {
-    super(remote);
+  protected BaseDBTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   public BaseDBTest(boolean remote, String prefix) {
@@ -581,6 +582,7 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
     }
 
     session.commit();
+    session.begin();
     result = session.query("select from GraphVehicle").stream().toList();
     Assert.assertEquals(result.size(), 2);
 
@@ -615,6 +617,7 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
     }
 
     Assert.assertEquals(edge1, edge2);
+    session.commit();
   }
 
   public static int indexesUsed(ExecutionPlan executionPlan) {

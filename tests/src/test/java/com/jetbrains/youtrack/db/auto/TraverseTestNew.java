@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -38,8 +39,8 @@ public class TraverseTestNew extends BaseDBTest {
   private Vertex nicoleKidman;
 
   @Parameters(value = "remote")
-  public TraverseTestNew(boolean remote) {
-    super(remote);
+  public TraverseTestNew(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @BeforeClass

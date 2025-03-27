@@ -51,11 +51,6 @@ public interface DBRecord extends Identifiable {
   boolean isNotBound(@Nonnull DatabaseSession session);
 
   /**
-   * All the properties are accessible for user will be deleted.
-   */
-  void clear();
-
-  /**
    * Returns the record identity.
    */
   @Nonnull

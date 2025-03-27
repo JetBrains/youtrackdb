@@ -30,6 +30,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nonnull;
 import org.testng.Assert;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -78,8 +79,8 @@ public class LiveQuery30Test extends BaseDBTest implements CommandOutputListener
   }
 
   @Parameters(value = {"remote"})
-  public LiveQuery30Test(boolean remote) {
-    super(remote);
+  public LiveQuery30Test(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @Test
@@ -94,12 +95,15 @@ public class LiveQuery30Test extends BaseDBTest implements CommandOutputListener
     var monitor = session.live("live select from " + className1, listener);
     Assert.assertNotNull(monitor);
 
+    session.begin();
     session.execute("insert into " + className1 + " set name = 'foo', surname = 'bar'");
     session.execute("insert into  " + className1 + " set name = 'foo', surname = 'baz'");
     session.execute("insert into " + className2 + " set name = 'foo'");
+    session.commit();
     latch.await(1, TimeUnit.MINUTES);
 
     monitor.unSubscribe();
+    session.begin();
     session.execute("insert into " + className1 + " set name = 'foo', surname = 'bax'");
     Assert.assertEquals(listener.ops.size(), 2);
     for (Pair doc : listener.ops) {
@@ -109,6 +113,7 @@ public class LiveQuery30Test extends BaseDBTest implements CommandOutputListener
       Assert.assertNotNull(res.getProperty("@rid"));
       Assert.assertTrue(((RID) res.getProperty("@rid")).getClusterPosition() >= 0);
     }
+    session.commit();
     unLatch.await(1, TimeUnit.MINUTES);
   }
 

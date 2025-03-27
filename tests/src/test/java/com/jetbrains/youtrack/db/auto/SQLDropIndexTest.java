@@ -51,7 +51,9 @@ public class SQLDropIndexTest extends BaseDBTest {
       session = createSessionInstance();
     }
 
+    session.begin();
     session.execute("delete from SQLDropIndexTestClass").close();
+    session.commit();
     session.execute("drop class SQLDropIndexTestClass").close();
 
     super.afterClass();

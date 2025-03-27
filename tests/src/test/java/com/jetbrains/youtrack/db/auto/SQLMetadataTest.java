@@ -15,8 +15,8 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.internal.core.exception.QueryParsingException;
 import org.testng.Assert;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -27,8 +27,8 @@ import org.testng.annotations.Test;
 public class SQLMetadataTest extends BaseDBTest {
 
   @Parameters(value = "remote")
-  public SQLMetadataTest(boolean remote) {
-    super(remote);
+  public SQLMetadataTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @Test
@@ -67,7 +67,7 @@ public class SQLMetadataTest extends BaseDBTest {
       session
           .query("select expand(indexes) from metadata:blaaa").toList();
       Assert.fail();
-    } catch (QueryParsingException e) {
+    } catch (UnsupportedOperationException e) {
     }
   }
 }
