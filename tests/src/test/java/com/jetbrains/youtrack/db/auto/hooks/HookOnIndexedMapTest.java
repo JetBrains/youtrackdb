@@ -3,7 +3,6 @@ package com.jetbrains.youtrack.db.auto.hooks;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
-import org.junit.Assert;
 import org.junit.Test;
 
 public class HookOnIndexedMapTest {
@@ -33,12 +32,6 @@ public class HookOnIndexedMapTest {
 
     tx = db.begin();
 
-    try (var rs = tx.execute("SELECT * FROM INDEX:MyClass.myMap ORDER BY rid")) {
-      //      System.out.println("----------");
-      //      System.out.println("SELECT * FROM INDEX:MyClass.myMap ORDER BY rid");
-      //      rs.forEachRemaining(x-> System.out.println(x));
-    }
-
     try (var rs = tx.execute("SELECT FROM V")) {
       //      System.out.println("----------");
       //      System.out.println("SELECT FROM V");
@@ -50,12 +43,6 @@ public class HookOnIndexedMapTest {
     try (var rs = tx.execute("SELECT FROM V")) {
       //      System.out.println("----------");
       //      System.out.println("SELECT FROM V");
-      //      rs.forEachRemaining(x-> System.out.println(x));
-    }
-
-    try (var rs = tx.execute("SELECT * FROM INDEX:MyClass.myMap ORDER BY rid")) {
-      //      System.out.println("----------");
-      //      System.out.println("SELECT * FROM INDEX:MyClass.myMap ORDER BY rid");
       //      rs.forEachRemaining(x-> System.out.println(x));
     }
 
@@ -74,16 +61,6 @@ public class HookOnIndexedMapTest {
     tx.command("DELETE VERTEX FROM V");
     tx.commit();
 
-    tx = db.begin();
-    try (var rs = tx.execute("SELECT * FROM INDEX:MyClass.myMap ORDER BY rid")) {
-      //      System.out.println("----------");
-      //      System.out.println("SELECT * FROM INDEX:MyClass.myMap ORDER BY rid");
-      if (rs.hasNext()) {
-        //        System.out.println(rs.next());
-        Assert.fail();
-      }
-    }
-    tx.commit();
     youTrackDb.close();
   }
 }

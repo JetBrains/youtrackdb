@@ -22,7 +22,7 @@ public class EmbeddedRidBagTest extends RidBagTest {
   }
 
   @BeforeMethod
-  public void beforeMethod() throws IOException {
+  public void beforeMethod() throws Exception {
     topThreshold =
         GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getValueAsInteger();
     bottomThreshold =
@@ -39,10 +39,12 @@ public class EmbeddedRidBagTest extends RidBagTest {
           GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD, Integer.MAX_VALUE);
       server.close();
     }
+    super.beforeMethod();
   }
 
   @AfterMethod
-  public void afterMethod() throws IOException {
+  public void afterMethod() throws Exception {
+    super.afterMethod();
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(topThreshold);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(bottomThreshold);
 

@@ -53,8 +53,7 @@ public class BTreeBasedRidBagTest extends RidBagTest {
 
   @Parameters(value = "remote")
   public BTreeBasedRidBagTest(@Optional Boolean remote) {
-    //super(remote != null && remote);
-    super(true);
+    super(remote != null && remote);
   }
 
   @BeforeClass
@@ -64,7 +63,7 @@ public class BTreeBasedRidBagTest extends RidBagTest {
   }
 
   @BeforeMethod
-  public void beforeMethod() throws IOException {
+  public void beforeMethod() throws Exception {
     topThreshold =
         GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getValueAsInteger();
     bottomThreshold =
@@ -83,10 +82,12 @@ public class BTreeBasedRidBagTest extends RidBagTest {
 
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(-1);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(-1);
+    super.beforeMethod();
   }
 
   @AfterMethod
-  public void afterMethod() throws IOException {
+  public void afterMethod() throws Exception {
+    super.afterMethod();
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(topThreshold);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(bottomThreshold);
 
@@ -150,12 +151,11 @@ public class BTreeBasedRidBagTest extends RidBagTest {
 
     session.commit();
 
-    var activeTx3 = session.getActiveTransaction();
-    scuti = activeTx3.load(scuti);
-    var activeTx2 = session.getActiveTransaction();
-    cygni = activeTx2.load(cygni);
-    var activeTx1 = session.getActiveTransaction();
-    scorpii = activeTx1.load(scorpii);
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    scuti = activeTx.load(scuti);
+    cygni = activeTx.load(cygni);
+    scorpii = activeTx.load(scorpii);
 
     var expectedResult = new HashSet<EntityImpl>(Arrays.asList(scuti, scorpii));
 
@@ -170,7 +170,7 @@ public class BTreeBasedRidBagTest extends RidBagTest {
     session.commit();
 
     session.begin();
-    var activeTx = session.getActiveTransaction();
+    activeTx = session.getActiveTransaction();
     doc = activeTx.load(doc);
     bag = doc.getProperty("ridBag");
     bag.remove(cygni.getIdentity());

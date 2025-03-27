@@ -490,15 +490,9 @@ public class RidBag
   }
 
   protected void init() {
-    if (topThreshold < 0) {
-      if (session.isRemote()) {
-        delegate = new BTreeBasedRidBag(session);
-      } else {
-        delegate = new EmbeddedRidBag(session);
-      }
-    } else {
-      delegate = new EmbeddedRidBag(session);
-    }
+    delegate = topThreshold >= 0 || session.isRemote() ?
+        new EmbeddedRidBag(session) :
+        new BTreeBasedRidBag(session);
   }
 
   /**
