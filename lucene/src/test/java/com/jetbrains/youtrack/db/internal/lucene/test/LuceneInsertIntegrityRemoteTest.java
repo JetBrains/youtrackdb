@@ -28,10 +28,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- *
- */
-// Renable when solved killing issue
 public class LuceneInsertIntegrityRemoteTest extends BaseLuceneTest {
 
   @Before
@@ -46,15 +42,12 @@ public class LuceneInsertIntegrityRemoteTest extends BaseLuceneTest {
 
   @Test
   public void testInsertUpdateWithIndex() throws Exception {
-
-    session.getMetadata().reload();
-    Schema schema = session.getMetadata().getSchema();
-
+    session.begin();
     var doc = ((EntityImpl) session.newEntity("City"));
     doc.setProperty("name", "Rome");
+    session.commit();
 
     session.begin();
-    session.commit();
     var idx = session.getClassInternal("City").getClassIndex(session, "City.name");
 
     Collection<?> coll;
@@ -65,6 +58,7 @@ public class LuceneInsertIntegrityRemoteTest extends BaseLuceneTest {
 
     doc = session.load((RID) coll.iterator().next());
     Assert.assertEquals("Rome", doc.getProperty("name"));
+    session.commit();
 
     session.begin();
     var activeTx1 = session.getActiveTransaction();
@@ -72,6 +66,7 @@ public class LuceneInsertIntegrityRemoteTest extends BaseLuceneTest {
     doc.setProperty("name", "London");
     session.commit();
 
+    session.begin();
     try (var stream = idx.getRids(session, "Rome")) {
       coll = stream.collect(Collectors.toList());
     }
@@ -83,6 +78,7 @@ public class LuceneInsertIntegrityRemoteTest extends BaseLuceneTest {
 
     doc = session.load((RID) coll.iterator().next());
     Assert.assertEquals("London", doc.getProperty("name"));
+    session.commit();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -90,6 +86,7 @@ public class LuceneInsertIntegrityRemoteTest extends BaseLuceneTest {
     doc.setProperty("name", "Berlin");
     session.commit();
 
+    session.begin();
     doc = session.load(doc.getIdentity());
     Assert.assertEquals("Berlin", doc.getProperty("name"));
 
@@ -104,6 +101,7 @@ public class LuceneInsertIntegrityRemoteTest extends BaseLuceneTest {
     try (var stream = idx.getRids(session, "Berlin")) {
       coll = stream.collect(Collectors.toList());
     }
+    session.commit();
 
     session.begin();
     Assert.assertEquals(1, idx.size(session));
@@ -115,11 +113,11 @@ public class LuceneInsertIntegrityRemoteTest extends BaseLuceneTest {
     // FIXME
     //    initDB();
     //
+    session.begin();
     doc = session.load(doc.getIdentity());
 
     Assert.assertEquals("Berlin", doc.getProperty("name"));
 
-    schema = session.getMetadata().getSchema();
     idx = session.getClassInternal("City").getClassIndex(session, "City.name");
 
     Assert.assertEquals(1, idx.size(session));
@@ -135,5 +133,6 @@ public class LuceneInsertIntegrityRemoteTest extends BaseLuceneTest {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(1, coll.size());
+    session.commit();
   }
 }

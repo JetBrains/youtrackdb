@@ -36,9 +36,7 @@ public class LuceneMassiveInsertDeleteTest extends BaseLuceneTest {
   @Before
   public void init() {
     Schema schema = session.getMetadata().getSchema();
-    var v = schema.getClass("V");
-    var song = schema.createClass("City");
-    song.addSuperClass(v);
+    var song = schema.createVertexClass("City");
     song.createProperty("name", PropertyType.STRING);
 
     session.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE").close();
@@ -49,40 +47,47 @@ public class LuceneMassiveInsertDeleteTest extends BaseLuceneTest {
 
     var size = 1000;
     for (var i = 0; i < size; i++) {
-      var city = ((EntityImpl) session.newEntity("City"));
+      session.begin();
+      var city = ((EntityImpl) session.newVertex("City"));
       city.setProperty("name", "Rome " + i);
 
-      session.begin();
       session.commit();
     }
+
+    session.begin();
     var query = "select * from City where name LUCENE 'name:Rome'";
     var docs = session.query(query);
-    Assert.assertEquals(docs.stream().count(), size);
+    Assert.assertEquals(size, docs.stream().count());
+    session.commit();
 
     session.close();
     session = openDatabase();
 
+    session.begin();
     docs = session.query(query);
-    Assert.assertEquals(docs.stream().count(), size);
+    Assert.assertEquals(size, docs.stream().count());
+    session.commit();
 
     session.begin();
     session.execute("delete vertex City").close();
     session.commit();
 
+    session.begin();
     docs = session.query(query);
-    Assert.assertEquals(docs.stream().count(), 0);
+    Assert.assertEquals(0, docs.stream().count());
+    session.commit();
 
     session.close();
     session = openDatabase();
+    session.begin();
     docs = session.query(query);
-    Assert.assertEquals(docs.stream().count(), 0);
-
-    session.getMetadata().reload();
+    Assert.assertEquals(0, docs.stream().count());
+    session.commit();
 
     session.begin();
     var idx = session.getMetadata().getSchemaInternal().getClassInternal("City")
         .getClassIndex(session, "City.name");
-    Assert.assertEquals(idx.size(session), 0);
+    Assert.assertEquals(0, idx.size(session));
     session.commit();
   }
 }

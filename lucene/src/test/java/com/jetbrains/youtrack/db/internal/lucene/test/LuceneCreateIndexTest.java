@@ -47,12 +47,11 @@ public class LuceneCreateIndexTest extends BaseLuceneTest {
                 + "\"}")
         .close();
 
-    var doc = ((EntityImpl) session.newEntity("Song"));
+    session.begin();
+    var doc = ((EntityImpl) session.newVertex("Song"));
 
     doc.setProperty("title", "Local");
     doc.setProperty("author", "Local");
-
-    session.begin();
     session.commit();
 
     testMetadata();

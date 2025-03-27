@@ -43,10 +43,9 @@ public class LuceneTransactionQueryTest extends BaseLuceneTest {
 
   @Test
   public void testRollback() {
-
-    var doc = ((EntityImpl) session.newEntity("c1"));
-    doc.setProperty("p1", "abc");
     session.begin();
+    var doc = ((EntityImpl) session.newVertex("c1"));
+    doc.setProperty("p1", "abc");
 
     var vertices = session.query("select from C1 where p1 lucene \"abc\" ");
 
@@ -61,7 +60,7 @@ public class LuceneTransactionQueryTest extends BaseLuceneTest {
   public void txRemoveTest() {
     session.begin();
 
-    var doc = ((EntityImpl) session.newEntity("c1"));
+    var doc = ((EntityImpl) session.newVertex("c1"));
     doc.setProperty("p1", "abc");
 
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "C1.p1");
@@ -73,18 +72,16 @@ public class LuceneTransactionQueryTest extends BaseLuceneTest {
     Assert.assertEquals(1, index.size(session));
     session.commit();
 
+    session.begin();
     vertices = session.query("select from C1 where p1 lucene \"abc\" ");
 
     var result = vertices.next();
-    session.begin();
 
     Assert.assertFalse(vertices.hasNext());
     Assert.assertEquals(1, index.size(session));
 
-    doc = ((EntityImpl) session.newEntity("c1"));
+    doc = ((EntityImpl) session.newVertex("c1"));
     doc.setProperty("p1", "abc");
-
-    session.delete(result.asRecord());
 
     vertices = session.query("select from C1 where p1 lucene \"abc\" ");
 
@@ -93,8 +90,19 @@ public class LuceneTransactionQueryTest extends BaseLuceneTest {
       coll = rids.collect(Collectors.toList());
     }
 
-    Assert.assertEquals(0, vertices.stream().count());
-    Assert.assertEquals(0, coll.size());
+    Assert.assertEquals(2, vertices.stream().count());
+    Assert.assertEquals(2, coll.size());
+
+    session.delete(result.asRecord());
+
+    vertices = session.query("select from C1 where p1 lucene \"abc\" ");
+
+    try (var rids = index.getRids(session, "abc")) {
+      coll = rids.collect(Collectors.toList());
+    }
+
+    Assert.assertEquals(1, vertices.stream().count());
+    Assert.assertEquals(1, coll.size());
 
     var iterator = coll.iterator();
     var i = 0;
@@ -102,16 +110,28 @@ public class LuceneTransactionQueryTest extends BaseLuceneTest {
       iterator.next();
       i++;
     }
-    Assert.assertEquals(0, i);
-    Assert.assertEquals(0, index.size(session));
+    Assert.assertEquals(1, i);
+    Assert.assertEquals(1, index.size(session));
 
+    doc.delete();
+
+    vertices = session.query("select from C1 where p1 lucene \"abc\" ");
+
+    try (var rids = index.getRids(session, "abc")) {
+      coll = rids.collect(Collectors.toList());
+    }
+
+    Assert.assertEquals(0, vertices.stream().count());
+    Assert.assertEquals(0, coll.size());
     session.rollback();
 
+    session.begin();
     vertices = session.query("select from C1 where p1 lucene \"abc\" ");
 
     Assert.assertEquals(1, vertices.stream().count());
 
     Assert.assertEquals(1, index.size(session));
+    session.commit();
   }
 
   @Test
@@ -124,7 +144,7 @@ public class LuceneTransactionQueryTest extends BaseLuceneTest {
     session.begin();
     Assert.assertEquals(0, index.size(session));
 
-    var doc = ((EntityImpl) session.newEntity("c1"));
+    var doc = ((EntityImpl) session.newVertex("c1"));
     doc.setProperty("p1", "update");
 
     var vertices = session.query("select from C1 where p1 lucene \"update\" ");
@@ -199,10 +219,10 @@ public class LuceneTransactionQueryTest extends BaseLuceneTest {
     session.begin();
     Assert.assertEquals(0, index.size(session));
 
-    var doc = ((EntityImpl) session.newEntity("c1"));
+    var doc = ((EntityImpl) session.newVertex("c1"));
     doc.setProperty("p1", "abc");
 
-    var doc1 = ((EntityImpl) session.newEntity("c1"));
+    var doc1 = ((EntityImpl) session.newVertex("c1"));
     doc1.setProperty("p1", "abc");
 
     session.commit();

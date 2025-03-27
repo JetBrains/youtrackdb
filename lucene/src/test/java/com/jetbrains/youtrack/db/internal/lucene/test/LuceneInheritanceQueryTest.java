@@ -24,28 +24,27 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
-public class LuceneInheritanceQueryTest extends BaseLuceneTest {
 
+public class LuceneInheritanceQueryTest extends BaseLuceneTest {
   public LuceneInheritanceQueryTest() {
   }
 
   @Test
   public void testQuery() {
     createSchema(session);
-    var doc = ((EntityImpl) session.newEntity("C2"));
-    doc.setProperty("name", "abc");
     session.begin();
+    var doc = ((EntityImpl) session.newVertex("C2"));
+    doc.setProperty("name", "abc");
     session.commit();
 
+    session.begin();
     var vertices = session.query("select from C1 where name lucene \"abc\" ");
 
     Assert.assertEquals(1, vertices.stream().count());
+    session.commit();
   }
 
-  protected void createSchema(DatabaseSessionInternal db) {
+  protected static void createSchema(DatabaseSessionInternal db) {
     final var c1 = db.createVertexClass("C1");
     c1.createProperty("name", PropertyType.STRING);
     c1.createIndex("C1.name", "FULLTEXT", null, null, "LUCENE", new String[]{"name"});

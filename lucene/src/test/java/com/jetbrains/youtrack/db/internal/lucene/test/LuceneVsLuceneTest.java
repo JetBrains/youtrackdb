@@ -78,7 +78,7 @@ public class LuceneVsLuceneTest extends BaseLuceneTest {
 
   @Test
   public void testLuceneVsLucene() throws IOException, ParseException {
-
+    session.begin();
     var entityIterator = session.browseClass("Song");
     while (entityIterator.hasNext()) {
       var oEntity = entityIterator.next();

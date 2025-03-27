@@ -60,6 +60,10 @@ public class LuceneSearchOnFieldsFunction extends LuceneSearchFunctionTemplate {
     }
     var result = (Result) iThis;
 
+    if (!result.isEntity()) {
+      return false;
+    }
+
     var entity = result.asEntity();
     if (entity.getSchemaClassName() == null) {
       return false;

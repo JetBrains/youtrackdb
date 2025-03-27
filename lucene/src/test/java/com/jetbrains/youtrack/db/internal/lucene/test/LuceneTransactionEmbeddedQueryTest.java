@@ -33,13 +33,13 @@ import org.junit.Test;
  *
  */
 public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
+
   @Test
   public void testRollback() {
     createSchema(session);
-
-    var doc = ((EntityImpl) session.newEntity("c1"));
-    doc.setProperty("p1", new String[]{"abc"});
     session.begin();
+    var doc = ((EntityImpl) session.newVertex("c1"));
+    doc.newEmbeddedList("p1", new String[]{"abc"});
 
     var query = "select from C1 where p1 lucene \"abc\" ";
     var vertices = session.query(query);
@@ -63,8 +63,8 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
     createSchema(session);
     session.begin();
 
-    var doc = ((EntityImpl) session.newEntity("c1"));
-    doc.setProperty("p1", new String[]{"abc"});
+    var doc = ((EntityImpl) session.newVertex("c1"));
+    doc.newEmbeddedList("p1", new String[]{"abc"});
 
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "C1.p1");
 
@@ -76,11 +76,12 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
     Assert.assertEquals(1, index.size(session));
     session.commit();
 
+    session.begin();
     query = "select from C1 where p1 lucene \"abc\" ";
     vertices = session.query(query);
 
     var res = vertices.next();
-    session.begin();
+
     Assert.assertEquals(1, index.size(session));
 
     session.delete(res.asEntity());
@@ -123,8 +124,8 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
     session.begin();
     Assert.assertEquals(0, index.size(session));
 
-    var doc = ((EntityImpl) session.newEntity("c1"));
-    doc.setProperty("p1", new String[]{"update removed", "update fixed"});
+    var doc = ((EntityImpl) session.newVertex("c1"));
+    doc.newEmbeddedList("p1", new String[]{"update removed", "update fixed"});
 
     var query = "select from C1 where p1 lucene \"update\" ";
     var vertices = session.query(query);
@@ -135,6 +136,7 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
 
     session.commit();
 
+    session.begin();
     query = "select from C1 where p1 lucene \"update\" ";
     //noinspection deprecation
     vertices = session.query(query);
@@ -148,13 +150,11 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
     Assert.assertEquals(2, coll.size());
     Assert.assertEquals(2, index.size(session));
 
-    session.begin();
-
     // select in transaction while updating
-    Entity identifiable = resultRecord.asEntity();
+    var identifiable = resultRecord.asEntity();
     var activeTx = session.getActiveTransaction();
     var record = activeTx.<Entity>load(identifiable);
-    Collection p1 = record.getProperty("p1");
+    var p1 = record.getEmbeddedList("p1");
     p1.remove("update removed");
 
     query = "select from C1 where p1 lucene \"update\" ";
@@ -205,11 +205,11 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
 
     session.begin();
 
-    var doc = ((EntityImpl) session.newEntity("c1"));
-    doc.setProperty("p1", new String[]{"abc"});
+    var doc = ((EntityImpl) session.newVertex("c1"));
+    doc.newEmbeddedList("p1", new String[]{"abc"});
 
-    var doc1 = ((EntityImpl) session.newEntity("c1"));
-    doc1.setProperty("p1", new String[]{"abc"});
+    var doc1 = ((EntityImpl) session.newVertex("c1"));
+    doc1.newEmbeddedList("p1", new String[]{"abc"});
 
     session.commit();
 
@@ -217,7 +217,7 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
 
     var activeTx = session.getActiveTransaction();
     doc = activeTx.load(doc);
-    doc.setProperty("p1", new String[]{"removed"});
+    doc.newEmbeddedList("p1", new String[]{"removed"});
 
     var query = "select from C1 where p1 lucene \"abc\"";
     var vertices = session.query(query);

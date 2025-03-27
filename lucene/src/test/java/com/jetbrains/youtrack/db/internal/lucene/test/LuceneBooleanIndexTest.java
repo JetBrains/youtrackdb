@@ -40,9 +40,7 @@ public class LuceneBooleanIndexTest extends BaseLuceneTest {
   @Before
   public void init() {
     Schema schema = session.getMetadata().getSchema();
-    var v = schema.getClass("V");
-    var song = schema.createClass("Person");
-    song.addSuperClass(v);
+    var song = schema.createVertexClass("Person");
     song.createProperty("isDeleted", PropertyType.BOOLEAN);
 
     session.execute("create index Person.isDeleted on Person (isDeleted) FULLTEXT ENGINE LUCENE")
@@ -53,18 +51,21 @@ public class LuceneBooleanIndexTest extends BaseLuceneTest {
   public void insertPerson() {
 
     for (var i = 0; i < 1000; i++) {
-      var doc = ((EntityImpl) session.newEntity("Person"));
-      doc.setProperty("isDeleted", i % 2 == 0);
       session.begin();
+      var doc = ((EntityImpl) session.newVertex("Person"));
+      doc.setProperty("isDeleted", i % 2 == 0);
+
       session.commit();
     }
 
+    session.begin();
     var docs = session.query("select from Person where isDeleted lucene false");
 
     Assert.assertEquals(
         500, docs.stream().filter((doc) -> !((Boolean) doc.getProperty("isDeleted"))).count());
     docs = session.query("select from Person where isDeleted lucene true");
     Assert.assertEquals(500, docs.stream().filter((doc) -> doc.getProperty("isDeleted")).count());
+    session.commit();
   }
 
   @Test

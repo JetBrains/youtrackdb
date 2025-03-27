@@ -49,10 +49,9 @@ public class LuceneExportImportTest extends BaseLuceneTest {
     oClass.createProperty("name", PropertyType.STRING);
     session.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE").close();
 
+    session.begin();
     var doc = ((EntityImpl) session.newEntity("City"));
     doc.setProperty("name", "Rome");
-
-    session.begin();
     session.commit();
   }
 
@@ -61,9 +60,11 @@ public class LuceneExportImportTest extends BaseLuceneTest {
 
     var file = "./target/exportTest.json";
 
+    session.begin();
     var query = session.query("select from City where name lucene 'Rome'");
 
     Assert.assertEquals(query.stream().count(), 1);
+    session.commit();
 
     try {
 
@@ -98,6 +99,7 @@ public class LuceneExportImportTest extends BaseLuceneTest {
       Assert.fail(e.getMessage());
     }
 
+    session.begin();
     assertThat(session.countClass("City")).isEqualTo(1);
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "City.name");
 
@@ -109,5 +111,6 @@ public class LuceneExportImportTest extends BaseLuceneTest {
     query = session.query("select from City where name lucene 'Rome'");
 
     assertThat(query).hasSize(1);
+    session.commit();
   }
 }

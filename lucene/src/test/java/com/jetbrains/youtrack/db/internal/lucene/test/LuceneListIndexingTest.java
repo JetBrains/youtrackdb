@@ -61,23 +61,19 @@ public class LuceneListIndexingTest extends BaseLuceneTest {
 
   @Test
   public void testIndexingList() {
-
-    Schema schema = session.getMetadata().getSchema();
-
+    session.begin();
     // Rome
     var doc = ((EntityImpl) session.newEntity("City"));
     doc.setProperty("name", "Rome");
-    doc.setProperty("tags", new ArrayList<String>() {
-          {
-            add("Beautiful");
-            add("Touristic");
-            add("Sunny");
-          }
-        });
-
-    session.begin();
+    doc.newEmbeddedList("tags", new ArrayList<String>() {
+      {
+        add("Beautiful");
+        add("Touristic");
+        add("Sunny");
+      }
+    });
     session.commit();
-
+    session.begin();
     var tagsIndex = session.getClassInternal("City").getClassIndex(session, "City.tags");
     Collection<?> coll;
     try (var stream = tagsIndex.getRids(session, "Sunny")) {
@@ -92,16 +88,15 @@ public class LuceneListIndexingTest extends BaseLuceneTest {
     // London
     doc = ((EntityImpl) session.newEntity("City"));
     doc.setProperty("name", "London");
-    doc.setProperty("tags", new ArrayList<String>() {
-          {
-            add("Beautiful");
-            add("Touristic");
-            add("Sunny");
-          }
-        });
-    session.begin();
-    session.commit();
+    doc.newEmbeddedList("tags", new ArrayList<String>() {
+      {
+        add("Beautiful");
+        add("Touristic");
+        add("Sunny");
+      }
+    });
 
+    session.commit();
     session.begin();
     try (var stream = tagsIndex.getRids(session, "Sunny")) {
       coll = stream.collect(Collectors.toList());
@@ -114,9 +109,9 @@ public class LuceneListIndexingTest extends BaseLuceneTest {
     List<String> tags = doc.getProperty("tags");
     tags.remove("Sunny");
     tags.add("Rainy");
-
     session.commit();
 
+    session.begin();
     try (var stream = tagsIndex.getRids(session, "Rainy")) {
       coll = stream.collect(Collectors.toList());
     }
@@ -131,26 +126,24 @@ public class LuceneListIndexingTest extends BaseLuceneTest {
       coll = stream.collect(Collectors.toList());
     }
     assertThat(coll).hasSize(1);
+    session.commit();
   }
 
   @Test
   public void testCompositeIndexList() {
-
-    Schema schema = session.getMetadata().getSchema();
-
+    session.begin();
     var doc = ((EntityImpl) session.newEntity("Person"));
     doc.setProperty("name", "Enrico");
-    doc.setProperty("tags", new ArrayList<String>() {
-          {
-            add("Funny");
-            add("Tall");
-            add("Geek");
-          }
-        });
-
-    session.begin();
+    doc.newEmbeddedList("tags", new ArrayList<String>() {
+      {
+        add("Funny");
+        add("Tall");
+        add("Geek");
+      }
+    });
     session.commit();
 
+    session.begin();
     var idx = session.getClassInternal("Person").getClassIndex(session, "Person.name_tags");
     Collection<?> coll;
     try (var stream = idx.getRids(session, "Enrico")) {
@@ -161,16 +154,13 @@ public class LuceneListIndexingTest extends BaseLuceneTest {
 
     doc = ((EntityImpl) session.newEntity("Person"));
     doc.setProperty("name", "Jared");
-    doc.setProperty("tags", new ArrayList<String>() {
-          {
-            add("Funny");
-            add("Tall");
-          }
-        });
-
-    session.begin();
+    doc.newEmbeddedList("tags", new ArrayList<String>() {
+      {
+        add("Funny");
+        add("Tall");
+      }
+    });
     session.commit();
-
     session.begin();
     try (var stream = idx.getRids(session, "Jared")) {
       coll = stream.collect(Collectors.toList());
@@ -184,9 +174,9 @@ public class LuceneListIndexingTest extends BaseLuceneTest {
 
     tags.remove("Funny");
     tags.add("Geek");
-
     session.commit();
 
+    session.begin();
     try (var stream = idx.getRids(session, "Funny")) {
       coll = stream.collect(Collectors.toList());
     }
@@ -221,6 +211,7 @@ public class LuceneListIndexingTest extends BaseLuceneTest {
         "select from Person where [name,tags] lucene '(name:Enrico AND tags:Geek)'");
 
     assertThat(query).hasSize(1);
+    session.commit();
   }
 
   @Test
@@ -228,7 +219,8 @@ public class LuceneListIndexingTest extends BaseLuceneTest {
     final var c1 = session.createVertexClass("C1");
     c1.createProperty("p1", PropertyType.STRING);
 
-    var metadata = Map.<String, Object>of("default", "org.apache.lucene.analysis.en.EnglishAnalyzer");
+    var metadata = Map.<String, Object>of("default",
+        "org.apache.lucene.analysis.en.EnglishAnalyzer");
 
     c1.createIndex("p1", "FULLTEXT", null, metadata, "LUCENE", new String[]{"p1"});
 

@@ -42,36 +42,36 @@ public class DocumentEmbeddedTest extends BaseLuceneTest {
 
   @Test
   public void embeddedNoTx() {
-
+    session.begin();
     var doc = ((EntityImpl) session.newEntity("City"));
 
     doc.setProperty("name", "London");
-    session.begin();
+
     session.commit();
 
+    session.begin();
     doc = ((EntityImpl) session.newEntity("City"));
     doc.setProperty("name", "Rome");
-
-    session.begin();
     session.commit();
 
+    session.begin();
     var results = session.query("select from City where name lucene 'London'");
 
     Assert.assertEquals(1, results.stream().count());
+    session.commit();
   }
 
   @Test
   public void embeddedTx() {
-
-    var doc = ((EntityImpl) session.newEntity("City"));
-
     session.begin();
+    var doc = ((EntityImpl) session.newEntity("City"));
     doc.setProperty("name", "Berlin");
-
     session.commit();
 
+    session.begin();
     var results = session.query("select from City where name lucene 'Berlin'");
 
     Assert.assertEquals(1, results.stream().count());
+    session.commit();
   }
 }

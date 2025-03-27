@@ -23,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.HashMap;
@@ -32,9 +33,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- *
- */
 public class LuceneCreateJavaApiTest extends BaseLuceneTest {
 
   public static final String SONG_CLASS = "Song";
@@ -42,9 +40,7 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
   @Before
   public void init() {
     final Schema schema = session.getMetadata().getSchema();
-    final var v = schema.getClass("V");
-    final var song = schema.createClass(SONG_CLASS);
-    song.addSuperClass(v);
+    final var song = schema.createVertexClass(SONG_CLASS);
     song.createProperty("title", PropertyType.STRING);
     song.createProperty("author", PropertyType.STRING);
     song.createProperty("description", PropertyType.STRING);
@@ -107,7 +103,7 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
   @Test
   public void testCreateIndexEmbeddedMapJSON() {
     session.begin();
-    var songDoc = ((EntityImpl) session.newEntity(SONG_CLASS));
+    var songDoc = ((EntityImpl) session.newVertex(SONG_CLASS));
     songDoc.updateFromJSON(
         "{\n"
             + "    \"description\": \"Capital\",\n"
@@ -115,7 +111,7 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
             + PropertyType.EMBEDDEDMAP.name()
             + "\": {\n"
             + "    \"text\": \"Hello Rome how are you today?\",\n"
-            + "    \"text2\": \"Hello Bolzano how are you today?\",\n"
+            + "    \"text2\": \"Hello Bolzano how are you today?\"\n"
             + "    }\n"
             + "}");
     session.commit();
@@ -136,15 +132,16 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
   }
 
   private void addDocumentViaAPI() {
+    session.begin();
     final Map<String, String> entries = new HashMap<>();
     entries.put("text", "Hello Rome how are you today?");
     entries.put("text2", "Hello Bolzano how are you today?");
 
-    final var doc = ((EntityImpl) session.newEntity(SONG_CLASS));
+    final var doc = ((EntityImpl) session.newVertex(SONG_CLASS));
     doc.setProperty("description", "Capital", PropertyType.STRING);
     String fieldName = "String" + PropertyType.EMBEDDEDMAP.name();
-    doc.setProperty(fieldName, entries, PropertyType.EMBEDDEDMAP, PropertyType.STRING);
-    session.begin();
+    doc.newEmbeddedMap(fieldName, entries);
+
     session.commit();
   }
 
@@ -170,14 +167,14 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
 
     Assert.assertEquals("index algorithm", expectedAlgorithm, index.getAlgorithm());
     Assert.assertEquals("index type", "FULLTEXT", index.getType());
-    Assert.assertEquals("Key type", PropertyType.STRING, index.getKeyTypes()[0]);
+    Assert.assertEquals("Key type", PropertyTypeInternal.STRING, index.getKeyTypes()[0]);
     Assert.assertEquals(
-        "Definition field", "StringEmbeddedMap", index.getDefinition().getFields().get(0));
+        "Definition field", "StringEMBEDDEDMAP", index.getDefinition().getFields().get(0));
     Assert.assertEquals(
         "Definition field to index",
-        "StringEmbeddedMap by value",
+        "StringEMBEDDEDMAP by value",
         index.getDefinition().getFieldsToIndex().get(0));
-    Assert.assertEquals("Definition type", PropertyType.STRING,
+    Assert.assertEquals("Definition type", PropertyTypeInternal.STRING,
         index.getDefinition().getTypes()[0]);
   }
 

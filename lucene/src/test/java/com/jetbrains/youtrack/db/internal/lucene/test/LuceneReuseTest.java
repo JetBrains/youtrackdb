@@ -35,6 +35,7 @@ public class LuceneReuseTest extends BaseLuceneTest {
           .setProperty("age", i);
       session.commit();
     }
+    session.begin();
     var results =
         session.execute("SELECT FROM Reuse WHERE name='John' and surname LUCENE 'Reese'");
 
@@ -43,6 +44,7 @@ public class LuceneReuseTest extends BaseLuceneTest {
     results = session.execute("SELECT FROM Reuse WHERE surname LUCENE 'Reese' and name='John'");
 
     Assert.assertEquals(10, results.stream().count());
+    session.commit();
   }
 
   @Test
@@ -81,6 +83,7 @@ public class LuceneReuseTest extends BaseLuceneTest {
         .setPropertyInChain("surname", "Franklin")
         .setProperty("age", 11);
     session.commit();
+    session.begin();
     var results =
         session.execute("SELECT FROM Reuse WHERE name='John' and [name,surname] LUCENE 'Reese'");
 
@@ -96,5 +99,6 @@ public class LuceneReuseTest extends BaseLuceneTest {
             "SELECT FROM Reuse WHERE name='John' and [name,surname] LUCENE '(surname:Franklin)'");
 
     Assert.assertEquals(1, results.stream().count());
+    session.commit();
   }
 }

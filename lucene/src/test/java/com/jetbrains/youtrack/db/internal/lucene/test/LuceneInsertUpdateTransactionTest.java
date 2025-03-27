@@ -48,8 +48,6 @@ public class LuceneInsertUpdateTransactionTest extends BaseLuceneTest {
 
   @Test
   public void testInsertUpdateTransactionWithIndex() {
-
-    Schema schema = session.getMetadata().getSchema();
     session.begin();
     var doc = ((EntityImpl) session.newEntity("City"));
     doc.setProperty("name", "Rome");
@@ -57,6 +55,7 @@ public class LuceneInsertUpdateTransactionTest extends BaseLuceneTest {
     var idx = session.getClassInternal("City").getClassIndex(session, "City.name");
     Assert.assertNotNull(idx);
 
+    session.getTransactionInternal().preProcessRecordsAndExecuteCallCallbacks();
     Collection<?> coll;
     try (var stream = idx.getRids(session, "Rome")) {
       coll = stream.collect(Collectors.toList());

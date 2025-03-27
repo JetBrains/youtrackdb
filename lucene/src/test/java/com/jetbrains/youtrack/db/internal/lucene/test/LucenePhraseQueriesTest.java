@@ -81,6 +81,7 @@ public class LucenePhraseQueriesTest extends BaseLuceneTest {
   @Test
   public void testComplexPhraseQueries() throws Exception {
 
+    session.begin();
     var vertexes = session.query("select from Role where name lucene ?", "\"System SME\"~1");
 
     assertThat(vertexes).allMatch(v -> v.<String>getProperty("name").contains("SME"));
@@ -115,5 +116,6 @@ public class LucenePhraseQueriesTest extends BaseLuceneTest {
     assertThat(vertexes)
         .hasSize(1)
         .allMatch(v -> v.<String>getProperty("name").equalsIgnoreCase("System IT Owner"));
+    session.commit();
   }
 }

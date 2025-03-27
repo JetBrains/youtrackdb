@@ -19,13 +19,13 @@ public class LuceneNullTest extends BaseLuceneTest {
     session.execute("create index Test.names on Test (names) fulltext engine lucene").close();
 
     session.begin();
-    var doc = ((EntityImpl) session.newEntity("Test"));
+    var doc = ((EntityImpl) session.newVertex("Test"));
     session.commit();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
     doc = activeTx.load(doc);
-    doc.setProperty("names", new String[]{"foo"});
+    doc.newEmbeddedList("names", new String[]{"foo"});
     session.commit();
 
     session.begin();
@@ -41,10 +41,9 @@ public class LuceneNullTest extends BaseLuceneTest {
     session.execute("create property Test.names EMBEDDEDLIST STRING").close();
     session.execute("create index Test.names on Test (names) fulltext engine lucene").close();
 
-    var doc = ((EntityImpl) session.newEntity("Test"));
-
     session.begin();
-    doc.setProperty("names", new String[]{"foo"});
+    var doc = ((EntityImpl) session.newVertex("Test"));
+    doc.newEmbeddedList("names", new String[]{"foo"});
     session.commit();
 
     session.begin();

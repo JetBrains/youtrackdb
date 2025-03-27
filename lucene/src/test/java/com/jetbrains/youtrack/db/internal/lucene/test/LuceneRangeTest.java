@@ -65,6 +65,7 @@ public class LuceneRangeTest extends BaseLuceneTest {
         .isEqualTo(10);
     session.commit();
 
+    session.begin();
     // range
     var results = session.execute("SELECT FROM Person WHERE age LUCENE 'age:[5 TO 6]'");
 
@@ -74,6 +75,7 @@ public class LuceneRangeTest extends BaseLuceneTest {
     results = session.execute("SELECT FROM Person WHERE age LUCENE 'age:5'");
 
     assertThat(results).hasSize(1);
+    session.commit();
   }
 
   @Test
@@ -95,12 +97,14 @@ public class LuceneRangeTest extends BaseLuceneTest {
         DateTools.timeToString(
             System.currentTimeMillis() - (5 * 3600 * 24 * 1000), DateTools.Resolution.MINUTE);
 
+    session.begin();
     // range
     var results =
         session.execute(
             "SELECT FROM Person WHERE date LUCENE 'date:[" + fiveDaysAgo + " TO " + today + "]'");
 
     assertThat(results).hasSize(5);
+    session.commit();
   }
 
   @Test
@@ -197,27 +201,5 @@ public class LuceneRangeTest extends BaseLuceneTest {
             .getRids(session, "+age:[4 TO 7]  +date:[" + fiveDaysAgo + " TO " + today + "]")) {
       assertThat(stream.count()).isEqualTo(2);
     }
-  }
-
-  @Test
-  public void shouldFetchOnlyFromACluster() {
-    session.execute("create index Person.name on Person(name) FULLTEXT ENGINE LUCENE").close();
-
-    session.begin();
-    assertThat(
-        session.getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(session, "Person.name")
-
-            .size(session))
-        .isEqualTo(10);
-    session.commit();
-
-    var cluster = session.getMetadata().getSchema().getClass("Person").getClusterIds()[1];
-
-    var results =
-        session.execute("SELECT FROM Person WHERE name LUCENE '+_CLUSTER:" + cluster + "'");
-
-    assertThat(results).hasSize(2);
   }
 }

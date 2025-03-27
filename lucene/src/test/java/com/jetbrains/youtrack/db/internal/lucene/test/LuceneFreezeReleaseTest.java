@@ -25,26 +25,32 @@ public class LuceneFreezeReleaseTest extends BaseLuceneTest {
     session.execute("create index Person.name on Person (name) FULLTEXT ENGINE LUCENE").close();
 
     session.begin();
-    EntityImpl entity1 = ((EntityImpl) session.newEntity("Person"));
+    var entity1 = ((EntityImpl) session.newEntity("Person"));
     entity1.setProperty("name", "John");
     session.commit();
 
+    session.begin();
     var results = session.query("select from Person where name lucene 'John'");
     Assert.assertEquals(1, results.stream().count());
+    session.commit();
     session.freeze();
 
+    session.begin();
     results = session.query("select from Person where name lucene 'John'");
     Assert.assertEquals(1, results.stream().count());
+    session.commit();
 
     session.release();
 
     session.begin();
-    EntityImpl entity = ((EntityImpl) session.newEntity("Person"));
+    var entity = ((EntityImpl) session.newEntity("Person"));
     entity.setProperty("name", "John");
     session.commit();
 
+    session.begin();
     results = session.query("select from Person where name lucene 'John'");
     Assert.assertEquals(2, results.stream().count());
+    session.commit();
   }
 
   // With double calling freeze/release

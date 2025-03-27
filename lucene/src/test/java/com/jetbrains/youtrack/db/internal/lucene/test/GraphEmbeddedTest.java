@@ -75,19 +75,20 @@ public class GraphEmbeddedTest extends BaseLuceneTest {
     var oneClass = session.createVertexClass("One");
     var twoClass = session.createVertexClass("Two");
 
+    session.begin();
     var one = session.newVertex(oneClass);
     one.setProperty("name", "Same");
-
-    session.begin();
     session.commit();
 
+    session.begin();
     var two = session.newVertex(twoClass);
     two.setProperty("name", "Same");
-    session.begin();
     session.commit();
 
+    session.begin();
     var resultSet = session.query("SELECT from One where name = 'Same' ");
 
     Assertions.assertThat(resultSet).hasSize(1);
+    session.commit();
   }
 }

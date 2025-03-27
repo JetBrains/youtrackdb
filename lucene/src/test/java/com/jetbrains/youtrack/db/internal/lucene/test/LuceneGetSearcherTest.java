@@ -33,9 +33,7 @@ public class LuceneGetSearcherTest extends BaseLuceneTest {
   @Before
   public void init() {
     Schema schema = session.getMetadata().getSchema();
-    var v = schema.getClass("V");
-    var song = schema.createClass("Person");
-    song.addSuperClass(v);
+    var song = schema.createVertexClass("Person");
     song.createProperty("isDeleted", PropertyType.BOOLEAN);
 
     session.execute("create index Person.isDeleted on Person (isDeleted) FULLTEXT ENGINE LUCENE")

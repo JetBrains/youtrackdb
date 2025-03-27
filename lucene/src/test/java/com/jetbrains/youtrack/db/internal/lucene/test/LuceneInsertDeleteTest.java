@@ -47,40 +47,38 @@ public class LuceneInsertDeleteTest extends BaseLuceneTest {
 
   @Test
   public void testInsertUpdateWithIndex() {
-
-    session.getMetadata().reload();
-    Schema schema = session.getMetadata().getSchema();
-
+    session.begin();
     var doc = ((EntityImpl) session.newEntity("City"));
     doc.setProperty("name", "Rome");
-    session.begin();
     session.commit();
 
+    session.begin();
     var idx = session.getClassInternal("City").getClassIndex(session, "City.name");
     Collection<?> coll;
     try (var stream = idx.getRids(session, "Rome")) {
       coll = stream.collect(Collectors.toList());
     }
 
-    session.begin();
     assertThat(coll).hasSize(1);
     assertThat(idx.size(session)).isEqualTo(1);
     session.commit();
 
+    session.begin();
     var next = (Identifiable) coll.iterator().next();
     doc = session.load(next.getIdentity());
 
-    session.begin();
     var activeTx = session.getActiveTransaction();
     doc = activeTx.load(doc);
     session.delete(doc);
     session.commit();
 
+    session.begin();
     try (var stream = idx.getRids(session, "Rome")) {
       coll = stream.collect(Collectors.toList());
     }
     assertThat(coll).hasSize(0);
     assertThat(idx.size(session)).isEqualTo(0);
+    session.commit();
   }
 
   @Test

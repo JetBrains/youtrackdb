@@ -38,11 +38,9 @@ public class LuceneGraphTXTest extends BaseLuceneTest {
 
   @Test
   public void graphTxTest() throws Exception {
-
+    session.begin();
     var v = session.newVertex("City");
     v.setProperty("name", "London");
-
-    session.begin();
     session.commit();
 
     session.begin();
@@ -52,9 +50,9 @@ public class LuceneGraphTXTest extends BaseLuceneTest {
     var activeTx = session.getActiveTransaction();
     v = activeTx.load(v);
     v.setProperty("name", "Berlin");
-
     session.commit();
 
+    session.begin();
     results = session.execute("select from City where name lucene 'Berlin'");
     Assert.assertEquals(results.stream().count(), 1);
 
@@ -66,5 +64,6 @@ public class LuceneGraphTXTest extends BaseLuceneTest {
     Assert.assertEquals(results.stream().count(), 1);
     results = session.execute("select from City where name lucene 'London'");
     Assert.assertEquals(results.stream().count(), 0);
+    session.commit();
   }
 }

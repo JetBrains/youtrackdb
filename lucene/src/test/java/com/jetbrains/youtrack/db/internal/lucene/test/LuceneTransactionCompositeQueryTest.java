@@ -41,16 +41,15 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
     c1.createProperty("name", PropertyType.STRING);
     c1.createProperty("bar", PropertyType.STRING);
     c1.createIndex("Foo.bar", "FULLTEXT", null, null, "LUCENE", new String[]{"bar"});
-    c1.createIndex("Foo.name", "NOTUNIQUE", null, null, "SBTREE", new String[]{"name"});
+    c1.createIndex("Foo.name", "NOTUNIQUE", null, null, "BTREE", new String[]{"name"});
   }
 
   @Test
   public void testRollback() {
-
-    var doc = ((EntityImpl) session.newEntity("Foo"));
+    session.begin();
+    var doc = ((EntityImpl) session.newVertex("Foo"));
     doc.setProperty("name", "Test");
     doc.setProperty("bar", "abc");
-    session.begin();
 
     var query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";
     var vertices = session.query(query);
@@ -58,16 +57,18 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
     assertThat(vertices).hasSize(1);
     session.rollback();
 
+    session.begin();
     query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";
     vertices = session.query(query);
     assertThat(vertices).hasSize(0);
+    session.commit();
   }
 
   @Test
   public void txRemoveTest() {
     session.begin();
 
-    var doc = ((EntityImpl) session.newEntity("Foo"));
+    var doc = ((EntityImpl) session.newVertex("Foo"));
     doc.setProperty("name", "Test");
     doc.setProperty("bar", "abc");
 
@@ -97,10 +98,10 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
 
     session.rollback();
 
+    session.begin();
     query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";
     vertices = session.query(query);
 
-    session.begin();
     assertThat(vertices).hasSize(1);
     Assert.assertEquals(1, index.size(session));
     session.commit();
@@ -116,7 +117,7 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
     session.begin();
     Assert.assertEquals(0, index.size(session));
 
-    var doc = ((EntityImpl) session.newEntity("Foo"));
+    var doc = ((EntityImpl) session.newVertex("Foo"));
     doc.setProperty("name", "Test");
     doc.setProperty("bar", "abc");
 
@@ -177,11 +178,11 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
     session.begin();
     Assert.assertEquals(0, index.size(session));
 
-    var doc = ((EntityImpl) session.newEntity("Foo"));
+    var doc = ((EntityImpl) session.newVertex("Foo"));
     doc.setProperty("name", "Test");
     doc.setProperty("bar", "abc");
 
-    var doc1 = ((EntityImpl) session.newEntity("Foo"));
+    var doc1 = ((EntityImpl) session.newVertex("Foo"));
     doc1.setProperty("name", "Test");
     doc1.setProperty("bar", "abc");
 
