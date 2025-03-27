@@ -32,6 +32,7 @@ import javax.annotation.Nonnull;
  * @see RecordHook
  */
 public abstract class EntityHookAbstract implements RecordHook {
+
   private String[] includeClasses;
   private String[] excludeClasses;
 
@@ -41,13 +42,6 @@ public abstract class EntityHookAbstract implements RecordHook {
     this.session = session;
   }
 
-  /**
-   * It's called just after the entity is created.
-   *
-   * @param entity The entity is going to be created
-   */
-  public void onEntityCreate(final Entity entity) {
-  }
 
   /**
    * It's called just after the entity is read.
@@ -58,11 +52,25 @@ public abstract class EntityHookAbstract implements RecordHook {
   }
 
   /**
+   * It's called just after the entity is created.
+   *
+   * @param entity The entity is going to be created
+   */
+  public void onBeforeEntityCreate(final Entity entity) {
+  }
+
+  public void onAfterEntityCreate(final Entity entity) {
+  }
+
+  /**
    * It's called just after the entity is updated.
    *
    * @param entity The entity just updated
    */
-  public void onEntityUpdate(final Entity entity) {
+  public void onBeforeEntityUpdate(final Entity entity) {
+  }
+
+  public void onAfterEntityUpdate(final Entity entity) {
   }
 
   /**
@@ -70,7 +78,10 @@ public abstract class EntityHookAbstract implements RecordHook {
    *
    * @param entity The entity just deleted
    */
-  public void onEntityDelete(final Entity entity) {
+  public void onBeforeEntityDelete(final Entity entity) {
+  }
+
+  public void onAfterEntityDelete(final Entity entity) {
   }
 
 
@@ -85,21 +96,31 @@ public abstract class EntityHookAbstract implements RecordHook {
     }
 
     switch (iType) {
-      case CREATE:
-        onEntityCreate(entity);
-        break;
-
       case READ:
         onEntityRead(entity);
         break;
 
-      case UPDATE:
-        onEntityUpdate(entity);
+      case BEFORE_CREATE:
+        onBeforeEntityCreate(entity);
+        break;
+      case AFTER_CREATE:
+        onAfterEntityCreate(entity);
         break;
 
-      case DELETE:
-        onEntityDelete(entity);
+      case BEFORE_UPDATE:
+        onBeforeEntityUpdate(entity);
         break;
+      case AFTER_UPDATE:
+        onAfterEntityUpdate(entity);
+        break;
+
+      case BEFORE_DELETE:
+        onBeforeEntityDelete(entity);
+        break;
+      case AFTER_DELETE:
+        onAfterEntityDelete(entity);
+        break;
+
       default:
         throw new IllegalStateException("Hook method " + iType + " is not managed");
     }

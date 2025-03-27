@@ -30,6 +30,7 @@ import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
+import com.jetbrains.youtrack.db.api.record.RecordHook.TYPE;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemote;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.client.remote.message.RemoteResultSet;
@@ -496,20 +497,45 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
     }
   }
 
-
-  public void afterUpdateOperations(final RecordAbstract id, java.lang.String clusterName) {
+  public void beforeUpdateOperations(final RecordAbstract recordAbstract,
+      java.lang.String clusterName) {
     assert assertIfNotActive();
-    callbackHooks(RecordHook.TYPE.UPDATE, id);
+
+    callbackHooks(TYPE.BEFORE_UPDATE, recordAbstract);
   }
 
-  public void afterCreateOperations(final RecordAbstract id, String clusterName) {
+  @Override
+  public void afterUpdateOperations(RecordAbstract recordAbstract) {
     assert assertIfNotActive();
-    callbackHooks(RecordHook.TYPE.CREATE, id);
+
+    callbackHooks(TYPE.AFTER_UPDATE, recordAbstract);
+
   }
 
-  public void afterDeleteOperations(final RecordAbstract id, String clusterName) {
+  public void beforeCreateOperations(final RecordAbstract recordAbstract, String clusterName) {
     assert assertIfNotActive();
-    callbackHooks(RecordHook.TYPE.DELETE, id);
+
+    callbackHooks(TYPE.BEFORE_CREATE, recordAbstract);
+  }
+
+  @Override
+  public void afterCreateOperations(RecordAbstract recordAbstract) {
+    assert assertIfNotActive();
+
+    callbackHooks(TYPE.AFTER_CREATE, recordAbstract);
+  }
+
+  public void beforeDeleteOperations(final RecordAbstract recordAbstract, String clusterName) {
+    assert assertIfNotActive();
+
+    callbackHooks(TYPE.BEFORE_DELETE, recordAbstract);
+  }
+
+  @Override
+  public void afterDeleteOperations(RecordAbstract recordAbstract) {
+    assert assertIfNotActive();
+
+    callbackHooks(TYPE.AFTER_DELETE, recordAbstract);
   }
 
   @Override
@@ -560,8 +586,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   public String getClusterName(final @Nonnull DBRecord record) {
-    // DON'T ASSIGN CLUSTER WITH REMOTE: SERVER KNOWS THE RIGHT CLUSTER BASED ON LOCALITY
-    return null;
+    throw new UnsupportedOperationException();
   }
 
   public void delete(final @Nonnull DBRecord record) {

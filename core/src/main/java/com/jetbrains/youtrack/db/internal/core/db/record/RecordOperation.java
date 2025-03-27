@@ -34,7 +34,8 @@ public final class RecordOperation implements Comparable<RecordOperation> {
   public byte type;
   public final RecordAbstract record;
 
-  public long recordCallBackDirtyCounter;
+  public long recordBeforeCallBackDirtyCounter;
+  public long recordPostCallBackDirtyCounter;
   public long dirtyCounterOnClientSide;
 
   public RecordOperation(final RecordAbstract record, final byte status) {

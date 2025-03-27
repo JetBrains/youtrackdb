@@ -23,7 +23,7 @@ public class HookSaveTest extends DbTestBase {
           @Override
           public void onTrigger(@Nonnull TYPE iType,
               @Nonnull DBRecord iRecord) {
-            if (iType != TYPE.CREATE) {
+            if (iType != TYPE.BEFORE_CREATE) {
               return;
             }
 
@@ -60,7 +60,7 @@ public class HookSaveTest extends DbTestBase {
           @Override
           public void onTrigger(@Nonnull TYPE iType,
               @Nonnull DBRecord iRecord) {
-            if (iType != TYPE.CREATE) {
+            if (iType != TYPE.BEFORE_CREATE) {
               return;
             }
 

@@ -278,16 +278,16 @@ public class FrontendClientServerTransaction extends FrontendTransactionImpl {
           + "client dirty counter is " + txEntry.dirtyCounterOnClientSide
           + " and server dirty counter is " + recordOperation.getDirtyCounter());
     }
-    if (txEntry.recordCallBackDirtyCounter > recordOperation.getDirtyCounter()) {
+    if (txEntry.recordBeforeCallBackDirtyCounter > recordOperation.getDirtyCounter()) {
       throw new IllegalStateException("Client and server transactions are not synchronized "
-          + "client callback dirty counter is " + txEntry.recordCallBackDirtyCounter
+          + "client callback dirty counter is " + txEntry.recordBeforeCallBackDirtyCounter
           + " and server dirty counter is " + recordOperation.getDirtyCounter());
     }
 
     txEntry.record.setDirty(recordOperation.getDirtyCounter());
     txEntry.dirtyCounterOnClientSide = recordOperation.getDirtyCounter();
 
-    if (txEntry.recordCallBackDirtyCounter < recordOperation.getDirtyCounter()) {
+    if (txEntry.recordBeforeCallBackDirtyCounter < recordOperation.getDirtyCounter()) {
       operationsBetweenCallbacks.put(txEntry.record.getIdentity(), txEntry);
     }
 

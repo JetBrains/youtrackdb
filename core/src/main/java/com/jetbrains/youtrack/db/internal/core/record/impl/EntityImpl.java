@@ -1268,7 +1268,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
             return;
           }
           if (PropertyTypeInternal.isSingleValueType(value) && Objects.equals(oldValue, value)) {
-            setDirty();
             return;
           }
         }

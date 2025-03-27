@@ -79,7 +79,7 @@ public class CheckHookCallCountTest extends DbTestBase {
           }
 
           @Override
-          public void onEntityCreate(Entity entity) {
+          public void onAfterEntityCreate(Entity entity) {
             onEntityRead(entity);
           }
 
@@ -92,7 +92,6 @@ public class CheckHookCallCountTest extends DbTestBase {
               }
             }
           }
-
         });
 
     session.begin();

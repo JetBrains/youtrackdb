@@ -30,22 +30,22 @@ public class HookRegisterRemoveTest extends DbTestBase {
     entity.setProperty("test", "test");
     session.commit();
 
-    assertEquals(1, integer.get());
+    assertEquals(2, integer.get());
     session.unregisterHook(iHookImpl);
 
     session.begin();
     session.newEntity();
     session.commit();
 
-    //create
-    assertEquals(1, integer.get());
+    //2 create
+    assertEquals(2, integer.get());
 
     session.registerHook(iHookImpl);
     var tx = session.begin();
     tx.delete(tx.<Entity>load(entity));
     tx.commit();
 
-    //read + delete
-    assertEquals(3, integer.get());
+    //read + 2 delete
+    assertEquals(5, integer.get());
   }
 }

@@ -93,7 +93,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     session.begin();
     var activeTx2 = session.getActiveTransaction();
     cmeDoc = activeTx2.load(cmeDoc);
-    cmeDoc.setProperty("v", "v");
+    cmeDoc.setProperty("v", 1);
 
     session.commit();
 
@@ -105,7 +105,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     rootDoc = activeTx.load(rootDoc);
     ridBag = rootDoc.getProperty("ridBag");
 
-    cmeDoc.setProperty("v", "v234");
+    cmeDoc.setProperty("v", 2);
 
     var docOne = (EntityImpl) session.newEntity();
     var docTwo = (EntityImpl) session.newEntity();
@@ -672,7 +672,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     session.begin();
     var activeTx1 = session.getActiveTransaction();
     cmeDoc = activeTx1.load(cmeDoc);
-    cmeDoc.setProperty("v", "v");
+    cmeDoc.setProperty("v", 1);
 
     session.commit();
 
@@ -691,7 +691,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     var activeTx = session.getActiveTransaction();
     cmeDoc = activeTx.load(cmeDoc);
-    cmeDoc.setProperty("v", "vn");
+    cmeDoc.setProperty("v", 2);
 
     generateCME(cmeDoc.getIdentity());
     try {
@@ -777,7 +777,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     session.begin();
     var cmeDocument = (EntityImpl) session.newEntity();
-    cmeDocument.setProperty("v", "v1");
+    cmeDocument.setProperty("v", 1);
 
     session.commit();
 
@@ -816,7 +816,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     var activeTx1 = session.getActiveTransaction();
     cmeDocument = activeTx1.load(cmeDocument);
-    cmeDocument.setProperty("v", "v234");
+    cmeDocument.setProperty("v", 234);
 
     var activeTx = session.getActiveTransaction();
     document = activeTx.load(document);
@@ -926,7 +926,12 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
                 session.begin();
                 EntityImpl cmeDocument = session.load(rid);
 
-                cmeDocument.setProperty("v", "v1");
+                var v = cmeDocument.getInt("v");
+                if (v != null) {
+                  cmeDocument.setProperty("v", v + 1);
+                } else {
+                  cmeDocument.setProperty("v", 1);
+                }
 
                 session.commit();
               }

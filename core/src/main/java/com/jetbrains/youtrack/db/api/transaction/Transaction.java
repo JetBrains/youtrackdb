@@ -24,6 +24,7 @@ import javax.annotation.Nullable;
 
 @SuppressWarnings("unused")
 public interface Transaction {
+
   boolean isActive();
 
   @Nonnull
@@ -94,7 +95,7 @@ public interface Transaction {
   @Nonnull
   StatefulEdge loadEdge(@Nonnull Identifiable id) throws DatabaseException, RecordNotFoundException;
 
-  @Nonnull
+  @Nullable
   StatefulEdge loadEdgeOrNull(@Nonnull Identifiable id) throws DatabaseException;
 
   /**
@@ -114,7 +115,7 @@ public interface Transaction {
   @Nonnull
   Blob loadBlob(@Nonnull Identifiable id) throws DatabaseException, RecordNotFoundException;
 
-  @Nonnull
+  @Nullable
   Blob loadBlobOrNull(@Nonnull Identifiable id) throws DatabaseException;
 
   /**

@@ -340,7 +340,8 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
 
   @Override
   public Iterator<byte[]> getSerializedOperations() {
-    return null;
+    throw new UnsupportedOperationException(
+        "getSerializedOperations is not supported in no tx mode");
   }
 
   public void clearRecordEntries() {
@@ -546,5 +547,10 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   @Override
   public <RET extends DBRecord> RET loadOrNull(Identifiable identifiable) {
     throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public boolean isCallBackProcessingInProgress() {
+    return false;
   }
 }

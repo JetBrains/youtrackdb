@@ -42,12 +42,7 @@ public class DbListenerTest extends BaseDBTest {
   protected int onBeforeTxCommit = 0;
   protected int onBeforeTxRollback = 0;
   protected int onClose = 0;
-  protected int onCreate = 0;
-  protected int onDelete = 0;
-  protected int onOpen = 0;
-  protected int onCorruption = 0;
   protected String command;
-  protected Object commandResult;
 
   public static class DocumentChangeListener {
 
@@ -58,7 +53,7 @@ public class DbListenerTest extends BaseDBTest {
           new EntityHookAbstract(db) {
 
             @Override
-            public void onEntityUpdate(Entity entity) {
+            public void onBeforeEntityUpdate(Entity entity) {
               List<String> changedFields = new ArrayList<>(
                   entity.getDirtyPropertiesBetweenCallbacks());
               changes.put(entity, changedFields);

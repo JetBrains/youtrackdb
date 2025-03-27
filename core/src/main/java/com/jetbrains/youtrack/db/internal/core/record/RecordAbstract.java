@@ -191,19 +191,22 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   private void incrementDirtyCounterAndRegisterInTx() {
     dirty++;
 
-    assert txEntry == null || dirty >= txEntry.recordCallBackDirtyCounter + 1;
+    assert txEntry == null || dirty >= txEntry.recordBeforeCallBackDirtyCounter + 1;
     assert txEntry == null || dirty >= txEntry.dirtyCounterOnClientSide + 1;
 
     assert txEntry == null || txEntry.record == this;
 
     //either record is not registered in transaction or callbacks were called on previous version of record
     //or record changes are not sent to client side for remote storage
-    if (txEntry == null || dirty == txEntry.recordCallBackDirtyCounter + 1
+    if (txEntry == null || dirty == txEntry.recordBeforeCallBackDirtyCounter + 1
         || dirty == txEntry.dirtyCounterOnClientSide + 1) {
       if (!isEmbedded()) {
         var tx = session.getTransactionInternal();
         tx.addRecordOperation(this, RecordOperation.UPDATED);
       }
+    } else {
+      assert ((FrontendTransactionImpl) session.getTransactionInternal()).isScheduledForCallbackProcessing(
+          recordId);
     }
   }
 
@@ -314,8 +317,12 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   public void delete() {
     checkForBinding();
-
     var tx = session.getTransactionInternal();
+    if (tx.isCallBackProcessingInProgress()) {
+      throw new IllegalStateException("Cannot delete record in callback processing."
+          + " If called this method in beforeCallbackXXX method, please move this call "
+          + "to afterCallbackXX method.");
+    }
     //preprocess any creation, deletion operations
     tx.preProcessRecordsAndExecuteCallCallbacks();
 

@@ -38,6 +38,7 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
+import com.jetbrains.youtrack.db.api.record.RecordHook.TYPE;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.profiler.metrics.CoreMetrics;
@@ -547,9 +548,13 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   public ResultSet query(String query, Object[] args) {
     checkOpenness();
     assert assertIfNotActive();
+    if (currentTx.isCallBackProcessingInProgress()) {
+      throw new CommandExecutionException(getDatabaseName(),
+          "Cannot execute query while transaction processing callbacks. If you called this method in beforeCallbackXXX method " +
+              "please move it to the afterCallbackXXX method");
+    }
     try {
       beginReadOnly();
-
       currentTx.preProcessRecordsAndExecuteCallCallbacks();
       getSharedContext().getYouTrackDB().startCommand(Optional.empty());
       preQueryStart();
@@ -577,6 +582,12 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   public ResultSet query(String query, Map args) {
     checkOpenness();
     assert assertIfNotActive();
+    if (currentTx.isCallBackProcessingInProgress()) {
+      throw new CommandExecutionException(getDatabaseName(),
+          "Cannot execute query while transaction processing callbacks. If you called this method in beforeCallbackXXX method " +
+              "please move it to the afterCallbackXXX method");
+    }
+
     beginReadOnly();
     try {
       currentTx.preProcessRecordsAndExecuteCallCallbacks();
@@ -607,6 +618,11 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     checkOpenness();
     assert assertIfNotActive();
 
+    if (currentTx.isCallBackProcessingInProgress()) {
+      throw new CommandExecutionException(getDatabaseName(),
+          "Cannot execute SQL command while transaction processing callbacks. If you called this method in beforeCallbackXXX method " +
+              "please move it to the afterCallbackXXX method");
+    }
     try {
       currentTx.preProcessRecordsAndExecuteCallCallbacks();
       getSharedContext().getYouTrackDB().startCommand(Optional.empty());
@@ -643,6 +659,11 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     checkOpenness();
     assert assertIfNotActive();
 
+    if (currentTx.isCallBackProcessingInProgress()) {
+      throw new CommandExecutionException(getDatabaseName(),
+          "Cannot execute SQL command while transaction processing callbacks. If you called this method in beforeCallbackXXX method " +
+              "please move it to the afterCallbackXXX method");
+    }
     try {
       currentTx.preProcessRecordsAndExecuteCallCallbacks();
       getSharedContext().getYouTrackDB().startCommand(Optional.empty());
@@ -681,6 +702,11 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   public ResultSet runScript(String language, String script, Object... args) {
     checkOpenness();
     assert assertIfNotActive();
+    if (currentTx.isCallBackProcessingInProgress()) {
+      throw new CommandExecutionException(getDatabaseName(),
+          "Cannot execute SQL script while transaction processing callbacks. If you called this method in beforeCallbackXXX method " +
+              "please move it to the afterCallbackXXX method");
+    }
     try {
       if (!"sql".equalsIgnoreCase(language)) {
         checkSecurity(Rule.ResourceGeneric.COMMAND, Role.PERMISSION_EXECUTE, language);
@@ -740,6 +766,11 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   public ResultSet runScript(String language, String script, Map<String, ?> args) {
     checkOpenness();
     assert assertIfNotActive();
+    if (currentTx.isCallBackProcessingInProgress()) {
+      throw new CommandExecutionException(getDatabaseName(),
+          "Cannot execute SQL script while transaction processing callbacks. If you called this method in beforeCallbackXXX method " +
+              "please move it to the afterCallbackXXX method");
+    }
     if (!"sql".equalsIgnoreCase(language)) {
       checkSecurity(Rule.ResourceGeneric.COMMAND, Role.PERMISSION_EXECUTE, language);
     }
@@ -781,6 +812,11 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   public LocalResultSetLifecycleDecorator query(ExecutionPlan plan, Map<Object, Object> params) {
     checkOpenness();
     assert assertIfNotActive();
+    if (currentTx.isCallBackProcessingInProgress()) {
+      throw new CommandExecutionException(getDatabaseName(),
+          "Cannot execute query transaction processing callbacks. If you called this method in beforeCallbackXXX method " +
+              "please move it to the afterCallbackXXX method");
+    }
 
     try {
       currentTx.preProcessRecordsAndExecuteCallCallbacks();
@@ -856,12 +892,12 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     record.delete();
   }
 
-  public void afterCreateOperations(final RecordAbstract id, String clusterName) {
+  public void beforeCreateOperations(final RecordAbstract recordAbstract, String clusterName) {
     assert assertIfNotActive();
 
-    checkSecurity(Role.PERMISSION_CREATE, id, clusterName);
+    checkSecurity(Role.PERMISSION_CREATE, recordAbstract, clusterName);
 
-    if (id instanceof EntityImpl entity) {
+    if (recordAbstract instanceof EntityImpl entity) {
       if (!getSharedContext().getSecurity().canCreate(this, entity)) {
         throw new SecurityException(getDatabaseName(),
             "Cannot update record "
@@ -869,9 +905,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
                 + ": the resource has restricted access due to security policies");
       }
 
-      SchemaImmutableClass clazz;
-      clazz = entity.getImmutableSchemaClass(this);
-      ensureLinksConsistencyAfterModification(entity, clazz);
+      var clazz = entity.getImmutableSchemaClass(this);
+      ensureLinksConsistencyBeforeModification(entity, clazz);
 
       if (clazz != null) {
         checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, clazz.getName());
@@ -893,10 +928,22 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
         }
 
         entity.propertyEncryption = PropertyEncryptionNone.instance();
+      }
+    }
 
+    callbackHooks(RecordHook.TYPE.BEFORE_CREATE, recordAbstract);
+  }
+
+  @Override
+  public void afterCreateOperations(RecordAbstract recordAbstract) {
+    assert assertIfNotActive();
+
+    if (recordAbstract instanceof EntityImpl entity) {
+      var clazz = entity.getImmutableSchemaClass(this);
+
+      if (clazz != null) {
         if (clazz.isUser() || clazz.isRole() || clazz.isSecurityPolicy()) {
           sharedContext.getSecurity().incrementVersion(this);
-
         }
         if (clazz.isTriggered()) {
           ClassTrigger.onRecordAfterCreate(entity, this);
@@ -904,19 +951,18 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       }
     }
 
-    callbackHooks(RecordHook.TYPE.CREATE, id);
+    callbackHooks(RecordHook.TYPE.AFTER_CREATE, recordAbstract);
   }
 
-  public void afterUpdateOperations(final RecordAbstract id, String clusterName) {
+  public void beforeUpdateOperations(final RecordAbstract recordAbstract, String clusterName) {
     assert assertIfNotActive();
 
-    checkSecurity(Role.PERMISSION_UPDATE, id, clusterName);
+    checkSecurity(Role.PERMISSION_UPDATE, recordAbstract, clusterName);
 
-    if (id instanceof EntityImpl entity) {
+    if (recordAbstract instanceof EntityImpl entity) {
 
-      SchemaImmutableClass clazz = null;
-      clazz = entity.getImmutableSchemaClass(this);
-      ensureLinksConsistencyAfterModification(entity, clazz);
+      var clazz = entity.getImmutableSchemaClass(this);
+      ensureLinksConsistencyBeforeModification(entity, clazz);
 
       if (clazz != null) {
         if (clazz.isScheduler()) {
@@ -947,29 +993,41 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
                   + ": the resource has restricted access due to security policies");
         }
         entity.propertyEncryption = PropertyEncryptionNone.instance();
+      }
+    }
+
+    callbackHooks(RecordHook.TYPE.BEFORE_UPDATE, recordAbstract);
+  }
+
+  @Override
+  public void afterUpdateOperations(RecordAbstract recordAbstract) {
+    assert assertIfNotActive();
+
+    if (recordAbstract instanceof EntityImpl entity) {
+      var clazz = entity.getImmutableSchemaClass(this);
+      if (clazz != null) {
+        if (clazz.isTriggered()) {
+          ClassTrigger.onRecordAfterUpdate(entity, this);
+        }
 
         if (clazz.isUser() || clazz.isRole() || clazz.isSecurityPolicy()) {
           sharedContext.getSecurity().incrementVersion(this);
         }
-
-        if (clazz.isTriggered()) {
-          ClassTrigger.onRecordAfterUpdate(entity, this);
-        }
       }
     }
 
-    callbackHooks(RecordHook.TYPE.UPDATE, id);
+    callbackHooks(TYPE.AFTER_UPDATE, recordAbstract);
   }
 
-  public void afterDeleteOperations(final RecordAbstract id, java.lang.String clusterName) {
+  public void beforeDeleteOperations(final RecordAbstract recordAbstract,
+      java.lang.String clusterName) {
     assert assertIfNotActive();
-    checkSecurity(Role.PERMISSION_DELETE, id, clusterName);
+    checkSecurity(Role.PERMISSION_DELETE, recordAbstract, clusterName);
 
-    if (id instanceof EntityImpl entity) {
-      ensureLinksConsistencyAfterDeletion(entity);
+    if (recordAbstract instanceof EntityImpl entity) {
+      ensureLinksConsistencyBeforeDeletion(entity);
 
-      SchemaImmutableClass clazz = null;
-      clazz = entity.getImmutableSchemaClass(this);
+      var clazz = entity.getImmutableSchemaClass(this);
       if (clazz != null) {
         if (clazz.isTriggered()) {
           ClassTrigger.onRecordBeforeDelete(entity, this);
@@ -990,6 +1048,19 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
                   + entity.getIdentity()
                   + ": the resource has restricted access due to security policies");
         }
+
+      }
+    }
+
+    callbackHooks(RecordHook.TYPE.BEFORE_DELETE, recordAbstract);
+  }
+
+  @Override
+  public void afterDeleteOperations(RecordAbstract recordAbstract) {
+    assert assertIfNotActive();
+    if (recordAbstract instanceof EntityImpl entity) {
+      var clazz = entity.getImmutableSchemaClass(this);
+      if (clazz != null) {
         if (clazz.isTriggered()) {
           ClassTrigger.onRecordAfterDelete(entity, this);
         } else if (clazz.isSequence()) {
@@ -1004,7 +1075,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       }
     }
 
-    callbackHooks(RecordHook.TYPE.DELETE, id);
+    callbackHooks(TYPE.AFTER_DELETE, recordAbstract);
   }
 
   @Override
@@ -1800,7 +1871,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     return transactionMeters;
   }
 
-  private void ensureLinksConsistencyAfterDeletion(@Nonnull EntityImpl entity) {
+  private void ensureLinksConsistencyBeforeDeletion(@Nonnull EntityImpl entity) {
     var properties = entity.getPropertyNamesInternal(true, false);
 
     for (var propertyName : properties) {
@@ -1884,7 +1955,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     }
   }
 
-  private void ensureLinksConsistencyAfterModification(@Nonnull EntityImpl entity,
+  private void ensureLinksConsistencyBeforeModification(@Nonnull EntityImpl entity,
       @Nullable SchemaImmutableClass clazz) {
     var dirtyProperties = entity.getDirtyPropertiesBetweenCallbacksInternal(false,
         false);

@@ -30,9 +30,15 @@ public interface RecordHook {
 
   enum TYPE {
     READ,
-    CREATE,
-    UPDATE,
-    DELETE,
+
+    BEFORE_CREATE,
+    AFTER_CREATE,
+
+    BEFORE_UPDATE,
+    AFTER_UPDATE,
+
+    BEFORE_DELETE,
+    AFTER_DELETE,
   }
 
   default void onUnregister() {

@@ -18,7 +18,7 @@ public class BrokenMapHook extends RecordHookAbstract implements RecordHook {
   public BrokenMapHook() {
   }
 
-  public void onRecordCreate(DBRecord record) {
+  public void onBeforeRecordCreate(DBRecord record) {
     var now = new Date();
     var element = (Entity) record;
 
@@ -33,7 +33,7 @@ public class BrokenMapHook extends RecordHookAbstract implements RecordHook {
     }
   }
 
-  public void onRecordUpdate(DBRecord newRecord) {
+  public void onBeforeRecordUpdate(DBRecord newRecord) {
     var newElement = (Entity) newRecord;
 
     var session = newElement.getBoundedToSession();

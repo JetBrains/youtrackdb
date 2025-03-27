@@ -87,7 +87,8 @@ public class RemoteTransactionHookTest extends DbTestBase {
     session.execute("delete from SomeTx where name='aa'").close();
     session.commit();
 
-    assertEquals(2, calls.getCreate());
+    assertEquals(2, calls.beforeCreate);
+    assertEquals(2, calls.afterCreate);
   }
 
   @Test
@@ -109,9 +110,14 @@ public class RemoteTransactionHookTest extends DbTestBase {
     tx.execute("delete from SomeTx where name='aa'").close();
     tx.commit();
 
-    assertEquals(2, calls.getCreate());
-    assertEquals(1, calls.getUpdate());
-    assertEquals(1, calls.getDelete());
+    assertEquals(2, calls.beforeCreate);
+    assertEquals(2, calls.afterCreate);
+
+    assertEquals(1, calls.beforeUpdate);
+    assertEquals(1, calls.afterUpdate);
+
+    assertEquals(1, calls.beforeDelete);
+    assertEquals(1, calls.afterDelete);
     session.close();
     youTrackDB.close();
     this.session.activateOnCurrentThread();
@@ -130,9 +136,14 @@ public class RemoteTransactionHookTest extends DbTestBase {
     res.close();
     session.execute("delete from SomeTx where name='aa'").close();
     session.commit();
-    assertEquals(2, calls.getCreate());
-    assertEquals(1, calls.getUpdate());
-    assertEquals(1, calls.getDelete());
+    assertEquals(2, calls.beforeCreate);
+    assertEquals(2, calls.afterCreate);
+
+    assertEquals(1, calls.beforeUpdate);
+    assertEquals(1, calls.afterUpdate);
+
+    assertEquals(1, calls.beforeDelete);
+    assertEquals(1, calls.afterDelete);
   }
 
   public static class CountCallHookServer extends CountCallHook {
@@ -147,40 +158,47 @@ public class RemoteTransactionHookTest extends DbTestBase {
 
   public static class CountCallHook extends EntityHookAbstract {
 
-    private int update = 0;
-    private int create = 0;
-    private int delete = 0;
+    public int beforeUpdate = 0;
+    public int afterUpdate = 0;
+
+    public int beforeCreate = 0;
+    public int afterCreate = 0;
+
+    public int beforeDelete = 0;
+    public int afterDelete = 0;
 
     public CountCallHook(DatabaseSession database) {
       super(database);
     }
 
-
     @Override
-    public void onEntityCreate(Entity entity) {
-      create++;
-    }
-
-    @Override
-    public void onEntityUpdate(Entity entity) {
-      update++;
+    public void onBeforeEntityCreate(Entity entity) {
+      beforeCreate++;
     }
 
     @Override
-    public void onEntityDelete(Entity entity) {
-      delete++;
+    public void onAfterEntityCreate(Entity entity) {
+      afterCreate++;
     }
 
-    public int getCreate() {
-      return create;
+    @Override
+    public void onBeforeEntityUpdate(Entity entity) {
+      beforeUpdate++;
     }
 
-    public int getDelete() {
-      return delete;
+    @Override
+    public void onAfterEntityUpdate(Entity entity) {
+      afterUpdate++;
     }
 
-    public int getUpdate() {
-      return update;
+    @Override
+    public void onBeforeEntityDelete(Entity entity) {
+      beforeDelete++;
+    }
+
+    @Override
+    public void onAfterEntityDelete(Entity entity) {
+      afterDelete++;
     }
   }
 }

@@ -28,21 +28,24 @@ import javax.annotation.Nonnull;
  * @see RecordHook
  */
 public abstract class RecordHookAbstract implements RecordHook {
-  /**
-   * It's called just after the iRecord is created.
-   *
-   * @param iRecord The iRecord just created
-   */
-  public void onRecordCreate(final DBRecord iRecord) {
-  }
-
 
   /**
    * It's called just after the iRecord is read.
    *
-   * @param iRecord The iRecord just read
+   * @param record The iRecord just read
    */
-  public void onRecordRead(final DBRecord iRecord) {
+  public void onRecordRead(final DBRecord record) {
+  }
+
+  /**
+   * It's called just after the iRecord is created.
+   *
+   * @param record The iRecord just created
+   */
+  public void onBeforeRecordCreate(final DBRecord record) {
+  }
+
+  public void onAfterRecordCreate(final DBRecord record) {
   }
 
   /**
@@ -50,16 +53,21 @@ public abstract class RecordHookAbstract implements RecordHook {
    *
    * @param iRecord The iRecord just updated
    */
-  public void onRecordUpdate(final DBRecord iRecord) {
+  public void onBeforeRecordUpdate(final DBRecord iRecord) {
   }
 
+  public void onAfterRecordUpdate(final DBRecord iRecord) {
+  }
 
   /**
    * It's called just after the iRecord is deleted.
    *
    * @param iRecord The iRecord just deleted
    */
-  public void onRecordDelete(final DBRecord iRecord) {
+  public void onBeforeRecordDelete(final DBRecord iRecord) {
+  }
+
+  public void onAfterRecordDelete(final DBRecord iRecord) {
   }
 
   public void onTrigger(@Nonnull final TYPE iType,
@@ -69,12 +77,28 @@ public abstract class RecordHookAbstract implements RecordHook {
         onRecordRead(record);
         break;
 
-      case UPDATE:
-        onRecordUpdate(record);
+      case BEFORE_CREATE:
+        onBeforeRecordCreate(record);
         break;
 
-      case DELETE:
-        onRecordDelete(record);
+      case AFTER_CREATE:
+        onAfterRecordCreate(record);
+        break;
+
+      case BEFORE_UPDATE:
+        onBeforeRecordUpdate(record);
+        break;
+
+      case AFTER_UPDATE:
+        onAfterRecordUpdate(record);
+        break;
+
+      case BEFORE_DELETE:
+        onBeforeRecordDelete(record);
+        break;
+
+      case AFTER_DELETE:
+        onAfterRecordDelete(record);
         break;
     }
   }

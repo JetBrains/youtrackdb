@@ -141,6 +141,7 @@ public interface FrontendTransaction extends Transaction {
    * @param indexName the index name.
    * @return the index changes in question or {@code null} if index is not found.
    */
+  @Nullable
   FrontendTransactionIndexChanges getIndexChanges(String indexName);
 
   /**
@@ -237,6 +238,7 @@ public interface FrontendTransaction extends Transaction {
     return null;
   }
 
+  boolean isCallBackProcessingInProgress();
 
   void internalRollback();
 }

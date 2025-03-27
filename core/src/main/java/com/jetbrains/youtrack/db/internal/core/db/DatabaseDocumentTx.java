@@ -228,9 +228,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
 
   @Override
   public CurrentStorageComponentsFactory getStorageVersions() {
-    if (internal == null) {
-      return null;
-    }
     return internal.getStorageVersions();
   }
 
@@ -251,9 +248,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
 
   @Override
   public BTreeCollectionManager getBTreeCollectionManager() {
-    if (internal == null) {
-      return null;
-    }
     return internal.getBTreeCollectionManager();
   }
 
@@ -402,7 +396,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
 
   @Override
   public DatabaseSession setMVCC(boolean iValue) {
-    return null;
+    return this;
   }
 
   @Override
@@ -539,9 +533,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
 
   @Override
   public SharedContext getSharedContext() {
-    if (internal == null) {
-      return null;
-    }
     return internal.getSharedContext();
   }
 
@@ -661,7 +652,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
 
   @Override
   public Entity newEntity(SchemaClass cls) {
-    return null;
+    return internal.newEntity(cls);
   }
 
   @Override
@@ -672,10 +663,8 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
 
   @Override
   public SecurityUser getCurrentUser() {
-    if (internal != null) {
-      return internal.getCurrentUser();
-    }
-    return null;
+    checkOpenness();
+    return internal.getCurrentUser();
   }
 
 
@@ -1444,18 +1433,33 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
 
 
   @Override
-  public void afterCreateOperations(RecordAbstract id, String clusterName) {
-    internal.afterCreateOperations(id, clusterName);
+  public void beforeCreateOperations(RecordAbstract recordAbstract, String clusterName) {
+    internal.beforeCreateOperations(recordAbstract, clusterName);
   }
 
   @Override
-  public void afterDeleteOperations(RecordAbstract id, java.lang.String clusterName) {
-    internal.afterDeleteOperations(id, clusterName);
+  public void afterCreateOperations(RecordAbstract recordAbstract) {
+    internal.afterCreateOperations(recordAbstract);
   }
 
   @Override
-  public void afterUpdateOperations(RecordAbstract id, java.lang.String clusterName) {
-    internal.afterUpdateOperations(id, clusterName);
+  public void beforeDeleteOperations(RecordAbstract recordAbstract, java.lang.String clusterName) {
+    internal.beforeDeleteOperations(recordAbstract, clusterName);
+  }
+
+  @Override
+  public void afterDeleteOperations(RecordAbstract recordAbstract) {
+    internal.afterDeleteOperations(recordAbstract);
+  }
+
+  @Override
+  public void beforeUpdateOperations(RecordAbstract recordAbstract, java.lang.String clusterName) {
+    internal.beforeUpdateOperations(recordAbstract, clusterName);
+  }
+
+  @Override
+  public void afterUpdateOperations(RecordAbstract recordAbstract) {
+    internal.afterUpdateOperations(recordAbstract);
   }
 
   @Override

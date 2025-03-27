@@ -1029,15 +1029,15 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
         entity.checkClass(this);
       }
 
+      localCache.updateRecord(record, this);
+      record.fromStream(recordBuffer.buffer);
+
       if (beforeReadOperations(record)) {
         return createRecordNotFoundResult(rid, fetchPreviousRid, fetchNextRid,
             throwExceptionIfRecordNotFound);
       }
 
-      record.fromStream(recordBuffer.buffer);
       afterReadOperations(record);
-
-      localCache.updateRecord(record, this);
 
       assert !record.isUnloaded();
       assert record.getSession() == this;

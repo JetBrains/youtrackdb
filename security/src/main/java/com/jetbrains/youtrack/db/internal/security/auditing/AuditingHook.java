@@ -266,25 +266,25 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
   }
 
   @Override
-  public void onRecordCreate(final DBRecord iRecord) {
+  public void onAfterRecordCreate(DBRecord record) {
     if (!onGlobalCreate) {
       return;
     }
 
-    log(iRecord.getBoundedToSession(), AuditingOperation.CREATED, iRecord);
+    log(record.getBoundedToSession(), AuditingOperation.CREATED, record);
   }
 
   @Override
-  public void onRecordRead(final DBRecord iRecord) {
+  public void onRecordRead(final DBRecord record) {
     if (!onGlobalRead) {
       return;
     }
 
-    log(iRecord.getBoundedToSession(), AuditingOperation.LOADED, iRecord);
+    log(record.getBoundedToSession(), AuditingOperation.LOADED, record);
   }
 
   @Override
-  public void onRecordUpdate(final DBRecord iRecord) {
+  public void onBeforeRecordUpdate(final DBRecord iRecord) {
 
     var session = iRecord.getBoundedToSession();
     if (iRecord instanceof EntityImpl entity) {
@@ -308,7 +308,7 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
   }
 
   @Override
-  public void onRecordDelete(final DBRecord iRecord) {
+  public void onBeforeRecordDelete(final DBRecord iRecord) {
     if (!onGlobalDelete) {
       return;
     }

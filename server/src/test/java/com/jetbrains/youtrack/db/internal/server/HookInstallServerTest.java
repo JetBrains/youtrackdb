@@ -33,7 +33,7 @@ public class HookInstallServerTest {
     }
 
     @Override
-    public void onEntityCreate(Entity entity) {
+    public void onBeforeEntityCreate(Entity entity) {
       count++;
     }
   }

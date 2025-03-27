@@ -105,6 +105,8 @@ public class FrontendTransactionImpl implements
   protected int newRecordsPositionsGenerator = -2;
   private final HashMap<String, Object> userData = new HashMap<>();
 
+  private boolean callBacksInProgress = false;
+
   @Nullable
   private FrontendTransacationMetadataHolder metadata = null;
   @Nullable
@@ -509,8 +511,8 @@ public class FrontendTransactionImpl implements
                 "Error on execution of operation on record " + record.getIdentity()), e, session);
       }
 
-      assert txEntry.recordCallBackDirtyCounter <= record.getDirtyCounter();
-      if (txEntry.recordCallBackDirtyCounter < record.getDirtyCounter()) {
+      assert txEntry.recordBeforeCallBackDirtyCounter <= record.getDirtyCounter();
+      if (txEntry.recordBeforeCallBackDirtyCounter < record.getDirtyCounter()) {
         operationsBetweenCallbacks.put(record.getIdentity(), txEntry);
       }
     } catch (Exception e) {
@@ -555,32 +557,66 @@ public class FrontendTransactionImpl implements
     status = TXSTATUS.COMPLETED;
   }
 
+  public boolean isScheduledForCallbackProcessing(RecordId rid) {
+    return callBacksInProgress || operationsBetweenCallbacks.containsKey(rid);
+  }
+
   @Nullable
   public List<RecordId> preProcessRecordsAndExecuteCallCallbacks() {
+    if (callBacksInProgress) {
+      throw new IllegalStateException(
+          "Callback processing is in progress, if you trigger this operation"
+              + " in beforeCallBackXXX trigger please move it to the afterCallBackXXX trigger.");
+    }
+
     if (operationsBetweenCallbacks.isEmpty()) {
       return null;
     }
 
     var serializer = session.getSerializer();
     ArrayList<RecordId> newDeletedRecords = null;
+
     while (!operationsBetweenCallbacks.isEmpty()) {
-      var operations = new ArrayList<>(operationsBetweenCallbacks.values());
-      operationsBetweenCallbacks.clear();
+      var recordOperationsToCallback = operationsBetweenCallbacks.values();
+      var operations = new ArrayList<RecordOperation>(recordOperationsToCallback.size());
 
-      operations.sort(
-          Comparator.<RecordOperation>comparingInt(recordOperation -> recordOperation.type)
-              .reversed());
-      for (var recordOperation : operations) {
+      for (var recordOperationToCallback : recordOperationsToCallback) {
+        var dirtyCounter = recordOperationToCallback.record.getDirtyCounter();
+        assert dirtyCounter >= recordOperationToCallback.recordBeforeCallBackDirtyCounter;
 
-        //operations are processed and deleted from the map
-        preProcessRecordOperationAndExecuteCallbacks(recordOperation, serializer);
-        if (recordOperation.type == RecordOperation.DELETED && recordOperation.record.getIdentity()
-            .isNew()) {
-          if (newDeletedRecords == null) {
-            newDeletedRecords = new ArrayList<>();
-          }
-          newDeletedRecords.add(recordOperation.getRecordId());
+        if (recordOperationToCallback.recordBeforeCallBackDirtyCounter < dirtyCounter) {
+          operations.add(recordOperationToCallback);
         }
+      }
+
+      callBacksInProgress = true;
+      try {
+        operationsBetweenCallbacks.clear();
+
+        operations.sort(
+            Comparator.<RecordOperation>comparingInt(recordOperation -> recordOperation.type)
+                .reversed());
+
+        for (var recordOperation : operations) {
+          //operations are processed and deleted from the map
+          preProcessRecordOperationAndExecuteBeforeCallbacks(recordOperation, serializer);
+
+          if (recordOperation.type == RecordOperation.DELETED
+              && recordOperation.record.getIdentity()
+              .isNew()) {
+            if (newDeletedRecords == null) {
+              newDeletedRecords = new ArrayList<>();
+            }
+
+            newDeletedRecords.add(recordOperation.getRecordId());
+          }
+        }
+      } finally {
+        callBacksInProgress = false;
+      }
+
+      for (var recordOperation : operations) {
+        callAfterCallbacks(recordOperation);
       }
     }
 
@@ -595,14 +631,19 @@ public class FrontendTransactionImpl implements
       }
     }
 
-    assert operationsBetweenCallbacks.isEmpty();
-
     return newDeletedRecords;
   }
 
-  private void preProcessRecordOperationAndExecuteCallbacks(RecordOperation recordOperation,
+  @Override
+  public boolean isCallBackProcessingInProgress() {
+    return callBacksInProgress;
+  }
+
+  private void preProcessRecordOperationAndExecuteBeforeCallbacks(RecordOperation recordOperation,
       RecordSerializer serializer) {
     var record = recordOperation.record;
+    var clusterName = session.getClusterNameById(record.getIdentity().getClusterId());
+
     if (recordOperation.type == RecordOperation.CREATED
         || recordOperation.type == RecordOperation.UPDATED) {
       String className = null;
@@ -610,7 +651,7 @@ public class FrontendTransactionImpl implements
       if (recordOperation.record instanceof EntityImpl entity) {
         entityImpl = entity;
         className = entity.getSchemaClassName();
-        if (recordOperation.recordCallBackDirtyCounter != record.getDirtyCounter()) {
+        if (recordOperation.recordBeforeCallBackDirtyCounter != record.getDirtyCounter()) {
           entity.checkClass(session);
           entity.checkAllMultiValuesAreTrackedVersions();
 
@@ -631,83 +672,70 @@ public class FrontendTransactionImpl implements
         entity.recordSerializer = serializer;
       }
 
-      if (recordOperation.recordCallBackDirtyCounter != record.getDirtyCounter()) {
-        if (recordOperation.type == RecordOperation.CREATED) {
-          if (recordOperation.recordCallBackDirtyCounter == 0) {
-            if (className != null && !session.isRemote()) {
-              ClassIndexManager.checkIndexesAfterCreate(entityImpl, session);
-            }
-            processRecordCreation(recordOperation, record);
-          } else {
-            if (className != null && !session.isRemote()) {
-              ClassIndexManager.checkIndexesAfterUpdate(entityImpl, session);
-            }
-            processRecordUpdate(recordOperation, record);
+      if (recordOperation.type == RecordOperation.CREATED) {
+        if (recordOperation.recordBeforeCallBackDirtyCounter == 0) {
+          if (className != null && !session.isRemote()) {
+            ClassIndexManager.checkIndexesAfterCreate(entityImpl, session);
           }
+          session.beforeCreateOperations(record, clusterName);
         } else {
-          if (className != null) {
+          if (className != null && !session.isRemote()) {
             ClassIndexManager.checkIndexesAfterUpdate(entityImpl, session);
           }
-          processRecordUpdate(recordOperation, record);
+          session.beforeUpdateOperations(record, clusterName);
         }
+      } else {
+        if (className != null) {
+          ClassIndexManager.checkIndexesAfterUpdate(entityImpl, session);
+        }
+        session.beforeUpdateOperations(record, clusterName);
       }
     } else if (recordOperation.type == RecordOperation.DELETED) {
-      if (recordOperation.recordCallBackDirtyCounter != record.getDirtyCounter()) {
-        String className = null;
-        EntityImpl entityImpl = null;
+      String className = null;
+      EntityImpl entityImpl = null;
 
-        if (recordOperation.record instanceof EntityImpl entity) {
-          entityImpl = entity;
-          className = entity.getSchemaClassName();
-          entity.checkClass(session);
+      if (recordOperation.record instanceof EntityImpl entity) {
+        entityImpl = entity;
+        className = entity.getSchemaClassName();
+        entity.checkClass(session);
 
-          if (className != null) {
-            session.checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_DELETE,
-                className);
-          }
+        if (className != null) {
+          session.checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_DELETE,
+              className);
         }
-        if (className != null && !session.isRemote()) {
-          ClassIndexManager.checkIndexesAfterDelete(entityImpl, session);
-        }
-        processRecordDelete(recordOperation, record);
       }
+      if (className != null && !session.isRemote()) {
+        ClassIndexManager.checkIndexesAfterDelete(entityImpl, session);
+      }
+      session.beforeDeleteOperations(record, clusterName);
     } else {
       throw new IllegalStateException(
           "Invalid record operation type " + recordOperation.type);
     }
+
+    if (record instanceof EntityImpl entity) {
+      entity.clearTrackData();
+    }
+
+    recordOperation.recordBeforeCallBackDirtyCounter = record.getDirtyCounter();
   }
 
-  private void processRecordDelete(RecordOperation recordOperation, RecordAbstract record) {
-    var dirtyCounter = record.getDirtyCounter();
+  private void callAfterCallbacks(RecordOperation recordOperation) {
+    var record = recordOperation.record;
 
-    var clusterName = session.getClusterNameById(record.getIdentity().getClusterId());
-    recordOperation.recordCallBackDirtyCounter = dirtyCounter;
-
-    session.afterDeleteOperations(record, clusterName);
-    if (record instanceof EntityImpl) {
-      ((EntityImpl) record).clearTrackData();
+    switch (recordOperation.type) {
+      case RecordOperation.CREATED -> {
+        if (recordOperation.recordPostCallBackDirtyCounter == 0) {
+          session.afterCreateOperations(record);
+        } else {
+          session.afterUpdateOperations(record);
+        }
+      }
+      case RecordOperation.UPDATED -> session.afterUpdateOperations(record);
+      case RecordOperation.DELETED -> session.afterDeleteOperations(record);
     }
-  }
 
-  private void processRecordUpdate(RecordOperation recordOperation, RecordAbstract record) {
-    var dirtyCounter = record.getDirtyCounter();
-    var clusterName = session.getClusterNameById(record.getIdentity().getClusterId());
-    recordOperation.recordCallBackDirtyCounter = dirtyCounter;
-
-    session.afterUpdateOperations(record, clusterName);
-    if (record instanceof EntityImpl) {
-      ((EntityImpl) record).clearTrackData();
-    }
-  }
-
-  private void processRecordCreation(RecordOperation recordOperation, RecordAbstract record) {
-    var clusterName = session.getClusterNameById(record.getIdentity().getClusterId());
-    recordOperation.recordCallBackDirtyCounter = record.getDirtyCounter();
-    session.afterCreateOperations(record, clusterName);
-
-    if (record instanceof EntityImpl) {
-      ((EntityImpl) record).clearTrackData();
-    }
+    recordOperation.recordPostCallBackDirtyCounter = record.getDirtyCounter();
   }
 
   @Override

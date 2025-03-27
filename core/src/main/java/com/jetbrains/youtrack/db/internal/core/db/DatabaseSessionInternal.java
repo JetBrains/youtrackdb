@@ -171,11 +171,17 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   boolean beforeReadOperations(final RecordAbstract identifiable);
 
-  void afterUpdateOperations(final RecordAbstract id, java.lang.String clusterName);
+  void beforeUpdateOperations(final RecordAbstract recordAbstract, String clusterName);
 
-  void afterCreateOperations(final RecordAbstract id, String clusterName);
+  void afterUpdateOperations(final RecordAbstract recordAbstract);
 
-  void afterDeleteOperations(final RecordAbstract id, java.lang.String clusterName);
+  void beforeCreateOperations(final RecordAbstract recordAbstract, String clusterName);
+
+  void afterCreateOperations(final RecordAbstract recordAbstract);
+
+  void beforeDeleteOperations(final RecordAbstract recordAbstract, String clusterName);
+
+  void afterDeleteOperations(final RecordAbstract recordAbstract);
 
   void callbackHooks(final TYPE type, final RecordAbstract record);
 
