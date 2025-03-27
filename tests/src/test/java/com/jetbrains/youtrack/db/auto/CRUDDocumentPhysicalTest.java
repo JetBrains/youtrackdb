@@ -329,7 +329,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
   @Test(dependsOnMethods = "testUnderscoreField")
   public void testUpdateLazyDirtyPropagation() {
     var iterator = (Iterator<EntityImpl>) session.<EntityImpl>browseCluster("Profile");
-    session.forEachInTx(iterator, (session, rec) -> {
+    session.forEachInTx(iterator, (transaction, rec) -> {
       Assert.assertFalse(rec.isDirty());
       Collection<?> followers = rec.getProperty("followers");
       if (followers != null && !followers.isEmpty()) {
@@ -638,6 +638,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     var allResult = executeQuery("select from Account");
     var superClassResult = executeQuery(
         "select from Account where @class = 'Account'");
@@ -652,6 +653,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     for (var r : subClassResult) {
       Assert.assertFalse(superClassResult.contains(r));
     }
+    session.commit();
 
     session.begin();
     var browsed = new HashSet<EntityImpl>();
@@ -671,9 +673,9 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "readAndBrowseDescendingAndCheckHoleUtilization")
   public void testUpdateNoVersionCheck() {
+    session.begin();
     var resultSet = executeQuery("select from Account");
 
-    session.begin();
     var doc = (EntityImpl) resultSet.getFirst().asEntityOrNull();
     doc.setProperty("name", "modified");
     var oldVersion = doc.getVersion();

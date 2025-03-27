@@ -97,6 +97,10 @@ public class RecordIteratorCluster<REC extends RecordAbstract> implements Iterat
       nextRecord = null;
     }
 
+    if (currentRecord.isUnloaded()) {
+      var activeTransaction = session.getActiveTransaction();
+      return activeTransaction.load(currentRecord);
+    }
     //noinspection unchecked
     return (REC) currentRecord;
   }

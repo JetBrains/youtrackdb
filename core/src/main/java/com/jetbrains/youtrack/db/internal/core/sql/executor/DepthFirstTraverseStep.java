@@ -7,6 +7,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLInteger;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLTraverseProjectionItem;
@@ -143,17 +144,20 @@ public class DepthFirstTraverseStep extends AbstractTraverseStep {
       CommandContext ctx,
       List<Result> entryPoints,
       Set<RID> traversed) {
-    if (nextStep instanceof Identifiable) {
+    if (nextStep instanceof Identifiable identifiable) {
+      if (identifiable instanceof EntityImpl entity && entity.isEmbedded()) {
+        return;
+      }
       addNextEntryPoint(
-          ((Identifiable) nextStep), depth, path, stack, ctx, entryPoints, traversed);
-    } else if (nextStep instanceof Iterable) {
+          identifiable, depth, path, stack, ctx, entryPoints, traversed);
+    } else if (nextStep instanceof Iterable<?> iterable) {
       addNextEntryPoints(
-          ((Iterable) nextStep).iterator(), depth, path, stack, ctx, entryPoints, traversed);
-    } else if (nextStep instanceof Map) {
+          iterable.iterator(), depth, path, stack, ctx, entryPoints, traversed);
+    } else if (nextStep instanceof Map<?, ?> map) {
       addNextEntryPoints(
-          ((Map) nextStep).values().iterator(), depth, path, stack, ctx, entryPoints, traversed);
-    } else if (nextStep instanceof Result) {
-      addNextEntryPoint(((Result) nextStep), depth, path, stack, ctx, entryPoints, traversed);
+          map.values().iterator(), depth, path, stack, ctx, entryPoints, traversed);
+    } else if (nextStep instanceof ResultInternal resultInternal) {
+      addNextEntryPoint(resultInternal, depth, path, stack, ctx, entryPoints, traversed);
     }
   }
 
