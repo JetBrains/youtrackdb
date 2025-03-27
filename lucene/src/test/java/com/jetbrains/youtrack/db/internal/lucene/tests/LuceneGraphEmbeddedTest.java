@@ -78,18 +78,16 @@ public class LuceneGraphEmbeddedTest extends LuceneBaseTest {
     var oneClass = session.createVertexClass("One");
     var twoClass = session.createVertexClass("Two");
 
+    session.begin();
     var one = session.newVertex(oneClass);
     one.setProperty("name", "Same");
-
-    session.begin();
-    session.commit();
 
     var two = session.newVertex(twoClass);
     two.setProperty("name", "Same");
 
-    session.begin();
     session.commit();
 
+    session.begin();
     var resultSet = session.query("SELECT from One where name = 'Same' ");
 
     var plan = resultSet.getExecutionPlan();
@@ -99,5 +97,6 @@ public class LuceneGraphEmbeddedTest extends LuceneBaseTest {
 
     Assertions.assertThat(resultSet).hasSize(1);
     resultSet.close();
+    session.commit();
   }
 }

@@ -46,12 +46,12 @@ public class LuceneExportImportTest extends LuceneBaseTest {
     var city = schema.createClass("City");
     city.createProperty("name", PropertyType.STRING);
 
+
     session.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
 
+    session.begin();
     var doc = ((EntityImpl) session.newEntity("City"));
     doc.setProperty("name", "Rome");
-
-    session.begin();
     session.commit();
   }
 

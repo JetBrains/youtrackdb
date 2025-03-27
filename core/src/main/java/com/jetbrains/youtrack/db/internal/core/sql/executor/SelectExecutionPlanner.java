@@ -1496,7 +1496,6 @@ public class SelectExecutionPlanner {
         }
         if (info.flattenedWhereClause.size() == 1) {
           plan.chain(step);
-          plan.chain(new FilterByClustersStep(null, ctx, profilingEnabled));
           if (!block.getSubBlocks().isEmpty()) {
             if ((info.perRecordLetClause != null && refersToLet(block.getSubBlocks()))) {
               handleLet(plan, info, ctx, profilingEnabled);
@@ -1529,7 +1528,6 @@ public class SelectExecutionPlanner {
       if (resultSubPlans.size()
           > 1) { // if resultSubPlans.size() == 1 the step was already chained (see above)
         plan.chain(new ParallelExecStep(resultSubPlans, ctx, profilingEnabled));
-        plan.chain(new FilterByClustersStep(null, ctx, profilingEnabled));
         plan.chain(new DistinctExecutionStep(ctx, profilingEnabled));
       }
       // WHERE condition already applied

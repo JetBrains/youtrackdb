@@ -1048,9 +1048,10 @@ public class RecordSerializerJackson {
 
   private static EntityEmbeddedMapImpl<Object> parseEmbeddedMap(
       @Nonnull DatabaseSessionInternal session,
-      @Nonnull EntityImpl entity, @Nonnull JsonParser jsonParser,
+      @Nullable EntityImpl entity,
+      @Nonnull JsonParser jsonParser,
       @Nullable EntityEmbeddedMapImpl<Object> map,
-      SchemaProperty schemaProperty)
+      @Nullable SchemaProperty schemaProperty)
       throws IOException {
     if (map == null) {
       map = new EntityEmbeddedMapImpl<>(entity);

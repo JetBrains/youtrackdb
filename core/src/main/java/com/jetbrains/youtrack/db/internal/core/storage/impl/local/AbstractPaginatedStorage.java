@@ -84,8 +84,8 @@ import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValuesTra
 import com.jetbrains.youtrack.db.internal.core.index.engine.MultiValueIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.index.engine.SingleValueIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.index.engine.V1IndexEngine;
-import com.jetbrains.youtrack.db.internal.core.index.engine.v1.CellBTreeMultiValueIndexEngine;
-import com.jetbrains.youtrack.db.internal.core.index.engine.v1.CellBTreeSingleValueIndexEngine;
+import com.jetbrains.youtrack.db.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
+import com.jetbrains.youtrack.db.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.query.live.YTLiveQueryMonitorEmbedded;
@@ -4628,8 +4628,8 @@ public abstract class AbstractPaginatedStorage
               // non core indexes
               for (final var engine : indexEngines) {
                 if (engine != null
-                    && !(engine instanceof CellBTreeSingleValueIndexEngine
-                    || engine instanceof CellBTreeMultiValueIndexEngine)) {
+                    && !(engine instanceof BTreeSingleValueIndexEngine
+                    || engine instanceof BTreeMultiValueIndexEngine)) {
                   engine.close();
                 }
               }
@@ -4690,8 +4690,8 @@ public abstract class AbstractPaginatedStorage
 
         for (final var engine : indexEngines) {
           if (engine != null
-              && !(engine instanceof CellBTreeSingleValueIndexEngine
-              || engine instanceof CellBTreeMultiValueIndexEngine)) {
+              && !(engine instanceof BTreeSingleValueIndexEngine
+              || engine instanceof BTreeMultiValueIndexEngine)) {
             // delete method is implemented only in non native indexes, so they do not use ODB
             // atomic operation
             engine.delete(null);

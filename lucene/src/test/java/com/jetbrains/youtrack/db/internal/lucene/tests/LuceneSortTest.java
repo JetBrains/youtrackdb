@@ -22,17 +22,19 @@ public class LuceneSortTest extends LuceneBaseTest {
 
     session.execute("create index Author.ft on Author (name,score) FULLTEXT ENGINE LUCENE ");
 
+    session.begin();
     var resultSet =
         session.query(
             "SELECT score, name from Author where SEARCH_CLASS('*:* ', {"
-                + "sort: [ { reverse:true, type:'DOC' }]"
+                + "sort: [ { 'field': 'score', reverse:true, type:'INT' }]"
                 + "} ) = true ");
 
     var scores =
         resultSet.stream().map(o -> o.<Integer>getProperty("score")).collect(Collectors.toList());
 
-    assertThat(scores).containsExactly(4, 5, 10, 10, 7);
+    assertThat(scores).containsExactly(10, 10, 7, 5, 4);
     resultSet.close();
+    session.commit();
   }
 
   @Test

@@ -36,6 +36,7 @@ import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValuesTransformer;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalPaginatedStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
@@ -259,9 +260,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
           searcher.search(new TermQuery(new Term("_CLASS", "JSON_METADATA")), 1);
       var jsonFactory = new JsonFactory();
       if (topDocs.totalHits == 0) {
-        var metaDoc = new EntityImpl(null);
-        metaDoc.updateFromMap(metadata);
-        var metaAsJson = metaDoc.toJSON();
+        var metaAsJson = RecordSerializerJackson.mapToJson(metadata);
 
         String defAsJson;
         var jsonWriter = new StringWriter();

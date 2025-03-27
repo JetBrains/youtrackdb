@@ -37,6 +37,7 @@ public class LuceneReuseTest extends LuceneBaseTest {
       session.commit();
     }
 
+    session.begin();
     var results =
         session.execute("SELECT FROM Reuse WHERE name='John' and search_class('Reese') =true");
 
@@ -46,6 +47,7 @@ public class LuceneReuseTest extends LuceneBaseTest {
         "SELECT FROM Reuse WHERE search_class('Reese')=true  and name='John'");
 
     assertThat(results).hasSize(10);
+    session.commit();
   }
 
   @Test

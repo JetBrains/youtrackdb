@@ -53,6 +53,7 @@ public class LuceneInsertUpdateTransactionTest extends LuceneBaseTest {
     var doc = ((EntityImpl) session.newEntity("City"));
     doc.setProperty("name", "Rome");
 
+    session.getTransactionInternal().preProcessRecordsAndExecuteCallCallbacks();
     var idx = schema.getClassInternal("City").getClassIndex(session, "City.name");
     Assert.assertNotNull(idx);
     Collection<?> coll;

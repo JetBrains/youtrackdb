@@ -41,15 +41,16 @@ public class LuceneInheritanceQueryTest extends LuceneBaseTest {
 
   @Test
   public void testQuery() {
-    var doc = ((EntityImpl) session.newEntity("C2"));
-    doc.setProperty("name", "abc");
-
     session.begin();
+    var doc = ((EntityImpl) session.newVertex("C2"));
+    doc.setProperty("name", "abc");
     session.commit();
 
+    session.begin();
     var resultSet = session.query("select from C1 where search_class(\"abc\")=true ");
 
     assertThat(resultSet).hasSize(1);
     resultSet.close();
+    session.commit();
   }
 }

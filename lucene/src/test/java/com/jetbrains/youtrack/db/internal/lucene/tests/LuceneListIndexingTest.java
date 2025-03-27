@@ -64,14 +64,15 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
   public void testIndexingList() {
     var schema = session.getMetadata().getSchema();
 
+
+    session.begin();
     // Rome
     var doc = ((EntityImpl) session.newEntity("City"));
     doc.setProperty("name", "Rome");
-    doc.setProperty("tags", Arrays.asList("Beautiful", "Touristic", "Sunny"));
-
-    session.begin();
+    doc.newEmbeddedList("tags", Arrays.asList("Beautiful", "Touristic", "Sunny"));
     session.commit();
 
+    session.begin();
     var tagsIndex = schema.getClassInternal("City").getClassIndex(session, "City.tags");
     Collection<?> coll;
     try (var stream = tagsIndex.getRids(session, "Sunny")) {
@@ -86,9 +87,8 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
     // London
     doc = ((EntityImpl) session.newEntity("City"));
     doc.setProperty("name", "London");
-    doc.setProperty("tags", Arrays.asList("Beautiful", "Touristic", "Sunny"));
+    doc.newEmbeddedList("tags", Arrays.asList("Beautiful", "Touristic", "Sunny"));
 
-    session.begin();
     session.commit();
 
     session.begin();

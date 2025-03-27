@@ -39,12 +39,12 @@ public class LuceneGraphTxTest extends LuceneBaseTest {
 
   @Test
   public void graphTxTest() throws Exception {
-
+    session.begin();
     var v = session.newVertex("City");
     v.setProperty("name", "London");
 
     // save london
-    session.begin();
+
     session.commit();
 
     session.begin();
@@ -62,6 +62,7 @@ public class LuceneGraphTxTest extends LuceneBaseTest {
     session.commit();
 
     // only berlin
+    session.begin();
     resultSet = session.execute("select from City where search_class('Berlin') =true ");
     assertThat(resultSet).hasSize(1);
 
@@ -73,5 +74,6 @@ public class LuceneGraphTxTest extends LuceneBaseTest {
 
     resultSet = session.execute("select from City where search_class('London') =true ");
     assertThat(resultSet).hasSize(0);
+    session.commit();
   }
 }

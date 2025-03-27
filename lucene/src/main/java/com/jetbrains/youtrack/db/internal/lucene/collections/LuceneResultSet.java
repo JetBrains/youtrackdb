@@ -39,6 +39,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nullable;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
@@ -209,6 +210,7 @@ public class LuceneResultSet implements Set<Identifiable> {
 
     @Override
     public boolean hasNext() {
+      assert session.assertIfNotActive();
       final var hasNext = index < (totalHits - deletedMatchCount);
       if (!hasNext && !closed) {
         final var searcher = queryContext.getSearcher();
@@ -247,6 +249,7 @@ public class LuceneResultSet implements Set<Identifiable> {
       return score;
     }
 
+    @Nullable
     private Document toDocument(final ScoreDoc score) {
       try {
         return queryContext.getSearcher().doc(score.doc);
@@ -283,7 +286,7 @@ public class LuceneResultSet implements Set<Identifiable> {
 
     private boolean isToSkip(Storage storage, final ContextualRecordId recordId,
         final Document doc) {
-      return isDeleted(storage, recordId, doc) || isUpdatedDiskMatch(recordId, doc);
+      return isDeleted(storage, recordId, doc) || isUpdatedDiskMatch(recordId, doc) ;
     }
 
     private void fetchMoreResult() {

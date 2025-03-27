@@ -71,6 +71,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
         .isEqualTo(10);
     session.commit();
 
+    session.begin();
     // range
     try (final var results =
         session.execute("SELECT FROM Person WHERE search_class('weight:[0.0 TO 1.1]') = true")) {
@@ -82,6 +83,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
         session.execute("SELECT FROM Person WHERE search_class('weight:7.1') = true")) {
       assertThat(results).hasSize(1);
     }
+    session.commit();
   }
 
   @Test
@@ -102,6 +104,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
         .isEqualTo(10);
     session.commit();
 
+    session.begin();
     // range
     try (var results =
         session.execute("SELECT FROM Person WHERE search_class('age:[5 TO 6]') = true")) {
@@ -114,6 +117,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
         "SELECT FROM Person WHERE search_class('age:5') = true")) {
       assertThat(results).hasSize(1);
     }
+    session.commit();
   }
 
   @Test
@@ -138,6 +142,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
         DateTools.timeToString(
             System.currentTimeMillis() - (5 * 3600 * 24 * 1000), DateTools.Resolution.MINUTE);
 
+    session.begin();
     // range
     try (final var results =
         session.execute(
@@ -148,6 +153,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
                 + "]')=true")) {
       assertThat(results).hasSize(5);
     }
+    session.commit();
   }
 
   @Test
@@ -168,8 +174,6 @@ public class LuceneRangeTest extends LuceneBaseTest {
 
             .size(session))
         .isEqualTo(10);
-
-    session.commit();
 
     var today = DateTools.timeToString(System.currentTimeMillis(), DateTools.Resolution.MINUTE);
     var fiveDaysAgo =
@@ -250,7 +254,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
       assertThat(stream.count()).isEqualTo(2);
     }
     try (var stream = index.getRids(session, "*:*")) {
-      assertThat(stream.count()).isEqualTo(11);
+      assertThat(stream.count()).isEqualTo(10);
     }
   }
 }

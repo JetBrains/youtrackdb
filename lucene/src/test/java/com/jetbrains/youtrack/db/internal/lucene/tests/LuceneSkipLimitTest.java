@@ -39,7 +39,7 @@ public class LuceneSkipLimitTest extends LuceneBaseTest {
 
   @Test
   public void testContext() {
-
+    session.begin();
     var docs =
         session.query("select * from Song where search_fields(['title'],\"(title:man)\")=true");
 
@@ -61,5 +61,6 @@ public class LuceneSkipLimitTest extends LuceneBaseTest {
 
     Assertions.assertThat(docs).hasSize(0);
     docs.close();
+    session.commit();
   }
 }

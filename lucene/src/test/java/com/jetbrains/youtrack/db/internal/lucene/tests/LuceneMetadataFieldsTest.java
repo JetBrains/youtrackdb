@@ -21,26 +21,6 @@ public class LuceneMetadataFieldsTest extends LuceneBaseTest {
   }
 
   @Test
-  public void shouldFetchOnlyFromACluster() throws Exception {
-
-    assertThat(
-        session.getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(session, "Song.title")
-
-            .size(session))
-        .isEqualTo(585);
-
-    var cluster = session.getMetadata().getSchema().getClass("Song").getClusterIds()[1];
-
-    var results =
-        session.query("SELECT FROM Song WHERE search_class('+_CLUSTER:" + cluster + "')=true ");
-
-    assertThat(results).hasSize(73);
-    results.close();
-  }
-
-  @Test
   public void shouldFetchByRid() throws Exception {
     var songs = session.query("SELECT FROM Song limit 2").toList();
 

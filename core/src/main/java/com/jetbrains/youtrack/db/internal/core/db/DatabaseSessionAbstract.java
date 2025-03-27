@@ -47,9 +47,11 @@ import com.jetbrains.youtrack.db.api.record.RecordHook.TYPE;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
+import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
@@ -77,6 +79,7 @@ import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
 import com.jetbrains.youtrack.db.internal.core.metadata.Metadata;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.ImmutableUser;
@@ -2434,7 +2437,19 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   @Override
   public <T> EmbeddedList<T> newEmbeddedList(List<T> list) {
     var trackedList = new EntityEmbeddedListImpl<T>(list.size());
-    trackedList.addAll(list);
+    for (var item : list) {
+      if (item == null) {
+        trackedList.add(null);
+        continue;
+      }
+
+      var type = PropertyTypeInternal.getTypeByValue(item);
+      if (type == null) {
+        throw new IllegalArgumentException("Unknown type: " + item);
+      } else {
+        trackedList.add((T) type.convert(item, this));
+      }
+    }
     return trackedList;
   }
 
@@ -2545,7 +2560,20 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   @Override
   public <T> EmbeddedSet<T> newEmbeddedSet(Collection<T> set) {
     var trackedSet = new EntityEmbeddedSetImpl<T>(set.size());
-    trackedSet.addAll(set);
+
+    for (var item : set) {
+      if (item == null) {
+        trackedSet.add(null);
+        continue;
+      }
+      var type = PropertyTypeInternal.getTypeByValue(item);
+      if (type == null) {
+        throw new IllegalArgumentException("Unknown type: " + item);
+      } else {
+        trackedSet.add((T) type.convert(item, this));
+      }
+    }
+
     return trackedSet;
   }
 
@@ -2577,9 +2605,23 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public <V> Map<String, V> newEmbeddedMap(Map<String, V> map) {
+  public <V> EmbeddedMap<V> newEmbeddedMap(Map<String, V> map) {
     var trackedMap = new EntityEmbeddedMapImpl<V>(map.size());
-    trackedMap.putAll(map);
+
+    for (var entry : map.entrySet()) {
+      var value = entry.getValue();
+      if (value == null) {
+        trackedMap.put(entry.getKey(), null);
+        continue;
+      }
+      var type = PropertyTypeInternal.getTypeByValue(value);
+      if (type == null) {
+        throw new IllegalArgumentException("Unknown type: " + value);
+      } else {
+        trackedMap.put(entry.getKey(), (V) type.convert(value, this));
+      }
+    }
+
     return trackedMap;
   }
 

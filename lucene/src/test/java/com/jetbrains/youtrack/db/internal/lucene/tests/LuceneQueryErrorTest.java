@@ -38,11 +38,12 @@ public class LuceneQueryErrorTest extends LuceneBaseTest {
 
   @Test
   public void testQueryError() {
-
+    session.begin();
     var query = "select * from Song where search_class(\"\")=true ";
     var result = session.query(query);
 
     Assertions.assertThat(result).isEmpty();
     result.close();
+    session.commit();
   }
 }

@@ -27,8 +27,8 @@ import java.util.stream.StreamSupport;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public final class CellBTreeMultiValueIndexEngine
-    implements MultiValueIndexEngine, CellBTreeIndexEngine {
+public final class BTreeMultiValueIndexEngine
+    implements MultiValueIndexEngine, BTreeIndexEngine {
 
   public static final String DATA_FILE_EXTENSION = ".cbt";
   private static final String NULL_BUCKET_FILE_EXTENSION = ".nbt";
@@ -44,7 +44,7 @@ public final class CellBTreeMultiValueIndexEngine
   private final String nullTreeName;
   private final AbstractPaginatedStorage storage;
 
-  public CellBTreeMultiValueIndexEngine(
+  public BTreeMultiValueIndexEngine(
       int id, @Nonnull String name, AbstractPaginatedStorage storage, final int version) {
     this.id = id;
     this.name = name;
@@ -272,7 +272,7 @@ public final class CellBTreeMultiValueIndexEngine
 
   @Override
   public Stream<Object> keyStream() {
-    return svTree.keyStream().map(CellBTreeMultiValueIndexEngine::extractKey);
+    return svTree.keyStream().map(BTreeMultiValueIndexEngine::extractKey);
   }
 
   @Override

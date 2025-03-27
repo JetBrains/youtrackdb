@@ -40,37 +40,37 @@ public class LuceneDocumentEmbeddedTest extends LuceneBaseTest {
   @Test
   public void embeddedNoTx() {
 
+    session.begin();
     var doc = ((EntityImpl) session.newEntity("City"));
 
     doc.setProperty("name", "London");
-    session.begin();
-    session.commit();
 
     doc = ((EntityImpl) session.newEntity("City"));
     doc.setProperty("name", "Rome");
 
-    session.begin();
     session.commit();
 
+    session.begin();
     var results =
         session.execute("select from City where SEARCH_FIELDS(['name'] ,'London') = true ");
 
     Assertions.assertThat(results).hasSize(1);
+    session.commit();
   }
 
   @Test
   public void embeddedTx() {
-
-    var doc = ((EntityImpl) session.newEntity("City"));
-
     session.begin();
+    var doc = ((EntityImpl) session.newEntity("City"));
     doc.setProperty("name", "Berlin");
 
     session.commit();
 
+    session.begin();
     var results =
         session.execute("select from City where SEARCH_FIELDS(['name'] ,'Berlin')=true ");
 
     Assertions.assertThat(results).hasSize(1);
+    session.commit();
   }
 }

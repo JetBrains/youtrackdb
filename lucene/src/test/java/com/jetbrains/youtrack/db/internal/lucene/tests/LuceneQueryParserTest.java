@@ -28,11 +28,13 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
         "create index Song.title on Song (title) FULLTEXT ENGINE LUCENE metadata"
             + " {\"allowLeadingWildcard\": true}");
 
+    session.begin();
     // querying with leading wildcard
     var docs = session.query("select * from Song where search_class(\"(title:*tain)\") = true");
 
     assertThat(docs).hasSize(4);
     docs.close();
+    session.commit();
   }
 
   @Test

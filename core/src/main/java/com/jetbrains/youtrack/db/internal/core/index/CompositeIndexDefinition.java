@@ -450,6 +450,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
       for (final var indexDefinition : indexDefinitions) {
         jsonGenerator.writeString(indexDefinition.getClass().getName());
       }
+      jsonGenerator.writeEndArray();
 
       jsonGenerator.writeBooleanField("nullValuesIgnored", isNullValuesIgnored());
       jsonGenerator.writeEndObject();

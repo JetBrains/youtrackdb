@@ -184,7 +184,7 @@ public final class Indexes {
     String algorithm = null;
     if (SchemaClass.INDEX_TYPE.NOTUNIQUE.name().equalsIgnoreCase(type)
         || SchemaClass.INDEX_TYPE.UNIQUE.name().equalsIgnoreCase(type)) {
-      algorithm = DefaultIndexFactory.CELL_BTREE_ALGORITHM;
+      algorithm = DefaultIndexFactory.BTREE_ALGORITHM;
     }
 
     return algorithm;

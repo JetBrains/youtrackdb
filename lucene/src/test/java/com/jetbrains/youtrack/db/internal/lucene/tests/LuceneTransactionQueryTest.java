@@ -32,9 +32,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- *
- */
 public class LuceneTransactionQueryTest extends LuceneBaseTest {
 
   @Before
@@ -47,10 +44,10 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
 
   @Test
   public void testRollback() {
-
-    var doc = ((EntityImpl) session.newEntity("c1"));
-    doc.setProperty("p1", "abc");
     session.begin();
+    var doc = ((EntityImpl) session.newVertex("c1"));
+    doc.setProperty("p1", "abc");
+
 
     var query = "select from C1 where search_fields(['p1'], 'abc' )=true ";
 
@@ -68,8 +65,7 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
   @Test
   public void txRemoveTest() {
     session.begin();
-
-    var doc = ((EntityImpl) session.newEntity("c1"));
+    var doc = ((EntityImpl) session.newVertex("c1"));
     doc.setProperty("p1", "abc");
 
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "C1.p1");
@@ -92,10 +88,8 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
     }
     assertThat(index.size(session)).isEqualTo(1);
 
-    doc = ((EntityImpl) session.newEntity("c1"));
+    doc = ((EntityImpl) session.newVertex("c1"));
     doc.setProperty("p1", "abc");
-
-    session.delete(results.getFirst().asEntity());
 
     Collection<Object> coll;
     try (var vertices = session.query(query)) {
@@ -103,8 +97,19 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
         coll = stream.collect(Collectors.toList());
       }
 
-      assertThat(coll).hasSize(0);
-      assertThat(vertices).hasSize(0);
+      assertThat(coll).hasSize(2);
+      assertThat(vertices).hasSize(2);
+    }
+
+    session.delete(results.getFirst().asEntity());
+
+    try (var vertices = session.query(query)) {
+      try (var stream = index.getRids(session, "abc")) {
+        coll = stream.collect(Collectors.toList());
+      }
+
+      assertThat(coll).hasSize(1);
+      assertThat(vertices).hasSize(1);
     }
 
     var iterator = coll.iterator();
@@ -113,16 +118,18 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
       iterator.next();
       i++;
     }
-    Assert.assertEquals(i, 0);
-    assertThat(index.size(session)).isEqualTo(0);
+    Assert.assertEquals(i, 1);
+    assertThat(index.size(session)).isEqualTo(1);
     session.rollback();
 
+    session.begin();
     query = "select from C1 where search_fields(['p1'], 'abc' )=true ";
 
     try (var vertices = session.execute(query)) {
       assertThat(vertices).hasSize(1);
     }
     assertThat(index.size(session)).isEqualTo(1);
+    session.commit();
   }
 
   @Test
@@ -135,7 +142,7 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
     session.begin();
     Assert.assertEquals(index.size(session), 0);
 
-    var doc = ((EntityImpl) session.newEntity("c1"));
+    var doc = ((EntityImpl) session.newVertex("c1"));
     doc.setProperty("p1", "update");
 
     var query = "select from C1 where search_fields(['p1'], \"update\")=true ";
@@ -146,6 +153,7 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
 
     session.commit();
 
+    session.begin();
     List<Result> results;
     try (var vertices = session.execute(query)) {
       try (var resultStream = vertices.stream()) {
@@ -161,8 +169,6 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
     assertThat(results).hasSize(1);
     assertThat(coll).hasSize(1);
     assertThat(index.size(session)).isEqualTo(1);
-
-    session.begin();
 
     var record = results.getFirst();
     Entity identifiable = record.asEntity();
@@ -189,6 +195,7 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
 
     session.rollback();
 
+    session.begin();
     query = "select from C1 where search_fields(['p1'], \"update\")=true ";
     try (var vertices = session.execute(query)) {
       try (var stream = index.getRids(session, "update")) {
@@ -198,6 +205,7 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
     }
     assertThat(coll).hasSize(1);
     assertThat(index.size(session)).isEqualTo(1);
+    session.commit();
   }
 
   @Test
@@ -210,10 +218,10 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
     session.begin();
     Assert.assertEquals(index.size(session), 0);
 
-    var doc = ((EntityImpl) session.newEntity("c1"));
+    var doc = ((EntityImpl) session.newVertex("c1"));
     doc.setProperty("p1", "abc");
 
-    var doc1 = ((EntityImpl) session.newEntity("c1"));
+    var doc1 = ((EntityImpl) session.newVertex("c1"));
     doc1.setProperty("p1", "abc");
 
     session.commit();
@@ -260,11 +268,13 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
 
     session.rollback();
 
+    session.begin();
     query = "select from C1 where search_fields(['p1'], \"abc\")=true ";
     try (var vertices = session.execute(query)) {
       assertThat(vertices).hasSize(2);
     }
 
     Assert.assertEquals(index.size(session), 2);
+    session.commit();
   }
 }

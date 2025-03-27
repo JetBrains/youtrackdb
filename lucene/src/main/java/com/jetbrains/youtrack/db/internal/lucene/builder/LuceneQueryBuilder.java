@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.ParseException;
 import com.jetbrains.youtrack.db.internal.lucene.analyzer.LuceneAnalyzerFactory;
+import com.jetbrains.youtrack.db.internal.lucene.engine.LuceneIndexEngineAbstract;
 import com.jetbrains.youtrack.db.internal.lucene.parser.LuceneMultiFieldQueryParser;
 import java.util.Collections;
 import java.util.HashMap;
@@ -33,6 +34,8 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import org.apache.lucene.analysis.Analyzer;
+import org.apache.lucene.search.DocValuesFieldExistsQuery;
+import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.MatchNoDocsQuery;
 import org.apache.lucene.search.Query;
 
@@ -141,12 +144,12 @@ public class LuceneQueryBuilder {
     queryParser.setSplitOnWhitespace(
         Optional.ofNullable((Boolean) metadata.get("splitOnWhitespace"))
             .orElse(splitOnWhitespace));
-    //  TODO   REMOVED
-    //    queryParser.setLowercaseExpandedTerms(
-    //        Optional.ofNullable(metadata.<Boolean>getProperty("lowercaseExpandedTerms"))
-    //            .orElse(lowercaseExpandedTerms));
     try {
-      return queryParser.parse(query);
+      var paresedQuery = queryParser.parse(query);
+      if (paresedQuery instanceof MatchAllDocsQuery) {
+        return queryParser.parse("RID:#*");
+      }
+      return paresedQuery;
     } catch (final org.apache.lucene.queryparser.classic.ParseException e) {
       final var cause = prepareParseError(e, metadata);
       LogManager.instance().error(this, "Exception is suppressed, original exception is ", cause);

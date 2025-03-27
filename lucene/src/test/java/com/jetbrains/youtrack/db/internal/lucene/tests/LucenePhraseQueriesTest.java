@@ -54,7 +54,7 @@ public class LucenePhraseQueriesTest extends LuceneBaseTest {
 
   @Test
   public void testPhraseQueries() throws Exception {
-
+    session.begin();
     var vertexes =
         session.execute("select from Role where search_class(' \"Business Owner\" ')=true  ");
 
@@ -83,11 +83,13 @@ public class LucenePhraseQueriesTest extends LuceneBaseTest {
     vertexes = session.execute("select from Role where search_class(' /[mb]oat/ '  )=true  ");
 
     assertThat(vertexes).hasSize(2);
+    session.commit();
   }
 
   @Test
   public void testComplexPhraseQueries() throws Exception {
 
+    session.begin();
     var vertexes =
         session.execute("select from Role where search_class(?)=true", "\"System SME\"~1");
 
@@ -128,5 +130,6 @@ public class LucenePhraseQueriesTest extends LuceneBaseTest {
     assertThat(vertexes)
         .hasSize(1)
         .allMatch(v -> v.<String>getProperty("name").equalsIgnoreCase("System IT Owner"));
+    session.commit();
   }
 }

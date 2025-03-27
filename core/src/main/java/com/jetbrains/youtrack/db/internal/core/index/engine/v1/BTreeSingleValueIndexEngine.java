@@ -19,8 +19,8 @@ import com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.singlevalue.
 import java.io.IOException;
 import java.util.stream.Stream;
 
-public final class CellBTreeSingleValueIndexEngine
-    implements SingleValueIndexEngine, CellBTreeIndexEngine {
+public final class BTreeSingleValueIndexEngine
+    implements SingleValueIndexEngine, BTreeIndexEngine {
 
   private static final String DATA_FILE_EXTENSION = ".cbt";
   private static final String NULL_BUCKET_FILE_EXTENSION = ".nbt";
@@ -30,7 +30,7 @@ public final class CellBTreeSingleValueIndexEngine
   private final int id;
   private final AbstractPaginatedStorage storage;
 
-  public CellBTreeSingleValueIndexEngine(
+  public BTreeSingleValueIndexEngine(
       int id, String name, AbstractPaginatedStorage storage, int version) {
     this.name = name;
     this.id = id;

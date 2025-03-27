@@ -41,6 +41,7 @@ public class LuceneSingleFieldEmbeddedTest extends LuceneBaseTest {
   @Test
   public void loadAndTest() {
 
+    session.begin();
     var docs =
         session.query(
             "select * from Song where search_fields(['title'],\"(title:mountain)\")=true");
@@ -60,5 +61,6 @@ public class LuceneSingleFieldEmbeddedTest extends LuceneBaseTest {
 
     assertThat(docs).hasSize(1);
     docs.close();
+    session.commit();
   }
 }

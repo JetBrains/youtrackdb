@@ -54,7 +54,7 @@ import com.jetbrains.youtrack.db.internal.core.exception.InvalidInstanceIdExcept
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidStorageEncryptionKeyException;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.index.engine.v1.CellBTreeMultiValueIndexEngine;
+import com.jetbrains.youtrack.db.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrack.db.internal.core.storage.ReadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.ReadCache;
@@ -184,8 +184,8 @@ public class LocalPaginatedStorage extends AbstractPaginatedStorage {
       ClusterBasedStorageConfiguration.DATA_FILE_EXTENSION,
       ClusterBasedStorageConfiguration.TREE_DATA_FILE_EXTENSION,
       ClusterBasedStorageConfiguration.TREE_NULL_FILE_EXTENSION,
-      CellBTreeMultiValueIndexEngine.DATA_FILE_EXTENSION,
-      CellBTreeMultiValueIndexEngine.M_CONTAINER_EXTENSION,
+      BTreeMultiValueIndexEngine.DATA_FILE_EXTENSION,
+      BTreeMultiValueIndexEngine.M_CONTAINER_EXTENSION,
       DoubleWriteLogGL.EXTENSION,
       FreeSpaceMap.DEF_EXTENSION
   };

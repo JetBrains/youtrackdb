@@ -20,9 +20,9 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrack.db.internal.core.index.engine.BaseIndexEngine;
-import com.jetbrains.youtrack.db.internal.core.index.engine.v1.CellBTreeIndexEngine;
-import com.jetbrains.youtrack.db.internal.core.index.engine.v1.CellBTreeMultiValueIndexEngine;
-import com.jetbrains.youtrack.db.internal.core.index.engine.v1.CellBTreeSingleValueIndexEngine;
+import com.jetbrains.youtrack.db.internal.core.index.engine.v1.BTreeIndexEngine;
+import com.jetbrains.youtrack.db.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
+import com.jetbrains.youtrack.db.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.index.engine.RemoteIndexEngine;
@@ -42,10 +42,7 @@ import java.util.Set;
  */
 public class DefaultIndexFactory implements IndexFactory {
 
-  private static final String SBTREE_ALGORITHM = "SBTREE";
-  public static final String SBTREE_BONSAI_VALUE_CONTAINER = "SBTREEBONSAISET";
-  public static final String NONE_VALUE_CONTAINER = "NONE";
-  static final String CELL_BTREE_ALGORITHM = "CELL_BTREE";
+  static final String BTREE_ALGORITHM = "BTREE";
 
   private static final Set<String> TYPES;
   private static final Set<String> ALGORITHMS;
@@ -59,8 +56,7 @@ public class DefaultIndexFactory implements IndexFactory {
 
   static {
     final Set<String> algorithms = new HashSet<>();
-    algorithms.add(SBTREE_ALGORITHM);
-    algorithms.add(CELL_BTREE_ALGORITHM);
+    algorithms.add(BTREE_ALGORITHM);
 
     ALGORITHMS = Collections.unmodifiableSet(algorithms);
   }
@@ -109,13 +105,11 @@ public class DefaultIndexFactory implements IndexFactory {
 
   @Override
   public int getLastVersion(final String algorithm) {
-    return switch (algorithm) {
-      case SBTREE_ALGORITHM ->
-          throw new UnsupportedOperationException("SBTree index is not supported");
-      case CELL_BTREE_ALGORITHM -> CellBTreeIndexEngine.VERSION;
-      default -> throw new IllegalStateException("Invalid algorithm name " + algorithm);
-    };
+    if (algorithm.equals(BTREE_ALGORITHM)) {
+      return BTreeIndexEngine.VERSION;
+    }
 
+    throw new IllegalStateException("Invalid algorithm name " + algorithm);
   }
 
   @Override
@@ -135,22 +129,18 @@ public class DefaultIndexFactory implements IndexFactory {
       case "memory":
       case "disk":
         var realStorage = (AbstractPaginatedStorage) storage;
-        switch (data.getAlgorithm()) {
-          case SBTREE_ALGORITHM:
-            throw new UnsupportedOperationException("SBTree index is not supported");
-          case CELL_BTREE_ALGORITHM:
-            if (data.isMultivalue()) {
-              indexEngine =
-                  new CellBTreeMultiValueIndexEngine(
-                      data.getIndexId(), data.getName(), realStorage, data.getVersion());
-            } else {
-              indexEngine =
-                  new CellBTreeSingleValueIndexEngine(
-                      data.getIndexId(), data.getName(), realStorage, data.getVersion());
-            }
-            break;
-          default:
-            throw new IllegalStateException("Invalid name of algorithm :'" + "'");
+        if (data.getAlgorithm().equals(BTREE_ALGORITHM)) {
+          if (data.isMultivalue()) {
+            indexEngine =
+                new BTreeMultiValueIndexEngine(
+                    data.getIndexId(), data.getName(), realStorage, data.getVersion());
+          } else {
+            indexEngine =
+                new BTreeSingleValueIndexEngine(
+                    data.getIndexId(), data.getName(), realStorage, data.getVersion());
+          }
+        } else {
+          throw new IllegalStateException("Invalid name of algorithm :'" + "'");
         }
         break;
       case "remote":

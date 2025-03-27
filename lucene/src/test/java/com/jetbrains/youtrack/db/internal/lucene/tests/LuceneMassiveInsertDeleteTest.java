@@ -45,22 +45,27 @@ public class LuceneMassiveInsertDeleteTest extends LuceneBaseTest {
 
     var size = 1000;
     for (var i = 0; i < size; i++) {
+      session.begin();
       var city = session.newVertex("City");
       city.setProperty("name", "Rome " + i);
 
-      session.begin();
       session.commit();
     }
+
+    session.begin();
     var query = "select * from City where search_class('name:Rome')=true";
     var docs = session.query(query);
     Assertions.assertThat(docs).hasSize(size);
     docs.close();
+    session.commit();
     session.close();
 
     session = (DatabaseSessionInternal) pool.acquire();
+    session.begin();
     docs = session.query(query);
     Assertions.assertThat(docs).hasSize(size);
     docs.close();
+    session.commit();
 
     session.begin();
     session.execute("delete vertex City");

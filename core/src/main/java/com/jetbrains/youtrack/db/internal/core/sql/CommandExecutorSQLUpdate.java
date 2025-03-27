@@ -769,7 +769,7 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
           }
           if (PropertyTypeInternal.LINKMAP.equals(PropertyTypeInternal.getTypeByValue(fieldValue))
               && !(value instanceof Identifiable)) {
-            map = new EntityEmbeddedMapImpl(record, map, Object.class);
+            map = new EntityEmbeddedMapImpl(record, map);
             String fieldName = entry.getKey();
             record.setProperty(fieldName, map, PropertyType.EMBEDDEDMAP);
           }

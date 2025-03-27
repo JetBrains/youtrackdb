@@ -31,9 +31,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- *
- */
 public class LuceneInsertReadMultiThreadTest extends LuceneBaseTest {
 
   private static final int THREADS = 10;

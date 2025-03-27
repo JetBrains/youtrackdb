@@ -43,8 +43,7 @@ public class LuceneSearchOnIndexFunction extends LuceneSearchFunctionTemplate {
       Object iCurrentResult,
       Object[] params,
       CommandContext ctx) {
-    var entity =
-        iThis instanceof Entity ? (Entity) iThis : ((Result) iThis).asEntity();
+    var result = (Result) iThis ;
 
     var indexName = (String) params[0];
 
@@ -60,7 +59,7 @@ public class LuceneSearchOnIndexFunction extends LuceneSearchFunctionTemplate {
 
     var key =
         index.getDefinition().getFields().stream()
-            .map(s -> entity.getProperty(s))
+            .map(result::getProperty)
             .collect(Collectors.toList());
 
     for (var field : index.buildDocument(ctx.getDatabaseSession(), key).getFields()) {

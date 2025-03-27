@@ -44,7 +44,7 @@ public class EntityEmbeddedListImpl<T> extends AbstractList<T>
     }
   }
 
-  public EntityEmbeddedListImpl(@Nonnull final RecordElement iSourceRecord) {
+  public EntityEmbeddedListImpl(@Nullable final RecordElement iSourceRecord) {
     this.list = new ArrayList<>();
     this.sourceRecord = iSourceRecord;
   }

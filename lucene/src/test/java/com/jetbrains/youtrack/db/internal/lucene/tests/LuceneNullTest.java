@@ -23,13 +23,13 @@ public class LuceneNullTest extends LuceneBaseTest {
   public void testNullChangeToNotNullWithLists() {
 
     session.begin();
-    var doc = ((EntityImpl) session.newEntity("Test"));
+    var doc = ((EntityImpl) session.newVertex("Test"));
     session.commit();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
     doc = activeTx.load(doc);
-    doc.setProperty("names", new String[]{"foo"});
+    doc.newEmbeddedList("names", new String[]{"foo"});
     session.commit();
 
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Test.names");
@@ -42,18 +42,15 @@ public class LuceneNullTest extends LuceneBaseTest {
   @Test
   public void testNotNullChangeToNullWithLists() {
 
-    var doc = ((EntityImpl) session.newEntity("Test"));
-
     session.begin();
-    doc.setProperty("names", new String[]{"foo"});
+    var doc = ((EntityImpl) session.newVertex("Test"));
+    doc.newEmbeddedList("names", new String[]{"foo"});
     session.commit();
 
     session.begin();
-
     var activeTx = session.getActiveTransaction();
     doc = activeTx.load(doc);
     doc.removeProperty("names");
-
     session.commit();
 
     session.begin();

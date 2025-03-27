@@ -49,12 +49,10 @@ public class LuceneCreateIndexTest extends LuceneBaseTest {
                 + "\"}")
         .close();
 
+    session.begin();
     var doc = session.newVertex("Song");
-
     doc.setProperty("title", "Local");
     doc.setProperty("author", "Local");
-
-    session.begin();
     session.commit();
   }
 

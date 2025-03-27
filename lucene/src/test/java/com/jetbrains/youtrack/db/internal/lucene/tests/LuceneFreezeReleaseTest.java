@@ -23,7 +23,6 @@ public class LuceneFreezeReleaseTest extends LuceneBaseTest {
 
   @Test
   public void freezeReleaseTest() {
-
     Schema schema = session.getMetadata().getSchema();
     var person = schema.createClass("Person");
     person.createProperty("name", PropertyType.STRING);
@@ -31,32 +30,35 @@ public class LuceneFreezeReleaseTest extends LuceneBaseTest {
     session.execute("create index Person.name on Person (name) FULLTEXT ENGINE LUCENE");
 
     session.begin();
-    EntityImpl entity = ((EntityImpl) session.newEntity("Person"));
+    var entity = ((EntityImpl) session.newEntity("Person"));
     entity.setProperty("name", "John");
     session.commit();
 
+    session.begin();
     var results = session.query("select from Person where search_class('John')=true");
 
     assertThat(results).hasSize(1);
     results.close();
-
+    session.commit();
     session.freeze();
 
+    session.begin();
     results = session.execute("select from Person where search_class('John')=true");
     assertThat(results).hasSize(1);
     results.close();
+    session.commit();
 
     session.release();
 
-    EntityImpl doc = session.newInstance("Person");
-    doc.setProperty("name", "John");
-
     session.begin();
-    session.commit();
+    var doc = session.newInstance("Person");
+    doc.setProperty("name", "John");
 
     results = session.query("select from Person where search_class('John')=true");
     assertThat(results).hasSize(2);
     results.close();
+
+    session.commit();
   }
 
   // With double calling freeze/release
@@ -70,23 +72,27 @@ public class LuceneFreezeReleaseTest extends LuceneBaseTest {
     session.execute("create index Person.name on Person (name) FULLTEXT ENGINE LUCENE");
 
     session.begin();
-    EntityImpl entity1 = ((EntityImpl) session.newEntity("Person"));
+    var entity1 = ((EntityImpl) session.newEntity("Person"));
     entity1.setProperty("name", "John");
     session.commit();
 
+    session.begin();
     var results = session.execute("select from Person where search_class('John')=true");
 
     assertThat(results).hasSize(1);
     results.close();
+    session.commit();
 
     session.freeze();
 
     session.freeze();
 
+    session.begin();
     results = session.execute("select from Person where search_class('John')=true");
 
     assertThat(results).hasSize(1);
     results.close();
+    session.commit();
 
     session.release();
     session.release();
@@ -96,8 +102,10 @@ public class LuceneFreezeReleaseTest extends LuceneBaseTest {
     entity.setProperty("name", "John");
     session.commit();
 
+    session.begin();
     results = session.execute("select from Person where search_class('John')=true");
     assertThat(results).hasSize(2);
     results.close();
+    session.commit();
   }
 }

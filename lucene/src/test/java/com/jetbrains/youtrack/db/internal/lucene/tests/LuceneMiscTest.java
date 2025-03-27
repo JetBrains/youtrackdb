@@ -119,12 +119,14 @@ public class LuceneMiscTest extends LuceneBaseTest {
     session.execute("insert into Test set attr1='foo', attr2='bar'");
     session.commit();
 
+    session.begin();
     var query = "select from Test where  search_class( :name) =true";
     Map params = new HashMap();
     params.put("name", "FOO or");
     var results = session.execute(query, params);
 
     assertThat(results).hasSize(1);
+    session.commit();
   }
 
   @Test

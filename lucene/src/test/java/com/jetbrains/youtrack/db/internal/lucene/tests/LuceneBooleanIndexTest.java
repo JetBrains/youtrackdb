@@ -40,29 +40,30 @@ public class LuceneBooleanIndexTest extends LuceneBaseTest {
         .close();
 
     for (var i = 0; i < 1000; i++) {
+      session.begin();
       var person = session.newVertex("Person");
       person.setProperty("isDeleted", i % 2 == 0);
-      session.begin();
       session.commit();
     }
   }
 
   @Test
   public void shouldQueryBooleanField() {
-
+    session.begin();
     var docs = session.query("select from Person where search_class('false') = true");
 
     var results = docs.stream().collect(Collectors.toList());
     assertThat(results).hasSize(500);
 
-    assertThat(results.get(0).<Boolean>getProperty("isDeleted")).isFalse();
+    assertThat(results.getFirst().<Boolean>getProperty("isDeleted")).isFalse();
     docs.close();
 
     docs = session.query("select from Person where search_class('true') = true");
 
     results = docs.stream().collect(Collectors.toList());
     assertThat(results).hasSize(500);
-    assertThat(results.get(0).<Boolean>getProperty("isDeleted")).isTrue();
+    assertThat(results.getFirst().<Boolean>getProperty("isDeleted")).isTrue();
     docs.close();
+    session.commit();
   }
 }

@@ -313,7 +313,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
                   // CONVERT IT TO A LAZY MAP
                   map = new EntityLinkMapIml(iSourceDocument);
                 } else if (map instanceof EntityLinkMapIml && linkedType != PropertyTypeInternal.LINK) {
-                  map = new EntityEmbeddedMapImpl<Object>(iSourceDocument, map, null);
+                  map = new EntityEmbeddedMapImpl<Object>(iSourceDocument, map);
                 }
               } else {
                 linkedType = PropertyTypeInternal.EMBEDDED;

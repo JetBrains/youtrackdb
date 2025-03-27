@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -39,12 +40,10 @@ import javax.annotation.Nullable;
  * Implementation of LinkedHashMap bound to a source Record object to keep track of changes. This
  * avoid to call the makeDirty() by hand when the map is changed.
  */
-public class EntityEmbeddedMapImpl<T> extends AbstractMap<String, T>
-    implements RecordElement, EmbeddedTrackedMultiValue<String, T>, Serializable {
+public final class EntityEmbeddedMapImpl<T> extends AbstractMap<String, T>
+    implements RecordElement, EmbeddedTrackedMultiValue<String, T>, Serializable, EmbeddedMap<T> {
 
-  protected RecordElement sourceRecord;
-  protected Class<?> genericClass;
-  private final boolean embeddedCollection;
+  private RecordElement sourceRecord;
   private boolean dirty = false;
   private boolean transactionDirty = false;
 
@@ -53,35 +52,30 @@ public class EntityEmbeddedMapImpl<T> extends AbstractMap<String, T>
   private final SimpleMultiValueTracker<String, T> tracker = new SimpleMultiValueTracker<>(this);
 
   public EntityEmbeddedMapImpl(
-      final RecordElement iRecord, final Map<String, T> iOrigin, final Class<?> cls) {
+      final RecordElement iRecord, final Map<String, T> iOrigin) {
     this(iRecord);
-    genericClass = cls;
     if (iOrigin != null && !iOrigin.isEmpty()) {
       putAll(iOrigin);
     }
   }
 
-  public EntityEmbeddedMapImpl(final RecordElement iSourceRecord) {
+  public EntityEmbeddedMapImpl(@Nullable final RecordElement iSourceRecord) {
     this.map = new HashMap<>();
     this.sourceRecord = iSourceRecord;
-    embeddedCollection = this.getClass().equals(EntityEmbeddedMapImpl.class);
   }
 
   public EntityEmbeddedMapImpl(final RecordElement iSourceRecord, int size) {
     this.map = new HashMap<>(size);
     this.sourceRecord = iSourceRecord;
-    embeddedCollection = this.getClass().equals(EntityEmbeddedMapImpl.class);
   }
 
   public EntityEmbeddedMapImpl() {
     this.map = new HashMap<>();
-    embeddedCollection = this.getClass().equals(EntityEmbeddedMapImpl.class);
     tracker.enable();
   }
 
   public EntityEmbeddedMapImpl(int size) {
     this.map = new HashMap<>(size);
-    embeddedCollection = this.getClass().equals(EntityEmbeddedMapImpl.class);
     tracker.enable();
   }
 
@@ -105,7 +99,7 @@ public class EntityEmbeddedMapImpl<T> extends AbstractMap<String, T>
 
   @Override
   public boolean isEmbeddedContainer() {
-    return embeddedCollection;
+    return true;
   }
 
   @Override
@@ -249,10 +243,6 @@ public class EntityEmbeddedMapImpl<T> extends AbstractMap<String, T>
     }
 
     return reverted;
-  }
-
-  public Class<?> getGenericClass() {
-    return genericClass;
   }
 
   @Override
