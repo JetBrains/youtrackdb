@@ -13,6 +13,7 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.strategy;
 
+import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.spatial.engine.LuceneSpatialIndexContainer;
 import com.jetbrains.youtrack.db.internal.spatial.query.SpatialQueryContext;
@@ -82,7 +83,9 @@ public class SpatialQueryBuilderDistanceSphere extends SpatialQueryBuilderAbstra
             .add(new MatchAllDocsQuery(), BooleanClause.Occur.SHOULD)
             .build();
 
-    return new SpatialQueryContext(null, searcher, q, Arrays.asList(distSort.getSort()))
+    var context = new BasicCommandContext();
+    context.setDatabaseSession(db);
+    return new SpatialQueryContext(context, searcher, q, Arrays.asList(distSort.getSort()))
         .setSpatialArgs(args);
   }
 
