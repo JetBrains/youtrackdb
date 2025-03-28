@@ -35,11 +35,8 @@ import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
 
-/**
- *
- */
-public class SelectStatementExecutionTest extends DbTestBase {
 
+public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testSelectNoTarget() {
     session.begin();

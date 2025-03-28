@@ -202,37 +202,37 @@
               <skip>true</skip>
             </configuration>
           </execution>
-          <!--          <execution>-->
-          <!--            <id>test-embedded</id>-->
-          <!--            <goals>-->
-          <!--              <goal>test</goal>-->
-          <!--            </goals>-->
-          <!--            <configuration>-->
-          <!--              <suiteXmlFiles>-->
-          <!--                <suiteXmlFile>-->
-          <!--                  src/test/java/com/jetbrains/youtrack/db/auto/embedded-test-db-from-scratch.xml-->
-          <!--                </suiteXmlFile>-->
-          <!--              </suiteXmlFiles>-->
-          <!--            </configuration>-->
-          <!--          </execution>-->
           <execution>
-            <id>test-remote</id>
+            <id>test-embedded</id>
             <goals>
               <goal>test</goal>
             </goals>
             <configuration>
-              <systemPropertyVariables>
-                <youtrackdb.config.file>target/test-classes/youtrackdb-server-config.xml
-                </youtrackdb.config.file>
-                <YOUTRACKDB_HOME>${project.build.directory}/remote-server</YOUTRACKDB_HOME>
-              </systemPropertyVariables>
               <suiteXmlFiles>
                 <suiteXmlFile>
-                  src/test/java/com/jetbrains/youtrack/db/auto/remote-test-db-from-scratch.xml
+                  src/test/java/com/jetbrains/youtrack/db/auto/embedded-test-db-from-scratch.xml
                 </suiteXmlFile>
               </suiteXmlFiles>
             </configuration>
           </execution>
+<!--          <execution>-->
+<!--            <id>test-remote</id>-->
+<!--            <goals>-->
+<!--              <goal>test</goal>-->
+<!--            </goals>-->
+<!--            <configuration>-->
+<!--              <systemPropertyVariables>-->
+<!--                <youtrackdb.config.file>target/test-classes/youtrackdb-server-config.xml-->
+<!--                </youtrackdb.config.file>-->
+<!--                <YOUTRACKDB_HOME>${project.build.directory}/remote-server</YOUTRACKDB_HOME>-->
+<!--              </systemPropertyVariables>-->
+<!--              <suiteXmlFiles>-->
+<!--                <suiteXmlFile>-->
+<!--                  src/test/java/com/jetbrains/youtrack/db/auto/remote-test-db-from-scratch.xml-->
+<!--                </suiteXmlFile>-->
+<!--              </suiteXmlFiles>-->
+<!--            </configuration>-->
+<!--          </execution>-->
         </executions>
         <dependencies>
           <dependency>

@@ -37,6 +37,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
@@ -707,8 +708,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Nonnull
   public <T> EmbeddedList<T> newEmbeddedList(@Nonnull String name, @Nonnull Collection<T> source) {
-    var value = new EntityEmbeddedListImpl<T>(source.size());
-    value.addAll(source);
+    var value = (EmbeddedList<T>) PropertyTypeInternal.EMBEDDEDLIST.copy(source, session);
     setProperty(name, value, PropertyType.EMBEDDEDLIST);
     return value;
   }
@@ -716,8 +716,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Nonnull
   public <T> EmbeddedList<T> newEmbeddedList(@Nonnull String name, @Nonnull Collection<T> source,
       @Nonnull PropertyType linkedType) {
-    var value = new EntityEmbeddedListImpl<T>(source.size());
-    value.addAll(source);
+    var value = (EmbeddedList<T>) PropertyTypeInternal.EMBEDDEDLIST.copy(source, session);
     setProperty(name, value, PropertyType.EMBEDDEDLIST, linkedType);
     return value;
   }
@@ -731,9 +730,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       throw new IllegalArgumentException("Unsupported type: " + componentType);
     }
 
-    var value = new EntityEmbeddedListImpl<T>(source.length);
-    Collections.addAll(value, source);
-
+    var value =  (EmbeddedList<T>) PropertyTypeInternal.EMBEDDEDLIST.copy(source, session);
     setProperty(name, value, PropertyType.EMBEDDEDLIST, linkedType.getPublicPropertyType());
     return value;
   }
@@ -857,8 +854,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Nonnull
   public <T> EmbeddedSet<T> newEmbeddedSet(@Nonnull String name, @Nonnull Collection<T> source) {
-    var value = new EntityEmbeddedSetImpl<T>(source.size());
-    value.addAll(source);
+    var value = (EmbeddedSet<T>) PropertyTypeInternal.EMBEDDEDSET.copy(source, session);
     setProperty(name, value, PropertyType.EMBEDDEDSET);
     return value;
   }
@@ -866,8 +862,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Nonnull
   public <T> EmbeddedSet<T> newEmbeddedSet(@Nonnull String name, Collection<T> source,
       @Nonnull PropertyType linkedType) {
-    var value = new EntityEmbeddedSetImpl<T>(source.size());
-    value.addAll(source);
+    var value = (EmbeddedSet<T>) PropertyTypeInternal.EMBEDDEDSET.copy(source, session);
     setProperty(name, value, PropertyType.EMBEDDEDSET, linkedType);
     return value;
   }
@@ -918,8 +913,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Nonnull
   public <T> Map<String, T> newEmbeddedMap(@Nonnull String name, Map<String, T> source) {
-    var value = new EntityEmbeddedMapImpl<T>(source.size());
-    value.putAll(source);
+    var value = (EmbeddedMap<T>) PropertyTypeInternal.EMBEDDEDMAP.copy(source, session);
     setProperty(name, value, PropertyType.EMBEDDEDMAP);
     return value;
   }
@@ -927,8 +921,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Nonnull
   public <T> Map<String, T> newEmbeddedMap(@Nonnull String name, Map<String, T> source,
       @Nonnull PropertyType linkedType) {
-    var value = new EntityEmbeddedMapImpl<T>(source.size());
-    value.putAll(source);
+    var value = (EmbeddedMap<T>) PropertyTypeInternal.EMBEDDEDMAP.copy(source, session);
     setProperty(name, value, PropertyType.EMBEDDEDMAP, linkedType);
     return value;
   }

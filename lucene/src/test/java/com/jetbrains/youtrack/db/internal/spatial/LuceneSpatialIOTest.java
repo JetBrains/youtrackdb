@@ -63,7 +63,7 @@ public class LuceneSpatialIOTest extends BaseSpatialLuceneTest {
 
     Assert.assertEquals(p2, p1);
 
-    var parsed = builder.toEntitty(p2);
+    var parsed = builder.toEmbeddedEntity(p2, session);
 
     Assert.assertEquals(doc.<PointShapeBuilder>getProperty("coordinates"),
         parsed.getProperty("coordinates"));

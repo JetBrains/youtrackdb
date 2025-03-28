@@ -723,7 +723,8 @@ public class ChainedIndexProxy<T> implements Index {
   }
 
   @Override
-  public boolean doRemove(AbstractPaginatedStorage storage, Object key) {
+  public boolean doRemove(AbstractPaginatedStorage storage, Object key,
+      DatabaseSessionInternal session) {
     throw new UnsupportedOperationException("Not allowed operation");
   }
 

@@ -13,10 +13,12 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.shape;
 
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
 import org.locationtech.spatial4j.shape.Rectangle;
@@ -48,8 +50,7 @@ public class RectangleShapeBuilder extends ShapeBuilder<Rectangle> {
   }
 
   @Override
-  public Rectangle fromDoc(EntityImpl document) {
-    validate(document);
+  public Rectangle fromResult(Result document) {
     List<Number> coordinates = document.getProperty(COORDINATES);
 
     var topLeft =
@@ -63,17 +64,17 @@ public class RectangleShapeBuilder extends ShapeBuilder<Rectangle> {
   }
 
   @Override
-  public EntityImpl toEntitty(final Rectangle shape) {
-    var doc = new EntityImpl(null, NAME);
-    doc.setProperty(COORDINATES, new ArrayList<Double>() {
-          {
-            add(shape.getMinX());
-            add(shape.getMinY());
-            add(shape.getMaxX());
-            add(shape.getMaxY());
-          }
-        });
+  public EmbeddedEntity toEmbeddedEntity(final Rectangle shape, DatabaseSessionInternal session) {
+    var entity =  session.newEmbeddedEntity(NAME);
+    entity.setProperty(COORDINATES, new ArrayList<Double>() {
+      {
+        add(shape.getMinX());
+        add(shape.getMinY());
+        add(shape.getMaxX());
+        add(shape.getMaxY());
+      }
+    });
 
-    return doc;
+    return entity;
   }
 }

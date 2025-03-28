@@ -14,11 +14,14 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.index;
 
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
@@ -27,10 +30,8 @@ import com.jetbrains.youtrack.db.internal.lucene.index.LuceneIndexNotUnique;
 import com.jetbrains.youtrack.db.internal.spatial.engine.LuceneSpatialIndexContainer;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeFactory;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import org.locationtech.jts.geom.Geometry;
-import org.locationtech.spatial4j.shape.Shape;
 
 public class LuceneSpatialIndex extends LuceneIndexNotUnique {
 
@@ -73,19 +74,17 @@ public class LuceneSpatialIndex extends LuceneIndexNotUnique {
 
   @Override
   protected Object encodeKey(Object key) {
-
-    if (key instanceof EntityImpl) {
-      var shape = shapeFactory.fromDoc((EntityImpl) key);
+    if (key instanceof Result result) {
+      var shape = shapeFactory.fromResult(result);
       return shapeFactory.toGeometry(shape);
     }
     return key;
   }
 
   @Override
-  protected Object decodeKey(Object key) {
-
+  protected Object decodeKey(Object key, DatabaseSessionInternal session) {
     if (key instanceof Geometry geom) {
-      return shapeFactory.toEntitty(geom);
+      return shapeFactory.toEmbeddedEntity(geom, session);
     }
     return key;
   }

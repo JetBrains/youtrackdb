@@ -430,6 +430,17 @@ public enum PropertyTypeInternal {
         case null -> {
           return null;
         }
+        case Object[] array -> {
+          var embeddedList = session.newEmbeddedList(array.length);
+          for (var item : array) {
+            var converted = PropertyTypeInternal.convertEmbeddedCollectionItem(linkedType,
+                linkedClass,
+                session, item,
+                this);
+            embeddedList.add(converted);
+          }
+          return embeddedList;
+        }
         case EntityEmbeddedListImpl<?> trackedList -> {
           //noinspection unchecked
           return (List<Object>) trackedList;
@@ -495,6 +506,11 @@ public enum PropertyTypeInternal {
       if (value instanceof EntityLinkListImpl) {
         return false;
       }
+      if (value.getClass().isArray()) {
+        var componentType = value.getClass().getComponentType();
+        var type = PropertyTypeInternal.getTypeByClass(componentType);
+        return type != null;
+      }
 
       return super.isConvertibleFrom(value);
     }
@@ -510,6 +526,11 @@ public enum PropertyTypeInternal {
       var trackedList = (EntityEmbeddedListImpl<?>) value;
       var copy = session.newEmbeddedList(trackedList.size());
       for (var item : trackedList) {
+        if (item == null) {
+          copy.add(null);
+          continue;
+        }
+
         var type = PropertyTypeInternal.getTypeByValue(item);
         if (type == null) {
           throw new DatabaseException(session, "Can not determine type of property : "
@@ -1302,6 +1323,7 @@ public enum PropertyTypeInternal {
    * @param iId The id to search
    * @return The type if any, otherwise null
    */
+  @Nullable
   public static PropertyTypeInternal getById(final byte iId) {
     if (iId >= 0 && iId < TYPES_BY_ID.length) {
       return TYPES_BY_ID[iId];
@@ -1321,6 +1343,7 @@ public enum PropertyTypeInternal {
     return id;
   }
 
+  @Nullable
   public abstract Object convert(Object value, PropertyTypeInternal linkedType,
       SchemaClass linkedClass,
       DatabaseSessionInternal session);
@@ -1361,6 +1384,7 @@ public enum PropertyTypeInternal {
     throw new DatabaseException(session, "Cannot convert " + value + " to " + this + " type.");
   }
 
+  @Nullable
   public Object copy(Object value, DatabaseSessionInternal session) {
     return convert(value, session);
   }
@@ -1388,6 +1412,7 @@ public enum PropertyTypeInternal {
     return type;
   }
 
+  @Nullable
   private static PropertyTypeInternal getTypeByClassInherit(final Class<?> iClass) {
     if (iClass.isArray()) {
       return EMBEDDEDLIST;
@@ -1410,6 +1435,7 @@ public enum PropertyTypeInternal {
     return null;
   }
 
+  @Nullable
   public static PropertyTypeInternal getTypeByValue(Object value) {
     if (value == null) {
       return null;
@@ -1539,6 +1565,7 @@ public enum PropertyTypeInternal {
    * @param targetClass Expected class
    * @return The converted value or the original if no conversion was applied
    */
+  @Nullable
   @SuppressWarnings({"unchecked", "rawtypes"})
   public static <T> T convert(@Nullable DatabaseSessionInternal session, final Object value,
       Class<? extends T> targetClass) {
@@ -1669,6 +1696,7 @@ public enum PropertyTypeInternal {
     return type.convert(item, null, null, session);
   }
 
+  @Nullable
   private static Object convertEmbeddedCollectionItem(PropertyTypeInternal linkedType,
       SchemaClass linkedClass, DatabaseSessionInternal session,
       Object item, PropertyTypeInternal rootType) {
@@ -2019,8 +2047,8 @@ public enum PropertyTypeInternal {
     return iValue.toString();
   }
 
+  @Nullable
   public static PropertyTypeInternal convertFromPublicType(PropertyType type) {
-
     return switch (type) {
       case null -> null;
       case BYTE -> BYTE;

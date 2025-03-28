@@ -1124,7 +1124,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public <T> EmbeddedList<T> newEmbeddedList(List<T> list) {
+  public <T> EmbeddedList<T> newEmbeddedList(Collection<T> list) {
     checkOpenness();
     return internal.newEmbeddedList(list);
   }

@@ -8,18 +8,18 @@
         <outputRelativeToContentRoot value="true" />
         <module name="youtrackdb-core" />
         <module name="youtrackdb-test-commons" />
+        <module name="youtrackdb-console-distribution" />
         <module name="youtrackdb-server" />
         <module name="youtrackdb-tests" />
-        <module name="youtrackdb-tools" />
-        <module name="youtrackdb-jdbc" />
         <module name="youtrackdb-lucene" />
         <module name="youtrackdb-security" />
-        <module name="youtrackdb-client" />
       </profile>
     </annotationProcessing>
     <bytecodeTargetLevel>
+      <module name="youtrackdb-client" target="21" />
       <module name="youtrackdb-community" target="21" />
-      <module name="youtrackdb-console-distribution" target="21" />
+      <module name="youtrackdb-jdbc" target="21" />
+      <module name="youtrackdb-tools" target="21" />
     </bytecodeTargetLevel>
   </component>
 </project>

@@ -14,6 +14,7 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.engine;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
@@ -21,7 +22,6 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValuesTransformer;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.lucene.builder.LuceneIndexType;
@@ -92,6 +92,7 @@ public abstract class LuceneSpatialIndexEngineAbstract extends LuceneIndexEngine
     return false;
   }
 
+
   @Override
   public Stream<RawPair<Object, com.jetbrains.youtrack.db.api.record.RID>> iterateEntriesBetween(
       DatabaseSessionInternal db, Object rangeFrom,
@@ -100,7 +101,7 @@ public abstract class LuceneSpatialIndexEngineAbstract extends LuceneIndexEngine
       boolean toInclusive,
       boolean ascSortOrder,
       IndexEngineValuesTransformer transformer) {
-    return null;
+    return Stream.empty();
   }
 
   @Override
@@ -109,7 +110,7 @@ public abstract class LuceneSpatialIndexEngineAbstract extends LuceneIndexEngine
       boolean isInclusive,
       boolean ascSortOrder,
       IndexEngineValuesTransformer transformer) {
-    return null;
+    return Stream.empty();
   }
 
   @Override
@@ -118,18 +119,18 @@ public abstract class LuceneSpatialIndexEngineAbstract extends LuceneIndexEngine
       boolean isInclusive,
       boolean ascSortOrder,
       IndexEngineValuesTransformer transformer) {
-    return null;
+    return Stream.empty();
   }
 
   @Override
   public Stream<RawPair<Object, com.jetbrains.youtrack.db.api.record.RID>> stream(
       IndexEngineValuesTransformer valuesTransformer) {
-    return null;
+    return Stream.empty();
   }
 
   @Override
   public Stream<Object> keyStream() {
-    return null;
+    return Stream.empty();
   }
 
   @Override
@@ -138,7 +139,7 @@ public abstract class LuceneSpatialIndexEngineAbstract extends LuceneIndexEngine
   }
 
   protected Document newGeoDocument(Identifiable oIdentifiable, Shape shape,
-      EntityImpl shapeDoc) {
+      Result shapeResult) {
 
     var ft = new FieldType();
     ft.setIndexOptions(IndexOptions.DOCS);
@@ -146,7 +147,7 @@ public abstract class LuceneSpatialIndexEngineAbstract extends LuceneIndexEngine
 
     var doc = new Document();
     doc.add(LuceneIndexType.createOldIdField(oIdentifiable));
-    doc.add(LuceneIndexType.createIdField(oIdentifiable, shapeDoc));
+    doc.add(LuceneIndexType.createIdField(oIdentifiable, shapeResult));
 
     for (IndexableField f : strategy.createIndexableFields(shape)) {
       doc.add(f);
@@ -157,7 +158,7 @@ public abstract class LuceneSpatialIndexEngineAbstract extends LuceneIndexEngine
     doc.add(
         new StringField(
             strategy.getFieldName() + "__orient_key_hash",
-            LuceneIndexType.hashKey(shapeDoc),
+            LuceneIndexType.hashKey(shapeResult),
             Field.Store.YES));
     return doc;
   }

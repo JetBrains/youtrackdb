@@ -13,10 +13,12 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.shape;
 
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -47,16 +49,15 @@ public class GeometryCollectionShapeBuilder extends ComplexShapeBuilder<ShapeCol
 
   @Override
   public ShapeCollection<Shape> fromMapGeoJson(Map<String, Object> geoJsonMap) {
-    var doc = new EntityImpl(null, getName());
-    doc.setProperty("geometries", geoJsonMap.get("geometries"));
-    return fromDoc(doc);
+    var result =  new ResultInternal(null);
+    result.setMetadata(ShapeBuilder.SHAPE_NAME, getName());
+    result.setProperty("geometries", geoJsonMap.get("geometries"));
+    return fromResult(result);
   }
 
   @Override
-  public ShapeCollection<Shape> fromDoc(EntityImpl doc) {
-
-    List<Object> geometries = doc.getProperty("geometries");
-
+  public ShapeCollection<Shape> fromResult(Result result) {
+    List<Object> geometries = result.getProperty("geometries");
     List<Shape> shapes = new ArrayList<Shape>();
 
     for (var geometry : geometries) {
@@ -89,14 +90,17 @@ public class GeometryCollectionShapeBuilder extends ComplexShapeBuilder<ShapeCol
   }
 
   @Override
-  public EntityImpl toEntitty(ShapeCollection<Shape> shapes) {
+  public EmbeddedEntity toEmbeddedEntity(ShapeCollection<Shape> shapes,
+      DatabaseSessionInternal session) {
+    var result = session.newEmbeddedEntity(getName());
 
-    var doc = new EntityImpl(null, getName());
-    List<EntityImpl> geometries = new ArrayList<EntityImpl>(shapes.size());
+    List<EmbeddedEntity> geometries = new ArrayList<>(shapes.size());
     for (var s : shapes) {
-      geometries.add(shapeFactory.toEntitty(s));
+      geometries.add(shapeFactory.toEmbeddedEntity(s, session));
     }
-    doc.setProperty("geometries", geometries);
-    return doc;
+
+    result.newEmbeddedList("geometries", geometries);
+
+    return result;
   }
 }

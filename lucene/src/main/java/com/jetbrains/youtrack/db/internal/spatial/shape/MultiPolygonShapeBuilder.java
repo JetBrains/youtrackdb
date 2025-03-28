@@ -13,10 +13,12 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.shape;
 
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
 import org.locationtech.jts.geom.MultiPolygon;
@@ -47,8 +49,7 @@ public class MultiPolygonShapeBuilder extends PolygonShapeBuilder {
   }
 
   @Override
-  public JtsGeometry fromDoc(EntityImpl document) {
-    validate(document);
+  public JtsGeometry fromResult(Result document) {
     List<List<List<List<Number>>>> coordinates = document.getProperty("coordinates");
 
     var polygons = new Polygon[coordinates.size()];
@@ -61,9 +62,10 @@ public class MultiPolygonShapeBuilder extends PolygonShapeBuilder {
   }
 
   @Override
-  public EntityImpl toEntitty(JtsGeometry shape) {
+  public EmbeddedEntity toEmbeddedEntity(JtsGeometry shape, DatabaseSessionInternal session) {
 
-    var doc = new EntityImpl(null, getName());
+    var entity = session.newEmbeddedEntity(getName());
+
     var multiPolygon = (MultiPolygon) shape.getGeom();
     List<List<List<List<Double>>>> polyCoordinates = new ArrayList<List<List<List<Double>>>>();
     var n = multiPolygon.getNumGeometries();
@@ -73,7 +75,7 @@ public class MultiPolygonShapeBuilder extends PolygonShapeBuilder {
       polyCoordinates.add(coordinatesFromPolygon((Polygon) geom));
     }
 
-    doc.setProperty(COORDINATES, polyCoordinates);
-    return doc;
+    entity.newEmbeddedList(COORDINATES, polyCoordinates);
+    return entity;
   }
 }

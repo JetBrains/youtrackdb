@@ -578,7 +578,7 @@ public interface Index extends Comparable<Index> {
       RID rid)
       throws InvalidIndexEngineIdException;
 
-  boolean doRemove(AbstractPaginatedStorage storage, Object key)
+  boolean doRemove(AbstractPaginatedStorage storage, Object key, DatabaseSessionInternal session)
       throws InvalidIndexEngineIdException;
 
   Stream<RID> getRidsIgnoreTx(DatabaseSessionInternal session, Object key);

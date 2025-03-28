@@ -37,7 +37,6 @@ import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Date;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
@@ -466,7 +465,7 @@ public interface DatabaseSession extends AutoCloseable {
 
   <T> EmbeddedList<T> newEmbeddedList(int size);
 
-  <T> EmbeddedList<T> newEmbeddedList(List<T> list);
+  <T> EmbeddedList<T> newEmbeddedList(Collection<T> list);
 
   EmbeddedList<String> newEmbeddedList(String[] source);
 

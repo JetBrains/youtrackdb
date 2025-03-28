@@ -1,6 +1,8 @@
 package com.jetbrains.youtrack.db.internal.spatial.functions;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.spatial.BaseSpatialLuceneTest;
 import org.junit.Assert;
@@ -30,8 +32,11 @@ public class STAsTextFunctionTest extends BaseSpatialLuceneTest {
       var func = new STGeomFromTextFunction();
       var func2 = new STAsTextFunction();
 
+      var context = new BasicCommandContext();
+      context.setDatabaseSession(session);
+
       for (var value : values) {
-        var item = (EntityImpl) func.execute(null, null, null, new Object[]{value},
+        var item =  (Result)func.execute(null, null, null, new Object[]{value},
             null);
 
         var result = (String) func2.execute(null, null, null, new Object[]{item}, null);

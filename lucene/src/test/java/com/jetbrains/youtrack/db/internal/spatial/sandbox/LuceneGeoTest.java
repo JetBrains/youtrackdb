@@ -175,7 +175,7 @@ public class LuceneGeoTest extends BaseLuceneTest {
 
     var builder = new MultiPolygonShapeBuilder();
 
-    Shape multiPolygon = builder.fromDoc(entries);
+    Shape multiPolygon = builder.fromResult(entries);
 
     var doc = new Document();
 

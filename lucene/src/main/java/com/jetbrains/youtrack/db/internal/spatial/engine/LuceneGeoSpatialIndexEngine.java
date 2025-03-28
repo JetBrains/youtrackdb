@@ -17,6 +17,7 @@ package com.jetbrains.youtrack.db.internal.spatial.engine;
 import static com.jetbrains.youtrack.db.internal.lucene.builder.LuceneQueryBuilder.EMPTY_METADATA;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
@@ -25,6 +26,7 @@ import com.jetbrains.youtrack.db.internal.core.index.IndexEngineException;
 import com.jetbrains.youtrack.db.internal.core.index.IndexKeyUpdater;
 import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.lucene.collections.LuceneResultSet;
@@ -119,13 +121,10 @@ public class LuceneGeoSpatialIndexEngine extends LuceneSpatialIndexEngineAbstrac
   @Override
   public void put(DatabaseSessionInternal db, AtomicOperation atomicOperation, Object key,
       Object value) {
-
-    if (key instanceof Identifiable) {
+    if (key instanceof Result location) {
       openIfClosed(db.getStorage());
-      var transaction = db.getActiveTransaction();
-      EntityImpl location = transaction.load(((Identifiable) key));
       updateLastAccess();
-      addDocument(newGeoDocument((Identifiable) value, factory.fromDoc(location), location));
+      addDocument(newGeoDocument((Identifiable) value, factory.fromResult(location), location));
     }
   }
 
@@ -151,7 +150,7 @@ public class LuceneGeoSpatialIndexEngine extends LuceneSpatialIndexEngineAbstrac
       Identifiable value) {
     var transaction = session.getActiveTransaction();
     EntityImpl location = transaction.load(((Identifiable) key));
-    return newGeoDocument(value, factory.fromDoc(location), location);
+    return newGeoDocument(value, factory.fromResult(location), location);
   }
 
   @Override

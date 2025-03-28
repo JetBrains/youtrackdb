@@ -218,7 +218,7 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
 
     var builder = new MultiPolygonShapeBuilder();
 
-    Shape geometry = builder.fromDoc(document);
+    Shape geometry = builder.fromResult(document);
 
     return (MultiPolygon) ((JtsGeometry) geometry).getGeom();
   }

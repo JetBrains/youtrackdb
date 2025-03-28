@@ -51,7 +51,6 @@ import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
@@ -2435,22 +2434,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public <T> EmbeddedList<T> newEmbeddedList(List<T> list) {
-    var trackedList = new EntityEmbeddedListImpl<T>(list.size());
-    for (var item : list) {
-      if (item == null) {
-        trackedList.add(null);
-        continue;
-      }
-
-      var type = PropertyTypeInternal.getTypeByValue(item);
-      if (type == null) {
-        throw new IllegalArgumentException("Unknown type: " + item);
-      } else {
-        trackedList.add((T) type.convert(item, this));
-      }
-    }
-    return trackedList;
+  public <T> EmbeddedList<T> newEmbeddedList(Collection<T> list) {
+    return (EmbeddedList<T>) PropertyTypeInternal.EMBEDDEDLIST.copy(list, this);
   }
 
   @Override
@@ -2559,22 +2544,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Override
   public <T> EmbeddedSet<T> newEmbeddedSet(Collection<T> set) {
-    var trackedSet = new EntityEmbeddedSetImpl<T>(set.size());
-
-    for (var item : set) {
-      if (item == null) {
-        trackedSet.add(null);
-        continue;
-      }
-      var type = PropertyTypeInternal.getTypeByValue(item);
-      if (type == null) {
-        throw new IllegalArgumentException("Unknown type: " + item);
-      } else {
-        trackedSet.add((T) type.convert(item, this));
-      }
-    }
-
-    return trackedSet;
+    return (EmbeddedSet<T>) PropertyTypeInternal.EMBEDDEDSET.copy(set, this);
   }
 
   @Override
@@ -2606,23 +2576,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Override
   public <V> EmbeddedMap<V> newEmbeddedMap(Map<String, V> map) {
-    var trackedMap = new EntityEmbeddedMapImpl<V>(map.size());
-
-    for (var entry : map.entrySet()) {
-      var value = entry.getValue();
-      if (value == null) {
-        trackedMap.put(entry.getKey(), null);
-        continue;
-      }
-      var type = PropertyTypeInternal.getTypeByValue(value);
-      if (type == null) {
-        throw new IllegalArgumentException("Unknown type: " + value);
-      } else {
-        trackedMap.put(entry.getKey(), (V) type.convert(value, this));
-      }
-    }
-
-    return trackedMap;
+    return (EmbeddedMap<V>) PropertyTypeInternal.EMBEDDEDMAP.copy(map, this);
   }
 
   @Override

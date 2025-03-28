@@ -275,7 +275,8 @@ public class IndexRemote implements Index {
   }
 
   @Override
-  public boolean doRemove(AbstractPaginatedStorage storage, Object key)
+  public boolean doRemove(AbstractPaginatedStorage storage, Object key,
+      DatabaseSessionInternal session)
       throws InvalidIndexEngineIdException {
     throw new UnsupportedOperationException();
   }

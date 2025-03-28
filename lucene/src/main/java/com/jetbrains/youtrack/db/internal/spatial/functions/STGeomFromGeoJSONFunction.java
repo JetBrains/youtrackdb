@@ -43,7 +43,7 @@ public class STGeomFromGeoJSONFunction extends SQLFunctionAbstract {
       CommandContext iContext) {
     var geom = (String) iParams[0];
     try {
-      return factory.fromGeoJson(geom);
+      return factory.fromGeoJson(geom, iContext.getDatabaseSession());
     } catch (Exception e) {
       throw BaseException.wrapException(
           new CommandExecutionException(iContext.getDatabaseSession(),
@@ -53,6 +53,6 @@ public class STGeomFromGeoJSONFunction extends SQLFunctionAbstract {
 
   @Override
   public String getSyntax(DatabaseSession session) {
-    return null;
+    return "";
   }
 }

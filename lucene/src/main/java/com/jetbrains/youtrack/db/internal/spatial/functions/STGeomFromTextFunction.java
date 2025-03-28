@@ -43,7 +43,7 @@ public class STGeomFromTextFunction extends SQLFunctionAbstract {
       CommandContext context) {
     var geom = (String) iParams[0];
     try {
-      return factory.toEntitty(geom);
+      return factory.toEmbeddedEntity(geom, context.getDatabaseSession());
     } catch (Exception e) {
       throw BaseException.wrapException(
           new CommandExecutionException(context.getDatabaseSession(),
@@ -53,6 +53,6 @@ public class STGeomFromTextFunction extends SQLFunctionAbstract {
 
   @Override
   public String getSyntax(DatabaseSession session) {
-    return null;
+    return "";
   }
 }

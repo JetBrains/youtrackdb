@@ -20,6 +20,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializer;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
 import com.jetbrains.youtrack.db.internal.spatial.collections.SpatialCompositeKey;
 import com.jetbrains.youtrack.db.internal.spatial.strategy.SpatialQueryBuilderAbstract;
@@ -61,7 +62,7 @@ public class LuceneOverlapOperator extends LuceneSpatialOperator {
       Object iRight,
       CommandContext iContext,
       final EntitySerializer serializer) {
-    var shape = factory.fromDoc((EntityImpl) iLeft);
+    var shape = factory.fromResult((Result) iLeft);
 
     // TODO { 'shape' : { 'type' : 'LineString' , 'coordinates' : [[1,2],[4,6]]} }
     // TODO is not translated in map but in array[ { 'type' : 'LineString' , 'coordinates' :

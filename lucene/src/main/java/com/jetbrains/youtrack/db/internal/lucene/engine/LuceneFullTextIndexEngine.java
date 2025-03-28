@@ -179,7 +179,7 @@ public class LuceneFullTextIndexEngine extends LuceneIndexEngineAbstract {
       boolean isInclusive,
       boolean ascSortOrder,
       IndexEngineValuesTransformer transformer) {
-    return null;
+    return Stream.empty();
   }
 
   @Override
@@ -188,7 +188,7 @@ public class LuceneFullTextIndexEngine extends LuceneIndexEngineAbstract {
       boolean isInclusive,
       boolean ascSortOrder,
       IndexEngineValuesTransformer transformer) {
-    return null;
+    return Stream.empty();
   }
 
   @Override
