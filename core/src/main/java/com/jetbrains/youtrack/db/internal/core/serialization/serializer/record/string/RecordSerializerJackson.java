@@ -1072,7 +1072,7 @@ public class RecordSerializerJackson {
       jsonParser.nextToken();
       var value = parseValue(session, null, jsonParser,
           schemaProperty != null ? PropertyTypeInternal.convertFromPublicType(
-              schemaProperty.getType()) : null, null);
+              schemaProperty.getLinkedType()) : null, null);
       map.put(fieldName, value);
     }
 
@@ -1123,7 +1123,7 @@ public class RecordSerializerJackson {
     while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
       list.add(parseValue(session, null, jsonParser,
           schemaProperty != null ? PropertyTypeInternal.convertFromPublicType(
-              schemaProperty.getType()) : null, null));
+              schemaProperty.getLinkedType()) : null, null));
     }
 
     return list;
@@ -1137,7 +1137,7 @@ public class RecordSerializerJackson {
     while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
       list.add(parseValue(session, null, jsonParser,
           schemaProperty != null ? PropertyTypeInternal.convertFromPublicType(
-              schemaProperty.getType()) : null, null));
+              schemaProperty.getLinkedType()) : null, null));
     }
 
     return list;
