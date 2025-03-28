@@ -34,13 +34,11 @@ public class LuceneSpatialPointTest extends BaseSpatialLuceneTest {
 
     Schema schema = session.getMetadata().getSchema();
     var v = schema.getClass("V");
-    var oClass = schema.createClass("City");
-    oClass.addSuperClass(v);
+    var oClass = schema.createVertexClass("City");
     oClass.createProperty("location", PropertyType.EMBEDDED, schema.getClass("OPoint"));
     oClass.createProperty("name", PropertyType.STRING);
 
-    var place = schema.createClass("Place");
-    place.addSuperClass(v);
+    var place = schema.createVertexClass("Place");
     place.createProperty("latitude", PropertyType.DOUBLE);
     place.createProperty("longitude", PropertyType.DOUBLE);
     place.createProperty("name", PropertyType.STRING);
@@ -50,15 +48,14 @@ public class LuceneSpatialPointTest extends BaseSpatialLuceneTest {
     session.execute("CREATE INDEX Place.l_lon ON Place(latitude,longitude) SPATIAL ENGINE LUCENE")
         .close();
 
-    var rome = newCity(session, "Rome", 12.5, 41.9);
-    var london = newCity(session, "London", -0.1275, 51.507222);
+    session.begin();
+    newCity(session, "Rome", 12.5, 41.9);
+    newCity(session, "London", -0.1275, 51.507222);
 
-    var rome1 = ((EntityImpl) session.newEntity("Place"));
+    var rome1 = ((EntityImpl) session.newVertex("Place"));
     rome1.setProperty("name", "Rome");
     rome1.setProperty("latitude", 41.9);
     rome1.setProperty("longitude", 12.5);
-
-    session.begin();
     session.commit();
 
     session.begin();
@@ -118,15 +115,15 @@ public class LuceneSpatialPointTest extends BaseSpatialLuceneTest {
   protected static EntityImpl newCity(DatabaseSession db, String name, final Double longitude,
       final Double latitude) {
     return db.computeInTx(transaction -> {
-      var location = ((EntityImpl) transaction.newEntity("OPoint"));
-      location.setProperty("coordinates", new ArrayList<Double>() {
+      var location = ((EntityImpl) transaction.newEmbeddedEntity("OPoint"));
+      location.newEmbeddedList("coordinates", new ArrayList<Double>() {
         {
           add(longitude);
           add(latitude);
         }
       });
 
-      var city = ((EntityImpl) transaction.newEntity("City"));
+      var city = ((EntityImpl) transaction.newVertex("City"));
       city.setProperty("name", name);
       city.setProperty("location", location);
       return city;

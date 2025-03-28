@@ -31,7 +31,7 @@
 
   <modules>
     <module>test-commons</module>
-    <!-- <module>client</module>-->
+    <module>client</module>
     <module>core</module>
     <module>server</module>
     <module>security</module>

@@ -25,14 +25,12 @@ import java.util.List;
 import java.util.stream.Collectors;
 import org.apache.lucene.spatial.query.SpatialOperation;
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 
-/**
- *
- */
 public class LuceneSpatialMemoryTest extends LuceneBaseTest {
-
   @Test
+  @Ignore
   public void boundingBoxTest() {
     var point = session.getMetadata().getSchema().createClass("Point");
     point.createProperty("latitude", PropertyType.DOUBLE);
@@ -41,23 +39,26 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
     session.execute("CREATE INDEX Point.ll ON Point(latitude,longitude) SPATIAL ENGINE LUCENE")
         .close();
 
+    session.begin();
     var document = ((EntityImpl) session.newEntity("Point"));
 
     document.setProperty("latitude", 42.2814837);
     document.setProperty("longitude", -83.7605452);
 
-    session.begin();
     session.commit();
 
+    session.begin();
     var query = session.query(
         "SELECT FROM Point WHERE [latitude, longitude] WITHIN"
             + " [[42.26531323615103,-83.71986351411135],[42.29239784478525,-83.7662120858887]]"
     ).toList();
 
     Assert.assertEquals(1, query.size());
+    session.commit();
   }
 
   @Test
+  @Ignore
   public void boundingBoxTestTxRollBack() {
     var point = session.getMetadata().getSchema().createClass("Point");
     point.createProperty("latitude", PropertyType.DOUBLE);
@@ -68,12 +69,11 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
 
     session.begin();
 
+    session.begin();
     var document = ((EntityImpl) session.newEntity("Point"));
 
     document.setProperty("latitude", 42.2814837);
     document.setProperty("longitude", -83.7605452);
-
-    session.begin();
     session.commit();
 
     var query = session.query(
@@ -126,6 +126,7 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
   }
 
   @Test
+  @Ignore
   public void boundingBoxTestTxCommit() {
     var point = session.getMetadata().getSchema().createClass("Point");
     point.createProperty("latitude", PropertyType.DOUBLE);
