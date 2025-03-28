@@ -67,9 +67,11 @@ public class TransactionAtomicTest extends BaseDBTest {
     db2.commit();
 
     db1.activateOnCurrentThread();
+    db1.begin();
     var activeTx = db1.getActiveTransaction();
     record1 = activeTx.load(record1);
     Assert.assertEquals(record1.getProperty("value"), "This is the third version");
+    db1.commit();
     db1.close();
 
     db2.activateOnCurrentThread();
@@ -81,8 +83,8 @@ public class TransactionAtomicTest extends BaseDBTest {
   @Test
   public void testMVCC() throws IOException {
 
-    var doc = ((EntityImpl) session.newEntity("Account"));
     session.begin();
+    var doc = ((EntityImpl) session.newEntity("Account"));
     doc.setProperty("version", 0);
 
     session.commit();

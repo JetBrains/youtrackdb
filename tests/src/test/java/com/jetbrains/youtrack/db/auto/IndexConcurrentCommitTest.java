@@ -47,6 +47,8 @@ public class IndexConcurrentCommitTest extends BaseDBTest {
 
       // Transaction 2
       session.begin();
+      person1 = session.load(person1.getIdentity());
+      person2 = session.load(person2.getIdentity());
 
       // Update the ssn for the second person
       person2.setProperty("ssn", "111-11-1111");
@@ -66,10 +68,12 @@ public class IndexConcurrentCommitTest extends BaseDBTest {
       session.rollback();
     }
 
+    session.begin();
     final var result2 = session.execute("select from Person");
     System.out.println("After transaction 2");
     while (result2.hasNext()) {
       System.out.println(result2.next());
     }
+    session.commit();
   }
 }

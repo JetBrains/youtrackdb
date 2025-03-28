@@ -271,7 +271,7 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 1);
     for (var r : result) {
       Assert.assertEquals(r.getProperty("a"), "Ay");
-      Assert.assertEquals(r.getProperty("'bEE'"), "bEE");
+      Assert.assertEquals(r.getProperty("\"bEE\""), "bEE");
     }
 
     result = executeQuery("select 'Ay' as a , 'bEE' as b");

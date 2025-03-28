@@ -307,7 +307,7 @@ public class SecurityTest extends BaseDBTest {
     session = createSessionInstance("writer", "writer");
 
     try {
-      session.command("alter class Protected superclass OUser");
+      session.command("alter class Protected superclasses OUser");
       Assert.fail();
     } catch (SecurityException e) {
     } finally {

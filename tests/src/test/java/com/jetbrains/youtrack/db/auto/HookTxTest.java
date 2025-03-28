@@ -135,13 +135,13 @@ public class HookTxTest extends BaseDBTest {
 
   @Test
   public void testHookCallsCreate() {
+    session.begin();
     profile = session.newInstance("Profile");
     profile.setProperty("nick", "HookTxTest");
     profile.setProperty("value", 0);
 
     // TEST HOOKS ON CREATE
     Assert.assertEquals(recordHook.callbackCount, 0);
-    session.begin();
     session.commit();
 
     Assert.assertEquals(recordHook.beforeCreateCount, 1);
