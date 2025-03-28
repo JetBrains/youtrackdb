@@ -17,6 +17,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.spatial.shape.legacy.PointLegecyBuilder;
@@ -38,7 +39,7 @@ public class LuceneSpatialFunctionFromTextTest extends BaseSpatialLuceneTest {
     checkFromText(point, "select ST_GeomFromText('" + LINESTRINGWKT + "') as geom");
   }
 
-  protected void checkFromText(EntityImpl source, String query) {
+  protected void checkFromText(EmbeddedEntity source, String query) {
 
     var docs = session.execute(query);
 
@@ -109,7 +110,7 @@ public class LuceneSpatialFunctionFromTextTest extends BaseSpatialLuceneTest {
         geometryCollection(), "select ST_GeomFromText('" + GEOMETRYCOLLECTION + "') as geom");
   }
 
-  protected void checkFromCollectionText(EntityImpl source, String query) {
+  protected void checkFromCollectionText(EmbeddedEntity source, String query) {
 
     var docs = session.execute(query);
 
