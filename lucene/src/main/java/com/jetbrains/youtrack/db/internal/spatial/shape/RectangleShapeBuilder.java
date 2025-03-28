@@ -65,8 +65,8 @@ public class RectangleShapeBuilder extends ShapeBuilder<Rectangle> {
 
   @Override
   public EmbeddedEntity toEmbeddedEntity(final Rectangle shape, DatabaseSessionInternal session) {
-    var entity =  session.newEmbeddedEntity(NAME);
-    entity.setProperty(COORDINATES, new ArrayList<Double>() {
+    var entity = session.newEmbeddedEntity(NAME);
+    entity.newEmbeddedList(COORDINATES, new ArrayList<Double>() {
       {
         add(shape.getMinX());
         add(shape.getMinY());

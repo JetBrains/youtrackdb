@@ -129,8 +129,8 @@ public class ShapeFactory extends ComplexShapeBuilder {
   @Override
   public String asText(Object obj) {
 
-    if (obj instanceof ResultInternal resultInternal) {
-      return asText(resultInternal);
+    if (obj instanceof EmbeddedEntity embeddedEntity) {
+      return asText(embeddedEntity);
     }
 
     if (obj instanceof Map) {
