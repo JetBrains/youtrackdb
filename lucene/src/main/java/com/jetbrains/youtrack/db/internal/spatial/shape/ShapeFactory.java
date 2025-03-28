@@ -69,11 +69,13 @@ public class ShapeFactory extends ComplexShapeBuilder {
   @Override
   public Shape fromResult(Result result) {
     String shapeName;
-    if (result instanceof ResultInternal resultInternal) {
-      shapeName = resultInternal.getString(EntityHelper.ATTRIBUTE_CLASS);
-    } else if (result instanceof Result res && res.isEntity()) {
-      var entity = res.asEntity();
-      shapeName = entity.getSchemaClassName();
+    if (result instanceof Result res) {
+      if (res.isEntity()) {
+        var entity = res.asEntity();
+        shapeName = entity.getSchemaClassName();
+      } else {
+        shapeName = res.getString(EntityHelper.ATTRIBUTE_CLASS);
+      }
     } else {
       throw new IllegalStateException("Unexpected result type: " + result);
     }

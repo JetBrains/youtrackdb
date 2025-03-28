@@ -22,6 +22,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromClause;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeFactory;
 import com.jetbrains.youtrack.db.internal.spatial.strategy.SpatialQueryBuilderContains;
+import java.util.Collection;
 
 /**
  *
@@ -50,7 +51,14 @@ public class STContainsFunction extends SpatialFunctionAbstractIndexable {
 
     var shape = toShape(iParams[0]);
 
-    var shape1 = toShape(iParams[1]);
+    Object param1 = null;
+    if (iParams[1] instanceof Collection<?> collection && collection.size() == 1) {
+      param1 = collection.iterator().next();
+    } else {
+      param1 = iParams[1];
+    }
+
+    var shape1 = toShape(param1);
 
     return factory.operation().contains(shape, shape1);
   }
