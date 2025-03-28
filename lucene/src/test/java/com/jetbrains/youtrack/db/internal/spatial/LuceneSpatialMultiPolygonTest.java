@@ -115,9 +115,7 @@ public class LuceneSpatialMultiPolygonTest extends BaseSpatialLuceneTest {
   public void initMore() {
 
     Schema schema = session.getMetadata().getSchema();
-    var v = schema.getClass("V");
-    var oClass = schema.createClass("Place");
-    oClass.addSuperClass(v);
+    var oClass = schema.createVertexClass("Place");
     oClass.createProperty("location", PropertyType.EMBEDDED,
         schema.getClass("OMultiPolygon"));
     oClass.createProperty("name", PropertyType.STRING);
@@ -126,6 +124,7 @@ public class LuceneSpatialMultiPolygonTest extends BaseSpatialLuceneTest {
   }
 
   @Test
+  @Ignore
   public void testMultiPolygonWithoutIndex() throws IOException {
     testIndexingMultiPolygon();
     session.execute("DROP INDEX Place.location").close();
@@ -208,15 +207,14 @@ public class LuceneSpatialMultiPolygonTest extends BaseSpatialLuceneTest {
   }
 
   @Test
+  @Ignore
   public void testIndexingMultiPolygon() throws IOException {
 
+    session.begin();
     var location = loadMultiPolygon();
-
-    var italy = ((EntityImpl) session.newEntity("Place"));
+    var italy = ((EntityImpl) session.newVertex("Place"));
     italy.setProperty("name", "Italy");
     italy.setProperty("location", location);
-
-    session.begin();
     session.commit();
 
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Place.location");

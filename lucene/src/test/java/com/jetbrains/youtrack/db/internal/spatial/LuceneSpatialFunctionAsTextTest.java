@@ -37,8 +37,7 @@ public class LuceneSpatialFunctionAsTextTest extends BaseSpatialLuceneTest {
 
     Schema schema = session.getMetadata().getSchema();
     var v = schema.getClass("V");
-    var oClass = schema.createClass("Location");
-    oClass.addSuperClass(v);
+    var oClass = schema.createVertexClass("Location");
     oClass.createProperty("geometry", PropertyType.EMBEDDED, schema.getClass("OShape"));
     oClass.createProperty("name", PropertyType.STRING);
 
@@ -59,7 +58,7 @@ public class LuceneSpatialFunctionAsTextTest extends BaseSpatialLuceneTest {
 
   protected void createLocation(String name, EmbeddedEntity geometry) {
     session.begin();
-    var doc = ((EntityImpl) session.newEntity("Location"));
+    var doc = ((EntityImpl) session.newVertex("Location"));
     doc.setProperty("name", name);
     doc.setProperty("geometry", geometry);
     session.commit();
@@ -72,6 +71,7 @@ public class LuceneSpatialFunctionAsTextTest extends BaseSpatialLuceneTest {
   }
 
   protected void queryAndAssertGeom(String name, String wkt) {
+    session.begin();
     var results =
         session.execute("select *, ST_AsText(geometry) as text from Location where name = ? ",
             name);
@@ -84,6 +84,7 @@ public class LuceneSpatialFunctionAsTextTest extends BaseSpatialLuceneTest {
     Assert.assertNotNull(asText);
     Assert.assertEquals(asText, wkt);
     assertFalse(results.hasNext());
+    session.commit();
   }
 
   @Test
