@@ -19,7 +19,7 @@
   </test>
   <test name="Security">
     <classes>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.SecurityTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.SecurityTest"/>
       <!--      <class name="com.jetbrains.youtrack.db.auto.RestrictedTest"/>-->
     </classes>
   </test>
@@ -52,7 +52,7 @@
   <test name="Index">
     <classes>
       <class name="com.jetbrains.youtrack.db.auto.DateIndexTest"/>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.IndexTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.IndexTest"/>
       <class name="com.jetbrains.youtrack.db.auto.ByteArrayKeyTest"/>
       <class name="com.jetbrains.youtrack.db.auto.ClassIndexManagerTest"/>
       <class name="com.jetbrains.youtrack.db.auto.IndexConcurrentCommitTest"/>

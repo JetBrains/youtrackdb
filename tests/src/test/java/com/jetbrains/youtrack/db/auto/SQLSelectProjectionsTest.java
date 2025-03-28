@@ -15,6 +15,7 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -51,6 +52,7 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
 
   @Test
   public void queryProjectionOk() {
+    session.begin();
     var result =
         session
             .execute(
@@ -66,6 +68,7 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
       Assert.assertTrue(colNames.contains("followings"), "result: " + r);
       Assert.assertTrue(colNames.contains("followers"), "result: " + r);
     }
+    session.commit();
   }
 
   @Test
@@ -167,6 +170,7 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
 
   @Test
   public void queryProjectionSimpleValues() {
+    session.begin();
     var result = executeQuery("select 10, 'ciao' from Profile LIMIT 1");
 
     Assert.assertFalse(result.isEmpty());
@@ -174,8 +178,9 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
     for (var r : result) {
       Assert.assertTrue(r.getPropertyNames().size() <= 2);
       Assert.assertEquals(((Integer) r.getProperty("10")).intValue(), 10);
-      Assert.assertEquals(r.getProperty("'ciao'"), "ciao");
+      Assert.assertEquals(r.getProperty("\"ciao\""), "ciao");
     }
+    session.commit();
   }
 
   @Test
@@ -224,6 +229,7 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
   }
 
   public void queryProjectionContextArray() {
+    session.begin();
     var result =
         executeQuery("select $a[0] as a0, $a as a from V let $a = outE() where outE().size() > 0");
     Assert.assertFalse(result.isEmpty());
@@ -232,7 +238,7 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
       Assert.assertTrue(r.hasProperty("a"));
       Assert.assertTrue(r.hasProperty("a0"));
 
-      final EntityImpl a0doc = r.getProperty("a0");
+      final var a0doc = (EntityImpl) session.loadEntity(r.getProperty("a0"));
       Identifiable identifiable = r.<Iterable<Identifiable>>getProperty("a").iterator().next();
       var transaction = session.getActiveTransaction();
       final EntityImpl firstADoc =
@@ -241,6 +247,7 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
       Assert.assertTrue(
           EntityHelper.hasSameContentOf(a0doc, session, firstADoc, session, null));
     }
+    session.commit();
   }
 
   public void ifNullFunction() {
@@ -292,7 +299,7 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 1);
     for (var d : result) {
       Assert.assertEquals(d.getProperty("a"), "Ay");
-      Assert.assertEquals(d.getProperty("'bEE'"), "bEE");
+      Assert.assertEquals(d.getProperty("\"bEE\""), "bEE");
     }
   }
 
@@ -322,9 +329,13 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
 
       Assert.assertNotNull(res.getFirst().getProperty("a"));
       Assert.assertNotNull(res.getFirst().getProperty("b"));
-      Assert.assertNotNull(res.getFirst().<EntityImpl>getProperty("child").getProperty("c"));
-      Assert.assertNull(res.getFirst().<EntityImpl>getProperty("child").getProperty("d"));
-      Assert.assertNotNull(res.getFirst().<EntityImpl>getProperty("child").getProperty("e"));
+
+
+      final var child = res.getFirst().getResult("child");
+
+      Assert.assertNotNull(child.getProperty("c"));
+      Assert.assertNull(child.getProperty("d"));
+      Assert.assertNotNull(child.getProperty("e"));
     } finally {
       session.execute("drop class A").close();
       session.execute("drop class B").close();
@@ -348,10 +359,12 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
       childElement.setProperty("e", "e");
 
       rootElement.setProperty("child", childElement, PropertyType.LINK);
-      childElement.setProperty("root", List.of(rootElement), PropertyType.LINKLIST);
+      childElement.setProperty("root", session.newLinkList(List.of(rootElement)),
+          PropertyType.LINKLIST);
 
       session.commit();
 
+      session.begin();
       var res =
           executeQuery(
               "select child.exclude('d') as link from (select expand(root) from "
@@ -362,11 +375,12 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
       var root = res.getFirst();
       Assert.assertNotNull(root.getProperty("link"));
 
-      Assert.assertNull(root.<EntityImpl>getProperty("link").getProperty("d"));
-      Assert.assertNotNull(root.<EntityImpl>getProperty("link").getProperty("c"));
-      Assert.assertNotNull(root.<EntityImpl>getProperty("link").getProperty("e"));
+      Assert.assertNull(root.<Result>getProperty("link").getProperty("d"));
+      Assert.assertNotNull(root.<Result>getProperty("link").getProperty("c"));
+      Assert.assertNotNull(root.<Result>getProperty("link").getProperty("e"));
 
     } finally {
+      session.commit();
       session.execute("drop class A").close();
       session.execute("drop class B").close();
     }

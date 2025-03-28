@@ -324,7 +324,7 @@ public class SecurityTest extends BaseDBTest {
     session.getMetadata().getSchema().createClass("Protected");
 
     try {
-      session.execute("alter class Protected superclass OUser").close();
+      session.execute("alter class Protected superclasses OUser").close();
     } finally {
       session.getMetadata().getSchema().dropClass("Protected");
     }

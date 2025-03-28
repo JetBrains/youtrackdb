@@ -5,6 +5,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 
@@ -57,7 +58,12 @@ public class CopyEntityStep extends AbstractExecutionStep {
     if (result.isEntity()) {
       var docToCopy = (EntityImpl) result.asEntity();
       for (var propName : docToCopy.getPropertyNames()) {
-        resultEntity.setProperty(propName, docToCopy.getProperty(propName));
+        final var propType =
+            PropertyTypeInternal.convertFromPublicType(docToCopy.getPropertyType(propName));
+        final var origValue = docToCopy.getProperty(propName);
+        final var copiedValue = propType == null ? origValue :
+            propType.copy(origValue, session);
+        resultEntity.setProperty(propName, copiedValue);
       }
     } else {
       for (var propName : result.getPropertyNames()) {
