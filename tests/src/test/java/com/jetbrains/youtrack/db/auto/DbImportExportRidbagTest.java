@@ -27,6 +27,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import org.testng.Assert;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -42,8 +43,8 @@ public class DbImportExportRidbagTest extends BaseDBTest implements CommandOutpu
   private boolean dumpMode = false;
 
   @Parameters(value = {"remote", "testPath"})
-  public DbImportExportRidbagTest(boolean remote, String testPath) {
-    super(remote);
+  public DbImportExportRidbagTest(@Optional Boolean remote, String testPath) {
+    super(remote != null && remote);
     this.testPath = testPath;
 
     exportFilePath = System.getProperty("exportFilePath", EXPORT_FILE_PATH);
@@ -55,23 +56,25 @@ public class DbImportExportRidbagTest extends BaseDBTest implements CommandOutpu
       return;
     }
 
-    var database = acquireSession();
-    database.execute("insert into V set name ='a'");
+    var session = acquireSession();
+    session.begin();
+    session.execute("insert into V set name ='a'");
     for (var i = 0; i < 100; i++) {
-      database.execute("insert into V set name ='b" + i + "'");
+      session.execute("insert into V set name ='b" + i + "'");
     }
 
-    database.execute(
+    session.execute(
         "create edge E from (select from V where name ='a') to (select from V where name != 'a')");
+    session.commit();
 
     // ADD A CUSTOM TO THE CLASS
-    database.execute("alter class V custom onBeforeCreate=onBeforeCreateItem").close();
+    session.execute("alter class V custom onBeforeCreate=onBeforeCreateItem").close();
 
-    var export = new DatabaseExport(database, testPath + "/" + exportFilePath, this);
+    var export = new DatabaseExport(session, testPath + "/" + exportFilePath, this);
     export.exportDatabase();
     export.close();
 
-    database.close();
+    session.close();
   }
 
   @Test(dependsOnMethods = "testDbExport")

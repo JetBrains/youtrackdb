@@ -40,6 +40,7 @@ import java.util.Map;
 import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -50,11 +51,11 @@ import org.testng.annotations.Test;
 @Test
 public class SQLSelectTestNewTest extends AbstractSelectTest {
 
-  private EntityImpl record = ((EntityImpl) session.newEntity());
+  private EntityImpl record;
 
   @Parameters(value = "remote")
-  public SQLSelectTestNewTest(boolean remote) throws Exception {
-    super(remote);
+  public SQLSelectTestNewTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @BeforeClass
@@ -65,7 +66,6 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
       for (var i = 0; i < 1000; ++i) {
         session.begin();
         session.newInstance("Profile").setPropertyInChain("test", i).setProperty("name", "N" + i);
-
         session.commit();
       }
     }
@@ -81,6 +81,9 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
     }
 
     session.getMetadata().getSchema().getOrCreateClass("Account");
+    session.begin();
+    record = ((EntityImpl) session.newEntity());
+    session.commit();
   }
 
   @Test
@@ -143,7 +146,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   @Test
   public void querySchemaAndLike() {
     var result1 =
-        executeQuery("select * from cluster:profile where name like 'Gi%'", session);
+        executeQuery("select * from Profile where name like 'Gi%'", session);
 
     for (var value : result1) {
       record = (EntityImpl) value.asEntity();
@@ -153,16 +156,16 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
     }
 
     var result2 =
-        executeQuery("select * from cluster:profile where name like '%epp%'", session);
+        executeQuery("select * from Profile where name like '%epp%'", session);
 
     Assert.assertEquals(result1, result2);
 
     var result3 =
-        executeQuery("select * from cluster:profile where name like 'Gius%pe'", session);
+        executeQuery("select * from Profile where name like 'Gius%pe'", session);
 
     Assert.assertEquals(result1, result3);
 
-    result1 = executeQuery("select * from cluster:profile where name like '%Gi%'", session);
+    result1 = executeQuery("select * from Profile where name like '%Gi%'", session);
 
     for (var result : result1) {
       record = (EntityImpl) result.asEntity();
@@ -171,7 +174,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
       Assert.assertTrue(record.getProperty("name").toString().contains("Gi"));
     }
 
-    result1 = executeQuery("select * from cluster:profile where name like ?", session, "%Gi%");
+    result1 = executeQuery("select * from Profile where name like ?", session, "%Gi%");
 
     for (var result : result1) {
       record = (EntityImpl) result.asEntity();
@@ -268,6 +271,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void queryContainsInDocumentList() {
+    session.begin();
     var coll = new ArrayList<>();
     var entity = session.newEntity();
     entity.setProperty("name", "Luca");
@@ -279,7 +283,6 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
     entity.setProperty("surname", "Miner");
     coll.add(entity);
 
-    session.begin();
     var doc = ((EntityImpl) session.newEntity("Profile"));
     doc.setProperty("coll", coll, PropertyType.EMBEDDEDLIST);
 
@@ -422,7 +425,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   public void queryCollectionContainsLowerCaseSubStringIgnoreCase() {
     var result =
         executeQuery(
-            "select * from cluster:profile where races contains"
+            "select * from Profile where races contains"
                 + " (name.toLowerCase(Locale.ENGLISH).subString(0,1) = 'e')",
             session);
 
@@ -446,21 +449,22 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void queryCollectionContainsInRecords() {
+    session.begin();
     record = ((EntityImpl) session.newEntity("Animal"));
     record.setProperty("name", "Cat");
 
-    session.begin();
-    Collection<EntityImpl> races = new HashSet<EntityImpl>();
+    Collection<Identifiable> races = new HashSet<>();
     races.add(session.newInstance("AnimalRace").setPropertyInChain("name", "European"));
     races.add(session.newInstance("AnimalRace").setPropertyInChain("name", "Siamese"));
     record.setProperty("age", 10);
-    record.setProperty("races", races);
+    record.setProperty("races", session.newLinkSet(races));
 
     session.commit();
 
+    session.begin();
     var result =
         executeQuery(
-            "select * from cluster:animal where races contains (name in ['European','Asiatic'])",
+            "select * from Animal where races contains (name in ['European','Asiatic'])",
             session);
 
     var found = false;
@@ -471,7 +475,8 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
       Assert.assertNotNull(record.getProperty("races"));
 
       races = record.getProperty("races");
-      for (var race : races) {
+      for (var r : races) {
+        var race = session.loadEntity(r.getIdentity());
         if (race.getProperty("name").equals("European") || race.getProperty("name")
             .equals("Asiatic")) {
           found = true;
@@ -480,10 +485,12 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
       }
     }
     Assert.assertTrue(found);
+    session.commit();
 
+    session.begin();
     result =
         executeQuery(
-            "select * from cluster:animal where races contains (name in ['Asiatic','European'])",
+            "select * from Animal where races contains (name in ['Asiatic','European'])",
             session);
 
     found = false;
@@ -494,7 +501,8 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
       Assert.assertNotNull(record.getProperty("races"));
 
       races = record.getProperty("races");
-      for (var race : races) {
+      for (var r : races) {
+        var race = session.loadEntity(r.getIdentity());
         if (race.getProperty("name").equals("European") || race.getProperty("name")
             .equals("Asiatic")) {
           found = true;
@@ -503,38 +511,49 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
       }
     }
     Assert.assertTrue(found);
-
-    result =
-        executeQuery(
-            "select * from cluster:animal where races contains (name in ['aaa','bbb'])", session);
-    Assert.assertEquals(result.size(), 0);
-
-    result =
-        executeQuery(
-            "select * from cluster:animal where races containsall (name in ['European','Asiatic'])",
-            session);
-    Assert.assertEquals(result.size(), 0);
-
-    result =
-        executeQuery(
-            "select * from cluster:animal where races containsall (name in ['European','Siamese'])",
-            session);
-    Assert.assertEquals(result.size(), 1);
-
-    result =
-        executeQuery(
-            "select * from cluster:animal where races containsall (age < 100) LIMIT 1000 SKIP 0",
-            session);
-    Assert.assertEquals(result.size(), 0);
-
-    result =
-        executeQuery(
-            "select * from cluster:animal where not ( races contains (age < 100) ) LIMIT 20 SKIP 0",
-            session);
-    Assert.assertEquals(result.size(), 1);
+    session.commit();
 
     session.begin();
-    record.delete();
+    result =
+        executeQuery(
+            "select * from Animal where races contains (name in ['aaa','bbb'])", session);
+    Assert.assertEquals(result.size(), 0);
+    session.commit();
+
+    session.begin();
+    result =
+        executeQuery(
+            "select * from Animal where races containsall (name in ['European','Asiatic'])",
+            session);
+    Assert.assertEquals(result.size(), 0);
+    session.commit();
+
+    session.begin();
+    result =
+        executeQuery(
+            "select * from Animal where races containsall (name in ['European','Siamese'])",
+            session);
+    Assert.assertEquals(result.size(), 1);
+    session.commit();
+
+    session.begin();
+    result =
+        executeQuery(
+            "select * from Animal where races containsall (age < 100) LIMIT 1000 SKIP 0",
+            session);
+    Assert.assertEquals(result.size(), 0);
+    session.commit();
+
+    session.begin();
+    result =
+        executeQuery(
+            "select * from Animal where not ( races contains (age < 100) ) LIMIT 20 SKIP 0",
+            session);
+    Assert.assertEquals(result.size(), 1);
+    session.commit();
+
+    session.begin();
+    session.load(record.getIdentity()).delete();
     session.commit();
   }
 
@@ -544,21 +563,21 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
     record = ((EntityImpl) session.newEntity("Animal"));
     record.setProperty("name", "Cat");
 
-    Collection<Integer> rates = new HashSet<Integer>();
+    var rates = session.newEmbeddedSet();
     rates.add(100);
     rates.add(200);
     record.setProperty("rates", rates);
     session.commit();
 
     var result =
-        executeQuery("select * from cluster:animal where rates contains 500", session);
+        executeQuery("select * from Animal where rates contains 500", session);
     Assert.assertEquals(result.size(), 0);
 
-    result = executeQuery("select * from cluster:animal where rates contains 100", session);
+    result = executeQuery("select * from Animal where rates contains 100", session);
     Assert.assertEquals(result.size(), 1);
 
     session.begin();
-    record.delete();
+    session.load(record.getIdentity()).delete();
     session.commit();
   }
 
@@ -1058,6 +1077,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void excludeAttributes() {
+    session.begin();
     final var query = "select expand( roles.exclude('@rid', '@class') ) from OUser";
 
     var resultset = session.query(query).toList();
@@ -1065,6 +1085,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
     for (var d : resultset) {
       Assert.assertFalse(d.getIdentity().isPersistent());
     }
+    session.commit();
   }
 
   @Test

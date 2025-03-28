@@ -6,6 +6,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.sequence.DBSequence.SEQU
 import java.util.Locale;
 import java.util.concurrent.ExecutionException;
 import org.testng.Assert;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -20,8 +21,8 @@ public class DBSequenceTest extends BaseDBTest {
   private static final long SECOND_START = 31;
 
   @Parameters(value = "remote")
-  public DBSequenceTest(boolean remote) {
-    super(remote);
+  public DBSequenceTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @Test
@@ -30,8 +31,7 @@ public class DBSequenceTest extends BaseDBTest {
     testSequence("seq2", SEQUENCE_TYPE.CACHED);
   }
 
-  private void testSequence(String sequenceName, SEQUENCE_TYPE sequenceType)
-      throws ExecutionException, InterruptedException {
+  private void testSequence(String sequenceName, SEQUENCE_TYPE sequenceType) {
     var sequenceLibrary = session.getMetadata().getSequenceLibrary();
 
     var seq = sequenceLibrary.createSequence(sequenceName, sequenceType, null);
@@ -51,6 +51,7 @@ public class DBSequenceTest extends BaseDBTest {
     var seqSame = sequenceLibrary.getSequence(sequenceName);
     Assert.assertEquals(seqSame, seq);
 
+    session.begin();
     // Doing it twice to check everything works after reset
     for (var i = 0; i < 2; ++i) {
       Assert.assertEquals(seq.next(session), 1L);
@@ -61,6 +62,7 @@ public class DBSequenceTest extends BaseDBTest {
       Assert.assertEquals(seq.current(session), 4L);
       Assert.assertEquals(seq.reset(session), 0L);
     }
+    session.commit();
   }
 
   @Test

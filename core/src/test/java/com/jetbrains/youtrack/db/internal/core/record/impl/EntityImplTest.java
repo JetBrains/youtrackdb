@@ -25,26 +25,6 @@ public class EntityImplTest extends DbTestBase {
   private static final String defaultDbAdminCredentials = "admin";
 
   @Test
-  public void testClearResetsFieldTypes() throws Exception {
-    session.begin();
-    var doc = (EntityImpl) session.newEntity();
-    doc.setInt("integer", 1);
-    doc.setString("string", "val");
-    doc.setBinary("binary", new byte[0]);
-
-    assertEquals(PropertyType.INTEGER, doc.getPropertyType("integer"));
-    assertEquals(PropertyType.STRING, doc.getPropertyType("string"));
-    assertEquals(PropertyType.BINARY, doc.getPropertyType("binary"));
-
-    doc.clear();
-
-    assertNull(doc.getPropertyType("integer"));
-    assertNull(doc.getPropertyType("string"));
-    assertNull(doc.getPropertyType("binary"));
-    session.rollback();
-  }
-
-  @Test
   public void testResetResetsFieldTypes() throws Exception {
     session.begin();
     var doc = (EntityImpl) session.newEntity();

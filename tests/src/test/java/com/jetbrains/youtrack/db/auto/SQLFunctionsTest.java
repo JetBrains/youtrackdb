@@ -68,11 +68,13 @@ public class SQLFunctionsTest extends BaseDBTest {
 
   @Test
   public void queryMax() {
+    session.begin();
     var result = session.execute("select max(id) as max from Account");
 
     assertNotNull(result.next().getProperty("max"));
     assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -90,6 +92,7 @@ public class SQLFunctionsTest extends BaseDBTest {
 
   @Test
   public void queryMin() {
+    session.begin();
     var result = session.execute("select min(id) as min from Account");
 
     var d = result.next();
@@ -98,6 +101,7 @@ public class SQLFunctionsTest extends BaseDBTest {
     Assert.assertEquals(((Number) d.getProperty("min")).longValue(), 0L);
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -115,11 +119,13 @@ public class SQLFunctionsTest extends BaseDBTest {
 
   @Test
   public void querySum() {
+    session.begin();
     var result = session.execute("select sum(id) as sum from Account");
     var d = result.next();
     Assert.assertNotNull(d.getProperty("sum"));
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
@@ -160,15 +166,13 @@ public class SQLFunctionsTest extends BaseDBTest {
     var docAdmin = ((EntityImpl) session.newEntity("QueryCountExtendsRestrictedClass"));
     docAdmin.setProperty(
         "_allowRead",
-        new HashSet<Identifiable>(
-            Collections.singletonList(admin.getIdentity().getIdentity())));
+        session.newLinkSet(Set.of(admin.getIdentity().getIdentity())));
 
     session.commit();
 
     session.begin();
     var docReader = ((EntityImpl) session.newEntity("QueryCountExtendsRestrictedClass"));
-    docReader.setProperty("_allowRead",
-        new HashSet<>(Collections.singletonList(reader.getIdentity())));
+    docReader.setProperty("_allowRead", session.newLinkSet(Set.of(reader.getIdentity())));
 
     session.commit();
 
@@ -394,6 +398,7 @@ public class SQLFunctionsTest extends BaseDBTest {
 
   @Test
   public void querySysdateNoFormat() {
+    session.begin();
     var result = session.execute("select sysdate() as date from Account");
 
     Assert.assertTrue(result.hasNext());
@@ -401,6 +406,7 @@ public class SQLFunctionsTest extends BaseDBTest {
       var d = result.next();
       Assert.assertNotNull(d.getProperty("date"));
     }
+    session.commit();
   }
 
   @Test
@@ -498,6 +504,7 @@ public class SQLFunctionsTest extends BaseDBTest {
               }
             });
 
+    session.begin();
     var result =
         session.query("select from Account where bigger(id,1000) = 1000").toList();
 
@@ -505,6 +512,7 @@ public class SQLFunctionsTest extends BaseDBTest {
     for (var d : result) {
       Assert.assertTrue((Integer) d.getProperty("id") <= 1000);
     }
+    session.commit();
 
     SQLEngine.getInstance().unregisterFunction("bigger");
   }
@@ -550,10 +558,10 @@ public class SQLFunctionsTest extends BaseDBTest {
     }
 
     session.begin();
-    session.newEntity("V").setProperty("sequence", sequence, PropertyType.EMBEDDEDLIST);
+    session.newVertex().setProperty("sequence", session.newEmbeddedList(sequence), PropertyType.EMBEDDEDLIST);
     var newSequence = new ArrayList<>(sequence);
     newSequence.removeFirst();
-    session.newEntity("V").setProperty("sequence", newSequence, PropertyType.EMBEDDEDLIST);
+    session.newVertex().setProperty("sequence", session.newEmbeddedList(newSequence), PropertyType.EMBEDDEDLIST);
     session.commit();
 
     var result =
@@ -574,12 +582,12 @@ public class SQLFunctionsTest extends BaseDBTest {
     }
 
     session.begin();
-    session.newEntity("V").setProperty("sequence2", sequence);
+    session.newVertex().setProperty("sequence2", session.newEmbeddedList(sequence));
 
     var newSequence = new ArrayList<>(sequence);
     newSequence.remove(sequence.size() - 1);
 
-    session.newEntity("V").setProperty("sequence2", newSequence);
+    session.newVertex().setProperty("sequence2", session.newEmbeddedList(newSequence));
     session.commit();
 
     var result =

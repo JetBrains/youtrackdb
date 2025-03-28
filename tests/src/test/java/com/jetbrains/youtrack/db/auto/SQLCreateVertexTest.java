@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.testng.Assert;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -16,8 +17,8 @@ import org.testng.annotations.Test;
 public class SQLCreateVertexTest extends BaseDBTest {
 
   @Parameters(value = "remote")
-  public SQLCreateVertexTest(boolean remote) {
-    super(remote);
+  public SQLCreateVertexTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   public void testCreateVertexByContent() {
@@ -39,6 +40,7 @@ public class SQLCreateVertexTest extends BaseDBTest {
         .close();
     session.commit();
 
+    session.begin();
     var result =
         session.query("select from CreateVertexByContent").stream().collect(Collectors.toList());
     Assert.assertEquals(result.size(), 2);
@@ -58,6 +60,7 @@ public class SQLCreateVertexTest extends BaseDBTest {
         messages.toArray(),
         resultMessages.toArray(),
         "arrays are different: " + toString(messages) + " - " + toString(resultMessages));
+    session.commit();
   }
 
   private String toString(List<String> resultMessages) {

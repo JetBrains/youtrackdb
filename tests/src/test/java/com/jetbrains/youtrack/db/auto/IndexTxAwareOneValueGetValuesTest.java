@@ -16,6 +16,7 @@ import org.testng.Assert;
 import org.testng.SkipException;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -27,8 +28,8 @@ public class IndexTxAwareOneValueGetValuesTest extends BaseDBTest {
   private static final String INDEX_NAME = "IndexTxAwareOneValueGetValuesTest";
 
   @Parameters(value = "remote")
-  public IndexTxAwareOneValueGetValuesTest(boolean remote) {
-    super(remote);
+  public IndexTxAwareOneValueGetValuesTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @BeforeClass

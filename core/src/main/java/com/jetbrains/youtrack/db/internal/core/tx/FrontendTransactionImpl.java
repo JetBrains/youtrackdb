@@ -319,15 +319,16 @@ public class FrontendTransactionImpl implements
           .record();
     }
 
-    invalidateChangesInCache();
+    invalidateChangesInCacheDuringRollback();
 
     close();
     status = TXSTATUS.ROLLED_BACK;
   }
 
-  private void invalidateChangesInCache() {
+  private void invalidateChangesInCacheDuringRollback() {
     for (final var v : recordOperations.values()) {
       final var rec = v.record;
+      rec.txEntry = null;
       rec.unsetDirty();
       rec.unload();
     }
@@ -750,6 +751,7 @@ public class FrontendTransactionImpl implements
           entity.clearTransactionTrackData();
         }
 
+        record.txEntry = null;
         record.unsetDirty();
         record.unload();
       }

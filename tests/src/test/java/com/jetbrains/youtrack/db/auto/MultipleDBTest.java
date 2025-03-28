@@ -57,18 +57,17 @@ public class MultipleDBTest extends BaseDBTest {
             dropDatabase(dbName);
             createDatabase(dbName);
             try {
-              var db = createSessionInstance(dbName);
+              var session = createSessionInstance(dbName);
 
-              db.getMetadata().getSchema().getOrCreateClass("DummyObject");
+              session.getMetadata().getSchema().getOrCreateClass("DummyObject");
 
               var start = System.currentTimeMillis();
               for (var j = 0; j < operations_write; j++) {
-                var dummy = db.newInstance("DummyObject");
+                session.begin();
+                var dummy = session.newInstance("DummyObject");
                 dummy.setProperty("name", "name" + j);
 
-                db.begin();
-                dummy = dummy;
-                db.commit();
+                session.commit();
 
                 Assert.assertEquals(
                     dummy.getIdentity().getClusterPosition(), j, "RID was " + dummy.getIdentity());
@@ -77,7 +76,7 @@ public class MultipleDBTest extends BaseDBTest {
 
               var time =
                   "("
-                      + getDbId(db)
+                      + getDbId(session)
                       + ") "
                       + "Executed operations (WRITE) in: "
                       + (end - start)
@@ -87,14 +86,14 @@ public class MultipleDBTest extends BaseDBTest {
 
               start = System.currentTimeMillis();
               for (var j = 0; j < operations_read; j++) {
-                var l = db.query(" select * from DummyObject ").stream().toList();
+                var l = session.query(" select * from DummyObject ").stream().toList();
                 Assert.assertEquals(l.size(), operations_write);
               }
               end = System.currentTimeMillis();
 
               time =
                   "("
-                      + getDbId(db)
+                      + getDbId(session)
                       + ") "
                       + "Executed operations (READ) in: "
                       + (end - start)
@@ -102,7 +101,7 @@ public class MultipleDBTest extends BaseDBTest {
               // System.out.println(time);
               times.add(time);
 
-              db.close();
+              session.close();
 
             } finally {
               dropDatabase(dbName);
@@ -135,18 +134,17 @@ public class MultipleDBTest extends BaseDBTest {
             dropDatabase(dbName);
             createDatabase(dbName);
 
-            try (var db = createSessionInstance(dbName)) {
-              db.getMetadata().getSchema().createClass("DummyObject", 1);
+            try (var session = createSessionInstance(dbName)) {
+              session.getMetadata().getSchema().createClass("DummyObject", 1);
 
               var start = System.currentTimeMillis();
               for (var j = 0; j < operations_write; j++) {
 
-                var dummy = ((EntityImpl) db.newEntity("DummyObject"));
+                session.begin();
+                var dummy = ((EntityImpl) session.newEntity("DummyObject"));
                 dummy.setProperty("name", "name" + j);
 
-                db.begin();
-                dummy = dummy;
-                db.commit();
+                session.commit();
 
                 Assert.assertEquals(
                     dummy.getIdentity().getClusterPosition(), j, "RID was " + dummy.getIdentity());
@@ -155,7 +153,7 @@ public class MultipleDBTest extends BaseDBTest {
 
               var time =
                   "("
-                      + getDbId(db)
+                      + getDbId(session)
                       + ") "
                       + "Executed operations (WRITE) in: "
                       + (end - start)
@@ -164,14 +162,14 @@ public class MultipleDBTest extends BaseDBTest {
 
               start = System.currentTimeMillis();
               for (var j = 0; j < operations_read; j++) {
-                var l = db.query(" select * from DummyObject ").stream().toList();
+                var l = session.query(" select * from DummyObject ").stream().toList();
                 Assert.assertEquals(l.size(), operations_write);
               }
               end = System.currentTimeMillis();
 
               time =
                   "("
-                      + getDbId(db)
+                      + getDbId(session)
                       + ") "
                       + "Executed operations (READ) in: "
                       + (end - start)

@@ -80,8 +80,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     size = source.length;
 
     recordId = new ChangeableRecordId();
-
-    unsetDirty();
     this.session = session;
   }
 
@@ -97,12 +95,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   @Override
   public RecordElement getOwner() {
     return null;
-  }
-
-  public void clear() {
-    checkForBinding();
-
-    setDirty();
   }
 
   public boolean sourceIsParsedByProperties() {
@@ -159,7 +151,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     checkForBinding();
 
     if (status != STATUS.UNMARSHALLING) {
-      source = null;
       contentChanged = true;
 
       incrementDirtyCounterAndRegisterInTx();
@@ -415,9 +406,8 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     source = buffer;
     size = buffer != null ? buffer.length : 0;
 
-    if (source != null && source.length > 0) {
-      this.dirty = dirty ? 1 : 0;
-      contentChanged = dirty;
+    if (source != null && source.length > 0 && dirty) {
+      setDirty();
     }
 
     return this;
@@ -464,6 +454,9 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
 
   public void unsetDirty() {
+//    if (txEntry != null) {
+//      throw new IllegalStateException("txEntry is not null during unsetDirty");
+//    }
     contentChanged = false;
     dirty = 0;
   }

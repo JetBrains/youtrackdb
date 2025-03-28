@@ -27,6 +27,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import org.testng.Assert;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -43,8 +44,8 @@ public class DbImportStreamExportTest extends BaseDBTest implements CommandOutpu
   private boolean dumpMode = false;
 
   @Parameters(value = {"url", "testPath"})
-  public DbImportStreamExportTest(boolean remote, String testPath) {
-    super(remote);
+  public DbImportStreamExportTest(@Optional Boolean remote, String testPath) {
+    super(remote != null && remote);
     this.testPath = testPath;
     this.exportFilePath = System.getProperty("exportFilePath", EXPORT_FILE_PATH);
   }

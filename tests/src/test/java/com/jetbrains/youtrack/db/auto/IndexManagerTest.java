@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -32,8 +33,8 @@ public class IndexManagerTest extends BaseDBTest {
   private static final String CLASS_NAME = "classForIndexManagerTest";
 
   @Parameters(value = "remote")
-  public IndexManagerTest(boolean remote) {
-    super(remote);
+  public IndexManagerTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @BeforeClass

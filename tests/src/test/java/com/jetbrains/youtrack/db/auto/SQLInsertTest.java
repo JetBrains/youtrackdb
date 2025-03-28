@@ -91,6 +91,7 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
+    session.begin();
     var activeTx1 = session.getActiveTransaction();
     doc = activeTx1.load(doc);
     Assert.assertNotNull(doc);
@@ -99,6 +100,7 @@ public class SQLInsertTest extends BaseDBTest {
     Assert.assertEquals(((Number) doc.getProperty("salary")).floatValue(), 109.9f);
     Assert.assertEquals(doc.getProperty("location"), new RecordId(addressId, positions.get(3)));
     Assert.assertEquals(doc.getProperty("dummy"), "hooray");
+    session.commit();
 
     session.begin();
     doc =
@@ -114,6 +116,7 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
+    session.begin();
     var activeTx = session.getActiveTransaction();
     doc = activeTx.load(doc);
     Assert.assertNotNull(doc);
@@ -124,6 +127,7 @@ public class SQLInsertTest extends BaseDBTest {
         ((Identifiable) doc.getProperty("location")).getIdentity(),
         new RecordId(addressId, positions.get(3)));
     Assert.assertEquals(doc.getProperty("dummy"), "hooray");
+    session.commit();
   }
 
   @Test
@@ -147,6 +151,7 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
+    session.begin();
     var activeTx2 = session.getActiveTransaction();
     doc = activeTx2.load(doc);
     Assert.assertNotNull(doc);
@@ -155,6 +160,7 @@ public class SQLInsertTest extends BaseDBTest {
     Assert.assertEquals(((Number) doc.getProperty("salary")).floatValue(), 120.0f);
     Assert.assertEquals(doc.getProperty("location"), new RecordId(addressId, positions.get(3)));
     Assert.assertEquals(doc.getProperty("dummy"), "hooray");
+    session.commit();
 
     session.begin();
     var activeTx1 = session.getActiveTransaction();
@@ -203,6 +209,7 @@ public class SQLInsertTest extends BaseDBTest {
 
     Assert.assertNotNull(doc);
 
+    session.begin();
     var activeTx2 = session.getActiveTransaction();
     doc = activeTx2.load(doc);
     Assert.assertEquals(doc.getProperty("equaledges"), "no");
@@ -214,6 +221,7 @@ public class SQLInsertTest extends BaseDBTest {
 
     Assert.assertEquals(entries.get("round"), "eeee");
     Assert.assertEquals(entries.get("blaaa"), "zigzag");
+    session.commit();
 
     session.begin();
     var activeTx1 = session.getActiveTransaction();
@@ -230,6 +238,7 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
+    session.begin();
     var activeTx = session.getActiveTransaction();
     doc = activeTx.load(doc);
     Assert.assertNotNull(doc);
@@ -243,6 +252,7 @@ public class SQLInsertTest extends BaseDBTest {
 
     Assert.assertEquals(entries.get("round"), "eeee");
     Assert.assertEquals(entries.get("blaaa"), "zigzag");
+    session.commit();
   }
 
   @Test
@@ -260,6 +270,7 @@ public class SQLInsertTest extends BaseDBTest {
 
     Assert.assertNotNull(doc);
 
+    session.begin();
     var activeTx2 = session.getActiveTransaction();
     doc = activeTx2.load(doc);
     Assert.assertEquals(doc.getProperty("equaledges"), "yes");
@@ -273,6 +284,7 @@ public class SQLInsertTest extends BaseDBTest {
     Assert.assertEquals(entries.get(1), "top");
     Assert.assertEquals(entries.get(2), "left");
     Assert.assertEquals(entries.get(3), "right");
+    session.commit();
 
     session.begin();
     var activeTx1 = session.getActiveTransaction();
@@ -289,6 +301,7 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
+    session.begin();
     var activeTx = session.getActiveTransaction();
     doc = activeTx.load(doc);
     Assert.assertNotNull(doc);
@@ -304,6 +317,7 @@ public class SQLInsertTest extends BaseDBTest {
     Assert.assertEquals(entries.get(1), "top");
     Assert.assertEquals(entries.get(2), "left");
     Assert.assertEquals(entries.get(3), "right");
+    session.commit();
   }
 
   @Test
@@ -325,10 +339,10 @@ public class SQLInsertTest extends BaseDBTest {
 
     session.begin();
     var doc = session.execute("INSERT INTO test(text) VALUES ('(Hello World)')").next();
-    session.commit();
 
     Assert.assertNotNull(doc);
     Assert.assertEquals(doc.getProperty("text"), "(Hello World)");
+    session.commit();
   }
 
   @Test
@@ -350,12 +364,14 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
+    session.begin();
     var activeTx = session.getActiveTransaction();
     doc = activeTx.load(doc);
     Assert.assertNotNull(doc);
     Assert.assertNotNull(doc.getProperty("names"));
     Assert.assertTrue(doc.getProperty("names") instanceof Collection);
     Assert.assertEquals(((Collection<?>) doc.getProperty("names")).size(), uCount);
+    session.commit();
   }
 
   @Test(dependsOnMethods = "insertOperator")
@@ -538,6 +554,7 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
+    session.begin();
     var activeTx = session.getActiveTransaction();
     doc = activeTx.load(doc);
     Assert.assertTrue(doc.getProperty("embeddedSetNoLinkedClass") instanceof Set);
@@ -546,6 +563,7 @@ public class SQLInsertTest extends BaseDBTest {
     for (var o : addr) {
       Assert.assertTrue(o instanceof Map);
     }
+    session.commit();
   }
 
   @Test
@@ -592,6 +610,7 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
+    session.begin();
     var activeTx = session.getActiveTransaction();
     doc = activeTx.load(doc);
     Assert.assertTrue(doc.getProperty("embeddedListNoLinkedClass") instanceof List);
@@ -600,6 +619,7 @@ public class SQLInsertTest extends BaseDBTest {
     for (var o : addr) {
       Assert.assertTrue(o instanceof Map);
     }
+    session.commit();
   }
 
   @Test
@@ -650,6 +670,7 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
+    session.begin();
     var activeTx = session.getActiveTransaction();
     doc = activeTx.load(doc);
     Assert.assertTrue(doc.getProperty("embeddedMapNoLinkedClass") instanceof Map);
@@ -658,6 +679,7 @@ public class SQLInsertTest extends BaseDBTest {
     for (var o : addr.values()) {
       Assert.assertTrue(o instanceof Map);
     }
+    session.commit();
   }
 
   @Test(enabled = false)
@@ -721,6 +743,7 @@ public class SQLInsertTest extends BaseDBTest {
         .close();
     session.commit();
 
+    session.begin();
     var resultList =
         session.query("select from TestEmbeddedDates").stream().collect(Collectors.toList());
 
@@ -737,6 +760,7 @@ public class SQLInsertTest extends BaseDBTest {
       Assert.assertEquals(cal.get(Calendar.YEAR), 2005);
       found = true;
     }
+    session.commit();
 
     session.begin();
     session.delete(result.asRecord());
@@ -879,6 +903,7 @@ public class SQLInsertTest extends BaseDBTest {
   }
 
   private List<Long> getValidPositions(int clusterId) {
+    session.begin();
     final List<Long> positions = new ArrayList<Long>();
 
     final RecordIteratorCluster<?> iteratorCluster =
@@ -891,6 +916,7 @@ public class SQLInsertTest extends BaseDBTest {
       var doc = iteratorCluster.next();
       positions.add(doc.getIdentity().getClusterPosition());
     }
+    session.commit();
     return positions;
   }
 }

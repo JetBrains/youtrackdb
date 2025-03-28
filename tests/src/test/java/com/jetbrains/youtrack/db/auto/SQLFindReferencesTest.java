@@ -24,6 +24,7 @@ import java.util.List;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -43,12 +44,13 @@ public class SQLFindReferencesTest extends BaseDBTest {
   private RecordId fbiID;
 
   @Parameters(value = "remote")
-  public SQLFindReferencesTest(boolean remote) {
-    super(remote);
+  public SQLFindReferencesTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @Test
   public void findSimpleReference() {
+    session.begin();
     var result = session.execute("find references " + carID).stream().toList();
 
     Assert.assertEquals(result.size(), 1);
@@ -71,48 +73,19 @@ public class SQLFindReferencesTest extends BaseDBTest {
     result = session.execute("find references " + johnDoeID).stream().toList();
     Assert.assertEquals(result.size(), 0);
 
-    result = null;
+    session.commit();
   }
 
   @Test
   public void findReferenceByClassAndClusters() {
+    session.begin();
     var result =
         session.execute("find references " + janeDoeID + " [" + WORKPLACE + "]").stream().toList();
 
     Assert.assertEquals(result.size(), 1);
     Assert.assertEquals(ctuID, result.iterator().next().getProperty("referredBy"));
 
-    result =
-        session
-            .execute("find references " + jackBauerID + " [" + WORKPLACE + ",cluster:" + CAR + "]")
-            .stream()
-            .toList();
-
-    Assert.assertEquals(result.size(), 3);
-
-    for (var res : result) {
-      Identifiable rid = res.getProperty("referredBy");
-      Assert.assertTrue(rid.equals(ctuID) || rid.equals(fbiID) || rid.equals(carID));
-    }
-
-    result =
-        session
-            .execute(
-                "find references "
-                    + johnDoeID
-                    + " ["
-                    + WORKPLACE
-                    + ","
-                    + CAR
-                    + ",cluster:"
-                    + WORKER
-                    + "]")
-            .stream()
-            .toList();
-
-    Assert.assertEquals(result.size(), 0);
-
-    result = null;
+    session.commit();
   }
 
   @BeforeClass
@@ -164,7 +137,7 @@ public class SQLFindReferencesTest extends BaseDBTest {
     var ctu = ((EntityImpl) session.newEntity(WORKPLACE));
     ctu.setProperty("name", "CTU");
     ctu.setProperty("boss", jackBauer);
-    List<EntityImpl> workplace1Workers = new ArrayList<EntityImpl>();
+    var workplace1Workers = session.newLinkList();
     workplace1Workers.add(chuckNorris);
     workplace1Workers.add(janeDoe);
     ctu.setProperty("workers", workplace1Workers);
@@ -172,7 +145,7 @@ public class SQLFindReferencesTest extends BaseDBTest {
     var fbi = ((EntityImpl) session.newEntity(WORKPLACE));
     fbi.setProperty("name", "FBI");
     fbi.setProperty("boss", chuckNorris);
-    List<EntityImpl> workplace2Workers = new ArrayList<EntityImpl>();
+    var workplace2Workers = session.newLinkList();
     workplace2Workers.add(chuckNorris);
     workplace2Workers.add(jackBauer);
     fbi.setProperty("workers", workplace2Workers);

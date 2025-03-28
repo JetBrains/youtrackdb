@@ -75,12 +75,12 @@ public class GEOTest extends BaseDBTest {
     EntityImpl point;
 
     for (var i = 0; i < 10000; ++i) {
+      session.begin();
       point = ((EntityImpl) session.newEntity("MapPoint"));
 
       point.setProperty("x", 52.20472d + i / 100d);
       point.setProperty("y", 0.14056d + i / 100d);
 
-      session.begin();
 
       session.commit();
     }
@@ -104,6 +104,7 @@ public class GEOTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "queryCreatePoints")
   public void queryDistanceOrdered() {
+    session.begin();
     Assert.assertEquals(session.countClass("MapPoint"), 10000);
 
     // MAKE THE FIRST RECORD DIRTY TO TEST IF DISTANCE JUMP IT
@@ -112,7 +113,7 @@ public class GEOTest extends BaseDBTest {
     try {
       resultSet.getFirst().asEntityOrNull().setProperty("x", "--wrong--");
       Assert.fail();
-    } catch (DatabaseException e) {
+    } catch (NumberFormatException e) {
       Assert.assertTrue(true);
     }
 

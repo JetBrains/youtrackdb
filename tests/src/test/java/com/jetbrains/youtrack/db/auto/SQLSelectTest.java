@@ -16,6 +16,8 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -117,8 +119,9 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void querySchemaAndLike() {
+    session.begin();
     var result1 =
-        executeQuery("select * from cluster:profile where name like 'Gi%'", session);
+        executeQuery("select * from Profile where name like 'Gi%'", session);
 
     for (var record : result1) {
       Assert.assertTrue(record.asEntityOrNull().getSchemaClassName().equalsIgnoreCase("profile"));
@@ -126,40 +129,40 @@ public class SQLSelectTest extends AbstractSelectTest {
     }
 
     var result2 =
-        executeQuery("select * from cluster:profile where name like '%epp%'", session);
+        executeQuery("select * from Profile where name like '%epp%'", session);
 
     Assert.assertEquals(result1, result2);
 
     var result3 =
-        executeQuery("select * from cluster:profile where name like 'Gius%pe'", session);
+        executeQuery("select * from Profile where name like 'Gius%pe'", session);
 
     Assert.assertEquals(result1, result3);
 
-    result1 = executeQuery("select * from cluster:profile where name like '%Gi%'", session);
+    result1 = executeQuery("select * from Profile where name like '%Gi%'", session);
 
     for (var record : result1) {
       Assert.assertTrue(record.asEntityOrNull().getSchemaClassName().equalsIgnoreCase("profile"));
       Assert.assertTrue(record.getProperty("name").toString().contains("Gi"));
     }
 
-    result1 = executeQuery("select * from cluster:profile where name like ?", session, "%Gi%");
+    result1 = executeQuery("select * from Profile where name like ?", session, "%Gi%");
 
     for (var record : result1) {
       Assert.assertTrue(record.asEntityOrNull().getSchemaClassName().equalsIgnoreCase("profile"));
       Assert.assertTrue(record.getProperty("name").toString().contains("Gi"));
     }
+    session.commit();
   }
 
   @Test
   public void queryContainsInEmbeddedSet() {
-    Set<String> tags = new HashSet<>();
+    session.begin();
+    var tags = session.newEmbeddedSet();
     tags.add("smart");
     tags.add("nice");
 
     var doc = ((EntityImpl) session.newEntity("Profile"));
     doc.setProperty("tags", tags, PropertyType.EMBEDDEDSET);
-
-    session.begin();
 
     session.commit();
 
@@ -177,14 +180,14 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void queryContainsInEmbeddedList() {
-    List<String> tags = new ArrayList<>();
+    session.begin();
+    var tags = session.newEmbeddedList();
     tags.add("smart");
     tags.add("nice");
 
     var doc = ((EntityImpl) session.newEntity("Profile"));
     doc.setProperty("tags", tags);
 
-    session.begin();
 
     session.commit();
 
@@ -209,16 +212,16 @@ public class SQLSelectTest extends AbstractSelectTest {
   @Test
   public void queryContainsInDocumentSet() {
     session.begin();
-    var coll = new HashSet<EntityImpl>();
-    var entity = session.newEntity();
+    var coll = session.newEmbeddedSet();
+    var entity = session.newEmbeddedEntity();
     entity.setProperty("name", "Luca");
     entity.setProperty("surname", "Garulli");
-    coll.add((EntityImpl) entity);
+    coll.add(entity);
 
-    entity = session.newEntity();
+    entity = session.newEmbeddedEntity();
     entity.setProperty("name", "Jay");
     entity.setProperty("surname", "Miner");
-    coll.add((EntityImpl) entity);
+    coll.add(entity);
 
     var doc = ((EntityImpl) session.newEntity("Profile"));
     doc.setProperty("coll", coll, PropertyType.EMBEDDEDSET);
@@ -243,32 +246,31 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void queryContainsInDocumentList() {
-    List<EntityImpl> coll = new ArrayList<>();
+    session.begin();
+    var coll = session.newEmbeddedList();
 
-    var entity = session.newEntity();
+    var entity = session.newEmbeddedEntity();
     entity.setProperty("name", "Luca");
     entity.setProperty("surname", "Garulli");
-    coll.add((EntityImpl) entity);
+    coll.add(entity);
 
-    entity = session.newEntity();
+    entity = session.newEmbeddedEntity();
     entity.setProperty("name", "Jay");
     entity.setProperty("surname", "Miner");
-    coll.add((EntityImpl) entity);
+    coll.add(entity);
 
     var doc = ((EntityImpl) session.newEntity("Profile"));
     doc.setProperty("coll", coll, PropertyType.EMBEDDEDLIST);
-
-    session.begin();
-
     session.commit();
 
+    session.begin();
     var resultset =
         executeQuery(
             "select coll[name='Jay'] as value from Profile where coll is not null", session);
     Assert.assertEquals(resultset.size(), 1);
     Assert.assertTrue(resultset.getFirst().getProperty("value") instanceof List<?>);
     Assert.assertEquals(
-        ((EntityImpl) ((List<?>) resultset.getFirst().getProperty("value")).getFirst()).getProperty(
+        ((Result) ((List<?>) resultset.getFirst().getProperty("value")).getFirst()).getProperty(
             "name"),
         "Jay");
 
@@ -280,14 +282,15 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void queryContainsInEmbeddedMapClassic() {
-    Map<String, EntityImpl> customReferences = new HashMap<>();
+    var customReferences = session.newEmbeddedMap();
 
-    var entity = session.newEntity();
+    session.begin();
+    var entity = session.newEmbeddedEntity();
     entity.setProperty("name", "Luca");
     entity.setProperty("surname", "Garulli");
     customReferences.put("first", (EntityImpl) entity);
 
-    entity = session.newEntity();
+    entity = session.newEmbeddedEntity();
     entity.setProperty("name", "Jay");
     entity.setProperty("surname", "Miner");
     customReferences.put("second", (EntityImpl) entity);
@@ -295,7 +298,6 @@ public class SQLSelectTest extends AbstractSelectTest {
     var doc = ((EntityImpl) session.newEntity("Profile"));
     doc.setProperty("customReferences", customReferences, PropertyType.EMBEDDEDMAP);
 
-    session.begin();
 
     session.commit();
 
@@ -320,21 +322,21 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void queryContainsInEmbeddedMapNew() {
-    Map<String, EntityImpl> customReferences = new HashMap<>();
-    var entity = session.newEntity();
+    session.begin();
+    var customReferences = session.newEmbeddedMap();
+    var entity = session.newEmbeddedEntity();
     entity.setProperty("name", "Luca");
     entity.setProperty("surname", "Garulli");
-    customReferences.put("first", (EntityImpl) entity);
+    customReferences.put("first", entity);
 
-    entity = session.newEntity();
+    entity = session.newEmbeddedEntity();
     entity.setProperty("name", "Jay");
     entity.setProperty("surname", "Miner");
-    customReferences.put("second", (EntityImpl) entity);
+    customReferences.put("second", entity);
 
     var doc = ((EntityImpl) session.newEntity("Profile"));
     doc.setProperty("customReferences", customReferences, PropertyType.EMBEDDEDMAP);
 
-    session.begin();
 
     session.commit();
 
@@ -361,9 +363,10 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void queryCollectionContainsLowerCaseSubStringIgnoreCase() {
+    session.begin();
     var result =
         executeQuery(
-            "select * from cluster:profile where races contains"
+            "select * from Profile where races contains"
                 + " (name.toLowerCase(Locale.ENGLISH).subString(0,1) = 'e')",
             session);
 
@@ -381,15 +384,16 @@ public class SQLSelectTest extends AbstractSelectTest {
       }
       Assert.assertTrue(found);
     }
+    session.commit();
   }
 
   @Test
   public void queryCollectionContainsInRecords() {
+    session.begin();
     var record = ((EntityImpl) session.newEntity("Animal"));
     record.setProperty("name", "Cat");
 
-    session.begin();
-    Collection<Identifiable> races = new HashSet<>();
+    var races = session.newLinkSet();
     races.add(session.newInstance("AnimalRace").setPropertyInChain("name", "European"));
     races.add(session.newInstance("AnimalRace").setPropertyInChain("name", "Siamese"));
     record.setProperty("age", 10);
@@ -397,9 +401,10 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     session.commit();
 
+    session.begin();
     var result =
         executeQuery(
-            "select * from cluster:animal where races contains (name in ['European','Asiatic'])",
+            "select * from Animal where races contains (name in ['European','Asiatic'])",
             session);
 
     var found = false;
@@ -422,10 +427,12 @@ public class SQLSelectTest extends AbstractSelectTest {
       }
     }
     Assert.assertTrue(found);
+    session.commit();
 
+    session.begin();
     result =
         executeQuery(
-            "select * from cluster:animal where races contains (name in ['Asiatic','European'])",
+            "select * from Animal where races contains (name in ['Asiatic','European'])",
             session);
 
     found = false;
@@ -448,35 +455,46 @@ public class SQLSelectTest extends AbstractSelectTest {
       }
     }
     Assert.assertTrue(found);
+    session.commit();
 
+    session.begin();
     result =
         executeQuery(
-            "select * from cluster:animal where races contains (name in ['aaa','bbb'])", session);
+            "select * from Animal where races contains (name in ['aaa','bbb'])", session);
     Assert.assertEquals(result.size(), 0);
+    session.commit();
 
+    session.begin();
     result =
         executeQuery(
-            "select * from cluster:animal where races containsall (name in ['European','Asiatic'])",
+            "select * from Animal where races containsall (name in ['European','Asiatic'])",
             session);
     Assert.assertEquals(result.size(), 0);
+    session.commit();
 
+    session.begin();
     result =
         executeQuery(
-            "select * from cluster:animal where races containsall (name in ['European','Siamese'])",
+            "select * from Animal where races containsall (name in ['European','Siamese'])",
             session);
     Assert.assertEquals(result.size(), 1);
+    session.commit();
 
+    session.begin();
     result =
         executeQuery(
-            "select * from cluster:animal where races containsall (age < 100) LIMIT 1000 SKIP 0",
+            "select * from Animal where races containsall (age < 100) LIMIT 1000 SKIP 0",
             session);
     Assert.assertEquals(result.size(), 0);
+    session.commit();
 
+    session.begin();
     result =
         executeQuery(
-            "select * from cluster:animal where not ( races contains (age < 100) ) LIMIT 20 SKIP 0",
+            "select * from Animal where not ( races contains (age < 100) ) LIMIT 20 SKIP 0",
             session);
     Assert.assertEquals(result.size(), 1);
+    session.commit();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -487,17 +505,18 @@ public class SQLSelectTest extends AbstractSelectTest {
   @Test
   public void queryCollectionInNumbers() {
     session.begin();
-    var record = ((EntityImpl) session.newEntity("Animal"));
+    Entity record = ((EntityImpl) session.newEntity("Animal"));
     record.setProperty("name", "Cat");
 
-    Collection<Integer> rates = new HashSet<>();
+    var rates = session.<Integer>newEmbeddedSet();
     rates.add(100);
     rates.add(200);
     record.setProperty("rates", rates);
     session.commit();
 
+    session.begin();
     var result = executeQuery(
-        "select * from cluster:animal where rates in [100,200]");
+        "select * from Animal where rates in [100,200]");
 
     var found = false;
     for (var i = 0; i < result.size() && !found; ++i) {
@@ -515,12 +534,14 @@ public class SQLSelectTest extends AbstractSelectTest {
       }
     }
     Assert.assertTrue(found);
+    session.commit();
 
-    result = executeQuery("select * from cluster:animal where rates in [200,10333]");
+    session.begin();
+    result = executeQuery("select from Animal where rates in [200,10333]");
 
     found = false;
     for (var i = 0; i < result.size() && !found; ++i) {
-      record = (EntityImpl) result.get(i);
+      record = result.get(i).asEntity();
 
       Assert.assertTrue(record.getSchemaClassName().equalsIgnoreCase("animal"));
       Assert.assertNotNull(record.getProperty("rates"));
@@ -534,12 +555,17 @@ public class SQLSelectTest extends AbstractSelectTest {
       }
     }
     Assert.assertTrue(found);
+    session.commit();
 
-    result = executeQuery("select * from cluster:animal where rates contains 500", session);
+    session.begin();
+    result = executeQuery("select * from Animal where rates contains 500", session);
     Assert.assertEquals(result.size(), 0);
+    session.commit();
 
-    result = executeQuery("select * from cluster:animal where rates contains 100", session);
+    session.begin();
+    result = executeQuery("select * from Animal where rates contains 100", session);
     Assert.assertEquals(result.size(), 1);
+    session.commit();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -549,6 +575,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void queryWhereRidDirectMatching() {
+    session.begin();
     var clusterId = session.getMetadata().getSchema().getClass("ORole").getClusterIds()[0];
     var positions = getValidPositions(clusterId);
 
@@ -558,15 +585,18 @@ public class SQLSelectTest extends AbstractSelectTest {
             session);
 
     Assert.assertEquals(result.size(), 1);
+    session.commit();
   }
 
   @Test
   public void queryWhereInpreparred() {
+    session.begin();
     var result =
         executeQuery("select * from OUser where name in [ :name ]", session, "admin");
 
     Assert.assertEquals(result.size(), 1);
     Assert.assertEquals(result.getFirst().asEntityOrNull().getProperty("name"), "admin");
+    session.commit();
   }
 
   @Test
@@ -581,6 +611,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void queryAnyOperator() {
+    session.begin();
     var result = executeQuery("select from Profile where any() like 'N%'", session);
 
     Assert.assertFalse(result.isEmpty());
@@ -599,6 +630,7 @@ public class SQLSelectTest extends AbstractSelectTest {
       }
       Assert.assertTrue(found);
     }
+    session.commit();
   }
 
   @Test
@@ -610,6 +642,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void queryOrderBy() {
+    session.begin();
     var result = executeQuery("select from Profile order by name", session);
 
     Assert.assertFalse(result.isEmpty());
@@ -629,6 +662,7 @@ public class SQLSelectTest extends AbstractSelectTest {
       }
       lastName = fieldValue;
     }
+    session.commit();
   }
 
   @Test
@@ -658,6 +692,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void queryPaginationWithSkipAndLimit() {
+    session.begin();
     var result = executeQuery("select from Profile", session);
 
     var page = executeQuery("select from Profile skip 10 limit 10", session);
@@ -666,6 +701,7 @@ public class SQLSelectTest extends AbstractSelectTest {
     for (var i = 0; i < page.size(); ++i) {
       Assert.assertEquals(page.get(i), result.get(10 + i));
     }
+    session.commit();
   }
 
   @Test
@@ -679,6 +715,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void queryPaginationWithOffsetAndLimit() {
+    session.begin();
     var result = executeQuery("select from Profile", session);
 
     var page = executeQuery("select from Profile offset 10 limit 10", session);
@@ -687,10 +724,12 @@ public class SQLSelectTest extends AbstractSelectTest {
     for (var i = 0; i < page.size(); ++i) {
       Assert.assertEquals(page.get(i), result.get(10 + i));
     }
+    session.commit();
   }
 
   @Test
   public void queryPaginationWithOrderBySkipAndLimit() {
+    session.begin();
     var result = executeQuery("select from Profile order by name", session);
 
     var page =
@@ -700,10 +739,12 @@ public class SQLSelectTest extends AbstractSelectTest {
     for (var i = 0; i < page.size(); ++i) {
       Assert.assertEquals(page.get(i), result.get(10 + i));
     }
+    session.commit();
   }
 
   @Test
   public void queryPaginationWithOrderByDescSkipAndLimit() {
+    session.begin();
     var result = executeQuery("select from Profile order by name desc");
 
     var page = executeQuery(
@@ -713,10 +754,12 @@ public class SQLSelectTest extends AbstractSelectTest {
     for (var i = 0; i < page.size(); ++i) {
       Assert.assertEquals(page.get(i), result.get(10 + i));
     }
+    session.commit();
   }
 
   @Test
   public void queryOrderByAndLimit() {
+    session.begin();
     var result = executeQuery("select from Profile order by name limit 2");
 
     Assert.assertTrue(result.size() <= 2);
@@ -728,10 +771,12 @@ public class SQLSelectTest extends AbstractSelectTest {
       }
       lastName = d.getProperty("name");
     }
+    session.commit();
   }
 
   @Test
   public void queryConditionAndOrderBy() {
+    session.begin();
     var result =
         executeQuery("select from Profile where name is not null order by name");
 
@@ -744,6 +789,7 @@ public class SQLSelectTest extends AbstractSelectTest {
       }
       lastName = d.getProperty("name");
     }
+    session.commit();
   }
 
   @Test(enabled = false)
@@ -764,6 +810,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void queryRecordTargetRid() {
+    session.begin();
     var profileClusterId =
         session.getMetadata().getSchema().getClass("Profile").getClusterIds()[0];
     var positions = getValidPositions(profileClusterId);
@@ -777,10 +824,12 @@ public class SQLSelectTest extends AbstractSelectTest {
       Assert.assertEquals(
           d.getIdentity().toString(), "#" + profileClusterId + ":" + positions.getFirst());
     }
+    session.commit();
   }
 
   @Test
   public void queryRecordTargetRids() {
+    session.begin();
     var profileClusterId =
         session.getMetadata().getSchema().getClass("Profile").getClusterIds()[0];
     var positions = getValidPositions(profileClusterId);
@@ -804,10 +853,12 @@ public class SQLSelectTest extends AbstractSelectTest {
         result.get(0).getIdentity().toString(), "#" + profileClusterId + ":" + positions.get(0));
     Assert.assertEquals(
         result.get(1).getIdentity().toString(), "#" + profileClusterId + ":" + positions.get(1));
+    session.commit();
   }
 
   @Test
   public void queryRecordAttribRid() {
+    session.begin();
 
     var profileClusterId =
         session.getMetadata().getSchema().getClass("Profile").getClusterIds()[0];
@@ -824,6 +875,7 @@ public class SQLSelectTest extends AbstractSelectTest {
       Assert.assertEquals(
           d.getIdentity().toString(), "#" + profileClusterId + ":" + postions.getFirst());
     }
+    session.commit();
   }
 
   @Test
@@ -850,10 +902,11 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void queryRecordAttribType() {
-    var result = executeQuery("select from Profile where @type = 'document'",
-        session);
+    session.begin();
+    var result = executeQuery("select from Profile where @type = 'document'", session);
 
     Assert.assertFalse(result.isEmpty());
+    session.commit();
   }
 
   @Test
@@ -880,6 +933,7 @@ public class SQLSelectTest extends AbstractSelectTest {
   @SuppressWarnings("unused")
   @Test
   public void testRecordNumbers() {
+    session.begin();
     var tot = session.countClass("V");
 
     var count = 0;
@@ -892,6 +946,7 @@ public class SQLSelectTest extends AbstractSelectTest {
     Assert.assertEquals(count, tot);
 
     Assert.assertTrue(executeQuery("select from V", session).size() >= tot);
+    session.commit();
   }
 
   @Test
@@ -937,6 +992,7 @@ public class SQLSelectTest extends AbstractSelectTest {
     session.execute("INSERT INTO account (name) VALUES ('test (demo)')");
     session.commit();
 
+    session.begin();
     var result = executeQuery("select * from account where name = 'test (demo)'");
 
     Assert.assertEquals(result.size(), 1);
@@ -944,49 +1000,62 @@ public class SQLSelectTest extends AbstractSelectTest {
     for (var record : result) {
       Assert.assertEquals(record.getProperty("name"), "test (demo)");
     }
+    session.commit();
   }
 
   @Test
   public void queryMathOperators() {
+    session.begin();
     var result = executeQuery("select * from account where id < 3 + 4");
     Assert.assertFalse(result.isEmpty());
     for (var document : result) {
       Assert.assertTrue(((Number) document.getProperty("id")).intValue() < 3 + 4);
     }
+    session.commit();
 
+    session.begin();
     result = executeQuery("select * from account where id < 10 - 3");
     Assert.assertFalse(result.isEmpty());
     for (var document : result) {
       Assert.assertTrue(((Number) document.getProperty("id")).intValue() < 10 - 3);
     }
+    session.commit();
 
+    session.begin();
     result = executeQuery("select * from account where id < 3 * 2");
     Assert.assertFalse(result.isEmpty());
     for (var document : result) {
       Assert.assertTrue(((Number) document.getProperty("id")).intValue() < 3 << 1);
     }
+    session.commit();
 
+    session.begin();
     result = executeQuery("select * from account where id < 120 / 20");
     Assert.assertFalse(result.isEmpty());
     for (var document : result) {
       Assert.assertTrue(((Number) document.getProperty("id")).intValue() < 120 / 20);
     }
+    session.commit();
 
+    session.begin();
     result = executeQuery("select * from account where id < 27 % 10");
     Assert.assertFalse(result.isEmpty());
     for (var document : result) {
       Assert.assertTrue(((Number) document.getProperty("id")).intValue() < 27 % 10);
     }
+    session.commit();
 
+    session.begin();
     result = executeQuery("select * from account where id = id * 1");
     Assert.assertFalse(result.isEmpty());
-
     var result2 = executeQuery("select count(*) as tot from account where id >= 0");
     Assert.assertEquals(result.size(), ((Number) result2.getFirst().getProperty("tot")).intValue());
+    session.commit();
   }
 
   @Test
   public void testBetweenWithParameters() {
+    session.begin();
 
     final var result =
         executeQuery(
@@ -1006,10 +1075,12 @@ public class SQLSelectTest extends AbstractSelectTest {
     for (var record : result) {
       Assert.assertTrue(resultsList.remove(record.<Integer>getProperty("id")));
     }
+    session.commit();
   }
 
   @Test
   public void testInWithParameters() {
+    session.begin();
 
     final var result =
         executeQuery(
@@ -1026,6 +1097,7 @@ public class SQLSelectTest extends AbstractSelectTest {
     for (var record : result) {
       Assert.assertTrue(resultsList.remove(record.<Integer>getProperty("id")));
     }
+    session.commit();
   }
 
   @Test
@@ -1041,6 +1113,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void testQueryAsClass() {
+    session.begin();
 
     var result =
         executeQuery("select from Account where addresses.@class in [ 'Address' ]");
@@ -1059,10 +1132,12 @@ public class SQLSelectTest extends AbstractSelectTest {
               .getName(),
           "Address");
     }
+    session.commit();
   }
 
   @Test
   public void testQueryNotOperator() {
+    session.begin();
 
     var result =
         executeQuery("select from Account where not ( addresses.@class in [ 'Address' ] )");
@@ -1082,6 +1157,7 @@ public class SQLSelectTest extends AbstractSelectTest {
               .getName()
               .equals("Address"));
     }
+    session.commit();
   }
 
   public void testParams() {
@@ -1091,16 +1167,18 @@ public class SQLSelectTest extends AbstractSelectTest {
       test.createProperty("f1", PropertyType.STRING);
       test.createProperty("f2", PropertyType.STRING);
     }
+    session.begin();
     var document = ((EntityImpl) session.newEntity(test));
     document.setProperty("f1", "a");
 
-    session.begin();
     session.commit();
 
+    session.begin();
     Map<String, Object> parameters = new HashMap<>();
     parameters.put("p1", "a");
     executeQuery("select from test where (f1 = :p1)", parameters);
     executeQuery("select from test where f1 = :p1 and f2 = :p1", parameters);
+    session.commit();
   }
 
   @Test
@@ -1135,7 +1213,7 @@ public class SQLSelectTest extends AbstractSelectTest {
   public void subQueryNoFrom() {
     var result2 =
         executeQuery(
-            "select $names let $names = (select EXPAND( addresses.city ) as city from Account where"
+            "select $names let $names = (select EXPAND( addresses.city ) from Account where"
                 + " addresses.size() > 0 )");
 
     Assert.assertFalse(result2.isEmpty());
@@ -1179,6 +1257,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     session.commit();
 
+    session.begin();
     var result =
         executeQuery(
             "select * from " + facClass.getName() + " where context = 'test' order by date",
@@ -1187,7 +1266,9 @@ public class SQLSelectTest extends AbstractSelectTest {
     var smaller = Calendar.getInstance();
     smaller.setTime(result.getFirst().asEntityOrNull().getProperty("date"));
     Assert.assertEquals(smaller.get(Calendar.YEAR), oneYearAgo.get(Calendar.YEAR));
+    session.commit();
 
+    session.begin();
     result =
         executeQuery(
             "select * from " + facClass.getName()
@@ -1197,10 +1278,12 @@ public class SQLSelectTest extends AbstractSelectTest {
     var bigger = Calendar.getInstance();
     bigger.setTime(result.getFirst().getProperty("date"));
     Assert.assertEquals(bigger.get(Calendar.YEAR), currentYear.get(Calendar.YEAR));
+    session.commit();
   }
 
   @Test
   public void queryWithTwoRidInWhere() {
+    session.begin();
     var clusterId = session.getClusterIdByName("profile");
 
     var positions = getValidPositions(clusterId);
@@ -1233,6 +1316,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     Assert.assertEquals(resultset.getFirst().getProperty("oid"),
         new RecordId(clusterId, maxPos).toString());
+    session.commit();
   }
 
   @Test
@@ -1242,20 +1326,21 @@ public class SQLSelectTest extends AbstractSelectTest {
     placeClass.createProperty("descr", PropertyType.STRING);
     placeClass.createIndex("place_id_index", INDEX_TYPE.UNIQUE, "id");
 
+    session.begin();
     var odoc = ((EntityImpl) session.newEntity("Place"));
     odoc.setProperty("id", "adda");
     odoc.setProperty("descr", "Adda");
 
-    session.begin();
     session.commit();
 
+    session.begin();
     odoc = ((EntityImpl) session.newEntity("Place"));
     odoc.setProperty("id", "lago_di_como");
     odoc.setProperty("descr", "Lago di Como");
 
-    session.begin();
     session.commit();
 
+    session.begin();
     Map<String, Object> params = new HashMap<>();
     List<String> inputValues = new ArrayList<>();
     inputValues.add("lago_di_como");
@@ -1265,6 +1350,7 @@ public class SQLSelectTest extends AbstractSelectTest {
     var result = executeQuery("select from place where id in :place", session,
         params);
     Assert.assertEquals(result.size(), 1);
+    session.commit();
 
     session.getMetadata().getSchema().dropClass("Place");
   }
@@ -1278,12 +1364,10 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     List<RID> inputValues = new ArrayList<>();
 
+    session.begin();
     var odoc = ((EntityImpl) session.newEntity("Place"));
     odoc.setProperty("id", "adda");
     odoc.setProperty("descr", "Adda");
-
-    session.begin();
-    session.commit();
 
     inputValues.add(odoc.getIdentity());
 
@@ -1291,9 +1375,9 @@ public class SQLSelectTest extends AbstractSelectTest {
     odoc.setProperty("id", "lago_di_como");
     odoc.setProperty("descr", "Lago di Como");
 
-    session.begin();
     session.commit();
 
+    session.begin();
     inputValues.add(odoc.getIdentity());
 
     Map<String, Object> params = new HashMap<>();
@@ -1302,6 +1386,7 @@ public class SQLSelectTest extends AbstractSelectTest {
     var result =
         executeQuery("select from place where @rid in :place", session, params);
     Assert.assertEquals(result.size(), 2);
+    session.commit();
 
     session.getMetadata().getSchema().dropClass("Place");
   }
@@ -1311,19 +1396,16 @@ public class SQLSelectTest extends AbstractSelectTest {
     var placeClass = session.getMetadata().getSchema().createClass("Place", 1);
     session.getMetadata().getSchema().createClass("FamousPlace", 1, placeClass);
 
+    session.begin();
     var firstPlace = ((EntityImpl) session.newEntity("Place"));
-
-    session.begin();
     session.commit();
 
+    session.begin();
     var secondPlace = ((EntityImpl) session.newEntity("Place"));
-
-    session.begin();
     session.commit();
 
-    var famousPlace = ((EntityImpl) session.newEntity("FamousPlace"));
-
     session.begin();
+    var famousPlace = ((EntityImpl) session.newEntity("FamousPlace"));
     session.commit();
 
     RID secondPlaceId = secondPlace.getIdentity();
@@ -1373,13 +1455,16 @@ public class SQLSelectTest extends AbstractSelectTest {
   }
 
   public void testQueryParameterNotPersistent() {
+    session.begin();
     var doc = ((EntityImpl) session.newEntity());
     doc.setProperty("test", "test");
     executeQuery("select from OUser where @rid = ?", doc);
     Assert.assertTrue(doc.isDirty());
+    session.commit();
   }
 
   public void testQueryLetExecutedOnce() {
+    session.begin();
     final var result =
         executeQuery(
             "select name, $counter as counter from OUser let $counter = eval(\"$counter +"
@@ -1387,9 +1472,9 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     Assert.assertFalse(result.isEmpty());
     for (var r : result) {
-      EntityImpl entity = ((EntityImpl) r.asEntityOrNull());
-      Assert.assertEquals(entity.<Object>getProperty("counter"), 1);
+      Assert.assertEquals(r.<Object>getProperty("counter"), 1);
     }
+    session.commit();
   }
 
   @Test
@@ -1406,6 +1491,7 @@ public class SQLSelectTest extends AbstractSelectTest {
         session.commit();
       }
 
+      session.begin();
       var query = "select from PersonMultipleClusters where @rid > ? limit 2";
       var resultset = executeQuery(query, new ChangeableRecordId());
 
@@ -1421,6 +1507,7 @@ public class SQLSelectTest extends AbstractSelectTest {
       }
 
       Assert.assertTrue(names.isEmpty());
+      session.commit();
 
     } finally {
       session.getMetadata().getSchema().dropClass("PersonMultipleClusters");
@@ -1452,7 +1539,7 @@ public class SQLSelectTest extends AbstractSelectTest {
     Assert.assertEquals(result.size(), 1);
 
     for (var r : result) {
-      Assert.assertNull(r.asEntityOrNull().getProperty("name"));
+      Assert.assertNull(r.getProperty("name"));
     }
   }
 
@@ -1697,9 +1784,9 @@ public class SQLSelectTest extends AbstractSelectTest {
     var clazz = schema.createClass(vertexClass, v);
     session.begin();
     var container1 = session.newVertex(clazz);
-    container1.setProperty("data", Set.of("hello", "world", "baobab"));
+    container1.setProperty("data", session.newEmbeddedSet(Set.of("hello", "world", "baobab")));
     var container2 = session.newVertex(vertexClass);
-    container2.setProperty("data", Set.of("1hello", "2world", "baobab"));
+    container2.setProperty("data", session.newEmbeddedSet(Set.of("1hello", "2world", "baobab")));
     session.commit();
 
     var results = executeQuery("SELECT FROM SetContainer WHERE data LIKE 'wor%'");
@@ -1720,9 +1807,9 @@ public class SQLSelectTest extends AbstractSelectTest {
     var clazz = schema.createClass(vertexClass, v);
     session.begin();
     var container1 = session.newVertex(clazz);
-    container1.setProperty("data", List.of("hello", "world", "baobab"));
+    container1.setProperty("data", session.newEmbeddedList(List.of("hello", "world", "baobab")));
     var container2 = session.newVertex(vertexClass);
-    container2.setProperty("data", List.of("1hello", "2world", "baobab"));
+    container2.setProperty("data", session.newEmbeddedList(List.of("1hello", "2world", "baobab")));
     session.commit();
     var results = executeQuery("SELECT FROM ListContainer WHERE data LIKE 'wor%'");
     Assert.assertEquals(results.size(), 1);
@@ -1731,28 +1818,6 @@ public class SQLSelectTest extends AbstractSelectTest {
     Assert.assertEquals(results.size(), 0);
 
     results = executeQuery("SELECT FROM ListContainer WHERE data LIKE '%hell%'");
-    Assert.assertEquals(results.size(), 2);
-  }
-
-  @Test
-  public void selectLikeFromArray() {
-    var vertexClass = "ArrayContainer";
-    Schema schema = session.getMetadata().getSchema();
-    var v = schema.getClass("V");
-    var clazz = schema.createClass(vertexClass, v);
-    session.begin();
-    var container1 = session.newVertex(clazz);
-    container1.setProperty("data", new String[]{"hello", "world", "baobab"});
-    var container2 = session.newVertex(vertexClass);
-    container2.setProperty("data", new String[]{"1hello", "2world", "baobab"});
-    session.commit();
-    var results = executeQuery("SELECT FROM ArrayContainer WHERE data LIKE 'wor%'");
-    Assert.assertEquals(results.size(), 1);
-
-    results = executeQuery("SELECT FROM ArrayContainer WHERE data LIKE 'bobo%'");
-    Assert.assertEquals(results.size(), 0);
-
-    results = executeQuery("SELECT FROM ArrayContainer WHERE data LIKE '%hell%'");
     Assert.assertEquals(results.size(), 2);
   }
 }

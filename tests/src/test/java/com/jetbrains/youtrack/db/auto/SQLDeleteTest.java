@@ -16,6 +16,7 @@
 package com.jetbrains.youtrack.db.auto;
 
 import org.testng.Assert;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -23,8 +24,8 @@ import org.testng.annotations.Test;
 public class SQLDeleteTest extends BaseDBTest {
 
   @Parameters(value = "remote")
-  public SQLDeleteTest(boolean remote) {
-    super(remote);
+  public SQLDeleteTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @Test

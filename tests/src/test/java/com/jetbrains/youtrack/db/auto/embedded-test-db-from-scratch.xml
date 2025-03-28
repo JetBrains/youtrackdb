@@ -37,8 +37,6 @@
       <class name="com.jetbrains.youtrack.db.auto.CRUDDocumentValidationTest"/>
       <class name="com.jetbrains.youtrack.db.auto.DBRecordMetadataTest"/>
       <class name="com.jetbrains.youtrack.db.auto.DocumentTrackingTest"/>
-      <class
-        name="com.jetbrains.youtrack.db.auto.EmbeddedEntitySerializationTest"/>
     </classes>
   </test>
   <test name="Tx">

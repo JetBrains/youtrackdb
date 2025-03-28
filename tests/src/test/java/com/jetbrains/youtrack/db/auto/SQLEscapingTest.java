@@ -16,6 +16,7 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -25,8 +26,8 @@ public class SQLEscapingTest extends BaseDBTest {
   private DatabaseSessionInternal database;
 
   @Parameters(value = "remote")
-  public SQLEscapingTest(boolean remote) {
-    super(remote);
+  public SQLEscapingTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   // TODO re-enable this with new parser. this test was broken!!!

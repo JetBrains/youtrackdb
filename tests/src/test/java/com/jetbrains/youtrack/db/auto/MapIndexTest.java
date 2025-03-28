@@ -68,13 +68,13 @@ public class MapIndexTest extends BaseDBTest {
   public void testIndexMap() {
     checkEmbeddedDB();
 
+    session.begin();
     final var mapper = session.newEntity("Mapper");
-    final Map<String, Integer> map = new HashMap<>();
+    final var map = session.newEmbeddedMap();
     map.put("key1", 10);
     map.put("key2", 20);
 
     mapper.setProperty("intMap", map);
-    session.begin();
     session.commit();
 
     final var keyIndex = getIndex("mapIndexTestKey");
@@ -108,7 +108,7 @@ public class MapIndexTest extends BaseDBTest {
     try {
       session.begin();
       final var mapper = session.newEntity("Mapper");
-      Map<String, Integer> map = new HashMap<>();
+      var map = session.newEmbeddedMap();
 
       map.put("key1", 10);
       map.put("key2", 20);
@@ -154,22 +154,21 @@ public class MapIndexTest extends BaseDBTest {
   public void testIndexMapUpdateOne() {
     checkEmbeddedDB();
 
+    session.begin();
     var mapper = session.newEntity("Mapper");
-    Map<String, Integer> mapOne = new HashMap<>();
+    var mapOne = session.newEmbeddedMap();
 
     mapOne.put("key1", 10);
     mapOne.put("key2", 20);
 
     mapper.setProperty("intMap", mapOne);
-    session.begin();
-    mapper = mapper;
     session.commit();
 
     session.begin();
 
     var activeTx = session.getActiveTransaction();
     mapper = activeTx.load(mapper);
-    final Map<String, Integer> mapTwo = new HashMap<>();
+    final var mapTwo = session.newEmbeddedMap();
 
     mapTwo.put("key3", 30);
     mapTwo.put("key2", 20);
@@ -213,20 +212,19 @@ public class MapIndexTest extends BaseDBTest {
   public void testIndexMapUpdateOneTx() {
     checkEmbeddedDB();
 
+    session.begin();
     var mapper = session.newEntity("Mapper");
-    Map<String, Integer> mapOne = new HashMap<>();
+    var mapOne = session.newEmbeddedMap();
 
     mapOne.put("key1", 10);
     mapOne.put("key2", 20);
 
     mapper.setProperty("intMap", mapOne);
-    session.begin();
-    mapper = mapper;
     session.commit();
 
     session.begin();
     try {
-      final Map<String, Integer> mapTwo = new HashMap<>();
+      final var mapTwo = session.newEmbeddedMap();
 
       mapTwo.put("key3", 30);
       mapTwo.put("key2", 20);
@@ -275,19 +273,18 @@ public class MapIndexTest extends BaseDBTest {
   public void testIndexMapUpdateOneTxRollback() {
     checkEmbeddedDB();
 
+    session.begin();
     var mapper = session.newEntity("Mapper");
-    Map<String, Integer> mapOne = new HashMap<>();
+    var mapOne = session.newEmbeddedMap();
 
     mapOne.put("key1", 10);
     mapOne.put("key2", 20);
 
     mapper.setProperty("intMap", mapOne);
-    session.begin();
-    mapper = mapper;
     session.commit();
 
     session.begin();
-    final Map<String, Integer> mapTwo = new HashMap<>();
+    final var mapTwo = session.newEmbeddedMap();
 
     mapTwo.put("key3", 30);
     mapTwo.put("key2", 20);
@@ -333,14 +330,13 @@ public class MapIndexTest extends BaseDBTest {
 
     session.begin();
     var mapper = session.newEntity("Mapper");
-    Map<String, Integer> map = new HashMap<>();
+    var map = session.newEmbeddedMap();
 
     map.put("key1", 10);
     map.put("key2", 20);
 
     mapper.setProperty("intMap", map);
 
-    mapper = mapper;
     session.commit();
 
     session.begin();
@@ -381,15 +377,14 @@ public class MapIndexTest extends BaseDBTest {
   public void testIndexMapAddItemTx() {
     checkEmbeddedDB();
 
+    session.begin();
     var mapper = session.newEntity("Mapper");
-    Map<String, Integer> map = new HashMap<>();
+    var map = session.newEmbeddedMap();
 
     map.put("key1", 10);
     map.put("key2", 20);
 
     mapper.setProperty("intMap", map);
-    session.begin();
-    mapper = mapper;
     session.commit();
 
     try {
@@ -437,15 +432,14 @@ public class MapIndexTest extends BaseDBTest {
   public void testIndexMapAddItemTxRollback() {
     checkEmbeddedDB();
 
+    session.begin();
     var mapper = session.newEntity("Mapper");
-    Map<String, Integer> map = new HashMap<>();
+    var map = session.newEmbeddedMap();
 
     map.put("key1", 10);
     map.put("key2", 20);
 
     mapper.setProperty("intMap", map);
-    session.begin();
-    mapper = mapper;
     session.commit();
 
     session.begin();
@@ -488,15 +482,14 @@ public class MapIndexTest extends BaseDBTest {
   public void testIndexMapUpdateItem() {
     checkEmbeddedDB();
 
+    session.begin();
     var mapper = session.newEntity("Mapper");
-    Map<String, Integer> map = new HashMap<>();
+    var map = session.newEmbeddedMap();
 
     map.put("key1", 10);
     map.put("key2", 20);
 
     mapper.setProperty("intMap", map);
-    session.begin();
-    mapper = mapper;
     session.commit();
 
     session.begin();
@@ -538,15 +531,14 @@ public class MapIndexTest extends BaseDBTest {
   public void testIndexMapUpdateItemInTx() {
     checkEmbeddedDB();
 
+    session.begin();
     var mapper = session.newEntity("Mapper");
-    Map<String, Integer> map = new HashMap<>();
+    var map = session.newEmbeddedMap();
 
     map.put("key1", 10);
     map.put("key2", 20);
 
     mapper.setProperty("intMap", map);
-    session.begin();
-    mapper = mapper;
     session.commit();
 
     try {
@@ -593,16 +585,15 @@ public class MapIndexTest extends BaseDBTest {
   public void testIndexMapUpdateItemInTxRollback() {
     checkEmbeddedDB();
 
+    session.begin();
     var mapper = session.newEntity("Mapper");
-    Map<String, Integer> map = new HashMap<>();
+    var map = session.newEmbeddedMap();
 
     map.put("key1", 10);
     map.put("key2", 20);
 
     mapper.setProperty("intMap", map);
 
-    session.begin();
-    mapper = mapper;
     session.commit();
 
     session.begin();
@@ -644,8 +635,9 @@ public class MapIndexTest extends BaseDBTest {
   public void testIndexMapRemoveItem() {
     checkEmbeddedDB();
 
+    session.begin();
     var mapper = session.newEntity("Mapper");
-    Map<String, Integer> map = new HashMap<>();
+    var map = session.newEmbeddedMap();
 
     map.put("key1", 10);
     map.put("key2", 20);
@@ -653,8 +645,6 @@ public class MapIndexTest extends BaseDBTest {
 
     mapper.setProperty("intMap", map);
 
-    session.begin();
-    mapper = mapper;
     session.commit();
 
     session.begin();
@@ -695,16 +685,15 @@ public class MapIndexTest extends BaseDBTest {
   public void testIndexMapRemoveItemInTx() {
     checkEmbeddedDB();
 
+    session.begin();
     var mapper = session.newEntity("Mapper");
-    Map<String, Integer> map = new HashMap<>();
+    var map = session.newEmbeddedMap();
 
     map.put("key1", 10);
     map.put("key2", 20);
     map.put("key3", 30);
 
     mapper.setProperty("intMap", map);
-    session.begin();
-    mapper = mapper;
     session.commit();
 
     try {
@@ -751,8 +740,9 @@ public class MapIndexTest extends BaseDBTest {
   public void testIndexMapRemoveItemInTxRollback() {
     checkEmbeddedDB();
 
+    session.begin();
     var mapper = session.newEntity("Mapper");
-    Map<String, Integer> map = new HashMap<>();
+    var map = session.newEmbeddedMap();
 
     map.put("key1", 10);
     map.put("key2", 20);
@@ -760,8 +750,6 @@ public class MapIndexTest extends BaseDBTest {
 
     mapper.setProperty("intMap", map);
 
-    session.begin();
-    mapper = mapper;
     session.commit();
 
     session.begin();
@@ -803,15 +791,14 @@ public class MapIndexTest extends BaseDBTest {
   public void testIndexMapRemove() {
     checkEmbeddedDB();
 
+    session.begin();
     var mapper = session.newEntity("Mapper");
-    Map<String, Integer> map = new HashMap<>();
+    var map = session.newEmbeddedMap();
 
     map.put("key1", 10);
     map.put("key2", 20);
 
     mapper.setProperty("intMap", map);
-    session.begin();
-    mapper = mapper;
     session.commit();
 
     session.begin();
@@ -830,16 +817,15 @@ public class MapIndexTest extends BaseDBTest {
   public void testIndexMapRemoveInTx() {
     checkEmbeddedDB();
 
+    session.begin();
     var mapper = session.newEntity("Mapper");
-    Map<String, Integer> map = new HashMap<>();
+    var map = session.newEmbeddedMap();
 
     map.put("key1", 10);
     map.put("key2", 20);
 
     mapper.setProperty("intMap", map);
 
-    session.begin();
-    mapper = mapper;
     session.commit();
 
     try {
@@ -862,16 +848,15 @@ public class MapIndexTest extends BaseDBTest {
   public void testIndexMapRemoveInTxRollback() {
     checkEmbeddedDB();
 
+    session.begin();
     var mapper = session.newEntity("Mapper");
-    Map<String, Integer> map = new HashMap<>();
+    var map = session.newEmbeddedMap();
 
     map.put("key1", 10);
     map.put("key2", 20);
 
     mapper.setProperty("intMap", map);
 
-    session.begin();
-    mapper = mapper;
     session.commit();
 
     session.begin();
@@ -911,29 +896,33 @@ public class MapIndexTest extends BaseDBTest {
   }
 
   public void testIndexMapSQL() {
+    session.begin();
     var mapper = session.newEntity("Mapper");
-    Map<String, Integer> map = new HashMap<>();
+    var map = session.newEmbeddedMap();
 
     map.put("key1", 10);
     map.put("key2", 20);
 
     mapper.setProperty("intMap", map);
 
-    session.begin();
     session.commit();
 
+    session.begin();
     var resultByKey =
         executeQuery("select * from Mapper where intMap containskey ?", "key1");
     Assert.assertNotNull(resultByKey);
     Assert.assertEquals(resultByKey.size(), 1);
+    var result = session.loadEntity(resultByKey.get(0).getIdentity());
 
-    Assert.assertEquals(map, resultByKey.get(0).<Map<String, Integer>>getProperty("intMap"));
+    Assert.assertEquals(map, result.<Map<String, Integer>>getProperty("intMap"));
 
     var resultByValue =
         executeQuery("select * from Mapper where intMap containsvalue ?", 10);
     Assert.assertNotNull(resultByValue);
     Assert.assertEquals(resultByValue.size(), 1);
+    result = session.loadEntity(resultByValue.get(0).getIdentity());
 
-    Assert.assertEquals(map, resultByValue.get(0).<Map<String, Integer>>getProperty("intMap"));
+    Assert.assertEquals(map, result.<Map<String, Integer>>getProperty("intMap"));
+    session.commit();
   }
 }

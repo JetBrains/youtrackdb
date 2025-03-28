@@ -60,58 +60,54 @@ public class FrontendTransactionImplTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testTransactionOptimisticRollback")
   public void testTransactionOptimisticCommitInternal() {
-    if (session.getClusterIdByName("binary") == -1) {
-      session.addBlobCluster("binary");
-    }
-
-    var tot = session.countClusterElements("binary");
 
     session.begin();
-
-    var recordBytes = session.newBlob("This is the first version".getBytes());
+    final var blocClusterIds = session.getBlobClusterIds();
+    var tot = session.countClusterElements(blocClusterIds);
     session.commit();
 
-    Assert.assertEquals(session.countClusterElements("binary"), tot + 1);
+    session.begin();
+    session.newBlob("This is the first version".getBytes());
+    session.commit();
+
+    Assert.assertEquals(session.countClusterElements(blocClusterIds), tot + 1);
   }
 
   @Test(dependsOnMethods = "testTransactionOptimisticCommitInternal")
   public void testTransactionOptimisticConcurrentException() {
-    if (session.getClusterIdByName("binary") == -1) {
-      session.addBlobCluster("binary");
-    }
-
     var session2 = acquireSession();
     session.activateOnCurrentThread();
     session.begin();
-    var record1 = session.newBlob("This is the first version".getBytes());
+    var record = session.newBlob("This is the first version".getBytes());
     session.commit();
 
     try {
       session.begin();
+      session2.begin();
 
       // RE-READ THE RECORD
-      record1 = session.load(record1.getIdentity());
+      var record1 = session.load(record.getIdentity());
+      var record2 = session2.load(record.getIdentity());
 
-      Blob record2 = session2.load(record1.getIdentity());
-      final RID iRid1 = record2.getIdentity();
-      final int iVersion1 = record2.getVersion();
-      final var rec1 = (RecordAbstract) record2;
-      rec1.fill(iRid1, iVersion1, "This is the second version".getBytes(), true);
-      session2.begin();
-      session2.commit();
+      final RID rid2 = record2.getIdentity();
+      final int version2 = record2.getVersion();
+      final var rec2 = (RecordAbstract) record2;
+      rec2.fill(rid2, version2, "This is the second version".getBytes(), true);
 
-      final RID iRid = record1.getIdentity();
-      final int iVersion = record1.getVersion();
-      final var rec = (RecordAbstract) record1;
-      rec.fill(iRid, iVersion, "This is the third version".getBytes(), true);
+      final RID rid1 = record1.getIdentity();
+      final int version1 = record1.getVersion();
+      final var rec1 = (RecordAbstract) record1;
+      rec1.fill(rid1, version1, "This is the third version".getBytes(), true);
 
       session.commit();
+      session2.commit();
 
       Assert.fail();
 
     } catch (ConcurrentModificationException e) {
       Assert.assertTrue(true);
       session.rollback();
+      session2.rollback();
 
     } finally {
       session.close();
@@ -127,8 +123,8 @@ public class FrontendTransactionImplTest extends BaseDBTest {
       session.addBlobCluster("binary");
     }
 
-    var record = session.newBlob("This is the first version".getBytes());
     session.begin();
+    var record = session.newBlob("This is the first version".getBytes());
     session.commit();
 
     try {
@@ -142,10 +138,12 @@ public class FrontendTransactionImplTest extends BaseDBTest {
       rec.fill(iRid, v1, "This is the second version".getBytes(), true);
       session.commit();
 
+      session.begin();
       var activeTx = session.getActiveTransaction();
       record = activeTx.load(record);
       Assert.assertEquals(record.getVersion(), v1 + 1);
       Assert.assertTrue(new String(record.toStream()).contains("second"));
+      session.commit();
     } finally {
       session.close();
     }
@@ -174,10 +172,11 @@ public class FrontendTransactionImplTest extends BaseDBTest {
       session.commit();
 
       db2.activateOnCurrentThread();
-
+      db2.begin();
       Blob record2 = db2.load(record1.getIdentity());
       Assert.assertEquals(record2.getVersion(), v1 + 1);
       Assert.assertTrue(new String(record2.toStream()).contains("second"));
+      db2.commit();
 
     } finally {
 
@@ -233,21 +232,16 @@ public class FrontendTransactionImplTest extends BaseDBTest {
     var jack = ((EntityImpl) session.newEntity("Profile")).setPropertyInChain("name", "Jack")
         .setPropertyInChain("surname", "Bauer");
 
-    EntityImpl entity2 = jack.setPropertyInChain("following", new HashSet<EntityImpl>());
-    ((HashSet<EntityImpl>) entity2.getProperty("following"))
-        .add(kim);
-    EntityImpl entity1 = kim.setPropertyInChain("following", new HashSet<EntityImpl>());
-    ((HashSet<EntityImpl>) entity1.getProperty("following"))
-        .add(teri);
-    EntityImpl entity = teri.setPropertyInChain("following", new HashSet<EntityImpl>());
-    ((HashSet<EntityImpl>) entity.getProperty("following"))
-        .add(jack);
+    jack.getOrCreateLinkSet("following").add(kim);
+    kim.getOrCreateLinkSet("following").add(teri);
+    teri.getOrCreateLinkSet("following").add(jack);
 
     session.commit();
 
     session.close();
     session = acquireSession();
 
+    session.begin();
     EntityImpl loadedJack = session.load(jack.getIdentity());
     Assert.assertEquals(loadedJack.getProperty("name"), "Jack");
     Collection<Identifiable> jackFollowings = loadedJack.getProperty("following");
@@ -275,6 +269,7 @@ public class FrontendTransactionImplTest extends BaseDBTest {
     Assert.assertEquals(transaction.loadEntity(identifiable).getProperty("name"),
         "Jack");
 
+    session.commit();
     session.close();
   }
 
@@ -354,8 +349,8 @@ public class FrontendTransactionImplTest extends BaseDBTest {
       schema.createClass("NestedTxRollbackOne");
     }
 
-    var brokenDocOne = ((EntityImpl) session.newEntity("NestedTxRollbackOne"));
     session.begin();
+    var brokenDocOne = ((EntityImpl) session.newEntity("NestedTxRollbackOne"));
 
     session.commit();
     try {

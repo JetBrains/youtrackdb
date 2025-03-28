@@ -40,6 +40,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import org.testng.Assert;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -55,8 +56,8 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
   private boolean dumpMode = false;
 
   @Parameters(value = {"remote", "testPath"})
-  public DbImportExportTest(boolean remote, String testPath) {
-    super(remote);
+  public DbImportExportTest(@Optional Boolean remote, String testPath) {
+    super(remote != null && remote);
     this.testPath = testPath;
     this.exportFilePath = System.getProperty("exportFilePath", EXPORT_FILE_PATH);
   }
@@ -156,7 +157,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
         final Schema schema = session.getMetadata().getSchema();
 
         final var rootCls = schema.createClass("RootClass");
-        rootCls.createProperty("embeddedList", PropertyType.EMBEDDEDLIST);
+        rootCls.createProperty("embeddedList", PropertyType.LINKLIST);
 
         final var childCls = schema.createClass("ChildClass");
 
@@ -177,22 +178,20 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
           session.commit();
         }
 
+        session.begin();
         final var rootDocument = ((EntityImpl) session.newEntity(rootCls));
-        final var documents = new ArrayList<EntityImpl>();
+        final var documents = session.newLinkList();
 
         for (var i = 0; i < 10; i++) {
-          session.begin();
           final var embeddedDocument = ((EntityImpl) session.newEntity());
 
           final var doc = ((EntityImpl) session.newEntity(childCls));
 
-          session.commit();
 
           embeddedDocument.setProperty("link", doc.getIdentity());
           documents.add(embeddedDocument);
         }
 
-        session.begin();
         rootDocument.setProperty("embeddedList", documents);
 
         session.commit();
@@ -210,6 +209,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
             new DatabaseImport(session, exportPath.getPath(), System.out::println);
         databaseImport.run();
 
+        session.begin();
         final Iterator<EntityImpl> classIterator = session.browseClass("RootClass");
         final var rootDocument = classIterator.next();
 
@@ -224,6 +224,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
           var transaction = session.getActiveTransaction();
           Assert.assertNotNull(transaction.load(link));
         }
+        session.commit();
       }
     }
   }

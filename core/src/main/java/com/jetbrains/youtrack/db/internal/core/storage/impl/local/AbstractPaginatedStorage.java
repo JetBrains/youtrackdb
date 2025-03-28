@@ -4921,6 +4921,7 @@ public abstract class AbstractPaginatedStorage
       ((EntityImpl) rec).clearTransactionTrackData();
     }
 
+    rec.txEntry = null;
     rec.unsetDirty();
   }
 

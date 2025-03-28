@@ -488,7 +488,12 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
     var cerseiDoc = ((EntityImpl) session.newEntity("PersonTest"));
     cerseiDoc.updateFromJSON(
-        "{\"@type\":\"d\",\"name\":\"cersei\",\"valonqar\":" + jaimeDoc.toJSON("") + "}");
+        """
+            {
+              "@type":"d",
+              "name":"cersei",
+              "valonqar":""" + jaimeDoc.toJSON("") + """
+            }""");
 
     session.commit();
 

@@ -15,6 +15,7 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -22,8 +23,8 @@ import org.testng.annotations.Test;
 public class SQLAlterClusterNotSupportedCommandTest extends BaseDBTest {
 
   @Parameters(value = "remote")
-  public SQLAlterClusterNotSupportedCommandTest(boolean remote) {
-    super(remote);
+  public SQLAlterClusterNotSupportedCommandTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @Test(expectedExceptions = UnsupportedOperationException.class)
