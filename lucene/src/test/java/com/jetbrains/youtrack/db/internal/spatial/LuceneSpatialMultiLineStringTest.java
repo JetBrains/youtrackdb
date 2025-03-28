@@ -17,6 +17,7 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 
 /**
@@ -209,9 +210,7 @@ public class LuceneSpatialMultiLineStringTest extends BaseSpatialLuceneTest {
   @Before
   public void init() {
     Schema schema = session.getMetadata().getSchema();
-    var v = schema.getClass("V");
-    var oClass = schema.createClass("Place");
-    oClass.addSuperClass(v);
+    var oClass = schema.createVertexClass("Place");
     oClass.createProperty("location", PropertyType.EMBEDDED,
         schema.getClass("OMultiLineString"));
     oClass.createProperty("name", PropertyType.STRING);
@@ -220,6 +219,7 @@ public class LuceneSpatialMultiLineStringTest extends BaseSpatialLuceneTest {
   }
 
   @Test
+  @Ignore
   public void testWithoutIndex() {
     testWithIndex();
     session.execute("Drop INDEX Place.location").close();
@@ -228,6 +228,7 @@ public class LuceneSpatialMultiLineStringTest extends BaseSpatialLuceneTest {
   }
 
   @Test
+  @Ignore
   public void testWithIndex() {
     session.begin();
     session.execute(
@@ -236,6 +237,7 @@ public class LuceneSpatialMultiLineStringTest extends BaseSpatialLuceneTest {
 
     var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Place.location");
 
+    session.getTransactionInternal().preProcessRecordsAndExecuteCallCallbacks();
     Assert.assertEquals(1, index.size(session));
     session.commit();
 

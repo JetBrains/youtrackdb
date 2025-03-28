@@ -63,7 +63,7 @@ public class MultiPointShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
     final var geom = (MultiPoint) shape.getGeom();
 
     var entity = session.newEmbeddedEntity(getName());
-    entity.setProperty(COORDINATES, new ArrayList<List<Double>>() {
+    entity.newEmbeddedList(COORDINATES, new ArrayList<List<Double>>() {
       {
         var coordinates = geom.getCoordinates();
         for (var coordinate : coordinates) {

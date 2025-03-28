@@ -19,6 +19,7 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.spatial.shape.legacy.PointLegecyBuilder;
 import java.io.IOException;
@@ -45,18 +46,18 @@ public class LuceneSpatialFunctionFromTextTest extends BaseSpatialLuceneTest {
 
     assertTrue(docs.hasNext());
 
-    var geom = ((Result) docs.next().getProperty("geom")).asEntityOrNull();
+    var geom = docs.next().getResult("geom");
     assertGeometry(source, geom);
     assertFalse(docs.hasNext());
   }
 
-  private void assertGeometry(Entity source, Entity geom) {
+  private void assertGeometry(Entity source, Result geom) {
     Assert.assertNotNull(geom);
 
     Assert.assertNotNull(geom.getProperty("coordinates"));
 
     Assert.assertEquals(
-        source.getSchemaClassName(), geom.getSchemaClassName());
+        source.getSchemaClassName(), geom.getString(EntityHelper.ATTRIBUTE_CLASS));
     Assert.assertEquals(
         geom.<PointLegecyBuilder>getProperty("coordinates"), source.getProperty("coordinates"));
   }
@@ -111,17 +112,15 @@ public class LuceneSpatialFunctionFromTextTest extends BaseSpatialLuceneTest {
   }
 
   protected void checkFromCollectionText(EmbeddedEntity source, String query) {
-
     var docs = session.execute(query);
 
     assertTrue(docs.hasNext());
-    var geom = ((Result) docs.next().getProperty("geom")).asEntityOrNull();
+    var geom = docs.next().getResult("geom");
     assertFalse(docs.hasNext());
     Assert.assertNotNull(geom);
 
     Assert.assertNotNull(geom.getProperty("geometries"));
-
-    Assert.assertEquals(source.getSchemaClassName(), geom.getSchemaClassName());
+    Assert.assertEquals(source.getSchemaClassName(), geom.getString(EntityHelper.ATTRIBUTE_CLASS));
 
     List<EntityImpl> sourceCollection = source.getProperty("geometries");
     List<EntityImpl> targetCollection = source.getProperty("geometries");
