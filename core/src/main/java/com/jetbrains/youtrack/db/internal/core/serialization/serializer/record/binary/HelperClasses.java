@@ -266,7 +266,8 @@ public class HelperClasses {
   public static int writeLinkCollection(
       DatabaseSessionInternal db, final BytesContainer bytes,
       final Collection<Identifiable> value) {
-    var pointer = VarIntSerializer.write(bytes, value.size());
+    var pointer = bytes.alloc(1);
+    VarIntSerializer.write(bytes, value.size());
 
     for (var itemValue : value) {
       // TODO: handle the null links
@@ -282,6 +283,11 @@ public class HelperClasses {
 
   public static <T extends TrackedMultiValue<?, Identifiable>> T readLinkCollection(
       final BytesContainer bytes, final T found, boolean justRunThrough) {
+    var type = bytes.bytes[bytes.offset++];
+    if (type != 0) {
+      throw new SerializationException("Invalid type of embedded collection");
+    }
+
     final var items = VarIntSerializer.readAsInteger(bytes);
     for (var i = 0; i < items; i++) {
       var id = readOptimizedLink(bytes, justRunThrough);

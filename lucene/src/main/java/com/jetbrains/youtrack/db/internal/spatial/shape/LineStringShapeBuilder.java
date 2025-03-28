@@ -83,7 +83,7 @@ public class LineStringShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
     }
 
     var result = session.newEmbeddedEntity(getName() + "Z");
-    result.setProperty(COORDINATES, coordinatesFromLineStringZ(geometry));
+    result.newEmbeddedList(COORDINATES, coordinatesFromLineStringZ(geometry));
 
     return result;
   }

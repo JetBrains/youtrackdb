@@ -119,7 +119,7 @@ public class PolygonShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
     var entity = session.newEmbeddedEntity(getName() + "Z");
     var polygon = (Polygon) shape.getGeom();
     var polyCoordinates = coordinatesFromPolygonZ(geometry);
-    entity.setProperty(COORDINATES, polyCoordinates);
+    entity.newEmbeddedList(COORDINATES, polyCoordinates);
     return entity;
   }
 

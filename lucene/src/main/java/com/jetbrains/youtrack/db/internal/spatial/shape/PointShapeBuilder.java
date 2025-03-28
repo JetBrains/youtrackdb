@@ -94,7 +94,7 @@ public class PointShapeBuilder extends ShapeBuilder<Point> {
     }
 
     var entity =  session.newEmbeddedEntity(NAME + "Z");
-    entity.setProperty(COORDINATES, new ArrayList<Double>() {
+    entity.newEmbeddedList(COORDINATES, new ArrayList<Double>() {
           {
             add(geometry.getCoordinate().getX());
             add(geometry.getCoordinate().getY());

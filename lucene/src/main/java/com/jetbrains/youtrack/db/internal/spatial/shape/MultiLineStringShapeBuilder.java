@@ -78,7 +78,7 @@ public class MultiLineStringShapeBuilder extends ComplexShapeBuilder<JtsGeometry
       coordinates.add(coordinatesFromLineString(lineString));
     }
 
-    entity.setProperty(COORDINATES, coordinates);
+    entity.newEmbeddedList(COORDINATES, coordinates);
     return entity;
   }
 
@@ -96,7 +96,7 @@ public class MultiLineStringShapeBuilder extends ComplexShapeBuilder<JtsGeometry
       coordinates.add(coordinatesFromLineStringZ(lineString));
     }
 
-    result.setProperty(COORDINATES, coordinates);
+    result.newEmbeddedList(COORDINATES, coordinates);
     return result;
   }
 
@@ -113,7 +113,7 @@ public class MultiLineStringShapeBuilder extends ComplexShapeBuilder<JtsGeometry
                           .map(
                               point ->
                                   (point.stream()
-                                      .map(coord -> format(coord))
+                                      .map(this::format)
                                       .collect(Collectors.joining(" "))))
                           .collect(Collectors.joining(", "))
                           + ")")
