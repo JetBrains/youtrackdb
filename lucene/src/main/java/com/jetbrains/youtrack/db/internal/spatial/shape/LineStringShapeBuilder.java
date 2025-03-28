@@ -71,7 +71,7 @@ public class LineStringShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
   public EmbeddedEntity toEmbeddedEntity(JtsGeometry shape, DatabaseSessionInternal session) {
     var result = session.newEmbeddedEntity(getName());
     var lineString = (LineString) shape.getGeom();
-    result.setProperty(COORDINATES, coordinatesFromLineString(lineString));
+    result.newEmbeddedList(COORDINATES, coordinatesFromLineString(lineString));
     return result;
   }
 
