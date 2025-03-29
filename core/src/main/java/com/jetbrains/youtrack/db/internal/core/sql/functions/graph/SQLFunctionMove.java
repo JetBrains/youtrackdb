@@ -81,8 +81,8 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
       try {
         var transaction = graph.getActiveTransaction();
         var rec = (EntityImpl) transaction.loadEntity(iRecord);
-        if (rec.isVertex()) {
-          return rec.asVertex().getVertices(iDirection, iLabels);
+        if (rec.isEdge()) {
+          return null;
         } else {
           return rec.getEntities(iDirection, iLabels);
         }

@@ -1,8 +1,8 @@
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
+import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
-import com.jetbrains.youtrack.db.api.record.Direction;
 import java.util.Collection;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
@@ -12,10 +12,10 @@ import javax.annotation.Nonnull;
  */
 public class BidirectionalLinksIterable<T extends Entity> implements Iterable<T>, Sizeable {
 
-  private final Iterable<? extends BidirectionalLink<T>> links;
+  private final Iterable<BidirectionalLink<T>> links;
   private final Direction direction;
 
-  public BidirectionalLinksIterable(Iterable<? extends BidirectionalLink<T>> links,
+  public BidirectionalLinksIterable(Iterable<BidirectionalLink<T>> links,
       Direction direction) {
     this.links = links;
     this.direction = direction;

@@ -2,13 +2,11 @@ package com.jetbrains.youtrack.db.internal.core.record.impl;
 
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class LightweightBidirectionalLinkImpl<T extends Entity> implements BidirectionalLink<T> {
-
   @Nullable
   protected final T out;
   @Nullable

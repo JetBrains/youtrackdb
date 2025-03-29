@@ -194,4 +194,9 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
   public Vertex getToEntity() {
     return getTo();
   }
+
+  @Override
+  public Iterable<Entity> getEntities(Direction direction, String... linkNames) {
+    throw new UnsupportedOperationException("Operation not supported for edges");
+  }
 }

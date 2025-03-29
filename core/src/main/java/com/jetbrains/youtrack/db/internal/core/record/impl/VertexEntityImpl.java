@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.record.impl;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Edge;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
@@ -14,6 +15,7 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
@@ -135,7 +137,8 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
           getVertices(Direction.OUT, type), getVertices(Direction.IN, type));
     } else {
       var edges = getEdgesInternal(direction, type);
-      return new BidirectionalLinksIterable<>(edges, direction);
+      //noinspection rawtypes,unchecked
+      return new BidirectionalLinksIterable<Vertex>((Iterable) edges, direction);
     }
   }
 
@@ -278,6 +281,15 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     return RECORD_TYPE;
   }
 
+  @Override
+  protected Iterable<BidirectionalLink<Entity>> getBidirectionalLinksInternal(
+      Direction direction, String... linkNames) {
+    //noinspection unchecked,rawtypes
+    return IterableUtils.chainedIterable(
+        super.getBidirectionalLinksInternal(direction, linkNames),
+        (Iterable) getEdgesInternal(direction, linkNames));
+  }
+
   private Iterable<EdgeInternal> getEdgesInternal(Direction direction, String[] labels) {
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
     labels = resolveAliases(session, schema, labels);
@@ -318,17 +330,18 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
             iterables.add(
                 new EdgeIterable(this, connection, labels, session, coll, 1, coll));
           }
-          case Collection<?> coll ->
-            // CREATE LAZY Iterable AGAINST COLLECTION FIELD
-            //noinspection unchecked
-              iterables.add(
-                  new EdgeIterable(this, connection, labels, session,
-                      (Collection<Identifiable>) coll, -1, coll));
+          case EntityLinkSetImpl set -> iterables.add(
+              new EdgeIterable(this, connection, labels, session,
+                  set, -1, set));
+          case EntityLinkListImpl list -> iterables.add(
+              new EdgeIterable(this, connection, labels, session,
+                  list, -1, list));
           case RidBag bag -> iterables.add(
               new EdgeIterable(
-                  this, connection, labels, session, bag, bag.size(), bag));
+                  this, connection, labels, session, bag, -1, bag));
           default -> {
-            throw new IllegalStateException("Unexpected value: " + fieldValue);
+            throw new IllegalArgumentException(
+                "Unsupported property type: " + getPropertyType(fieldName));
           }
         }
       }

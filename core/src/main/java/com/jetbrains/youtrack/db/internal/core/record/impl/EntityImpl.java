@@ -3651,7 +3651,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return properties == null ? new HashSet<>() : properties.entrySet();
   }
 
-  public Iterable<? extends Entity> getEntities(Direction direction, String... linkNames) {
+  public Iterable<Entity> getEntities(Direction direction, String... linkNames) {
     checkForBinding();
     if (direction == Direction.BOTH) {
       return IterableUtils.chainedIterable(
@@ -3663,8 +3663,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-  private Iterable<LightweightBidirectionalLinkImpl<Entity>> getBidirectionalLinksInternal(
+  protected Iterable<BidirectionalLink<Entity>> getBidirectionalLinksInternal(
       Direction direction, String... linkNames) {
+    if (linkNames == null || linkNames.length == 0) {
+      return Collections.emptyList();
+    }
+
     deserializeProperties(linkNames);
 
     var iterables = new ArrayList<Iterable<LightweightBidirectionalLinkImpl<Entity>>>(
@@ -3672,6 +3676,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
     Object fieldValue;
 
     for (var linkName : linkNames) {
+      if (!isPropertyAccessible(linkName)) {
+        return Collections.emptyList();
+      }
+
       String propertyName;
       if (direction == Direction.OUT) {
         propertyName = linkName;
@@ -3679,16 +3687,9 @@ public class EntityImpl extends RecordAbstract implements Entity {
         propertyName = OPPOSITE_LINK_CONTAINER_PREFIX + linkName;
       }
 
-      if (!isPropertyAccessible(linkName)) {
-        return Collections.emptyList();
-      }
-
       fieldValue = getPropertyInternal(propertyName);
       if (fieldValue != null) {
         switch (fieldValue) {
-          case null -> {
-            iterables.add(Collections.emptyList());
-          }
           case Identifiable identifiable -> {
             var coll = Collections.singleton(identifiable);
             iterables.add(
@@ -3697,14 +3698,14 @@ public class EntityImpl extends RecordAbstract implements Entity {
           }
           case EntityLinkSetImpl set -> iterables.add(
               new EntityLinksIterable(this, new Pair<>(direction, linkName), linkNames, session,
-                  set, set.size(), set));
+                  set, -1, set));
           case EntityLinkListImpl list -> iterables.add(
               new EntityLinksIterable(this, new Pair<>(direction, linkName), linkNames, session,
-                  list, list.size(), list));
+                  list, -1, list));
           case RidBag bag -> iterables.add(
               new EntityLinksIterable(
                   this, new Pair<>(direction, linkName), linkNames, session,
-                  bag, bag.size(), bag));
+                  bag, -1, bag));
           default -> {
             throw new IllegalArgumentException(
                 "Unsupported property type: " + getPropertyType(propertyName));
@@ -3714,7 +3715,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     if (iterables.size() == 1) {
-      return iterables.getFirst();
+      //noinspection rawtypes
+      return (Iterable) iterables.getFirst();
     } else if (iterables.isEmpty()) {
       return Collections.emptyList();
     }
