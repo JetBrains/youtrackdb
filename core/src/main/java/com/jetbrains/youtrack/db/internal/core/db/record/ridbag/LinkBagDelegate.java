@@ -21,19 +21,19 @@
 package com.jetbrains.youtrack.db.internal.core.db.record.ridbag;
 
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrack.db.internal.core.record.impl.SimpleMultiValueTracker;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
 import java.util.Collection;
+import java.util.List;
 import java.util.NavigableMap;
-import java.util.UUID;
-import javax.annotation.Nonnull;
+import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
-public interface RidBagDelegate
+public interface LinkBagDelegate
     extends Iterable<RID>,
     Sizeable,
     TrackedMultiValue<RID, RID>,
@@ -47,29 +47,10 @@ public interface RidBagDelegate
 
   boolean isEmpty();
 
-  int getSerializedSize();
-
   @Override
   default boolean isEmbeddedContainer() {
     return false;
   }
-
-  /**
-   * Writes content of bag to stream.
-   *
-   * <p>OwnerUuid is needed to notify db about changes of collection pointer if some happens during
-   * serialization.
-   *
-   * @param session   Current database session instance
-   * @param stream    to write content
-   * @param offset    in stream where start to write content
-   * @param ownerUuid id of delegate owner
-   * @return offset where content of stream is ended
-   */
-  int serialize(@Nonnull DatabaseSessionInternal session, byte[] stream, int offset,
-      UUID ownerUuid);
-
-  int deserialize(@Nonnull DatabaseSessionInternal session, byte[] stream, int offset);
 
   void requestDelete();
 
@@ -88,10 +69,7 @@ public interface RidBagDelegate
 
   String toString();
 
-  @Nullable
-  NavigableMap<RID, Change> getChanges();
-
-  void setSize(int size);
+  List<RawPair<RID, Change>> getChanges();
 
   SimpleMultiValueTracker<RID, RID> getTracker();
 

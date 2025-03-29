@@ -1444,12 +1444,11 @@ public class EntitySerializerDelta {
       var fileId = VarIntSerializer.readAsLong(bytes);
       var pageIndex = VarIntSerializer.readAsLong(bytes);
       var pageOffset = VarIntSerializer.readAsInteger(bytes);
-      //bag size
-      VarIntSerializer.readAsInteger(bytes);
 
-      Map<RID, Change> changes = new HashMap<>();
       var size = VarIntSerializer.readAsInteger(bytes);
-      while (size-- > 0) {
+      Map<RID, Change> changes = new HashMap<>();
+      var sizeOfChanges = VarIntSerializer.readAsInteger(bytes);
+      while (sizeOfChanges-- > 0) {
         var link = readOptimizedLink(session, bytes);
         var type = bytes.bytes[bytes.offset];
         bytes.skip(1);
@@ -1462,7 +1461,8 @@ public class EntitySerializerDelta {
         pointer =
             new BonsaiCollectionPointer(fileId, new RidBagBucketPointer(pageIndex, pageOffset));
       }
-      return new RidBag(session, pointer, changes, uuid);
+
+      return new RidBag(session, pointer, changes, uuid, size);
     }
   }
 
@@ -1500,18 +1500,16 @@ public class EntitySerializerDelta {
       VarIntSerializer.write(bytes, pointer.getRootPointer().getPageIndex());
       VarIntSerializer.write(bytes, pointer.getRootPointer().getPageOffset());
       VarIntSerializer.write(bytes, bag.size());
-      var changes = bag.getChanges();
-      if (changes != null) {
-        VarIntSerializer.write(bytes, changes.size());
-        for (var change : changes.entrySet()) {
-          writeOptimizedLink(session, bytes, change.getKey());
-          var posAll = bytes.alloc(1);
-          bytes.bytes[posAll] = change.getValue().getType();
-          VarIntSerializer.write(bytes, change.getValue().getValue());
-        }
-      } else {
-        VarIntSerializer.write(bytes, 0);
+
+      var changes = bag.getChanges().toList();
+      VarIntSerializer.write(bytes, changes.size());
+      for (var change : changes) {
+        writeOptimizedLink(session, bytes, change.first);
+        var posAll = bytes.alloc(1);
+        bytes.bytes[posAll] = change.second.getType();
+        VarIntSerializer.write(bytes, change.second.getValue());
       }
+
     }
   }
 

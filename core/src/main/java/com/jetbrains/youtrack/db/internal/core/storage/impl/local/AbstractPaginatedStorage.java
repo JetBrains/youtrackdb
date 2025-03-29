@@ -132,7 +132,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecord;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.common.EmptyWALRecord;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedRidBag;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManagerShared;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
@@ -3916,7 +3916,7 @@ public abstract class AbstractPaginatedStorage
     }
   }
 
-  public void deleteTreeRidBag(final BTreeBasedRidBag ridBag) {
+  public void deleteTreeRidBag(final BTreeBasedLinkBag ridBag) {
     try {
       checkOpennessAndMigration();
 
@@ -3931,7 +3931,7 @@ public abstract class AbstractPaginatedStorage
     }
   }
 
-  private void deleteTreeRidBag(BTreeBasedRidBag ridBag, AtomicOperation atomicOperation) {
+  private void deleteTreeRidBag(BTreeBasedLinkBag ridBag, AtomicOperation atomicOperation) {
     final var collectionPointer = ridBag.getCollectionPointer();
     checkOpennessAndMigration();
 

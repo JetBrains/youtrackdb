@@ -396,13 +396,14 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
       VarIntSerializer.write(bytes, pointer.getRootPointer().getPageOffset());
       VarIntSerializer.write(bytes, -1);
       var changes = bag.getChanges();
+
       if (changes != null) {
         VarIntSerializer.write(bytes, changes.size());
-        for (var change : changes.entrySet()) {
-          writeOptimizedLink(session, bytes, change.getKey());
+        for (var change : changes) {
+          writeOptimizedLink(session, bytes, change.first);
           var posAll = bytes.alloc(1);
-          bytes.bytes[posAll] = change.getValue().getType();
-          VarIntSerializer.write(bytes, change.getValue().getValue());
+          bytes.bytes[posAll] = change.second.getType();
+          VarIntSerializer.write(bytes, change.second.getValue());
         }
       } else {
         VarIntSerializer.write(bytes, 0);

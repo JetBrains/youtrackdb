@@ -7,7 +7,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ChangeSerializationHelper;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.RemoteTreeRidBag;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.RemoteTreeLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.RidBagBucketPointer;
 import java.util.HashMap;
 import java.util.Map;
@@ -67,7 +67,7 @@ public class RecordSerializerNetworkV37Client extends RecordSerializerNetworkV37
         pointer =
             new BonsaiCollectionPointer(fileId, new RidBagBucketPointer(pageIndex, pageOffset));
       }
-      return new RidBag(session, new RemoteTreeRidBag(pointer, session));
+      return new RidBag(session, new RemoteTreeLinkBag(pointer, session));
     }
   }
 }

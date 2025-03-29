@@ -31,24 +31,27 @@ import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.EdgeBTree;
 import java.io.IOException;
 import java.util.NavigableMap;
+import javax.annotation.Nonnull;
 
 /**
  * @since 11/26/13
  */
-public class RidBagUpdateSerializationOperation implements RecordSerializationOperation {
+public class LinkBagUpdateSerializationOperation implements RecordSerializationOperation {
 
   private final NavigableMap<RID, Change> changedValues;
 
   private final BonsaiCollectionPointer collectionPointer;
-
   private final BTreeCollectionManager collectionManager;
+  private final int maxCounterValue;
 
-  public RidBagUpdateSerializationOperation(
+  public LinkBagUpdateSerializationOperation(
       final NavigableMap<RID, Change> changedValues,
-      BonsaiCollectionPointer collectionPointer, DatabaseSessionInternal session) {
+      BonsaiCollectionPointer collectionPointer, int maxCounterValue,
+      @Nonnull DatabaseSessionInternal session) {
     this.changedValues = changedValues;
     this.collectionPointer = collectionPointer;
     collectionManager = session.getBTreeCollectionManager();
+    this.maxCounterValue = maxCounterValue;
   }
 
   @Override
@@ -63,7 +66,7 @@ public class RidBagUpdateSerializationOperation implements RecordSerializationOp
       for (var entry : changedValues.entrySet()) {
         var storedCounter = tree.get(entry.getKey());
 
-        storedCounter = entry.getValue().applyTo(storedCounter);
+        storedCounter = entry.getValue().applyTo(storedCounter, maxCounterValue);
         if (storedCounter <= 0) {
           tree.remove(atomicOperation, entry.getKey());
         } else {

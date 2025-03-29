@@ -96,7 +96,6 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
 
   void transactionClear();
 
-  boolean addInternal(final V e);
 
   MultiValueChangeTimeLine<K, V> getTransactionTimeLine();
 
@@ -121,5 +120,12 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
     if (oldValue instanceof RecordElement recordElement) {
       recordElement.setOwner(null);
     }
+  }
+
+  default boolean assertIfNotActive() {
+    var session = getSession();
+    assert session != null && session.assertIfNotActive();
+    assert session.isTxActive();
+    return true;
   }
 }

@@ -7,11 +7,11 @@ public interface Change {
 
   int SIZE = ByteSerializer.BYTE_SIZE + IntegerSerializer.INT_SIZE;
 
-  void increment();
+  void increment(int maxCap);
 
   void decrement();
 
-  int applyTo(Integer value);
+  int applyTo(Integer value, int maxCap);
 
   int getValue();
 

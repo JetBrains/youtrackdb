@@ -13,8 +13,8 @@ public class DiffChange implements Change {
   }
 
   @Override
-  public void increment() {
-    delta++;
+  public void increment(int maxCap) {
+    delta = Math.min(delta + 1, maxCap);
   }
 
   @Override
@@ -23,12 +23,12 @@ public class DiffChange implements Change {
   }
 
   @Override
-  public int applyTo(Integer value) {
+  public int applyTo(Integer value, int maxCap) {
     int result;
     if (value == null) {
       result = delta;
     } else {
-      result = value + delta;
+      result = Math.min(value + delta, maxCap);
     }
 
     if (result < 0) {

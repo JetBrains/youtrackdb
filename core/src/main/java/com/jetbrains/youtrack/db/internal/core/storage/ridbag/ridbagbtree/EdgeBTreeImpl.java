@@ -175,8 +175,7 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
   }
 
   @Override
-  public int getRealBagSize(Map<RID, Change> changes) {
-    final Map<Identifiable, Change> notAppliedChanges = new HashMap<>(changes);
+  public int getRealBagSize() {
     final var size = new ModifiableInteger(0);
 
     try (final var stream =
@@ -191,24 +190,11 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
           entry -> {
             final var rid =
                 new RecordId(entry.first.targetCluster, entry.first.targetPosition);
-            final var change = notAppliedChanges.remove(rid);
-            final int result;
 
-            final Integer treeValue = entry.second;
-            if (change == null) {
-              result = treeValue;
-            } else {
-              result = change.applyTo(treeValue);
-            }
-
-            size.increment(result);
+            final var treeValue = entry.second;
+            size.increment(treeValue);
             return true;
           });
-    }
-
-    for (final var change : notAppliedChanges.values()) {
-      final var result = change.applyTo(0);
-      size.increment(result);
     }
 
     return size.value;

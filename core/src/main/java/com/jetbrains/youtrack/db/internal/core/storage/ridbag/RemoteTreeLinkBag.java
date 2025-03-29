@@ -23,11 +23,12 @@ package com.jetbrains.youtrack.db.internal.core.storage.ridbag;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeTimeLine;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBagDelegate;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBagDelegate;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.SimpleMultiValueTracker;
 import java.util.Collection;
@@ -40,35 +41,30 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentSkipListMap;
 import javax.annotation.Nonnull;
 
-public class RemoteTreeRidBag implements RidBagDelegate {
+public class RemoteTreeLinkBag implements LinkBagDelegate {
 
   /**
    * Entries with not valid id.
    */
   private int size;
-
-  private final SimpleMultiValueTracker<RID, RID> tracker =
-      new SimpleMultiValueTracker<>(this);
+  private final SimpleMultiValueTracker<RID, RID> tracker = new SimpleMultiValueTracker<>(this);
 
   private transient RecordElement owner;
   private boolean dirty;
   private boolean transactionDirty = false;
+
   private RecordId ownerRecord;
   private String fieldName;
+
   private final BonsaiCollectionPointer collectionPointer;
   @Nonnull
   private final DatabaseSessionInternal session;
 
-  public RemoteTreeRidBag(BonsaiCollectionPointer pointer,
+  public RemoteTreeLinkBag(BonsaiCollectionPointer pointer,
       @Nonnull DatabaseSessionInternal session) {
     this.session = session;
     this.size = -1;
     this.collectionPointer = pointer;
-  }
-
-  @Override
-  public void setSize(int size) {
-    this.size = size;
   }
 
   @Override
@@ -118,11 +114,6 @@ public class RemoteTreeRidBag implements RidBagDelegate {
   }
 
   @Override
-  public boolean addInternal(RID e) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
   public void add(RID rid) {
     if (rid == null) {
       throw new IllegalArgumentException("Impossible to add a null identifiable in a ridbag");
@@ -140,7 +131,7 @@ public class RemoteTreeRidBag implements RidBagDelegate {
   public void remove(RID rid) {
     rid = refreshNonPersistentRid(rid);
 
-    size--;
+    size = -1;
     removeEvent(rid);
   }
 
@@ -158,15 +149,15 @@ public class RemoteTreeRidBag implements RidBagDelegate {
   @Override
   public String toString() {
     if (size >= 0) {
-      return "[size=" + size + "]";
+      return "RemoteLinkBag[size=" + size + "]";
     }
 
-    return "[...]";
+    return "RemoteLinkBag[...]";
   }
 
   @Override
-  public NavigableMap<RID, Change> getChanges() {
-    return new ConcurrentSkipListMap<>();
+  public List<RawPair<RID, Change>> getChanges() {
+    return Collections.emptyList();
   }
 
   @Override
@@ -178,7 +169,7 @@ public class RemoteTreeRidBag implements RidBagDelegate {
   public Object returnOriginalState(
       DatabaseSessionInternal session,
       List<MultiValueChangeEvent<RID, RID>> multiValueChangeEvents) {
-    final var reverted = new RemoteTreeRidBag(this.collectionPointer, session);
+    final var reverted = new RemoteTreeLinkBag(this.collectionPointer, session);
     for (var identifiable : this) {
       reverted.add(identifiable);
     }
@@ -204,23 +195,7 @@ public class RemoteTreeRidBag implements RidBagDelegate {
   }
 
   @Override
-  public int getSerializedSize() {
-    return 2 * LongSerializer.LONG_SIZE + 3 * IntegerSerializer.INT_SIZE;
-  }
-
-  @Override
-  public int serialize(@Nonnull DatabaseSessionInternal session, byte[] stream, int offset,
-      UUID ownerUuid) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
   public void requestDelete() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public int deserialize(@Nonnull DatabaseSessionInternal session, byte[] stream, int offset) {
     throw new UnsupportedOperationException();
   }
 
@@ -237,17 +212,17 @@ public class RemoteTreeRidBag implements RidBagDelegate {
 
   private void addEvent(RID key, RID rid) {
     if (tracker.isEnabled()) {
-      tracker.addNoDirty(key, rid);
+      tracker.add(key, rid);
     } else {
-      setDirtyNoChanged();
+      setDirty();
     }
   }
 
   private void removeEvent(RID removed) {
     if (tracker.isEnabled()) {
-      tracker.removeNoDirty(removed, removed);
+      tracker.remove(removed, removed);
     } else {
-      setDirtyNoChanged();
+      setDirty();
     }
   }
 
@@ -378,7 +353,7 @@ public class RemoteTreeRidBag implements RidBagDelegate {
     @Override
     public void remove() {
       if (removeNext != null) {
-        RemoteTreeRidBag.this.remove(removeNext);
+        RemoteTreeLinkBag.this.remove(removeNext);
         removeNext = null;
       } else {
         throw new IllegalStateException();

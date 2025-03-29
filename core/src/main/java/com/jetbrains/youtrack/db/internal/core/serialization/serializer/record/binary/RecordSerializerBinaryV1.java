@@ -782,7 +782,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   protected static RidBag readRidbag(DatabaseSessionInternal session, BytesContainer bytes) {
-    return HelperClasses.readRidbag(session, bytes);
+    return HelperClasses.readLinkBag(session, bytes);
   }
 
   public Object deserializeValue(

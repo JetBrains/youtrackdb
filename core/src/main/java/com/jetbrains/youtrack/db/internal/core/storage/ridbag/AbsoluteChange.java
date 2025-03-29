@@ -20,7 +20,7 @@ public class AbsoluteChange implements Change {
   }
 
   @Override
-  public void increment() {
+  public void increment(int maxCap) {
     value++;
   }
 
@@ -32,13 +32,13 @@ public class AbsoluteChange implements Change {
   }
 
   @Override
-  public int applyTo(Integer value) {
+  public int applyTo(Integer value, int maxCap) {
     return this.value;
   }
 
   @Override
   public boolean isUndefined() {
-    return true;
+    return false;
   }
 
   @Override

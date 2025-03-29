@@ -51,6 +51,10 @@ public class ModifiableInteger extends Number implements Comparable<ModifiableIn
     value += iValue;
   }
 
+  public void increment(final int iValue, int maxValue) {
+    value = Math.min(value + iValue, maxValue);
+  }
+
   public void decrement() {
     value--;
   }

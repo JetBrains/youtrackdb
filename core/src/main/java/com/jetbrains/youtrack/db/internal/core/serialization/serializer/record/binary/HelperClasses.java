@@ -30,19 +30,17 @@ import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.embedded.EmbeddedRidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedRidBag;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ChangeSerializationHelper;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.RidBagBucketPointer;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
@@ -52,7 +50,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.UUID;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -371,54 +368,18 @@ public class HelperClasses {
     if (ridbag.isEmbedded()) {
       writeEmbeddedRidbag(session, bytes, ridbag);
     } else {
-      writeSBTreeRidbag(session, bytes, ridbag, ownerUuid);
+      writeBTreeLinkBag(session, bytes, ridbag, ownerUuid);
     }
   }
 
-  protected static void writeEmbeddedRidbag(@Nonnull DatabaseSessionInternal session,
-      BytesContainer bytes,
-      RidBag ridbag) {
-    var size = ridbag.size();
-    var entries = ((EmbeddedRidBag) ridbag.getDelegate()).getEntries();
-    for (var i = 0; i < entries.length; i++) {
-      var entry = entries[i];
-      var txInternal = session.getTransactionInternal();
-      if (entry instanceof Identifiable itemValue) {
-        if (!session.isClosed()
-            && session.getTransactionInternal().isActive()
-            && !itemValue.getIdentity().isPersistent()) {
-          itemValue = session.getTransactionInternal().getRecord(itemValue.getIdentity());
-        }
-
-        if (itemValue == null) {
-          entries[i] = null;
-          // Decrease size, nulls are ignored
-          size--;
-        } else {
-          entries[i] = itemValue.getIdentity();
-        }
-      }
-    }
-
-    VarIntSerializer.write(bytes, size);
-    for (var i = 0; i < entries.length; i++) {
-      var entry = entries[i];
-      // Obviously this exclude nulls as well
-      if (entry instanceof Identifiable) {
-        writeLinkOptimized(bytes, ((Identifiable) entry).getIdentity());
-      }
-    }
-  }
-
-  protected static void writeSBTreeRidbag(DatabaseSessionInternal session, BytesContainer bytes,
+  protected static void writeBTreeLinkBag(DatabaseSessionInternal session, BytesContainer bytes,
       RidBag ridbag, UUID ownerUuid) {
-    ((BTreeBasedRidBag) ridbag.getDelegate()).applyNewEntries();
+    ((BTreeBasedLinkBag) ridbag.getDelegate()).applyNewEntries();
 
     var pointer = ridbag.getPointer();
 
     final RecordSerializationContext context;
-    var tx = session.getTransactionInternal();
-    if (!(tx instanceof FrontendTransactionImpl optimisticTx)) {
+    if (!session.isTxActive()) {
       throw new DatabaseException(session.getDatabaseName(),
           "Transaction is not active. Changes are not allowed");
     }
@@ -450,7 +411,7 @@ public class HelperClasses {
       }
     }
 
-    ((BTreeBasedRidBag) ridbag.getDelegate()).setCollectionPointer(pointer);
+    ((BTreeBasedLinkBag) ridbag.getDelegate()).setCollectionPointer(pointer);
 
     VarIntSerializer.write(bytes, pointer.getFileId());
     VarIntSerializer.write(bytes, pointer.getRootPointer().getPageIndex());
@@ -458,7 +419,7 @@ public class HelperClasses {
     VarIntSerializer.write(bytes, 0);
 
     if (context != null) {
-      ((BTreeBasedRidBag) ridbag.getDelegate()).handleContextSBTree(context, pointer);
+      ((BTreeBasedLinkBag) ridbag.getDelegate()).handleContextSBTree(context, pointer);
       VarIntSerializer.write(bytes, 0);
     } else {
       VarIntSerializer.write(bytes, 0);
@@ -487,7 +448,7 @@ public class HelperClasses {
     VarIntSerializer.write(bytes, id.getClusterPosition());
   }
 
-  public static RidBag readRidbag(DatabaseSessionInternal db, BytesContainer bytes) {
+  public static RidBag readLinkBag(DatabaseSessionInternal db, BytesContainer bytes) {
     var configByte = bytes.bytes[bytes.offset++];
     var isEmbedded = (configByte & 1) != 0;
 

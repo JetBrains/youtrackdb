@@ -25,9 +25,8 @@ import com.jetbrains.youtrack.db.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.TreeInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
 import java.io.IOException;
-import java.util.Map;
+import javax.annotation.Nullable;
 
 public interface EdgeBTree<K, V> extends TreeInternal<K, V> {
 
@@ -54,6 +53,7 @@ public interface EdgeBTree<K, V> extends TreeInternal<K, V> {
    * @param key
    * @return value associated with given key, NULL if no value is associated.
    */
+  @Nullable
   V get(K key);
 
   boolean put(AtomicOperation atomicOperation, K key, V value) throws IOException;
@@ -79,8 +79,10 @@ public interface EdgeBTree<K, V> extends TreeInternal<K, V> {
   void loadEntriesMajor(
       K key, boolean inclusive, boolean ascSortOrder, RangeResultListener<K, V> listener);
 
+  @Nullable
   K firstKey();
 
+  @Nullable
   K lastKey();
 
   /**
@@ -88,10 +90,9 @@ public interface EdgeBTree<K, V> extends TreeInternal<K, V> {
    *
    * <p>Don't make any changes to tree.
    *
-   * @param changes Bag changes
    * @return real bag size
    */
-  int getRealBagSize(Map<K, Change> changes);
+  int getRealBagSize();
 
   BinarySerializer<K> getKeySerializer();
 
