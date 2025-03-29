@@ -20,6 +20,7 @@ import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.Map;
@@ -91,7 +92,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
     Assert.assertEquals(indexDefinition.getFields().size(), 1);
     Assert.assertTrue(indexDefinition.getFields().contains("prop1"));
     Assert.assertEquals(indexDefinition.getTypes().length, 1);
-    Assert.assertEquals(indexDefinition.getTypes()[0], PropertyType.STRING);
+    Assert.assertEquals(indexDefinition.getTypes()[0], PropertyTypeInternal.STRING);
   }
 
   @Test(dependsOnMethods = {"testCreateUniqueIndex"})

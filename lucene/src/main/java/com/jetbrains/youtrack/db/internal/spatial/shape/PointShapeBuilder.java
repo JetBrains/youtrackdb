@@ -14,12 +14,15 @@
 package com.jetbrains.youtrack.db.internal.spatial.shape;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.spatial4j.shape.Point;
 
@@ -58,8 +61,7 @@ public class PointShapeBuilder extends ShapeBuilder<Point> {
   }
 
   @Override
-  public Point fromDoc(EntityImpl document) {
-    validate(document);
+  public Point fromResult(Result document) {
     List<Number> coordinates = document.getProperty(COORDINATES);
     if (coordinates.size() == 2) {
       return SHAPE_FACTORY.pointXY(
@@ -73,39 +75,39 @@ public class PointShapeBuilder extends ShapeBuilder<Point> {
   }
 
   @Override
-  public EntityImpl toEntitty(final Point shape) {
-
-    var doc = new EntityImpl(null, NAME);
-    doc.setProperty(COORDINATES, new ArrayList<Double>() {
+  public EmbeddedEntity toEmbeddedEntity(final Point shape, DatabaseSessionInternal session) {
+    var entity = session.newEmbeddedEntity(NAME);
+    entity.newEmbeddedList(COORDINATES, new ArrayList<Double>() {
           {
             add(shape.getX());
             add(shape.getY());
           }
         });
-    return doc;
+    return entity;
   }
 
   @Override
-  protected EntityImpl toEntitty(Point parsed, Geometry geometry) {
+  protected EmbeddedEntity toEmbeddedEntity(Point parsed, Geometry geometry,
+      DatabaseSessionInternal session) {
     if (geometry == null || Double.isNaN(geometry.getCoordinate().getZ())) {
-      return toEntitty(parsed);
+      return toEmbeddedEntity(parsed, session);
     }
 
-    var doc = new EntityImpl(null, NAME + "Z");
-    doc.setProperty(COORDINATES, new ArrayList<Double>() {
+    var entity =  session.newEmbeddedEntity(NAME + "Z");
+    entity.newEmbeddedList(COORDINATES, new ArrayList<Double>() {
           {
             add(geometry.getCoordinate().getX());
             add(geometry.getCoordinate().getY());
             add(geometry.getCoordinate().getZ());
           }
         });
-    return doc;
+    return entity;
   }
 
   @Override
-  public String asText(EntityImpl document) {
-    if (document.getSchemaClassName().equals("OPointZ")) {
-      List<Double> coordinates = document.getProperty("coordinates");
+  public String asText(EmbeddedEntity entity) {
+    if (Objects.equals(entity.getSchemaClassName(), "OPointZ")) {
+      List<Double> coordinates = entity.getProperty("coordinates");
       return "POINT Z ("
           + format(coordinates.get(0))
           + " "
@@ -114,7 +116,7 @@ public class PointShapeBuilder extends ShapeBuilder<Point> {
           + format(coordinates.get(2))
           + ")";
     } else {
-      return super.asText(document);
+      return super.asText(entity);
     }
   }
 }

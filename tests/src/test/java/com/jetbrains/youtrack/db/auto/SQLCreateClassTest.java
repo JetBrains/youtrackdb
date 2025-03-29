@@ -18,42 +18,36 @@ package com.jetbrains.youtrack.db.auto;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
 import org.testng.Assert;
+import org.testng.annotations.Optional;
+import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
-public class SQLCreateClassTest {
+public class SQLCreateClassTest extends BaseDBTest {
+
+  @Parameters(value = "remote")
+  public SQLCreateClassTest(@Optional Boolean remote) {
+    super(remote != null && remote);
+  }
 
   @Test
   public void testSimpleCreate() {
-    DatabaseSessionInternal db =
-        new DatabaseDocumentTx("memory:" + SQLCreateClassTest.class.getName());
-    db.create();
-    try {
-      Assert.assertFalse(db.getMetadata().getSchema().existsClass("testSimpleCreate"));
-      db.execute("create class testSimpleCreate").close();
-      Assert.assertTrue(db.getMetadata().getSchema().existsClass("testSimpleCreate"));
-    } finally {
-      db.drop();
-    }
+    Assert.assertFalse(session.getMetadata().getSchema().existsClass("testSimpleCreate"));
+    session.execute("create class testSimpleCreate").close();
+    Assert.assertTrue(session.getMetadata().getSchema().existsClass("testSimpleCreate"));
   }
 
   @Test
   public void testIfNotExists() {
-    DatabaseSessionInternal db =
-        new DatabaseDocumentTx("memory:" + SQLCreateClassTest.class.getName() + "_ifNotExists");
-    db.create();
+    Assert.assertFalse(session.getMetadata().getSchema().existsClass("testIfNotExists"));
+    session.execute("create class testIfNotExists if not exists").close();
+    Assert.assertTrue(session.getMetadata().getSchema().existsClass("testIfNotExists"));
+    session.execute("create class testIfNotExists if not exists").close();
+    Assert.assertTrue(session.getMetadata().getSchema().existsClass("testIfNotExists"));
     try {
-      Assert.assertFalse(db.getMetadata().getSchema().existsClass("testIfNotExists"));
-      db.execute("create class testIfNotExists if not exists").close();
-      Assert.assertTrue(db.getMetadata().getSchema().existsClass("testIfNotExists"));
-      db.execute("create class testIfNotExists if not exists").close();
-      Assert.assertTrue(db.getMetadata().getSchema().existsClass("testIfNotExists"));
-      try {
-        db.execute("create class testIfNotExists").close();
-        Assert.fail();
-      } catch (Exception e) {
-      }
-    } finally {
-      db.drop();
+      session.execute("create class testIfNotExists").close();
+      Assert.fail();
+    } catch (Exception e) {
+      // okay
     }
   }
 }

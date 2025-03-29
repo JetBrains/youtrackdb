@@ -14,15 +14,18 @@
 package com.jetbrains.youtrack.db.internal.spatial.shape;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.io.IOException;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.text.ParseException;
 import java.util.HashMap;
 import java.util.Map;
+import javax.annotation.Nullable;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.io.WKBWriter;
@@ -40,6 +43,7 @@ import org.locationtech.spatial4j.shape.jts.JtsShapeFactory;
 
 public abstract class ShapeBuilder<T extends Shape> {
 
+  public static final String SHAPE_NAME = "shapeName";
   public static final String COORDINATES = "coordinates";
   public static final String BASE_CLASS = "OShape";
   protected static final JtsSpatialContext SPATIAL_CONTEXT;
@@ -87,20 +91,25 @@ public abstract class ShapeBuilder<T extends Shape> {
     }
   }
 
+  @Nullable
   public abstract String getName();
 
+  @Nullable
   public abstract OShapeType getType();
 
-  public abstract T fromDoc(EntityImpl doc);
+  @Nullable
+  public abstract T fromResult(Result result);
 
+  @Nullable
   public T fromObject(Object obj) {
     throw new UnsupportedOperationException();
   }
 
   public T fromMapGeoJson(Map<String, Object> geoJsonMap) {
-    var doc = new EntityImpl(null, getName());
-    doc.setProperty(COORDINATES, geoJsonMap.get(COORDINATES));
-    return fromDoc(doc);
+    var result = new ResultInternal(null);
+    result.setMetadata(ShapeBuilder.SHAPE_NAME, getName());
+    result.setProperty(COORDINATES, geoJsonMap.get(COORDINATES));
+    return fromResult(result);
   }
 
   public abstract void initClazz(DatabaseSessionInternal db);
@@ -116,14 +125,16 @@ public abstract class ShapeBuilder<T extends Shape> {
     return writer.write(geom);
   }
 
-  public String asText(EntityImpl document) {
-    return asText(fromDoc(document));
+  @Nullable
+  public String asText(EmbeddedEntity entity) {
+    return asText(fromResult(entity));
   }
 
   public String asText(Map<String, Object> geoJson) {
     return asText(fromMapGeoJson(geoJson));
   }
 
+  @Nullable
   public String asText(Object object) {
     throw new UnsupportedOperationException();
   }
@@ -132,16 +143,13 @@ public abstract class ShapeBuilder<T extends Shape> {
     return SPATIAL_CONTEXT.getFormats().getGeoJsonWriter().toString(shape);
   }
 
-  public String asGeoJson(EntityImpl document) {
-    return asGeoJson(fromDoc(document));
+  public String asGeoJson(Result result) {
+    return asGeoJson(fromResult(result));
   }
 
-  public EntityImpl fromGeoJson(String geoJson) throws IOException, ParseException {
+  public EmbeddedEntity fromGeoJson(String geoJson, DatabaseSessionInternal session) throws IOException, ParseException {
     var shape = SPATIAL_CONTEXT.getFormats().getGeoJsonReader().read(geoJson);
-    return toEntitty((T) shape);
-  }
-
-  public void validate(EntityImpl doc) {
+    return toEmbeddedEntity((T) shape, session);
   }
 
   Geometry toGeometry(Shape shape) {
@@ -166,23 +174,24 @@ public abstract class ShapeBuilder<T extends Shape> {
     return (T) entity;
   }
 
-  public abstract EntityImpl toEntitty(T shape);
+  public abstract EmbeddedEntity toEmbeddedEntity(T shape, DatabaseSessionInternal session);
 
-  protected EntityImpl toEntitty(T parsed, Geometry geometry) {
+  protected EmbeddedEntity toEmbeddedEntity(T parsed, Geometry geometry,
+      DatabaseSessionInternal session) {
     if (geometry == null || Double.isNaN(geometry.getCoordinates()[0].getZ())) {
-      return toEntitty(parsed);
+      return toEmbeddedEntity(parsed, session);
     }
     throw new IllegalArgumentException("Invalid shape");
   }
 
-  public EntityImpl toEntitty(String wkt)
+  public EmbeddedEntity toEmbeddedEntity(String wkt, DatabaseSessionInternal session)
       throws ParseException, org.locationtech.jts.io.ParseException {
     var parsed = fromText(wkt);
-    return toEntitty(
+    return toEmbeddedEntity(
         parsed,
         GlobalConfiguration.SPATIAL_ENABLE_DIRECT_WKT_READER.getValueAsBoolean()
             ? wktReader.read(wkt)
-            : null);
+            : null, session);
   }
 
   public int getSRID(Shape shape) {

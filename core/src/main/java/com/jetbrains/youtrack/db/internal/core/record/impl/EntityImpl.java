@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
@@ -37,6 +36,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
@@ -707,8 +707,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Nonnull
   public <T> EmbeddedList<T> newEmbeddedList(@Nonnull String name, @Nonnull Collection<T> source) {
-    var value = new EntityEmbeddedListImpl<T>(source.size());
-    value.addAll(source);
+    var value = (EmbeddedList<T>) PropertyTypeInternal.EMBEDDEDLIST.copy(source, session);
     setProperty(name, value, PropertyType.EMBEDDEDLIST);
     return value;
   }
@@ -716,8 +715,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Nonnull
   public <T> EmbeddedList<T> newEmbeddedList(@Nonnull String name, @Nonnull Collection<T> source,
       @Nonnull PropertyType linkedType) {
-    var value = new EntityEmbeddedListImpl<T>(source.size());
-    value.addAll(source);
+    var value = (EmbeddedList<T>) PropertyTypeInternal.EMBEDDEDLIST.copy(source, session);
     setProperty(name, value, PropertyType.EMBEDDEDLIST, linkedType);
     return value;
   }
@@ -731,9 +729,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       throw new IllegalArgumentException("Unsupported type: " + componentType);
     }
 
-    var value = new EntityEmbeddedListImpl<T>(source.length);
-    Collections.addAll(value, source);
-
+    var value =  (EmbeddedList<T>) PropertyTypeInternal.EMBEDDEDLIST.copy(source, session);
     setProperty(name, value, PropertyType.EMBEDDEDLIST, linkedType.getPublicPropertyType());
     return value;
   }
@@ -857,8 +853,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Nonnull
   public <T> EmbeddedSet<T> newEmbeddedSet(@Nonnull String name, @Nonnull Collection<T> source) {
-    var value = new EntityEmbeddedSetImpl<T>(source.size());
-    value.addAll(source);
+    var value = (EmbeddedSet<T>) PropertyTypeInternal.EMBEDDEDSET.copy(source, session);
     setProperty(name, value, PropertyType.EMBEDDEDSET);
     return value;
   }
@@ -866,8 +861,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Nonnull
   public <T> EmbeddedSet<T> newEmbeddedSet(@Nonnull String name, Collection<T> source,
       @Nonnull PropertyType linkedType) {
-    var value = new EntityEmbeddedSetImpl<T>(source.size());
-    value.addAll(source);
+    var value = (EmbeddedSet<T>) PropertyTypeInternal.EMBEDDEDSET.copy(source, session);
     setProperty(name, value, PropertyType.EMBEDDEDSET, linkedType);
     return value;
   }
@@ -918,8 +912,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Nonnull
   public <T> Map<String, T> newEmbeddedMap(@Nonnull String name, Map<String, T> source) {
-    var value = new EntityEmbeddedMapImpl<T>(source.size());
-    value.putAll(source);
+    var value = (EmbeddedMap<T>) PropertyTypeInternal.EMBEDDEDMAP.copy(source, session);
     setProperty(name, value, PropertyType.EMBEDDEDMAP);
     return value;
   }
@@ -927,8 +920,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Nonnull
   public <T> Map<String, T> newEmbeddedMap(@Nonnull String name, Map<String, T> source,
       @Nonnull PropertyType linkedType) {
-    var value = new EntityEmbeddedMapImpl<T>(source.size());
-    value.putAll(source);
+    var value = (EmbeddedMap<T>) PropertyTypeInternal.EMBEDDEDMAP.copy(source, session);
     setProperty(name, value, PropertyType.EMBEDDEDMAP, linkedType);
     return value;
   }
@@ -2767,6 +2759,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
     checkForProperties();
     super.setDirty();
 
+    if (status != STATUS.UNMARSHALLING) {
+      source = null;
+    }
+
     if (owner != null) {
       // PROPAGATES TO THE OWNER
       var ownerEntity = owner.get();
@@ -2913,27 +2909,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Nullable
   public ArrayList<RidBag> getRidBagsToDelete() {
     return ridBagsToDelete;
-  }
-
-  /**
-   * Clears all the property values and types. Clears only record content, but saves its identity.
-   *
-   * <p>
-   *
-   * <p>The following code will clear all data from specified entity. <code>
-   * entity.clear(); entity.save(); </code>
-   *
-   * @see #reset()
-   */
-  @Override
-  public void clear() {
-    checkForBinding();
-
-    for (var property : getPropertyNames()) {
-      removeProperty(property);
-    }
-
-    owner = null;
   }
 
   /**
@@ -3305,75 +3280,67 @@ public class EntityImpl extends RecordAbstract implements Entity {
       inspected.add(this);
     }
 
-    final var saveDirtyStatus = dirty;
-    final var oldUpdateContent = contentChanged;
+    final var buffer = new StringBuilder(128);
 
-    try {
-      final var buffer = new StringBuilder(128);
-
-      if (!session.isClosed()) {
-        final var clsName = getSchemaClassName();
-        if (clsName != null) {
-          buffer.append(clsName);
-        }
+    if (!session.isClosed()) {
+      final var clsName = getSchemaClassName();
+      if (clsName != null) {
+        buffer.append(clsName);
       }
+    }
 
-      if (recordId.isValidPosition()) {
-        buffer.append(recordId);
-      }
+    if (recordId.isValidPosition()) {
+      buffer.append(recordId);
+    }
 
-      var first = true;
-      if (sourceIsParsedByProperties()) {
-        for (var propertyName : calculatePropertyNames(false, true)) {
-          buffer.append(first ? '{' : ',');
-          buffer.append(propertyName);
-          buffer.append(':');
-          var propertyValue = getPropertyInternal(propertyName);
-          if (propertyValue == null) {
-            buffer.append("null");
+    var first = true;
+    if (sourceIsParsedByProperties()) {
+      for (var propertyName : calculatePropertyNames(false, true)) {
+        buffer.append(first ? '{' : ',');
+        buffer.append(propertyName);
+        buffer.append(':');
+        var propertyValue = getPropertyInternal(propertyName);
+        if (propertyValue == null) {
+          buffer.append("null");
+        } else {
+          if (propertyValue instanceof Collection<?>
+              || propertyValue instanceof Map<?, ?>
+              || propertyValue.getClass().isArray()) {
+            buffer.append('[');
+            buffer.append(MultiValue.getSize(propertyValue));
+            buffer.append(']');
           } else {
-            if (propertyValue instanceof Collection<?>
-                || propertyValue instanceof Map<?, ?>
-                || propertyValue.getClass().isArray()) {
-              buffer.append('[');
-              buffer.append(MultiValue.getSize(propertyValue));
-              buffer.append(']');
-            } else {
-              if (propertyValue instanceof RecordAbstract record) {
-                if (record.getIdentity().isValidPosition()) {
-                  record.getIdentity().toString(buffer);
-                } else {
-                  if (record instanceof EntityImpl) {
-                    buffer.append(((EntityImpl) record).toString(inspected));
-                  } else {
-                    buffer.append(record);
-                  }
-                }
+            if (propertyValue instanceof RecordAbstract record) {
+              if (record.getIdentity().isValidPosition()) {
+                record.getIdentity().toString(buffer);
               } else {
-                buffer.append(propertyValue);
+                if (record instanceof EntityImpl) {
+                  buffer.append(((EntityImpl) record).toString(inspected));
+                } else {
+                  buffer.append(record);
+                }
               }
+            } else {
+              buffer.append(propertyValue);
             }
           }
-
-          if (first) {
-            first = false;
-          }
         }
-        if (!first) {
-          buffer.append('}');
+
+        if (first) {
+          first = false;
         }
       }
-
-      if (recordId.isValidPosition()) {
-        buffer.append(" v");
-        buffer.append(recordVersion);
+      if (!first) {
+        buffer.append('}');
       }
-
-      return buffer.toString();
-    } finally {
-      dirty = saveDirtyStatus;
-      contentChanged = oldUpdateContent;
     }
+
+    if (recordId.isValidPosition()) {
+      buffer.append(" v");
+      buffer.append(recordVersion);
+    }
+
+    return buffer.toString();
   }
 
   @Override

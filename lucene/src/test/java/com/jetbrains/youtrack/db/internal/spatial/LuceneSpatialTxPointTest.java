@@ -17,6 +17,7 @@
 
 package com.jetbrains.youtrack.db.internal.spatial;
 
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -34,14 +35,11 @@ public class LuceneSpatialTxPointTest extends BaseSpatialLuceneTest {
   public void init() {
 
     Schema schema = session.getMetadata().getSchema();
-    var v = schema.getClass("V");
-    var oClass = schema.createClass("City");
-    oClass.addSuperClass(v);
+    var oClass = schema.createVertexClass("City");
     oClass.createProperty("location", PropertyType.EMBEDDED, schema.getClass("OPoint"));
     oClass.createProperty("name", PropertyType.STRING);
 
-    var place = schema.createClass("Place");
-    place.addSuperClass(v);
+    var place = schema.createVertexClass("Place");
     place.createProperty("latitude", PropertyType.DOUBLE);
     place.createProperty("longitude", PropertyType.DOUBLE);
     place.createProperty("name", PropertyType.STRING);
@@ -49,33 +47,31 @@ public class LuceneSpatialTxPointTest extends BaseSpatialLuceneTest {
     session.execute("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
   }
 
-  protected EntityImpl newCity(String name, final Double longitude, final Double latitude) {
-
+  protected Entity newCity(String name, final Double longitude, final Double latitude) {
     var location = newPoint(longitude, latitude);
 
-    var city = ((EntityImpl) session.newEntity("City"));
+    var city = session.newVertex("City");
     city.setProperty("name", name);
     city.setProperty("location", location);
+
     return city;
   }
 
-  private EntityImpl newPoint(final Double longitude, final Double latitude) {
-    var location = ((EntityImpl) session.newEntity("OPoint"));
-    location.setProperty("coordinates", new ArrayList<Double>() {
-          {
-            add(longitude);
-            add(latitude);
-          }
-        });
+  private Entity newPoint(final Double longitude, final Double latitude) {
+    var location = session.newEmbeddedEntity("OPoint");
+    location.newEmbeddedList("coordinates", new ArrayList<Double>() {
+      {
+        add(longitude);
+        add(latitude);
+      }
+    });
     return location;
   }
 
   @Test
   public void testIndexingTxPoint() {
-
-    var rome = newCity("Rome", 12.5, 41.9);
-
     session.begin();
+    newCity("Rome", 12.5, 41.9);
 
     var query =
         "select * from City where  ST_WITHIN(location,{ 'shape' : { 'type' : 'ORectangle' ,"
@@ -96,11 +92,8 @@ public class LuceneSpatialTxPointTest extends BaseSpatialLuceneTest {
 
   @Test
   public void testIndexingUpdateTxPoint() {
-
-    var rome = newCity("Rome", -0.1275, 51.507222);
-
     session.begin();
-    rome = rome;
+    var rome = newCity("Rome", -0.1275, 51.507222);
     session.commit();
 
     session.begin();
@@ -127,13 +120,9 @@ public class LuceneSpatialTxPointTest extends BaseSpatialLuceneTest {
 
   @Test
   public void testIndexingComplexUpdateTxPoint() {
-
+    session.begin();
     var rome = newCity("Rome", 12.5, 41.9);
     var london = newCity("London", -0.1275, 51.507222);
-
-    session.begin();
-    rome = rome;
-    london = london;
     session.commit();
 
     session.begin();

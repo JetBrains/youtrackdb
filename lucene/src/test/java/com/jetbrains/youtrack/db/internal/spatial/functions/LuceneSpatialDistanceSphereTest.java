@@ -76,6 +76,7 @@ public class LuceneSpatialDistanceSphereTest extends BaseSpatialLuceneTest {
     session.commit();
 
     session.execute("create index Place.l on Place (location) SPATIAL engine lucene").close();
+    session.begin();
     var execute =
         session.execute(
             "SELECT from Place where ST_Distance_Sphere(location, ST_GeomFromText('POINT(12.468933"
@@ -88,6 +89,7 @@ public class LuceneSpatialDistanceSphereTest extends BaseSpatialLuceneTest {
                 + " 41.890303)')) > 50");
 
     Assert.assertEquals(1, execute.stream().count());
+    session.commit();
   }
 
   // Need more test with index

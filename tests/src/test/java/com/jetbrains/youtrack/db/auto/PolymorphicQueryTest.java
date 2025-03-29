@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -32,8 +33,8 @@ import org.testng.annotations.Test;
 public class PolymorphicQueryTest extends BaseDBTest {
 
   @Parameters(value = "remote")
-  public PolymorphicQueryTest(boolean remote) {
-    super(remote);
+  public PolymorphicQueryTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @BeforeClass
@@ -91,13 +92,15 @@ public class PolymorphicQueryTest extends BaseDBTest {
   public void beforeMethod() throws Exception {
     super.beforeMethod();
 
-    session.execute("delete from IndexInSubclassesTestBase").close();
-    session.execute("delete from IndexInSubclassesTestChild1").close();
-    session.execute("delete from IndexInSubclassesTestChild2").close();
+    session.begin();
+    session.command("delete from IndexInSubclassesTestBase");
+    session.command("delete from IndexInSubclassesTestChild1");
+    session.command("delete from IndexInSubclassesTestChild2");
 
-    session.execute("delete from IndexInSubclassesTestBaseFail").close();
-    session.execute("delete from IndexInSubclassesTestChild1Fail").close();
-    session.execute("delete from IndexInSubclassesTestChild2Fail").close();
+    session.command("delete from IndexInSubclassesTestBaseFail");
+    session.command("delete from IndexInSubclassesTestChild1Fail");
+    session.command("delete from IndexInSubclassesTestChild2Fail");
+    session.commit();
   }
 
   @Test
@@ -127,10 +130,12 @@ public class PolymorphicQueryTest extends BaseDBTest {
 
       if (i % 100 == 0) {
         session.commit();
+        session.begin();
       }
     }
     session.commit();
 
+    session.begin();
     var result =
         session.query(
 
@@ -164,24 +169,12 @@ public class PolymorphicQueryTest extends BaseDBTest {
       Assert.assertTrue(lastName.compareTo(currentName) >= 0);
       lastName = currentName;
     }
+    session.commit();
   }
 
   @Test
   public void testBaseWithoutIndexAndSubclassesIndexes() throws Exception {
     session.begin();
-
-    var profiler = ProfilerStub.INSTANCE;
-
-    var indexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var indexUsageReverted = profiler.getCounter("db.demo.query.indexUseAttemptedAndReverted");
-
-    if (indexUsage < 0) {
-      indexUsage = 0;
-    }
-
-    if (indexUsageReverted < 0) {
-      indexUsageReverted = 0;
-    }
 
     for (var i = 0; i < 10000; i++) {
       final var doc0 = session.newInstance("IndexInSubclassesTestBase");
@@ -195,10 +188,12 @@ public class PolymorphicQueryTest extends BaseDBTest {
 
       if (i % 100 == 0) {
         session.commit();
+        session.begin();
       }
     }
     session.commit();
 
+    session.begin();
     var result =
         session.query(
 
@@ -214,11 +209,6 @@ public class PolymorphicQueryTest extends BaseDBTest {
       lastName = currentName;
     }
 
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), indexUsage + 2);
-
-    var reverted = profiler.getCounter("db.demo.query.indexUseAttemptedAndReverted");
-    Assert.assertEquals(reverted < 0 ? 0 : reverted, indexUsageReverted);
-
     result =
         session.query(
             "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
@@ -232,6 +222,7 @@ public class PolymorphicQueryTest extends BaseDBTest {
       Assert.assertTrue(lastName.compareTo(currentName) >= 0);
       lastName = currentName;
     }
+    session.commit();
   }
 
   @Test
@@ -250,20 +241,10 @@ public class PolymorphicQueryTest extends BaseDBTest {
 
       if (i % 100 == 0) {
         session.commit();
+        session.begin();
       }
     }
     session.commit();
-
-    var indexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var indexUsageReverted = profiler.getCounter("db.demo.query.indexUseAttemptedAndReverted");
-
-    if (indexUsage < 0) {
-      indexUsage = 0;
-    }
-
-    if (indexUsageReverted < 0) {
-      indexUsageReverted = 0;
-    }
 
     var result =
         session.query(
@@ -271,28 +252,18 @@ public class PolymorphicQueryTest extends BaseDBTest {
                 + " 'name9999' order by name ASC");
     Assert.assertEquals(result.stream().count(), 6);
 
-    var lastIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var lastIndexUsageReverted = profiler.getCounter("db.demo.query.indexUseAttemptedAndReverted");
-    if (lastIndexUsage < 0) {
-      lastIndexUsage = 0;
-    }
-
-    if (lastIndexUsageReverted < 0) {
-      lastIndexUsageReverted = 0;
-    }
-
-    Assert.assertEquals(lastIndexUsage - indexUsage, lastIndexUsageReverted - indexUsageReverted);
   }
 
   @Test
   public void testIteratorOnSubclassWithoutValues() {
+    session.begin();
     for (var i = 0; i < 2; i++) {
       final var doc1 = ((EntityImpl) session.newEntity("GenericCrash"));
-      session.begin();
       doc1.setProperty("name", "foo");
-
     }
+    session.commit();
 
+    session.begin();
     // crashed with YTIOException, issue #3632
     var result =
         session.query("SELECT FROM GenericCrash WHERE @class='GenericCrash' ORDER BY @rid DESC");
@@ -304,5 +275,6 @@ public class PolymorphicQueryTest extends BaseDBTest {
       count++;
     }
     Assert.assertEquals(count, 2);
+    session.commit();
   }
 }

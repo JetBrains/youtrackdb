@@ -26,7 +26,9 @@ public class DBRecordMetadataTest extends BaseDBTest {
 
   public void testGetRecordMetadata() {
 
+    session.begin();
     var doc = ((EntityImpl) session.newEntity());
+    session.commit();
     for (var i = 0; i < 5; i++) {
       session.begin();
       if (!doc.getIdentity().isNew()) {
@@ -37,10 +39,12 @@ public class DBRecordMetadataTest extends BaseDBTest {
       doc.setProperty("field", i);
       session.commit();
 
+      session.begin();
       final var metadata = session.getRecordMetadata(doc.getIdentity());
       assetORIDEquals(doc.getIdentity(), metadata.getRecordId());
       var activeTx = session.getActiveTransaction();
       assertEquals(activeTx.<EntityImpl>load(doc).getVersion(), metadata.getVersion());
+      session.commit();
     }
   }
 }

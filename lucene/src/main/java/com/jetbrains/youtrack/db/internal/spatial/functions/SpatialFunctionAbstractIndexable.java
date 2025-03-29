@@ -20,6 +20,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.IndexableSQLFunction;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCompareOperator;
@@ -93,9 +94,7 @@ public abstract class SpatialFunctionAbstractIndexable extends SpatialFunctionAb
     Object shape;
 
     if (args[1].getValue() instanceof SQLJson json) {
-      var doc = new EntityImpl(null);
-      doc.updateFromJSON(json.toString());
-      shape = doc.toMap();
+      shape = RecordSerializerJackson.mapFromJson(json.toString());
     } else {
       shape = args[1].execute((Identifiable) null, ctx);
     }
@@ -110,15 +109,26 @@ public abstract class SpatialFunctionAbstractIndexable extends SpatialFunctionAb
 
         var next = ((Collection) shape).iterator().next();
 
+        var shapeFound = false;
         if (next instanceof Result inner) {
-          var propertyNames = inner.getPropertyNames();
-          if (propertyNames.size() == 1) {
-            var property = inner.getProperty(propertyNames.iterator().next());
-            if (property instanceof Result) {
-              shape = ((Result) property).asEntityOrNull();
+          if (inner.isEntity()) {
+            var entity = inner.asEntity();
+            if (entity.isEmbedded()) {
+              shapeFound = true;
+              shape = inner.asEntity();
             }
-          } else {
-            return new LuceneResultSetEmpty();
+          }
+
+          if (!shapeFound) {
+            var propertyNames = inner.getPropertyNames();
+            if (propertyNames.size() == 1) {
+              var property = inner.getProperty(propertyNames.iterator().next());
+              if (property instanceof Result) {
+                shape = ((Result) property).asEntityOrNull();
+              }
+            } else {
+              return new LuceneResultSetEmpty();
+            }
           }
         }
       } else {
@@ -127,9 +137,10 @@ public abstract class SpatialFunctionAbstractIndexable extends SpatialFunctionAb
       }
     }
 
-    if (shape instanceof ResultInternal) {
-      shape = ((ResultInternal) shape).asEntityOrNull();
+    if (shape instanceof Result result) {
+      shape = result.asEntity();
     }
+
     queryParams.put(SpatialQueryBuilderAbstract.SHAPE, shape);
 
     onAfterParsing(queryParams, args, ctx, rightValue);

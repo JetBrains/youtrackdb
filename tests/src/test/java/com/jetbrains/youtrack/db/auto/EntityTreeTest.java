@@ -148,7 +148,7 @@ public class EntityTreeTest extends BaseDBTest {
   public void testSetFieldSize() {
     session.begin();
     var test = session.newEntity("JavaComplexTestClass");
-    test.setProperty("set", new HashSet<>());
+    test.getOrCreateLinkSet("set");
 
     for (var i = 0; i < 100; i++) {
       var child = session.newEntity("Child");
@@ -183,6 +183,7 @@ public class EntityTreeTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testQueryMultiCircular")
   public void testCollectionsRemove() {
+    session.begin();
     var a = session.newEntity("JavaComplexTestClass");
 
     // LIST TEST
@@ -197,7 +198,7 @@ public class EntityTreeTest extends BaseDBTest {
     var fifth = session.newEntity("Child");
     fifth.setProperty("name", "5");
 
-    var set = new HashSet<Identifiable>();
+    var set = session.newLinkSet();
     set.add(first);
     set.add(second);
     set.add(third);
@@ -206,7 +207,7 @@ public class EntityTreeTest extends BaseDBTest {
 
     a.setProperty("set", set);
 
-    var list = new ArrayList<Identifiable>();
+    var list = session.newLinkList();
     list.add(first);
     list.add(second);
     list.add(third);
@@ -221,8 +222,6 @@ public class EntityTreeTest extends BaseDBTest {
     Assert.assertEquals(a.<Set<Identifiable>>getProperty("set").size(), 4);
     Assert.assertEquals(a.<List<Identifiable>>getProperty("list").size(), 4);
 
-    session.begin();
-    a = a;
     session.commit();
 
     session.begin();
@@ -258,8 +257,8 @@ public class EntityTreeTest extends BaseDBTest {
     sat.setProperty("near", near);
     satNear.setProperty("diameter", 10);
 
-    near.setProperty("satellites", Collections.singletonList(satNear));
-    p.setProperty("satellites", Collections.singletonList(sat));
+    near.setProperty("satellites", session.newLinkList(List.of(satNear)));
+    p.setProperty("satellites", session.newLinkSet(List.of(sat)));
 
     session.commit();
 
@@ -303,7 +302,7 @@ public class EntityTreeTest extends BaseDBTest {
     sat.setProperty("diameter", 50);
     sat.setProperty("name", "Moon");
 
-    p.setProperty("satellitesMap", Collections.singletonMap(sat.<String>getProperty("name"), sat));
+    p.setProperty("satellitesMap", session.newLinkMap(Map.of(sat.getString("name"), sat)));
     session.commit();
 
     session.begin();
@@ -339,6 +338,7 @@ public class EntityTreeTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "childMapUpdateTest")
   public void childMapNLevelUpdateTest() {
+    session.begin();
     var jupiter = session.newEntity("Planet");
     jupiter.setProperty("name", "Jupiter");
     jupiter.setProperty("distanceSun", 3000);
@@ -355,12 +355,11 @@ public class EntityTreeTest extends BaseDBTest {
 
     mercury.setProperty(
         "satellitesMap",
-        Collections.singletonMap(mercuryMoon.<String>getProperty("name"), mercuryMoon));
+        session.newLinkMap(Map.of(mercuryMoon.<String>getProperty("name"), mercuryMoon)));
     jupiter.setProperty(
         "satellitesMap",
-        Collections.singletonMap(jupiterMoon.<String>getProperty("name"), jupiterMoon));
+        session.newLinkMap(Map.of(jupiterMoon.<String>getProperty("name"), jupiterMoon)));
 
-    session.begin();
     session.commit();
 
     session.begin();
@@ -460,11 +459,10 @@ public class EntityTreeTest extends BaseDBTest {
     parent2 = parent2;
 
     var child1 = session.newEntity("RefChild");
-    parent1.setProperty("children", Collections.singleton(child1));
-    parent1 = parent1;
+    parent1.setProperty("children", session.newLinkSet(Set.of(child1)));
 
     var child2 = session.newEntity("RefChild");
-    parent2.setProperty("children", Collections.singleton(child2));
+    parent2.setProperty("children", session.newLinkSet(Set.of(child2)));
     session.commit();
 
     session.begin();

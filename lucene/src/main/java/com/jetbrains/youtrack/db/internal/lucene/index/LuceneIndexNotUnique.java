@@ -122,7 +122,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
 
                 var atomicOperation =
                     storage.getAtomicOperationsManager().getCurrentOperation();
-                indexEngine.put(session, atomicOperation, decodeKey(key), rid);
+                indexEngine.put(session, atomicOperation, decodeKey(key, session), rid);
                 return null;
               } catch (IOException e) {
                 throw BaseException.wrapException(
@@ -138,8 +138,8 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public boolean doRemove(AbstractPaginatedStorage storage, Object key)
-      throws InvalidIndexEngineIdException {
+  public boolean doRemove(AbstractPaginatedStorage storage, Object key,
+      DatabaseSessionInternal session) {
     while (true) {
       try {
         storage.callIndexEngine(
@@ -147,7 +147,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
             indexId,
             engine -> {
               var indexEngine = (LuceneIndexEngine) engine;
-              indexEngine.remove(storage, decodeKey(key));
+              indexEngine.remove(storage, decodeKey(key, session));
               return true;
             });
         break;
@@ -169,7 +169,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
             indexId,
             engine -> {
               var indexEngine = (LuceneIndexEngine) engine;
-              indexEngine.remove(storage, decodeKey(key), rid);
+              indexEngine.remove(storage, decodeKey(key, session), rid);
               return true;
             });
         break;
@@ -196,7 +196,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
     }
   }
 
-  protected Object decodeKey(Object key) {
+  protected Object decodeKey(Object key, DatabaseSessionInternal session) {
     return key;
   }
 

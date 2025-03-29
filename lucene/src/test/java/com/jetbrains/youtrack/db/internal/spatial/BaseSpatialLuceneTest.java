@@ -13,7 +13,9 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial;
 
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import com.jetbrains.youtrack.db.internal.lucene.test.BaseLuceneTest;
 import com.jetbrains.youtrack.db.internal.spatial.shape.MultiPolygonShapeBuilder;
 import java.io.IOException;
@@ -133,23 +135,19 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
     };
   }
 
-  protected EntityImpl loadMultiPolygon() {
+  protected EmbeddedEntity loadMultiPolygon() throws IOException {
+    var systemResourceAsStream = ClassLoader.getSystemResourceAsStream("italy.json");
 
-    try {
-      var systemResourceAsStream = ClassLoader.getSystemResourceAsStream("italy.json");
+    var map = RecordSerializerJackson.mapFromJson(systemResourceAsStream);
 
-      EntityImpl doc = ((EntityImpl) session.newEntity()).updateFromJSON(systemResourceAsStream);
+    Map geometry = (Map) map.get("geometry");
 
-      Map geometry = doc.getProperty("geometry");
+    var type = (String) geometry.get("type");
+    var location = session.newEmbeddedEntity("O" + type);
+    location.newEmbeddedList("coordinates", (List<Object>) geometry.get("coordinates"));
+    return location;
 
-      var type = (String) geometry.get("type");
-      var location = ((EntityImpl) session.newEntity("O" + type));
-      location.setPropertyInChain("coordinates", geometry.get("coordinates"));
-      return location;
-    } catch (Exception e) {
-      e.printStackTrace();
-    }
-    return null;
+
   }
 
   protected GeometryCollection createGeometryCollection() {
@@ -163,10 +161,10 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
     return geometryFactory.createGeometryCollection(new Geometry[]{point, lineString});
   }
 
-  protected EntityImpl geometryCollection() {
+  protected EmbeddedEntity geometryCollection() {
 
-    final var point = ((EntityImpl) session.newEntity("OPoint"));
-    point.setPropertyInChain(
+    final var point = session.newEmbeddedEntity("OPoint");
+    point.newEmbeddedList(
         "coordinates",
         new ArrayList<Double>() {
           {
@@ -175,8 +173,8 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
           }
         });
 
-    final var lineString = ((EntityImpl) session.newEntity("OLineString"));
-    lineString.setPropertyInChain(
+    final var lineString = session.newEmbeddedEntity("OLineString");
+    lineString.newEmbeddedList(
         "coordinates",
         new ArrayList<List<Double>>() {
           {
@@ -185,11 +183,11 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
           }
         });
 
-    var geometryCollection = ((EntityImpl) session.newEntity("OGeometryCollection"));
+    var geometryCollection = session.newEmbeddedEntity("OGeometryCollection");
 
-    geometryCollection.setPropertyInChain(
+    geometryCollection.newEmbeddedList(
         "geometries",
-        new ArrayList<EntityImpl>() {
+        new ArrayList<EmbeddedEntity>() {
           {
             add(point);
             add(lineString);
@@ -198,9 +196,9 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
     return geometryCollection;
   }
 
-  protected EntityImpl lineStringDoc() {
-    var point = ((EntityImpl) session.newEntity("OLineString"));
-    point.setPropertyInChain(
+  protected EmbeddedEntity lineStringDoc() {
+    var point = session.newEmbeddedEntity("OLineString");
+    point.newEmbeddedList(
         "coordinates",
         new ArrayList<List<Double>>() {
           {
@@ -213,19 +211,24 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
   }
 
   protected MultiPolygon createMultiPolygon() throws IOException {
+    return session.computeInTx(transaction -> {
+      try {
+        var document = loadMultiPolygon();
 
-    var document = loadMultiPolygon();
+        var builder = new MultiPolygonShapeBuilder();
 
-    var builder = new MultiPolygonShapeBuilder();
+        Shape geometry = builder.fromResult(document);
 
-    Shape geometry = builder.fromDoc(document);
-
-    return (MultiPolygon) ((JtsGeometry) geometry).getGeom();
+        return (MultiPolygon) ((JtsGeometry) geometry).getGeom();
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+    });
   }
 
-  protected EntityImpl point() {
-    var point = ((EntityImpl) session.newEntity("OPoint"));
-    point.setPropertyInChain(
+  protected EmbeddedEntity point() {
+    var point = session.newEmbeddedEntity("OPoint");
+    point.newEmbeddedList(
         "coordinates",
         new ArrayList<Double>() {
           {
@@ -236,9 +239,9 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
     return point;
   }
 
-  protected EntityImpl multiLineString() {
-    var point = ((EntityImpl) session.newEntity("OMultiLineString"));
-    point.setPropertyInChain(
+  protected EmbeddedEntity multiLineString() {
+    var point = session.newEmbeddedEntity("OMultiLineString");
+    point.newEmbeddedList(
         "coordinates",
         new ArrayList<List<List<Double>>>() {
           {
@@ -255,9 +258,9 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
     return point;
   }
 
-  protected EntityImpl multiPoint() {
-    var point = ((EntityImpl) session.newEntity("OMultiPoint"));
-    point.setPropertyInChain(
+  protected EmbeddedEntity multiPoint() {
+    var point = session.newEmbeddedEntity("OMultiPoint");
+    point.newEmbeddedList(
         "coordinates",
         new ArrayList<List<Double>>() {
           {
@@ -269,9 +272,9 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
     return point;
   }
 
-  protected EntityImpl rectangle() {
-    var polygon = ((EntityImpl) session.newEntity("OPolygon"));
-    polygon.setPropertyInChain(
+  protected EmbeddedEntity rectangle() {
+    var polygon = session.newEmbeddedEntity("OPolygon");
+    polygon.newEmbeddedList(
         "coordinates",
         new ArrayList<List<List<Double>>>() {
           {
@@ -290,9 +293,9 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
     return polygon;
   }
 
-  protected EntityImpl polygon() {
-    var polygon = ((EntityImpl) session.newEntity("OPolygon"));
-    polygon.setPropertyInChain(
+  protected EmbeddedEntity polygon() {
+    var polygon = session.newEmbeddedEntity("OPolygon");
+    polygon.newEmbeddedList(
         "coordinates",
         new ArrayList<List<List<Double>>>() {
           {

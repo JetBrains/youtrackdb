@@ -13,12 +13,15 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.sandbox;
 
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import com.jetbrains.youtrack.db.internal.lucene.test.BaseLuceneTest;
 import com.jetbrains.youtrack.db.internal.spatial.shape.MultiPolygonShapeBuilder;
 import java.io.IOException;
 import java.text.ParseException;
+import java.util.List;
 import java.util.Map;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
@@ -175,7 +178,7 @@ public class LuceneGeoTest extends BaseLuceneTest {
 
     var builder = new MultiPolygonShapeBuilder();
 
-    Shape multiPolygon = builder.fromDoc(entries);
+    Shape multiPolygon = builder.fromResult(entries);
 
     var doc = new Document();
 
@@ -189,21 +192,17 @@ public class LuceneGeoTest extends BaseLuceneTest {
     writer.close();
   }
 
-  protected static EntityImpl loadMultiPolygon(DatabaseSessionInternal session) {
-    try {
-      var systemResourceAsStream = ClassLoader.getSystemResourceAsStream("italy.json");
+  protected static EmbeddedEntity loadMultiPolygon(DatabaseSessionInternal session)
+      throws IOException {
+    var systemResourceAsStream = ClassLoader.getSystemResourceAsStream("italy.json");
 
-      EntityImpl doc = new EntityImpl(session).updateFromJSON(systemResourceAsStream);
+    var map = RecordSerializerJackson.mapFromJson(systemResourceAsStream);
 
-      Map geometry = doc.getProperty("geometry");
+    Map geometry = (Map) map.get("geometry");
+    var type = (String) geometry.get("type");
 
-      var type = (String) geometry.get("type");
-      var location = new EntityImpl(session, "O" + type);
-      location.setProperty("coordinates", geometry.get("coordinates"));
-      return location;
-    } catch (Exception e) {
-      e.printStackTrace();
-    }
-    return null;
+    var location = session.newEmbeddedEntity("O" + type);
+    location.newEmbeddedList("coordinates", (List<Object>)geometry.get("coordinates"));
+    return location;
   }
 }

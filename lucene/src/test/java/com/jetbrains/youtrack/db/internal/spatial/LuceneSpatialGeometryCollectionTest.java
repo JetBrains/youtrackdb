@@ -35,60 +35,33 @@ public class LuceneSpatialGeometryCollectionTest extends BaseSpatialLuceneTest {
   }
 
   @Test
-  public void testGeoCollectionOutsideTx() {
-    var test1 = ((EntityImpl) session.newEntity("test"));
-    test1.setProperty("name", "test1");
-    var geometry = ((EntityImpl) session.newEntity("OGeometryCollection"));
-    var point = ((EntityImpl) session.newEntity("OPoint"));
-    point.setProperty("coordinates", Arrays.asList(1.0, 2.0));
-    var polygon = ((EntityImpl) session.newEntity("OPolygon"));
-    polygon.setProperty("coordinates", List.of(
-            Arrays.asList(
-                Arrays.asList(0.0, 0.0),
-                Arrays.asList(10.0, 0.0),
-                Arrays.asList(10.0, 10.0),
-                Arrays.asList(0.0, 10.0),
-                Arrays.asList(0.0, 0.0))));
-    geometry.setProperty("geometries", Arrays.asList(point, polygon));
-    test1.setProperty("geometry", geometry);
-
-    session.begin();
-
-    session.commit();
-
-    var execute =
-        session.execute(
-            "SELECT from test where ST_Contains(geometry, ST_GeomFromText('POINT(1 1)')) = true");
-
-    Assert.assertEquals(execute.stream().count(), 1);
-  }
-
-  @Test
   public void testGeoCollectionInsideTransaction() {
     session.begin();
 
     var test1 = ((EntityImpl) session.newEntity("test"));
     test1.setProperty("name", "test1");
-    var geometry = ((EntityImpl) session.newEntity("OGeometryCollection"));
-    var point = ((EntityImpl) session.newEntity("OPoint"));
-    point.setProperty("coordinates", Arrays.asList(1.0, 2.0));
-    var polygon = ((EntityImpl) session.newEntity("OPolygon"));
-    polygon.setProperty("coordinates", List.of(
-            Arrays.asList(
-                Arrays.asList(0.0, 0.0),
-                Arrays.asList(10.0, 0.0),
-                Arrays.asList(10.0, 10.0),
-                Arrays.asList(0.0, 10.0),
-                Arrays.asList(0.0, 0.0))));
-    geometry.setProperty("geometries", Arrays.asList(point, polygon));
+    var geometry = ((EntityImpl) session.newEmbeddedEntity("OGeometryCollection"));
+    var point = ((EntityImpl) session.newEmbeddedEntity("OPoint"));
+    point.newEmbeddedList("coordinates", Arrays.asList(1.0, 2.0));
+    var polygon = ((EntityImpl) session.newEmbeddedEntity("OPolygon"));
+    polygon.newEmbeddedList("coordinates", List.of(
+        Arrays.asList(
+            Arrays.asList(0.0, 0.0),
+            Arrays.asList(10.0, 0.0),
+            Arrays.asList(10.0, 10.0),
+            Arrays.asList(0.0, 10.0),
+            Arrays.asList(0.0, 0.0))));
+    geometry.newEmbeddedList("geometries", Arrays.asList(point, polygon));
     test1.setProperty("geometry", geometry);
 
     session.commit();
 
+    session.begin();
     var execute =
         session.execute(
             "SELECT from test where ST_Contains(geometry, ST_GeomFromText('POINT(1 1)')) = true");
 
-    Assert.assertEquals(execute.stream().count(), 1);
+    Assert.assertEquals(1, execute.stream().count());
+    session.commit();
   }
 }

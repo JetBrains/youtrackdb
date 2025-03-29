@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -28,8 +29,8 @@ import org.testng.annotations.Test;
 public class PreparedStatementTest extends BaseDBTest {
 
   @Parameters(value = "remote")
-  public PreparedStatementTest(boolean remote) {
-    super(remote);
+  public PreparedStatementTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @BeforeClass
@@ -37,13 +38,16 @@ public class PreparedStatementTest extends BaseDBTest {
   public void beforeClass() throws Exception {
     super.beforeClass();
     session.execute("CREATE CLASS PreparedStatementTest1");
+    session.begin();
     session.execute("insert into PreparedStatementTest1 (name, surname) values ('foo1', 'bar1')");
     session.execute(
         "insert into PreparedStatementTest1 (name, listElem) values ('foo2', ['bar2'])");
+    session.commit();
   }
 
   @Test
   public void testUnnamedParamTarget() {
+    session.begin();
     var result =
         session
             .query("select from ?", "PreparedStatementTest1").toList();
@@ -56,10 +60,12 @@ public class PreparedStatementTest extends BaseDBTest {
       Assert.assertTrue(expected.contains(doc.getProperty("name")));
     }
     Assert.assertTrue(found);
+    session.commit();
   }
 
   @Test
   public void testNamedParamTarget() {
+    session.begin();
     Map<String, Object> params = new HashMap<String, Object>();
     params.put("className", "PreparedStatementTest1");
     var result =
@@ -74,10 +80,12 @@ public class PreparedStatementTest extends BaseDBTest {
       Assert.assertTrue(expected.contains(doc.getProperty("name")));
     }
     Assert.assertTrue(found);
+    session.commit();
   }
 
   @Test
   public void testNamedParamTargetRid() {
+    session.begin();
 
     var result =
         session
@@ -95,10 +103,12 @@ public class PreparedStatementTest extends BaseDBTest {
       Assert.assertEquals(doc.<Object>getProperty("name"), record.getProperty("name"));
     }
     Assert.assertTrue(found);
+    session.commit();
   }
 
   @Test
   public void testUnnamedParamTargetRid() {
+    session.begin();
 
     var result =
         session
@@ -115,10 +125,12 @@ public class PreparedStatementTest extends BaseDBTest {
       Assert.assertEquals(doc.<Object>getProperty("name"), record.getProperty("name"));
     }
     Assert.assertTrue(found);
+    session.commit();
   }
 
   @Test
   public void testNamedParamTargetDocument() {
+    session.begin();
 
     var result =
         session
@@ -127,8 +139,7 @@ public class PreparedStatementTest extends BaseDBTest {
 
     Map<String, Object> params = new HashMap<String, Object>();
     params.put("inputRid", record);
-    result =
-        session.query("select from :inputRid", params).toList();
+    result = session.query("select from :inputRid", params).toList();
     var found = false;
     for (var doc : result) {
       found = true;
@@ -136,10 +147,12 @@ public class PreparedStatementTest extends BaseDBTest {
       Assert.assertEquals(doc.<Object>getProperty("name"), record.getProperty("name"));
     }
     Assert.assertTrue(found);
+    session.commit();
   }
 
   @Test
   public void testUnnamedParamTargetDocument() {
+    session.begin();
 
     var result =
         session
@@ -154,6 +167,7 @@ public class PreparedStatementTest extends BaseDBTest {
       Assert.assertEquals(doc.<Object>getProperty("name"), record.getProperty("name"));
     }
     Assert.assertTrue(found);
+    session.commit();
   }
 
   @Test
@@ -188,6 +202,7 @@ public class PreparedStatementTest extends BaseDBTest {
 
   @Test
   public void testUnnamedParamInArray() {
+    session.begin();
     var result =
         session
             .query(
@@ -199,10 +214,12 @@ public class PreparedStatementTest extends BaseDBTest {
       Assert.assertEquals(doc.getProperty("name"), "foo1");
     }
     Assert.assertTrue(found);
+    session.commit();
   }
 
   @Test
   public void testNamedParamInArray() {
+    session.begin();
     Map<String, Object> params = new HashMap<String, Object>();
     params.put("name", "foo1");
     var result =
@@ -215,10 +232,12 @@ public class PreparedStatementTest extends BaseDBTest {
       Assert.assertEquals(doc.getProperty("name"), "foo1");
     }
     Assert.assertTrue(found);
+    session.commit();
   }
 
   @Test
   public void testUnnamedParamInArray2() {
+    session.begin();
     var result =
         session
             .query(
@@ -230,10 +249,12 @@ public class PreparedStatementTest extends BaseDBTest {
       Assert.assertEquals(doc.getProperty("name"), "foo1");
     }
     Assert.assertTrue(found);
+    session.commit();
   }
 
   @Test
   public void testNamedParamInArray2() {
+    session.begin();
     Map<String, Object> params = new HashMap<String, Object>();
     params.put("name", "foo1");
     var result =
@@ -248,6 +269,7 @@ public class PreparedStatementTest extends BaseDBTest {
       Assert.assertEquals(doc.getProperty("name"), "foo1");
     }
     Assert.assertTrue(found);
+    session.commit();
   }
 
   @Test

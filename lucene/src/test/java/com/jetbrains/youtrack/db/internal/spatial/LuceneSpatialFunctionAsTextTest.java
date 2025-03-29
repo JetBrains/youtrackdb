@@ -16,9 +16,11 @@ package com.jetbrains.youtrack.db.internal.spatial;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import java.io.IOException;
 import java.text.ParseException;
 import org.junit.Assert;
 import org.junit.Before;
@@ -31,19 +33,18 @@ import org.junit.Test;
 public class LuceneSpatialFunctionAsTextTest extends BaseSpatialLuceneTest {
 
   @Before
-  public void init() {
+  public void init() throws IOException {
 
     Schema schema = session.getMetadata().getSchema();
     var v = schema.getClass("V");
-    var oClass = schema.createClass("Location");
-    oClass.addSuperClass(v);
+    var oClass = schema.createVertexClass("Location");
     oClass.createProperty("geometry", PropertyType.EMBEDDED, schema.getClass("OShape"));
     oClass.createProperty("name", PropertyType.STRING);
 
     initData();
   }
 
-  private void initData() {
+  private void initData() throws IOException {
 
     createLocation("OPoint", point());
     createLocation("OMultiPoint", multiPoint());
@@ -55,12 +56,11 @@ public class LuceneSpatialFunctionAsTextTest extends BaseSpatialLuceneTest {
     createLocation("OGeometryCollection", geometryCollection());
   }
 
-  protected void createLocation(String name, EntityImpl geometry) {
-    var doc = ((EntityImpl) session.newEntity("Location"));
+  protected void createLocation(String name, EmbeddedEntity geometry) {
+    session.begin();
+    var doc = ((EntityImpl) session.newVertex("Location"));
     doc.setProperty("name", name);
     doc.setProperty("geometry", geometry);
-
-    session.begin();
     session.commit();
   }
 
@@ -71,6 +71,7 @@ public class LuceneSpatialFunctionAsTextTest extends BaseSpatialLuceneTest {
   }
 
   protected void queryAndAssertGeom(String name, String wkt) {
+    session.begin();
     var results =
         session.execute("select *, ST_AsText(geometry) as text from Location where name = ? ",
             name);
@@ -83,6 +84,7 @@ public class LuceneSpatialFunctionAsTextTest extends BaseSpatialLuceneTest {
     Assert.assertNotNull(asText);
     Assert.assertEquals(asText, wkt);
     assertFalse(results.hasNext());
+    session.commit();
   }
 
   @Test

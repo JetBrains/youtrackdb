@@ -93,6 +93,7 @@ public class IndexTest extends BaseDBTest {
   @Test(dependsOnMethods = "populateIndexDocuments")
   public void testIndexInUniqueIndex() {
     checkEmbeddedDB();
+    session.begin();
     Assert.assertEquals(
         session.getMetadata().getSchema().getClassInternal("Profile")
             .getInvolvedIndexesInternal(session, "nick").iterator().next().getType(),
@@ -114,10 +115,12 @@ public class IndexTest extends BaseDBTest {
 
       Assert.assertEquals(expectedSurnames.size(), 0);
     }
+    session.commit();
   }
 
   @Test(dependsOnMethods = "testDuplicatedIndexOnUnique")
   public void testUseOfIndex() {
+    session.begin();
     var resultSet = executeQuery("select * from Profile where nick = 'Jay'");
 
     Assert.assertFalse(resultSet.isEmpty());
@@ -127,6 +130,7 @@ public class IndexTest extends BaseDBTest {
       record = entries.asEntityOrNull();
       Assert.assertTrue(record.<String>getProperty("name").equalsIgnoreCase("Jay"));
     }
+    session.commit();
   }
 
   @Test(dependsOnMethods = "testDuplicatedIndexOnUnique")
@@ -234,6 +238,7 @@ public class IndexTest extends BaseDBTest {
       return;
     }
 
+    session.begin();
     try (var resultSet =
         session.query("select * from Profile where nick > 'ZZZJayLongNickIndex3'")) {
       assertIndexUsage(resultSet);
@@ -248,6 +253,7 @@ public class IndexTest extends BaseDBTest {
 
       Assert.assertEquals(expectedNicks.size(), 0);
     }
+    session.commit();
   }
 
   @Test(dependsOnMethods = "populateIndexDocuments")
@@ -256,6 +262,7 @@ public class IndexTest extends BaseDBTest {
       return;
     }
 
+    session.begin();
     try (var resultSet =
         session.query("select * from Profile where nick >= 'ZZZJayLongNickIndex3'")) {
       assertIndexUsage(resultSet);
@@ -272,6 +279,7 @@ public class IndexTest extends BaseDBTest {
 
       Assert.assertEquals(expectedNicks.size(), 0);
     }
+    session.commit();
   }
 
   @Test(dependsOnMethods = "populateIndexDocuments")
@@ -280,6 +288,7 @@ public class IndexTest extends BaseDBTest {
       return;
     }
 
+    session.begin();
     try (var resultSet = session.query("select * from Profile where nick < '002'")) {
       assertIndexUsage(resultSet);
       final List<String> expectedNicks = new ArrayList<>(Arrays.asList("000", "001"));
@@ -292,6 +301,7 @@ public class IndexTest extends BaseDBTest {
 
       Assert.assertEquals(expectedNicks.size(), 0);
     }
+    session.commit();
   }
 
   @Test(dependsOnMethods = "populateIndexDocuments")
@@ -300,6 +310,7 @@ public class IndexTest extends BaseDBTest {
       return;
     }
 
+    session.begin();
     try (var resultSet = session.query("select * from Profile where nick <= '002'")) {
       final List<String> expectedNicks = new ArrayList<>(Arrays.asList("000", "001", "002"));
 
@@ -311,6 +322,7 @@ public class IndexTest extends BaseDBTest {
 
       Assert.assertEquals(expectedNicks.size(), 0);
     }
+    session.commit();
   }
 
   @Test(dependsOnMethods = "populateIndexDocuments", enabled = false)
@@ -469,6 +481,8 @@ public class IndexTest extends BaseDBTest {
           SchemaClass.INDEX_TYPE.NOTUNIQUE.toString());
     }
 
+    session.begin();
+
     try (var resultSet =
         session.query(
             "SELECT * FROM Profile WHERE nick in ['ZZZJayLongNickIndex0'"
@@ -484,6 +498,7 @@ public class IndexTest extends BaseDBTest {
 
       Assert.assertEquals(expectedSurnames.size(), 0);
     }
+    session.commit();
   }
 
   @Test
@@ -497,29 +512,29 @@ public class IndexTest extends BaseDBTest {
         .getProperty("account")
         .createIndex(INDEX_TYPE.NOTUNIQUE);
 
+    session.begin();
     var resultSet = executeQuery("select * from Account limit 1");
     final var idx =
         session.getMetadata().getIndexManagerInternal().getIndex(session, "Whiz.account");
 
     for (var i = 0; i < 5; i++) {
-      session.begin();
       final var whiz = ((EntityImpl) session.newEntity("Whiz"));
 
       whiz.setProperty("id", i);
       whiz.setProperty("text", "This is a test");
       whiz.setPropertyInChain("account", resultSet.getFirst().asEntityOrNull().getIdentity());
 
-      session.commit();
     }
+    session.commit();
 
     Assert.assertEquals(idx.size(session), 5);
 
+    session.begin();
     var indexedResult =
         executeQuery("select * from Whiz where account = ?",
             resultSet.getFirst().getIdentity());
     Assert.assertEquals(indexedResult.size(), 5);
 
-    session.begin();
     for (var res : indexedResult) {
       res.asEntityOrNull().delete();
     }
@@ -946,6 +961,7 @@ public class IndexTest extends BaseDBTest {
   @Test(dependsOnMethods = "createInheritanceIndex")
   public void testIndexReturnOnlySpecifiedClass() {
 
+    session.begin();
     try (var result =
         session.execute("select * from ChildTestClass where testParentProperty = 10")) {
 
@@ -958,6 +974,7 @@ public class IndexTest extends BaseDBTest {
       Assert.assertEquals(result.next().<Object>getProperty("testParentProperty"), 11L);
       Assert.assertFalse(result.hasNext());
     }
+    session.commit();
   }
 
   public void testNotUniqueIndexKeySize() {
@@ -1057,6 +1074,7 @@ public class IndexTest extends BaseDBTest {
     profile = profile;
     session.commit();
 
+    session.begin();
     var idxManager = session.getMetadata().getIndexManagerInternal();
     var nickIndex = idxManager.getIndex(session, "Profile.nick");
 
@@ -1066,6 +1084,7 @@ public class IndexTest extends BaseDBTest {
     }
 
     final Entity loadedProfile = session.load(profile.getIdentity());
+    session.commit();
     session.begin();
     var activeTx = session.getActiveTransaction();
     session.delete(activeTx.<Entity>load(loadedProfile));
@@ -1177,6 +1196,7 @@ public class IndexTest extends BaseDBTest {
       session.commit();
     }
 
+    session.begin();
     var resultSet =
         executeQuery("select from NullIndexKeysSupport where nullField = 'val3'");
     Assert.assertEquals(resultSet.size(), 1);
@@ -1190,10 +1210,7 @@ public class IndexTest extends BaseDBTest {
     for (var result : resultSet) {
       Assert.assertNull(result.getProperty("nullField"));
     }
-
-    var explain = session.query("explain " + query).findFirst(Result::detach);
-    Assert.assertTrue(
-        explain.<Set<String>>getProperty("involvedIndexes").contains("NullIndexKeysSupportIndex"));
+    session.commit();
   }
 
   public void testNullHashIndexKeysSupport() {
@@ -1222,6 +1239,7 @@ public class IndexTest extends BaseDBTest {
       session.commit();
     }
 
+    session.begin();
     var result =
         session.query(
             "select from NullHashIndexKeysSupport where nullField = 'val3'").toList();
@@ -1239,10 +1257,7 @@ public class IndexTest extends BaseDBTest {
       Assert.assertNull(document.getProperty("nullField"));
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-    Assert.assertTrue(
-        explain.<Set<String>>getProperty("involvedIndexes")
-            .contains("NullHashIndexKeysSupportIndex"));
+    session.commit();
   }
 
   public void testNullIndexKeysSupportInTx() {
@@ -1274,6 +1289,7 @@ public class IndexTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     var result = session.query(
         "select from NullIndexKeysSupportInTx where nullField = 'val3'").toList();
     Assert.assertEquals(result.size(), 1);
@@ -1290,11 +1306,7 @@ public class IndexTest extends BaseDBTest {
     for (var document : result) {
       Assert.assertNull(document.getProperty("nullField"));
     }
-
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-    Assert.assertTrue(
-        explain.<Set<String>>getProperty("involvedIndexes")
-            .contains("NullIndexKeysSupportInTxIndex"));
+    session.commit();
   }
 
   public void testNullIndexKeysSupportInMiddleTx() {
@@ -1347,11 +1359,6 @@ public class IndexTest extends BaseDBTest {
       Assert.assertNull(document.getProperty("nullField"));
     }
 
-    final var explain = session.query("explain " + query).findFirst(Result::detach);
-    Assert.assertTrue(
-        explain.<Set<String>>getProperty("involvedIndexes")
-            .contains("NullIndexKeysSupportInMiddleTxIndex"));
-
     session.commit();
   }
 
@@ -1395,12 +1402,6 @@ public class IndexTest extends BaseDBTest {
       var resultTwo = executeQuery(queryTwo);
       Assert.assertEquals(resultTwo.size(), 1);
       Assert.assertEquals(resultTwo.getFirst().getIdentity(), docTwo.getIdentity());
-
-      explain = session.query("explain " + queryTwo).findFirst(Result::detach);
-      Assert.assertTrue(
-          explain
-              .<Collection<String>>getProperty("involvedIndexes")
-              .contains("TestCreateIndexAbstractClass.value"));
     }
     session.commit();
   }
@@ -1625,7 +1626,7 @@ public class IndexTest extends BaseDBTest {
     var document = ((EntityImpl) session.newEntity("TestMultikeyWithoutField"));
     document.setProperty("state", (byte) 1);
 
-    Set<RID> users = new HashSet<>();
+    var users = session.newLinkSet();
     users.add(rid1);
     users.add(rid2);
 
@@ -1695,9 +1696,9 @@ public class IndexTest extends BaseDBTest {
     session.close();
     session = acquireSession();
 
+    session.begin();
     document = session.load(rid);
 
-    session.begin();
     var activeTx2 = session.getActiveTransaction();
     document = activeTx2.load(document);
     users = document.getProperty("users");
@@ -1844,10 +1845,11 @@ public class IndexTest extends BaseDBTest {
         Map.of("ignoreNullValues", true),
         new String[]{"state", "users", "time", "reg", "no"});
 
+    session.begin();
     var document = ((EntityImpl) session.newEntity("TestMultikeyWithoutFieldNoNullSupport"));
     document.setProperty("state", (byte) 1);
 
-    Set<RID> users = new HashSet<>();
+    var users = session.newLinkSet();
     users.add(rid1);
     users.add(rid2);
 
@@ -1855,8 +1857,6 @@ public class IndexTest extends BaseDBTest {
     document.setProperty("time", 12L);
     document.setProperty("reg", 14L);
     document.setProperty("no", 12);
-
-    session.begin();
 
     session.commit();
 

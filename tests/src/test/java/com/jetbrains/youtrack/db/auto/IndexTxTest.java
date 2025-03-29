@@ -11,6 +11,7 @@ import java.util.Map;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -20,8 +21,8 @@ import org.testng.annotations.Test;
 public class IndexTxTest extends BaseDBTest {
 
   @Parameters(value = "remote")
-  public IndexTxTest(boolean remote) {
-    super(remote);
+  public IndexTxTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @BeforeClass

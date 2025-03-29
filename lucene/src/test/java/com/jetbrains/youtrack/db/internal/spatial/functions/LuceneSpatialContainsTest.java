@@ -54,6 +54,7 @@ public class LuceneSpatialContainsTest extends BaseSpatialLuceneTest {
     session.commit();
 
     session.execute("create index Polygon.g on Polygon (geometry) SPATIAL engine lucene").close();
+    session.begin();
     var execute =
         session.execute("SELECT from Polygon where ST_Contains(geometry, 'POINT(50 50)') = true");
 
@@ -65,6 +66,7 @@ public class LuceneSpatialContainsTest extends BaseSpatialLuceneTest {
                 + " 50)'), 30)) = true");
 
     Assert.assertEquals(1, execute.stream().count());
+    session.commit();
   }
 
   @Test
@@ -84,10 +86,12 @@ public class LuceneSpatialContainsTest extends BaseSpatialLuceneTest {
         .close();
     session.commit();
 
+
     session.execute(
             "create index TestInsert.geometry on TestInsert (geometry) SPATIAL engine lucene")
         .close();
 
+    session.begin();
     var testGeometry =
         "{'@type':'d','@class':'OGeometryCollection','geometries':[{'@type':'d','@class':'OPolygon','coordinates':[[[1,1],[2,1],[2,2],[1,2],[1,1]]]}]}";
     var execute =
@@ -95,5 +99,6 @@ public class LuceneSpatialContainsTest extends BaseSpatialLuceneTest {
             "SELECT from TestInsert where ST_Contains(geometry, " + testGeometry + ") = true");
 
     Assert.assertEquals(1, execute.stream().count());
+    session.commit();
   }
 }

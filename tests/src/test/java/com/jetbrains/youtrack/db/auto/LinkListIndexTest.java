@@ -72,7 +72,7 @@ public class LinkListIndexTest extends BaseDBTest {
 
     final var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
     document.setProperty("linkCollection",
-        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+        session.newLinkList(List.of(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
@@ -108,7 +108,7 @@ public class LinkListIndexTest extends BaseDBTest {
       session.begin();
       final var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
       document.setProperty("linkCollection",
-          new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+          session.newLinkList(List.of(docOne.getIdentity(), docTwo.getIdentity())));
 
       session.commit();
     } catch (Exception e) {
@@ -146,10 +146,10 @@ public class LinkListIndexTest extends BaseDBTest {
     final var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
 
     document.setProperty("linkCollection",
-        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+        session.newLinkList(List.of(docOne.getIdentity(), docTwo.getIdentity())));
 
     document.setProperty("linkCollection",
-        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docThree.getIdentity())));
+        session.newLinkList(List.of(docOne.getIdentity(), docThree.getIdentity())));
 
     session.commit();
 
@@ -182,7 +182,7 @@ public class LinkListIndexTest extends BaseDBTest {
 
     var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
     document.setProperty("linkCollection",
-        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+        session.newLinkList(List.of(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
@@ -191,7 +191,7 @@ public class LinkListIndexTest extends BaseDBTest {
       var activeTx = session.getActiveTransaction();
       document = activeTx.load(document);
       document.setProperty("linkCollection",
-          new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docThree.getIdentity())));
+          session.newLinkList(List.of(docOne.getIdentity(), docThree.getIdentity())));
 
       session.commit();
     } catch (Exception e) {
@@ -229,7 +229,7 @@ public class LinkListIndexTest extends BaseDBTest {
 
     var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
     document.setProperty("linkCollection",
-        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+        session.newLinkList(List.of(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
@@ -237,7 +237,7 @@ public class LinkListIndexTest extends BaseDBTest {
     var activeTx = session.getActiveTransaction();
     document = activeTx.load(document);
     document.setProperty("linkCollection",
-        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docThree.getIdentity())));
+        session.newLinkList(List.of(docOne.getIdentity(), docThree.getIdentity())));
 
     session.rollback();
 
@@ -270,7 +270,7 @@ public class LinkListIndexTest extends BaseDBTest {
 
     final var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
     document.setProperty("linkCollection",
-        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+        session.newLinkList(List.of(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
@@ -314,7 +314,7 @@ public class LinkListIndexTest extends BaseDBTest {
 
     final var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
     document.setProperty("linkCollection",
-        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+        session.newLinkList(List.of(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
@@ -359,7 +359,7 @@ public class LinkListIndexTest extends BaseDBTest {
 
     final var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
     document.setProperty("linkCollection",
-        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+        session.newLinkList(List.of(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
@@ -396,7 +396,7 @@ public class LinkListIndexTest extends BaseDBTest {
 
     final var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
     document.setProperty("linkCollection",
-        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+        session.newLinkList(List.of(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
@@ -437,7 +437,7 @@ public class LinkListIndexTest extends BaseDBTest {
 
     final var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
     document.setProperty("linkCollection",
-        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+        session.newLinkList(List.of(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
@@ -474,7 +474,7 @@ public class LinkListIndexTest extends BaseDBTest {
 
     final var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
     document.setProperty("linkCollection",
-        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+        session.newLinkList(List.of(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
@@ -510,7 +510,7 @@ public class LinkListIndexTest extends BaseDBTest {
 
     var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
     document.setProperty("linkCollection",
-        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+        session.newLinkList(List.of(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
@@ -535,7 +535,7 @@ public class LinkListIndexTest extends BaseDBTest {
 
     var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
     document.setProperty("linkCollection",
-        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+        session.newLinkList(List.of(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
@@ -564,7 +564,7 @@ public class LinkListIndexTest extends BaseDBTest {
 
     final var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
     document.setProperty("linkCollection",
-        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+        session.newLinkList(List.of(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
@@ -599,10 +599,11 @@ public class LinkListIndexTest extends BaseDBTest {
 
     final var document = ((EntityImpl) session.newEntity("LinkListIndexTestClass"));
     document.setProperty("linkCollection",
-        new ArrayList<RecordId>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+        session.newLinkList(List.of(docOne.getIdentity(), docTwo.getIdentity())));
 
     session.commit();
 
+    session.begin();
     var result =
         session.query(
             "select * from LinkListIndexTestClass where linkCollection contains ?",
@@ -610,5 +611,6 @@ public class LinkListIndexTest extends BaseDBTest {
     Assert.assertEquals(
         Arrays.asList(docOne.getIdentity(), docTwo.getIdentity()),
         result.next().<List>getProperty("linkCollection"));
+    session.commit();
   }
 }

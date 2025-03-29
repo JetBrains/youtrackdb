@@ -30,6 +30,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nonnull;
 import org.testng.Assert;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -78,8 +79,8 @@ public class LiveQuery30TxTest extends BaseDBTest implements CommandOutputListen
   }
 
   @Parameters(value = {"remote"})
-  public LiveQuery30TxTest(boolean remote) {
-    super(remote);
+  public LiveQuery30TxTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @Test
@@ -101,6 +102,7 @@ public class LiveQuery30TxTest extends BaseDBTest implements CommandOutputListen
     latch.await(1, TimeUnit.MINUTES);
 
     monitor.unSubscribe();
+    session.begin();
     session.execute("insert into " + className1 + " set name = 'foo', surname = 'bax'");
     Assert.assertEquals(listener.ops.size(), 2);
     for (Pair doc : listener.ops) {
@@ -110,6 +112,7 @@ public class LiveQuery30TxTest extends BaseDBTest implements CommandOutputListen
       Assert.assertNotNull(res.getProperty("@rid"));
       Assert.assertTrue(((RID) res.getProperty("@rid")).getClusterPosition() >= 0);
     }
+    session.commit();
     unLatch.await(1, TimeUnit.MINUTES);
   }
 

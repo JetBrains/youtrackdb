@@ -56,6 +56,7 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.StatefullEdgeEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.StringWriter;
 import java.io.UnsupportedEncodingException;
 import java.math.BigDecimal;
@@ -83,6 +84,15 @@ public class RecordSerializerJackson {
   public static Map<String, Object> mapFromJson(@Nonnull String value) {
     try {
       return OBJECT_MAPPER.readValue(value, MAP_TYPE_REFERENCE);
+    } catch (JsonProcessingException e) {
+      throw BaseException.wrapException(
+          new SerializationException("Error on unmarshalling JSON content"), e, (String) null);
+    }
+  }
+
+  public static Map<String, Object> mapFromJson(@Nonnull InputStream stream) throws IOException {
+    try {
+      return OBJECT_MAPPER.readValue(stream, MAP_TYPE_REFERENCE);
     } catch (JsonProcessingException e) {
       throw BaseException.wrapException(
           new SerializationException("Error on unmarshalling JSON content"), e, (String) null);
@@ -1062,7 +1072,7 @@ public class RecordSerializerJackson {
       jsonParser.nextToken();
       var value = parseValue(session, null, jsonParser,
           schemaProperty != null ? PropertyTypeInternal.convertFromPublicType(
-              schemaProperty.getType()) : null, null);
+              schemaProperty.getLinkedType()) : null, null);
       map.put(fieldName, value);
     }
 
@@ -1113,7 +1123,7 @@ public class RecordSerializerJackson {
     while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
       list.add(parseValue(session, null, jsonParser,
           schemaProperty != null ? PropertyTypeInternal.convertFromPublicType(
-              schemaProperty.getType()) : null, null));
+              schemaProperty.getLinkedType()) : null, null));
     }
 
     return list;
@@ -1127,7 +1137,7 @@ public class RecordSerializerJackson {
     while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
       list.add(parseValue(session, null, jsonParser,
           schemaProperty != null ? PropertyTypeInternal.convertFromPublicType(
-              schemaProperty.getType()) : null, null));
+              schemaProperty.getLinkedType()) : null, null));
     }
 
     return list;

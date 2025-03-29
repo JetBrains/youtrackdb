@@ -14,11 +14,14 @@
 package com.jetbrains.youtrack.db.internal.spatial.shape;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
@@ -53,11 +56,8 @@ public class LineStringShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
   }
 
   @Override
-  public JtsGeometry fromDoc(EntityImpl document) {
-
-    validate(document);
+  public JtsGeometry fromResult(Result document) {
     List<List<Number>> coordinates = document.getProperty(COORDINATES);
-
     var coords = new Coordinate[coordinates.size()];
     var i = 0;
     for (var coordinate : coordinates) {
@@ -68,39 +68,40 @@ public class LineStringShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
   }
 
   @Override
-  public EntityImpl toEntitty(JtsGeometry shape) {
-    var doc = new EntityImpl(null, getName());
+  public EmbeddedEntity toEmbeddedEntity(JtsGeometry shape, DatabaseSessionInternal session) {
+    var result = session.newEmbeddedEntity(getName());
     var lineString = (LineString) shape.getGeom();
-    doc.setProperty(COORDINATES, coordinatesFromLineString(lineString));
-    return doc;
+    result.newEmbeddedList(COORDINATES, coordinatesFromLineString(lineString));
+    return result;
   }
 
   @Override
-  protected EntityImpl toEntitty(JtsGeometry shape, Geometry geometry) {
+  protected EmbeddedEntity toEmbeddedEntity(JtsGeometry shape, Geometry geometry,
+      DatabaseSessionInternal session) {
     if (geometry == null || Double.isNaN(geometry.getCoordinate().getZ())) {
-      return toEntitty(shape);
+      return toEmbeddedEntity(shape, session);
     }
 
-    var doc = new EntityImpl(null, getName() + "Z");
-    doc.setProperty(COORDINATES, coordinatesFromLineStringZ(geometry));
-    return doc;
+    var result = session.newEmbeddedEntity(getName() + "Z");
+    result.newEmbeddedList(COORDINATES, coordinatesFromLineStringZ(geometry));
+
+    return result;
   }
 
   @Override
-  public String asText(EntityImpl document) {
-    if (document.getSchemaClassName().equals("OLineStringZ")) {
-      List<List<Double>> coordinates = document.getProperty("coordinates");
-
+  public String asText(EmbeddedEntity entity) {
+    if (Objects.equals(entity.getSchemaClassName(), "OLineStringZ")) {
+      List<List<Double>> coordinates = entity.getProperty("coordinates");
       var result =
           coordinates.stream()
               .map(
                   point ->
-                      (point.stream().map(coord -> format(coord)).collect(Collectors.joining(" "))))
+                      (point.stream().map(this::format).collect(Collectors.joining(" "))))
               .collect(Collectors.joining(", "));
       return "LINESTRING Z (" + result + ")";
 
     } else {
-      return super.asText(document);
+      return super.asText(entity);
     }
   }
 }

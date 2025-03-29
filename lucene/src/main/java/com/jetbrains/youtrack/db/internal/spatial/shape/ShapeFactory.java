@@ -14,8 +14,10 @@
 package com.jetbrains.youtrack.db.internal.spatial.shape;
 
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -65,10 +67,22 @@ public class ShapeFactory extends ComplexShapeBuilder {
   }
 
   @Override
-  public Shape fromDoc(EntityImpl document) {
-    var shapeBuilder = factories.get(document.getSchemaClassName());
+  public Shape fromResult(Result result) {
+    String shapeName;
+    if (result instanceof Result res) {
+      if (res.isEntity()) {
+        var entity = res.asEntity();
+        shapeName = entity.getSchemaClassName();
+      } else {
+        shapeName = res.getString(EntityHelper.ATTRIBUTE_CLASS);
+      }
+    } else {
+      throw new IllegalStateException("Unexpected result type: " + result);
+    }
+
+    var shapeBuilder = factories.get(shapeName);
     if (shapeBuilder != null) {
-      return shapeBuilder.fromDoc(document);
+      return shapeBuilder.fromResult(result);
     }
     // TODO handle exception shape not found
     return null;
@@ -76,7 +90,6 @@ public class ShapeFactory extends ComplexShapeBuilder {
 
   @Override
   public Shape fromObject(Object obj) {
-
     if (obj instanceof String) {
       try {
         return fromText((String) obj);
@@ -84,13 +97,10 @@ public class ShapeFactory extends ComplexShapeBuilder {
         e.printStackTrace();
       }
     }
-    if (obj instanceof EntityImpl) {
-      return fromDoc((EntityImpl) obj);
+    if (obj instanceof Result result) {
+      return fromResult(result);
     }
-    if (obj instanceof Result) {
-      var entity = ((Result) obj).asEntity();
-      return fromDoc((EntityImpl) entity);
-    }
+
     if (obj instanceof Map) {
       var map = (Map) ((Map) obj).get("shape");
       if (map == null) {
@@ -102,15 +112,15 @@ public class ShapeFactory extends ComplexShapeBuilder {
   }
 
   @Override
-  public String asText(EntityImpl document) {
-    var className = document.getSchemaClassName();
+  public String asText(EmbeddedEntity entity) {
+    var className = entity.getSchemaClassName();
     var shapeBuilder = factories.get(className);
     if (shapeBuilder != null) {
-      return shapeBuilder.asText(document);
+      return shapeBuilder.asText(entity);
     } else if (className.endsWith("Z")) {
       shapeBuilder = factories.get(className.substring(0, className.length() - 1));
       if (shapeBuilder != null) {
-        return shapeBuilder.asText(document);
+        return shapeBuilder.asText(entity);
       }
     }
 
@@ -121,13 +131,10 @@ public class ShapeFactory extends ComplexShapeBuilder {
   @Override
   public String asText(Object obj) {
 
-    if (obj instanceof Result) {
-      var entity = ((Result) obj).asEntity();
-      return asText((EntityImpl) entity);
+    if (obj instanceof EmbeddedEntity embeddedEntity) {
+      return asText(embeddedEntity);
     }
-    if (obj instanceof EntityImpl) {
-      return asText((EntityImpl) obj);
-    }
+
     if (obj instanceof Map) {
       var map = (Map) ((Map) obj).get("shape");
       if (map == null) {
@@ -135,13 +142,13 @@ public class ShapeFactory extends ComplexShapeBuilder {
       }
       return asText(map);
     }
+
     return null;
   }
 
   public byte[] asBinary(Object obj) {
-
-    if (obj instanceof EntityImpl) {
-      var shape = fromDoc((EntityImpl) obj);
+    if (obj instanceof ResultInternal resultInternal) {
+      var shape = fromResult(resultInternal);
       return asBinary(shape);
     }
     if (obj instanceof Map) {
@@ -157,47 +164,51 @@ public class ShapeFactory extends ComplexShapeBuilder {
   }
 
   @Override
-  public EntityImpl toEntitty(Shape shape) {
+  public EmbeddedEntity toEmbeddedEntity(Shape shape, DatabaseSessionInternal session) {
 
-    // TODO REFACTOR
-    EntityImpl doc = null;
+    EmbeddedEntity result = null;
     if (Point.class.isAssignableFrom(shape.getClass())) {
-      doc = factories.get(PointShapeBuilder.NAME).toEntitty(shape);
+      result = factories.get(PointShapeBuilder.NAME).toEmbeddedEntity(shape, session);
     } else if (Rectangle.class.isAssignableFrom(shape.getClass())) {
-      doc = factories.get(RectangleShapeBuilder.NAME).toEntitty(shape);
+      result = factories.get(RectangleShapeBuilder.NAME).toEmbeddedEntity(shape, session);
     } else if (JtsGeometry.class.isAssignableFrom(shape.getClass())) {
       var geometry = (JtsGeometry) shape;
       var geom = geometry.getGeom();
-      doc = factories.get("O" + geom.getClass().getSimpleName()).toEntitty(shape);
+      result = factories.get("O" + geom.getClass().getSimpleName())
+          .toEmbeddedEntity(shape, session);
 
     } else if (ShapeCollection.class.isAssignableFrom(shape.getClass())) {
       var collection = (ShapeCollection) shape;
 
       if (isMultiPolygon(collection)) {
-        doc = factories.get("OMultiPolygon").toEntitty(createMultiPolygon(collection));
+        result = factories.get("OMultiPolygon").toEmbeddedEntity(createMultiPolygon(collection),
+            session);
       } else if (isMultiPoint(collection)) {
-        doc = factories.get("OMultiPoint").toEntitty(createMultiPoint(collection));
+        result = factories.get("OMultiPoint").toEmbeddedEntity(createMultiPoint(collection),
+            session);
       } else if (isMultiLine(collection)) {
-        doc = factories.get("OMultiLineString").toEntitty(createMultiLine(collection));
+        result = factories.get("OMultiLineString").toEmbeddedEntity(createMultiLine(collection),
+            session);
       } else {
-        doc = factories.get("OGeometryCollection").toEntitty(shape);
+        result = factories.get("OGeometryCollection").toEmbeddedEntity(shape, session);
       }
     }
-    return doc;
+    return result;
   }
 
   @Override
-  protected EntityImpl toEntitty(Shape shape, Geometry geometry) {
+  protected EmbeddedEntity toEmbeddedEntity(Shape shape, Geometry geometry,
+      DatabaseSessionInternal session) {
     if (Point.class.isAssignableFrom(shape.getClass())) {
-      return factories.get(PointShapeBuilder.NAME).toEntitty(shape, geometry);
+      return factories.get(PointShapeBuilder.NAME).toEmbeddedEntity(shape, geometry, session);
     } else if (geometry != null && "LineString".equals(geometry.getClass().getSimpleName())) {
-      return factories.get("OLineString").toEntitty(shape, geometry);
+      return factories.get("OLineString").toEmbeddedEntity(shape, geometry, session);
     } else if (geometry != null && "MultiLineString".equals(geometry.getClass().getSimpleName())) {
-      return factories.get("OMultiLineString").toEntitty(shape, geometry);
+      return factories.get("OMultiLineString").toEmbeddedEntity(shape, geometry, session);
     } else if (geometry != null && "Polygon".equals(geometry.getClass().getSimpleName())) {
-      return factories.get("OPolygon").toEntitty(shape, geometry);
+      return factories.get("OPolygon").toEmbeddedEntity(shape, geometry, session);
     } else {
-      return toEntitty(shape);
+      return toEmbeddedEntity(shape, session);
     }
   }
 
@@ -230,10 +241,10 @@ public class ShapeFactory extends ComplexShapeBuilder {
     }
   }
 
-  public EntityImpl toEntitty(Geometry geometry) {
+  public EmbeddedEntity toEmbeddedEntity(Geometry geometry, DatabaseSessionInternal session) {
     if (geometry instanceof org.locationtech.jts.geom.Point point) {
       var point1 = context().makePoint(point.getX(), point.getY());
-      return toEntitty(point1);
+      return toEmbeddedEntity(point1, session);
     }
     if (geometry instanceof org.locationtech.jts.geom.GeometryCollection gc) {
       List<Shape> shapes = new ArrayList<Shape>();
@@ -247,9 +258,9 @@ public class ShapeFactory extends ComplexShapeBuilder {
         }
         shapes.add(shape);
       }
-      return toEntitty(new ShapeCollection<Shape>(shapes, SPATIAL_CONTEXT));
+      return toEmbeddedEntity(new ShapeCollection<Shape>(shapes, SPATIAL_CONTEXT), session);
     }
-    return toEntitty(SPATIAL_CONTEXT.makeShape(geometry));
+    return toEmbeddedEntity(SPATIAL_CONTEXT.makeShape(geometry), session);
   }
 
   public ShapeOperation operation() {

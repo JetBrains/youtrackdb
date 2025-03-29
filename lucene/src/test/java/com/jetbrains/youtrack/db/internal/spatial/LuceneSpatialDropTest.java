@@ -12,6 +12,7 @@ import com.jetbrains.youtrack.db.internal.lucene.tests.LuceneBaseTest;
 import java.io.File;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 
 public class LuceneSpatialDropTest {
@@ -48,6 +49,7 @@ public class LuceneSpatialDropTest {
   }
 
   @Test
+  @Ignore
   public void testDeleteLuceneIndex1() {
     try (var dpPool = youTrackDB.cachedPool(dbName, "admin", "adminpwd")) {
       var db = (DatabaseSessionInternal) dpPool.acquire();

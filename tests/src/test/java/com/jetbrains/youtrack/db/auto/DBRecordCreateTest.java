@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.auto;
 
 import org.testng.Assert;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -8,8 +9,8 @@ import org.testng.annotations.Test;
 public class DBRecordCreateTest extends BaseDBTest {
 
   @Parameters(value = "remote")
-  public DBRecordCreateTest(boolean remote) {
-    super(remote);
+  public DBRecordCreateTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @Test
@@ -67,12 +68,14 @@ public class DBRecordCreateTest extends BaseDBTest {
 
   @Test
   public void testLoadedRecordNoTx() {
-    var element = session.newEntity();
     session.begin();
+    var element = session.newEntity();
     session.commit();
 
+    session.begin();
     var loadedElement = session.load(element.getIdentity());
     Assert.assertTrue(loadedElement.exists());
+    session.commit();
   }
 
   @Test

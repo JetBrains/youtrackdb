@@ -55,8 +55,6 @@ public class RecordBytes extends RecordAbstract implements Blob {
   public RecordBytes(final DatabaseSessionInternal iDatabase, final byte[] iSource) {
     super(iDatabase, iSource);
     Objects.requireNonNull(iSource);
-    dirty = 1;
-    contentChanged = true;
   }
 
   public RecordBytes(DatabaseSessionInternal session, final RecordId iRecordId) {
@@ -78,12 +76,6 @@ public class RecordBytes extends RecordAbstract implements Blob {
     status = RecordElement.STATUS.LOADED;
 
     return this;
-  }
-
-  @Override
-  public void clear() {
-    source = EMPTY_SOURCE;
-    super.clear();
   }
 
   @Override

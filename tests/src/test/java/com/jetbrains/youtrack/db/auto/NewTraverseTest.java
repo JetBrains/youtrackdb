@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -39,8 +40,8 @@ public class NewTraverseTest extends BaseDBTest {
   private Vertex nicoleKidman;
 
   @Parameters(value = "remote")
-  public NewTraverseTest(boolean remote) {
-    super(remote);
+  public NewTraverseTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @BeforeClass
@@ -107,6 +108,7 @@ public class NewTraverseTest extends BaseDBTest {
   }
 
   public void traverseSQLAllFromActorNoWhereBreadthFrirst() {
+    session.begin();
     var result1 =
         session.query("traverse * from " + tomCruise.getIdentity() + " strategy BREADTH_FIRST");
 
@@ -115,9 +117,11 @@ public class NewTraverseTest extends BaseDBTest {
       result1.next();
     }
     result1.close();
+    session.commit();
   }
 
   public void traverseSQLAllFromActorNoWhereDepthFrirst() {
+    session.begin();
     var result1 =
         session.query("traverse * from " + tomCruise.getIdentity() + " strategy DEPTH_FIRST");
 
@@ -126,6 +130,7 @@ public class NewTraverseTest extends BaseDBTest {
       result1.next();
     }
     result1.close();
+    session.commit();
   }
 
   @Test
@@ -167,6 +172,7 @@ public class NewTraverseTest extends BaseDBTest {
 
   @Test
   public void traverseSQLMoviesOnlyDepth() {
+    session.begin();
     var result1 =
         session.query(
             "select from ( traverse * from "
@@ -205,10 +211,12 @@ public class NewTraverseTest extends BaseDBTest {
     }
     Assert.assertTrue(size3 > size2);
     result3.close();
+    session.commit();
   }
 
   @Test
   public void traverseSelect() {
+    session.begin();
     var result1 = session.query("traverse * from ( select from Movie )");
     var tot = 0;
     while (result1.hasNext()) {
@@ -218,10 +226,12 @@ public class NewTraverseTest extends BaseDBTest {
 
     Assert.assertEquals(tot, totalElements);
     result1.close();
+    session.commit();
   }
 
   @Test
   public void traverseSQLSelectAndTraverseNested() {
+    session.begin();
     var result1 =
         session.query(
             "traverse * from ( select from ( traverse * from "
@@ -236,10 +246,12 @@ public class NewTraverseTest extends BaseDBTest {
 
     Assert.assertEquals(tot, totalElements);
     result1.close();
+    session.commit();
   }
 
   @Test
   public void traverseAPISelectAndTraverseNested() {
+    session.begin();
     var result1 =
         session.execute(
             "traverse * from ( select from ( traverse * from "
@@ -251,10 +263,12 @@ public class NewTraverseTest extends BaseDBTest {
       tot++;
     }
     Assert.assertEquals(tot, totalElements);
+    session.commit();
   }
 
   @Test
   public void traverseAPISelectAndTraverseNestedDepthFirst() {
+    session.begin();
     var result1 =
         session.query(
             "traverse * from ( select from ( traverse * from "
@@ -267,10 +281,12 @@ public class NewTraverseTest extends BaseDBTest {
     }
     Assert.assertEquals(tot, totalElements);
     result1.close();
+    session.commit();
   }
 
   @Test
   public void traverseAPISelectAndTraverseNestedBreadthFirst() {
+    session.begin();
     var result1 =
         session.execute(
             "traverse * from ( select from ( traverse * from "
@@ -282,6 +298,7 @@ public class NewTraverseTest extends BaseDBTest {
       tot++;
     }
     Assert.assertEquals(tot, totalElements);
+    session.commit();
   }
 
   @Test
@@ -332,6 +349,7 @@ public class NewTraverseTest extends BaseDBTest {
   @Test
   public void traverseAndFilterByAttributeThatContainsDotInValue() {
     // issue #4952
+    session.begin();
     var result1 =
         session.query(
             "select from ( traverse out_married, in[attributeWithDotValue = 'a.b']  from "
@@ -349,11 +367,13 @@ public class NewTraverseTest extends BaseDBTest {
     }
     Assert.assertTrue(found);
     result1.close();
+    session.commit();
   }
 
   @Test
   public void traverseAndFilterWithNamedParam() {
     // issue #5225
+    session.begin();
     Map<String, Object> params = new HashMap<String, Object>();
     params.put("param1", "a.b");
     var result1 =
@@ -373,10 +393,12 @@ public class NewTraverseTest extends BaseDBTest {
       }
     }
     Assert.assertTrue(found);
+    session.commit();
   }
 
   @Test
   public void traverseAndCheckDepthInSelect() {
+    session.begin();
     var result1 =
         session.query(
             "select *, $depth as d from ( traverse out_married  from "
@@ -391,6 +413,7 @@ public class NewTraverseTest extends BaseDBTest {
     }
     Assert.assertEquals(i.intValue(), 2);
     result1.close();
+    session.commit();
   }
 
   @Test

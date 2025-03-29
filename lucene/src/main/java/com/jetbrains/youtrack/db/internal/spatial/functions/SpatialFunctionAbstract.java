@@ -13,8 +13,12 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.functions;
 
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeFactory;
+import javax.annotation.Nullable;
 import org.locationtech.spatial4j.shape.Shape;
 
 /**
@@ -38,7 +42,19 @@ public abstract class SpatialFunctionAbstract extends SQLFunctionAbstract {
     return false;
   }
 
+  @Nullable
   protected Shape toShape(Object param) {
+    Shape result = null;
+    if (param instanceof Result res) {
+      if (res.isEntity() || res.hasProperty(EntityHelper.ATTRIBUTE_CLASS)) {
+        result = factory.fromObject(res);
+      }
+    }
+
+    if (result != null) {
+      return result;
+    }
+
     final var singleItem = getSingleItem(param);
     if (singleItem != null) {
       final var singleProp = getSingleProperty(singleItem);
@@ -46,6 +62,7 @@ public abstract class SpatialFunctionAbstract extends SQLFunctionAbstract {
         return factory.fromObject(singleProp);
       }
     }
+
     return null;
   }
 }

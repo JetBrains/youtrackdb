@@ -4,6 +4,7 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -11,8 +12,8 @@ import org.testng.annotations.Test;
 public class IndexConcurrentCommitTest extends BaseDBTest {
 
   @Parameters(value = "remote")
-  public IndexConcurrentCommitTest(boolean remote) {
-    super(remote);
+  public IndexConcurrentCommitTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   public void testConcurrentUpdate() {

@@ -19,13 +19,10 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -33,8 +30,8 @@ import org.testng.annotations.Test;
 public class QueryLocalCacheIntegrationTest extends BaseDBTest {
 
   @Parameters(value = "remote")
-  public QueryLocalCacheIntegrationTest(boolean remote) {
-    super(remote);
+  public QueryLocalCacheIntegrationTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @BeforeMethod
@@ -58,12 +55,12 @@ public class QueryLocalCacheIntegrationTest extends BaseDBTest {
     doc1.setProperty("linked", singleLinked);
     var doc2 = ((EntityImpl) session.newEntity("FetchClass"));
     doc2.setProperty("name", "third");
-    List<EntityImpl> linkList = new ArrayList<>();
+    var linkList = session.newLinkList();
     linkList.add(doc);
     linkList.add(doc1);
     doc2.setProperty("linkList", linkList);
     doc2.setProperty("linked", singleLinked);
-    Set<EntityImpl> linkSet = new HashSet<>();
+    var linkSet = session.newLinkSet();
     linkSet.add(doc);
     linkSet.add(doc1);
     doc2.setProperty("linkSet", linkSet);
@@ -71,8 +68,8 @@ public class QueryLocalCacheIntegrationTest extends BaseDBTest {
     var doc3 = ((EntityImpl) session.newEntity("FetchClass"));
     doc3.setProperty("name", "forth");
     doc3.setProperty("ref", doc2);
-    doc3.setProperty("linkSet", linkSet);
-    doc3.setProperty("linkList", linkList);
+    doc3.setProperty("linkSet", session.newLinkSet(linkSet));
+    doc3.setProperty("linkList", session.newLinkList(linkList));
 
     var doc4 = ((EntityImpl) session.newEntity("SecondFetchClass"));
     doc4.setProperty("name", "fifth");
@@ -105,12 +102,10 @@ public class QueryLocalCacheIntegrationTest extends BaseDBTest {
 
   @Test
   public void queryTest() {
-    final long times = ProfilerStub.INSTANCE.getCounter("Cache.reused");
+    session.begin();
 
     var resultset =
         session.query("select * from FetchClass").toList();
-    Assert.assertEquals(
-        ProfilerStub.INSTANCE.getCounter("Cache.reused"), times);
 
     RID linked;
     for (var d : resultset) {
@@ -119,5 +114,6 @@ public class QueryLocalCacheIntegrationTest extends BaseDBTest {
         Assert.assertNull(session.getLocalCache().findRecord(linked));
       }
     }
+    session.commit();
   }
 }

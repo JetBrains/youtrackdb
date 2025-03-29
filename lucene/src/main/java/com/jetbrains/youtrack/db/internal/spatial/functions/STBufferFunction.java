@@ -47,7 +47,7 @@ public class STBufferFunction extends SQLFunctionAbstract {
       params = (Map) iParams[2];
     }
     var buffer = factory.buffer(shape, distance.doubleValue(), params);
-    return factory.toEntitty(buffer);
+    return factory.toEmbeddedEntity(buffer, iContext.getDatabaseSession());
   }
 
   @Override

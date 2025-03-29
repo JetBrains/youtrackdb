@@ -40,7 +40,7 @@ public class STEnvelopFunction extends SQLFunctionAbstract {
       Object[] iParams,
       CommandContext iContext) {
     var shape = factory.fromObject(iParams[0]);
-    return factory.toEntitty(shape.getBoundingBox());
+    return factory.toEmbeddedEntity(shape.getBoundingBox(), iContext.getDatabaseSession());
   }
 
   @Override

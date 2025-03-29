@@ -14,12 +14,15 @@
 package com.jetbrains.youtrack.db.internal.spatial.shape;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
@@ -58,17 +61,15 @@ public class PolygonShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
   }
 
   @Override
-  public JtsGeometry fromDoc(EntityImpl document) {
-    validate(document);
+  public JtsGeometry fromResult(Result document) {
     List<List<List<Number>>> coordinates = document.getProperty("coordinates");
-
     return toShape(createPolygon(coordinates));
   }
 
-  protected Polygon createPolygon(List<List<List<Number>>> coordinates) {
+  protected static Polygon createPolygon(List<List<List<Number>>> coordinates) {
     Polygon shape;
     if (coordinates.size() == 1) {
-      var coords = coordinates.get(0);
+      var coords = coordinates.getFirst();
       var linearRing = createLinearRing(coords);
       shape = GEOMETRY_FACTORY.createPolygon(linearRing);
     } else {
@@ -88,7 +89,7 @@ public class PolygonShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
     return shape;
   }
 
-  protected LinearRing createLinearRing(List<List<Number>> coords) {
+  protected static LinearRing createLinearRing(List<List<Number>> coords) {
     var crs = new Coordinate[coords.size()];
     var i = 0;
     for (var points : coords) {
@@ -99,26 +100,27 @@ public class PolygonShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
   }
 
   @Override
-  public EntityImpl toEntitty(JtsGeometry shape) {
+  public EmbeddedEntity toEmbeddedEntity(JtsGeometry shape, DatabaseSessionInternal session) {
 
-    var doc = new EntityImpl(null, getName());
+    var entity = session.newEmbeddedEntity(getName());
     var polygon = (Polygon) shape.getGeom();
     var polyCoordinates = coordinatesFromPolygon(polygon);
-    doc.setProperty(COORDINATES, polyCoordinates);
-    return doc;
+    entity.newEmbeddedList(COORDINATES, polyCoordinates);
+    return entity;
   }
 
   @Override
-  protected EntityImpl toEntitty(JtsGeometry shape, Geometry geometry) {
+  protected EmbeddedEntity toEmbeddedEntity(JtsGeometry shape, Geometry geometry,
+      DatabaseSessionInternal session) {
     if (geometry == null || Double.isNaN(geometry.getCoordinate().getZ())) {
-      return toEntitty(shape);
+      return toEmbeddedEntity(shape, session);
     }
 
-    var doc = new EntityImpl(null, getName() + "Z");
+    var entity = session.newEmbeddedEntity(getName() + "Z");
     var polygon = (Polygon) shape.getGeom();
     var polyCoordinates = coordinatesFromPolygonZ(geometry);
-    doc.setProperty(COORDINATES, polyCoordinates);
-    return doc;
+    entity.newEmbeddedList(COORDINATES, polyCoordinates);
+    return entity;
   }
 
   protected List<List<List<Double>>> coordinatesFromPolygon(Polygon polygon) {
@@ -142,9 +144,9 @@ public class PolygonShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
   }
 
   @Override
-  public String asText(EntityImpl document) {
-    if (document.getSchemaClassName().equals("OPolygonZ")) {
-      List<List<List<Double>>> coordinates = document.getProperty("coordinates");
+  public String asText(EmbeddedEntity entity) {
+    if (Objects.equals(entity.getSchemaClassName(), "OPolygonZ")) {
+      List<List<List<Double>>> coordinates = entity.getProperty("coordinates");
 
       var result =
           coordinates.stream()
@@ -155,15 +157,14 @@ public class PolygonShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
                           .map(
                               point ->
                                   (point.stream()
-                                      .map(coord -> format(coord))
+                                      .map(this::format)
                                       .collect(Collectors.joining(" "))))
                           .collect(Collectors.joining(", "))
                           + ")")
               .collect(Collectors.joining(" "));
       return "POLYGON Z (" + result + ")";
-
     } else {
-      return super.asText(document);
+      return super.asText(entity);
     }
   }
 }

@@ -543,7 +543,7 @@ public abstract class IndexAbstract implements Index {
   public boolean doRemove(DatabaseSessionInternal session, AbstractPaginatedStorage storage,
       Object key, RID rid)
       throws InvalidIndexEngineIdException {
-    return doRemove(storage, key);
+    return doRemove(storage, key, session);
   }
 
   public boolean remove(DatabaseSessionInternal session, Object key, final Identifiable rid) {
@@ -560,7 +560,8 @@ public abstract class IndexAbstract implements Index {
   }
 
   @Override
-  public boolean doRemove(AbstractPaginatedStorage storage, Object key)
+  public boolean doRemove(AbstractPaginatedStorage storage, Object key,
+      DatabaseSessionInternal session)
       throws InvalidIndexEngineIdException {
     return storage.removeKeyFromIndex(indexId, key);
   }

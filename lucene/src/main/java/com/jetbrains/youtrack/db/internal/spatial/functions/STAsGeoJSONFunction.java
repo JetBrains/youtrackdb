@@ -40,7 +40,7 @@ public class STAsGeoJSONFunction extends SQLFunctionAbstract {
       Object iCurrentResult,
       Object[] iParams,
       CommandContext iContext) {
-    return factory.asGeoJson((EntityImpl) iParams[0]);
+    return factory.asGeoJson((Result) iParams[0]);
   }
 
   @Override

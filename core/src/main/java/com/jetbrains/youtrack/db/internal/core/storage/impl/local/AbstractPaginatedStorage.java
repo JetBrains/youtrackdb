@@ -2164,7 +2164,7 @@ public abstract class AbstractPaginatedStorage
           if (op.getValue() != null) {
             index.doRemove(session, this, changes.key, op.getValue().getIdentity());
           } else {
-            index.doRemove(this, changes.key);
+            index.doRemove(this, changes.key, session);
           }
           break;
         case CLEAR:
@@ -4921,6 +4921,7 @@ public abstract class AbstractPaginatedStorage
       ((EntityImpl) rec).clearTransactionTrackData();
     }
 
+    rec.txEntry = null;
     rec.unsetDirty();
   }
 

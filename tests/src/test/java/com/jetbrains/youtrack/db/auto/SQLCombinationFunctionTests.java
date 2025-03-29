@@ -260,6 +260,7 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
 
   private void runEdgeInlineTest(FunctionDefinition fDef) {
 
+    session.begin();
     final var vertexes = session.query("SELECT FROM V").toList();
 
     final var insAndOuts = vertexes.stream().collect(Collectors.toMap(
@@ -303,6 +304,7 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
 
       assertListsEqualsIgnoreOrder(edges, expectedEdges);
     }
+    session.commit();
   }
 
   private void generateGraphRandomData() {
@@ -431,7 +433,7 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
     var country = session.newInstance("CountryExt");
     country.setProperty("name", name);
     country.setProperty("continent", continent);
-    country.setProperty("languages", languages);
+    country.setProperty("languages", session.newEmbeddedList(languages));
 
     return country;
   }
