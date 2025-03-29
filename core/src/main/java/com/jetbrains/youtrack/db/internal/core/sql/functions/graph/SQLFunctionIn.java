@@ -42,8 +42,8 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered {
     }
 
     var edges = v2e(graph, iRecord, Direction.IN, iLabels);
-    if (edges instanceof Sizeable) {
-      var size = ((Sizeable) edges).size();
+    if (edges instanceof Sizeable sizeable && sizeable.isSizeable()) {
+      var size = sizeable.size();
       if (size > supernodeThreshold) {
         var result = fetchFromIndex(graph, iRecord, iPossibleResults, iLabels);
         if (result != null) {

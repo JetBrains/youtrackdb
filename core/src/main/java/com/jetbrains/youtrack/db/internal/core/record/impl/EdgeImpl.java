@@ -33,51 +33,40 @@ import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class EdgeImpl implements EdgeInternal {
-
-  @Nullable
-  private final Vertex vOut;
-  @Nullable
-  private final Vertex vIn;
+public class EdgeImpl extends LightweightBidirectionalLinkImpl<Vertex> implements EdgeInternal {
 
   @Nonnull
   private final SchemaImmutableClass lightweightEdgeType;
-  @Nonnull
-  private final DatabaseSessionInternal session;
 
   public EdgeImpl(@Nonnull DatabaseSessionInternal session,
       @Nullable Vertex out, @Nullable Vertex in,
       @Nonnull SchemaImmutableClass lightweightEdgeType) {
-    vOut = out;
-    vIn = in;
-
+    super(session, out, in, lightweightEdgeType.getName());
     this.lightweightEdgeType = lightweightEdgeType;
-    this.session = session;
   }
 
   @Nullable
   @Override
   public Vertex getFrom() {
-    return vOut;
+    return getFromEntity();
   }
 
   @Nullable
   @Override
   public Identifiable getFromLink() {
-    return vOut;
+    return getFromEntity();
   }
 
   @Nullable
   @Override
   public Vertex getTo() {
-    return vIn;
-
+    return getToEntity();
   }
 
   @Nullable
   @Override
   public Identifiable getToLink() {
-    return vIn;
+    return getToEntity();
   }
 
   @Override
@@ -102,18 +91,15 @@ public class EdgeImpl implements EdgeInternal {
   }
 
   public boolean isLabeled(@Nonnull String[] labels) {
-    if (labels == null) {
+    if (super.isLabeled(labels)) {
       return true;
     }
-    if (labels.length == 0) {
-      return true;
-    }
-    Set<String> types = new HashSet<>();
+
+    var types = new HashSet<String>();
 
     var typeClass = getSchemaClass();
-    types.add(typeClass.getName());
     typeClass.getAllSuperClasses().stream()
-        .map(x -> x.getName())
+        .map(SchemaClass::getName)
         .forEach(types::add);
     for (var s : labels) {
       for (var type : types) {
@@ -137,9 +123,9 @@ public class EdgeImpl implements EdgeInternal {
   @Override
   public String toJSON() {
     return "{\"out\":\""
-        + vOut.getIdentity()
+        + getFromEntity().getIdentity()
         + "\", \"in\":\""
-        + vIn.getIdentity()
+        + getToEntity().getIdentity()
         + "\", \"@class\":\""
         + StringSerializerHelper.encode(lightweightEdgeType.getName())
         + "\"}";

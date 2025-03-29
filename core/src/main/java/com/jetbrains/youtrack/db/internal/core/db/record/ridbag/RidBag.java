@@ -218,6 +218,11 @@ public class RidBag
     return delegate.size();
   }
 
+  @Override
+  public boolean isSizeable() {
+    return true;
+  }
+
   public boolean isEmbedded() {
     return delegate instanceof EmbeddedRidBag;
   }

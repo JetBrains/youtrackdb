@@ -156,6 +156,11 @@ public class RemoteTreeRidBag implements RidBagDelegate {
   }
 
   @Override
+  public boolean isSizeable() {
+    return true;
+  }
+
+  @Override
   public String toString() {
     if (size >= 0) {
       return "[size=" + size + "]";

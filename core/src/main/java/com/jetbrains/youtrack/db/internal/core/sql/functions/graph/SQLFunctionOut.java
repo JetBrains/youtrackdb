@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collections;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -42,8 +43,8 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered {
     }
 
     var edges = v2e(graph, iRecord, Direction.OUT, iLabels);
-    if (edges instanceof Sizeable) {
-      var size = ((Sizeable) edges).size();
+    if (edges instanceof Sizeable sizeable && sizeable.isSizeable()) {
+      var size = sizeable.size();
       if (size > supernodeThreshold) {
         var result = fetchFromIndex(graph, iRecord, iPossibleResults, iLabels);
         if (result != null) {
@@ -55,6 +56,7 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered {
     return v2v(graph, iRecord, Direction.OUT, iLabels);
   }
 
+  @Nullable
   private static Object fetchFromIndex(
       DatabaseSessionInternal session,
       Identifiable iFrom,

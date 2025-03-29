@@ -371,7 +371,7 @@ public class GraphRepair {
 
               for (var fieldName : vertex.getPropertyNamesInternal(false, false)) {
                 final var connection =
-                    VertexEntityImpl.getConnection(db,
+                    VertexEntityImpl.getConnection(
                         db.getMetadata().getSchema(), Direction.BOTH, fieldName);
                 if (connection == null) {
                   continue;

@@ -28,6 +28,7 @@ import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.record.Entity;
@@ -47,6 +48,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
@@ -91,6 +93,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.commons.collections4.IterableUtils;
 
 /**
  * Entity representation to handle values dynamically. Can be used in schema-less, schema-mixed and
@@ -342,7 +345,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   public <RET> RET getProperty(final @Nonnull String propertyName) {
     validatePropertyName(propertyName, true);
 
-    if (!filterPropertyAccess(propertyName)) {
+    if (!isPropertyAccessible(propertyName)) {
       return null;
     }
 
@@ -523,7 +526,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Nullable
   public RID getLink(@Nonnull String propertyName) {
     validatePropertyName(propertyName, true);
-    if (!filterPropertyAccess(propertyName)) {
+    if (!isPropertyAccessible(propertyName)) {
       return null;
     }
 
@@ -654,7 +657,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     validatePropertyName(propertyName, false);
     validatePropertyValue(propertyName, propertyValue);
 
-    if (!filterPropertyAccess(propertyName)) {
+    if (!isPropertyAccessible(propertyName)) {
       throw new SecurityException("Property " + propertyName + " is not accessible");
     }
   }
@@ -729,7 +732,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       throw new IllegalArgumentException("Unsupported type: " + componentType);
     }
 
-    var value =  (EmbeddedList<T>) PropertyTypeInternal.EMBEDDEDLIST.copy(source, session);
+    var value = (EmbeddedList<T>) PropertyTypeInternal.EMBEDDEDLIST.copy(source, session);
     setProperty(name, value, PropertyType.EMBEDDEDLIST, linkedType.getPublicPropertyType());
     return value;
   }
@@ -1429,7 +1432,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
       EntityImpl iRecord)
       throws ValidationException {
     iRecord.checkForBinding();
-    iRecord = iRecord;
 
     var security = session.getSharedContext().getSecurity();
 
@@ -3628,7 +3630,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-  private boolean filterPropertyAccess(final String property) {
+  private boolean isPropertyAccessible(final String property) {
     return propertyAccess == null || propertyAccess.isReadable(property);
   }
 
@@ -3647,6 +3649,78 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     checkForProperties();
     return properties == null ? new HashSet<>() : properties.entrySet();
+  }
+
+  public Iterable<? extends Entity> getEntities(Direction direction, String... linkNames) {
+    checkForBinding();
+    if (direction == Direction.BOTH) {
+      return IterableUtils.chainedIterable(
+          getEntities(Direction.OUT, linkNames),
+          getEntities(Direction.IN, linkNames));
+    } else {
+      var links = getBidirectionalLinksInternal(direction, linkNames);
+      return new BidirectionalLinksIterable<>(links, direction);
+    }
+  }
+
+  private Iterable<LightweightBidirectionalLinkImpl<Entity>> getBidirectionalLinksInternal(
+      Direction direction, String... linkNames) {
+    deserializeProperties(linkNames);
+
+    var iterables = new ArrayList<Iterable<LightweightBidirectionalLinkImpl<Entity>>>(
+        linkNames.length);
+    Object fieldValue;
+
+    for (var linkName : linkNames) {
+      String propertyName;
+      if (direction == Direction.OUT) {
+        propertyName = linkName;
+      } else {
+        propertyName = OPPOSITE_LINK_CONTAINER_PREFIX + linkName;
+      }
+
+      if (!isPropertyAccessible(linkName)) {
+        return Collections.emptyList();
+      }
+
+      fieldValue = getPropertyInternal(propertyName);
+      if (fieldValue != null) {
+        switch (fieldValue) {
+          case null -> {
+            iterables.add(Collections.emptyList());
+          }
+          case Identifiable identifiable -> {
+            var coll = Collections.singleton(identifiable);
+            iterables.add(
+                new EntityLinksIterable(this, new Pair<>(direction, linkName), linkNames, session,
+                    coll, 1, coll));
+          }
+          case EntityLinkSetImpl set -> iterables.add(
+              new EntityLinksIterable(this, new Pair<>(direction, linkName), linkNames, session,
+                  set, set.size(), set));
+          case EntityLinkListImpl list -> iterables.add(
+              new EntityLinksIterable(this, new Pair<>(direction, linkName), linkNames, session,
+                  list, list.size(), list));
+          case RidBag bag -> iterables.add(
+              new EntityLinksIterable(
+                  this, new Pair<>(direction, linkName), linkNames, session,
+                  bag, bag.size(), bag));
+          default -> {
+            throw new IllegalArgumentException(
+                "Unsupported property type: " + getPropertyType(propertyName));
+          }
+        }
+      }
+    }
+
+    if (iterables.size() == 1) {
+      return iterables.getFirst();
+    } else if (iterables.isEmpty()) {
+      return Collections.emptyList();
+    }
+
+    //noinspection unchecked
+    return IterableUtils.chainedIterable(iterables.toArray(new Iterable[0]));
   }
 
   public List<Entry<String, EntityEntry>> getFilteredEntries() {
@@ -3807,16 +3881,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
       var value = entityEntry.value;
       entityEntry.disableTracking(this, value);
-    }
-  }
-
-  private void addAllMultiValueChangeListeners() {
-    if (properties == null) {
-      return;
-    }
-
-    for (final var property : properties.entrySet()) {
-      property.getValue().enableTracking(this);
     }
   }
 

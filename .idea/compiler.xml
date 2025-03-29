@@ -14,10 +14,10 @@
         <module name="youtrackdb-tools" />
         <module name="youtrackdb-lucene" />
         <module name="youtrackdb-security" />
+        <module name="youtrackdb-client" />
       </profile>
     </annotationProcessing>
     <bytecodeTargetLevel>
-      <module name="youtrackdb-client" target="21" />
       <module name="youtrackdb-community" target="21" />
       <module name="youtrackdb-jdbc" target="21" />
     </bytecodeTargetLevel>

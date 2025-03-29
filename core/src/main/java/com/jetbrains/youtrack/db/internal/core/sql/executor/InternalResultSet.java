@@ -66,6 +66,11 @@ public class InternalResultSet implements ResultSet, Resettable {
     this.next = 0;
   }
 
+  @Override
+  public boolean isResetable() {
+    return true;
+  }
+
   public int size() {
     assert session == null || session.assertIfNotActive();
     return content.size();
