@@ -74,6 +74,7 @@ public class FetchPlanComplexNestedLevelsTest extends BaseDBTest {
 
   @Test
   public void queryAll2() {
+    session.begin();
     var resultSet =
         executeQuery(
             "select @this.toJSON('fetchPlan:*:2') as json from (select from PersonTest where"
@@ -83,11 +84,14 @@ public class FetchPlanComplexNestedLevelsTest extends BaseDBTest {
     String json = resultSet.getFirst().getProperty("json");
 
     Assert.assertNotNull(json);
+    session.commit();
 
+    session.begin();
     final var parsed = ((EntityImpl) session.newEntity());
     parsed.updateFromJSON(json);
 
     Assert.assertNotNull(parsed.getProperty("out_FollowTest.in.out_FollowTest"));
+    session.commit();
   }
 
   @Test
@@ -109,6 +113,7 @@ public class FetchPlanComplexNestedLevelsTest extends BaseDBTest {
 
   @Test
   public void queryOutOneLevelOnly() {
+    session.begin();
     var resultSet =
         executeQuery(
             "select @this.toJSON('fetchPlan:[0]out_*:0') as json from (select from PersonTest"
@@ -123,6 +128,7 @@ public class FetchPlanComplexNestedLevelsTest extends BaseDBTest {
     Assert.assertTrue(pos > -1);
 
     Assert.assertEquals(json.charAt(pos) + 1, '#');
+    session.commit();
   }
 
   @Test

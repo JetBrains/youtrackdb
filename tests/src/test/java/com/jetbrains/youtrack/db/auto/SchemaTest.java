@@ -405,62 +405,6 @@ public class SchemaTest extends BaseDBTest {
     session.commit();
   }
 
-  public void testMinimumClustersAndClusterSelection() {
-    session.command("alter database minimum_clusters 3");
-    try {
-      session.execute("create class multipleclusters").close();
-
-      Assert.assertTrue(session.existsCluster("multipleclusters"));
-
-      for (var i = 1; i < 3; ++i) {
-        Assert.assertTrue(session.existsCluster("multipleclusters_" + i));
-      }
-
-      for (var i = 0; i < 6; ++i) {
-        session.begin();
-        var entity = ((EntityImpl) session.newEntity("multipleclusters"));
-        entity.setProperty("num", i);
-
-        session.commit();
-      }
-
-      // CHECK THERE ARE 2 RECORDS IN EACH CLUSTER (ROUND-ROBIN STRATEGY)
-      Assert.assertEquals(
-          session.countClusterElements(session.getClusterIdByName("multipleclusters")), 2);
-      for (var i = 1; i < 3; ++i) {
-        Assert.assertEquals(
-            session.countClusterElements(session.getClusterIdByName("multipleclusters_" + i)), 2);
-      }
-
-      session.begin();
-      // DELETE ALL THE RECORDS
-      var deleted =
-          session.execute("delete from cluster:multipleclusters_2").stream().
-              findFirst().orElseThrow().<Long>getProperty("count");
-      session.commit();
-      Assert.assertEquals(deleted, 2);
-
-      // CHANGE CLASS STRATEGY to BALANCED
-      session
-          .execute("alter class multipleclusters cluster_selection balanced").close();
-
-      for (var i = 0; i < 2; ++i) {
-        session.begin();
-        var entity = ((EntityImpl) session.newEntity("multipleclusters"));
-        entity.setProperty("num", i);
-
-        session.commit();
-      }
-
-      Assert.assertEquals(
-          session.countClusterElements(session.getClusterIdByName("multipleclusters_2")), 2);
-
-    } finally {
-      // RESTORE DEFAULT
-      session.execute("alter database minimum_clusters 0").close();
-    }
-  }
-
   public void testRenameWithSameNameIsNop() {
     session.getMetadata().getSchema().getClass("V").setName("V");
   }

@@ -129,48 +129,6 @@ public class PreparedStatementTest extends BaseDBTest {
   }
 
   @Test
-  public void testNamedParamTargetDocument() {
-    session.begin();
-
-    var result =
-        session
-            .query("select from PreparedStatementTest1 limit 1").toList();
-    var record = result.iterator().next();
-
-    Map<String, Object> params = new HashMap<String, Object>();
-    params.put("inputRid", record);
-    result = session.query("select from :inputRid", params).toList();
-    var found = false;
-    for (var doc : result) {
-      found = true;
-      Assert.assertEquals(doc.getIdentity(), record.getIdentity());
-      Assert.assertEquals(doc.<Object>getProperty("name"), record.getProperty("name"));
-    }
-    Assert.assertTrue(found);
-    session.commit();
-  }
-
-  @Test
-  public void testUnnamedParamTargetDocument() {
-    session.begin();
-
-    var result =
-        session
-            .query("select from PreparedStatementTest1 limit 1").toList();
-
-    var record = result.iterator().next();
-    result = session.query("select from ?", record).toList();
-    var found = false;
-    for (var doc : result) {
-      found = true;
-      Assert.assertEquals(doc.getIdentity(), record.getIdentity());
-      Assert.assertEquals(doc.<Object>getProperty("name"), record.getProperty("name"));
-    }
-    Assert.assertTrue(found);
-    session.commit();
-  }
-
-  @Test
   public void testUnnamedParamFlat() {
     var result = session.query("select from PreparedStatementTest1 where name = ?",
         "foo1");

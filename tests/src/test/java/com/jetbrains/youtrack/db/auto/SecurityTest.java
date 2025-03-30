@@ -307,7 +307,7 @@ public class SecurityTest extends BaseDBTest {
     session = createSessionInstance("writer", "writer");
 
     try {
-      session.command("alter class Protected superclass OUser");
+      session.command("alter class Protected superclasses OUser");
       Assert.fail();
     } catch (SecurityException e) {
     } finally {
@@ -324,7 +324,7 @@ public class SecurityTest extends BaseDBTest {
     session.getMetadata().getSchema().createClass("Protected");
 
     try {
-      session.execute("alter class Protected superclass OUser").close();
+      session.execute("alter class Protected superclasses OUser").close();
     } finally {
       session.getMetadata().getSchema().dropClass("Protected");
     }

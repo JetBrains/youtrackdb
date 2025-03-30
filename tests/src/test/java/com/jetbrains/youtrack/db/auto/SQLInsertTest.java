@@ -182,6 +182,7 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
+    session.begin();
     var activeTx = session.getActiveTransaction();
     doc = activeTx.load(doc);
     Assert.assertNotNull(doc);
@@ -192,6 +193,7 @@ public class SQLInsertTest extends BaseDBTest {
         ((Identifiable) doc.getProperty("location")).getIdentity(),
         new RecordId(addressId, positions.get(3)));
     Assert.assertEquals(doc.getProperty("dummy"), "hooray");
+    session.commit();
   }
 
   @Test
@@ -442,6 +444,7 @@ public class SQLInsertTest extends BaseDBTest {
 
     Assert.assertEquals(inserted, 2);
 
+    session.begin();
     var result =
         session.query("select from UserCopy").toList();
 
@@ -451,6 +454,7 @@ public class SQLInsertTest extends BaseDBTest {
       EntityImpl entity = ((EntityImpl) r.asEntityOrNull());
       Assert.assertNotEquals(entity.getProperty("name"), "admin");
     }
+    session.commit();
   }
 
   @Test(expectedExceptions = ValidationException.class)
@@ -763,7 +767,7 @@ public class SQLInsertTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session.delete(result.asRecord());
+    session.delete(session.load(result.getIdentity()));
     session.commit();
 
     Assert.assertTrue(found);

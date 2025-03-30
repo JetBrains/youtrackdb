@@ -36,11 +36,11 @@ import org.apache.commons.lang.ArrayUtils;
  */
 public class RecordIteratorClusters<REC extends RecordAbstract> implements Iterator<REC> {
 
-  private RecordIteratorCluster<REC>[] clusterIterators;
-  private int clusterIndex = 0;
+  private final RecordIteratorCluster<REC>[] clusterIterators;
 
+  private int clusterIndex = 0;
   private REC currentRecord;
-  private RecordIteratorCluster currentClusterIterator;
+  private RecordIteratorCluster<REC> currentClusterIterator;
 
   @Nonnull
   private final DatabaseSessionInternal session;
@@ -62,8 +62,7 @@ public class RecordIteratorClusters<REC extends RecordAbstract> implements Itera
     clusterIterators = new RecordIteratorCluster[clusterIds.length];
 
     for (var i = 0; i < clusterIds.length; ++i) {
-      clusterIterators[i] = new RecordIteratorCluster<>(session, clusterIds[i],
-          forwardDirection);
+      clusterIterators[i] = new RecordIteratorCluster<>(session, clusterIds[i], forwardDirection);
     }
 
     currentClusterIterator = clusterIterators[clusterIndex];
@@ -93,19 +92,10 @@ public class RecordIteratorClusters<REC extends RecordAbstract> implements Itera
 
   @Override
   public REC next() {
-    //noinspection unchecked
-    currentRecord = (REC) currentClusterIterator.next();
-
-    while (currentClusterIterator != null && !currentClusterIterator.hasNext()) {
-      if (clusterIndex < clusterIterators.length - 1) {
-        clusterIndex++;
-        currentClusterIterator = clusterIterators[clusterIndex];
-      } else {
-        currentClusterIterator = null;
-      }
+    if (!hasNext()) {
+      throw new NoSuchElementException();
     }
-
-    return currentRecord;
+    return currentClusterIterator.next();
   }
 
   @Override

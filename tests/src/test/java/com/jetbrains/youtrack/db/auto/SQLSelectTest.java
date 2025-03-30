@@ -977,12 +977,14 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void queryBetween() {
+    session.begin();
     var result = executeQuery("select * from account where nr between 10 and 20");
 
     for (var record : result) {
       Assert.assertTrue(
           ((Integer) record.getProperty("nr")) >= 10 && ((Integer) record.getProperty("nr")) <= 20);
     }
+    session.commit();
   }
 
   @Test
