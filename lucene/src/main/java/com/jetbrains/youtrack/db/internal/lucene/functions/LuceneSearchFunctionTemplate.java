@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.lucene.functions;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.IndexableSQLFunction;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCompareOperator;
@@ -80,9 +81,7 @@ public abstract class LuceneSearchFunctionTemplate extends SQLFunctionAbstract
     } else if (md instanceof Map map) {
       return map;
     } else if (md instanceof String) {
-      var doc = new EntityImpl(ctx.getDatabaseSession());
-      doc.updateFromJSON((String) md);
-      return doc.toMap();
+      return RecordSerializerJackson.mapFromJson((String) md);
     } else {
       var doc = new EntityImpl(ctx.getDatabaseSession());
       doc.updateFromJSON(metadata.toString());

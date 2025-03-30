@@ -130,7 +130,7 @@ public class LuceneSearchOnClassFunctionTest extends LuceneBaseTest {
   public void shouldSupportParameterizedMetadata() throws Exception {
     final var query = "SELECT from Song where SEARCH_CLASS('*EVE*', ?) = true";
 
-    session.query(query, "{'allowLeadingWildcard': true}").close();
+    session.query(query, "{\"allowLeadingWildcard\": true}").close();
 
     Map<String, Object> mdMap = new HashMap();
     mdMap.put("allowLeadingWildcard", true);

@@ -11,6 +11,7 @@ import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.IndexableSQLFunction;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCompareOperator;
@@ -177,11 +178,7 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
   }
 
   private static Map<String, ?> parseMetadata(SQLExpression[] args) {
-    var metadata = new EntityImpl(null);
-    if (args.length == 2) {
-      metadata.updateFromJSON(args[1].toString());
-    }
-    return metadata.toMap();
+    return RecordSerializerJackson.mapFromJson(args[1].toString());
   }
 
   private MoreLikeThis buildMoreLikeThis(

@@ -3,7 +3,6 @@ package com.jetbrains.youtrack.db.internal.client.remote.metadata.schema;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionFactory;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
@@ -14,11 +13,9 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 
 public class SchemaClassRemote extends SchemaClassImpl {
 
@@ -396,108 +393,6 @@ public class SchemaClassRemote extends SchemaClassImpl {
     }
     superClasses.clear();
     superClasses.addAll(newSuperClasses);
-  }
-
-
-  @Override
-  public void getIndexedProperties(DatabaseSessionInternal session,
-      Collection<SchemaPropertyImpl> indexedProperties) {
-    throw new UnsupportedOperationException("Not supported in remote environment");
-  }
-
-  @Override
-  public Collection<SchemaPropertyImpl> getIndexedProperties(DatabaseSessionInternal session) {
-    throw new UnsupportedOperationException("Not supported in remote environment");
-  }
-
-  @Override
-  public boolean areIndexed(DatabaseSessionInternal session, String... fields) {
-    throw new UnsupportedOperationException("Not supported in remote environment");
-  }
-
-  @Override
-  public boolean areIndexed(DatabaseSessionInternal session, Collection<String> fields) {
-    throw new UnsupportedOperationException("Not supported in remote environment");
-  }
-
-  @Override
-  public Set<String> getInvolvedIndexes(DatabaseSessionInternal session, String... fields) {
-    throw new UnsupportedOperationException("Not supported in remote environment");
-  }
-
-  @Override
-  public Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session, String... fields) {
-    throw new UnsupportedOperationException("Not supported in remote environment");
-  }
-
-  @Override
-  public Set<String> getInvolvedIndexes(DatabaseSessionInternal session,
-      Collection<String> fields) {
-    throw new UnsupportedOperationException("Not supported in remote environment");
-  }
-
-  @Override
-  public Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session,
-      Collection<String> fields) {
-    throw new UnsupportedOperationException("Not supported in remote environment");
-  }
-
-  @Override
-  public Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session,
-      Collection<String> fields) {
-    throw new UnsupportedOperationException("Not supported in remote environment");
-  }
-
-  @Override
-  public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
-      Collection<String> fields) {
-    throw new UnsupportedOperationException("Not supported in remote environment");
-  }
-
-  @Override
-  public Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session, String... fields) {
-    throw new UnsupportedOperationException("Not supported in remote environment");
-  }
-
-  @Override
-  public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
-      String... fields) {
-    throw new UnsupportedOperationException("Not supported in remote environment");
-  }
-
-  @Override
-  public Index getClassIndex(DatabaseSessionInternal session, String name) {
-    throw new UnsupportedOperationException("Not supported in remote environment");
-  }
-
-  @Override
-  public Set<String> getClassIndexes(DatabaseSessionInternal session) {
-    throw new UnsupportedOperationException("Not supported in remote environment");
-  }
-
-  @Override
-  public Set<Index> getClassIndexesInternal(DatabaseSessionInternal session) {
-    throw new UnsupportedOperationException("Not supported in remote environment");
-  }
-
-  @Override
-  public void getClassIndexes(DatabaseSessionInternal session, Collection<Index> indexes) {
-    throw new UnsupportedOperationException("Not supported in remote environment");
-  }
-
-  @Override
-  public void getIndexesInternal(DatabaseSessionInternal session, Collection<Index> indexes) {
-    throw new UnsupportedOperationException("Not supported in remote environment");
-  }
-
-  @Override
-  public Set<String> getIndexes(DatabaseSessionInternal session) {
-    throw new UnsupportedOperationException("Not supported in remote environment");
-  }
-
-  @Override
-  public Set<Index> getIndexesInternal(DatabaseSessionInternal session) {
-    throw new UnsupportedOperationException("Not supported in remote environment");
   }
 
   protected void addClusterIdToIndexes(DatabaseSessionInternal session, int iId) {

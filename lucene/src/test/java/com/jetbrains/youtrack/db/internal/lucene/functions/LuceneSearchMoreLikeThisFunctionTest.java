@@ -14,7 +14,6 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
   @Before
   public void setUp() throws Exception {
     try (var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql")) {
-      //noinspection resource
       session.runScript("sql", getScriptFromStream(stream)).close();
     }
   }
@@ -108,6 +107,7 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
     var clazz = session.getMetadata().getSchema().getClass("Song");
     var defCluster = clazz.getClusterIds()[0];
 
+    session.begin();
     try (var resultSet =
         session.query(
             "SELECT from Song where SEARCH_More( [#"
@@ -122,6 +122,7 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
       }
       assertThat(resultSet).hasSize(84);
     }
+    session.commit();
   }
 
   @Test

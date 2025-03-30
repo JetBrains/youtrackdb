@@ -14,6 +14,7 @@ public class LuceneIndexEngineUtilsTest extends BaseLuceneTest {
   @Test
   public void buildSortFields() {
     var metadata = new HashMap<String, Object>();
+    session.begin();
     metadata.put(
         "sort",
         Collections.singletonList(
@@ -22,6 +23,7 @@ public class LuceneIndexEngineUtilsTest extends BaseLuceneTest {
                 .setPropertyInChain("reverse", false)
                 .setPropertyInChain("type", "INT")
                 .toMap()));
+    session.commit();
 
     final var fields = LuceneIndexEngineUtils.buildSortFields(metadata);
 
@@ -36,6 +38,7 @@ public class LuceneIndexEngineUtilsTest extends BaseLuceneTest {
   @Test
   public void buildIntSortField() throws Exception {
 
+    session.begin();
     final var sortConf =
         ((EntityImpl) session.newEntity()).setPropertyInChain("field", "score")
             .setPropertyInChain("reverse", true)
@@ -46,11 +49,13 @@ public class LuceneIndexEngineUtilsTest extends BaseLuceneTest {
     assertThat(sortField.getField()).isEqualTo("score");
     assertThat(sortField.getType()).isEqualTo(SortField.Type.INT);
     assertThat(sortField.getReverse()).isTrue();
+    session.commit();
   }
 
   @Test
   public void buildDocSortField() throws Exception {
 
+    session.begin();
     final var sortConf = ((EntityImpl) session.newEntity()).setPropertyInChain("type", "DOC");
 
     final var sortField = LuceneIndexEngineUtils.buildSortField(sortConf);
@@ -58,5 +63,6 @@ public class LuceneIndexEngineUtilsTest extends BaseLuceneTest {
     assertThat(sortField.getField()).isNull();
     assertThat(sortField.getType()).isEqualTo(SortField.Type.DOC);
     assertThat(sortField.getReverse()).isFalse();
+    session.commit();
   }
 }
