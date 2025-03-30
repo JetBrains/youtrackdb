@@ -489,7 +489,7 @@ public interface DatabaseSession extends AutoCloseable {
 
   LinkList newLinkList(int size);
 
-  LinkList newLinkList(Collection<Identifiable> source);
+  LinkList newLinkList(Collection<? extends Identifiable> source);
 
   <T> EmbeddedSet<T> newEmbeddedSet();
 
@@ -501,7 +501,7 @@ public interface DatabaseSession extends AutoCloseable {
 
   LinkSet newLinkSet(int size);
 
-  LinkSet newLinkSet(Collection<Identifiable> source);
+  LinkSet newLinkSet(Collection<? extends Identifiable> source);
 
   <V> Map<String, V> newEmbeddedMap();
 
@@ -513,7 +513,7 @@ public interface DatabaseSession extends AutoCloseable {
 
   Map<String, Identifiable> newLinkMap(int size);
 
-  Map<String, Identifiable> newLinkMap(Map<String, Identifiable> source);
+  Map<String, Identifiable> newLinkMap(Map<String, ? extends Identifiable> source);
 
   enum ATTRIBUTES {
     DATEFORMAT,

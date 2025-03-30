@@ -6,10 +6,10 @@ import java.util.Iterator;
 
 public class BidirectionalLinkToEntityIterator<T extends Entity> implements Iterator<T> {
 
-  private final Iterator<BidirectionalLink<T>> linksIterator;
+  private final Iterator<? extends BidirectionalLink<T>> linksIterator;
   private final Direction direction;
 
-  public BidirectionalLinkToEntityIterator(Iterator<BidirectionalLink<T>> iterator,
+  public BidirectionalLinkToEntityIterator(Iterator<? extends BidirectionalLink<T>> iterator,
       Direction direction) {
     if (direction == Direction.BOTH) {
       throw new IllegalArgumentException(

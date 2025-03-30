@@ -25,7 +25,7 @@ public class EntityLinksIterable extends
   public Iterator<LightweightBidirectionalLinkImpl<Entity>> iterator() {
     return new EntityLinksIterator(
         sourceEntity,
-        connection,
+        iterable,
         iterable.iterator(),
         connection,
         labels,

@@ -7,7 +7,6 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -45,11 +44,11 @@ public class EntityLinksIterator extends
     if (connection.getKey() == Direction.OUT) {
       return
           new LightweightBidirectionalLinkImpl<>(session,
-              this.sourceEntity, entity.asVertex(), connection.value);
+              this.sourceEntity, entity, connection.value);
     } else {
       return
           new LightweightBidirectionalLinkImpl<>(session,
-              entity.asVertex(), this.sourceEntity, connection.value);
+              entity, this.sourceEntity, connection.value);
     }
 
   }

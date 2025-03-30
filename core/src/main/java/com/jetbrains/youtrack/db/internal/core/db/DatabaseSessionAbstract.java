@@ -2526,7 +2526,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public LinkList newLinkList(Collection<Identifiable> source) {
+  public LinkList newLinkList(Collection<? extends Identifiable> source) {
     var list = new EntityLinkListImpl(this, source.size());
     list.addAll(source);
     return list;
@@ -2558,7 +2558,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public LinkSet newLinkSet(Collection<Identifiable> source) {
+  public LinkSet newLinkSet(Collection<? extends Identifiable> source) {
     var linkSet = new EntityLinkSetImpl(source.size(), this);
     linkSet.addAll(source);
     return linkSet;
@@ -2590,7 +2590,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public Map<String, Identifiable> newLinkMap(Map<String, Identifiable> source) {
+  public Map<String, Identifiable> newLinkMap(Map<String, ? extends Identifiable> source) {
     var linkMap = new EntityLinkMapIml(source.size(), this);
     linkMap.putAll(source);
     return linkMap;

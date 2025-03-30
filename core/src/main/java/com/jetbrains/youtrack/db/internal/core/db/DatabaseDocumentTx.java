@@ -1196,7 +1196,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public LinkList newLinkList(Collection<Identifiable> source) {
+  public LinkList newLinkList(Collection<? extends Identifiable> source) {
     checkOpenness();
     return internal.newLinkList(source);
   }
@@ -1232,7 +1232,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public LinkSet newLinkSet(Collection<Identifiable> source) {
+  public LinkSet newLinkSet(Collection<? extends Identifiable> source) {
     checkOpenness();
     return internal.newLinkSet(source);
   }
@@ -1268,7 +1268,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public Map<String, Identifiable> newLinkMap(Map<String, Identifiable> source) {
+  public Map<String, Identifiable> newLinkMap(Map<String, ? extends Identifiable> source) {
     checkOpenness();
     return internal.newLinkMap(source);
   }
