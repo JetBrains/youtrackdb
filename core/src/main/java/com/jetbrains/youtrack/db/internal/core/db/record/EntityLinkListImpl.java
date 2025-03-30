@@ -147,6 +147,11 @@ public class EntityLinkListImpl extends AbstractList<Identifiable> implements
     return list.size();
   }
 
+  @Override
+  public boolean isSizeable() {
+    return true;
+  }
+
   public boolean addInternal(Identifiable element) {
     checkValue(element);
     var rid = convertToRid(element);

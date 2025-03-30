@@ -65,10 +65,10 @@ public class SQLMethodAsList extends AbstractSQLMethod {
 
     if (ioResult instanceof Iterator<?>) {
       final List<Object> list;
-      if (ioResult instanceof Sizeable) {
-        list = new ArrayList<Object>(((Sizeable) ioResult).size());
+      if (ioResult instanceof Sizeable sizeable && sizeable.isSizeable()) {
+        list = new ArrayList<>(sizeable.size());
       } else {
-        list = new ArrayList<Object>();
+        list = new ArrayList<>();
       }
 
       for (var iter = (Iterator<Object>) ioResult; iter.hasNext(); ) {

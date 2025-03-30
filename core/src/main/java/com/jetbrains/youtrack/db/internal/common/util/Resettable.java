@@ -26,4 +26,6 @@ package com.jetbrains.youtrack.db.internal.common.util;
 public interface Resettable {
 
   void reset();
+
+  boolean isResetable();
 }

@@ -550,7 +550,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     assert assertIfNotActive();
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
-          "Cannot execute query while transaction processing callbacks. If you called this method in beforeCallbackXXX method " +
+          "Cannot execute query while transaction processing callbacks. If you called this method in beforeCallbackXXX method "
+              +
               "please move it to the afterCallbackXXX method");
     }
     try {
@@ -584,7 +585,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     assert assertIfNotActive();
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
-          "Cannot execute query while transaction processing callbacks. If you called this method in beforeCallbackXXX method " +
+          "Cannot execute query while transaction processing callbacks. If you called this method in beforeCallbackXXX method "
+              +
               "please move it to the afterCallbackXXX method");
     }
 
@@ -620,7 +622,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
 
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
-          "Cannot execute SQL command while transaction processing callbacks. If you called this method in beforeCallbackXXX method " +
+          "Cannot execute SQL command while transaction processing callbacks. If you called this method in beforeCallbackXXX method "
+              +
               "please move it to the afterCallbackXXX method");
     }
     try {
@@ -661,7 +664,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
 
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
-          "Cannot execute SQL command while transaction processing callbacks. If you called this method in beforeCallbackXXX method " +
+          "Cannot execute SQL command while transaction processing callbacks. If you called this method in beforeCallbackXXX method "
+              +
               "please move it to the afterCallbackXXX method");
     }
     try {
@@ -704,7 +708,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     assert assertIfNotActive();
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
-          "Cannot execute SQL script while transaction processing callbacks. If you called this method in beforeCallbackXXX method " +
+          "Cannot execute SQL script while transaction processing callbacks. If you called this method in beforeCallbackXXX method "
+              +
               "please move it to the afterCallbackXXX method");
     }
     try {
@@ -768,7 +773,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     assert assertIfNotActive();
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
-          "Cannot execute SQL script while transaction processing callbacks. If you called this method in beforeCallbackXXX method " +
+          "Cannot execute SQL script while transaction processing callbacks. If you called this method in beforeCallbackXXX method "
+              +
               "please move it to the afterCallbackXXX method");
     }
     if (!"sql".equalsIgnoreCase(language)) {
@@ -814,7 +820,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     assert assertIfNotActive();
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
-          "Cannot execute query transaction processing callbacks. If you called this method in beforeCallbackXXX method " +
+          "Cannot execute query transaction processing callbacks. If you called this method in beforeCallbackXXX method "
+              +
               "please move it to the afterCallbackXXX method");
     }
 
@@ -1887,7 +1894,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
           }
 
           var linkName = propertyName.substring(1);
-          var oppositeLinkProperty = oppositeEntity.getPropertyInternal(linkName);
+          var oppositeLinkProperty = oppositeEntity.getPropertyInternal(linkName, false);
 
           if (oppositeLinkProperty == null) {
             throw new IllegalStateException("Cannot remove link " + entity.getIdentity()
@@ -1955,7 +1962,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     }
   }
 
-  private void ensureLinksConsistencyBeforeModification(@Nonnull EntityImpl entity,
+  private void ensureLinksConsistencyBeforeModification(@Nonnull final EntityImpl entity,
       @Nullable SchemaImmutableClass clazz) {
     var dirtyProperties = entity.getDirtyPropertiesBetweenCallbacksInternal(false,
         false);
@@ -2033,15 +2040,21 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
           oppositeEntity.setPropertyInternal(oppositeLinkBagPropertyName, linkBag);
         }
 
-        linkBag.add(linkToAdd);
+        linkBag.add(entity.getIdentity());
       }
       for (var linkToRemove : linksToRemove) {
+        if (currentTx.isDeletedInTx(linkToRemove)) {
+          continue;
+        }
         var oppositeEntity = (EntityImpl) loadEntity(linkToRemove);
         var linkBag = (RidBag) oppositeEntity.getPropertyInternal(oppositeLinkBagPropertyName);
 
         if (linkBag != null) {
-          assert linkBag.contains(linkToRemove);
-          linkBag.remove(linkToRemove);
+          if (!linkBag.contains(entity.getIdentity())) {
+            throw new IllegalStateException("Cannot remove link " + linkToRemove
+                + " from opposite entity because it does not exist");
+          }
+          linkBag.remove(entity.getIdentity());
         } else {
           throw new IllegalStateException("Cannot remove link " + linkToRemove
               + " from opposite entity because required system property "

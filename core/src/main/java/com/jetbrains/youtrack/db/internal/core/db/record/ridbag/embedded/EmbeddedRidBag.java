@@ -171,6 +171,11 @@ public class EmbeddedRidBag implements RidBagDelegate {
   }
 
   @Override
+  public boolean isSizeable() {
+    return true;
+  }
+
+  @Override
   public String toString() {
     if (size < 10) {
       final var sb = new StringBuilder(256);
@@ -505,8 +510,18 @@ public class EmbeddedRidBag implements RidBagDelegate {
     }
 
     @Override
+    public boolean isResetable() {
+      return true;
+    }
+
+    @Override
     public int size() {
       return size;
+    }
+
+    @Override
+    public boolean isSizeable() {
+      return true;
     }
 
     private int nextIndex() {

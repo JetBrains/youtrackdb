@@ -2305,8 +2305,8 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
             if (!restrictedClasses) {
               final Iterator cursor = streams.get(0).iterator();
               long count = 0;
-              if (cursor instanceof Sizeable) {
-                count = ((Sizeable) cursor).size();
+              if (cursor instanceof Sizeable sizeable && sizeable.isSizeable()) {
+                count = sizeable.size();
               } else {
                 while (cursor.hasNext()) {
                   cursor.next();

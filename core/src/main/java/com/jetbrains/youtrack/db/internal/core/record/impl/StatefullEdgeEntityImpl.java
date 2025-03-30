@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
+import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
@@ -68,6 +69,11 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     }
 
     return false;
+  }
+
+  @Override
+  public Vertex getEntity(@Nonnull Direction dir) {
+    return getVertex(dir);
   }
 
 
@@ -175,5 +181,22 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
   @Override
   public byte getRecordType() {
     return RECORD_TYPE;
+  }
+
+  @Nullable
+  @Override
+  public Vertex getFromEntity() {
+    return getFrom();
+  }
+
+  @Nullable
+  @Override
+  public Vertex getToEntity() {
+    return getTo();
+  }
+
+  @Override
+  public Iterable<Entity> getEntities(Direction direction, String... linkNames) {
+    throw new UnsupportedOperationException("Operation not supported for edges");
   }
 }

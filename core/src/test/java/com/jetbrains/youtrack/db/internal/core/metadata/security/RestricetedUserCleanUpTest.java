@@ -31,12 +31,12 @@ public class RestricetedUserCleanUpTest extends DbTestBase {
     users.add(auser.getIdentity());
     users.add(reader.getIdentity());
 
-    doc.newLinkList(SecurityShared.ALLOW_READ_FIELD).addAll(users);
+    doc.newLinkSet(SecurityShared.ALLOW_READ_FIELD).addAll(users);
     doc.newLinkSet(SecurityShared.ALLOW_UPDATE_FIELD).addAll(users);
     doc.newLinkSet(SecurityShared.ALLOW_DELETE_FIELD).addAll(users);
     doc.newLinkSet(SecurityShared.ALLOW_ALL_FIELD).addAll(users);
 
-    EntityImpl rid = doc;
+    var rid = doc;
     session.commit();
 
     System.gc();
@@ -47,10 +47,10 @@ public class RestricetedUserCleanUpTest extends DbTestBase {
 
     session.begin();
     doc = session.load(rid.getIdentity());
-    Assert.assertEquals(2, ((Set<?>) doc.getProperty(SecurityShared.ALLOW_ALL_FIELD)).size());
-    Assert.assertEquals(2, ((Set<?>) doc.getProperty(SecurityShared.ALLOW_UPDATE_FIELD)).size());
-    Assert.assertEquals(2, ((Set<?>) doc.getProperty(SecurityShared.ALLOW_DELETE_FIELD)).size());
-    Assert.assertEquals(2, ((Set<?>) doc.getProperty(SecurityShared.ALLOW_ALL_FIELD)).size());
+    Assert.assertEquals(1, ((Set<?>) doc.getProperty(SecurityShared.ALLOW_ALL_FIELD)).size());
+    Assert.assertEquals(1, ((Set<?>) doc.getProperty(SecurityShared.ALLOW_UPDATE_FIELD)).size());
+    Assert.assertEquals(1, ((Set<?>) doc.getProperty(SecurityShared.ALLOW_DELETE_FIELD)).size());
+    Assert.assertEquals(1, ((Set<?>) doc.getProperty(SecurityShared.ALLOW_ALL_FIELD)).size());
 
     doc.setProperty("abc", "abc");
 

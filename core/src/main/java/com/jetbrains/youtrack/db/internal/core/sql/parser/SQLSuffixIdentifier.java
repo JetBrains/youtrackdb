@@ -140,8 +140,8 @@ public class SQLSuffixIdentifier extends SimpleNode {
       }
       if (ctx != null && varName.startsWith("$") && ctx.getVariable(varName) != null) {
         var result = ctx.getVariable(varName);
-        if (result instanceof Resettable) {
-          ((Resettable) result).reset();
+        if (result instanceof Resettable resettable && resettable.isResetable()) {
+          resettable.reset();
         }
         return result;
       }

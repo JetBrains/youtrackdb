@@ -11,10 +11,12 @@ import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionConfigurableAbstract;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -69,6 +71,7 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
         iContext);
   }
 
+  @Nullable
   protected static Object v2v(
       final DatabaseSessionInternal graph,
       final Identifiable iRecord,
@@ -77,11 +80,11 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
     if (iRecord != null) {
       try {
         var transaction = graph.getActiveTransaction();
-        Entity rec = transaction.load(iRecord);
-        if (rec.isVertex()) {
-          return rec.asVertex().getVertices(iDirection, iLabels);
-        } else {
+        var rec = (EntityImpl) transaction.loadEntity(iRecord);
+        if (rec.isEdge()) {
           return null;
+        } else {
+          return rec.getEntities(iDirection, iLabels);
         }
       } catch (RecordNotFoundException rnf) {
         return null;

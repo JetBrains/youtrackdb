@@ -276,6 +276,11 @@ public class BTreeBasedRidBag implements RidBagDelegate {
   }
 
   @Override
+  public boolean isSizeable() {
+    return true;
+  }
+
+  @Override
   public String toString() {
     if (size >= 0) {
       return "[size=" + size + "]";
@@ -917,8 +922,18 @@ public class BTreeBasedRidBag implements RidBagDelegate {
     }
 
     @Override
+    public boolean isResetable() {
+      return true;
+    }
+
+    @Override
     public int size() {
       return BTreeBasedRidBag.this.size();
+    }
+
+    @Override
+    public boolean isSizeable() {
+      return true;
     }
 
     @Nullable
@@ -974,6 +989,11 @@ public class BTreeBasedRidBag implements RidBagDelegate {
     @Override
     public void reset() {
       init();
+    }
+
+    @Override
+    public boolean isResetable() {
+      return true;
     }
 
     private void prefetchData(boolean firstTime) {
