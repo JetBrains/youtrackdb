@@ -98,7 +98,7 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -1974,56 +1974,73 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       }
     }
 
-    var linksToRemove = new HashSet<RecordId>();
-    var linksToAdd = new HashSet<RecordId>();
-
+    var linksToUpdateMap = new HashMap<RecordId, int[]>();
     for (var propertyName : dirtyProperties) {
+      linksToUpdateMap.clear();
+
       var originalValue = entity.getOriginalValue(propertyName);
       var currentPropertyValue = entity.getPropertyInternal(propertyName);
 
-      if (originalValue == currentPropertyValue) {
+      if (originalValue == null) {
         var timeLine = entity.getCollectionTimeLine(propertyName);
         if (timeLine != null) {
-          if (originalValue instanceof EntityLinkListImpl
-              || originalValue instanceof EntityLinkSetImpl) {
+          if (currentPropertyValue instanceof EntityLinkListImpl
+              || currentPropertyValue instanceof EntityLinkSetImpl) {
             for (var event : timeLine.getMultiValueChangeEvents()) {
               switch (event.getChangeType()) {
                 case ADD -> {
-                  linksToAdd.add((RecordId) event.getValue());
+                  assert event.getValue() != null;
+                  incrementLinkCounter((RecordId) event.getValue(), linksToUpdateMap);
                 }
                 case REMOVE -> {
-                  linksToRemove.add((RecordId) event.getValue());
+                  assert event.getOldValue() != null;
+                  decrementLinkCounter((RecordId) event.getOldValue(), linksToUpdateMap);
                 }
                 case UPDATE -> {
-                  linksToAdd.add((RecordId) event.getValue());
-                  linksToRemove.add((RecordId) event.getOldValue());
+                  assert event.getValue() != null;
+                  assert event.getOldValue() != null;
+                  incrementLinkCounter((RecordId) event.getValue(), linksToUpdateMap);
+                  decrementLinkCounter((RecordId) event.getOldValue(), linksToUpdateMap);
                 }
               }
             }
-          } else if (originalValue instanceof EntityLinkMapIml) {
+          } else if (currentPropertyValue instanceof EntityLinkMapIml) {
             for (var event : timeLine.getMultiValueChangeEvents()) {
               switch (event.getChangeType()) {
                 case ADD -> {
-                  linksToAdd.add((RecordId) event.getKey());
+                  assert event.getValue() != null;
+                  incrementLinkCounter((RecordId) event.getValue(), linksToUpdateMap);
                 }
                 case REMOVE -> {
-                  linksToRemove.add((RecordId) event.getKey());
+                  assert event.getOldValue() != null;
+                  decrementLinkCounter((RecordId) event.getOldValue(), linksToUpdateMap);
                 }
               }
             }
           }
         } else {
-          accumulateLinkContainer(originalValue, linksToRemove);
-          accumulateLinkContainer(currentPropertyValue, linksToAdd);
+          subtractFromLinksContainer(originalValue, linksToUpdateMap);
+          addToLinksContainer(currentPropertyValue, linksToUpdateMap);
         }
       } else {
-        accumulateLinkContainer(originalValue, linksToRemove);
-        accumulateLinkContainer(currentPropertyValue, linksToAdd);
+        subtractFromLinksContainer(originalValue, linksToUpdateMap);
+        addToLinksContainer(currentPropertyValue, linksToUpdateMap);
       }
 
       var oppositeLinkBagPropertyName = EntityImpl.OPPOSITE_LINK_CONTAINER_PREFIX + propertyName;
-      for (var linkToAdd : linksToAdd) {
-        var oppositeRecord = load(linkToAdd);
+      for (var entitiesToUpdate : linksToUpdateMap.entrySet()) {
+        var oppositeLink = entitiesToUpdate.getKey();
+        var diff = entitiesToUpdate.getValue()[0];
+
+        if (currentTx.isDeletedInTx(oppositeLink)) {
+          if (diff > 0) {
+            throw new IllegalStateException("Cannot add link " + entity.getIdentity()
+                + " to opposite entity because it was deleted in transaction");
+          }
+          continue;
+        }
+
+        var oppositeRecord = load(oppositeLink);
         if (!oppositeRecord.isEntity()) {
           continue;
         }
@@ -2036,36 +2053,68 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
         var linkBag = (RidBag) oppositeEntity.getPropertyInternal(oppositeLinkBagPropertyName);
 
         if (linkBag == null) {
+          if (diff < 0) {
+            throw new IllegalStateException("Cannot remove link " + entity.getIdentity()
+                + " from opposite entity because it does not exist");
+          }
           linkBag = new RidBag(this);
           oppositeEntity.setPropertyInternal(oppositeLinkBagPropertyName, linkBag);
         }
 
-        linkBag.add(entity.getIdentity());
-      }
-      for (var linkToRemove : linksToRemove) {
-        if (currentTx.isDeletedInTx(linkToRemove)) {
-          continue;
-        }
-        var oppositeEntity = (EntityImpl) loadEntity(linkToRemove);
-        var linkBag = (RidBag) oppositeEntity.getPropertyInternal(oppositeLinkBagPropertyName);
-
-        if (linkBag != null) {
-          if (!linkBag.contains(entity.getIdentity())) {
-            throw new IllegalStateException("Cannot remove link " + linkToRemove
-                + " from opposite entity because it does not exist");
+        var rid = entity.getIdentity();
+        for (var i = 0; i < Math.abs(diff); i++) {
+          if (diff > 0) {
+            linkBag.add(rid);
+            assert linkBag.contains(rid);
+          } else {
+            if (!linkBag.contains(rid)) {
+              throw new IllegalStateException("Cannot remove link " + rid
+                  + " from opposite entity because it does not exist");
+            }
+            linkBag.remove(entity.getIdentity());
           }
-          linkBag.remove(entity.getIdentity());
-        } else {
-          throw new IllegalStateException("Cannot remove link " + linkToRemove
-              + " from opposite entity because required system property "
-              + oppositeLinkBagPropertyName + " does not exist");
+        }
+
+        if (linkBag.isEmpty()) {
+          oppositeEntity.removePropertyInternal(oppositeLinkBagPropertyName);
         }
       }
     }
   }
 
-  private static void accumulateLinkContainer(Object value,
-      HashSet<RecordId> links) {
+  private static void decrementLinkCounter(@Nonnull RecordId recordId,
+      @Nonnull HashMap<RecordId, int[]> linksToUpdateMap) {
+    linksToUpdateMap.compute(
+        recordId,
+        (key, value) -> {
+          if (value == null) {
+            return new int[]{-1};
+          } else {
+            value[0]--;
+            if (value[0] == 0) {
+              return null;
+            }
+            return value;
+          }
+        });
+  }
+
+  private static void incrementLinkCounter(@Nonnull RecordId recordId,
+      @Nonnull HashMap<RecordId, int[]> linksToUpdateMap) {
+    linksToUpdateMap.compute(
+        recordId,
+        (key, value) -> {
+          if (value == null) {
+            return new int[]{1};
+          } else {
+            value[0]++;
+            return value;
+          }
+        });
+  }
+
+  private static void addToLinksContainer(Object value,
+      HashMap<RecordId, int[]> links) {
     if (value == null) {
       return;
     }
@@ -2074,30 +2123,71 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       case Identifiable identifiable -> {
         if (identifiable instanceof Entity entity) {
           if (!entity.isEmbedded()) {
-            links.add((RecordId) identifiable.getIdentity());
+            incrementLinkCounter((RecordId) identifiable.getIdentity(), links);
           }
         } else {
-          links.add((RecordId) identifiable.getIdentity());
+          incrementLinkCounter((RecordId) identifiable.getIdentity(), links);
         }
       }
       case EntityLinkListImpl linkList -> {
         for (var link : linkList) {
-          links.add((RecordId) link);
+          incrementLinkCounter((RecordId) link, links);
         }
       }
       case EntityLinkSetImpl linkSet -> {
         for (var link : linkSet) {
-          links.add((RecordId) link);
+          incrementLinkCounter((RecordId) link, links);
         }
       }
       case EntityLinkMapIml linkMap -> {
         for (var link : linkMap.values()) {
-          links.add((RecordId) link);
+          incrementLinkCounter((RecordId) link, links);
         }
       }
       case RidBag ridBag -> {
         for (var link : ridBag) {
-          links.add((RecordId) link);
+          incrementLinkCounter((RecordId) link, links);
+        }
+      }
+      default -> {
+      }
+    }
+  }
+
+  private static void subtractFromLinksContainer(Object value,
+      HashMap<RecordId, int[]> links) {
+    if (value == null) {
+      return;
+    }
+
+    switch (value) {
+      case Identifiable identifiable -> {
+        if (identifiable instanceof Entity entity) {
+          if (!entity.isEmbedded()) {
+            decrementLinkCounter((RecordId) identifiable.getIdentity(), links);
+          }
+        } else {
+          decrementLinkCounter((RecordId) identifiable.getIdentity(), links);
+        }
+      }
+      case EntityLinkListImpl linkList -> {
+        for (var link : linkList) {
+          decrementLinkCounter((RecordId) link, links);
+        }
+      }
+      case EntityLinkSetImpl linkSet -> {
+        for (var link : linkSet) {
+          decrementLinkCounter((RecordId) link, links);
+        }
+      }
+      case EntityLinkMapIml linkMap -> {
+        for (var link : linkMap.values()) {
+          decrementLinkCounter((RecordId) link, links);
+        }
+      }
+      case RidBag ridBag -> {
+        for (var link : ridBag) {
+          decrementLinkCounter((RecordId) link, links);
         }
       }
       default -> {
