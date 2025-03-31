@@ -443,7 +443,7 @@ public class SQLFilterCondition {
       if (binaryEvaluation
           && iValue instanceof SQLFilterItemField
           && !entity.isDirty()
-          && !entity.getIdentity().isTemporary()) {
+          && !((RecordId)entity.getIdentity()).isTemporary()) {
         final var bField = ((SQLFilterItemField) iValue).getBinaryField(session, entity);
         if (bField != null) {
           return bField;

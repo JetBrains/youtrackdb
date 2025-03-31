@@ -20,6 +20,7 @@ import javax.annotation.Nonnull;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
 /**
@@ -75,6 +76,8 @@ public class RemoteLiveQueryPushTest {
   @Before
   public void before() throws IOException {
     MockitoAnnotations.initMocks(this);
+    Mockito.when(pool.acquire()).thenReturn(session);
+    Mockito.when(session.assertIfNotActive()).thenReturn(true);
     storage =
         new StorageRemote(
             new RemoteURLs(new String[]{}, new ContextConfiguration()),

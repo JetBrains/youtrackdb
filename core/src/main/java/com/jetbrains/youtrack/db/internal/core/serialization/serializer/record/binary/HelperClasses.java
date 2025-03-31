@@ -539,10 +539,10 @@ public class HelperClasses {
 
   private static RID readLinkOptimizedEmbedded(DatabaseSessionInternal db,
       final BytesContainer bytes) {
-    RID rid =
+    var rid =
         new RecordId(VarIntSerializer.readAsInteger(bytes), VarIntSerializer.readAsLong(bytes));
-    if (rid.isTemporary()) {
-      rid = db.refreshRid(rid);
+    if (!rid.isPersistent()) {
+      rid = (RecordId) db.refreshRid(rid);
     }
 
     return rid;
@@ -552,7 +552,7 @@ public class HelperClasses {
       final BytesContainer bytes) {
     RID rid =
         new RecordId(VarIntSerializer.readAsInteger(bytes), VarIntSerializer.readAsLong(bytes));
-    if (rid.isTemporary()) {
+    if (!rid.isPersistent()) {
       try {
         rid = session.refreshRid(rid);
       } catch (RecordNotFoundException rnf) {

@@ -1657,7 +1657,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
     final var oper = getTransactionInternal().getRecordEntry(id);
     if (oper == null) {
-      return id.isTemporary();
+      return ((RecordId) id).isTemporary();
     } else {
       return oper.type == RecordOperation.DELETED;
     }

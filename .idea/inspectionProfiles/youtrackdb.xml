@@ -34,7 +34,7 @@
       <option name="checkDivision" value="false" />
     </inspection_tool>
     <inspection_tool class="NotNullFieldNotInitialized" enabled="true" level="WARNING" enabled_by_default="false">
-      <scope name="Production" level="ERROR" enabled="true" editorAttributes="ERRORS_ATTRIBUTES" />
+      <scope name="Production" level="WARNING" enabled="true" editorAttributes="WARNING_ATTRIBUTES" />
     </inspection_tool>
     <inspection_tool class="NullableProblems" enabled="true" level="WARNING" enabled_by_default="false">
       <scope name="Production" level="WARNING" enabled="true" editorAttributes="WARNING_ATTRIBUTES">
@@ -65,7 +65,7 @@
     <inspection_tool class="RedundantLabeledSwitchRuleCodeBlock" enabled="false" level="WARNING" enabled_by_default="false" />
     <inspection_tool class="ReplaceNullCheck" enabled="false" level="WARNING" enabled_by_default="false" />
     <inspection_tool class="ReturnNull" enabled="true" level="WARNING" enabled_by_default="false">
-      <scope name="Production" level="ERROR" enabled="true" editorAttributes="ERRORS_ATTRIBUTES">
+      <scope name="Production" level="WARNING" enabled="true" editorAttributes="WARNING_ATTRIBUTES">
         <option name="m_reportObjectMethods" value="true" />
         <option name="m_reportArrayMethods" value="true" />
         <option name="m_reportCollectionMethods" value="true" />

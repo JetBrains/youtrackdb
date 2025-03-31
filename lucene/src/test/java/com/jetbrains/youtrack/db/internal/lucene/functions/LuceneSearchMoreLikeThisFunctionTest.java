@@ -6,9 +6,6 @@ import com.jetbrains.youtrack.db.internal.lucene.test.BaseLuceneTest;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- *
- */
 public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
 
   @Before

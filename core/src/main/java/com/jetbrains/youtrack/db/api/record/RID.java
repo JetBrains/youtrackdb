@@ -17,9 +17,10 @@
 package com.jetbrains.youtrack.db.api.record;
 
 /**
- * Record id interface that represents a record id in database. record id is made of 2 numbers:
- * cluster id (cluster number) and cluster position (absolute position inside the cluster). Loading
- * a record by its record id allows O(1) performance, no matter the database size.
+ * Interface that represents a unique record id in a database.
+ * Record id <b>cannot</b> be used outside
+ * the database as its value can be changed during the database lifecycle (e.g., after database
+ * migration).
  */
 public interface RID extends Identifiable {
   char PREFIX = '#';
@@ -35,6 +36,4 @@ public interface RID extends Identifiable {
   boolean isPersistent();
 
   boolean isNew();
-
-  boolean isTemporary();
 }

@@ -1537,7 +1537,7 @@ public class EntitySerializerDelta {
     } else {
       RID rid = new RecordId(clusterId, clusterPos);
 
-      if (rid.isTemporary()) {
+      if (!rid.isPersistent()) {
         rid = session.refreshRid(rid);
       }
 

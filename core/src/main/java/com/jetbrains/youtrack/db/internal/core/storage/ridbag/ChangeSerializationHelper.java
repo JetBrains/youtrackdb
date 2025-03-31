@@ -5,6 +5,8 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.ByteSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.impl.LinkSerializer;
 import java.util.HashMap;
 import java.util.Map;
@@ -62,10 +64,8 @@ public class ChangeSerializationHelper {
 
     for (var entry : changes.entrySet()) {
       var rid = entry.getKey();
-      if (rid.isTemporary()) {
+      if (!rid.isPersistent()) {
         rid = db.refreshRid(rid);
-      } else if (rid instanceof DBRecord record && record.getIdentity().isTemporary()) {
-        rid = db.refreshRid(record.getIdentity());
       }
 
       LinkSerializer.staticSerialize(rid, stream, offset);

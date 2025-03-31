@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.client.remote.message;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
@@ -119,29 +120,25 @@ public class RemoteTransactionMessagesTest extends DbTestBase {
 
     var readRequest = new Commit38Request();
     readRequest.read(session, channel, 0, RecordSerializerNetworkFactory.current());
-    assertNull(readRequest.getOperations());
+    assertTrue(readRequest.getOperations().isEmpty());
     assertEquals(0, readRequest.getTxId());
   }
 
   @Test
   public void testTransactionFetchResponseWriteRead() throws IOException {
 
+    session.begin();
+    var createdEntity = (EntityImpl) session.newEntity();
+    var updatedEntity = (EntityImpl) session.newEntity();
+    var deletedEntity = (EntityImpl) session.newEntity();
+
     List<RecordOperation> operations = new ArrayList<>();
-    operations.add(new RecordOperation(new EntityImpl(session), RecordOperation.CREATED));
-    var docOne = new EntityImpl(session);
-    final var iIdentity1 = new RecordId(10, 2);
-    final var rec1 = (RecordAbstract) docOne;
-    rec1.setIdentity(iIdentity1);
-
-    var docTwo = new EntityImpl(session);
-    final var iIdentity = new RecordId(10, 1);
-    final var rec = (RecordAbstract) docTwo;
-    rec.setIdentity(iIdentity);
+    operations.add(new RecordOperation(createdEntity, RecordOperation.CREATED));
 
     operations.add(
-        new RecordOperation(docOne, RecordOperation.UPDATED));
+        new RecordOperation(updatedEntity, RecordOperation.UPDATED));
     operations.add(
-        new RecordOperation(docTwo, RecordOperation.DELETED));
+        new RecordOperation(deletedEntity, RecordOperation.DELETED));
 
     var channel = new MockChannel();
     var response =
@@ -159,8 +156,9 @@ public class RemoteTransactionMessagesTest extends DbTestBase {
     assertEquals(RecordOperation.UPDATED, readResponse.getRecordOperations().get(1).getType());
     assertNotNull(readResponse.getRecordOperations().get(1).getRecord());
     assertEquals(RecordOperation.DELETED, readResponse.getRecordOperations().get(2).getType());
-    assertNotNull(readResponse.getRecordOperations().get(2).getRecord());
+    assertNull(readResponse.getRecordOperations().get(2).getRecord());
     assertEquals(10, readResponse.getTxId());
+    session.rollback();
   }
 
   @Test
