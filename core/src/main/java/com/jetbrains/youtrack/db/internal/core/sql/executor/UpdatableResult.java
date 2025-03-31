@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.BidirectionalLink;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
@@ -177,7 +178,7 @@ public class UpdatableResult extends ResultInternal {
   }
 
   @Override
-  public void setLightweightEdge(Edge edge) {
+  public void setBidirectionalLink(BidirectionalLink<?> bidirectionalLink) {
     assert checkSession();
     throw new UnsupportedOperationException();
   }

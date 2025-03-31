@@ -225,7 +225,7 @@ public class SQLFunctionRuntime extends SQLFilterItemAbstract {
 
     final var funcParamsText = StringSerializerHelper.getParameters(iText);
 
-    function = SQLEngine.getInstance().getFunction(session, funcName);
+    function = SQLEngine.getFunction(session, funcName);
     if (function == null) {
       throw new CommandSQLParsingException(session.getDatabaseName(),
           "Unknown function " + funcName + "()");

@@ -135,7 +135,7 @@ public class SQLFunctionCall extends SimpleNode {
             "Invalid value for $current: " + record);
       }
     }
-    var function = SQLEngine.getInstance().getFunction(ctx.getDatabaseSession(), name);
+    var function = SQLEngine.getFunction(ctx.getDatabaseSession(), name);
     if (function != null) {
       function.config(this.params.toArray());
 
@@ -189,7 +189,7 @@ public class SQLFunctionCall extends SimpleNode {
   }
 
   public boolean isIndexedFunctionCall(DatabaseSessionInternal session) {
-    var function = SQLEngine.getInstance().getFunction(session, name.getStringValue());
+    var function = SQLEngine.getFunction(session, name.getStringValue());
     return (function instanceof IndexableSQLFunction);
   }
 
@@ -205,7 +205,7 @@ public class SQLFunctionCall extends SimpleNode {
   public Iterable<Identifiable> executeIndexedFunction(
       SQLFromClause target, CommandContext ctx, SQLBinaryCompareOperator operator,
       Object rightValue) {
-    var function = SQLEngine.getInstance()
+    var function = SQLEngine
         .getFunction(ctx.getDatabaseSession(), name.getStringValue());
     if (function instanceof IndexableSQLFunction) {
       return ((IndexableSQLFunction) function)
@@ -226,7 +226,7 @@ public class SQLFunctionCall extends SimpleNode {
   public long estimateIndexedFunction(
       SQLFromClause target, CommandContext ctx, SQLBinaryCompareOperator operator,
       Object rightValue) {
-    var function = SQLEngine.getInstance()
+    var function = SQLEngine
         .getFunction(ctx.getDatabaseSession(), name.getStringValue());
     if (function instanceof IndexableSQLFunction) {
       return ((IndexableSQLFunction) function)
@@ -249,7 +249,7 @@ public class SQLFunctionCall extends SimpleNode {
   public boolean canExecuteIndexedFunctionWithoutIndex(
       SQLFromClause target, CommandContext context, SQLBinaryCompareOperator operator,
       Object right) {
-    var function = SQLEngine.getInstance()
+    var function = SQLEngine
         .getFunction(context.getDatabaseSession(), name.getStringValue());
     if (function instanceof IndexableSQLFunction) {
       return ((IndexableSQLFunction) function)
@@ -272,7 +272,7 @@ public class SQLFunctionCall extends SimpleNode {
   public boolean allowsIndexedFunctionExecutionOnTarget(
       SQLFromClause target, CommandContext context, SQLBinaryCompareOperator operator,
       Object right) {
-    var function = SQLEngine.getInstance()
+    var function = SQLEngine
         .getFunction(context.getDatabaseSession(), name.getStringValue());
     if (function instanceof IndexableSQLFunction) {
       return ((IndexableSQLFunction) function)
@@ -296,7 +296,7 @@ public class SQLFunctionCall extends SimpleNode {
   public boolean executeIndexedFunctionAfterIndexSearch(
       SQLFromClause target, CommandContext context, SQLBinaryCompareOperator operator,
       Object right) {
-    var function = SQLEngine.getInstance()
+    var function = SQLEngine
         .getFunction(context.getDatabaseSession(), name.getStringValue());
     if (function instanceof IndexableSQLFunction) {
       return ((IndexableSQLFunction) function)
@@ -381,7 +381,7 @@ public class SQLFunctionCall extends SimpleNode {
   }
 
   private boolean isAggregateFunction(DatabaseSessionInternal session) {
-    var function = SQLEngine.getInstance().getFunction(session, name.getStringValue());
+    var function = SQLEngine.getFunction(session, name.getStringValue());
     function.config(this.params.toArray());
     return function.aggregateResults();
   }
@@ -420,12 +420,12 @@ public class SQLFunctionCall extends SimpleNode {
     if (name == null) {
       return false;
     }
-    var function = SQLEngine.getInstance().getFunction(session, name.value);
+    var function = SQLEngine.getFunction(session, name.value);
     return function instanceof SQLFunctionMove;
   }
 
   public AggregationContext getAggregationContext(CommandContext ctx) {
-    var function = SQLEngine.getInstance()
+    var function = SQLEngine
         .getFunction(ctx.getDatabaseSession(), name.getStringValue());
     function.config(this.params.toArray());
 

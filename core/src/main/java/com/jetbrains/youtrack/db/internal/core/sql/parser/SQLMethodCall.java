@@ -100,7 +100,7 @@ public class SQLMethodCall extends SimpleNode {
         }
       }
       if (this.isGraph) {
-        this.graphFunction = SQLEngine.getInstance().getFunction(session, name);
+        this.graphFunction = SQLEngine.getFunction(session, name);
 
       } else {
         this.method = SQLEngine.getMethod(name);
@@ -193,15 +193,14 @@ public class SQLMethodCall extends SimpleNode {
       Object targetObjects,
       CommandContext ctx,
       String name,
-      List<SQLExpression> iParams,
-      Iterable<Identifiable> iPossibleResults) {
+      List<SQLExpression> iParams) {
     var val = ctx.getVariable("$current");
     if (val == null && targetObjects == null) {
       return null;
     }
     var paramValues = resolveParams(targetObjects, ctx, iParams, val);
-    var function = SQLEngine.getInstance().getFunction(ctx.getDatabaseSession(), name);
-    return invokeGraphFunction(function, targetObjects, ctx, iPossibleResults, paramValues);
+    var function = SQLEngine.getFunction(ctx.getDatabaseSession(), name);
+    return invokeGraphFunction(function, targetObjects, ctx, null, paramValues);
   }
 
   private static List<Object> resolveParams(
@@ -231,38 +230,38 @@ public class SQLMethodCall extends SimpleNode {
 
     var straightName = methodName.getStringValue();
     if (straightName.equalsIgnoreCase("out")) {
-      return executeGraphFunction(targetObjects, ctx, "in", params, null);
+      return executeGraphFunction(targetObjects, ctx, "in", params);
     }
     if (straightName.equalsIgnoreCase("in")) {
-      return executeGraphFunction(targetObjects, ctx, "out", params, null);
+      return executeGraphFunction(targetObjects, ctx, "out", params);
     }
 
     if (straightName.equalsIgnoreCase("both")) {
-      return executeGraphFunction(targetObjects, ctx, "both", params, null);
+      return executeGraphFunction(targetObjects, ctx, "both", params);
     }
 
     if (straightName.equalsIgnoreCase("outE")) {
-      return executeGraphFunction(targetObjects, ctx, "outV", params, null);
+      return executeGraphFunction(targetObjects, ctx, "outV", params);
     }
 
     if (straightName.equalsIgnoreCase("outV")) {
-      return executeGraphFunction(targetObjects, ctx, "outE", params, null);
+      return executeGraphFunction(targetObjects, ctx, "outE", params);
     }
 
     if (straightName.equalsIgnoreCase("inE")) {
-      return executeGraphFunction(targetObjects, ctx, "inV", params, null);
+      return executeGraphFunction(targetObjects, ctx, "inV", params);
     }
 
     if (straightName.equalsIgnoreCase("inV")) {
-      return executeGraphFunction(targetObjects, ctx, "inE", params, null);
+      return executeGraphFunction(targetObjects, ctx, "inE", params);
     }
 
     if (straightName.equalsIgnoreCase("bothE")) {
-      return executeGraphFunction(targetObjects, ctx, "bothV", params, null);
+      return executeGraphFunction(targetObjects, ctx, "bothV", params);
     }
 
     if (straightName.equalsIgnoreCase("bothV")) {
-      return executeGraphFunction(targetObjects, ctx, "bothE", params, null);
+      return executeGraphFunction(targetObjects, ctx, "bothE", params);
     }
 
     throw new UnsupportedOperationException("Invalid reverse traversal: " + methodName);

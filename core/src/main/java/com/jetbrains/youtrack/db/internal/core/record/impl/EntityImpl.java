@@ -1132,7 +1132,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
    * @param propertyName  The property name
    * @param propertyValue The property value
    * @param type          Forced type (not auto-determined)
-   * @return
    */
   public Object setProperty(@Nonnull String propertyName, Object propertyValue,
       @Nonnull PropertyType type) {
@@ -3652,6 +3651,18 @@ public class EntityImpl extends RecordAbstract implements Entity {
     } else {
       var links = getBidirectionalLinksInternal(direction, linkNames);
       return new BidirectionalLinksIterable<>(links, direction);
+    }
+  }
+
+  public Iterable<? extends BidirectionalLink<Entity>> getBidirectionalLinks(
+      Direction direction, String... linkNames) {
+    checkForBinding();
+    if (direction == Direction.BOTH) {
+      return IterableUtils.chainedIterable(
+          getBidirectionalLinks(Direction.OUT, linkNames),
+          getBidirectionalLinks(Direction.IN, linkNames));
+    } else {
+      return getBidirectionalLinksInternal(direction, linkNames);
     }
   }
 

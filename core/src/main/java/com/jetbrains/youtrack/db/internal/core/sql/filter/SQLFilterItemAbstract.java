@@ -113,7 +113,7 @@ public abstract class SQLFilterItemAbstract implements SQLFilterItem {
 
           } else {
             // LOOK FOR FUNCTION
-            final var f = SQLEngine.getInstance().getFunction(session, methodName);
+            final var f = SQLEngine.getFunction(session, methodName);
 
             if (f == null)
             // ERROR: METHOD/FUNCTION NOT FOUND OR MISPELLED

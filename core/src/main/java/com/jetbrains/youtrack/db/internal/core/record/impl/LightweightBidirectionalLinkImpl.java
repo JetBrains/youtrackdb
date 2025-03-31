@@ -3,10 +3,12 @@ package com.jetbrains.youtrack.db.internal.core.record.impl;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class LightweightBidirectionalLinkImpl<T extends Entity> implements BidirectionalLink<T> {
+
   @Nullable
   protected final T out;
   @Nullable
@@ -18,7 +20,8 @@ public class LightweightBidirectionalLinkImpl<T extends Entity> implements Bidir
   protected final String label;
 
   public LightweightBidirectionalLinkImpl(@Nonnull DatabaseSessionInternal session,
-      @Nullable T out, @Nullable T in, String label) {
+      @Nullable T out, @Nullable T in,
+      String label) {
     this.out = out;
     this.in = in;
     this.session = session;
@@ -60,5 +63,29 @@ public class LightweightBidirectionalLinkImpl<T extends Entity> implements Bidir
     }
 
     throw new IllegalArgumentException("Direction not supported: " + dir);
+  }
+
+  @Override
+  public boolean isLightweight() {
+    return true;
+  }
+
+  @Override
+  public Entity asEntity() {
+    throw new IllegalStateException("LightweightBidirectionalLinkImpl is not a entity");
+  }
+
+  @Override
+  public Map<String, Object> toMap() {
+    return Map.of("out", out, "in", in);
+  }
+
+  @Override
+  public String toJSON() {
+    return "{\"out\":\""
+        + out.getIdentity()
+        + "\", \"in\":\""
+        + in.getIdentity()
+        + "\"}";
   }
 }

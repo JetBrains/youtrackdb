@@ -11,6 +11,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStreamProducer;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.MultipleExecutionStream;
@@ -20,6 +21,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
 import java.util.stream.StreamSupport;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -85,10 +87,11 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
                 false)
             .filter((e) -> filterResult(db, e, toList))
             .map(
-                (edge) -> (Result) new ResultInternal(db, edge))
+                (edge) -> (Result) new ResultInternal(db, (EdgeInternal) edge))
             .iterator());
   }
 
+  @Nullable
   private Set<RID> loadTo(DatabaseSessionInternal session) {
     Object toValues = null;
 

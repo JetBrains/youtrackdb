@@ -23,7 +23,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPla
 import com.jetbrains.youtrack.db.internal.core.sql.executor.MatchExecutionPlanner;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.PatternEdge;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.PatternNode;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLTarget;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -536,30 +535,6 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
       }
     }
     return false;
-  }
-
-  private boolean returnsJson() {
-    return returnItems.size() == 1
-        && (returnItems.getFirst().value instanceof SQLJson)
-        && returnAliases.getFirst() == null;
-  }
-
-  private ResultInternal jsonToResult(MatchContext matchContext, CommandContext ctx) {
-    if (returnItems.size() == 1
-        && (returnItems.getFirst().value instanceof SQLJson)
-        && returnAliases.getFirst() == null) {
-      var session = ctx.getDatabaseSession();
-
-      var map = ((SQLJson) returnItems.getFirst().value).toMap(
-          new ResultInternal(session, matchContext.matched), ctx);
-
-      return new ResultInternal(session, map);
-    }
-    throw new IllegalStateException("Match RETURN statement is not a plain JSON");
-  }
-
-  private static boolean isExplicitAlias(String key) {
-    return !key.startsWith(DEFAULT_ALIAS_PREFIX);
   }
 
   private static Iterator<Identifiable> query(

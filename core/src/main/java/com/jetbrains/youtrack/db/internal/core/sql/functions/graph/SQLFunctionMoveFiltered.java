@@ -6,6 +6,7 @@ import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.BidirectionalLink;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionFiltered;
 
@@ -51,9 +52,16 @@ public abstract class SQLFunctionMoveFiltered extends SQLFunctionMove
     }
 
     return SQLEngine.foreachRecord(
-        argument -> move(context.getDatabaseSession(), argument, labels, possibleResults),
-        current,
-        context);
+        argument -> {
+          if (argument instanceof Identifiable identifiable) {
+            return move(context.getDatabaseSession(), identifiable, labels, possibleResults);
+          }
+          if (argument instanceof BidirectionalLink<?> bidirectionalLink) {
+            return move(context.getDatabaseSession(), bidirectionalLink, labels);
+          }
+          throw new IllegalArgumentException(
+              "Unsupported argument type: " + argument.getClass().getName());
+        }, current, context);
   }
 
   protected abstract Object move(

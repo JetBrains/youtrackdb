@@ -8,6 +8,9 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import org.junit.Test;
 
 public class LinkSetMatchStatementExecutionTest extends DbTestBase {
@@ -493,6 +496,253 @@ public class LinkSetMatchStatementExecutionTest extends DbTestBase {
     var qResult = session.query(query).toList();
     assertEquals(1, qResult.size());
     return qResult.getFirst().asEntity();
+  }
+
+  @Test
+  public void testManager2() {
+    // the manager of a person is the manager of the department that person belongs to.
+    // if that department does not have a direct manager, climb up the hierarchy until you find one
+    session.begin();
+    assertEquals("c", getManager2("p10").getProperty("name"));
+    assertEquals("c", getManager2("p12").getProperty("name"));
+    assertEquals("b", getManager2("p6").getProperty("name"));
+    assertEquals("b", getManager2("p11").getProperty("name"));
+
+    assertEquals("c", getManager2Arrows("p10").getProperty("name"));
+    assertEquals("c", getManager2Arrows("p12").getProperty("name"));
+    assertEquals("b", getManager2Arrows("p6").getProperty("name"));
+    assertEquals("b", getManager2Arrows("p11").getProperty("name"));
+    session.commit();
+  }
+
+  private Entity getManager2(String personName) {
+    var query =
+        "select expand(manager) from ("
+            + "  match {class:Employee, where: (name = '"
+            + personName
+            + "')}"
+            + "   .( out('worksAt')"
+            + "     .out('parentDepartment'){"
+            + "       while: (in('managerOf').size() == 0),"
+            + "       where: (in('managerOf').size() > 0)"
+            + "     }"
+            + "   )"
+            + "  .in('managerOf'){as: manager}"
+            + "  return manager"
+            + ")";
+
+    var qResult = session.execute(query).toList();
+    assertEquals(1, qResult.size());
+    return qResult.getFirst().asEntity();
+  }
+
+  private Entity getManager2Arrows(String personName) {
+    var query =
+        "select expand(manager) from ("
+            + "  match {class:Employee, where: (name = '"
+            + personName
+            + "')}"
+            + "   .( -worksAt->{}-parentDepartment->{"
+            + "       while: (in('managerOf').size() == 0),"
+            + "       where: (in('managerOf').size() > 0)"
+            + "     }"
+            + "   )<-managerOf-{as: manager}"
+            + "  return manager"
+            + ")";
+
+    var qResult = session.query(query).toList();
+    assertEquals(1, qResult.size());
+    return qResult.getFirst().asEntity();
+  }
+
+  @Test
+  public void testManaged() {
+    // people managed by a manager are people who belong to his department or people who belong to
+    // sub-departments without a manager
+    session.begin();
+    var managedByA = getManagedBy("a");
+    assertEquals(1, managedByA.size());
+    Identifiable identifiable = managedByA.getFirst();
+    var transaction1 = session.getActiveTransaction();
+    assertEquals("p1", ((EntityImpl) transaction1.load(identifiable)).getProperty("name"));
+
+    var managedByB = getManagedBy("b");
+    assertEquals(5, managedByB.size());
+    Set<String> expectedNames = new HashSet<String>();
+    expectedNames.add("p2");
+    expectedNames.add("p3");
+    expectedNames.add("p6");
+    expectedNames.add("p7");
+    expectedNames.add("p11");
+    Set<String> names = new HashSet<String>();
+    for (var id : managedByB) {
+      var transaction = session.getActiveTransaction();
+      EntityImpl doc = transaction.load(id);
+      String name = doc.getProperty("name");
+      names.add(name);
+    }
+    assertEquals(expectedNames, names);
+    session.commit();
+  }
+
+  private List<Entity> getManagedBy(String managerName) {
+    var query =
+        "select expand(managed) from ("
+            + "  match {class:Employee, where: (name = '"
+            + managerName
+            + "')}"
+            + "  .out('managerOf')"
+            + "  .in('parentDepartment'){"
+            + "      while: ($depth = 0 or in('managerOf').size() = 0),"
+            + "      where: ($depth = 0 or in('managerOf').size() = 0)"
+            + "  }"
+            + "  .in('worksAt'){as: managed}"
+            + "  return managed"
+            + ")";
+
+    return session.query(query).entityStream().toList();
+  }
+
+  @Test
+  public void testManagedArrows() {
+    // people managed by a manager are people who belong to his department or people who belong to
+    // sub-departments without a manager
+    session.begin();
+    var managedByA = getManagedByArrows("a");
+    assertEquals(1, managedByA.size());
+    Identifiable identifiable = managedByA.getFirst();
+    var transaction1 = session.getActiveTransaction();
+    assertEquals("p1", ((EntityImpl) transaction1.load(identifiable)).getProperty("name"));
+
+    var managedByB = getManagedByArrows("b");
+    assertEquals(5, managedByB.size());
+    Set<String> expectedNames = new HashSet<String>();
+    expectedNames.add("p2");
+    expectedNames.add("p3");
+    expectedNames.add("p6");
+    expectedNames.add("p7");
+    expectedNames.add("p11");
+    Set<String> names = new HashSet<String>();
+    for (var id : managedByB) {
+      var transaction = session.getActiveTransaction();
+      EntityImpl doc = transaction.load(id);
+      String name = doc.getProperty("name");
+      names.add(name);
+    }
+    assertEquals(expectedNames, names);
+    session.commit();
+  }
+
+  private List<Entity> getManagedByArrows(String managerName) {
+    var query =
+        "select expand(managed) from ("
+            + "  match {class:Employee, where: (name = '"
+            + managerName
+            + "')}"
+            + "  -managerOf->{}<-parentDepartment-{"
+            + "      while: ($depth = 0 or in('managerOf').size() = 0),"
+            + "      where: ($depth = 0 or in('managerOf').size() = 0)"
+            + "  }<-worksAt-{as: managed}"
+            + "  return managed"
+            + ")";
+
+    return session.query(query).entityStream().toList();
+  }
+
+
+  @Test
+  public void testManaged2() {
+    // people managed by a manager are people who belong to his department or people who belong to
+    // sub-departments without a manager
+    session.begin();
+    var managedByA = getManagedBy2("a");
+    assertEquals(1, managedByA.size());
+    Identifiable identifiable = managedByA.getFirst();
+    var transaction1 = session.getActiveTransaction();
+    assertEquals("p1", ((EntityImpl) transaction1.load(identifiable)).getProperty("name"));
+
+    var managedByB = getManagedBy2("b");
+    assertEquals(5, managedByB.size());
+    Set<String> expectedNames = new HashSet<String>();
+    expectedNames.add("p2");
+    expectedNames.add("p3");
+    expectedNames.add("p6");
+    expectedNames.add("p7");
+    expectedNames.add("p11");
+    Set<String> names = new HashSet<String>();
+    for (var id : managedByB) {
+      var transaction = session.getActiveTransaction();
+      EntityImpl doc = transaction.load(id);
+      String name = doc.getProperty("name");
+      names.add(name);
+    }
+    assertEquals(expectedNames, names);
+    session.commit();
+  }
+
+  private List<Entity> getManagedBy2(String managerName) {
+    var query =
+        "select expand(managed) from ("
+            + "  match {class:Employee, where: (name = '"
+            + managerName
+            + "')}"
+            + "  .out('managerOf')"
+            + "  .(inE('parentDepartment').outV()){"
+            + "      while: ($depth = 0 or in('managerOf').size() = 0),"
+            + "      where: ($depth = 0 or in('managerOf').size() = 0)"
+            + "  }"
+            + "  .in('worksAt'){as: managed}"
+            + "  return managed"
+            + ")";
+
+    return session.query(query).entityStream().toList();
+  }
+
+  @Test
+  public void testManaged2Arrows() {
+    // people managed by a manager are people who belong to his department or people who belong to
+    // sub-departments without a manager
+    session.begin();
+    var managedByA = getManagedBy2Arrows("a");
+    assertEquals(1, managedByA.size());
+    Identifiable identifiable = managedByA.getFirst();
+    var transaction1 = session.getActiveTransaction();
+    assertEquals("p1", ((EntityImpl) transaction1.load(identifiable)).getProperty("name"));
+
+    var managedByB = getManagedBy2Arrows("b");
+    assertEquals(5, managedByB.size());
+    Set<String> expectedNames = new HashSet<String>();
+    expectedNames.add("p2");
+    expectedNames.add("p3");
+    expectedNames.add("p6");
+    expectedNames.add("p7");
+    expectedNames.add("p11");
+    Set<String> names = new HashSet<String>();
+    for (var id : managedByB) {
+      var transaction = session.getActiveTransaction();
+      EntityImpl doc = transaction.load(id);
+      String name = doc.getProperty("name");
+      names.add(name);
+    }
+    assertEquals(expectedNames, names);
+    session.commit();
+  }
+
+  private List<Entity> getManagedBy2Arrows(String managerName) {
+    var query =
+        "select expand(managed) from ("
+            + "  match {class:Employee, where: (name = '"
+            + managerName
+            + "')}"
+            + "  -managerOf->{}"
+            + "  .(inE('parentDepartment').outV()){"
+            + "      while: ($depth = 0 or in('managerOf').size() = 0),"
+            + "      where: ($depth = 0 or in('managerOf').size() = 0)"
+            + "  }<-worksAt-{as: managed}"
+            + "  return managed"
+            + ")";
+
+    return session.query(query).entityStream().toList();
   }
 
 

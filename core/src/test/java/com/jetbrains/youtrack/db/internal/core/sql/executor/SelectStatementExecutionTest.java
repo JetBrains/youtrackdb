@@ -4560,7 +4560,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     final var funcitonName = getClass().getSimpleName() + "_sleep";
     session.getMetadata().getSchema().createClass(className);
 
-    SQLEngine.getInstance()
+    SQLEngine
         .registerFunction(
             funcitonName,
             new SQLFunction() {
