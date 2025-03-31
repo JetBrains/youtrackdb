@@ -170,6 +170,7 @@ public class SQLUpdateItem extends SimpleNode {
   }
 
 
+  @Nullable
   private Object initSchemafullCollections(DatabaseSessionInternal session, ResultInternal entity,
       String propName) {
     if (!entity.isEntity()) {
@@ -206,6 +207,7 @@ public class SQLUpdateItem extends SimpleNode {
     return result;
   }
 
+  @Nullable
   private static SchemaClass calculateLinkedTypeForThisItem(ResultInternal result,
       DatabaseSessionInternal session) {
     if (result.isEntity()) {
@@ -267,7 +269,7 @@ public class SQLUpdateItem extends SimpleNode {
           } else {
             var lightweightEdge = session.newLightweightEdge(fromVertex, toVertex,
                 edge.getSchemaClass());
-            res.setLightweightEdge(lightweightEdge);
+            res.setBidirectionalLink((EdgeInternal) lightweightEdge);
           }
 
           edge.delete();
@@ -299,6 +301,7 @@ public class SQLUpdateItem extends SimpleNode {
     }
   }
 
+  @Nullable
   public static Object cleanPropertyValue(@Nullable Object newValue,
       @Nonnull DatabaseSessionInternal session,
       @Nullable SchemaProperty schemaProperty) {
@@ -376,7 +379,8 @@ public class SQLUpdateItem extends SimpleNode {
               .stream()
               .map(item -> PropertyTypeInternal.convert(db, item, Identifiable.class))
               .collect(Collectors.toSet());
-        } else if (type == PropertyTypeInternal.LINKLIST && !(value instanceof EntityLinkListImpl)) {
+        } else if (type == PropertyTypeInternal.LINKLIST
+            && !(value instanceof EntityLinkListImpl)) {
           var db = ctx.getDatabaseSession();
           return ((Collection<?>) value)
               .stream()

@@ -21,6 +21,8 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.BidirectionalLink;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedListResultImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedMapResultImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedSetResultImpl;
@@ -54,7 +56,7 @@ public class ResultInternal implements Result {
   @Nullable
   protected DatabaseSessionInternal session;
   @Nullable
-  protected Edge lightweightEdge;
+  protected BidirectionalLink<?> bidirectionalLink;
 
   public ResultInternal(@Nullable DatabaseSessionInternal session) {
     content = new HashMap<>();
@@ -76,12 +78,13 @@ public class ResultInternal implements Result {
     this.session = session;
   }
 
-  public ResultInternal(@Nullable DatabaseSessionInternal session, @Nonnull Edge edge) {
+  public ResultInternal(@Nullable DatabaseSessionInternal session,
+      @Nonnull BidirectionalLink<?> bidirectionalLink) {
     this.session = session;
-    if (edge.isLightweight()) {
-      lightweightEdge = edge;
+    if (bidirectionalLink.isLightweight()) {
+      this.bidirectionalLink = bidirectionalLink;
     } else {
-      setIdentifiable(edge.asStatefulEdge());
+      setIdentifiable(bidirectionalLink.asEntity());
     }
   }
 
@@ -190,7 +193,7 @@ public class ResultInternal implements Result {
       if (identifiable != null) {
         throw new IllegalStateException("Impossible to mutate result set containing entity");
       }
-      if (lightweightEdge != null) {
+      if (bidirectionalLink != null) {
         throw new IllegalStateException(
             "Impossible to mutate result set containing lightweight edge");
       }
@@ -633,7 +636,7 @@ public class ResultInternal implements Result {
   @Override
   public @Nonnull Result detach() {
     assert checkSession();
-    if (lightweightEdge != null) {
+    if (bidirectionalLink != null) {
       throw new DatabaseException("Cannot detach lightweight edge");
     }
 
@@ -879,7 +882,7 @@ public class ResultInternal implements Result {
   public void setIdentifiable(Identifiable identifiable) {
     assert checkSession();
 
-    this.lightweightEdge = null;
+    this.bidirectionalLink = null;
     if (identifiable instanceof Entity entity && entity.isEmbedded()) {
       content = new HashMap<>();
       this.identifiable = null;
@@ -903,11 +906,11 @@ public class ResultInternal implements Result {
     }
   }
 
-  public void setLightweightEdge(Edge edge) {
+  public void setBidirectionalLink(BidirectionalLink<?> bidirectionalLink) {
     assert checkSession();
 
     this.identifiable = null;
-    this.lightweightEdge = edge;
+    this.bidirectionalLink = bidirectionalLink;
     this.content = null;
   }
 
@@ -916,8 +919,8 @@ public class ResultInternal implements Result {
   public Map<String, Object> toMap() {
     assert checkSession();
 
-    if (lightweightEdge != null) {
-      return lightweightEdge.toMap();
+    if (bidirectionalLink != null) {
+      return bidirectionalLink.toMap();
     }
 
     if (isEntity()) {
@@ -933,6 +936,11 @@ public class ResultInternal implements Result {
     return map;
   }
 
+  public boolean isBiLink() {
+    assert checkSession();
+    return bidirectionalLink != null;
+  }
+
   @Override
   public boolean isEdge() {
     assert checkSession();
@@ -940,7 +948,7 @@ public class ResultInternal implements Result {
       return false;
     }
 
-    if (lightweightEdge != null) {
+    if (bidirectionalLink != null) {
       return true;
     }
 
@@ -977,7 +985,7 @@ public class ResultInternal implements Result {
       case null -> {
         return false;
       }
-      case Vertex statefulEdge -> {
+      case Vertex vertex -> {
         return true;
       }
       default -> {
@@ -996,8 +1004,8 @@ public class ResultInternal implements Result {
   @Override
   public Edge asEdge() {
     assert checkSession();
-    if (lightweightEdge != null) {
-      return lightweightEdge;
+    if (bidirectionalLink instanceof Edge edge) {
+      return edge;
     }
 
     if (isStatefulEdge()) {
@@ -1012,8 +1020,8 @@ public class ResultInternal implements Result {
   public Edge asEdgeOrNull() {
     assert checkSession();
 
-    if (lightweightEdge != null) {
-      return lightweightEdge;
+    if (bidirectionalLink instanceof Edge edge) {
+      return edge;
     }
 
     if (isStatefulEdge()) {
@@ -1023,11 +1031,42 @@ public class ResultInternal implements Result {
     return null;
   }
 
+
+  @Nonnull
+  public BidirectionalLink<?> asBiLink() {
+    assert checkSession();
+    if (bidirectionalLink != null) {
+      return bidirectionalLink;
+    }
+
+    if (isStatefulEdge()) {
+      return (EdgeInternal) asStatefulEdge();
+    }
+
+    throw new DatabaseException("Result is not an edge");
+  }
+
+  @Nullable
+  public BidirectionalLink<?> asBiLinkOrNull() {
+    assert checkSession();
+
+    if (bidirectionalLink != null) {
+      return bidirectionalLink;
+    }
+
+    if (isStatefulEdge()) {
+      return (EdgeInternal) asStatefulEdge();
+    }
+
+    return null;
+  }
+
+
   public @Nonnull String toJSON() {
     assert checkSession();
 
-    if (lightweightEdge != null) {
-      return lightweightEdge.toJSON();
+    if (bidirectionalLink != null) {
+      return bidirectionalLink.toJSON();
     }
 
     if (isEntity()) {
@@ -1179,8 +1218,8 @@ public class ResultInternal implements Result {
     if (session != resultObj.session) {
       return false;
     }
-    if (lightweightEdge != null) {
-      return lightweightEdge.equals(resultObj.lightweightEdge);
+    if (bidirectionalLink != null) {
+      return bidirectionalLink.equals(resultObj.bidirectionalLink);
     } else if (identifiable != null) {
       return identifiable.equals(resultObj.identifiable);
     }
@@ -1194,8 +1233,8 @@ public class ResultInternal implements Result {
 
   @Override
   public int hashCode() {
-    if (lightweightEdge != null) {
-      return lightweightEdge.hashCode();
+    if (bidirectionalLink != null) {
+      return bidirectionalLink.hashCode();
     }
     if (identifiable != null) {
       return identifiable.hashCode();

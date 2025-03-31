@@ -45,10 +45,6 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
 
   @Override
   public boolean isLabeled(@Nonnull String[] labels) {
-    if (labels == null) {
-      return true;
-    }
-
     if (labels.length == 0) {
       return true;
     }
@@ -134,6 +130,12 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     return false;
   }
 
+  @Nonnull
+  @Override
+  public Entity asEntity() {
+    return this;
+  }
+
 
   @Override
   public @Nonnull List<String> getPropertyNames() {
@@ -197,6 +199,12 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
 
   @Override
   public Iterable<Entity> getEntities(Direction direction, String... linkNames) {
+    throw new UnsupportedOperationException("Operation not supported for edges");
+  }
+
+  @Override
+  public Iterable<? extends BidirectionalLink<Entity>> getBidirectionalLinks(Direction direction,
+      String... linkNames) {
     throw new UnsupportedOperationException("Operation not supported for edges");
   }
 }

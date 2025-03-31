@@ -261,7 +261,7 @@ public class SQLPredicate extends BaseParser implements CommandPredicate {
       return null;
     }
 
-    final var operators = SQLEngine.getInstance().getRecordOperators();
+    final var operators = SQLEngine.getRecordOperators();
     final var candidateOperators = new String[operators.length];
     for (var i = 0; i < candidateOperators.length; ++i) {
       candidateOperators[i] = operators[i].keyword;

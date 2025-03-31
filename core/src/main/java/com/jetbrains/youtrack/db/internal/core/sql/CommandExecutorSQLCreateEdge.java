@@ -179,8 +179,8 @@ public class CommandExecutorSQLCreateEdge extends CommandExecutorSQLSetAware
     Set<Identifiable> toIds = null;
     session.begin();
     try {
-      fromIds = SQLEngine.getInstance().parseRIDTarget(session, from, context, iArgs);
-      toIds = SQLEngine.getInstance().parseRIDTarget(session, to, context, iArgs);
+      fromIds = SQLEngine.parseRIDTarget(session, from, context, iArgs);
+      toIds = SQLEngine.parseRIDTarget(session, to, context, iArgs);
 
       // CREATE EDGES
       for (var from : fromIds) {

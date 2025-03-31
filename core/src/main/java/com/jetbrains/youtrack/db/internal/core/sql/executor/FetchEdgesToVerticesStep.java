@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStreamProducer;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.MultipleExecutionStream;
@@ -94,12 +95,11 @@ public class FetchEdgesToVerticesStep extends AbstractExecutionStep {
     }
     if (from instanceof Entity && ((Entity) from).isVertex()) {
       var vertex = ((Entity) from).asVertex();
-      assert vertex != null;
       var edges = vertex.getEdges(Direction.IN);
       Stream<Result> stream =
           StreamSupport.stream(edges.spliterator(), false)
               .filter((edge) -> matchesClass(session, edge) && matchesCluster(edge))
-              .map(e -> new ResultInternal(session, e));
+              .map(e -> new ResultInternal(session, (EdgeInternal) e));
       return ExecutionStream.resultIterator(stream.iterator());
     } else {
       throw new CommandExecutionException(session, "Invalid vertex: " + from);

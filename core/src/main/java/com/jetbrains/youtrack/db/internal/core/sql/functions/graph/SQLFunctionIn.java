@@ -7,15 +7,15 @@ import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionItera
 import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
+import com.jetbrains.youtrack.db.internal.core.record.impl.BidirectionalLink;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
-/**
- *
- */
+
 public class SQLFunctionIn extends SQLFunctionMoveFiltered {
-
   public static final String NAME = "in";
 
   public SQLFunctionIn() {
@@ -24,8 +24,15 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered {
 
   @Override
   protected Object move(
-      final DatabaseSessionInternal graph, final Identifiable iRecord, final String[] iLabels) {
-    return v2v(graph, iRecord, Direction.IN, iLabels);
+      final DatabaseSessionInternal graph, final Identifiable record, final String[] labels) {
+    return v2v(graph, record, Direction.IN, labels);
+  }
+
+  @Override
+  protected Object move(DatabaseSessionInternal db,
+      BidirectionalLink<?> bidirectionalLink, String[] labels) {
+    throw new UnsupportedOperationException(
+        "Function in is not supported for bidirectional links");
   }
 
   protected Object move(
@@ -55,12 +62,13 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered {
     return v2v(graph, iRecord, Direction.IN, iLabels);
   }
 
-  private static Object fetchFromIndex(
+  @Nullable
+  private static Iterator<Vertex> fetchFromIndex(
       DatabaseSessionInternal session,
       Identifiable iFrom,
       Iterable<Identifiable> to,
       String[] iEdgeTypes) {
-    String edgeClassName = null;
+    String edgeClassName;
     if (iEdgeTypes == null) {
       edgeClassName = "E";
     } else if (iEdgeTypes.length == 1) {

@@ -63,7 +63,7 @@ public abstract class LuceneSpatialOperator extends QueryTargetOperator {
       CommandContext iContext,
       final EntitySerializer serializer) {
 
-    var function = SQLEngine.getInstance().getFunction(iContext.getDatabaseSession(), keyword);
+    var function = SQLEngine.getFunction(iContext.getDatabaseSession(), keyword);
     return function.execute(
         this, iRecord, iCurrentResult, new Object[]{iLeft, iCondition.getRight()}, iContext);
   }

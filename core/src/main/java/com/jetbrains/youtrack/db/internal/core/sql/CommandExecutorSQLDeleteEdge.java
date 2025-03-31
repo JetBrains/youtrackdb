@@ -236,11 +236,11 @@ public class CommandExecutorSQLDeleteEdge extends CommandExecutorSQLSetAware
         session.begin();
         Set<Identifiable> fromIds = null;
         if (fromExpr != null) {
-          fromIds = SQLEngine.getInstance().parseRIDTarget(session, fromExpr, context, iArgs);
+          fromIds = SQLEngine.parseRIDTarget(session, fromExpr, context, iArgs);
         }
         Set<Identifiable> toIds = null;
         if (toExpr != null) {
-          toIds = SQLEngine.getInstance().parseRIDTarget(session, toExpr, context, iArgs);
+          toIds = SQLEngine.parseRIDTarget(session, toExpr, context, iArgs);
         }
         if (label == null) {
           label = "E";

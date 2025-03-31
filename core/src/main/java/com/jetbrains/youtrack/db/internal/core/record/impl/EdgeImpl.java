@@ -29,7 +29,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableCl
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -41,7 +40,7 @@ public class EdgeImpl extends LightweightBidirectionalLinkImpl<Vertex> implement
   public EdgeImpl(@Nonnull DatabaseSessionInternal session,
       @Nullable Vertex out, @Nullable Vertex in,
       @Nonnull SchemaImmutableClass lightweightEdgeType) {
-    super(session, out, in, lightweightEdgeType.getName());
+    super(session, out, in, DIRECTION_IN);
     this.lightweightEdgeType = lightweightEdgeType;
   }
 
