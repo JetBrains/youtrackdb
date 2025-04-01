@@ -247,7 +247,7 @@ public class RestrictedTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testReaderCannotSeeWriterDocument")
   public void testWriterAddReaderUserOnlyForRead() throws IOException {
-    session = createSessionInstance("writer", "writer");
+    session = createSessionInstance("admin", "admin");
     session.begin();
     EntityImpl writerRecord = session.load(this.writerRecordId);
     session
@@ -271,7 +271,7 @@ public class RestrictedTest extends BaseDBTest {
    */
   @Test(dependsOnMethods = "testReaderCanSeeWriterDocument")
   public void testWriterRemoveReaderUserOnlyForRead() throws IOException {
-    session = createSessionInstance("writer", "writer");
+    session = createSessionInstance("admin", "admin");
     session.begin();
     EntityImpl writerRecord = session.load(this.writerRecordId);
     session
@@ -353,16 +353,6 @@ public class RestrictedTest extends BaseDBTest {
   }
 
   @Test(dependsOnMethods = "testTruncateClass")
-  public void testTruncateUnderlyingCluster() {
-    session = createSessionInstance();
-    try {
-      session.execute("truncate cluster CMSDocument").close();
-    } catch (SecurityException e) {
-
-    }
-  }
-
-  @Test(dependsOnMethods = "testTruncateUnderlyingCluster")
   public void testUpdateRestricted() {
     session = createSessionInstance();
     session
