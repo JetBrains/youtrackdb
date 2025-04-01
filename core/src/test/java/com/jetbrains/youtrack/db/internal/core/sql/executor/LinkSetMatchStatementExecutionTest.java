@@ -50,8 +50,8 @@ public class LinkSetMatchStatementExecutionTest extends DbTestBase {
     session.commit();
 
     initOrgChart();
-//
-//    initTriangleTest();
+
+    initTriangleTest();
 //
 //    initEdgeIndexTest();
 //
@@ -746,6 +746,178 @@ public class LinkSetMatchStatementExecutionTest extends DbTestBase {
   }
 
 
+  @Test
+  public void testTriangle1() {
+    var query =
+        "match "
+            + "{class:Triangle, as: friend1, where: (uid = 0)}"
+            + "  .out('triangle'){as: friend2}"
+            + "  .out('triangle'){as: friend3},"
+            + "{class:Triangle, as: friend1}"
+            + "  .out('triangle'){as: friend3}"
+            + "return $matches";
+
+    session.begin();
+    List<?> result = session.query(query).toList();
+    assertEquals(1, result.size());
+    session.commit();
+  }
+
+  @Test
+  public void testTriangle1Arrows() {
+    var query =
+        "match {class:Triangle, as: friend1, where: (uid = 0)} -triangle-> {as: friend2}"
+            + " -triangle-> {as: friend3},{class:Triangle, as: friend1} -triangle-> {as:"
+            + " friend3}return $matches";
+
+    session.begin();
+    List<?> result = session.query(query).toList();
+    assertEquals(1, result.size());
+    session.commit();
+  }
+
+  @Test
+  public void testTriangle2Old() {
+    var query =
+        "match "
+            + "{class:Triangle, as: friend1}"
+            + "  .out('triangle'){class:Triangle, as: friend2, where: (uid = 1)}"
+            + "  .out('triangle'){as: friend3},"
+            + "{class:Triangle, as: friend1}"
+            + "  .out('triangle'){as: friend3}"
+            + "return $matches";
+
+    session.begin();
+    var result = session.query(query).toList();
+    assertEquals(1, result.size());
+    var doc = result.getFirst();
+    Identifiable identifiable2 = doc.getProperty("friend1");
+    var transaction2 = session.getActiveTransaction();
+    EntityImpl friend1 = transaction2.load(identifiable2);
+    Identifiable identifiable1 = doc.getProperty("friend2");
+    var transaction1 = session.getActiveTransaction();
+    EntityImpl friend2 = transaction1.load(identifiable1);
+    Identifiable identifiable = doc.getProperty("friend3");
+    var transaction = session.getActiveTransaction();
+    EntityImpl friend3 = transaction.load(identifiable);
+    assertEquals(0, friend1.<Object>getProperty("uid"));
+    assertEquals(1, friend2.<Object>getProperty("uid"));
+    assertEquals(2, friend3.<Object>getProperty("uid"));
+    session.commit();
+  }
+
+  @Test
+  public void testTriangle2() {
+    var query =
+        "match "
+            + "{class:Triangle, as: friend1}"
+            + "  .out('triangle'){class:Triangle, as: friend2, where: (uid = 1)}"
+            + "  .out('triangle'){as: friend3},"
+            + "{class:Triangle, as: friend1}"
+            + "  .out('triangle'){as: friend3}"
+            + "return $patterns";
+
+    session.begin();
+    var result = session.query(query).toList();
+    assertEquals(1, result.size());
+    var doc = result.getFirst();
+    Identifiable identifiable2 = doc.getProperty("friend1");
+    var transaction2 = session.getActiveTransaction();
+    EntityImpl friend1 = transaction2.load(identifiable2);
+    Identifiable identifiable1 = doc.getProperty("friend2");
+    var transaction1 = session.getActiveTransaction();
+    EntityImpl friend2 = transaction1.load(identifiable1);
+    Identifiable identifiable = doc.getProperty("friend3");
+    var transaction = session.getActiveTransaction();
+    EntityImpl friend3 = transaction.load(identifiable);
+    assertEquals(0, friend1.<Object>getProperty("uid"));
+    assertEquals(1, friend2.<Object>getProperty("uid"));
+    assertEquals(2, friend3.<Object>getProperty("uid"));
+    session.commit();
+  }
+
+  @Test
+  public void testTriangle2Arrows() {
+    var query =
+        "match "
+            + "{class:Triangle, as: friend1}"
+            + "  -triangle->{class:Triangle, as: friend2, where: (uid = 1)}"
+            + "  -triangle->{as: friend3},"
+            + "{class:Triangle, as: friend1}"
+            + "  -triangle->{as: friend3}"
+            + "return $matches";
+
+    session.begin();
+    var result = session.query(query).toList();
+    assertEquals(1, result.size());
+    var doc = result.getFirst();
+    Identifiable identifiable2 = doc.getProperty("friend1");
+    var transaction2 = session.getActiveTransaction();
+    EntityImpl friend1 = transaction2.load(identifiable2);
+    Identifiable identifiable1 = doc.getProperty("friend2");
+    var transaction1 = session.getActiveTransaction();
+    EntityImpl friend2 = transaction1.load(identifiable1);
+    Identifiable identifiable = doc.getProperty("friend3");
+    var transaction = session.getActiveTransaction();
+    EntityImpl friend3 = transaction.load(identifiable);
+    assertEquals(0, friend1.<Object>getProperty("uid"));
+    assertEquals(1, friend2.<Object>getProperty("uid"));
+    assertEquals(2, friend3.<Object>getProperty("uid"));
+    session.commit();
+  }
+
+  @Test
+  public void testTriangle3() {
+    var query =
+        "match "
+            + "{class:Triangle, as: friend1}"
+            + "  -triangle->{as: friend2}"
+            + "  -triangle->{as: friend3, where: (uid = 2)},"
+            + "{class:Triangle, as: friend1}"
+            + "  -triangle->{as: friend3}"
+            + "return $matches";
+
+    session.begin();
+    var result = session.query(query).toList();
+    assertEquals(1, result.size());
+    session.commit();
+  }
+
+  @Test
+  public void testTriangle4() {
+    var query =
+        "match "
+            + "{class:Triangle, as: friend1}"
+            + "  .out('triangle'){as: friend2, where: (uid = 1)}"
+            + "  .out('triangle'){as: friend3},"
+            + "{class:Triangle, as: friend1}"
+            + "  .out('triangle'){as: friend3}"
+            + "return $matches";
+
+    session.begin();
+    List<?> result = session.query(query).toList();
+    assertEquals(1, result.size());
+    session.commit();
+  }
+
+  @Test
+  public void testTriangle4Arrows() {
+    var query =
+        "match "
+            + "{class:Triangle, as: friend1}"
+            + "  -triangle->{as: friend2, where: (uid = 1)}"
+            + "  -triangle->{as: friend3},"
+            + "{class:Triangle, as: friend1}"
+            + "  -triangle->{as: friend3}"
+            + "return $matches";
+
+    session.begin();
+    List<?> result = session.query(query).toList();
+    assertEquals(1, result.size());
+    session.commit();
+  }
+
+
   private void initOrgChart() {
 
     // ______ [manager] department _______
@@ -852,29 +1024,30 @@ public class LinkSetMatchStatementExecutionTest extends DbTestBase {
   }
 
   private void initTriangleTest() {
-    session.execute("CREATE class TriangleV extends V").close();
-    session.execute("CREATE property TriangleV.uid INTEGER").close();
-    session.execute("CREATE index TriangleV_uid on TriangleV (uid) UNIQUE").close();
-    session.execute("CREATE class TriangleE extends E").close();
+    session.execute("CREATE class Triangle").close();
+    session.execute("CREATE property Triangle.uid INTEGER").close();
+    session.execute("CREATE index Triangle_uid on Triangle (uid) UNIQUE").close();
 
     session.begin();
     for (var i = 0; i < 10; i++) {
-      session.execute("CREATE VERTEX TriangleV set uid = ?", i).close();
+      session.execute("INSERT INTO Triangle set uid = ?", i).close();
     }
     var edges = new int[][]{
         {0, 1}, {0, 2}, {1, 2}, {1, 3}, {2, 4}, {3, 4}, {3, 5}, {4, 0}, {4, 7}, {6, 7}, {7, 8},
         {7, 9}, {8, 9}, {9, 1}, {8, 3}, {8, 4}
     };
     for (var edge : edges) {
-      session.execute(
-              "CREATE EDGE TriangleE from (select from TriangleV where uid = ?) to (select from"
-                  + " TriangleV where uid = ?)",
-              edge[0],
-              edge[1])
-          .close();
+      var fromEntity = session.query(
+          "select from Triangle where uid = ?", edge[0]).entityStream().findFirst().orElseThrow();
+      var toEntity = session.query(
+          "select from Triangle where uid = ?", edge[1]).entityStream().findFirst().orElseThrow();
+      fromEntity.getOrCreateLinkList("triangle").add(toEntity);
+
+
     }
     session.commit();
   }
+
 
   private void initDiamondTest() {
     session.execute("CREATE class DiamondV extends V").close();

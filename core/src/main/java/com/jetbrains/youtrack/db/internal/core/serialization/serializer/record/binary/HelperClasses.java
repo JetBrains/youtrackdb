@@ -312,7 +312,9 @@ public class HelperClasses {
 
   public static int writeLinkMap(DatabaseSessionInternal db, final BytesContainer bytes,
       final Map<Object, Identifiable> map) {
-    final var fullPos = VarIntSerializer.write(bytes, map.size());
+    final var fullPos = bytes.alloc(1);
+
+    VarIntSerializer.write(bytes, map.size());
     for (var entry : map.entrySet()) {
       writeString(bytes, entry.getKey().toString());
       if (entry.getValue() == null) {
@@ -326,6 +328,11 @@ public class HelperClasses {
 
   public static Map<String, Identifiable> readLinkMap(
       final BytesContainer bytes, final RecordElement owner, boolean justRunThrough) {
+    var version = bytes.bytes[bytes.offset++];
+    if (version != 0) {
+      throw new SerializationException("Invalid version of link map");
+    }
+
     var size = VarIntSerializer.readAsInteger(bytes);
     EntityLinkMapIml result = null;
     if (!justRunThrough) {
