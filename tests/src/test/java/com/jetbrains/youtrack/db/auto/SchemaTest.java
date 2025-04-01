@@ -499,7 +499,7 @@ public class SchemaTest extends BaseDBTest {
     session.commit();
 
     try (var rs =
-        session.execute(
+        session.query(
             "select from "
                 + className
                 + " where "

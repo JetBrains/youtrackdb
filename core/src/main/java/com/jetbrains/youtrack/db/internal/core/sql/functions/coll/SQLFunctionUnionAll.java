@@ -68,8 +68,7 @@ public class SQLFunctionUnionAll extends SQLFunctionMultiValueAbstract<Collectio
       return context;
     } else {
       // IN-LINE MODE (STATELESS)
-      final var result =
-          new MultiCollectionIterator<Identifiable>();
+      final var result = new MultiCollectionIterator<Identifiable>();
       for (var value : iParams) {
         if (value != null) {
           if (value instanceof SQLFilterItemVariable) {

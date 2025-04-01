@@ -79,8 +79,11 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       prev.start(ctx).close(ctx);
     }
 
-    var streams = init(desc, orderAsc, ctx);
+    var session = ctx.getDatabaseSession();
+    var tx = ((FrontendTransactionImpl) session.getTransactionInternal());
+    tx.preProcessRecordsAndExecuteCallCallbacks();
 
+    var streams = init(desc, orderAsc, ctx);
     var res =
         new ExecutionStreamProducer() {
           private final Iterator<Stream<RawPair<Object, RID>>> iter = streams.iterator();
@@ -90,19 +93,14 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
             var s = iter.next();
             return ExecutionStream.resultIterator(
                 s.map((nextEntry) -> {
-                  var session = ctx.getDatabaseSession();
-                  var tx = session.getTransactionInternal();
-
-                  if (tx instanceof FrontendTransactionImpl frontendTransactionOptimistic) {
-                    frontendTransactionOptimistic.preProcessRecordsAndExecuteCallCallbacks();
-                  }
-
+                  tx.preProcessRecordsAndExecuteCallCallbacks();
                   return readResult(ctx, nextEntry);
                 }).iterator());
           }
 
           @Override
           public boolean hasNext(CommandContext ctx) {
+            tx.preProcessRecordsAndExecuteCallCallbacks();
             return iter.hasNext();
           }
 

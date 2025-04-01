@@ -13,6 +13,7 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -261,20 +262,20 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
   private void runEdgeInlineTest(FunctionDefinition fDef) {
 
     session.begin();
-    final var vertexes = session.query("SELECT FROM V").toList();
+    final var vertexes = session.query("SELECT FROM V").entityStream().toList();
 
     final var insAndOuts = vertexes.stream().collect(Collectors.toMap(
         r -> r.<RecordId>getProperty("@rid"),
         r -> {
 
-          final var ins = r.<RidBag>getProperty("in_");
-          final var outs = r.<RidBag>getProperty("out_");
+          final var ins = ((EntityImpl) r).<RidBag>getPropertyInternal("in_");
+          final var outs = ((EntityImpl) r).<RidBag>getPropertyInternal("out_");
 
           return new RawPair<>(ins, outs);
         }
     ));
 
-    final var query = "SELECT @rid, " + fDef.name + "(in_, out_) AS edges FROM V";
+    final var query = "SELECT @rid, " + fDef.name + "(inE(), outE()) AS edges FROM V";
     var edgesAggregated = session.query(query).stream().toList();
 
     for (var d : edgesAggregated) {
@@ -309,9 +310,9 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
 
   private void generateGraphRandomData() {
 
-    var vehicleClass = session.createVertexClass("GraphVehicle");
-    session.createClass("GraphCar", vehicleClass.getName());
-    session.createClass("GraphMotocycle", "GraphVehicle");
+    var vehicleClass = session.createVertexClass("GraphVehicle_CF");
+    session.createClass("GraphCar_CF", vehicleClass.getName());
+    session.createClass("GraphMotocycle_CF", "GraphVehicle_CF");
     final var r = new Random();
 
     final var carsNo = r.nextInt(2, 32);
@@ -319,7 +320,7 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
     session.begin();
     final var cars = new ArrayList<Vertex>();
     for (var i = 0; i < carsNo; i++) {
-      var carNode = session.newVertex("GraphCar");
+      var carNode = session.newVertex("GraphCar_CF");
       carNode.setProperty("brand", "Brand" + (i + 1));
       carNode.setProperty("model", "Car" + (i + 1));
       carNode.setProperty("year", r.nextInt(1990, 2024));
@@ -329,7 +330,7 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
     final var motorcyclesNo = r.nextInt(2, 32);
     final var motorcycles = new ArrayList<Vertex>();
     for (var i = 0; i < motorcyclesNo; i++) {
-      var motorcycleNode = session.newVertex("GraphMotocycle");
+      var motorcycleNode = session.newVertex("GraphMotocycle_CF");
       motorcycleNode.setProperty("brand", "Brand" + (i + 1));
       motorcycleNode.setProperty("model", "Motorcycle" + (i + 1));
       motorcycleNode.setProperty("year", r.nextInt(1990, 2024));

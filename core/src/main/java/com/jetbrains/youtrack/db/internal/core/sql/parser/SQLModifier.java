@@ -322,19 +322,19 @@ public class SQLModifier extends SimpleNode {
   }
 
   protected void setValue(Result currentRecord, Object target, Object value,
-      CommandContext ctx, @Nullable SchemaProperty schemaProperty) {
+      CommandContext ctx, @Nullable SchemaProperty schemaProperty, int level) {
     if (next == null) {
-      doSetValue(currentRecord, target, value, ctx, schemaProperty);
+      doSetValue(currentRecord, target, value, ctx, schemaProperty, level);
     } else {
       var newTarget = calculateLocal(currentRecord, target, ctx);
       if (newTarget != null) {
-        next.setValue(currentRecord, newTarget, value, ctx, schemaProperty);
+        next.setValue(currentRecord, newTarget, value, ctx, schemaProperty, level + 1);
       }
     }
   }
 
   private void doSetValue(Result currentRecord, Object target, Object value,
-      CommandContext ctx, @Nullable SchemaProperty schemaProperty) {
+      CommandContext ctx, @Nullable SchemaProperty schemaProperty, int level) {
     value = SQLUpdateItem.convertResultToDocument(value);
 
     var session = ctx.getDatabaseSession();
@@ -352,19 +352,14 @@ public class SQLModifier extends SimpleNode {
           "SET value on conditional filtering will be supported soon");
     } else if (arraySingleValues != null) {
 
-      if (schemaProperty != null) {
-        if (PropertyTypeInternal.isSingleValueType(value)) {
-          var linkedType = PropertyTypeInternal.convertFromPublicType(
-              schemaProperty.getLinkedType());
-          if (linkedType != null) {
-            value = linkedType.convert(value, session);
-          }
-        } else {
-          var type = PropertyTypeInternal.convertFromPublicType(schemaProperty.getType());
-          if (type != null) {
-            value = type.convert(value, session);
-          }
-        }
+      // allowing linkedType conversion only for non-nested collections (level == 0)
+      final var targetType =
+          level == 0 && schemaProperty != null && PropertyTypeInternal.isSimpleValueType(value) ?
+              PropertyTypeInternal.convertFromPublicType(schemaProperty.getLinkedType()) :
+              null;
+
+      if (targetType != null) {
+        value = targetType.convert(value, session);
       }
 
       arraySingleValues.setValue(currentRecord, target, value, ctx);

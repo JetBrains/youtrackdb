@@ -240,8 +240,10 @@ public class ResultInternal implements Result {
         if (entity.isEmbedded()) {
           return entity.detach();
         }
-
-        return session.refreshRid(entity.getIdentity());
+        final var rid = entity.getIdentity();
+        return session.isTxActive() && !rid.isPersistent() ?
+            session.refreshRid(rid) :
+            rid;
       }
 
       case ContextualRecordId contextualRecordId -> {

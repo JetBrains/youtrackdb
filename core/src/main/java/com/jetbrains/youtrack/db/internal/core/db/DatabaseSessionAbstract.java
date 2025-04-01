@@ -1581,12 +1581,12 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     EntityImpl inEntity;
 
     var outEntityModified = false;
-    if (checkDeletedInTx(toVertex)) {
+    if (getTransactionInternal().isDeletedInTx(toVertex.getIdentity())) {
       throw new RecordNotFoundException(getDatabaseName(),
           toVertex.getIdentity(), "The vertex " + toVertex.getIdentity() + " has been deleted");
     }
 
-    if (checkDeletedInTx(inVertex)) {
+    if (getTransactionInternal().isDeletedInTx(inVertex.getIdentity())) {
       throw new RecordNotFoundException(getDatabaseName(),
           inVertex.getIdentity(), "The vertex " + inVertex.getIdentity() + " has been deleted");
     }
@@ -1643,24 +1643,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     // OK
 
     return edge;
-  }
-
-  private boolean checkDeletedInTx(Vertex currentVertex) {
-    RID id;
-    var transaction1 = getActiveTransaction();
-    if (!transaction1.load(currentVertex).exists()) {
-      var transaction = getActiveTransaction();
-      id = transaction.load(currentVertex).getIdentity();
-    } else {
-      return false;
-    }
-
-    final var oper = getTransactionInternal().getRecordEntry(id);
-    if (oper == null) {
-      return ((RecordId) id).isTemporary();
-    } else {
-      return oper.type == RecordOperation.DELETED;
-    }
   }
 
   /**

@@ -1,42 +1,19 @@
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import java.util.Map;
+import java.util.Set;
 import org.testng.Assert;
 import org.testng.SkipException;
-import org.testng.annotations.AfterMethod;
-import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
-public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
-
-  private static final String CLASS_NAME = "idxTxAwareMultiValueGetTest";
-  private static final String FIELD_NAME = "value";
-  private static final String INDEX_NAME = "idxTxAwareMultiValueGetTestIndex";
+public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
 
   @Parameters(value = "remote")
   public IndexTxAwareMultiValueGetTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
-  @BeforeClass
-  public void beforeClass() throws Exception {
-    super.beforeClass();
-
-    final var cls = session.getMetadata().getSchema().createClass(CLASS_NAME);
-    cls.createProperty(FIELD_NAME, PropertyType.INTEGER);
-    cls.createIndex(INDEX_NAME, SchemaClass.INDEX_TYPE.NOTUNIQUE, FIELD_NAME);
-  }
-
-  @AfterMethod
-  public void afterMethod() throws Exception {
-    session.getMetadata().getSchema().getClassInternal(CLASS_NAME).truncate();
-
-    super.afterMethod();
+    super(remote != null && remote, false);
   }
 
   @Test
@@ -46,18 +23,18 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
     }
 
     session.begin();
-    final var index =
-        session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX_NAME);
 
-    session.newEntity(CLASS_NAME).setProperty(FIELD_NAME, 1);
+    var doc1 = newDoc(1);
+    var doc2 = newDoc(1);
+    var doc3 = newDoc(2);
 
-    session.newEntity(CLASS_NAME).setProperty(FIELD_NAME, 1);
-
-    session.newEntity(CLASS_NAME).setProperty(FIELD_NAME, 2);
+    verifyTxIndexPut(Map.of(
+        1, Set.of(doc1.getIdentity(), doc2.getIdentity()),
+        2, Set.of(doc3.getIdentity())
+    ));
 
     session.commit();
 
-    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
     try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 2);
     }
@@ -67,16 +44,15 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
 
     session.begin();
 
-    session.newEntity(CLASS_NAME).setProperty(FIELD_NAME, 2);
+    var doc4 = newDoc(2);
 
-    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
+    verifyTxIndexPut(Map.of(2, Set.of(doc4.getIdentity())));
     try (var stream = index.getRids(session, 2)) {
       Assert.assertEquals(stream.count(), 2);
     }
 
     session.rollback();
 
-    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
     try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 2);
     }
@@ -92,18 +68,18 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
     }
 
     session.begin();
-    final var index =
-        session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX_NAME);
 
-    var docOne = ((EntityImpl) session.newEntity(CLASS_NAME)).setPropertyInChain(FIELD_NAME, 1);
+    var docOne = newDoc(1);
+    var docTwo = newDoc(1);
+    var docThree = newDoc(2);
 
-    var docTwo = ((EntityImpl) session.newEntity(CLASS_NAME)).setPropertyInChain(FIELD_NAME, 1);
-
-    session.newEntity(CLASS_NAME).setProperty(FIELD_NAME, 2);
+    verifyTxIndexPut(Map.of(
+        1, Set.of(docOne.getIdentity(), docTwo.getIdentity()),
+        2, Set.of(docThree.getIdentity())
+    ));
 
     session.commit();
 
-    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
     try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 2);
     }
@@ -111,17 +87,15 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
       Assert.assertEquals(stream.count(), 1);
     }
 
-    session.begin();
+    final var tx = session.begin();
 
-    var activeTx1 = session.getActiveTransaction();
-    docOne = activeTx1.load(docOne);
-    var activeTx = session.getActiveTransaction();
-    docTwo = activeTx.load(docTwo);
+    docOne = tx.load(docOne);
+    docTwo = tx.load(docTwo);
 
     docOne.delete();
     docTwo.delete();
 
-    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
+    verifyTxIndexRemove(Map.of(1, Set.of(docOne.getIdentity(), docTwo.getIdentity())));
     try (var stream = index.getRids(session, 1)) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
@@ -131,7 +105,6 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
 
     session.rollback();
 
-    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
     try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 2);
     }
@@ -147,18 +120,15 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
     }
 
     session.begin();
-    final var index =
-        session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX_NAME);
-
-    var document = ((EntityImpl) session.newEntity(CLASS_NAME)).setPropertyInChain(FIELD_NAME, 1);
-
-    session.newEntity(CLASS_NAME).setProperty(FIELD_NAME, 1);
-
-    session.newEntity(CLASS_NAME).setProperty(FIELD_NAME, 2);
-
+    var doc1 = newDoc(1);
+    var doc2 = newDoc(1);
+    var doc3 = newDoc(2);
+    verifyTxIndexPut(Map.of(
+        1, Set.of(doc1.getIdentity(), doc2.getIdentity()),
+        2, Set.of(doc3.getIdentity())
+    ));
     session.commit();
 
-    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
     try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 2);
     }
@@ -166,13 +136,12 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
       Assert.assertEquals(stream.count(), 1);
     }
 
-    session.begin();
+    final var tx = session.begin();
 
-    var activeTx = session.getActiveTransaction();
-    document = activeTx.load(document);
-    document.delete();
+    doc1 = tx.load(doc1);
+    doc1.delete();
 
-    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
+    verifyTxIndexRemove(Map.of(1, Set.of(doc1.getIdentity())));
     try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 1);
     }
@@ -182,7 +151,6 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
 
     session.rollback();
 
-    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
     try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 2);
     }
@@ -199,20 +167,18 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
 
     session.begin();
 
-    final var index =
-        session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX_NAME);
+    final var document = newDoc(1);
 
-    final var document = ((EntityImpl) session.newEntity(CLASS_NAME)).setPropertyInChain(FIELD_NAME,
-        1);
-
+    verifyTxIndexPut(Map.of(1, Set.of(document.getIdentity())));
     try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 1);
     }
 
-    document.setProperty(FIELD_NAME, 0);
-    document.setProperty(FIELD_NAME, 1);
+    document.setProperty(fieldName, 0);
+    verifyTxIndexPut(Map.of(0, Set.of(document.getIdentity())));
+    document.setProperty(fieldName, 1);
+    verifyTxIndexPut(Map.of(1, Set.of(document.getIdentity())));
 
-    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
     try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 1);
     }
@@ -231,20 +197,16 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
 
     session.begin();
 
-    final var index =
-        session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX_NAME);
+    var doc1 = newDoc(1);
+    verifyTxIndexPut(Map.of(1, Set.of(doc1.getIdentity())));
 
-    session.newEntity(CLASS_NAME).setProperty(FIELD_NAME, 1);
-
-    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
     try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 1);
     }
     session.commit();
 
     session.begin();
-    session.newEntity(CLASS_NAME).setProperty(FIELD_NAME, 1);
-
+    newDoc(1);
     session.commit();
 
     try (var stream = index.getRids(session, 1)) {
@@ -260,15 +222,10 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
 
     session.begin();
 
-    final var index =
-        session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX_NAME);
-
-    final var document = ((EntityImpl) session.newEntity(CLASS_NAME)).setPropertyInChain(FIELD_NAME,
-        1);
-
+    final var document = newDoc(1);
     document.delete();
 
-    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX_NAME));
+    verifyTxIndexChanges(null, null);
     try (var stream = index.getRids(session, 1)) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
@@ -288,16 +245,11 @@ public class IndexTxAwareMultiValueGetTest extends BaseDBTest {
 
     session.begin();
 
-    final var index =
-        session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX_NAME);
+    final var document = newDoc(1);
+    document.removeProperty(fieldName);
+    document.setProperty(fieldName, 1);
 
-    final var document = ((EntityImpl) session.newEntity(CLASS_NAME)).setPropertyInChain(FIELD_NAME,
-        1);
-
-    document.removeProperty(FIELD_NAME);
-
-    document.setProperty(FIELD_NAME, 1);
-
+    verifyTxIndexPut(Map.of(1, Set.of(document.getIdentity())));
     try (var stream = index.getRids(session, 1)) {
       Assert.assertEquals(stream.count(), 1);
     }

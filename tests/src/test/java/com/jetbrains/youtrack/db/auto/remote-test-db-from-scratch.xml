@@ -80,8 +80,6 @@
   <test name="Query">
     <classes>
       <class name="com.jetbrains.youtrack.db.auto.WrongQueryTest"/>
-      <class
-        name="com.jetbrains.youtrack.db.auto.FetchPlanComplexNestedLevelsTest"/>
     </classes>
   </test>
   <test name="Graph">

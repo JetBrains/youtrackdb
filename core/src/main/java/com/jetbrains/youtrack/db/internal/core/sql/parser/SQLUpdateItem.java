@@ -165,7 +165,7 @@ public class SQLUpdateItem extends SimpleNode {
       if (val == null) {
         val = initSchemafullCollections(session, result, propertyName);
       }
-      leftModifier.setValue(result, val, rightValue, ctx, schemaProperty);
+      leftModifier.setValue(result, val, rightValue, ctx, schemaProperty, 0);
     }
   }
 
