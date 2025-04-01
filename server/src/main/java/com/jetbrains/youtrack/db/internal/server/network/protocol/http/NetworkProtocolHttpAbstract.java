@@ -32,7 +32,7 @@ import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.SocketChannel;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.NetworkProtocolException;
@@ -560,7 +560,7 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
 
     response.put("errors", errors);
 
-    binaryContent = RecordSerializerJackson.mapToJson(response).getBytes(utf8);
+    binaryContent = JSONSerializerJackson.mapToJson(response).getBytes(utf8);
 
     writeLine(
         HttpUtils.HEADER_CONTENT_LENGTH + binaryContent.length);

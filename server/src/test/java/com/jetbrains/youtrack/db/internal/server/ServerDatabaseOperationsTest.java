@@ -8,7 +8,7 @@ import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.tools.config.ServerConfiguration;
 import com.jetbrains.youtrack.db.internal.tools.config.ServerUserConfiguration;
 import java.io.File;
@@ -65,7 +65,7 @@ public class ServerDatabaseOperationsTest {
     try (var session = server.openSession(
         ServerDatabaseOperationsTest.class.getSimpleName())) {
 
-      var map = RecordSerializerJackson.mapFromJson(IOUtils.readStreamAsString(
+      var map = JSONSerializerJackson.mapFromJson(IOUtils.readStreamAsString(
           this.getClass().getClassLoader().getResourceAsStream("security.json")));
       server.getSecurity().reload(session, map);
     } finally {

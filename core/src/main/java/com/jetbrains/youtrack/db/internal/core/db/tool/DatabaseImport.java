@@ -64,7 +64,7 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.JSONReader;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
@@ -1041,7 +1041,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
   private RID importRecord(HashSet<RID> recordsBeforeImport,
       Schema beforeImportSchemaSnapshot)
       throws Exception {
-    RawPair<RecordAbstract, RecordSerializerJackson.RecordMetadata> recordWithMetadata = null;
+    RawPair<RecordAbstract, JSONSerializerJackson.RecordMetadata> recordWithMetadata = null;
     session.begin();
     var ok = false;
     try {
@@ -1053,7 +1053,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       }
       try {
         recordWithMetadata =
-            RecordSerializerJackson.fromStringWithMetadata(session,
+            JSONSerializerJackson.fromStringWithMetadata(session,
                 value,
                 null
             );
@@ -1105,7 +1105,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
                 systemRecord.fromStream(recordStream);
                 recordsBeforeImport.remove(systemRecord.getIdentity());
               } else {
-                RecordSerializerJackson.fromStringWithMetadata(session,
+                JSONSerializerJackson.fromStringWithMetadata(session,
                     value,
                     null
                 );

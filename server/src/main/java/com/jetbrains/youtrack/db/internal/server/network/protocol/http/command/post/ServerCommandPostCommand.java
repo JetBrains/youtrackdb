@@ -25,7 +25,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.DDLStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLLimit;
@@ -39,9 +39,7 @@ import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.S
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.TimerTask;
 import javax.annotation.Nullable;
 
 public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstract {
@@ -73,7 +71,7 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
       // CONTENT REPLACES TEXT
       if (iRequest.getContent().startsWith("{")) {
         // JSON PAYLOAD
-        final var map = RecordSerializerJackson.mapFromJson(iRequest.getContent());
+        final var map = JSONSerializerJackson.mapFromJson(iRequest.getContent());
         text = (String) map.get("command");
         params = map.get("parameters");
         if (map.containsKey("mode")) {

@@ -69,7 +69,7 @@ import java.util.Objects;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class RecordSerializerJackson {
+public class JSONSerializerJackson {
 
   private static final JsonFactory JSON_FACTORY = new JsonFactory();
 
@@ -79,7 +79,7 @@ public class RecordSerializerJackson {
 
 
   public static final String NAME = "jackson";
-  public static final RecordSerializerJackson INSTANCE = new RecordSerializerJackson();
+  public static final JSONSerializerJackson INSTANCE = new JSONSerializerJackson();
 
   public static Map<String, Object> mapFromJson(@Nonnull String value) {
     try {

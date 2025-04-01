@@ -20,7 +20,7 @@ import com.jetbrains.youtrack.db.internal.core.security.ParsedToken;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.security.TokenSign;
 import com.jetbrains.youtrack.db.internal.core.security.TokenSignImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.ClientConnection;
 import com.jetbrains.youtrack.db.internal.server.TokenHandler;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.NetworkProtocolData;
@@ -387,7 +387,7 @@ public class TokenHandlerImpl implements TokenHandler {
   }
 
   protected static YouTrackDBJwtHeader deserializeWebHeader(final byte[] decodedHeader) {
-    final var map = RecordSerializerJackson.mapFromJson(
+    final var map = JSONSerializerJackson.mapFromJson(
         new String(decodedHeader, StandardCharsets.UTF_8));
     final var header = new YouTrackDBJwtHeader();
     header.setType((String) map.get("typ"));
@@ -401,7 +401,7 @@ public class TokenHandlerImpl implements TokenHandler {
     if (!"YouTrackDB".equals(type)) {
       throw new SystemException("Payload class not registered:" + type);
     }
-    final var map = RecordSerializerJackson.mapFromJson(
+    final var map = JSONSerializerJackson.mapFromJson(
         new String(decodedPayload, StandardCharsets.UTF_8));
     final var payload = new YouTrackDBJwtPayload();
     payload.setUserName((String) map.get("username"));
@@ -430,7 +430,7 @@ public class TokenHandlerImpl implements TokenHandler {
     map.put("alg", header.getAlgorithm());
     map.put("kid", header.getKeyId());
 
-    return RecordSerializerJackson.mapToJson(map).getBytes(StandardCharsets.UTF_8);
+    return JSONSerializerJackson.mapToJson(map).getBytes(StandardCharsets.UTF_8);
   }
 
   protected static byte[] serializeWebPayload(final JwtPayload payload) throws Exception {
@@ -450,7 +450,7 @@ public class TokenHandlerImpl implements TokenHandler {
     map.put("uidc", payload.getUserRid().getClusterId());
     map.put("uidp", payload.getUserRid().getClusterPosition());
     map.put("bdtyp", payload.getDatabaseType());
-    return RecordSerializerJackson.mapToJson(map).getBytes(StandardCharsets.UTF_8);
+    return JSONSerializerJackson.mapToJson(map).getBytes(StandardCharsets.UTF_8);
   }
 
   protected JwtPayload createPayloadServerUser(SecurityUser serverUser) {

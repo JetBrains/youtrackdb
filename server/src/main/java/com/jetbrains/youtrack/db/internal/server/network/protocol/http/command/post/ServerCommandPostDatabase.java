@@ -31,7 +31,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassIntern
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.JSONWriter;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
@@ -69,7 +69,7 @@ public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerA
       if (iRequest.getContent().startsWith("{")) {
         // JSON PAYLOAD
 
-        var result = RecordSerializerJackson.mapFromJson(iRequest.getContent());
+        var result = JSONSerializerJackson.mapFromJson(iRequest.getContent());
 
         if (result.containsKey("adminPassword")) {
           createAdmin = true;

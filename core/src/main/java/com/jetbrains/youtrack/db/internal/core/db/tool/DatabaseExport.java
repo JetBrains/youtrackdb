@@ -35,7 +35,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -438,7 +438,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
       final var metadata = index.getMetadata();
       if (metadata != null) {
         jsonGenerator.writeFieldName("metadata");
-        RecordSerializerJackson.serializeEmbeddedMap(session, jsonGenerator, metadata, null);
+        JSONSerializerJackson.serializeEmbeddedMap(session, jsonGenerator, metadata, null);
       }
 
       jsonGenerator.writeEndObject();
@@ -580,7 +580,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
     if (rec != null) {
       try {
         final var format = "version,class,type,keepTypes,internal,markEmbeddedEntities";
-        RecordSerializerJackson.recordToJson(session, rec, jsonGenerator, format);
+        JSONSerializerJackson.recordToJson(session, rec, jsonGenerator, format);
 
         recordExported++;
         recordNum++;

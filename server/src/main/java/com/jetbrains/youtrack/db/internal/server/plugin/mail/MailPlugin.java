@@ -42,7 +42,7 @@ public class MailPlugin extends ServerPluginAbstract
   private static final String CONFIG_PROFILE_PREFIX = "profile.";
   private static final String CONFIG_MAIL_PREFIX = "mail.";
 
-  private EntityImpl configuration;
+  private Map<String, Object> configuration;
 
   private final Map<String, MailProfile> profiles = new HashMap<String, MailProfile>();
 
@@ -100,7 +100,7 @@ public class MailPlugin extends ServerPluginAbstract
   }
 
   @Override
-  public EntityImpl getConfig() {
+  public Map<String, Object> getConfig() {
     return configuration;
   }
 

@@ -15,8 +15,7 @@ package com.jetbrains.youtrack.db.internal.spatial.sandbox;
 
 import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.lucene.test.BaseLuceneTest;
 import com.jetbrains.youtrack.db.internal.spatial.shape.MultiPolygonShapeBuilder;
 import java.io.IOException;
@@ -196,7 +195,7 @@ public class LuceneGeoTest extends BaseLuceneTest {
       throws IOException {
     var systemResourceAsStream = ClassLoader.getSystemResourceAsStream("italy.json");
 
-    var map = RecordSerializerJackson.mapFromJson(systemResourceAsStream);
+    var map = JSONSerializerJackson.mapFromJson(systemResourceAsStream);
 
     Map geometry = (Map) map.get("geometry");
     var type = (String) geometry.get("type");

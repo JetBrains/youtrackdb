@@ -20,7 +20,7 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command;
 
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequestException;
@@ -108,7 +108,7 @@ public abstract class ServerCommandAbstract implements ServerCommand {
     errors.add(error);
     response.put("errors", errors);
     iResponse.send(
-        iCode, iReason, HttpUtils.CONTENT_JSON, RecordSerializerJackson.mapToJson(response),
+        iCode, iReason, HttpUtils.CONTENT_JSON, JSONSerializerJackson.mapToJson(response),
         iHeaders);
   }
 }

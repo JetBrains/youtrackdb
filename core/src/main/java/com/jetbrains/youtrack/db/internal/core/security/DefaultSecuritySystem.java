@@ -38,7 +38,7 @@ import com.jetbrains.youtrack.db.internal.core.security.authenticator.DatabaseUs
 import com.jetbrains.youtrack.db.internal.core.security.authenticator.ServerConfigAuthenticator;
 import com.jetbrains.youtrack.db.internal.core.security.authenticator.SystemUserAuthenticator;
 import com.jetbrains.youtrack.db.internal.core.security.authenticator.TemporaryGlobalUser;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import java.io.File;
 import java.io.FileInputStream;
 import java.util.ArrayList;
@@ -876,7 +876,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
         }
 
         var f = new File(configFile);
-        IOUtils.writeFile(f, RecordSerializerJackson.mapToJson(configEntity));
+        IOUtils.writeFile(f, JSONSerializerJackson.mapToJson(configEntity));
       }
     } catch (Exception ex) {
       configEntity.put(section, oldSection);
@@ -901,7 +901,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
             final var buffer = new byte[(int) file.length()];
             fis.read(buffer);
 
-            securityEntity = RecordSerializerJackson.mapFromJson(new String(buffer));
+            securityEntity = JSONSerializerJackson.mapFromJson(new String(buffer));
           }
         } else {
           if (file.exists()) {

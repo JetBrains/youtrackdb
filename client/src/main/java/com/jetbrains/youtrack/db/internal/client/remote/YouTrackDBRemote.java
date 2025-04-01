@@ -61,7 +61,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.Authentica
 import com.jetbrains.youtrack.db.internal.core.security.SecurityManager;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37Client;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.TokenSecurityException;
 import java.io.IOException;
@@ -256,7 +256,7 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
   public Map<String, Object> getServerInfo(String username, String password) {
     var request = new ServerInfoRequest();
     var response = connectAndSend(null, username, password, request);
-    return RecordSerializerJackson.mapFromJson(response.getResult());
+    return JSONSerializerJackson.mapFromJson(response.getResult());
   }
 
   public String getGlobalConfiguration(

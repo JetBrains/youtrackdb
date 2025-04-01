@@ -98,7 +98,7 @@ import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrack.db.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
@@ -1424,13 +1424,13 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   @Override
   public <T extends DBRecord> T createOrLoadRecordFromJson(String json) {
     assert assertIfNotActive();
-    return (T) RecordSerializerJackson.fromString(this, json);
+    return (T) JSONSerializerJackson.fromString(this, json);
   }
 
   @Override
   public Entity createOrLoadEntityFromJson(String json) {
     assert assertIfNotActive();
-    var result = RecordSerializerJackson.fromString(this, json);
+    var result = JSONSerializerJackson.fromString(this, json);
 
     if (result instanceof Entity) {
       return (Entity) result;

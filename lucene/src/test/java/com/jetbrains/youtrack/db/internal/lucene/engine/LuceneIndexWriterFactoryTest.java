@@ -3,8 +3,7 @@ package com.jetbrains.youtrack.db.internal.lucene.engine;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.lucene.test.BaseLuceneTest;
 import java.io.File;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
@@ -22,7 +21,7 @@ public class LuceneIndexWriterFactoryTest extends BaseLuceneTest {
     var fc = new LuceneIndexWriterFactory();
 
     // sample metadata json
-    var meta = RecordSerializerJackson.mapFromJson(IOUtils.readFileAsString(
+    var meta = JSONSerializerJackson.mapFromJson(IOUtils.readFileAsString(
         new File("./src/test/resources/index_metadata_new.json")));
     var writer = fc.createIndexWriter(new RAMDirectory(), meta,
         new StandardAnalyzer());

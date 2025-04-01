@@ -25,13 +25,12 @@ import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandDocumentAbstract;
-import java.util.Map;
 
 public class ServerCommandPutDocument extends ServerCommandDocumentAbstract {
 
@@ -67,7 +66,7 @@ public class ServerCommandPutDocument extends ServerCommandDocumentAbstract {
           db.computeInTx(
               tx -> {
                 var txRecordId = recordId;
-                final var content = RecordSerializerJackson.mapFromJson(
+                final var content = JSONSerializerJackson.mapFromJson(
                     iRequest.getContent());
                 final int recordVersion;
                 // UNMARSHALL DOCUMENT WITH REQUEST CONTENT

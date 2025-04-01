@@ -35,7 +35,7 @@ import com.jetbrains.youtrack.db.internal.core.id.IdentityChangeListener;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.serialization.SerializableStream;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -207,26 +207,26 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
 
   public <RET extends DBRecord> RET updateFromJSON(final String iSource, final String iOptions) {
-    RecordSerializerJackson.fromString(getSession(),
+    JSONSerializerJackson.fromString(getSession(),
         iSource, this);
     // nothing change
     return (RET) this;
   }
 
   public void updateFromJSON(final @Nonnull String iSource) {
-    RecordSerializerJackson.fromString(getSession(), iSource, this);
+    JSONSerializerJackson.fromString(getSession(), iSource, this);
   }
 
   // Add New API to load record if rid exist
   public final <RET extends DBRecord> RET updateFromJSON(final String iSource, boolean needReload) {
-    return (RET) RecordSerializerJackson.fromString(getSession(), iSource, this);
+    return (RET) JSONSerializerJackson.fromString(getSession(), iSource, this);
   }
 
   public final <RET extends DBRecord> RET updateFromJSON(final InputStream iContentResult)
       throws IOException {
     final var out = new ByteArrayOutputStream();
     IOUtils.copyStream(iContentResult, out);
-    RecordSerializerJackson.fromString(getSession(), out.toString(), this);
+    JSONSerializerJackson.fromString(getSession(), out.toString(), this);
     return (RET) this;
   }
 
@@ -239,7 +239,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   public String toJSON(final @Nonnull String format) {
     checkForBinding();
 
-    return RecordSerializerJackson
+    return JSONSerializerJackson
         .toString(getSession(), this, new StringWriter(1024),
             format)
         .toString();

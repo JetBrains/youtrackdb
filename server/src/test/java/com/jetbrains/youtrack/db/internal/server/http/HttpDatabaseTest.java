@@ -2,7 +2,7 @@ package com.jetbrains.youtrack.db.internal.server.http;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -50,7 +50,7 @@ public class HttpDatabaseTest extends BaseHttpTest {
         setUserName("root")
             .setUserPassword("root")
             .post("database/" + getDatabaseName() + "/memory")
-            .payload(RecordSerializerJackson.mapToJson(pass), CONTENT.JSON)
+            .payload(JSONSerializerJackson.mapToJson(pass), CONTENT.JSON)
             .getResponse()
             .getCode());
 
@@ -78,7 +78,7 @@ public class HttpDatabaseTest extends BaseHttpTest {
         setUserName("root")
             .setUserPassword("root")
             .post("database/" + getDatabaseName() + "/memory")
-            .payload(RecordSerializerJackson.mapToJson(pass), CONTENT.JSON)
+            .payload(JSONSerializerJackson.mapToJson(pass), CONTENT.JSON)
             .getResponse()
             .getCode());
 

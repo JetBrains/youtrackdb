@@ -38,8 +38,8 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerCSVAbstract;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItem;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemParameter;
@@ -186,7 +186,7 @@ public class SQLHelper {
         } else {
           entity = session.newEntity(schemaClass);
         }
-        fieldValue = RecordSerializerJackson.fromString(session, iValue, (RecordAbstract) entity);
+        fieldValue = JSONSerializerJackson.fromString(session, iValue, (RecordAbstract) entity);
       } else {
         final var items =
             StringSerializerHelper.smartSplit(
@@ -263,7 +263,7 @@ public class SQLHelper {
             entity = session.newEntity();
           }
 
-          fieldValue = RecordSerializerJackson.fromString(session, iValue, (RecordAbstract) entity);
+          fieldValue = JSONSerializerJackson.fromString(session, iValue, (RecordAbstract) entity);
         } else {
           fieldValue = map;
         }
