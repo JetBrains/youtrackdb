@@ -20,7 +20,6 @@
   <test name="Security">
     <classes>
       <class name="com.jetbrains.youtrack.db.auto.SecurityTest"/>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.RestrictedTest"/>-->
     </classes>
   </test>
   <test name="Hook">
@@ -129,7 +128,7 @@
       <class name="com.jetbrains.youtrack.db.auto.SQLMetadataTest"/>
       <!--      <class name="com.jetbrains.youtrack.db.auto.SQLSelectProjectionsTest"/>-->
       <class name="com.jetbrains.youtrack.db.auto.SQLSelectGroupByTest"/>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.SQLFunctionsTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.SQLFunctionsTest"/>
       <!--      <class name="com.jetbrains.youtrack.db.auto.SQLUpdateTest"/>-->
       <class name="com.jetbrains.youtrack.db.auto.SQLDeleteTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLCreateVertexTest"/>
