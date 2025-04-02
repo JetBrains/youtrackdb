@@ -283,6 +283,36 @@ public class ResultInternal implements Result {
 
         return result;
       }
+      case Object[] array -> {
+        List<Object> listCopy = null;
+        var allIdentifiable = false;
+
+        for (var o : array) {
+          var res = convertPropertyValue(o);
+
+          if (res instanceof Identifiable) {
+            allIdentifiable = true;
+            if (listCopy == null) {
+              //noinspection unchecked,rawtypes
+              listCopy = (List<Object>) (List) new LinkListResultImpl(array.length);
+            }
+          } else {
+            if (allIdentifiable) {
+              throw new IllegalArgumentException(
+                  "Invalid property value, if list contains identifiables, it should contain only them");
+            }
+            if (listCopy == null) {
+              listCopy = new EmbeddedListResultImpl<>(array.length);
+            }
+          }
+
+          listCopy.add(res);
+        }
+        if (listCopy == null) {
+          listCopy = new EmbeddedListResultImpl<>();
+        }
+        return listCopy;
+      }
       case List<?> collection -> {
         List<Object> listCopy = null;
         var allIdentifiable = false;
@@ -400,7 +430,6 @@ public class ResultInternal implements Result {
       }
     }
   }
-
 
   public void setTemporaryProperty(String name, Object value) {
     assert checkSession();
@@ -607,7 +636,6 @@ public class ResultInternal implements Result {
 
   }
 
-
   public @Nonnull List<String> getPropertyNames() {
     assert checkSession();
     if (content != null) {
@@ -684,7 +712,6 @@ public class ResultInternal implements Result {
     return identifiable;
   }
 
-
   @Override
   public boolean isEntity() {
     assert checkSession();
@@ -722,7 +749,6 @@ public class ResultInternal implements Result {
     throw new IllegalStateException("Result is not an entity");
   }
 
-
   @Nullable
   @Override
   public Entity asEntityOrNull() {
@@ -739,7 +765,6 @@ public class ResultInternal implements Result {
 
     return null;
   }
-
 
   @Override
   public RID getIdentity() {
@@ -1038,7 +1063,6 @@ public class ResultInternal implements Result {
     return null;
   }
 
-
   @Nonnull
   public BidirectionalLink<?> asBiLink() {
     assert checkSession();
@@ -1067,7 +1091,6 @@ public class ResultInternal implements Result {
 
     return null;
   }
-
 
   public @Nonnull String toJSON() {
     assert checkSession();
@@ -1198,7 +1221,6 @@ public class ResultInternal implements Result {
     }
     return jsonVal;
   }
-
 
   @Override
   public String toString() {

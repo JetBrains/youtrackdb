@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.record.Entity;
@@ -14,6 +15,7 @@ import java.util.Set;
 import org.junit.Test;
 
 public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
+
   public void beforeTest() throws Exception {
     super.beforeTest();
     session.execute("CREATE class Person").close();
@@ -76,7 +78,7 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
 
 
   @Test
-  public void testSimpleWhere() throws Exception {
+  public void testSimpleWhere() {
     session.begin();
     var qResult = session.query(
         "match {class:Person, as: person, where: (name = 'n1' or name = 'n2')} return"
@@ -122,7 +124,7 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
   }
 
   @Test
-  public void testCommonFriends2() throws Exception {
+  public void testCommonFriends2() {
     session.begin();
     var qResult =
         session.query(
@@ -199,7 +201,7 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
   }
 
   @Test
-  public void testReturnDefaultAlias() throws Exception {
+  public void testReturnDefaultAlias() {
     session.begin();
     var qResult =
         session.query(
@@ -212,7 +214,7 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
   }
 
   @Test
-  public void testReturnDefaultAliasArrows() throws Exception {
+  public void testReturnDefaultAliasArrows() {
     session.begin();
     var qResult =
         session.query(
@@ -224,7 +226,7 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
   }
 
   @Test
-  public void testFriendsOfFriends() throws Exception {
+  public void testFriendsOfFriends() {
     session.begin();
     var qResult =
         session.query(
@@ -236,7 +238,7 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
   }
 
   @Test
-  public void testFriendsOfFriendsArrows() throws Exception {
+  public void testFriendsOfFriendsArrows() {
     session.begin();
     var qResult =
         session.query(
@@ -248,7 +250,7 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
   }
 
   @Test
-  public void testFriendsOfFriends2() throws Exception {
+  public void testFriendsOfFriends2() {
     session.begin();
     var qResult =
         session.query(
@@ -263,7 +265,7 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
   }
 
   @Test
-  public void testFriendsOfFriends2Arrows() throws Exception {
+  public void testFriendsOfFriends2Arrows() {
     session.begin();
     var qResult =
         session.query(
@@ -278,7 +280,7 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
   }
 
   @Test
-  public void testFriendsWithName() throws Exception {
+  public void testFriendsWithName() {
     session.begin();
     var qResult =
         session.query(
@@ -291,7 +293,7 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
   }
 
   @Test
-  public void testFriendsWithNameArrows() throws Exception {
+  public void testFriendsWithNameArrows() {
     session.begin();
     var qResult =
         session.query(
@@ -304,7 +306,7 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
   }
 
   @Test
-  public void testWhile() throws Exception {
+  public void testWhile() {
     session.begin();
     var qResult =
         session.query(
@@ -349,7 +351,7 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
   }
 
   @Test
-  public void testWhileArrows() throws Exception {
+  public void testWhileArrows() {
     session.begin();
     var qResult =
         session.query(
@@ -380,7 +382,7 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
   }
 
   @Test
-  public void testMaxDepth() throws Exception {
+  public void testMaxDepth() {
     session.begin();
     var qResult =
         session.query(
@@ -411,7 +413,7 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
   }
 
   @Test
-  public void testMaxDepthArrow() throws Exception {
+  public void testMaxDepthArrow() {
     session.begin();
     var qResult =
         session.query(
@@ -567,13 +569,13 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
 
     var managedByB = getManagedBy("b");
     assertEquals(5, managedByB.size());
-    Set<String> expectedNames = new HashSet<String>();
+    Set<String> expectedNames = new HashSet<>();
     expectedNames.add("p2");
     expectedNames.add("p3");
     expectedNames.add("p6");
     expectedNames.add("p7");
     expectedNames.add("p11");
-    Set<String> names = new HashSet<String>();
+    Set<String> names = new HashSet<>();
     for (var id : managedByB) {
       var transaction = session.getActiveTransaction();
       EntityImpl doc = transaction.load(id);
@@ -615,13 +617,13 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
 
     var managedByB = getManagedByArrows("b");
     assertEquals(5, managedByB.size());
-    Set<String> expectedNames = new HashSet<String>();
+    Set<String> expectedNames = new HashSet<>();
     expectedNames.add("p2");
     expectedNames.add("p3");
     expectedNames.add("p6");
     expectedNames.add("p7");
     expectedNames.add("p11");
-    Set<String> names = new HashSet<String>();
+    Set<String> names = new HashSet<>();
     for (var id : managedByB) {
       var transaction = session.getActiveTransaction();
       EntityImpl doc = transaction.load(id);
@@ -662,13 +664,13 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
 
     var managedByB = getManagedBy2("b");
     assertEquals(5, managedByB.size());
-    Set<String> expectedNames = new HashSet<String>();
+    Set<String> expectedNames = new HashSet<>();
     expectedNames.add("p2");
     expectedNames.add("p3");
     expectedNames.add("p6");
     expectedNames.add("p7");
     expectedNames.add("p11");
-    Set<String> names = new HashSet<String>();
+    Set<String> names = new HashSet<>();
     for (var id : managedByB) {
       var transaction = session.getActiveTransaction();
       EntityImpl doc = transaction.load(id);
@@ -710,13 +712,13 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
 
     var managedByB = getManagedBy2Arrows("b");
     assertEquals(5, managedByB.size());
-    Set<String> expectedNames = new HashSet<String>();
+    Set<String> expectedNames = new HashSet<>();
     expectedNames.add("p2");
     expectedNames.add("p3");
     expectedNames.add("p6");
     expectedNames.add("p7");
     expectedNames.add("p11");
-    Set<String> names = new HashSet<String>();
+    Set<String> names = new HashSet<>();
     for (var id : managedByB) {
       var transaction = session.getActiveTransaction();
       EntityImpl doc = transaction.load(id);
@@ -933,6 +935,155 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  @Test
+  public void testCartesianProduct() {
+    var query =
+        "match "
+            + "{class:Triangle, as: friend1, where:(uid = 1)},"
+            + "{class:Triangle, as: friend2, where:(uid = 2 or uid = 3)}"
+            + "return $matches";
+
+    session.begin();
+    var result = session.query(query).toList();
+    assertEquals(2, result.size());
+    for (var d : result) {
+      assertEquals(
+          1,
+          d.getEntity("friend1").<Object>getProperty(
+              "uid"));
+    }
+    session.commit();
+  }
+
+  @Test
+  public void testCartesianProductLimit() {
+    var query =
+        "match "
+            + "{class:Triangle, as: friend1, where:(uid = 1)},"
+            + "{class:Triangle, as: friend2, where:(uid = 2 or uid = 3)}"
+            + "return $matches LIMIT 1";
+
+    session.begin();
+    var result = session.query(query).toList();
+    assertEquals(1, result.size());
+    for (var d : result) {
+      assertEquals(
+          1,
+          (d.getEntity("friend1")).<Object>getProperty(
+              "uid"));
+    }
+    session.commit();
+  }
+
+  @Test
+  public void testArrayNumber() {
+    var query =
+        "match "
+            + "{class:Triangle, as: friend1, where: (uid = 0)}"
+            + "return friend1.out('Triangle')[0] as foo";
+
+    session.begin();
+    var result = session.query(query).toList();
+    assertEquals(1, result.size());
+    var doc = result.getFirst();
+    doc.getVertex("foo");
+    session.commit();
+  }
+
+  @Test
+  public void testArraySingleSelectors2() {
+    var query =
+        "match "
+            + "{class:Triangle, as: friend1, where: (uid = 0)}"
+            + "return friend1.out('TriangleE')[0,1] as foo";
+
+    session.begin();
+    var result = session.query(query).toList();
+    assertEquals(1, result.size());
+    var doc = result.getFirst();
+    var foo = doc.getProperty("foo");
+    assertNotNull(foo);
+    assertTrue(foo instanceof List);
+    assertEquals(2, ((List<?>) foo).size());
+    session.commit();
+  }
+
+  @Test
+  public void testArrayRangeSelectors1() {
+    var query =
+        "match "
+            + "{class:Triangle, as: friend1, where: (uid = 0)}"
+            + "return friend1.out('triangle')[0..1] as foo";
+
+    session.begin();
+    var result = session.query(query).toList();
+    assertEquals(1, result.size());
+    var doc = result.getFirst();
+    var foo = doc.getProperty("foo");
+    assertNotNull(foo);
+    assertTrue(foo instanceof List);
+    assertEquals(1, ((List<?>) foo).size());
+    session.commit();
+  }
+
+  @Test
+  public void testArrayRange2() {
+    var query =
+        "match "
+            + "{class:Triangle, as: friend1, where: (uid = 0)}"
+            + "return friend1.out('triangle')[0..2] as foo";
+
+    session.begin();
+    var result = session.query(query).toList();
+    assertEquals(1, result.size());
+    var doc = result.getFirst();
+    var foo = doc.getProperty("foo");
+    assertNotNull(foo);
+    assertTrue(foo instanceof List);
+    assertEquals(2, ((List<?>) foo).size());
+    session.commit();
+  }
+
+  @Test
+  public void testArrayRange3() {
+    var query =
+        "match "
+            + "{class:Triangle, as: friend1, where: (uid = 0)}"
+            + "return friend1.out('triangle')[0..3] as foo";
+
+    session.begin();
+    var result = session.query(query).toList();
+    assertEquals(1, result.size());
+    var doc = result.getFirst();
+    var foo = doc.getProperty("foo");
+    assertNotNull(foo);
+    assertTrue(foo instanceof List);
+    assertEquals(2, ((List<?>) foo).size());
+    session.commit();
+  }
+
+  @Test
+  public void testConditionInSquareBrackets() {
+    var query =
+        "match "
+            + "{class:Triangle, as: friend1, where: (uid = 0)}"
+            + "return friend1.out('triangle')[uid = 2] as foo";
+
+    session.begin();
+    var result = session.query(query).toList();
+    assertEquals(1, result.size());
+    var doc = result.getFirst();
+    var foo = doc.getLinkList("foo");
+    assertNotNull(foo);
+
+    assertEquals(1, foo.size());
+    var identifiable = foo.getFirst();
+    var transaction = session.getActiveTransaction();
+    var resultVertex = transaction.loadEntity(identifiable);
+    assertEquals(2, resultVertex.<Object>getProperty("uid"));
+    session.commit();
+  }
+
 
   private void initOrgChart() {
 
@@ -1002,10 +1153,10 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
       for (var child : children) {
         var childDepartment = session.query(
                 "select from Department where name = 'department" + child + "'")
-            .entityStream().findFirst().orElseThrow();
+            .findFirstEntity(entity -> entity);
         var parentDepartment = session.query(
                 "select from Department where name = 'department" + parent + "'")
-            .entityStream().findFirst().orElseThrow();
+            .findFirstEntity(entity -> entity);
         childDepartment.setLink("parentDepartment", parentDepartment);
       }
     }
@@ -1054,9 +1205,9 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
     };
     for (var edge : edges) {
       var fromEntity = session.query(
-          "select from Triangle where uid = ?", edge[0]).entityStream().findFirst().orElseThrow();
+          "select from Triangle where uid = ?", edge[0]).findFirstEntity(entity -> entity);
       var toEntity = session.query(
-          "select from Triangle where uid = ?", edge[1]).entityStream().findFirst().orElseThrow();
+          "select from Triangle where uid = ?", edge[1]).findFirstEntity(entity -> entity);
       fromEntity.getOrCreateLinkList("triangle").add(toEntity);
 
 
@@ -1084,47 +1235,4 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
     }
     session.commit();
   }
-
-  private void initEdgeIndexTest() {
-    session.execute("CREATE class IndexedVertex extends V").close();
-    session.execute("CREATE property IndexedVertex.uid INTEGER").close();
-    session.execute("CREATE index IndexedVertex_uid on IndexedVertex (uid) NOTUNIQUE").close();
-
-    session.execute("CREATE class IndexedEdge extends E").close();
-    session.execute("CREATE property IndexedEdge.out LINK").close();
-    session.execute("CREATE property IndexedEdge.in LINK").close();
-    session.execute("CREATE index IndexedEdge_out_in on IndexedEdge (out, in) NOTUNIQUE").close();
-
-    var nodes = 1000;
-    for (var i = 0; i < nodes; i++) {
-      session.begin();
-      var doc = session.newVertex("IndexedVertex");
-      doc.setProperty("uid", i);
-      session.commit();
-    }
-
-    session.begin();
-    for (var i = 0; i < 100; i++) {
-      session.execute(
-              "CREATE EDGE IndexedEDGE FROM (SELECT FROM IndexedVertex WHERE uid = 0) TO (SELECT"
-                  + " FROM IndexedVertex WHERE uid > "
-                  + (i * nodes / 100)
-                  + " and uid <"
-                  + ((i + 1) * nodes / 100)
-                  + ")")
-          .close();
-    }
-
-    for (var i = 0; i < 100; i++) {
-      session.execute(
-              "CREATE EDGE IndexedEDGE FROM (SELECT FROM IndexedVertex WHERE uid > "
-                  + ((i * nodes / 100) + 1)
-                  + " and uid < "
-                  + (((i + 1) * nodes / 100) + 1)
-                  + ") TO (SELECT FROM IndexedVertex WHERE uid = 1)")
-          .close();
-    }
-    session.commit();
-  }
-
 }
