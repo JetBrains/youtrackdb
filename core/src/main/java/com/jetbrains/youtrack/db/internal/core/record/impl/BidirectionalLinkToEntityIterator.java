@@ -28,8 +28,8 @@ public class BidirectionalLinkToEntityIterator<T extends Entity> implements Iter
   public T next() {
     var edge = linksIterator.next();
     return switch (direction) {
-      case OUT -> edge.getToEntity();
-      case IN -> edge.getFromEntity();
+      case OUT -> edge.toEntity();
+      case IN -> edge.fromEntity();
       default -> throw new IllegalStateException("Unexpected direction: " + direction);
     };
   }

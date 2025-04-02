@@ -1,9 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor.resultset;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import java.util.Iterator;
 import java.util.Spliterator;
 import java.util.function.Consumer;
@@ -17,6 +17,7 @@ public interface ExecutionStream {
   Result next(CommandContext ctx);
 
   void close(CommandContext ctx);
+
 
   default ExecutionStream map(ResultMapper mapper) {
     return new MapperExecutionStream(this, mapper);
@@ -46,7 +47,7 @@ public interface ExecutionStream {
     return new IteratorExecutionStream(iterator, alias);
   }
 
-  static ExecutionStream resultIterator(Iterator<Result> iterator) {
+  static ExecutionStream resultIterator(Iterator<? extends Result> iterator) {
     return new ResultIteratorExecutionStream(iterator);
   }
 

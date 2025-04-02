@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
+import java.util.Objects;
 
 /**
  *
@@ -38,7 +39,7 @@ public class OptionalMatchEdgeTraverser extends MatchEdgeTraverser {
       return sourceRecord;
     }
     if (!isEmptyOptional(next)) {
-      if (prevValue != null && !equals(prevValue, next.asEntity())) {
+      if (prevValue != null && !Objects.equals(prevValue, next)) {
         return null;
       }
     }
@@ -50,6 +51,11 @@ public class OptionalMatchEdgeTraverser extends MatchEdgeTraverser {
     }
     if (next.isEntity()) {
       result.setProperty(endPointAlias, toResult(session, next.asEntity()));
+    }
+    if (next instanceof ResultInternal resultInternal && resultInternal.isBiLink()) {
+      result.setProperty(endPointAlias,
+          ResultInternal.toResultInternal(resultInternal.asBiLink(), ctx.getDatabaseSession(),
+              null));
     } else {
       result.setProperty(endPointAlias, null);
     }

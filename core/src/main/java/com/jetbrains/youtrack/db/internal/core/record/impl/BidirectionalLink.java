@@ -9,10 +9,10 @@ import javax.annotation.Nullable;
 public interface BidirectionalLink<T extends Entity> {
 
   @Nullable
-  T getFromEntity();
+  T fromEntity();
 
   @Nullable
-  T getToEntity();
+  T toEntity();
 
   boolean isLabeled(@Nonnull String[] labels);
 
@@ -25,4 +25,6 @@ public interface BidirectionalLink<T extends Entity> {
   Map<String, Object> toMap();
 
   String toJSON();
+
+  String label();
 }

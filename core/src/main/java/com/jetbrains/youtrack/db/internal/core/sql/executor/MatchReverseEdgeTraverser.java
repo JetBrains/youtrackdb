@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.record.impl.BidirectionalLink;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLRid;
@@ -36,23 +37,19 @@ public class MatchReverseEdgeTraverser extends MatchEdgeTraverser {
 
   @Override
   protected ExecutionStream traversePatternEdge(
-      Identifiable startingPoint, CommandContext iCommandContext) {
+      Result startingPoint, CommandContext iCommandContext) {
 
     var qR = this.item.getMethod().executeReverse(startingPoint, iCommandContext);
-    if (qR == null) {
-      return ExecutionStream.empty();
-    }
-    if (qR instanceof ResultInternal) {
-      return ExecutionStream.singleton((ResultInternal) qR);
-    }
-    if (qR instanceof Identifiable) {
-      return ExecutionStream.singleton(
-          new ResultInternal(iCommandContext.getDatabaseSession(), (Identifiable) qR));
-    }
-    if (qR instanceof Iterable iterable) {
-      return ExecutionStream.iterator(iterable.iterator());
-    }
-    return ExecutionStream.empty();
+    return switch (qR) {
+      case null -> ExecutionStream.empty();
+      case ResultInternal resultInternal -> ExecutionStream.singleton(resultInternal);
+      case Identifiable identifiable -> ExecutionStream.singleton(
+          new ResultInternal(iCommandContext.getDatabaseSession(), identifiable));
+      case BidirectionalLink<?> bidirectionalLink -> ExecutionStream.singleton(
+          new ResultInternal(iCommandContext.getDatabaseSession(), bidirectionalLink));
+      case Iterable<?> iterable -> ExecutionStream.iterator(iterable.iterator());
+      default -> ExecutionStream.empty();
+    };
   }
 
   @Override

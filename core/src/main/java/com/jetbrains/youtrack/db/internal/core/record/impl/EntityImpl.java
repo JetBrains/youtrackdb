@@ -3669,11 +3669,18 @@ public class EntityImpl extends RecordAbstract implements Entity {
   protected Iterable<? extends BidirectionalLink<Entity>> getBidirectionalLinksInternal(
       Direction direction, String... linkNames) {
     if (linkNames == null || linkNames.length == 0) {
-      return Collections.emptyList();
+      var propertyNames = getPropertyNames();
+      var linkCandidates = new ArrayList<String>(propertyNames.size());
+
+      for (var propertyName : propertyNames) {
+        var propertyType = getPropertyTypeInternal(propertyName);
+        if (propertyType != null && propertyType.isLink()) {
+          linkCandidates.add(propertyName);
+        }
+      }
+
+      linkNames = linkCandidates.toArray(new String[0]);
     }
-
-    deserializeProperties(linkNames);
-
     var iterables = new ArrayList<Iterable<LightweightBidirectionalLinkImpl<Entity>>>(
         linkNames.length);
     Object fieldValue;
@@ -3712,6 +3719,13 @@ public class EntityImpl extends RecordAbstract implements Entity {
               new EntityLinksIterable(
                   this, new Pair<>(direction, linkName), linkNames, session,
                   bag, -1, bag));
+          case EntityLinkMapIml map -> {
+            var values = map.values();
+            iterables.add(
+                new EntityLinksIterable(this, new Pair<>(direction, linkName), linkNames, session,
+                    values, -1, values));
+          }
+
           default -> {
             throw new IllegalArgumentException(
                 "Unsupported property type: " + getPropertyType(propertyName));

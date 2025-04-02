@@ -266,10 +266,13 @@ public class ResultInternal implements Result {
         }
         if (result.isEdge()) {
           if (!result.isStatefulEdge()) {
-            throw new IllegalStateException("Lightweight edges are not supported in properties");
+            return result.asEdge();
           }
 
           return convertPropertyValue(result.asStatefulEdge());
+        }
+        if (result instanceof ResultInternal resultInternal && resultInternal.isBiLink()) {
+          return resultInternal.asBiLink();
         }
 
         var resultSession = result.getBoundedToSession();
@@ -384,7 +387,13 @@ public class ResultInternal implements Result {
 
         return mapCopy;
       }
-
+      case BidirectionalLink<?> biLink -> {
+        if (biLink.isLightweight()) {
+          return biLink;
+        } else {
+          return convertPropertyValue(biLink.asEntity());
+        }
+      }
       default -> {
         throw new CommandExecutionException(
             "Invalid property value for Result: " + value + " - " + value.getClass().getName());
@@ -948,7 +957,7 @@ public class ResultInternal implements Result {
       return false;
     }
 
-    if (bidirectionalLink != null) {
+    if (bidirectionalLink instanceof Edge) {
       return true;
     }
 
@@ -966,15 +975,14 @@ public class ResultInternal implements Result {
         return true;
       }
       default -> {
+        checkSessionForRecords();
+
+        var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
+        var cls = schemaSnapshot.getClassByClusterId(identifiable.getIdentity().getClusterId());
+
+        return cls != null && !cls.isAbstract() && cls.isEdgeType();
       }
     }
-
-    checkSessionForRecords();
-
-    var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
-    var cls = schemaSnapshot.getClassByClusterId(identifiable.getIdentity().getClusterId());
-
-    return cls != null && !cls.isAbstract() && cls.isEdgeType();
   }
 
   @Override
@@ -989,15 +997,14 @@ public class ResultInternal implements Result {
         return true;
       }
       default -> {
+        checkSessionForRecords();
+
+        var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
+        var cls = schemaSnapshot.getClassByClusterId(identifiable.getIdentity().getClusterId());
+
+        return cls != null && !cls.isAbstract() && cls.isVertexType();
       }
     }
-
-    checkSessionForRecords();
-
-    var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
-    var cls = schemaSnapshot.getClassByClusterId(identifiable.getIdentity().getClusterId());
-
-    return cls != null && !cls.isAbstract() && cls.isVertexType();
   }
 
   @Nonnull
@@ -1196,9 +1203,12 @@ public class ResultInternal implements Result {
   @Override
   public String toString() {
     if (identifiable != null) {
-      return identifiable.toString();
+      return "identifiable:" + identifiable;
     }
-    return "{\n"
+    if (bidirectionalLink != null) {
+      return "relation:" + bidirectionalLink.toJSON();
+    }
+    return "content:{\n"
         + content.entrySet().stream()
         .map(x -> x.getKey() + ": " + x.getValue())
         .reduce("", (a, b) -> a + b + "\n")
@@ -1212,12 +1222,44 @@ public class ResultInternal implements Result {
     }
 
     if (!(obj instanceof ResultInternal resultObj)) {
+      if (obj instanceof Result result) {
+        if (result.isRecord() && identifiable != null) {
+          return identifiable.equals(result.getIdentity());
+        } else if (result.isEdge() && bidirectionalLink instanceof Edge edge) {
+          return edge.equals(result.getIdentity());
+        } else if (result.isProjection() && content != null) {
+          var propNames = result.getPropertyNames();
+
+          if (propNames.size() != content.size()) {
+            return false;
+          }
+
+          //noinspection ObjectInstantiationInEqualsHashCode
+          for (var prop : propNames) {
+            var thisValue = content.get(prop);
+            var otherValue = result.getProperty(prop);
+            if (thisValue == null && otherValue == null) {
+              continue;
+            }
+            if (thisValue == null || otherValue == null) {
+              return false;
+            }
+            if (!thisValue.equals(otherValue)) {
+              return false;
+            }
+          }
+
+          return true;
+        }
+      }
+
       return false;
     }
 
     if (session != resultObj.session) {
       return false;
     }
+
     if (bidirectionalLink != null) {
       return bidirectionalLink.equals(resultObj.bidirectionalLink);
     } else if (identifiable != null) {
@@ -1243,6 +1285,78 @@ public class ResultInternal implements Result {
       return content.hashCode();
     } else {
       return super.hashCode();
+    }
+  }
+
+  @Nullable
+  public static Result toResult(@Nullable Object value, @Nonnull DatabaseSessionInternal session) {
+    return toResult(value, session, null);
+  }
+
+  @Nullable
+  public static Result toResult(@Nullable Object value,
+      @Nonnull DatabaseSessionInternal session, @Nullable String alias) {
+    if (value instanceof Result result) {
+      return result;
+    }
+
+    return toResultInternal(value, session, alias);
+  }
+
+  @Nullable
+  public static ResultInternal toResultInternal(@Nullable Object value,
+      @Nonnull DatabaseSessionInternal session) {
+    return toResultInternal(value, session, null);
+  }
+
+  @Nullable
+  public static ResultInternal toResultInternal(@Nullable Object value,
+      @Nonnull DatabaseSessionInternal session, @Nullable String alias) {
+    switch (value) {
+      case null -> {
+        return null;
+      }
+      case ResultInternal result -> {
+        return result;
+      }
+      case Identifiable identifiable -> {
+        if (alias != null) {
+          throw new IllegalArgumentException(
+              "Alias is not supported for identifiable values");
+        }
+        return new ResultInternal(session, identifiable);
+      }
+      case BidirectionalLink<?> bidirectionalLink -> {
+        return new ResultInternal(session, bidirectionalLink);
+      }
+      case Map<?, ?> map -> {
+        if (alias != null) {
+          throw new IllegalArgumentException(
+              "Alias is not supported for map values");
+        }
+
+        var result = new ResultInternal(session);
+        for (var entry : map.entrySet()) {
+          if (entry.getKey() instanceof String key) {
+            result.setProperty(key, entry.getValue());
+          } else {
+            throw new IllegalArgumentException(
+                "Invalid value, only maps with key types of String are supported : " +
+                    entry.getKey());
+          }
+        }
+        return result;
+      }
+      default -> {
+        var result = new ResultInternal(session);
+        if (alias != null) {
+          result.setProperty(alias, value);
+        } else {
+          throw new IllegalArgumentException(
+              "Not supported value type: " + value.getClass().getName());
+        }
+        return result;
+      }
     }
   }
 

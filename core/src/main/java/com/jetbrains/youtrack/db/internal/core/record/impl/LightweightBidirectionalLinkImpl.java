@@ -31,13 +31,13 @@ public class LightweightBidirectionalLinkImpl<T extends Entity> implements Bidir
 
   @Nullable
   @Override
-  public T getFromEntity() {
+  public T fromEntity() {
     return out;
   }
 
   @Nullable
   @Override
-  public T getToEntity() {
+  public T toEntity() {
     return in;
   }
 
@@ -77,7 +77,7 @@ public class LightweightBidirectionalLinkImpl<T extends Entity> implements Bidir
 
   @Override
   public Map<String, Object> toMap() {
-    return Map.of("out", out, "in", in);
+    return Map.of("out", out, "in", in, "label", label);
   }
 
   @Override
@@ -86,6 +86,41 @@ public class LightweightBidirectionalLinkImpl<T extends Entity> implements Bidir
         + out.getIdentity()
         + "\", \"in\":\""
         + in.getIdentity()
+        + "\", \"label\":\""
+        + label
         + "\"}";
+  }
+
+  @Override
+  public String label() {
+    return label;
+  }
+
+  @Override
+  public boolean equals(Object obj) {
+    if (this == obj) {
+      return true;
+    }
+    if (!(obj instanceof BidirectionalLink<?> bidirectionalLink)) {
+      return false;
+    }
+
+    if (!bidirectionalLink.isLightweight()) {
+      return false;
+    }
+
+    return out.equals(bidirectionalLink.fromEntity()) && in.equals(bidirectionalLink.toEntity())
+        && label.equals(bidirectionalLink.label());
+
+  }
+
+  @Override
+  public int hashCode() {
+    return super.hashCode();
+  }
+
+  @Override
+  public String toString() {
+    return super.toString();
   }
 }

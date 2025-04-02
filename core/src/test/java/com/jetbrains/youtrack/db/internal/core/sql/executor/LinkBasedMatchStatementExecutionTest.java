@@ -13,8 +13,7 @@ import java.util.List;
 import java.util.Set;
 import org.junit.Test;
 
-public class LinkSetMatchStatementExecutionTest extends DbTestBase {
-
+public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
   public void beforeTest() throws Exception {
     super.beforeTest();
     session.execute("CREATE class Person").close();
@@ -909,6 +908,23 @@ public class LinkSetMatchStatementExecutionTest extends DbTestBase {
             + "  -triangle->{as: friend3},"
             + "{class:Triangle, as: friend1}"
             + "  -triangle->{as: friend3}"
+            + "return $matches";
+
+    session.begin();
+    List<?> result = session.query(query).toList();
+    assertEquals(1, result.size());
+    session.commit();
+  }
+
+  @Test
+  public void testTriangleWithEdges4() {
+    var query =
+        "match "
+            + "{class:Triangle, as: friend1}"
+            + "  .outE('triangle').inV(){as: friend2, where: (uid = 1)}"
+            + "  .outE('triangle').inV(){as: friend3},"
+            + "{class:Triangle, as: friend1}"
+            + "  .outE('triangle').inV(){as: friend3}"
             + "return $matches";
 
     session.begin();
