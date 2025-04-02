@@ -29,7 +29,6 @@ import com.jetbrains.youtrack.db.internal.common.util.MultiKey;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandExecutorSQLCreateIndex;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -110,7 +109,8 @@ public class IndexManagerRemote implements IndexManagerAbstract {
     throw new UnsupportedOperationException();
   }
 
-  public void removeCollectionFromIndex(DatabaseSessionInternal session, final String collectionName,
+  public void removeCollectionFromIndex(DatabaseSessionInternal session,
+      final String collectionName,
       final String indexName) {
     throw new UnsupportedOperationException();
   }
@@ -431,7 +431,7 @@ public class IndexManagerRemote implements IndexManagerAbstract {
           .constructMapType(HashMap.class, String.class, Object.class);
 
       createIndexDDL +=
-          " " + CommandExecutorSQLCreateIndex.KEYWORD_METADATA + " " + objectMapper.convertValue(
+          " METADATA " + objectMapper.convertValue(
               metadata, typeRef);
     }
 

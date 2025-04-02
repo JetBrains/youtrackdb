@@ -41,20 +41,10 @@ import java.util.Set;
  */
 public abstract class CommandExecutorSQLAbstract extends CommandExecutorAbstract {
 
-  public static final String KEYWORD_FROM = "FROM";
-  public static final String KEYWORD_LET = "LET";
-  public static final String KEYWORD_WHERE = "WHERE";
-  public static final String KEYWORD_LIMIT = "LIMIT";
-  public static final String KEYWORD_SKIP = "SKIP";
-  public static final String KEYWORD_OFFSET = "OFFSET";
   public static final String KEYWORD_TIMEOUT = "TIMEOUT";
-  public static final String KEYWORD_RETURN = "RETURN";
-  public static final String KEYWORD_KEY = "key";
-  public static final String KEYWORD_RID = "rid";
   public static final String COLLECTION_PREFIX = "COLLECTION:";
   public static final String CLASS_PREFIX = "CLASS:";
   public static final String INDEX_PREFIX = "INDEX:";
-  public static final String KEYWORD_UNSAFE = "UNSAFE";
 
   public static final String INDEX_VALUES_PREFIX = "INDEXVALUES:";
   public static final String INDEX_VALUES_ASC_PREFIX = "INDEXVALUESASC:";
@@ -63,8 +53,6 @@ public abstract class CommandExecutorSQLAbstract extends CommandExecutorAbstract
   public static final String METADATA_PREFIX = "METADATA:";
   public static final String METADATA_SCHEMA = "SCHEMA";
   public static final String METADATA_INDEXMGR = "INDEXMANAGER";
-  public static final String METADATA_STORAGE = "STORAGE";
-  public static final String METADATA_DATABASE = "DATABASE";
 
   public static final String DEFAULT_PARAM_USER = "$user";
 

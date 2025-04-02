@@ -16,8 +16,8 @@ public class FilterOptimizerTest extends DbTestBase {
     var context = new BasicCommandContext();
     context.setDatabaseSession(session);
 
-    final var filter = SQLEngine.parseCondition("a = 3", context,
-        "WHERE");
+    final var filter = SQLEngine.parseCondition("a = 3", context
+    );
 
     final var condition = filter.getRootCondition();
 
@@ -38,7 +38,7 @@ public class FilterOptimizerTest extends DbTestBase {
     context.setDatabaseSession(session);
 
     final var filter =
-        SQLEngine.parseCondition("a = 3 and b = 4", context, "WHERE");
+        SQLEngine.parseCondition("a = 3 and b = 4", context);
 
     final var condition = filter.getRootCondition();
 
@@ -72,7 +72,7 @@ public class FilterOptimizerTest extends DbTestBase {
     context.setDatabaseSession(session);
 
     final var filter =
-        SQLEngine.parseCondition("a = 3 and b > 5", context, "WHERE");
+        SQLEngine.parseCondition("a = 3 and b > 5", context);
 
     final var condition = filter.getRootCondition();
 
@@ -94,8 +94,8 @@ public class FilterOptimizerTest extends DbTestBase {
     context.setDatabaseSession(session);
 
     final var filter =
-        SQLEngine.parseCondition("a = 3 and b.asFloat() > 3.14", context,
-            "WHERE");
+        SQLEngine.parseCondition("a = 3 and b.asFloat() > 3.14", context
+        );
 
     final var condition = filter.getRootCondition();
 

@@ -13,17 +13,12 @@ import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandExecutorSQLResultsetDelegate;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandExecutorSQLSelect;
 import com.jetbrains.youtrack.db.internal.core.sql.IterableRecordSource;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.MatchExecutionPlanner;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.PatternEdge;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.PatternNode;
-import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLTarget;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -33,7 +28,6 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -45,8 +39,6 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
   static final String DEFAULT_ALIAS_PREFIX = "$YOUTRACKDB_DEFAULT_ALIAS_";
 
   public static final String KEYWORD_MATCH = "MATCH";
-  private static final java.util.regex.Pattern CURRENT_PATTERN = java.util.regex.Pattern.compile(
-      "\\$currentMatch");
   // parsed data
   private List<SQLMatchExpression> matchExpressions = new ArrayList<>();
   private List<SQLMatchExpression> notMatchExpressions = new ArrayList<>();
@@ -538,71 +530,6 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
     return false;
   }
 
-  @Nullable
-  private static Iterator<Identifiable> query(
-      String className, SQLWhereClause oWhereClause, CommandContext ctx) {
-    final var database = ctx.getDatabaseSession();
-    var schemaClass = database.getMetadata().getSchema().getClass(className);
-    database.checkSecurity(
-        Rule.ResourceGeneric.CLASS,
-        Role.PERMISSION_READ,
-        schemaClass.getName().toLowerCase(Locale.ENGLISH));
-
-    String text;
-    if (oWhereClause == null) {
-      text = "(select from " + className + ")";
-    } else {
-      var builder = new StringBuilder();
-      oWhereClause.toString(ctx.getInputParameters(), builder);
-
-      // TODO make it more OO!
-      //      synchronized (oWhereClause) { //this instance is shared...
-      //        replaceIdentifier(oWhereClause, "$currentMatch", "@this"); //
-      //        newWhere = oWhereClause.replaceIdentifier("$currentMatch", "@this");
-      text =
-          "(select from "
-              + className
-              + " where "
-              + CURRENT_PATTERN.matcher(builder.toString()).replaceAll("@this")
-              + ")";
-      //        replaceIdentifier(oWhereClause, "@this", "$currentMatch");
-      //      }
-    }
-    var target = new SQLTarget(text, ctx);
-    var targetResult = target.getTargetRecords();
-    switch (targetResult) {
-      case null -> {
-        return null;
-      }
-      case CommandExecutorSQLSelect commandExecutorSQLSelect -> commandExecutorSQLSelect
-          .getContext()
-          .setRecordingMetrics(ctx.isRecordingMetrics());
-      case CommandExecutorSQLResultsetDelegate commandExecutorSQLResultsetDelegate -> {
-        var delegate =
-            commandExecutorSQLResultsetDelegate.getDelegate();
-        if (delegate instanceof CommandExecutorSQLSelect) {
-          delegate.getContext().setRecordingMetrics(ctx.isRecordingMetrics());
-        }
-      }
-      default -> {
-      }
-    }
-
-    return targetResult.iterator();
-  }
-
-  //  private void replaceIdentifier(SimpleNode node, String from, String to) {
-  //    if (node instanceof SQLIdentifier) {
-  //      if (from.equals(node.getValue())) {
-  //        ((SQLIdentifier) node).setStringValue(to);
-  //      }
-  //    } else {
-  //      for (int i = 0; i < node.jjtGetNumChildren(); i++) {
-  //        replaceIdentifier((SimpleNode) node.jjtGetChild(i), from, to);
-  //      }
-  //    }
-  //
-  //  }
 
   private static void addAliases(
       SQLMatchExpression expr,

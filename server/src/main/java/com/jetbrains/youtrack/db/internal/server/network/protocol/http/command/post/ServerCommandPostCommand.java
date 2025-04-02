@@ -32,7 +32,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMatchStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLStatement;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLTraverseStatement;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedDbAbstract;
@@ -222,8 +221,6 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
         limit = ((SQLSelectStatement) statement).getLimit();
       } else if (statement instanceof SQLMatchStatement) {
         limit = ((SQLMatchStatement) statement).getLimit();
-      } else if (statement instanceof SQLTraverseStatement) {
-        limit = ((SQLTraverseStatement) statement).getLimit();
       }
       if (limit != null) {
         return limit.getValue(new BasicCommandContext());

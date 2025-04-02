@@ -520,8 +520,10 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
       var entityIterator = session.browseClass("PersonTest");
       while (entityIterator.hasNext()) {
         var o = entityIterator.next();
-        for (Identifiable id : tx.query("traverse * from " + o.getIdentity())
-            .stream().map(Result::getIdentity).toList()) {
+        for (Identifiable id :
+            tx.query("match {class:PersonTest, where:(@rid =?)}.out(){as:record, maxDepth: 10000000} return record",
+                    o.getIdentity())
+                .stream().map(result -> result.getLink("record")).toList()) {
           tx.load(id.getIdentity()).toJSON();
         }
       }

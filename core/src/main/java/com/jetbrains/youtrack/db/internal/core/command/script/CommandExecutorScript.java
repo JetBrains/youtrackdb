@@ -506,7 +506,7 @@ public class CommandExecutorScript extends CommandExecutorAbstract
     var cmd = lastCommand;
     cmd = cmd.trim().substring(2); // remove IF
     cmd = cmd.trim().substring(0, cmd.trim().length() - 1); // remove {
-    var condition = SQLEngine.parseCondition(cmd, getContext(), "IF");
+    var condition = SQLEngine.parseCondition(cmd, getContext());
     Object result = null;
     try {
       result = condition.evaluate(null, null, getContext());

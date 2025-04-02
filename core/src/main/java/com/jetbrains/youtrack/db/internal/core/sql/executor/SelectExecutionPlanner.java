@@ -1115,17 +1115,17 @@ public class SelectExecutionPlanner {
       boolean profilingEnabled) {
     var db = ctx.getDatabaseSession();
     String schemaRecordIdAsString;
-    if (metadata.getName().equalsIgnoreCase(CommandExecutorSQLAbstract.METADATA_SCHEMA)) {
+    if (metadata.getName().equalsIgnoreCase("SCHEMA")) {
       schemaRecordIdAsString = db.getStorageInfo().getConfiguration().getSchemaRecordId();
       var schemaRid = new RecordId(schemaRecordIdAsString);
       plan.chain(new FetchFromRidsStep(Collections.singleton(schemaRid), ctx, profilingEnabled));
-    } else if (metadata.getName().equalsIgnoreCase(CommandExecutorSQLAbstract.METADATA_INDEXMGR)) {
+    } else if (metadata.getName().equalsIgnoreCase("INDEXMANAGER")) {
       schemaRecordIdAsString = db.getStorageInfo().getConfiguration().getIndexMgrRecordId();
       var schemaRid = new RecordId(schemaRecordIdAsString);
       plan.chain(new FetchFromRidsStep(Collections.singleton(schemaRid), ctx, profilingEnabled));
-    } else if (metadata.getName().equalsIgnoreCase(CommandExecutorSQLAbstract.METADATA_STORAGE)) {
+    } else if (metadata.getName().equalsIgnoreCase("STORAGE")) {
       plan.chain(new FetchFromStorageMetadataStep(ctx, profilingEnabled));
-    } else if (metadata.getName().equalsIgnoreCase(CommandExecutorSQLAbstract.METADATA_DATABASE)) {
+    } else if (metadata.getName().equalsIgnoreCase("DATABASE")) {
       plan.chain(new FetchFromDatabaseMetadataStep(ctx, profilingEnabled));
     } else {
       throw new UnsupportedOperationException("Invalid metadata: " + metadata.getName());
@@ -1822,7 +1822,8 @@ public class SelectExecutionPlanner {
           new FetchFromIndexStep(desc, !Boolean.FALSE.equals(orderAsc), ctx, profilingEnabled));
       IntArrayList filterCollectionIds;
       if (filterCollections != null) {
-        filterCollectionIds = classCollectionsFiltered(ctx.getDatabaseSession(), clazz, filterCollections);
+        filterCollectionIds = classCollectionsFiltered(ctx.getDatabaseSession(), clazz,
+            filterCollections);
       } else {
         filterCollectionIds = IntArrayList.of(clazz.getPolymorphicCollectionIds());
       }
@@ -1909,7 +1910,8 @@ public class SelectExecutionPlanner {
       subPlan.chain(new FetchFromIndexStep(desc, true, ctx, profilingEnabled));
       IntArrayList filterCollectionIds = null;
       if (filterCollections != null) {
-        filterCollectionIds = IntArrayList.of(ctx.getDatabaseSession().getCollectionsIds(filterCollections));
+        filterCollectionIds = IntArrayList.of(
+            ctx.getDatabaseSession().getCollectionsIds(filterCollections));
       }
       subPlan.chain(new GetValueFromIndexEntryStep(ctx, filterCollectionIds, profilingEnabled));
       if (desc.requiresDistinctStep()) {

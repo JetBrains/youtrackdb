@@ -26,7 +26,6 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandExecutorSQLCreateIndex;
 import it.unimi.dsi.fastutil.ints.IntCollection;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
@@ -505,7 +504,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
     ddl.append(" ) ").append(indexType).append(' ');
 
     if (engine != null) {
-      ddl.append(CommandExecutorSQLCreateIndex.KEYWORD_ENGINE + " ").append(engine).append(' ');
+      ddl.append("ENGINE ").append(engine).append(' ');
     }
 
     if (multiValueDefinitionIndex == -1) {
