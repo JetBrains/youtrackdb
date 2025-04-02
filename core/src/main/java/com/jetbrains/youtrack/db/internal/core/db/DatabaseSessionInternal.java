@@ -130,7 +130,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    */
   RecordSerializer getSerializer();
 
-  void registerHook(final @Nonnull RecordHook iHookImpl);
+  RecordHook registerHook(final @Nonnull RecordHook iHookImpl);
 
   /**
    * Retrieves all the registered hooks.

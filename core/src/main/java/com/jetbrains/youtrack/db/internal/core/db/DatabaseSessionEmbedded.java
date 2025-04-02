@@ -917,12 +917,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
 
       if (clazz != null) {
         checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, clazz.getName());
-        if (clazz.isScheduler()) {
-          getSharedContext().getScheduler().initScheduleRecord(entity);
-        }
         if (clazz.isUser()) {
           entity.validate();
-          SecurityUserImpl.encodePassword(this, entity);
         }
         if (clazz.isTriggered()) {
           ClassTrigger.onRecordBeforeCreate(entity, this);
@@ -947,9 +943,15 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
 
     if (recordAbstract instanceof EntityImpl entity) {
       var clazz = entity.getImmutableSchemaClass(this);
-
       if (clazz != null) {
-        if (clazz.isUser() || clazz.isRole() || clazz.isSecurityPolicy()) {
+        if (clazz.isUser()) {
+          SecurityUserImpl.encodePassword(this, entity);
+          sharedContext.getSecurity().incrementVersion(this);
+        }
+        if (clazz.isScheduler()) {
+          getSharedContext().getScheduler().initScheduleRecord(entity);
+        }
+        if (clazz.isRole() || clazz.isSecurityPolicy()) {
           sharedContext.getSecurity().incrementVersion(this);
         }
         if (clazz.isTriggered()) {
@@ -974,9 +976,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       if (clazz != null) {
         if (clazz.isScheduler()) {
           getSharedContext().getScheduler().preHandleUpdateScheduleInTx(this, entity);
-        }
-        if (clazz.isUser()) {
-          SecurityUserImpl.encodePassword(this, entity);
         }
         if (clazz.isTriggered()) {
           ClassTrigger.onRecordBeforeUpdate(entity, this);
@@ -1013,11 +1012,13 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     if (recordAbstract instanceof EntityImpl entity) {
       var clazz = entity.getImmutableSchemaClass(this);
       if (clazz != null) {
+
         if (clazz.isTriggered()) {
           ClassTrigger.onRecordAfterUpdate(entity, this);
-        }
-
-        if (clazz.isUser() || clazz.isRole() || clazz.isSecurityPolicy()) {
+        } else  if (clazz.isUser()) {
+          SecurityUserImpl.encodePassword(this, entity);
+          sharedContext.getSecurity().incrementVersion(this);
+        } else if (clazz.isRole() || clazz.isSecurityPolicy()) {
           sharedContext.getSecurity().incrementVersion(this);
         }
       }

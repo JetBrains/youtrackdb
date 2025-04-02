@@ -91,6 +91,7 @@ public class FrontendTransactionImpl implements
   protected final HashMap<RecordId, RecordOperation> operationsBetweenCallbacks = new HashMap<>();
   private final IdentityHashMap<RecordId, RecordOperation> operationsBetweenCallbacksIdentityMap =
       new IdentityHashMap<>();
+  private final ArrayList<RecordOperation> operationsForCallbackIteration = new ArrayList<>();
 
   protected HashMap<RecordId, List<FrontendTransactionRecordIndexOperation>> recordIndexOperations =
       new HashMap<>();
@@ -105,7 +106,8 @@ public class FrontendTransactionImpl implements
   protected int newRecordsPositionsGenerator = -2;
   private final HashMap<String, Object> userData = new HashMap<>();
 
-  private boolean callBacksInProgress = false;
+  private boolean callbacksInProgress = false;
+  private boolean beforeCallBacksInProgress = false;
 
   @Nullable
   private FrontendTransacationMetadataHolder metadata = null;
@@ -143,6 +145,10 @@ public class FrontendTransactionImpl implements
   public int beginInternal() {
     if (txStartCounter < 0) {
       throw new TransactionException(session, "Invalid value of TX counter: " + txStartCounter);
+    }
+    if (callbacksInProgress) {
+      throw new TransactionException(session,
+          "Callback processing is in progress. Cannot start a new transaction.");
     }
 
     if (txStartCounter == 0) {
@@ -559,12 +565,22 @@ public class FrontendTransactionImpl implements
   }
 
   public boolean isScheduledForCallbackProcessing(RecordId rid) {
-    return callBacksInProgress || operationsBetweenCallbacks.containsKey(rid);
+    if (operationsBetweenCallbacks.containsKey(rid)) {
+      return true;
+    }
+
+    for (var operation : operationsForCallbackIteration) {
+      if (operation.record.getIdentity().equals(rid)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   @Nullable
   public List<RecordId> preProcessRecordsAndExecuteCallCallbacks() {
-    if (callBacksInProgress) {
+    if (beforeCallBacksInProgress) {
       throw new IllegalStateException(
           "Callback processing is in progress, if you trigger this operation"
               + " in beforeCallBackXXX trigger please move it to the afterCallBackXXX trigger.");
@@ -574,51 +590,57 @@ public class FrontendTransactionImpl implements
       return null;
     }
 
-    var serializer = session.getSerializer();
     ArrayList<RecordId> newDeletedRecords = null;
+    callbacksInProgress = true;
+    try {
+      var serializer = session.getSerializer();
+      while (!operationsBetweenCallbacks.isEmpty()) {
+        var recordOperationsToCallback = operationsBetweenCallbacks.values();
+        operationsForCallbackIteration.clear();
 
-    while (!operationsBetweenCallbacks.isEmpty()) {
-      var recordOperationsToCallback = operationsBetweenCallbacks.values();
-      var operations = new ArrayList<RecordOperation>(recordOperationsToCallback.size());
+        for (var recordOperationToCallback : recordOperationsToCallback) {
+          var dirtyCounter = recordOperationToCallback.record.getDirtyCounter();
+          assert dirtyCounter >= recordOperationToCallback.recordBeforeCallBackDirtyCounter;
 
-      for (var recordOperationToCallback : recordOperationsToCallback) {
-        var dirtyCounter = recordOperationToCallback.record.getDirtyCounter();
-        assert dirtyCounter >= recordOperationToCallback.recordBeforeCallBackDirtyCounter;
-
-        if (recordOperationToCallback.recordBeforeCallBackDirtyCounter < dirtyCounter) {
-          operations.add(recordOperationToCallback);
-        }
-      }
-
-      callBacksInProgress = true;
-      try {
-        operationsBetweenCallbacks.clear();
-
-        operations.sort(
-            Comparator.<RecordOperation>comparingInt(recordOperation -> recordOperation.type)
-                .reversed());
-
-        for (var recordOperation : operations) {
-          //operations are processed and deleted from the map
-          preProcessRecordOperationAndExecuteBeforeCallbacks(recordOperation, serializer);
-
-          if (recordOperation.type == RecordOperation.DELETED
-              && recordOperation.record.getIdentity()
-              .isNew()) {
-            if (newDeletedRecords == null) {
-              newDeletedRecords = new ArrayList<>();
-            }
-
-            newDeletedRecords.add(recordOperation.getRecordId());
+          if (recordOperationToCallback.recordBeforeCallBackDirtyCounter < dirtyCounter) {
+            operationsForCallbackIteration.add(recordOperationToCallback);
           }
         }
-      } finally {
-        callBacksInProgress = false;
-      }
 
-      for (var recordOperation : operations) {
-        callAfterCallbacks(recordOperation);
+        beforeCallBacksInProgress = true;
+        try {
+          operationsBetweenCallbacks.clear();
+
+          operationsForCallbackIteration.sort(
+              Comparator.<RecordOperation>comparingInt(recordOperation -> recordOperation.type)
+                  .reversed());
+
+          for (var recordOperation : operationsForCallbackIteration) {
+            //operations are processed and deleted from the map
+            preProcessRecordOperationAndExecuteBeforeCallbacks(recordOperation, serializer);
+
+            if (recordOperation.type == RecordOperation.DELETED
+                && recordOperation.record.getIdentity().isNew()) {
+              if (newDeletedRecords == null) {
+                newDeletedRecords = new ArrayList<>();
+              }
+
+              newDeletedRecords.add(recordOperation.getRecordId());
+            }
+          }
+        } finally {
+          beforeCallBacksInProgress = false;
+        }
+
+        var postCallBackOperations = new ArrayList<>(operationsForCallbackIteration);
+        operationsForCallbackIteration.clear();
+
+        for (var recordOperation : postCallBackOperations) {
+          callAfterCallbacks(recordOperation);
+        }
       }
+    } finally {
+      callbacksInProgress = false;
     }
 
     if (newDeletedRecords != null) {
@@ -632,12 +654,13 @@ public class FrontendTransactionImpl implements
       }
     }
 
+    assert operationsForCallbackIteration.isEmpty();
     return newDeletedRecords;
   }
 
   @Override
   public boolean isCallBackProcessingInProgress() {
-    return callBacksInProgress;
+    return beforeCallBacksInProgress;
   }
 
   private void preProcessRecordOperationAndExecuteBeforeCallbacks(RecordOperation recordOperation,
@@ -673,24 +696,30 @@ public class FrontendTransactionImpl implements
         entity.recordSerializer = serializer;
       }
 
-      if (recordOperation.type == RecordOperation.CREATED) {
-        if (recordOperation.recordBeforeCallBackDirtyCounter == 0) {
-          if (className != null && !session.isRemote()) {
-            ClassIndexManager.checkIndexesAfterCreate(entityImpl, session);
+      recordOperation.record.processingInCallback = true;
+      try {
+        if (recordOperation.type == RecordOperation.CREATED) {
+          if (recordOperation.recordBeforeCallBackDirtyCounter == 0) {
+            if (className != null && !session.isRemote()) {
+              ClassIndexManager.checkIndexesAfterCreate(entityImpl, session);
+            }
+            session.beforeCreateOperations(record, clusterName);
+          } else {
+            if (className != null && !session.isRemote()) {
+              ClassIndexManager.checkIndexesAfterUpdate(entityImpl, session);
+            }
+            session.beforeUpdateOperations(record, clusterName);
           }
-          session.beforeCreateOperations(record, clusterName);
         } else {
-          if (className != null && !session.isRemote()) {
+          if (className != null) {
             ClassIndexManager.checkIndexesAfterUpdate(entityImpl, session);
           }
           session.beforeUpdateOperations(record, clusterName);
         }
-      } else {
-        if (className != null) {
-          ClassIndexManager.checkIndexesAfterUpdate(entityImpl, session);
-        }
-        session.beforeUpdateOperations(record, clusterName);
+      } finally {
+        recordOperation.record.processingInCallback = false;
       }
+
     } else if (recordOperation.type == RecordOperation.DELETED) {
       String className = null;
       EntityImpl entityImpl = null;
@@ -705,10 +734,18 @@ public class FrontendTransactionImpl implements
               className);
         }
       }
-      if (className != null && !session.isRemote()) {
-        ClassIndexManager.checkIndexesAfterDelete(entityImpl, session);
+
+      recordOperation.record.processingInCallback = true;
+      try {
+        if (className != null && !session.isRemote()) {
+          ClassIndexManager.checkIndexesAfterDelete(entityImpl, session);
+        }
+        session.beforeDeleteOperations(record, clusterName);
+      } finally {
+        recordOperation.record.processingInCallback = false;
       }
-      session.beforeDeleteOperations(record, clusterName);
+
+
     } else {
       throw new IllegalStateException(
           "Invalid record operation type " + recordOperation.type);

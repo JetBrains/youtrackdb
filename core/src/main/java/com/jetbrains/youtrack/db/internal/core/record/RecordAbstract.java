@@ -69,6 +69,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   @Nullable
   public RecordOperation txEntry;
+  public boolean processingInCallback = false;
 
   public RecordAbstract(@Nonnull DatabaseSessionInternal session) {
     recordId = new ChangeableRecordId();
@@ -180,6 +181,13 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   }
 
   private void incrementDirtyCounterAndRegisterInTx() {
+    if (processingInCallback) {
+      throw new IllegalStateException(
+          "Cannot set dirty in callback processing. "
+              + "If called this method in beforeCallbackXXX method, "
+              + "please move this call to afterCallbackXX method.");
+    }
+
     dirty++;
 
     assert txEntry == null || dirty >= txEntry.recordBeforeCallBackDirtyCounter + 1;
@@ -189,14 +197,16 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
     //either record is not registered in transaction or callbacks were called on previous version of record
     //or record changes are not sent to client side for remote storage
+    var tx = session.getTransactionInternal();
     if (txEntry == null || dirty == txEntry.recordBeforeCallBackDirtyCounter + 1
         || dirty == txEntry.dirtyCounterOnClientSide + 1) {
       if (!isEmbedded()) {
-        var tx = session.getTransactionInternal();
         tx.addRecordOperation(this, RecordOperation.UPDATED);
+        assert session.getTransactionInternal().isScheduledForCallbackProcessing(
+            recordId);
       }
     } else {
-      assert ((FrontendTransactionImpl) session.getTransactionInternal()).isScheduledForCallbackProcessing(
+      assert session.getTransactionInternal().isScheduledForCallbackProcessing(
           recordId);
     }
   }

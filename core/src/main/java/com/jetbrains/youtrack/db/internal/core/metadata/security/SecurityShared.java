@@ -30,6 +30,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
+import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SystemDatabase;
@@ -52,6 +53,7 @@ import com.jetbrains.youtrack.db.internal.core.security.SecurityUser.STATUSES;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBooleanExpression;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -63,6 +65,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * Shared security class. It's shared by all the database instances that point to the same storage.
@@ -177,13 +180,20 @@ public class SecurityShared implements SecurityInternal {
       final EntityImpl entity,
       final String iAllowFieldName,
       final Identifiable iId) {
-    return session.computeInTx(
-        transaction -> {
-          var field = entity.getOrCreateLinkSet(iAllowFieldName);
-          field.add(iId);
+    if (session.isTxActive()) {
+      return doAllowIdentity(entity, iAllowFieldName, iId);
+    }
 
-          return iId;
-        });
+    return session.computeInTx(
+        transaction -> doAllowIdentity(entity, iAllowFieldName, iId));
+  }
+
+  private static Identifiable doAllowIdentity(EntityImpl entity, String iAllowFieldName,
+      Identifiable iId) {
+    var field = entity.getOrCreateLinkSet(iAllowFieldName);
+    field.add(iId);
+
+    return iId;
   }
 
   @Override
@@ -634,17 +644,25 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public SecurityPolicyImpl getSecurityPolicy(DatabaseSession session, String name) {
-    return session.computeInTx(transaction -> {
-      try (var rs =
-          transaction.query(
-              "SELECT FROM " + SecurityPolicy.CLASS_NAME + " WHERE name = ?", name)) {
-        if (rs.hasNext()) {
-          var result = rs.next();
-          return new SecurityPolicyImpl(result.asEntity());
-        }
+    var currentTx = session.getActiveTransactionOrNull();
+    if (currentTx != null) {
+      return doGetSecurityPolicy(name, currentTx);
+    }
+
+    return session.computeInTx(transaction -> doGetSecurityPolicy(name, transaction));
+  }
+
+  @Nullable
+  private static SecurityPolicyImpl doGetSecurityPolicy(String name, Transaction transaction) {
+    try (var rs =
+        transaction.query(
+            "SELECT FROM " + SecurityPolicy.CLASS_NAME + " WHERE name = ?", name)) {
+      if (rs.hasNext()) {
+        var result = rs.next();
+        return new SecurityPolicyImpl(result.asEntity());
       }
-      return null;
-    });
+    }
+    return null;
   }
 
   @Override
@@ -1357,44 +1375,53 @@ public class SecurityShared implements SecurityInternal {
         .existsClass(Role.CLASS_NAME)) {
       return;
     }
+    if (session.isTxActive()) {
+      doInitPredicateOptimization(session, allClasses, result);
+    } else {
+      session.executeInTx(
+          transaction -> {
+            doInitPredicateOptimization(session, allClasses, result);
+          });
+    }
+  }
 
-    session.executeInTx(
-        transaction -> {
-          synchronized (this) {
-            try (var rs = session.query("select name, policies from " + Role.CLASS_NAME)) {
-              while (rs.hasNext()) {
-                var item = rs.next();
-                String roleName = item.getProperty("name");
+  private void doInitPredicateOptimization(DatabaseSessionInternal session,
+      Collection<SchemaClass> allClasses,
+      Map<String, Map<String, Boolean>> result) {
+    synchronized (this) {
+      try (var rs = session.query("select name, policies from " + Role.CLASS_NAME)) {
+        while (rs.hasNext()) {
+          var item = rs.next();
+          String roleName = item.getProperty("name");
 
-                Map<String, Identifiable> policies = item.getProperty("policies");
-                if (policies != null) {
-                  for (var policyEntry : policies.entrySet()) {
-                    var res = SecurityResource.getInstance(policyEntry.getKey());
-                    try {
-                      var transaction1 = session.getActiveTransaction();
-                      Entity policy = transaction1.load(policyEntry.getValue());
+          Map<String, Identifiable> policies = item.getProperty("policies");
+          if (policies != null) {
+            for (var policyEntry : policies.entrySet()) {
+              var res = SecurityResource.getInstance(policyEntry.getKey());
+              try {
+                var transaction1 = session.getActiveTransaction();
+                Entity policy = transaction1.load(policyEntry.getValue());
 
-                      for (var clazz : allClasses) {
-                        if (isClassInvolved(session, clazz, res)
-                            && !isAllAllowed(
-                            session,
-                            new ImmutableSecurityPolicy(session,
-                                new SecurityPolicyImpl(policy)))) {
-                          var roleMap =
-                              result.computeIfAbsent(roleName, k -> new HashMap<>());
-                          roleMap.put(clazz.getName(), true);
-                        }
-                      }
-                    } catch (RecordNotFoundException rne) {
-                      // ignore
-                    }
+                for (var clazz : allClasses) {
+                  if (isClassInvolved(session, clazz, res)
+                      && !isAllAllowed(
+                      session,
+                      new ImmutableSecurityPolicy(session,
+                          new SecurityPolicyImpl(policy)))) {
+                    var roleMap =
+                        result.computeIfAbsent(roleName, k -> new HashMap<>());
+                    roleMap.put(clazz.getName(), true);
                   }
                 }
+              } catch (RecordNotFoundException rne) {
+                // ignore
               }
             }
-            this.roleHasPredicateSecurityForClass = result;
           }
-        });
+        }
+      }
+      this.roleHasPredicateSecurityForClass = result;
+    }
   }
 
   private static boolean isAllAllowed(DatabaseSessionInternal db, SecurityPolicy policy) {

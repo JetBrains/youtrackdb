@@ -458,6 +458,11 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
+  public boolean isScheduledForCallbackProcessing(RecordId rid) {
+    return false;
+  }
+
+  @Override
   public FrontendTransactionIndexChanges getIndexChangesInternal(String indexName) {
     return null;
   }

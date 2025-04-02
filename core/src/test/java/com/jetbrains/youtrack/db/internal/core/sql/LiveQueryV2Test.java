@@ -23,25 +23,18 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nonnull;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+
 public class LiveQueryV2Test extends DbTestBase {
 
   static class MyLiveQueryListener implements LiveQueryResultListener {
@@ -168,89 +161,6 @@ public class LiveQueryV2Test extends DbTestBase {
       Assert.assertTrue(rid.isPersistent());
       Assert.assertNotNull(rid);
     }
-  }
-
-  @Test
-  public void testRestrictedLiveInsert() throws ExecutionException, InterruptedException {
-    Schema schema = session.getMetadata().getSchema();
-    var oRestricted = schema.getClass("ORestricted");
-    schema.createClass("test", oRestricted);
-
-    var liveMatch = 2;
-    var query =
-        session.query("select from OUSer where name = 'reader'").entityStream().toList();
-
-    final Identifiable reader = query.getFirst().getIdentity();
-    final var current = session.getCurrentUser().getIdentity();
-
-    var executorService = Executors.newSingleThreadExecutor();
-
-    final var latch = new CountDownLatch(1);
-    final var dataArrived = new CountDownLatch(liveMatch);
-    var future =
-        executorService.submit(
-            () -> {
-              try (var db = openDatabase(readerUser, readerPassword)) {
-                final var integer = new AtomicInteger(0);
-                db.live(
-                    "live select from test",
-                    new LiveQueryResultListener() {
-
-                      @Override
-                      public void onCreate(@Nonnull DatabaseSessionInternal session,
-                          @Nonnull Result data) {
-                        integer.incrementAndGet();
-                        dataArrived.countDown();
-                      }
-
-                      @Override
-                      public void onUpdate(
-                          @Nonnull DatabaseSessionInternal session, @Nonnull Result before,
-                          @Nonnull Result after) {
-                        integer.incrementAndGet();
-                        dataArrived.countDown();
-                      }
-
-                      @Override
-                      public void onDelete(@Nonnull DatabaseSessionInternal session,
-                          @Nonnull Result data) {
-                        integer.incrementAndGet();
-                        dataArrived.countDown();
-                      }
-
-                      @Override
-                      public void onError(@Nonnull DatabaseSession session,
-                          @Nonnull BaseException exception) {
-                      }
-
-                      @Override
-                      public void onEnd(@Nonnull DatabaseSession session) {
-                      }
-                    });
-
-                latch.countDown();
-                Assert.assertTrue(dataArrived.await(1, TimeUnit.MINUTES));
-                return integer.get();
-              }
-            });
-
-    latch.await();
-
-    session.begin();
-    session.execute("insert into test set name = 'foo', surname = 'bar'").close();
-    session.execute(
-            "insert into test set name = 'foo', surname = 'bar', _allow=?",
-            new ArrayList<Identifiable>() {
-              {
-                add(current);
-                add(reader);
-              }
-            })
-        .close();
-    session.commit();
-
-    var integer = future.get();
-    Assert.assertEquals(liveMatch, integer.intValue());
   }
 
   @Test

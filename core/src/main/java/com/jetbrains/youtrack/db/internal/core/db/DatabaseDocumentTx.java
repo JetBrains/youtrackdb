@@ -366,9 +366,11 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void registerHook(@Nonnull RecordHook iHookImpl) {
+  public RecordHook registerHook(@Nonnull RecordHook iHookImpl) {
     checkOpenness();
     internal.registerHook(iHookImpl);
+
+    return iHookImpl;
   }
 
 

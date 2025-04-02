@@ -112,7 +112,7 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
         true);
   }
 
-  public static boolean encodePassword(
+  public static void encodePassword(
       DatabaseSessionInternal session, final EntityImpl entity) {
     final String name = entity.getProperty(NAME_PROPERTY);
     if (name == null) {
@@ -130,10 +130,7 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
 
     if (!(!password.isEmpty() && password.charAt(0) == '{')) {
       entity.setProperty("password", encryptPassword(password));
-      return true;
     }
-
-    return false;
   }
 
   /**

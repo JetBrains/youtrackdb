@@ -22,7 +22,7 @@ public class HookChangeValidationTest extends DbTestBase {
     classA.createProperty("property2", PropertyType.STRING).setReadonly(true);
     classA.createProperty("property3", PropertyType.STRING).setMandatory(true);
     session.registerHook(
-        new EntityHookAbstract(session) {
+        new EntityHookAbstract() {
           @Override
           public void onBeforeEntityCreate(Entity entity) {
             entity.removeProperty("property1");
@@ -36,10 +36,9 @@ public class HookChangeValidationTest extends DbTestBase {
     doc.setProperty("property2", "value2-create");
     doc.setProperty("property3", "value3-create");
     try {
-
       session.commit();
-      Assert.fail("The document save should fail for validation exception");
-    } catch (ValidationException ex) {
+      Assert.fail("The document save should fail with illegal state exception");
+    } catch (IllegalStateException ex) {
     }
   }
 
@@ -51,7 +50,7 @@ public class HookChangeValidationTest extends DbTestBase {
     classA.createProperty("property2", PropertyType.STRING).setReadonly(true);
     classA.createProperty("property3", PropertyType.STRING).setMandatory(true);
     session.registerHook(
-        new EntityHookAbstract(session) {
+        new EntityHookAbstract() {
           @Override
           public void onAfterEntityCreate(Entity entity) {
             entity.removeProperty("property1");
@@ -80,7 +79,7 @@ public class HookChangeValidationTest extends DbTestBase {
     classA.createProperty("property2", PropertyType.STRING).setReadonly(true);
     classA.createProperty("property3", PropertyType.STRING).setMandatory(true);
     session.registerHook(
-        new EntityHookAbstract(session) {
+        new EntityHookAbstract() {
           @Override
           public void onBeforeEntityUpdate(Entity entity) {
             entity.removeProperty("property1");
@@ -109,8 +108,8 @@ public class HookChangeValidationTest extends DbTestBase {
       doc.setProperty("property2", "value2-update");
 
       session.commit();
-      Assert.fail("The document save should fail for validation exception");
-    } catch (ValidationException ex) {
+      Assert.fail("The document save should fail with illegal exception");
+    } catch (IllegalStateException ex) {
     }
   }
 
@@ -122,7 +121,7 @@ public class HookChangeValidationTest extends DbTestBase {
     classA.createProperty("property2", PropertyType.STRING).setReadonly(true);
     classA.createProperty("property3", PropertyType.STRING).setMandatory(true);
     session.registerHook(
-        new EntityHookAbstract(session) {
+        new EntityHookAbstract() {
           @Override
           public void onAfterEntityUpdate(Entity entity) {
             entity.removeProperty("property1");

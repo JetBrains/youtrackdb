@@ -447,14 +447,18 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   /**
    * {@inheritDoc}
+   *
+   * @return
    */
-  public void registerHook(final @Nonnull RecordHook iHookImpl) {
+  public RecordHook registerHook(final @Nonnull RecordHook iHookImpl) {
     checkOpenness();
     assert assertIfNotActive();
 
     if (!hooks.contains(iHookImpl)) {
       hooks.add(iHookImpl);
     }
+
+    return iHookImpl;
   }
 
   /**
