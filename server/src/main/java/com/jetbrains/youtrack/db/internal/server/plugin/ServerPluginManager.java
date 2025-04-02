@@ -43,6 +43,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
+import javax.annotation.Nullable;
 
 /**
  * Manages Server Extensions
@@ -102,6 +103,7 @@ public class ServerPluginManager implements Service {
     }
   }
 
+  @Nullable
   public ServerPluginInfo getPluginByName(final String iName) {
     if (iName == null) {
       return null;
@@ -173,6 +175,7 @@ public class ServerPluginManager implements Service {
     return "plugin-manager";
   }
 
+  @Nullable
   protected String updatePlugin(final File pluginFile) {
     final var pluginFileName = pluginFile.getName();
 

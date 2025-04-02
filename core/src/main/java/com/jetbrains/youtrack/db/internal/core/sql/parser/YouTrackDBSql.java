@@ -29,12 +29,12 @@ public class YouTrackDBSql/*@bgen(jjtree)*/implements YouTrackDBSqlTreeConstants
     try {
       if (jj_2_1(4)) {
         jj_consume_token(252);
-        jjtn000.cluster = Integer();
+        jjtn000.collection = Integer();
         jj_consume_token(COLON);
         jjtn000.position = Integer();
 jjtn000.legacy = true;
       } else if (jj_2_2(3)) {
-        jjtn000.cluster = Integer();
+        jjtn000.collection = Integer();
         jj_consume_token(COLON);
         jjtn000.position = Integer();
 jjtn000.legacy = true;

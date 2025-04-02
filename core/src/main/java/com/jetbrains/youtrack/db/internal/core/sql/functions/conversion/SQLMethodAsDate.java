@@ -25,6 +25,7 @@ import java.text.ParseException;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.GregorianCalendar;
+import javax.annotation.Nullable;
 
 /**
  * Transforms a value to date. If the conversion is not possible, null is returned.
@@ -42,6 +43,7 @@ public class SQLMethodAsDate extends AbstractSQLMethod {
     return "asDate()";
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,

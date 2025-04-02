@@ -19,6 +19,7 @@ import java.net.UnknownHostException;
 import java.security.PrivilegedAction;
 import java.util.Hashtable;
 import java.util.List;
+import javax.annotation.Nullable;
 import javax.naming.Context;
 import javax.naming.NamingEnumeration;
 import javax.naming.directory.Attribute;
@@ -380,6 +381,7 @@ public class LDAPLibrary {
     }
   }
 
+  @Nullable
   private static String getFirstValue(Attributes attrs, String name) {
     try {
       var attribute = attrs.get(name);

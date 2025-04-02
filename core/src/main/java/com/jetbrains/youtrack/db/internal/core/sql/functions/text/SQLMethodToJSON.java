@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Converts a document in JSON string.
@@ -40,6 +41,7 @@ public class SQLMethodToJSON extends AbstractSQLMethod {
     return "toJSON([<format>])";
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object current,

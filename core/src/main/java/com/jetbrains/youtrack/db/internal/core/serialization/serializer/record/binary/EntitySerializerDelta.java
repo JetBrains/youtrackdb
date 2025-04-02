@@ -58,6 +58,7 @@ import java.util.Map;
 import java.util.TimeZone;
 import java.util.UUID;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class EntitySerializerDelta {
 
@@ -1528,14 +1529,15 @@ public class EntitySerializerDelta {
     return HelperClasses.readType(bytes);
   }
 
+  @Nullable
   public static RID readOptimizedLink(DatabaseSessionInternal session, final BytesContainer bytes) {
-    var clusterId = VarIntSerializer.readAsInteger(bytes);
-    var clusterPos = VarIntSerializer.readAsLong(bytes);
+    var collectionId = VarIntSerializer.readAsInteger(bytes);
+    var collectionPos = VarIntSerializer.readAsLong(bytes);
 
-    if (clusterId == -2 && clusterPos == -2) {
+    if (collectionId == -2 && collectionPos == -2) {
       return null;
     } else {
-      RID rid = new RecordId(clusterId, clusterPos);
+      RID rid = new RecordId(collectionId, collectionPos);
 
       if (!rid.isPersistent()) {
         rid = session.refreshRid(rid);

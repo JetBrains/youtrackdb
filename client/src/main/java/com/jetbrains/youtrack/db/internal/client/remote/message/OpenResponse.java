@@ -14,8 +14,8 @@ public class OpenResponse implements BinaryResponse {
 
   private int sessionId;
   private byte[] sessionToken;
-  private int[] clusterIds;
-  private String[] clusterNames;
+  private int[] collectionIds;
+  private String[] collectionNames;
 
   private byte[] distributedConfiguration;
   private String serverVersion;
@@ -26,14 +26,14 @@ public class OpenResponse implements BinaryResponse {
   public OpenResponse(
       int sessionId,
       byte[] sessionToken,
-      int[] clusterIds,
-      String[] clusterNames,
+      int[] collectionIds,
+      String[] collectionNames,
       byte[] distriConf,
       String version) {
     this.sessionId = sessionId;
     this.sessionToken = sessionToken;
-    this.clusterIds = clusterIds;
-    this.clusterNames = clusterNames;
+    this.collectionIds = collectionIds;
+    this.collectionNames = collectionNames;
     this.distributedConfiguration = distriConf;
     this.serverVersion = version;
   }
@@ -47,8 +47,8 @@ public class OpenResponse implements BinaryResponse {
       channel.writeBytes(sessionToken);
     }
 
-    MessageHelper.writeClustersArray(
-        channel, new RawPair<>(clusterNames, clusterIds), protocolVersion);
+    MessageHelper.writeCollectionsArray(
+        channel, new RawPair<>(collectionNames, collectionIds), protocolVersion);
     channel.writeBytes(distributedConfiguration);
     channel.writeString(serverVersion);
   }
@@ -58,7 +58,7 @@ public class OpenResponse implements BinaryResponse {
       StorageRemoteSession session) throws IOException {
     sessionId = network.readInt();
     sessionToken = network.readBytes();
-    final var clusters = MessageHelper.readClustersArray(network);
+    final var collections = MessageHelper.readCollectionsArray(network);
     distributedConfiguration = network.readBytes();
     serverVersion = network.readString();
   }
@@ -71,12 +71,12 @@ public class OpenResponse implements BinaryResponse {
     return sessionToken;
   }
 
-  public int[] getClusterIds() {
-    return clusterIds;
+  public int[] getCollectionIds() {
+    return collectionIds;
   }
 
-  public String[] getClusterNames() {
-    return clusterNames;
+  public String[] getCollectionNames() {
+    return collectionNames;
   }
 
   public byte[] getDistributedConfiguration() {

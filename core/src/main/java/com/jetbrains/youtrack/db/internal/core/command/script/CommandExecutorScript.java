@@ -61,6 +61,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
+import javax.annotation.Nullable;
 import javax.script.Compilable;
 import javax.script.ScriptContext;
 import javax.script.ScriptException;
@@ -677,6 +678,7 @@ public class CommandExecutorScript extends CommandExecutorAbstract
     System.err.println(getValue(IOUtils.wrapStringContent(value, '\''), db));
   }
 
+  @Nullable
   private Object executeLet(final String lastCommand, final DatabaseSessionInternal db) {
     final var equalsPos = lastCommand.indexOf('=');
     final var variable = lastCommand.substring("let ".length(), equalsPos).trim();

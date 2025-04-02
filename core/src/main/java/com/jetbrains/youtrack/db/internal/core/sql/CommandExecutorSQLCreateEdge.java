@@ -42,6 +42,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * SQL CREATE EDGE command.
@@ -56,7 +57,7 @@ public class CommandExecutorSQLCreateEdge extends CommandExecutorSQLSetAware
   private String to;
   private SchemaClassInternal clazz;
   private String edgeLabel;
-  private String clusterName;
+  private String collectionName;
   private List<Pair<String, Object>> fields;
   private int batch = 100;
 
@@ -82,8 +83,8 @@ public class CommandExecutorSQLCreateEdge extends CommandExecutorSQLSetAware
       var temp = tempLower == null ? null : tempLower.toUpperCase(Locale.ENGLISH);
 
       while (temp != null) {
-        if (temp.equals("CLUSTER")) {
-          clusterName = parserRequiredWord(session.getDatabaseName(), false);
+        if (temp.equals("COLLECTION")) {
+          collectionName = parserRequiredWord(session.getDatabaseName(), false);
 
         } else if (temp.equals(KEYWORD_FROM)) {
           from = parserRequiredWord(false, "Syntax error", " =><,\r\n", session.getDatabaseName());
@@ -264,6 +265,7 @@ public class CommandExecutorSQLCreateEdge extends CommandExecutorSQLSetAware
     return edges;
   }
 
+  @Nullable
   private static Vertex toVertex(DatabaseSessionInternal db, Identifiable item) {
     if (item == null) {
       return null;
@@ -284,13 +286,13 @@ public class CommandExecutorSQLCreateEdge extends CommandExecutorSQLSetAware
   }
 
   @Override
-  public Set getInvolvedClusters(DatabaseSessionInternal session) {
+  public Set getInvolvedCollections(DatabaseSessionInternal session) {
     if (clazz != null) {
       return Collections.singleton(
-          session.getClusterNameById(
-              clazz.getClusterSelection().getCluster(session, clazz, null)));
-    } else if (clusterName != null) {
-      return getInvolvedClustersOfClusters(session, Collections.singleton(clusterName));
+          session.getCollectionNameById(
+              clazz.getCollectionSelection().getCollection(session, clazz, null)));
+    } else if (collectionName != null) {
+      return getInvolvedCollectionsOfCollections(session, Collections.singleton(collectionName));
     }
 
     return Collections.EMPTY_SET;
@@ -299,7 +301,7 @@ public class CommandExecutorSQLCreateEdge extends CommandExecutorSQLSetAware
 
   @Override
   public String getSyntax() {
-    return "CREATE EDGE [<class>] [CLUSTER <cluster>] "
+    return "CREATE EDGE [<class>] [COLLECTION <collection>] "
         + "FROM <rid>|(<query>|[<rid>]*) TO <rid>|(<query>|[<rid>]*) "
         + "[SET <field> = <expression>[,]*]|CONTENT {<JSON>} "
         + "[RETRY <retry> [WAIT <pauseBetweenRetriesInMs]] [BATCH <batch-size>]";

@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.TimeUnit;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -112,6 +113,7 @@ public class StorageRemotePushThread extends Thread {
     }
   }
 
+  @Nullable
   public <T extends BinaryResponse> T subscribe(
       BinaryRequest<T> request, StorageRemoteSession session) {
     try {

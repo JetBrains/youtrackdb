@@ -27,6 +27,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInter
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import java.util.Locale;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * SQL CREATE LINK command: Transform a JOIN relationship to a physical LINK
@@ -176,6 +177,7 @@ public class CommandExecutorSQLCreateLink extends CommandExecutorSQLAbstract {
     return this;
   }
 
+  @Nullable
   @Override
   public Object execute(DatabaseSessionInternal session, Map<Object, Object> iArgs) {
     return null;

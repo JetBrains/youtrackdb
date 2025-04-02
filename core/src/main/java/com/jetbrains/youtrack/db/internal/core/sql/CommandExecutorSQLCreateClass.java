@@ -20,7 +20,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.exception.ClusterDoesNotExistException;
+import com.jetbrains.youtrack.db.api.exception.CollectionDoesNotExistException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -44,16 +44,16 @@ public class CommandExecutorSQLCreateClass extends CommandExecutorSQLAbstract
   public static final String KEYWORD_CLASS = "CLASS";
   public static final String KEYWORD_EXTENDS = "EXTENDS";
   public static final String KEYWORD_ABSTRACT = "ABSTRACT";
-  public static final String KEYWORD_CLUSTER = "CLUSTER";
-  public static final String KEYWORD_CLUSTERS = "CLUSTERS";
+  public static final String KEYWORD_COLLECTION = "COLLECTION";
+  public static final String KEYWORD_COLLECTIONS = "COLLECTIONS";
   public static final String KEYWORD_IF = "IF";
   public static final String KEYWORD_NOT = "NOT";
   public static final String KEYWORD_EXISTS = "EXISTS";
 
   private String className;
   private final List<SchemaClass> superClasses = new ArrayList<SchemaClass>();
-  private int[] clusterIds;
-  private Integer clusters = null;
+  private int[] collectionIds;
+  private Integer collections = null;
   private boolean ifNotExists = false;
 
   public CommandExecutorSQLCreateClass parse(DatabaseSessionInternal session,
@@ -154,71 +154,71 @@ public class CommandExecutorSQLCreateClass extends CommandExecutorSQLAbstract
               }
             }
           }
-          case KEYWORD_CLUSTER -> {
+          case KEYWORD_COLLECTION -> {
             oldPos = pos;
             pos = nextWord(parserText, parserTextUpperCase, oldPos, word, false, " =><()");
             if (pos == -1) {
               throw new CommandSQLParsingException(session,
-                  "Syntax error after CLUSTER for class "
+                  "Syntax error after COLLECTION for class "
                       + className
-                      + ". Expected the cluster id or name. Use "
+                      + ". Expected the collection id or name. Use "
                       + getSyntax(),
                   parserText, oldPos);
             }
 
-            final var clusterIdsAsStrings = word.toString().split(",");
-            if (clusterIdsAsStrings.length > 0) {
-              clusterIds = new int[clusterIdsAsStrings.length];
-              for (var i = 0; i < clusterIdsAsStrings.length; ++i) {
-                if (Character.isDigit(clusterIdsAsStrings[i].charAt(0)))
-                // GET CLUSTER ID FROM NAME
+            final var collectionIdsAsStrings = word.toString().split(",");
+            if (collectionIdsAsStrings.length > 0) {
+              collectionIds = new int[collectionIdsAsStrings.length];
+              for (var i = 0; i < collectionIdsAsStrings.length; ++i) {
+                if (Character.isDigit(collectionIdsAsStrings[i].charAt(0)))
+                // GET COLLECTION ID FROM NAME
                 {
-                  clusterIds[i] = Integer.parseInt(clusterIdsAsStrings[i]);
+                  collectionIds[i] = Integer.parseInt(collectionIdsAsStrings[i]);
                 } else
-                // GET CLUSTER ID
+                // GET COLLECTION ID
                 {
-                  clusterIds[i] = session.getClusterIdByName(clusterIdsAsStrings[i]);
+                  collectionIds[i] = session.getCollectionIdByName(collectionIdsAsStrings[i]);
                 }
 
-                if (clusterIds[i] == -1) {
+                if (collectionIds[i] == -1) {
                   throw new CommandSQLParsingException(session,
-                      "Cluster with id " + clusterIds[i] + " does not exists", parserText, oldPos);
+                      "Collection with id " + collectionIds[i] + " does not exists", parserText, oldPos);
                 }
 
                 try {
-                  var clusterName = session.getClusterNameById(clusterIds[i]);
-                  if (clusterName == null) {
-                    throw new ClusterDoesNotExistException(session.getDatabaseName(),
-                        "Cluster with id "
-                            + clusterIds[i]
+                  var collectionName = session.getCollectionNameById(collectionIds[i]);
+                  if (collectionName == null) {
+                    throw new CollectionDoesNotExistException(session.getDatabaseName(),
+                        "Collection with id "
+                            + collectionIds[i]
                             + " does not exist inside of storage "
                             + session.getDatabaseName());
                   }
                 } catch (Exception e) {
                   throw BaseException.wrapException(
                       new CommandSQLParsingException(session,
-                          "Cluster with id " + clusterIds[i] + " does not exists",
+                          "Collection with id " + collectionIds[i] + " does not exists",
                           parserText, oldPos),
                       e, session);
                 }
               }
             }
           }
-          case KEYWORD_CLUSTERS -> {
+          case KEYWORD_COLLECTIONS -> {
             oldPos = pos;
             pos = nextWord(parserText, parserTextUpperCase, oldPos, word, false, " =><()");
             if (pos == -1) {
               throw new CommandSQLParsingException(session,
-                  "Syntax error after CLUSTERS for class "
+                  "Syntax error after COLLECTIONS for class "
                       + className
-                      + ". Expected the number of clusters. Use "
+                      + ". Expected the number of collections. Use "
                       + getSyntax(),
                   parserText, oldPos);
             }
 
-            clusters = Integer.parseInt(word.toString());
+            collections = Integer.parseInt(word.toString());
           }
-          case KEYWORD_ABSTRACT -> clusterIds = new int[]{-1};
+          case KEYWORD_ABSTRACT -> collectionIds = new int[]{-1};
           case KEYWORD_IF -> {
             oldPos = pos;
             pos = nextWord(parserText, parserTextUpperCase, oldPos, word, false, " =><()");
@@ -249,10 +249,10 @@ public class CommandExecutorSQLCreateClass extends CommandExecutorSQLAbstract
         oldPos = pos;
       }
 
-      if (clusterIds == null) {
-        final var clusterId = session.getClusterIdByName(className);
-        if (clusterId > -1) {
-          clusterIds = new int[]{clusterId};
+      if (collectionIds == null) {
+        final var collectionId = session.getCollectionIdByName(className);
+        if (collectionId > -1) {
+          collectionIds = new int[]{collectionId};
         }
       }
 
@@ -273,16 +273,16 @@ public class CommandExecutorSQLCreateClass extends CommandExecutorSQLAbstract
 
     var alreadyExists = session.getMetadata().getSchema().existsClass(className);
     if (!alreadyExists || !ifNotExists) {
-      if (clusters != null) {
+      if (collections != null) {
         session
             .getMetadata()
             .getSchema()
-            .createClass(className, clusters, superClasses.toArray(new SchemaClass[0]));
+            .createClass(className, collections, superClasses.toArray(new SchemaClass[0]));
       } else {
         session
             .getMetadata()
             .getSchema()
-            .createClass(className, clusterIds, superClasses.toArray(new SchemaClass[0]));
+            .createClass(className, collectionIds, superClasses.toArray(new SchemaClass[0]));
       }
     }
 
@@ -292,7 +292,7 @@ public class CommandExecutorSQLCreateClass extends CommandExecutorSQLAbstract
   @Override
   public String getSyntax() {
     return "CREATE CLASS <class> [IF NOT EXISTS] [EXTENDS <super-class> [,<super-class2>*] ]"
-        + " [CLUSTER <clusterId>*] [CLUSTERS <total-cluster-number>] [ABSTRACT]";
+        + " [COLLECTION <collectionId>*] [COLLECTIONS <total-collection-number>] [ABSTRACT]";
   }
 
   public String getUndoCommand() {

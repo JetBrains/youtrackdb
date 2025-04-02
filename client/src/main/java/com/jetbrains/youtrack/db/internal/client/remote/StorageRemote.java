@@ -30,7 +30,7 @@ import com.jetbrains.youtrack.db.internal.client.NotSendRequestException;
 import com.jetbrains.youtrack.db.internal.client.binary.SocketChannelBinaryAsynchClient;
 import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.client.remote.db.YTLiveQueryMonitorRemote;
-import com.jetbrains.youtrack.db.internal.client.remote.message.AddClusterRequest;
+import com.jetbrains.youtrack.db.internal.client.remote.message.AddCollectionRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransaction38Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransactionResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushRequest;
@@ -40,7 +40,7 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.CloseQueryReques
 import com.jetbrains.youtrack.db.internal.client.remote.message.Commit38Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CountRecordsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CountRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.DropClusterRequest;
+import com.jetbrains.youtrack.db.internal.client.remote.message.DropCollectionRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransaction38Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FloorPhysicalPositionsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.GetRecordMetadataRequest;
@@ -104,7 +104,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.ReadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.storage.RecordCallback;
 import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.StorageCluster;
+import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
@@ -161,13 +161,13 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
   private final BTreeCollectionManagerRemote sbTreeCollectionManager =
       new BTreeCollectionManagerRemote();
   private final RemoteURLs serverURLs;
-  private final Map<String, StorageCluster> clusterMap = new ConcurrentHashMap<String, StorageCluster>();
+  private final Map<String, StorageCollection> collectionMap = new ConcurrentHashMap<String, StorageCollection>();
   private final ExecutorService asynchExecutor;
   private final AtomicInteger users = new AtomicInteger(0);
   private final ContextConfiguration clientConfiguration;
   private final int connectionRetry;
   private final int connectionRetryDelay;
-  private StorageCluster[] clusters = CommonConst.EMPTY_CLUSTER_ARRAY;
+  private StorageCollection[] collections = CommonConst.EMPTY_COLLECTION_ARRAY;
   public RemoteConnectionManager connectionManager;
   private final Set<StorageRemoteSession> sessions =
       Collections.newSetFromMap(new ConcurrentHashMap<StorageRemoteSession, Boolean>());
@@ -564,7 +564,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     } while (true);
   }
 
-  public boolean isAssigningClusterIds() {
+  public boolean isAssigningCollectionIds() {
     return false;
   }
 
@@ -768,11 +768,11 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
             + " class.");
   }
 
-  public Set<String> getClusterNames() {
+  public Set<String> getCollectionNames() {
     stateLock.readLock().lock();
     try {
 
-      return new HashSet<String>(clusterMap.keySet());
+      return new HashSet<String>(collectionMap.keySet());
 
     } finally {
       stateLock.readLock().unlock();
@@ -895,62 +895,62 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return clientConfiguration;
   }
 
-  public long count(DatabaseSessionInternal session, final int iClusterId) {
-    return count(session, new int[]{iClusterId});
+  public long count(DatabaseSessionInternal session, final int iCollectionId) {
+    return count(session, new int[]{iCollectionId});
   }
 
-  public long count(DatabaseSessionInternal session, int iClusterId, boolean countTombstones) {
-    return count(session, new int[]{iClusterId}, countTombstones);
+  public long count(DatabaseSessionInternal session, int iCollectionId, boolean countTombstones) {
+    return count(session, new int[]{iCollectionId}, countTombstones);
   }
 
   public PhysicalPosition[] higherPhysicalPositions(
-      DatabaseSessionInternal session, final int iClusterId,
-      final PhysicalPosition iClusterPosition, int limit) {
+      DatabaseSessionInternal session, final int iCollectionId,
+      final PhysicalPosition iCollectionPosition, int limit) {
     var request =
-        new HigherPhysicalPositionsRequest(iClusterId, iClusterPosition, limit);
+        new HigherPhysicalPositionsRequest(iCollectionId, iCollectionPosition, limit);
 
     var response =
         networkOperation((DatabaseSessionRemote) session,
             request,
-            "Error on retrieving higher positions after " + iClusterPosition.clusterPosition);
+            "Error on retrieving higher positions after " + iCollectionPosition.collectionPosition);
     return response.getNextPositions();
   }
 
   public PhysicalPosition[] ceilingPhysicalPositions(
-      DatabaseSessionInternal session, final int clusterId,
+      DatabaseSessionInternal session, final int collectionId,
       final PhysicalPosition physicalPosition, int limit) {
 
     var request =
-        new CeilingPhysicalPositionsRequest(clusterId, physicalPosition, limit);
+        new CeilingPhysicalPositionsRequest(collectionId, physicalPosition, limit);
 
     var response =
         networkOperation((DatabaseSessionRemote) session,
             request,
-            "Error on retrieving ceiling positions after " + physicalPosition.clusterPosition);
+            "Error on retrieving ceiling positions after " + physicalPosition.collectionPosition);
     return response.getPositions();
   }
 
   public PhysicalPosition[] lowerPhysicalPositions(
-      DatabaseSessionInternal session, final int iClusterId,
+      DatabaseSessionInternal session, final int iCollectionId,
       final PhysicalPosition physicalPosition, int limit) {
     var request =
-        new LowerPhysicalPositionsRequest(physicalPosition, iClusterId, limit);
+        new LowerPhysicalPositionsRequest(physicalPosition, iCollectionId, limit);
     var response =
         networkOperation((DatabaseSessionRemote) session,
             request,
-            "Error on retrieving lower positions after " + physicalPosition.clusterPosition);
+            "Error on retrieving lower positions after " + physicalPosition.collectionPosition);
     return response.getPreviousPositions();
   }
 
   public PhysicalPosition[] floorPhysicalPositions(
-      DatabaseSessionInternal session, final int clusterId,
+      DatabaseSessionInternal session, final int collectionId,
       final PhysicalPosition physicalPosition, int limit) {
     var request =
-        new FloorPhysicalPositionsRequest(physicalPosition, clusterId, limit);
+        new FloorPhysicalPositionsRequest(physicalPosition, collectionId, limit);
     var response =
         networkOperation((DatabaseSessionRemote) session,
             request,
-            "Error on retrieving floor positions after " + physicalPosition.clusterPosition);
+            "Error on retrieving floor positions after " + physicalPosition.collectionPosition);
     return response.getPositions();
   }
 
@@ -969,16 +969,16 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return response.getCountRecords();
   }
 
-  public long count(DatabaseSessionInternal session, final int[] iClusterIds) {
-    return count(session, iClusterIds, false);
+  public long count(DatabaseSessionInternal session, final int[] iCollectionIds) {
+    return count(session, iCollectionIds, false);
   }
 
-  public long count(DatabaseSessionInternal session, final int[] iClusterIds,
+  public long count(DatabaseSessionInternal session, final int[] iCollectionIds,
       final boolean countTombstones) {
-    var request = new CountRequest(iClusterIds, countTombstones);
+    var request = new CountRequest(iCollectionIds, countTombstones);
     var response =
         networkOperation((DatabaseSessionRemote) session,
-            request, "Error on read record count in clusters: " + Arrays.toString(iClusterIds));
+            request, "Error on read record count in collections: " + Arrays.toString(iCollectionIds));
     return response.getCount();
   }
 
@@ -1250,7 +1250,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     final var response = networkOperationNoRetry(remoteSession, request,
         "Error on commit");
 
-    // two pass iteration, we update cluster ids, and then update positions
+    // two pass iteration, we update collection ids, and then update positions
     updateTxFromResponse(transaction, response);
     updateCollectionsFromChanges(
         transaction.getDatabaseSession().getBTreeCollectionManager(),
@@ -1276,126 +1276,126 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
   }
 
-  public int getClusterIdByName(final String iClusterName) {
+  public int getCollectionIdByName(final String iCollectionName) {
     stateLock.readLock().lock();
     try {
 
-      if (iClusterName == null) {
+      if (iCollectionName == null) {
         return -1;
       }
 
-      if (Character.isDigit(iClusterName.charAt(0))) {
-        return Integer.parseInt(iClusterName);
+      if (Character.isDigit(iCollectionName.charAt(0))) {
+        return Integer.parseInt(iCollectionName);
       }
 
-      final var cluster = clusterMap.get(iClusterName.toLowerCase(Locale.ENGLISH));
-      if (cluster == null) {
+      final var collection = collectionMap.get(iCollectionName.toLowerCase(Locale.ENGLISH));
+      if (collection == null) {
         return -1;
       }
 
-      return cluster.getId();
+      return collection.getId();
     } finally {
       stateLock.readLock().unlock();
     }
   }
 
-  public int addCluster(DatabaseSessionInternal database, final String iClusterName,
+  public int addCollection(DatabaseSessionInternal database, final String iCollectionName,
       final Object... iArguments) {
-    return addCluster(database, iClusterName, -1);
+    return addCollection(database, iCollectionName, -1);
   }
 
-  public int addCluster(DatabaseSessionInternal database, final String iClusterName,
+  public int addCollection(DatabaseSessionInternal database, final String iCollectionName,
       final int iRequestedId) {
-    var request = new AddClusterRequest(iRequestedId, iClusterName);
+    var request = new AddCollectionRequest(iRequestedId, iCollectionName);
     var response = networkOperationNoRetry((DatabaseSessionRemote) database,
         request,
-        "Error on add new cluster");
-    addNewClusterToConfiguration(response.getClusterId(), iClusterName);
-    return response.getClusterId();
+        "Error on add new collection");
+    addNewCollectionToConfiguration(response.getCollectionId(), iCollectionName);
+    return response.getCollectionId();
   }
 
-  public String getClusterNameById(int clusterId) {
+  public String getCollectionNameById(int collectionId) {
     stateLock.readLock().lock();
     try {
-      if (clusterId < 0 || clusterId >= clusters.length) {
-        throw new StorageException(name, "Cluster with id " + clusterId + " does not exist");
+      if (collectionId < 0 || collectionId >= collections.length) {
+        throw new StorageException(name, "Collection with id " + collectionId + " does not exist");
       }
 
-      final var cluster = clusters[clusterId];
-      return cluster.getName();
+      final var collection = collections[collectionId];
+      return collection.getName();
     } finally {
       stateLock.readLock().unlock();
     }
   }
 
-  public long getClusterRecordsSizeById(int clusterId) {
+  public long getCollectionRecordsSizeById(int collectionId) {
     throw new UnsupportedOperationException();
   }
 
-  public long getClusterRecordsSizeByName(String clusterName) {
+  public long getCollectionRecordsSizeByName(String collectionName) {
     throw new UnsupportedOperationException();
   }
 
-  public String getClusterRecordConflictStrategy(int clusterId) {
+  public String getCollectionRecordConflictStrategy(int collectionId) {
     throw new UnsupportedOperationException();
   }
 
-  public boolean isSystemCluster(int clusterId) {
+  public boolean isSystemCollection(int collectionId) {
     throw new UnsupportedOperationException();
   }
 
-  public boolean dropCluster(DatabaseSessionInternal database, final int iClusterId) {
+  public boolean dropCollection(DatabaseSessionInternal database, final int iCollectionId) {
 
-    var request = new DropClusterRequest(iClusterId);
+    var request = new DropCollectionRequest(iCollectionId);
 
     var response =
         networkOperationNoRetry((DatabaseSessionRemote) database, request,
-            "Error on removing of cluster");
+            "Error on removing of collection");
     if (response.getResult()) {
-      removeClusterFromConfiguration(iClusterId);
+      removeCollectionFromConfiguration(iCollectionId);
     }
     return response.getResult();
   }
 
-  public String getClusterName(DatabaseSessionInternal database, int clusterId) {
+  public String getCollectionName(DatabaseSessionInternal database, int collectionId) {
     stateLock.readLock().lock();
     try {
-      if (clusterId == RID.CLUSTER_ID_INVALID) {
-        // GET THE DEFAULT CLUSTER
-        throw new StorageException(name, "Cluster " + clusterId + " is absent in storage.");
+      if (collectionId == RID.COLLECTION_ID_INVALID) {
+        // GET THE DEFAULT COLLECTION
+        throw new StorageException(name, "Collection " + collectionId + " is absent in storage.");
       }
 
-      if (clusterId >= clusters.length) {
+      if (collectionId >= collections.length) {
         stateLock.readLock().unlock();
         reload(database);
         stateLock.readLock().lock();
       }
 
-      if (clusterId < clusters.length) {
-        return clusters[clusterId].getName();
+      if (collectionId < collections.length) {
+        return collections[collectionId].getName();
       }
     } finally {
       stateLock.readLock().unlock();
     }
 
-    throw new StorageException(name, "Cluster " + clusterId + " is absent in storage.");
+    throw new StorageException(name, "Collection " + collectionId + " is absent in storage.");
   }
 
-  public boolean setClusterAttribute(int id, StorageCluster.ATTRIBUTES attribute, Object value) {
+  public boolean setCollectionAttribute(int id, StorageCollection.ATTRIBUTES attribute, Object value) {
     return false;
   }
 
-  public void removeClusterFromConfiguration(int iClusterId) {
+  public void removeCollectionFromConfiguration(int iCollectionId) {
     stateLock.writeLock().lock();
     try {
-      // If this is false the clusters may be already update by a push
-      if (clusters.length > iClusterId && clusters[iClusterId] != null) {
-        // Remove cluster locally waiting for the push
-        final var cluster = clusters[iClusterId];
-        clusters[iClusterId] = null;
-        clusterMap.remove(cluster.getName());
+      // If this is false the collections may be already update by a push
+      if (collections.length > iCollectionId && collections[iCollectionId] != null) {
+        // Remove collection locally waiting for the push
+        final var collection = collections[iCollectionId];
+        collections[iCollectionId] = null;
+        collectionMap.remove(collection.getName());
         ((StorageConfigurationRemote) configuration)
-            .dropCluster(iClusterId); // endResponse must be called before this line, which
+            .dropCollection(iCollectionId); // endResponse must be called before this line, which
         // call updateRecord
       }
     } finally {
@@ -1406,36 +1406,37 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
   public void synch() {
   }
 
-  public String getPhysicalClusterNameById(final int iClusterId) {
+  @Nullable
+  public String getPhysicalCollectionNameById(final int iCollectionId) {
     stateLock.readLock().lock();
     try {
 
-      if (iClusterId >= clusters.length) {
+      if (iCollectionId >= collections.length) {
         return null;
       }
 
-      final var cluster = clusters[iClusterId];
-      return cluster != null ? cluster.getName() : null;
+      final var collection = collections[iCollectionId];
+      return collection != null ? collection.getName() : null;
 
     } finally {
       stateLock.readLock().unlock();
     }
   }
 
-  public int getClusterMap() {
+  public int getCollectionMap() {
     stateLock.readLock().lock();
     try {
-      return clusterMap.size();
+      return collectionMap.size();
     } finally {
       stateLock.readLock().unlock();
     }
   }
 
-  public Collection<StorageCluster> getClusterInstances() {
+  public Collection<StorageCollection> getCollectionInstances() {
     stateLock.readLock().lock();
     try {
 
-      return Arrays.asList(clusters);
+      return Arrays.asList(collections);
 
     } finally {
       stateLock.readLock().unlock();
@@ -1481,10 +1482,10 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return EngineRemote.NAME + ":" + url;
   }
 
-  public int getClusters() {
+  public int getCollections() {
     stateLock.readLock().lock();
     try {
-      return clusterMap.size();
+      return collectionMap.size();
     } finally {
       stateLock.readLock().unlock();
     }
@@ -1494,6 +1495,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return EngineRemote.NAME;
   }
 
+  @Nullable
   public String getUserName(DatabaseSessionInternal database) {
     final var session = getCurrentSession((DatabaseSessionRemote) database);
     if (session == null) {
@@ -1649,8 +1651,8 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
         .debug(
             this, "Client connected to %s with session id=%d", network.getServerURL(), sessionId);
 
-    // READ CLUSTER CONFIGURATION
-    // updateClusterConfiguration(network.getServerURL(),
+    // READ COLLECTION CONFIGURATION
+    // updateCollectionConfiguration(network.getServerURL(),
     // response.getDistributedConfiguration());
 
     // This need to be protected by a lock for now, let's see in future
@@ -1898,29 +1900,29 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
         return;
       }
       this.configuration = storageConfiguration;
-      final var configClusters = storageConfiguration.getClusters();
-      var clusters = new StorageCluster[configClusters.size()];
-      for (var clusterConfig : configClusters) {
-        if (clusterConfig != null) {
-          final var cluster = new StorageClusterRemote();
-          var clusterName = clusterConfig.getName();
-          final var clusterId = clusterConfig.getId();
-          if (clusterName != null) {
-            clusterName = clusterName.toLowerCase(Locale.ENGLISH);
-            cluster.configure(clusterId, clusterName);
-            if (clusterId >= clusters.length) {
-              clusters = Arrays.copyOf(clusters, clusterId + 1);
+      final var configCollections = storageConfiguration.getCollections();
+      var collections = new StorageCollection[configCollections.size()];
+      for (var collectionConfig : configCollections) {
+        if (collectionConfig != null) {
+          final var collection = new StorageCollectionRemote();
+          var collectionName = collectionConfig.getName();
+          final var collectionId = collectionConfig.getId();
+          if (collectionName != null) {
+            collectionName = collectionName.toLowerCase(Locale.ENGLISH);
+            collection.configure(collectionId, collectionName);
+            if (collectionId >= collections.length) {
+              collections = Arrays.copyOf(collections, collectionId + 1);
             }
-            clusters[clusterId] = cluster;
+            collections[collectionId] = collection;
           }
         }
       }
 
-      this.clusters = clusters;
-      clusterMap.clear();
-      for (var cluster : clusters) {
-        if (cluster != null) {
-          clusterMap.put(cluster.getName(), cluster);
+      this.collections = collections;
+      collectionMap.clear();
+      for (var collection : collections) {
+        if (collection != null) {
+          collectionMap.put(collection.getName(), collection);
         }
       }
     } finally {
@@ -1995,20 +1997,20 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
   }
 
-  public void addNewClusterToConfiguration(int clusterId, String iClusterName) {
+  public void addNewCollectionToConfiguration(int collectionId, String iCollectionName) {
     stateLock.writeLock().lock();
     try {
       // If this if is false maybe the content was already update by the push
-      if (clusters.length <= clusterId || clusters[clusterId] == null) {
-        // Adding the cluster waiting for the push
-        final var cluster = new StorageClusterRemote();
-        cluster.configure(clusterId, iClusterName.toLowerCase(Locale.ENGLISH));
+      if (collections.length <= collectionId || collections[collectionId] == null) {
+        // Adding the collection waiting for the push
+        final var collection = new StorageCollectionRemote();
+        collection.configure(collectionId, iCollectionName.toLowerCase(Locale.ENGLISH));
 
-        if (clusters.length <= clusterId) {
-          clusters = Arrays.copyOf(clusters, clusterId + 1);
+        if (collections.length <= collectionId) {
+          collections = Arrays.copyOf(collections, collectionId + 1);
         }
-        clusters[cluster.getId()] = cluster;
-        clusterMap.put(cluster.getName().toLowerCase(Locale.ENGLISH), cluster);
+        collections[collection.getId()] = collection;
+        collectionMap.put(collection.getName().toLowerCase(Locale.ENGLISH), collection);
       }
     } finally {
       stateLock.writeLock().unlock();
@@ -2039,7 +2041,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
       var txEntry = transaction.getRecordEntry(oldRid);
       assert txEntry.record.getIdentity() instanceof ChangeableIdentity;
       txEntry.record.getIdentity()
-          .setClusterAndPosition(newRid.getClusterId(), newRid.getClusterPosition());
+          .setCollectionAndPosition(newRid.getCollectionId(), newRid.getCollectionPosition());
 
       assert transaction.assertIdentityChangedAfterCommit(oldRid, newRid);
     }
@@ -2073,6 +2075,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     updateTxFromResponse(transaction, response);
   }
 
+  @Nullable
   public BinaryPushRequest createPush(byte type) {
     return switch (type) {
       case ChannelBinaryProtocol.REQUEST_PUSH_DISTRIB_CONFIG ->
@@ -2088,23 +2091,27 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     };
   }
 
+  @Nullable
   public BinaryPushResponse executeUpdateDistributedConfig(
       PushDistributedConfigurationRequest request) {
     serverURLs.updateDistributedNodes(request.getHosts(), configuration.getContextConfiguration());
     return null;
   }
 
+  @Nullable
   public BinaryPushResponse executeUpdateSequences(PushSequencesRequest request) {
     DatabaseSessionRemote.updateSequences(this);
     return null;
   }
 
+  @Nullable
   public BinaryPushResponse executeUpdateIndexManager(PushIndexManagerRequest request) {
     DatabaseSessionRemote.updateIndexManager(this);
     return null;
   }
 
 
+  @Nullable
   public BinaryPushResponse executeUpdateStorageConfig(PushStorageConfigurationRequest payload) {
     final StorageConfiguration storageConfiguration =
         new StorageConfigurationRemote(
@@ -2116,11 +2123,13 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return null;
   }
 
+  @Nullable
   public BinaryPushResponse executeUpdateFunction(PushFunctionsRequest request) {
     DatabaseSessionRemote.updateFunction(this);
     return null;
   }
 
+  @Nullable
   public BinaryPushResponse executeUpdateSchema(PushSchemaRequest request) {
     DatabaseSessionRemote.updateSchema(this);
     return null;
@@ -2281,11 +2290,11 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     throw new UnsupportedOperationException();
   }
 
-  public void setClusterSelection(String clusterSelection) {
+  public void setCollectionSelection(String collectionSelection) {
     throw new UnsupportedOperationException();
   }
 
-  public void setMinimumClusters(int minimumClusters) {
+  public void setMinimumCollections(int minimumCollections) {
     throw new UnsupportedOperationException();
   }
 
@@ -2325,21 +2334,22 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     close(session, false);
   }
 
-  public boolean dropCluster(DatabaseSessionInternal session, final String iClusterName) {
-    return dropCluster(session, getClusterIdByName(iClusterName));
+  public boolean dropCollection(DatabaseSessionInternal session, final String iCollectionName) {
+    return dropCollection(session, getCollectionIdByName(iCollectionName));
   }
 
   public CurrentStorageComponentsFactory getComponentsFactory() {
     return componentsFactory;
   }
 
+  @Nullable
   @Override
   public Storage getUnderlying() {
     return null;
   }
 
   @Override
-  public int[] getClustersIds(Set<String> filterClusters) {
+  public int[] getCollectionsIds(Set<String> filterCollections) {
     throw new UnsupportedOperationException();
   }
 

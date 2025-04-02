@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * This {@link SQLFunction} is able to invoke a static method using reflection. If contains more
@@ -92,6 +93,7 @@ public class SQLStaticReflectiveFunction extends SQLFunctionAbstract {
         });
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
@@ -133,6 +135,7 @@ public class SQLStaticReflectiveFunction extends SQLFunctionAbstract {
     return this.getName(session);
   }
 
+  @Nullable
   private Method pickMethod(Object[] iParams) {
     for (var m : methods) {
       var parameterTypes = m.getParameterTypes();

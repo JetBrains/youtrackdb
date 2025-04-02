@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.common.comparator;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import java.util.Comparator;
+import javax.annotation.Nullable;
 
 /**
  * Creates comparators for classes that does not implement {@link Comparable} but logically can be
@@ -54,6 +55,7 @@ public class ComparatorFactory {
    * @param <T>   Class of object that is going to be compared.
    * @return {@link Comparator} instance if applicable one exist or <code>null</code> otherwise.
    */
+  @Nullable
   @SuppressWarnings("unchecked")
   public <T> Comparator<T> getComparator(Class<T> clazz) {
     var useUnsafe = GlobalConfiguration.MEMORY_USE_UNSAFE.getValueAsBoolean();

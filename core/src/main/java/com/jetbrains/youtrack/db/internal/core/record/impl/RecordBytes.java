@@ -61,7 +61,7 @@ public class RecordBytes extends RecordAbstract implements Blob {
     super(session);
     assert assertIfAlreadyLoaded(recordId);
 
-    recordId.setClusterAndPosition(iRecordId.getClusterId(), iRecordId.getClusterPosition());
+    recordId.setCollectionAndPosition(iRecordId.getCollectionId(), iRecordId.getCollectionPosition());
   }
 
   @Override

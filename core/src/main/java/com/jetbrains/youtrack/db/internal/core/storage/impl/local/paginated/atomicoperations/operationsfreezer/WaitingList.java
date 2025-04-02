@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.operationsfreezer;
 
 import java.util.concurrent.atomic.AtomicReference;
+import javax.annotation.Nullable;
 
 final class WaitingList {
 
@@ -26,6 +27,7 @@ final class WaitingList {
     }
   }
 
+  @Nullable
   public WaitingListNode cutWaitingList() {
     while (true) {
       final var tail = this.tail.get();

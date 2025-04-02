@@ -154,7 +154,7 @@ public class TransactionAtomicTest extends BaseDBTest {
           .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
     }
 
-    Assert.assertEquals(session.countClusterElements("Fruit"), 0);
+    Assert.assertEquals(session.countCollectionElements("Fruit"), 0);
 
     try {
       session.begin();
@@ -170,13 +170,13 @@ public class TransactionAtomicTest extends BaseDBTest {
 
       session.commit();
 
-      Assert.assertEquals(apple.getIdentity().getClusterId(), fruitClass.getClusterIds()[0]);
-      Assert.assertEquals(orange.getIdentity().getClusterId(),
-          fruitClass.getClusterIds()[0]);
-      Assert.assertEquals(banana.getIdentity().getClusterId(),
-          fruitClass.getClusterIds()[0]);
-      Assert.assertEquals(kumquat.getIdentity().getClusterId(),
-          fruitClass.getClusterIds()[0]);
+      Assert.assertEquals(apple.getIdentity().getCollectionId(), fruitClass.getCollectionIds()[0]);
+      Assert.assertEquals(orange.getIdentity().getCollectionId(),
+          fruitClass.getCollectionIds()[0]);
+      Assert.assertEquals(banana.getIdentity().getCollectionId(),
+          fruitClass.getCollectionIds()[0]);
+      Assert.assertEquals(kumquat.getIdentity().getCollectionId(),
+          fruitClass.getCollectionIds()[0]);
 
       Assert.fail();
 
@@ -185,6 +185,6 @@ public class TransactionAtomicTest extends BaseDBTest {
       session.rollback();
     }
 
-    Assert.assertEquals(session.countClusterElements("Fruit"), 0);
+    Assert.assertEquals(session.countCollectionElements("Fruit"), 0);
   }
 }

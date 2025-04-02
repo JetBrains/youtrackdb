@@ -35,11 +35,11 @@ public abstract class SecurityResource {
       case "database.class.*.*" -> {
         return SecurityResourceProperty.ALL_PROPERTIES;
       }
-      case "database.cluster.*" -> {
-        return SecurityResourceCluster.ALL_CLUSTERS;
+      case "database.collection.*" -> {
+        return SecurityResourceCollection.ALL_COLLECTIONS;
       }
-      case "database.systemclusters" -> {
-        return SecurityResourceCluster.SYSTEM_CLUSTERS;
+      case "database.systemcollections" -> {
+        return SecurityResourceCollection.SYSTEM_COLLECTIONS;
       }
       case "database.function.*" -> {
         return SecurityResourceFunction.ALL_FUNCTIONS;
@@ -120,13 +120,13 @@ public abstract class SecurityResource {
         } else {
           return new SecurityResourceClass(resource, className);
         }
-      } else if (resource.startsWith("database.cluster.")) {
-        var clusterElement = parsed.getNext().getNext();
-        var clusterName = clusterElement.getIdentifier().getStringValue();
-        if (clusterElement.getNext() != null) {
+      } else if (resource.startsWith("database.collection.")) {
+        var collectionElement = parsed.getNext().getNext();
+        var collectionName = collectionElement.getIdentifier().getStringValue();
+        if (collectionElement.getNext() != null) {
           throw new SecurityException("Invalid resource: " + resource);
         }
-        return new SecurityResourceCluster(resource, clusterName);
+        return new SecurityResourceCollection(resource, collectionName);
       } else if (resource.startsWith("database.function.")) {
         var functionElement = parsed.getNext().getNext();
         var functionName = functionElement.getIdentifier().getStringValue();
@@ -134,13 +134,13 @@ public abstract class SecurityResource {
           throw new SecurityException("Invalid resource: " + resource);
         }
         return new SecurityResourceFunction(resource, functionName);
-      } else if (resource.startsWith("database.systemclusters.")) {
-        var clusterElement = parsed.getNext().getNext();
-        var clusterName = clusterElement.getIdentifier().getStringValue();
-        if (clusterElement.getNext() != null) {
+      } else if (resource.startsWith("database.systemcollections.")) {
+        var collectionElement = parsed.getNext().getNext();
+        var collectionName = collectionElement.getIdentifier().getStringValue();
+        if (collectionElement.getNext() != null) {
           throw new SecurityException("Invalid resource: " + resource);
         }
-        return new SecurityResourceCluster(resource, clusterName);
+        return new SecurityResourceCollection(resource, collectionName);
       }
 
       throw new SecurityException("Invalid resource: " + resource);

@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.config;
 
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import java.io.Serializable;
+import javax.annotation.Nullable;
 
 @SuppressWarnings("serial")
 public class StorageSegmentConfiguration implements Serializable {
@@ -54,6 +55,7 @@ public class StorageSegmentConfiguration implements Serializable {
     }
   }
 
+  @Nullable
   public String getLocation() {
     if (location != null) {
       return location;

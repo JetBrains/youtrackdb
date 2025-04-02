@@ -10,11 +10,10 @@ import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
+import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLCluster;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIdentifier;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -34,25 +33,22 @@ import java.util.stream.StreamSupport;
 public class FindReferencesStep extends AbstractExecutionStep {
 
   private final List<SQLIdentifier> classes;
-  private final List<SQLCluster> clusters;
 
   public FindReferencesStep(
       List<SQLIdentifier> classes,
-      List<SQLCluster> clusters,
       CommandContext ctx,
       boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     this.classes = classes;
-    this.clusters = clusters;
   }
 
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     var db = ctx.getDatabaseSession();
     var rids = fetchRidsToFind(ctx);
-    var clustersIterators = initClusterIterators(ctx);
+    var collectionsIterators = initCollectionIterators(ctx);
     Stream<Result> stream =
-        clustersIterators.stream()
+        collectionsIterators.stream()
             .flatMap(
                 (iterator) -> {
                   return StreamSupport.stream(
@@ -80,45 +76,17 @@ public class FindReferencesStep extends AbstractExecutionStep {
     return results.stream();
   }
 
-  private List<RecordIteratorCluster<RecordAbstract>> initClusterIterators(CommandContext ctx) {
+  private List<RecordIteratorCollection<RecordAbstract>> initCollectionIterators(CommandContext ctx) {
     var session = ctx.getDatabaseSession();
-    Collection<String> targetClusterNames = new HashSet<>();
+    Collection<String> targetCollectionNames = new HashSet<>();
 
-    if ((this.classes == null || this.classes.isEmpty())
-        && (this.clusters == null || this.clusters.isEmpty())) {
-      targetClusterNames.addAll(ctx.getDatabaseSession().getClusterNames());
-    } else {
-      if (this.clusters != null) {
-        for (var c : this.clusters) {
-          if (c.getClusterName() != null) {
-            targetClusterNames.add(c.getClusterName());
-          } else {
-            var clusterName = session.getClusterNameById(c.getClusterNumber());
-            if (clusterName == null) {
-              throw new CommandExecutionException(ctx.getDatabaseSession(),
-                  "Cluster not found: " + c.getClusterNumber());
-            }
-            targetClusterNames.add(clusterName);
-          }
-        }
-        Schema schema = session.getMetadata().getImmutableSchemaSnapshot();
-        assert this.classes != null;
-        for (var className : this.classes) {
-          var clazz = schema.getClass(className.getStringValue());
-          if (clazz == null) {
-            throw new CommandExecutionException(ctx.getDatabaseSession(),
-                "Class not found: " + className);
-          }
-          for (var clusterId : clazz.getPolymorphicClusterIds()) {
-            targetClusterNames.add(session.getClusterNameById(clusterId));
-          }
-        }
-      }
+    if ((this.classes == null || this.classes.isEmpty())) {
+      targetCollectionNames.addAll(ctx.getDatabaseSession().getCollectionNames());
     }
 
-    return targetClusterNames.stream()
-        .map(clusterName -> new RecordIteratorCluster<>(session,
-            session.getClusterIdByName(clusterName), true))
+    return targetCollectionNames.stream()
+        .map(collectionName -> new RecordIteratorCollection<>(session,
+            session.getCollectionIdByName(collectionName), true))
         .collect(Collectors.toList());
   }
 
@@ -232,17 +200,12 @@ public class FindReferencesStep extends AbstractExecutionStep {
     result.append("+ FIND REFERENCES\n");
     result.append(spaces);
 
-    if ((this.classes == null || this.classes.isEmpty())
-        && (this.clusters == null || this.clusters.isEmpty())) {
+    if ((this.classes == null || this.classes.isEmpty())) {
       result.append("  (all db)");
     } else {
-      if (this.classes != null && !this.classes.isEmpty()) {
-        result.append("  classes: ").append(this.classes);
-      }
-      if (this.clusters != null && !this.clusters.isEmpty()) {
-        result.append("  classes: ").append(this.clusters);
-      }
+      result.append("  classes: ").append(this.classes);
     }
+
     return result.toString();
   }
 }

@@ -5,6 +5,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -44,6 +45,7 @@ public interface InternalExecutionPlan extends ExecutionPlan {
 
   boolean canBeCached();
 
+  @Nullable
   default String getStatement() {
     return null;
   }
@@ -51,6 +53,7 @@ public interface InternalExecutionPlan extends ExecutionPlan {
   default void setStatement(String stm) {
   }
 
+  @Nullable
   default String getGenericStatement() {
     return null;
   }

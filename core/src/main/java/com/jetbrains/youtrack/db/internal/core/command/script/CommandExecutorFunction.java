@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandExecutorAbstract;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Executes Script Commands.
@@ -47,6 +48,7 @@ public class CommandExecutorFunction extends CommandExecutorAbstract {
     return executeInContext(null, iArgs);
   }
 
+  @Nullable
   public Object executeInContext(final CommandContext iContext, final Map<Object, Object> iArgs) {
     return null;
   }

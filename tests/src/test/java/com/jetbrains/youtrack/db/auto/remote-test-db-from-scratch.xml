@@ -121,7 +121,6 @@
     <classes>
       <class name="com.jetbrains.youtrack.db.auto.TruncateClassTest"/>
       <class name="com.jetbrains.youtrack.db.auto.DateTest"/>
-      <class name="com.jetbrains.youtrack.db.auto.SQLFindReferencesTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLCreateLinkTest"/>
       <class name="com.jetbrains.youtrack.db.auto.MultipleDBTest"/>
       <class name="com.jetbrains.youtrack.db.auto.ConcurrentUpdatesTest"/>

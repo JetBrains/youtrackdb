@@ -16,6 +16,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import org.apache.lucene.index.memory.MemoryIndex;
 
 /**
@@ -149,6 +150,7 @@ public class LuceneSearchOnIndexFunction extends LuceneSearchFunctionTemplate {
     return searchForIndex(identifier.getStringValue(), ctx, args);
   }
 
+  @Nullable
   private LuceneFullTextIndex searchForIndex(
       String className, CommandContext ctx, SQLExpression... args) {
 
@@ -168,6 +170,7 @@ public class LuceneSearchOnIndexFunction extends LuceneSearchFunctionTemplate {
     return null;
   }
 
+  @Nullable
   private LuceneFullTextIndex searchForIndex(CommandContext ctx, String indexName) {
     final var database = ctx.getDatabaseSession();
     var index = database.getMetadata().getIndexManagerInternal().getIndex(database, indexName);

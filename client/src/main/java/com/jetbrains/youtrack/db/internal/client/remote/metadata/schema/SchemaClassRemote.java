@@ -358,7 +358,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
       }
 
       if (subclasses.remove(baseClass)) {
-        removePolymorphicClusterIds(session, baseClass);
+        removePolymorphicCollectionIds(session, baseClass);
       }
 
     } finally {
@@ -395,6 +395,6 @@ public class SchemaClassRemote extends SchemaClassImpl {
     superClasses.addAll(newSuperClasses);
   }
 
-  protected void addClusterIdToIndexes(DatabaseSessionInternal session, int iId) {
+  protected void addCollectionIdToIndexes(DatabaseSessionInternal session, int iId) {
   }
 }

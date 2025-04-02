@@ -91,8 +91,8 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
         executeDocument(db, iRequest, iResponse, operation, rid, className, fields);
       } else if ("classes".equals(context)) {
         executeClasses(iRequest, iResponse, db, operation, rid, className, fields);
-      } else if ("clusters".equals(context)) {
-        executeClusters(iRequest, iResponse, db, operation, rid, className, fields);
+      } else if ("collections".equals(context)) {
+        executeCollections(iRequest, iResponse, db, operation, rid, className, fields);
       } else if ("classProperties".equals(context)) {
         executeClassProperties(iRequest, iResponse, db, operation, rid, className, fields);
       } else if ("classIndexes".equals(context)) {
@@ -252,37 +252,37 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
     }
   }
 
-  private static void executeClusters(
+  private static void executeCollections(
       final HttpRequest iRequest,
       final HttpResponse iResponse,
       final DatabaseSessionInternal db,
       final String operation,
       final String rid,
-      final String iClusterName,
+      final String iCollectionName,
       final Map<String, String> fields)
       throws IOException {
     if ("add".equals(operation)) {
-      iRequest.getData().commandInfo = "Studio add cluster";
+      iRequest.getData().commandInfo = "Studio add collection";
 
-      var clusterId = db.addCluster(fields.get("name"));
+      var collectionId = db.addCollection(fields.get("name"));
 
       iResponse.send(
           HttpUtils.STATUS_OK_CODE,
           HttpUtils.STATUS_OK_DESCRIPTION,
           HttpUtils.CONTENT_TEXT_PLAIN,
-          "Cluster " + fields.get("name") + "' created successfully with id=" + clusterId,
+          "Collection " + fields.get("name") + "' created successfully with id=" + collectionId,
           null);
 
     } else if ("del".equals(operation)) {
-      iRequest.getData().commandInfo = "Studio delete cluster";
+      iRequest.getData().commandInfo = "Studio delete collection";
 
-      db.dropCluster(rid);
+      db.dropCollection(rid);
 
       iResponse.send(
           HttpUtils.STATUS_OK_CODE,
           HttpUtils.STATUS_OK_DESCRIPTION,
           HttpUtils.CONTENT_TEXT_PLAIN,
-          "Cluster " + fields.get("name") + "' deleted successfully",
+          "Collection " + fields.get("name") + "' deleted successfully",
           null);
     }
   }

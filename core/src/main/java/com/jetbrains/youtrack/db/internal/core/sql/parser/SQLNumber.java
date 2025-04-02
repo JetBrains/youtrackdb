@@ -5,6 +5,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.query.Result;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 public class SQLNumber extends SimpleNode {
 
@@ -16,6 +17,7 @@ public class SQLNumber extends SimpleNode {
     super(p, id);
   }
 
+  @Nullable
   public Number getValue() {
     return null;
   }

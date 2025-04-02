@@ -31,6 +31,7 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -43,6 +44,7 @@ public class SQLMethodField extends AbstractSQLMethod {
     super(NAME, 1, 1);
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,

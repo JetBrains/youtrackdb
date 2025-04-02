@@ -34,11 +34,11 @@ public class ReloadMessageTest extends DbTestBase {
     assertEquals(configuration.getDirectory(), payload.getDirectory());
     assertEquals(configuration.getSchemaRecordId(), payload.getSchemaRecordId().toString());
     assertEquals(configuration.getIndexMgrRecordId(), payload.getIndexMgrRecordId().toString());
-    assertEquals(configuration.getClusterSelection(), payload.getClusterSelection());
+    assertEquals(configuration.getCollectionSelection(), payload.getCollectionSelection());
     assertEquals(configuration.getConflictStrategy(), payload.getConflictStrategy());
     assertEquals(configuration.isValidationEnabled(), payload.isValidationEnabled());
     assertEquals(configuration.getLocaleLanguage(), payload.getLocaleLanguage());
-    assertEquals(configuration.getMinimumClusters(), payload.getMinimumClusters());
+    assertEquals(configuration.getMinimumCollections(), payload.getMinimumCollections());
     assertEquals(configuration.isStrictSql(), payload.isStrictSql());
     assertEquals(configuration.getCharset(), payload.getCharset());
     assertEquals(configuration.getLocaleCountry(), payload.getLocaleCountry());
@@ -47,12 +47,12 @@ public class ReloadMessageTest extends DbTestBase {
     assertEquals(configuration.getRecordSerializerVersion(), payload.getRecordSerializerVersion());
     assertEquals(configuration.getBinaryFormatVersion(), payload.getBinaryFormatVersion());
 
-    assertEquals(configuration.getClusters().size(), payload.getClusters().size());
-    for (var i = 0; i < configuration.getClusters().size(); i++) {
+    assertEquals(configuration.getCollections().size(), payload.getCollections().size());
+    for (var i = 0; i < configuration.getCollections().size(); i++) {
       assertEquals(
-          configuration.getClusters().get(i).getId(), payload.getClusters().get(i).getId());
+          configuration.getCollections().get(i).getId(), payload.getCollections().get(i).getId());
       assertEquals(
-          configuration.getClusters().get(i).getName(), payload.getClusters().get(i).getName());
+          configuration.getCollections().get(i).getName(), payload.getCollections().get(i).getName());
     }
   }
 }

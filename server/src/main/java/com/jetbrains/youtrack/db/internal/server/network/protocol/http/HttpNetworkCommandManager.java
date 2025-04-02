@@ -30,6 +30,7 @@ import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.annotation.Nullable;
 
 public class HttpNetworkCommandManager {
 
@@ -131,6 +132,7 @@ public class HttpNetworkCommandManager {
     return result;
   }
 
+  @Nullable
   protected String findUrlPattern(String requestUrl) {
     for (var entry : restCommands.entrySet()) {
       if (matches(entry.getKey(), requestUrl)) {

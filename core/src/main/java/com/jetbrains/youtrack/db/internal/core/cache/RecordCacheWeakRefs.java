@@ -23,6 +23,7 @@ package com.jetbrains.youtrack.db.internal.core.cache;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import java.util.function.BiConsumer;
+import javax.annotation.Nullable;
 
 /**
  * Cache implementation that uses Soft References.
@@ -49,6 +50,7 @@ public class RecordCacheWeakRefs extends
     super(new RIDsWeakValuesHashMap<>());
   }
 
+  @Nullable
   @Override
   public RecordAbstract get(final RID rid) {
     if (!isEnabled()) {
@@ -58,6 +60,7 @@ public class RecordCacheWeakRefs extends
     return cache.get(rid);
   }
 
+  @Nullable
   @Override
   public RecordAbstract put(final RecordAbstract record) {
     if (!isEnabled()) {
@@ -66,6 +69,7 @@ public class RecordCacheWeakRefs extends
     return cache.put(record.getIdentity(), record);
   }
 
+  @Nullable
   @Override
   public RecordAbstract remove(final RID rid) {
     if (!isEnabled()) {

@@ -43,6 +43,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * SQL CREATE INDEX command: Create a new index against a property.
@@ -267,6 +268,7 @@ public class CommandExecutorSQLCreateIndex extends CommandExecutorSQLAbstract
   /**
    * Execute the CREATE INDEX.
    */
+  @Nullable
   @SuppressWarnings("rawtypes")
   public Object execute(DatabaseSessionInternal session, final Map<Object, Object> iArgs) {
     if (indexName == null) {
@@ -336,7 +338,7 @@ public class CommandExecutorSQLCreateIndex extends CommandExecutorSQLAbstract
                     indexName,
                     indexType.name(),
                     idxDef,
-                    oClass.getPolymorphicClusterIds(),
+                    oClass.getPolymorphicCollectionIds(),
                     null,
                     metadata,
                     engine);

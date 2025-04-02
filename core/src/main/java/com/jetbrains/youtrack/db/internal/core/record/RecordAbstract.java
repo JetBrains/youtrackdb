@@ -36,7 +36,6 @@ import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.serialization.SerializableStream;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -409,7 +408,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
       throw new DatabaseException(session.getDatabaseName(), "Cannot call fill() on dirty records");
     }
 
-    recordId.setClusterAndPosition(rid.getClusterId(), rid.getClusterPosition());
+    recordId.setCollectionAndPosition(rid.getCollectionId(), rid.getCollectionPosition());
 
     recordVersion = version;
     status = STATUS.LOADED;
@@ -447,17 +446,17 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     return true;
   }
 
-  public final RecordAbstract setIdentity(final int clusterId, final long clusterPosition) {
-    assert assertIfAlreadyLoaded(new RecordId(clusterId, clusterPosition));
+  public final RecordAbstract setIdentity(final int collectionId, final long collectionPosition) {
+    assert assertIfAlreadyLoaded(new RecordId(collectionId, collectionPosition));
 
-    recordId.setClusterAndPosition(clusterId, clusterPosition);
+    recordId.setCollectionAndPosition(collectionId, collectionPosition);
     return this;
   }
 
   public final RecordAbstract setIdentity(RID recordId) {
     assert assertIfAlreadyLoaded(recordId);
 
-    this.recordId.setClusterAndPosition(recordId.getClusterId(), recordId.getClusterPosition());
+    this.recordId.setCollectionAndPosition(recordId.getCollectionId(), recordId.getCollectionPosition());
 
     return this;
   }

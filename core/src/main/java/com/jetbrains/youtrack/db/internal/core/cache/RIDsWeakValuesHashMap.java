@@ -13,6 +13,7 @@ import java.util.IdentityHashMap;
 import java.util.Set;
 import java.util.function.BiConsumer;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Cache implementation that uses Weak References.
@@ -78,6 +79,7 @@ public final class RIDsWeakValuesHashMap<V> extends AbstractMap<RID, V>
     }
   }
 
+  @Nullable
   public V put(final RID key, final V value) {
     if (stopModification) {
       throw new IllegalStateException("Modification is not allowed");
@@ -99,6 +101,7 @@ public final class RIDsWeakValuesHashMap<V> extends AbstractMap<RID, V>
     return result.get();
   }
 
+  @Nullable
   public V remove(RID key) {
     if (stopModification) {
       throw new IllegalStateException("Modification is not allowed");

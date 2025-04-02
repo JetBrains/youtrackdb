@@ -30,7 +30,7 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * SQL TRUNCATE CLASS command: Truncates an entire class deleting all configured clusters where the
+ * SQL TRUNCATE CLASS command: Truncates an entire class deleting all configured collections where the
  * class relies on.
  */
 public class CommandExecutorSQLTruncateClass extends CommandExecutorSQLAbstract

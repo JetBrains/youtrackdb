@@ -110,7 +110,7 @@ public class LiveQuery30TxTest extends BaseDBTest implements CommandOutputListen
       var res = (Result) doc.getValue();
       Assert.assertEquals((res).getProperty("name"), "foo");
       Assert.assertNotNull(res.getProperty("@rid"));
-      Assert.assertTrue(((RID) res.getProperty("@rid")).getClusterPosition() >= 0);
+      Assert.assertTrue(((RID) res.getProperty("@rid")).getCollectionPosition() >= 0);
     }
     session.commit();
     unLatch.await(1, TimeUnit.MINUTES);

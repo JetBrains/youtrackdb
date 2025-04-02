@@ -727,6 +727,7 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
               } finally {
                 network.endResponse();
               }
+              //noinspection ReturnOfNull
               return null;
             },
             "Cannot connect to the remote server/database '" + url + "'",

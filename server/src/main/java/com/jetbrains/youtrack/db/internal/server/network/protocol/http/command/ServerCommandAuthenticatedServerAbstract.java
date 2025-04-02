@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRespo
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
 import com.jetbrains.youtrack.db.internal.tools.config.ServerConfiguration;
 import java.io.IOException;
+import javax.annotation.Nullable;
 
 /**
  * Server based authenticated commands. Authenticates against the YouTrackDB server users found in
@@ -141,6 +142,7 @@ public abstract class ServerCommandAuthenticatedServerAbstract extends ServerCom
     }
   }
 
+  @Nullable
   public String getUser(final HttpRequest iRequest) {
     var session = server.getHttpSessionManager().getSession(iRequest.getSessionId());
     if (session != null) {

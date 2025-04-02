@@ -40,6 +40,7 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * Helper class for fetching.
@@ -49,6 +50,7 @@ public class FetchHelper {
   public static final String DEFAULT = "*:0";
   public static final FetchPlan DEFAULT_FETCHPLAN = new FetchPlan(DEFAULT);
 
+  @Nullable
   public static FetchPlan buildFetchPlan(final String iFetchPlan) {
     if (iFetchPlan == null) {
       return null;

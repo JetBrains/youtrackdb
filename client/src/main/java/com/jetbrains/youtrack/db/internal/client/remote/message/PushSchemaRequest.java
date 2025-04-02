@@ -7,6 +7,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
 import java.io.IOException;
+import javax.annotation.Nullable;
 
 public class PushSchemaRequest implements BinaryPushRequest<BinaryPushResponse> {
   public PushSchemaRequest() {
@@ -27,6 +28,7 @@ public class PushSchemaRequest implements BinaryPushRequest<BinaryPushResponse> 
     return pushHandler.executeUpdateSchema(this);
   }
 
+  @Nullable
   @Override
   public BinaryPushResponse createResponse() {
     return null;

@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.common.collection.closabledictionary;
 
 import java.util.Iterator;
 import java.util.NoSuchElementException;
+import javax.annotation.Nullable;
 
 /**
  * LRU list is used inside of {@link ClosableLinkedContainer}.
@@ -103,6 +104,7 @@ class ClosableLRUList<K, V extends ClosableItem> implements Iterable<ClosableEnt
     return size;
   }
 
+  @Nullable
   ClosableEntry<K, V> poll() {
     if (head == null) {
       return null;

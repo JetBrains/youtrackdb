@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.internal.core.fetch.FetchListener;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import javax.annotation.Nullable;
 
 /**
  * Fetch listener for {@class ONetworkBinaryProtocol} class
@@ -70,6 +71,7 @@ public abstract class RemoteFetchListener implements FetchListener {
       throws FetchException {
   }
 
+  @Nullable
   public Object fetchLinkedMapEntry(
       EntityImpl iRoot,
       Object iUserObject,
@@ -85,6 +87,7 @@ public abstract class RemoteFetchListener implements FetchListener {
     return null;
   }
 
+  @Nullable
   public Object fetchLinkedCollectionValue(
       EntityImpl iRoot,
       Object iUserObject,

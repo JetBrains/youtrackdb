@@ -6,6 +6,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public final class IndexEngineData {
 
@@ -174,6 +175,7 @@ public final class IndexEngineData {
     return nullValuesSupport;
   }
 
+  @Nullable
   public Map<String, String> getEngineProperties() {
     if (engineProperties == null) {
       return null;

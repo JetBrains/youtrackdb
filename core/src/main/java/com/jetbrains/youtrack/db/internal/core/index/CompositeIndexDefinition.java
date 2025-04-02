@@ -41,6 +41,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Index that consist of several indexDefinitions like {@link PropertyIndexDefinition}.
@@ -145,6 +146,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
   /**
    * {@inheritDoc}
    */
+  @Nullable
   public Object getDocumentValueToIndex(
       DatabaseSessionInternal session, final EntityImpl entity) {
     final List<CompositeKey> compositeKeys = new ArrayList<>(10);
@@ -181,6 +183,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
     return multiValueDefinitionIndex;
   }
 
+  @Nullable
   public String getMultiValueField() {
     if (multiValueDefinitionIndex >= 0) {
       return indexDefinitions.get(multiValueDefinitionIndex).getFields().getFirst();
@@ -192,6 +195,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
   /**
    * {@inheritDoc}
    */
+  @Nullable
   public Object createValue(DatabaseSessionInternal session, final List<?> params) {
     var currentParamIndex = 0;
     final var firstKey = new CompositeKey();
@@ -234,6 +238,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
     return compositeKeys;
   }
 
+  @Nullable
   public IndexDefinitionMultiValue getMultiValueDefinition() {
     if (multiValueDefinitionIndex > -1) {
       return (IndexDefinitionMultiValue) indexDefinitions.get(multiValueDefinitionIndex);
@@ -242,6 +247,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
     return null;
   }
 
+  @Nullable
   public CompositeKey createSingleValue(DatabaseSessionInternal session, final List<?> params) {
     final var compositeKey = new CompositeKey();
     var currentParamIndex = 0;
@@ -518,6 +524,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
     return ddl.toString();
   }
 
+  @Nullable
   private static String quoteFieldName(String next) {
     if (next == null) {
       return null;

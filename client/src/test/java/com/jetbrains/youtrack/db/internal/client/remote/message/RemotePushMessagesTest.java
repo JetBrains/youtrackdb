@@ -114,11 +114,11 @@ public class RemotePushMessagesTest extends DbTestBase {
     }
     assertEquals(readPayload.getSchemaRecordId(), payload.getSchemaRecordId());
     assertEquals(readPayload.getIndexMgrRecordId(), payload.getIndexMgrRecordId());
-    assertEquals(readPayload.getClusterSelection(), payload.getClusterSelection());
+    assertEquals(readPayload.getCollectionSelection(), payload.getCollectionSelection());
     assertEquals(readPayload.getConflictStrategy(), payload.getConflictStrategy());
     assertEquals(readPayload.isValidationEnabled(), payload.isValidationEnabled());
     assertEquals(readPayload.getLocaleLanguage(), payload.getLocaleLanguage());
-    assertEquals(readPayload.getMinimumClusters(), payload.getMinimumClusters());
+    assertEquals(readPayload.getMinimumCollections(), payload.getMinimumCollections());
     assertEquals(readPayload.isStrictSql(), payload.isStrictSql());
     assertEquals(readPayload.getCharset(), payload.getCharset());
     assertEquals(readPayload.getTimeZone(), payload.getTimeZone());
@@ -126,11 +126,11 @@ public class RemotePushMessagesTest extends DbTestBase {
     assertEquals(readPayload.getRecordSerializer(), payload.getRecordSerializer());
     assertEquals(readPayload.getRecordSerializerVersion(), payload.getRecordSerializerVersion());
     assertEquals(readPayload.getBinaryFormatVersion(), payload.getBinaryFormatVersion());
-    for (var readCluster : readPayload.getClusters()) {
+    for (var readCollection : readPayload.getCollections()) {
       var found = false;
-      for (var cluster : payload.getClusters()) {
-        if (readCluster.getName().equals(cluster.getName())
-            && readCluster.getId() == cluster.getId()) {
+      for (var collection : payload.getCollections()) {
+        if (readCollection.getName().equals(collection.getName())
+            && readCollection.getId() == collection.getId()) {
           found = true;
           break;
         }

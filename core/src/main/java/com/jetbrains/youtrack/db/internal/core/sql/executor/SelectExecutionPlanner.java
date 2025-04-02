@@ -1064,12 +1064,12 @@ public class SelectExecutionPlanner {
         var orid = identifiable.getIdentity();
 
         var rid = new SQLRid(-1);
-        var cluster = new SQLInteger(-1);
-        cluster.setValue(orid.getClusterId());
+        var collection = new SQLInteger(-1);
+        collection.setValue(orid.getCollectionId());
         var position = new SQLInteger(-1);
-        position.setValue(orid.getClusterPosition());
+        position.setValue(orid.getCollectionPosition());
         rid.setLegacy(true);
-        rid.setCluster(cluster);
+        rid.setCollection(collection);
         rid.setPosition(position);
         handleRidsAsTarget(result, Collections.singletonList(rid), ctx, profilingEnabled);
       }
@@ -1084,11 +1084,11 @@ public class SelectExecutionPlanner {
           var orid = ((Identifiable) x).getIdentity();
 
           var rid = new SQLRid(-1);
-          var cluster = new SQLInteger(-1);
-          cluster.setValue(orid.getClusterId());
+          var collection = new SQLInteger(-1);
+          collection.setValue(orid.getCollectionId());
           var position = new SQLInteger(-1);
-          position.setValue(orid.getClusterPosition());
-          rid.setCluster(cluster);
+          position.setValue(orid.getCollectionPosition());
+          rid.setCollection(collection);
           rid.setPosition(position);
           rids.add(rid);
         }
@@ -1357,12 +1357,12 @@ public class SelectExecutionPlanner {
     plan.chain(fetcher);
   }
 
-  private static IntArrayList classClustersFiltered(
-      DatabaseSessionInternal db, SchemaClass clazz, Set<String> filterClusters) {
-    var ids = clazz.getPolymorphicClusterIds();
+  private static IntArrayList classCollectionsFiltered(
+      DatabaseSessionInternal db, SchemaClass clazz, Set<String> filterCollections) {
+    var ids = clazz.getPolymorphicCollectionIds();
     var filtered = new IntArrayList();
     for (var id : ids) {
-      if (filterClusters.contains(db.getClusterNameById(id))) {
+      if (filterCollections.contains(db.getCollectionNameById(id))) {
         filtered.add(id);
       }
     }
@@ -1409,10 +1409,10 @@ public class SelectExecutionPlanner {
 
           var subPlan = new SelectExecutionPlan(ctx);
           subPlan.chain(step);
-          IntArrayList filterClusterIds;
+          IntArrayList filterCollectionIds;
 
-          filterClusterIds = IntArrayList.of(clazz.getPolymorphicClusterIds());
-          subPlan.chain(new GetValueFromIndexEntryStep(ctx, filterClusterIds, profilingEnabled));
+          filterCollectionIds = IntArrayList.of(clazz.getPolymorphicCollectionIds());
+          subPlan.chain(new GetValueFromIndexEntryStep(ctx, filterCollectionIds, profilingEnabled));
           if (bestIndex.requiresDistinctStep()) {
             subPlan.chain(new DistinctExecutionStep(ctx, profilingEnabled));
           }
@@ -1630,9 +1630,9 @@ public class SelectExecutionPlanner {
                 orderType.equals(SQLOrderByItem.ASC),
                 ctx,
                 profilingEnabled));
-        IntArrayList filterClusterIds;
-        filterClusterIds = IntArrayList.of(clazz.getPolymorphicClusterIds());
-        plan.chain(new GetValueFromIndexEntryStep(ctx, filterClusterIds, profilingEnabled));
+        IntArrayList filterCollectionIds;
+        filterCollectionIds = IntArrayList.of(clazz.getPolymorphicCollectionIds());
+        plan.chain(new GetValueFromIndexEntryStep(ctx, filterCollectionIds, profilingEnabled));
         info.orderApplied = true;
         return true;
       }
@@ -1729,12 +1729,12 @@ public class SelectExecutionPlanner {
   @Nullable
   private List<ExecutionStepInternal> handleClassAsTargetWithIndexRecursive(
       String targetClass,
-      Set<String> filterClusters,
+      Set<String> filterCollections,
       QueryPlanningInfo info,
       CommandContext ctx,
       boolean profilingEnabled) {
     var result =
-        handleClassAsTargetWithIndex(targetClass, filterClusters, info, ctx, profilingEnabled);
+        handleClassAsTargetWithIndex(targetClass, filterCollections, info, ctx, profilingEnabled);
     var session = ctx.getDatabaseSession();
     if (result == null) {
       result = new ArrayList<>();
@@ -1755,7 +1755,7 @@ public class SelectExecutionPlanner {
       for (var subClass : subclasses) {
         var subSteps =
             handleClassAsTargetWithIndexRecursive(
-                subClass.getName(), filterClusters, info, ctx, profilingEnabled);
+                subClass.getName(), filterCollections, info, ctx, profilingEnabled);
         if (subSteps == null || subSteps.isEmpty()) {
           return null;
         }
@@ -1773,7 +1773,7 @@ public class SelectExecutionPlanner {
   @Nullable
   private List<ExecutionStepInternal> handleClassAsTargetWithIndex(
       String targetClass,
-      Set<String> filterClusters,
+      Set<String> filterCollections,
       QueryPlanningInfo info,
       CommandContext ctx,
       boolean profilingEnabled) {
@@ -1803,11 +1803,11 @@ public class SelectExecutionPlanner {
         commonFactor(indexSearchDescriptors);
 
     return executionStepFromIndexes(
-        filterClusters, clazz, info, ctx, profilingEnabled, optimumIndexSearchDescriptors);
+        filterCollections, clazz, info, ctx, profilingEnabled, optimumIndexSearchDescriptors);
   }
 
   private List<ExecutionStepInternal> executionStepFromIndexes(
-      Set<String> filterClusters,
+      Set<String> filterCollections,
       SchemaClass clazz,
       QueryPlanningInfo info,
       CommandContext ctx,
@@ -1820,13 +1820,13 @@ public class SelectExecutionPlanner {
       var orderAsc = getOrderDirection(info);
       result.add(
           new FetchFromIndexStep(desc, !Boolean.FALSE.equals(orderAsc), ctx, profilingEnabled));
-      IntArrayList filterClusterIds;
-      if (filterClusters != null) {
-        filterClusterIds = classClustersFiltered(ctx.getDatabaseSession(), clazz, filterClusters);
+      IntArrayList filterCollectionIds;
+      if (filterCollections != null) {
+        filterCollectionIds = classCollectionsFiltered(ctx.getDatabaseSession(), clazz, filterCollections);
       } else {
-        filterClusterIds = IntArrayList.of(clazz.getPolymorphicClusterIds());
+        filterCollectionIds = IntArrayList.of(clazz.getPolymorphicCollectionIds());
       }
-      result.add(new GetValueFromIndexEntryStep(ctx, filterClusterIds, profilingEnabled));
+      result.add(new GetValueFromIndexEntryStep(ctx, filterCollectionIds, profilingEnabled));
       if (desc.requiresDistinctStep()) {
         result.add(new DistinctExecutionStep(ctx, profilingEnabled));
       }
@@ -1855,7 +1855,7 @@ public class SelectExecutionPlanner {
       result = new ArrayList<>();
       result.add(
           createParallelIndexFetch(
-              optimumIndexSearchDescriptors, filterClusters, ctx, profilingEnabled));
+              optimumIndexSearchDescriptors, filterCollections, ctx, profilingEnabled));
       if (optimumIndexSearchDescriptors.size() > 1) {
         result.add(new DistinctExecutionStep(ctx, profilingEnabled));
       }
@@ -1900,18 +1900,18 @@ public class SelectExecutionPlanner {
 
   private ExecutionStepInternal createParallelIndexFetch(
       List<IndexSearchDescriptor> indexSearchDescriptors,
-      Set<String> filterClusters,
+      Set<String> filterCollections,
       CommandContext ctx,
       boolean profilingEnabled) {
     List<InternalExecutionPlan> subPlans = new ArrayList<>();
     for (var desc : indexSearchDescriptors) {
       var subPlan = new SelectExecutionPlan(ctx);
       subPlan.chain(new FetchFromIndexStep(desc, true, ctx, profilingEnabled));
-      IntArrayList filterClusterIds = null;
-      if (filterClusters != null) {
-        filterClusterIds = IntArrayList.of(ctx.getDatabaseSession().getClustersIds(filterClusters));
+      IntArrayList filterCollectionIds = null;
+      if (filterCollections != null) {
+        filterCollectionIds = IntArrayList.of(ctx.getDatabaseSession().getCollectionsIds(filterCollections));
       }
-      subPlan.chain(new GetValueFromIndexEntryStep(ctx, filterClusterIds, profilingEnabled));
+      subPlan.chain(new GetValueFromIndexEntryStep(ctx, filterCollectionIds, profilingEnabled));
       if (desc.requiresDistinctStep()) {
         subPlan.chain(new DistinctExecutionStep(ctx, profilingEnabled));
       }

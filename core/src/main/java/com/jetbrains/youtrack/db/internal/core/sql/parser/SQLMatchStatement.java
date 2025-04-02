@@ -38,6 +38,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public final class SQLMatchStatement extends SQLStatement implements IterableRecordSource {
 
@@ -537,6 +538,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
     return false;
   }
 
+  @Nullable
   private static Iterator<Identifiable> query(
       String className, SQLWhereClause oWhereClause, CommandContext ctx) {
     final var database = ctx.getDatabaseSession();
@@ -660,6 +662,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
     }
   }
 
+  @Nullable
   private static String getLowerSubclass(DatabaseSessionInternal session, String className1,
       String className2) {
     Schema schema = session.getMetadata().getSchema();
@@ -816,30 +819,35 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
   @Override
   public SQLMatchStatement copy() {
     var result = new SQLMatchStatement(-1);
+    //noinspection ReturnOfNull
     result.matchExpressions =
         matchExpressions == null
             ? null
             : matchExpressions.stream()
                 .map(x -> x == null ? null : x.copy())
                 .collect(Collectors.toList());
+    //noinspection ReturnOfNull
     result.notMatchExpressions =
         notMatchExpressions == null
             ? null
             : notMatchExpressions.stream()
                 .map(x -> x == null ? null : x.copy())
                 .collect(Collectors.toList());
+    //noinspection ReturnOfNull
     result.returnItems =
         returnItems == null
             ? null
             : returnItems.stream()
                 .map(x -> x == null ? null : x.copy())
                 .collect(Collectors.toList());
+    //noinspection ReturnOfNull
     result.returnAliases =
         returnAliases == null
             ? null
             : returnAliases.stream()
                 .map(x -> x == null ? null : x.copy())
                 .collect(Collectors.toList());
+    //noinspection ReturnOfNull
     result.returnNestedProjections =
         returnNestedProjections == null
             ? null

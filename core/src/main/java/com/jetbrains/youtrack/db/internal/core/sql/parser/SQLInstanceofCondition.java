@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLInstanceofCondition extends SQLBooleanExpression {
 
@@ -95,6 +96,7 @@ public class SQLInstanceofCondition extends SQLBooleanExpression {
     return false;
   }
 
+  @Nullable
   private String decode(String rightString) {
     if (rightString == null) {
       return null;
@@ -195,6 +197,7 @@ public class SQLInstanceofCondition extends SQLBooleanExpression {
     return result;
   }
 
+  @Nullable
   @Override
   public List<String> getMatchPatternInvolvedAliases() {
     return left == null ? null : left.getMatchPatternInvolvedAliases();

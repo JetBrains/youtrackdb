@@ -175,8 +175,8 @@
             <youtrackdb.storage.lockTimeout>60000</youtrackdb.storage.lockTimeout>
             <youtrackdb.storage.makeFullCheckpointAfterCreate>false
             </youtrackdb.storage.makeFullCheckpointAfterCreate>
-            <storage.makeFullCheckpointAfterClusterCreate>false
-            </storage.makeFullCheckpointAfterClusterCreate>
+            <storage.makeFullCheckpointAfterCollectionCreate>false
+            </storage.makeFullCheckpointAfterCollectionCreate>
             <storage.wal.syncOnPageFlush>false</storage.wal.syncOnPageFlush>
             <storage.configuration.syncOnUpdate>false</storage.configuration.syncOnUpdate>
             <index.flushAfterCreate>false</index.flushAfterCreate>

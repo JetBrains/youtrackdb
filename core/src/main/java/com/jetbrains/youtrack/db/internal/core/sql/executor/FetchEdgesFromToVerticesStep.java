@@ -29,7 +29,7 @@ import javax.annotation.Nullable;
 public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
 
   private final SQLIdentifier targetClass;
-  private final SQLIdentifier targetCluster;
+  private final SQLIdentifier targetCollection;
   private final String fromAlias;
   private final String toAlias;
 
@@ -37,12 +37,12 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
       String fromAlias,
       String toAlias,
       SQLIdentifier targetClass,
-      SQLIdentifier targetCluster,
+      SQLIdentifier targetCollection,
       CommandContext ctx,
       boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     this.targetClass = targetClass;
-    this.targetCluster = targetCluster;
+    this.targetCollection = targetCollection;
     this.fromAlias = fromAlias;
     this.toAlias = toAlias;
   }
@@ -142,7 +142,7 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
 
   private boolean filterResult(DatabaseSessionInternal db, Edge edge, Set<RID> toList) {
     if (toList == null || toList.contains(edge.getTo().getIdentity())) {
-      return matchesClass(db, edge) && matchesCluster(edge);
+      return matchesClass(db, edge) && matchesCollection(edge);
     }
     return true;
   }
@@ -163,15 +163,15 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
     }
   }
 
-  private boolean matchesCluster(Edge edge) {
-    if (targetCluster == null) {
+  private boolean matchesCollection(Edge edge) {
+    if (targetCollection == null) {
       return true;
     }
     if (edge.isStateful()) {
       var statefulEdge = edge.asStatefulEdge();
-      var clusterId = statefulEdge.getIdentity().getClusterId();
-      var clusterName = ctx.getDatabaseSession().getClusterNameById(clusterId);
-      return clusterName.equals(targetCluster.getStringValue());
+      var collectionId = statefulEdge.getIdentity().getCollectionId();
+      var collectionName = ctx.getDatabaseSession().getCollectionNameById(collectionId);
+      return collectionName.equals(targetCollection.getStringValue());
     }
 
     return false;
@@ -195,8 +195,8 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
     if (targetClass != null) {
       result += "\n" + spaces + "       (target class " + targetClass + ")";
     }
-    if (targetCluster != null) {
-      result += "\n" + spaces + "       (target cluster " + targetCluster + ")";
+    if (targetCollection != null) {
+      result += "\n" + spaces + "       (target collection " + targetCollection + ")";
     }
     return result;
   }
@@ -209,6 +209,6 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
   @Override
   public ExecutionStep copy(CommandContext ctx) {
     return new FetchEdgesFromToVerticesStep(
-        fromAlias, toAlias, targetClass, targetCluster, ctx, profilingEnabled);
+        fromAlias, toAlias, targetClass, targetCollection, ctx, profilingEnabled);
   }
 }

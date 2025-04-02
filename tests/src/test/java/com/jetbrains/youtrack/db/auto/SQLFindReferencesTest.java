@@ -77,7 +77,7 @@ public class SQLFindReferencesTest extends BaseDBTest {
   }
 
   @Test
-  public void findReferenceByClassAndClusters() {
+  public void findReferenceByClassAndCollections() {
     session.begin();
     var result =
         session.execute("find references " + janeDoeID + " [" + WORKPLACE + "]").stream().toList();
@@ -198,8 +198,8 @@ public class SQLFindReferencesTest extends BaseDBTest {
       session.getMetadata().getSchema().dropClass(iClass);
       session.reload();
     }
-    while (session.getClusterIdByName(iClass) > -1) {
-      session.dropCluster(iClass);
+    while (session.getCollectionIdByName(iClass) > -1) {
+      session.dropCollection(iClass);
       session.reload();
     }
   }

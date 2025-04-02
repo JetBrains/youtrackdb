@@ -160,6 +160,7 @@ public class SQLModifier extends SimpleNode {
     return result;
   }
 
+  @Nullable
   private Object filterByCondition(Object iResult, CommandContext ctx) {
     if (iResult == null) {
       return null;
@@ -369,6 +370,7 @@ public class SQLModifier extends SimpleNode {
     }
   }
 
+  @Nullable
   private Object calculateLocal(Result currentRecord, Object target, CommandContext ctx) {
     if (methodCall != null) {
       return methodCall.execute(target, ctx);

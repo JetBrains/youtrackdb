@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -49,6 +50,7 @@ public abstract class SpatialFunctionAbstractIndexable extends SpatialFunctionAb
     super(iName, iMinParams, iMaxParams);
   }
 
+  @Nullable
   protected LuceneSpatialIndex searchForIndex(DatabaseSessionInternal session,
       SQLFromClause target,
       SQLExpression[] args) {
@@ -78,6 +80,7 @@ public abstract class SpatialFunctionAbstractIndexable extends SpatialFunctionAb
     return indices.isEmpty() ? null : indices.get(0);
   }
 
+  @Nullable
   protected Iterable<Identifiable> results(
       SQLFromClause target, SQLExpression[] args, CommandContext ctx, Object rightValue) {
     var session = ctx.getDatabaseSession();

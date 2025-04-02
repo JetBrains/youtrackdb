@@ -69,8 +69,8 @@ public class DatabaseRepair extends DatabaseTool {
     var errors = 0L;
 
     message("\n- Removing broken links...");
-    for (var clusterName : session.getClusterNames()) {
-      var recIterator = session.browseCluster(clusterName);
+    for (var collectionName : session.getCollectionNames()) {
+      var recIterator = session.browseCollection(collectionName);
       while (recIterator.hasNext()) {
         final var rec = recIterator.next();
         try {
@@ -150,7 +150,7 @@ public class DatabaseRepair extends DatabaseTool {
     if (fieldValue instanceof Identifiable) {
       final var id = ((Identifiable) fieldValue).getIdentity();
 
-      if (id.getClusterId() == 0 && id.getClusterPosition() == 0) {
+      if (id.getCollectionId() == 0 && id.getCollectionPosition() == 0) {
         return true;
       }
 

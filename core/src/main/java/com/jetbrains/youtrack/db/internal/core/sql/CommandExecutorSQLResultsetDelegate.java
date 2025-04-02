@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.Iterator;
 import java.util.Map;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * SQL UPDATE command.
@@ -32,6 +33,7 @@ import javax.annotation.Nonnull;
 public class CommandExecutorSQLResultsetDelegate extends CommandExecutorSQLDelegate
     implements IterableRecordSource {
 
+  @Nullable
   @Override
   public Iterator<Identifiable> iterator(DatabaseSessionInternal session,
       final Map<Object, Object> iArgs) {
@@ -41,8 +43,8 @@ public class CommandExecutorSQLResultsetDelegate extends CommandExecutorSQLDeleg
   public Iterable<Identifiable> toIterable(DatabaseSessionInternal session,
       Map<Object, Object> iArgs) {
     return new Iterable<>() {
+      @Nullable
       @Override
-      @Nonnull
       public Iterator<Identifiable> iterator() {
         return null;
       }

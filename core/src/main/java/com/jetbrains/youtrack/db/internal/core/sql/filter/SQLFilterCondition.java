@@ -50,6 +50,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
+import javax.annotation.Nullable;
 
 /**
  * Run-time query condition evaluator.
@@ -197,6 +198,7 @@ public class SQLFilterCondition {
     return result;
   }
 
+  @Nullable
   @Deprecated
   public Collate getCollate() {
     if (left instanceof SQLFilterItemField) {
@@ -207,6 +209,7 @@ public class SQLFilterCondition {
     return null;
   }
 
+  @Nullable
   public Collate getCollate(DatabaseSessionInternal db, Identifiable identifiable) {
     if (left instanceof SQLFilterItemField) {
       return ((SQLFilterItemField) left).getCollate(db, identifiable);
@@ -216,6 +219,7 @@ public class SQLFilterCondition {
     return null;
   }
 
+  @Nullable
   public RID getBeginRidRange(DatabaseSession session) {
     if (operator == null) {
       if (left instanceof SQLFilterCondition) {
@@ -228,6 +232,7 @@ public class SQLFilterCondition {
     return operator.getBeginRidRange(session, left, right);
   }
 
+  @Nullable
   public RID getEndRidRange(DatabaseSession session) {
     if (operator == null) {
       if (left instanceof SQLFilterCondition) {
@@ -335,6 +340,7 @@ public class SQLFilterCondition {
     return operator;
   }
 
+  @Nullable
   protected Integer getInteger(Object iValue) {
     if (iValue == null) {
       return null;
@@ -357,6 +363,7 @@ public class SQLFilterCondition {
     }
   }
 
+  @Nullable
   protected static Float getFloat(final Object iValue) {
     if (iValue == null) {
       return null;
@@ -371,6 +378,7 @@ public class SQLFilterCondition {
     return !stringValue.isEmpty() ? Float.valueOf(stringValue) : Float.valueOf(0);
   }
 
+  @Nullable
   protected Date getDate(final Object value, DatabaseSessionInternal session) {
     if (value == null) {
       return null;
@@ -423,6 +431,7 @@ public class SQLFilterCondition {
     }
   }
 
+  @Nullable
   protected static Object evaluate(
       Result iCurrentRecord,
       final EntityImpl iCurrentResult,

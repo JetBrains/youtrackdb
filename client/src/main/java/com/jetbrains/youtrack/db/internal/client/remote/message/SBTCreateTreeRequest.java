@@ -32,10 +32,10 @@ import java.io.IOException;
 
 public class SBTCreateTreeRequest implements BinaryRequest<SBTCreateTreeResponse> {
 
-  private int clusterId;
+  private int collectionId;
 
-  public SBTCreateTreeRequest(int clusterId) {
-    this.clusterId = clusterId;
+  public SBTCreateTreeRequest(int collectionId) {
+    this.collectionId = collectionId;
   }
 
   public SBTCreateTreeRequest() {
@@ -44,14 +44,14 @@ public class SBTCreateTreeRequest implements BinaryRequest<SBTCreateTreeResponse
   @Override
   public void write(DatabaseSessionInternal databaseSession, ChannelDataOutput network,
       StorageRemoteSession session) throws IOException {
-    network.writeInt(clusterId);
+    network.writeInt(collectionId);
   }
 
   public void read(DatabaseSessionInternal databaseSession, ChannelDataInput channel,
       int protocolVersion,
       RecordSerializerNetwork serializer)
       throws IOException {
-    this.clusterId = channel.readInt();
+    this.collectionId = channel.readInt();
   }
 
   @Override
@@ -64,8 +64,8 @@ public class SBTCreateTreeRequest implements BinaryRequest<SBTCreateTreeResponse
     return "Create SB-Tree bonsai instance";
   }
 
-  public int getClusterId() {
-    return clusterId;
+  public int getCollectionId() {
+    return collectionId;
   }
 
   @Override

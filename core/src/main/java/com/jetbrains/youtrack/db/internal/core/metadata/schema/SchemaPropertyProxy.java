@@ -13,6 +13,7 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl> implements
     SchemaPropertyInternal {
@@ -68,6 +69,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
     return delegate.getType(session);
   }
 
+  @Nullable
   @Override
   public SchemaClass getLinkedClass() {
     assert session.assertIfNotActive();
@@ -83,6 +85,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
     return this;
   }
 
+  @Nullable
   @Override
   public PropertyType getLinkedType() {
     assert session.assertIfNotActive();
@@ -275,6 +278,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
     return delegate.getCustomKeys(session);
   }
 
+  @Nullable
   @Override
   public SchemaClass getOwnerClass() {
     assert session.assertIfNotActive();

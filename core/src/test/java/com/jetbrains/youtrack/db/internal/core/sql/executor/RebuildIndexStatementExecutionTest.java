@@ -12,10 +12,10 @@ import org.junit.Test;
 public class RebuildIndexStatementExecutionTest extends DbTestBase {
 
   @Test
-  public void indexAfterRebuildShouldIncludeAllClusters() {
+  public void indexAfterRebuildShouldIncludeAllCollections() {
     // given
     Schema schema = session.getMetadata().getSchema();
-    var className = "IndexClusterTest";
+    var className = "IndexCollectionTest";
 
     var oclass = schema.createClass(className);
     oclass.createProperty("key", PropertyType.STRING);
@@ -32,7 +32,7 @@ public class RebuildIndexStatementExecutionTest extends DbTestBase {
       ele1.setProperty("key", "a");
       ele1.setProperty("value", 2);
 
-      if (ele1.getIdentity().getClusterId() != ele.getIdentity().getClusterId()) {
+      if (ele1.getIdentity().getCollectionId() != ele.getIdentity().getCollectionId()) {
         ele.delete();
         ele1.delete();
         continue;

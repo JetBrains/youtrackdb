@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.ListIterator;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -70,6 +71,7 @@ public class LiveLegacyResultSet<T> extends ConcurrentLegacyResultSet<T> {
         return false;
       }
 
+      @Nullable
       @Override
       public T next() {
         try {
@@ -187,6 +189,7 @@ public class LiveLegacyResultSet<T> extends ConcurrentLegacyResultSet<T> {
     return wrapped.getLimit();
   }
 
+  @Nullable
   public LegacyResultSet<T> setLimit(final int limit) {
     wrapped.setLimit(limit);
     return null;

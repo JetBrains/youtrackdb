@@ -74,7 +74,7 @@ public class UpdatableResult extends ResultInternal {
   }
 
   @Override
-  public Blob getBlob(String name) {
+  public Blob getBlob(@Nonnull String name) {
     assert checkSession();
     return this.asEntity().getBlob(name);
   }

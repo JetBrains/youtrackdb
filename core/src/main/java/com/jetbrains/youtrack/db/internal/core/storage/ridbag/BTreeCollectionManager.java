@@ -32,7 +32,7 @@ import java.util.UUID;
 public interface BTreeCollectionManager {
 
   BonsaiCollectionPointer createSBTree(
-      int clusterId, AtomicOperation atomicOperation, UUID ownerUUID,
+      int collectionId, AtomicOperation atomicOperation, UUID ownerUUID,
       DatabaseSessionInternal session) throws IOException;
 
   EdgeBTree<RID, Integer> loadSBTree(BonsaiCollectionPointer collectionPointer);

@@ -40,6 +40,7 @@ import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
+import javax.annotation.Nullable;
 
 /**
  * Compression Utility.
@@ -125,6 +126,7 @@ public class ZIPCompressionUtil {
     }
   }
 
+  @Nullable
   private static String getDirectoryPart(final String name) {
     var path = Paths.get(name);
     var parent = path.getParent();

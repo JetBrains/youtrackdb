@@ -26,6 +26,7 @@ import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import javax.annotation.Nullable;
 
 /**
  * @since 05.08.13
@@ -230,6 +231,7 @@ public final class CachePointer {
     }
   }
 
+  @Nullable
   public ByteBuffer getBuffer() {
     if (pointer == null) {
       return null;

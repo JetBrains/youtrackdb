@@ -47,6 +47,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import javax.annotation.Nullable;
 
 /**
  * Provides an implementation of OServerSecurity.
@@ -126,7 +127,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
             }
             // Do not allow root to have access to audit log class by default.
             root.addRule(session, ResourceGeneric.CLASS, "OAuditingLog", Role.PERMISSION_NONE);
-            root.addRule(session, ResourceGeneric.CLUSTER, "oauditinglog", Role.PERMISSION_NONE);
+            root.addRule(session, ResourceGeneric.COLLECTION, "oauditinglog", Role.PERMISSION_NONE);
             root.save(session);
           }
           if (security.getRole("guest") == null) {
@@ -138,8 +139,8 @@ public class DefaultSecuritySystem implements SecuritySystem {
           if (security.getRole("monitor") == null) {
             var guest = security.createRole("monitor");
             guest.addRule(session, ResourceGeneric.CLASS, null, Role.PERMISSION_READ);
-            guest.addRule(session, ResourceGeneric.CLUSTER, null, Role.PERMISSION_READ);
-            guest.addRule(session, ResourceGeneric.SYSTEM_CLUSTERS, null, Role.PERMISSION_READ);
+            guest.addRule(session, ResourceGeneric.COLLECTION, null, Role.PERMISSION_READ);
+            guest.addRule(session, ResourceGeneric.SYSTEM_COLLECTIONS, null, Role.PERMISSION_READ);
             guest.addRule(session, ResourceGeneric.SCHEMA, null, Role.PERMISSION_READ);
             guest.addRule(session, ResourceGeneric.FUNCTION, null, Role.PERMISSION_ALL);
             guest.addRule(session, ResourceGeneric.COMMAND, null, Role.PERMISSION_ALL);
@@ -154,16 +155,16 @@ public class DefaultSecuritySystem implements SecuritySystem {
             auditor.addRule(session, ResourceGeneric.DATABASE, null, Role.PERMISSION_READ);
             auditor.addRule(session, ResourceGeneric.SCHEMA, null, Role.PERMISSION_READ);
             auditor.addRule(session, ResourceGeneric.CLASS, null, Role.PERMISSION_READ);
-            auditor.addRule(session, ResourceGeneric.CLUSTER, null, Role.PERMISSION_READ);
-            auditor.addRule(session, ResourceGeneric.CLUSTER, "orole", Role.PERMISSION_NONE);
-            auditor.addRule(session, ResourceGeneric.CLUSTER, "ouser", Role.PERMISSION_NONE);
+            auditor.addRule(session, ResourceGeneric.COLLECTION, null, Role.PERMISSION_READ);
+            auditor.addRule(session, ResourceGeneric.COLLECTION, "orole", Role.PERMISSION_NONE);
+            auditor.addRule(session, ResourceGeneric.COLLECTION, "ouser", Role.PERMISSION_NONE);
             auditor.addRule(session, ResourceGeneric.CLASS, "OUser", Role.PERMISSION_NONE);
             auditor.addRule(session, ResourceGeneric.CLASS, "orole", Role.PERMISSION_NONE);
-            auditor.addRule(session, ResourceGeneric.SYSTEM_CLUSTERS, null, Role.PERMISSION_NONE);
+            auditor.addRule(session, ResourceGeneric.SYSTEM_COLLECTIONS, null, Role.PERMISSION_NONE);
             auditor.addRule(session, ResourceGeneric.CLASS, "OAuditingLog",
                 Role.PERMISSION_CREATE + Role.PERMISSION_READ + Role.PERMISSION_UPDATE);
             auditor.addRule(session,
-                ResourceGeneric.CLUSTER,
+                ResourceGeneric.COLLECTION,
                 "oauditinglog",
                 Role.PERMISSION_CREATE + Role.PERMISSION_READ + Role.PERMISSION_UPDATE);
             auditor.save(session);
@@ -223,6 +224,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
     }
   }
 
+  @Nullable
   @Override
   public SecurityUser authenticate(
       DatabaseSessionInternal session, AuthenticationInfo authenticationInfo) {
@@ -242,6 +244,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   }
 
   // SecuritySystem (via OServerSecurity)
+  @Nullable
   public SecurityUser authenticate(
       DatabaseSessionInternal session, final String username, final String password) {
     try {
@@ -273,6 +276,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
     return null; // Indicates authentication failed.
   }
 
+  @Nullable
   public SecurityUser authenticateServerUser(DatabaseSessionInternal session,
       final String username,
       final String password) {
@@ -388,6 +392,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   // SecuritySystem (via OServerSecurity)
   // public EntityImpl getComponentConfig(final String name) { return getSection(name); }
 
+  @Nullable
   public Map<String, Object> getComponentConfig(final String name) {
     if (name != null) {
       if (name.equalsIgnoreCase("auditing")) {
@@ -412,6 +417,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
    * Returns the "System User" associated with 'username' from the system database. If not found,
    * returns null. dbName is used to filter the assigned roles. It may be null.
    */
+  @Nullable
   public SecurityUser getSystemUser(final String username, final String dbName) {
     // ** There are cases when we need to retrieve an OUser that is a system user.
     //  if (isEnabled() && !SystemDatabase.SYSTEM_DB_NAME.equals(dbName)) {
@@ -429,6 +435,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
                       new SecuritySystemUserImpl(sessionInternal,
                           transaction.load(identifiable), dbName));
                 }
+                //noinspection ReturnOfNull
                 return null;
               },
               "select from OUser where name = ? limit 1 fetchplan roles:1",
@@ -525,6 +532,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   }
 
   // OServerSecurity
+  @Nullable
   public SecurityAuthenticator getAuthenticator(final String authMethod) {
     for (var am : authenticatorsList) {
       // If authMethod is null or an empty string, then return the first SecurityAuthenticator.
@@ -542,6 +550,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
 
   // OServerSecurity
   // Returns the first SecurityAuthenticator in the list.
+  @Nullable
   public SecurityAuthenticator getPrimaryAuthenticator() {
     if (enabled) {
       var auth = authenticatorsList;
@@ -1134,6 +1143,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
     }
   }
 
+  @Nullable
   @Override
   public SecurityUser authenticateAndAuthorize(
       DatabaseSessionInternal session, String iUserName, String iPassword,

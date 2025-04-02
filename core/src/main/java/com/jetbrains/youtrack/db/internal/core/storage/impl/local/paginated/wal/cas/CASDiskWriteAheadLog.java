@@ -71,6 +71,7 @@ import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
@@ -1051,6 +1052,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     return new LogSequenceNumber(first, CASWALPage.RECORDS_OFFSET);
   }
 
+  @Nullable
   public LogSequenceNumber begin(final long segmentId) {
     if (segments.contains(segmentId)) {
       return new LogSequenceNumber(segmentId, CASWALPage.RECORDS_OFFSET);
@@ -1917,6 +1919,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
                   (Callable<?>)
                       () -> {
                         executeSyncAndCloseFile();
+                        //noinspection ReturnOfNull
                         return null;
                       });
         } finally {
@@ -2061,6 +2064,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
             (Callable<?>)
                 () -> {
                   executeWriteBuffer(file, buffer, lastLSN, limit, expectedPosition);
+                  //noinspection ReturnOfNull
                   return null;
                 });
   }

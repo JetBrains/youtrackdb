@@ -47,6 +47,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.net.InetSocketAddress;
 import java.net.SocketException;
+import javax.annotation.Nullable;
 
 public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
 
@@ -176,6 +177,7 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
     return beginResponse(db, iRequesterId, timeout, token);
   }
 
+  @Nullable
   public byte[] beginResponse(DatabaseSessionInternal db, final int iRequesterId,
       final long iTimeout, final boolean token)
       throws IOException {

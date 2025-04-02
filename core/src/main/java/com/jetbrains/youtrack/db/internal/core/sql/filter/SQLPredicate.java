@@ -45,6 +45,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Parses text in SQL format and build a tree of conditions.
@@ -194,6 +195,7 @@ public class SQLPredicate extends BaseParser implements CommandPredicate {
     return currentCondition;
   }
 
+  @Nullable
   protected SQLFilterCondition extractCondition(DatabaseSessionInternal session) {
 
     if (!parserSkipWhiteSpaces())
@@ -248,6 +250,7 @@ public class SQLPredicate extends BaseParser implements CommandPredicate {
     return false;
   }
 
+  @Nullable
   private QueryOperator extractConditionOperator() {
     if (!parserSkipWhiteSpaces())
     // END OF PARSING: JUST RETURN

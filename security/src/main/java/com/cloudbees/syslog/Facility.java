@@ -16,6 +16,7 @@ package com.cloudbees.syslog;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Syslog facility as defined in <a href="https://tools.ietf.org/html/rfc5424">RFC 5424 - The Syslog
@@ -169,6 +170,7 @@ public enum Facility implements Comparable<Facility> {
    * @return Syslog facility, {@code null} if given value is {@code null}
    * @throws IllegalArgumentException the given value is not a valid Syslog facility textual code
    */
+  @Nullable
   public static Facility fromLabel(String label) throws IllegalArgumentException {
     if (label == null || label.isEmpty()) {
       return null;

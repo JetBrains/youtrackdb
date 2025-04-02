@@ -29,6 +29,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Maintains information about current HTTP request.
@@ -56,6 +57,7 @@ public abstract class HttpRequestAbstract implements HttpRequest {
     configuration = iConfiguration;
   }
 
+  @Nullable
   @Override
   public String getUser() {
     return authorization != null ? authorization.substring(0, authorization.indexOf(':')) : null;
@@ -66,6 +68,7 @@ public abstract class HttpRequestAbstract implements HttpRequest {
     return in;
   }
 
+  @Nullable
   @Override
   public String getParameter(final String iName) {
     return parameters != null ? parameters.get(iName) : null;
@@ -84,6 +87,7 @@ public abstract class HttpRequestAbstract implements HttpRequest {
     }
   }
 
+  @Nullable
   @Override
   public Map<String, String> getUrlEncodedContent() {
     if (content == null || content.length() < 1) {

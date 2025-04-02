@@ -29,7 +29,7 @@ public class AsyncFileTest {
       buildDirectory = ".";
     }
 
-    buildDirectory += File.separator + "localPaginatedClusterTestV2";
+    buildDirectory += File.separator + "localPaginatedCollectionTestV2";
     buildDirectoryPath = Paths.get(buildDirectory);
   }
 

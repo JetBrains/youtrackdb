@@ -255,7 +255,7 @@ TOKEN:
 	|
 	< EXTENDS: ( "e" | "E" ) ( "x" | "X" ) ( "t" | "T" ) ( "e" | "E" ) ( "n" | "N" ) ( "d" | "D" ) ( "s" | "S" ) >
 	|
-	< CLUSTERS: ( "C" | "c" ) ( "L" | "l" ) ( "U" | "u" ) ( "S" | "s" ) ( "T" | "t" ) ( "E" | "e" ) ( "R" | "r" ) ( "S" | "s" ) >
+	< COLLECTIONS: ( "C" | "c" ) ( "L" | "l" ) ( "U" | "u" ) ( "S" | "s" ) ( "T" | "t" ) ( "E" | "e" ) ( "R" | "r" ) ( "S" | "s" ) >
 	|
 	< ABSTRACT: ( "a" | "A" ) ( "b" | "B" ) ( "s" | "S" ) ( "T" | "t" ) ( "R" | "r" ) ( "a" | "A" ) ( "C" | "c" ) ( "T" | "t" ) >
 	|
@@ -583,7 +583,7 @@ TOKEN :
 | < MATCHES: ( "M" | "m") ( "A" | "a") ( "T" | "t") ( "C" | "c") ( "H" | "h") ( "E" | "e") ( "S" | "s") >
 | < KEY: ( "K" | "k") ( "E" | "e") ( "Y" | "y") >
 | < INSTANCEOF: ( "I" | "i" ) ( "N" | "n" ) ( "S" | "s" ) ( "T" | "t" ) ( "A" | "a" ) ( "N" | "n" ) ( "C" | "c" ) ( "E" | "e" ) ( "O" | "o" ) ( "F" | "f" ) >
-| < CLUSTER: ( "C" | "c" ) ( "L" | "l" ) ( "U" | "u" ) ( "S" | "s" ) ( "T" | "t" ) ( "E" | "e" ) ( "R" | "r" ) >
+| < COLLECTION: ( "C" | "c" ) ( "L" | "l" ) ( "U" | "u" ) ( "S" | "s" ) ( "T" | "t" ) ( "E" | "e" ) ( "R" | "r" ) >
 }
 
 
@@ -602,9 +602,9 @@ TOKEN :
 |
   < INDEXVALUESDESC_IDENTIFIER: ( "I" | "i") ( "N" | "n") ( "D" | "d") ( "E" | "e") ( "X" | "x") ( "V" | "v") ( "A" | "a") ( "L" | "l") ( "U" | "u") ( "E" | "e") ( "S" | "s") ( "D" | "d") ( "E" | "e") ( "S" | "s") ( "C" | "c") ":" ( "__@recordmap@___" )? <IDENTIFIER> ( ( <DOT> | <MINUS> ) <IDENTIFIER> )* >
 |
-  < CLUSTER_IDENTIFIER: <CLUSTER> <COLON> <IDENTIFIER>  >
+  < COLLECTION_IDENTIFIER: <COLLECTION> <COLON> <IDENTIFIER>  >
 |
-  < CLUSTER_NUMBER_IDENTIFIER: <CLUSTER> <COLON> <INTEGER_LITERAL>  >
+  < COLLECTION_NUMBER_IDENTIFIER: <COLLECTION> <COLON> <INTEGER_LITERAL>  >
 |
   < METADATA_IDENTIFIER: "metadata:" <IDENTIFIER>  >
 |
@@ -637,13 +637,13 @@ SQLRid Rid():
     (
 	     LOOKAHEAD(4)
 	     (
-	       "#" jjtn000.cluster = Integer() <COLON> jjtn000.position = Integer()
+	       "#" jjtn000.collection = Integer() <COLON> jjtn000.position = Integer()
 	       { jjtn000.legacy = true; }
 	     )
     	 |
     	 LOOKAHEAD(3)
     	 (
-    	   jjtn000.cluster = Integer() <COLON> jjtn000.position = Integer()
+    	   jjtn000.collection = Integer() <COLON> jjtn000.position = Integer()
     	   { jjtn000.legacy = true; }
     	 )
     	 |
@@ -945,7 +945,7 @@ try {
 	|
 	token = <EXTENDS>
 	|
-	token = <CLUSTERS>
+	token = <COLLECTIONS>
 	|
 	token = <ABSTRACT>
 	|
@@ -1420,7 +1420,7 @@ SQLStatement StatementInternal():
                 result = CreateIndexStatement()
                 |
                 LOOKAHEAD(2)
-                result = CreateClusterStatement()
+                result = CreateCollectionStatement()
                 |
                 LOOKAHEAD(2)
                 result = CreateLinkStatement()
@@ -1493,8 +1493,8 @@ SQLStatement StatementInternal():
                 LOOKAHEAD(2)
                 result = DropIndexStatement()
                 |
-                LOOKAHEAD(AlterClusterStatement())
-                result = AlterClusterStatement()
+                LOOKAHEAD(AlterCollectionStatement())
+                result = AlterCollectionStatement()
                 |
                 LOOKAHEAD(2)
                 result = AlterDatabaseStatement()
@@ -4802,20 +4802,20 @@ SQLFromItem FromItem():
 /*@egen*/
 }
 
-SQLCluster Cluster():
-{/*@bgen(jjtree) Cluster */
-  SQLCluster jjtn000 = new SQLCluster(JJTCLUSTER);
+SQLCollection Collection():
+{/*@bgen(jjtree) Collection */
+  SQLCollection jjtn000 = new SQLCollection(JJTCOLLECTION);
   boolean jjtc000 = true;
   jjtree.openNodeScope(jjtn000);
   jjtn000.jjtSetFirstToken(getToken(1));
 /*@egen*/ Token cName; }
-{/*@bgen(jjtree) Cluster */
+{/*@bgen(jjtree) Collection */
     try {
 /*@egen*/
     (
-	    cName = <CLUSTER_IDENTIFIER> {jjtn000.clusterName = cName.image.split(":")[1];}
+	    cName = <COLLECTION_IDENTIFIER> {jjtn000.collectionName = cName.image.split(":")[1];}
 		|
-	    cName = <CLUSTER_NUMBER_IDENTIFIER> {jjtn000.clusterNumber = Integer.parseInt(cName.image.split(":")[1]);}
+	    cName = <COLLECTION_NUMBER_IDENTIFIER> {jjtn000.collectionNumber = Integer.parseInt(cName.image.split(":")[1]);}
 
 	)/*@bgen(jjtree)*/
     {
@@ -4834,21 +4834,21 @@ SQLCluster Cluster():
 /*@egen*/
 }
 
-SQLClusterList ClusterList():
-{/*@bgen(jjtree) ClusterList */
-  SQLClusterList jjtn000 = new SQLClusterList(JJTCLUSTERLIST);
+SQLCollectionList CollectionList():
+{/*@bgen(jjtree) CollectionList */
+  SQLCollectionList jjtn000 = new SQLCollectionList(JJTCOLLECTIONLIST);
   boolean jjtc000 = true;
   jjtree.openNodeScope(jjtn000);
   jjtn000.jjtSetFirstToken(getToken(1));
 /*@egen*/ SQLIdentifier lastIdentifier; }
-{/*@bgen(jjtree) ClusterList */
+{/*@bgen(jjtree) CollectionList */
     try {
 /*@egen*/
     (
-	     <CLUSTER> <COLON> <LBRACKET>
+	     <COLLECTION> <COLON> <LBRACKET>
 	     [
-	        lastIdentifier = Identifier() { jjtn000.addCluster(lastIdentifier); }
-	        ( <COMMA> lastIdentifier = Identifier() { jjtn000.addCluster(lastIdentifier); } )*
+	        lastIdentifier = Identifier() { jjtn000.addCollection(lastIdentifier); }
+	        ( <COMMA> lastIdentifier = Identifier() { jjtn000.addCollection(lastIdentifier); } )*
 	     ]
 	     <RBRACKET>
 	)/*@bgen(jjtree)*/
@@ -7829,19 +7829,19 @@ SQLMatchFilterItem MatchFilterItem():
         )
         |
         (
-            <CLUSTER> <COLON>
+            <COLLECTION> <COLON>
             (
-               jjtn000.clusterName = Identifier()
+               jjtn000.collectionName = Identifier()
                |
-               jjtn000.clusterId = Integer()
+               jjtn000.collectionId = Integer()
             )
         )
         |
         (
             (
-                lastToken = <CLUSTER_IDENTIFIER> {jjtn000.clusterName = new SQLIdentifier(lastToken.image.split(":")[1]);}
+                lastToken = <COLLECTION_IDENTIFIER> {jjtn000.collectionName = new SQLIdentifier(lastToken.image.split(":")[1]);}
                 |
-                lastToken = <CLUSTER_NUMBER_IDENTIFIER> {jjtn000.clusterId = new SQLInteger(-1); jjtn000.clusterId.setValue(Integer.parseInt(lastToken.image.split(":")[1]));}
+                lastToken = <COLLECTION_NUMBER_IDENTIFIER> {jjtn000.collectionId = new SQLInteger(-1); jjtn000.collectionId.setValue(Integer.parseInt(lastToken.image.split(":")[1]));}
             )
         )
         |
@@ -8356,14 +8356,14 @@ SQLFindReferencesStatement FindReferencesStatement():
     	(
     	    lastTarget = Identifier()
             |
-            lastTarget = Cluster()
+            lastTarget = Collection()
     	){ jjtn000.addTarget(lastTarget); }
     	(
     		<COMMA>
     		(
 				lastTarget = Identifier()
 				|
-				lastTarget = Cluster()
+				lastTarget = Collection()
 			){ jjtn000.addTarget(lastTarget); }
     	)*
     	<RBRACKET>
@@ -9110,22 +9110,22 @@ SQLDropIndexStatement DropIndexStatement():
 }
 
 
-SQLCreateClusterStatement CreateClusterStatement():
-{/*@bgen(jjtree) CreateClusterStatement */
-  SQLCreateClusterStatement jjtn000 = new SQLCreateClusterStatement(JJTCREATECLUSTERSTATEMENT);
+SQLCreateCollectionStatement CreateCollectionStatement():
+{/*@bgen(jjtree) CreateCollectionStatement */
+  SQLCreateCollectionStatement jjtn000 = new SQLCreateCollectionStatement(JJTCREATECOLLECTIONSTATEMENT);
   boolean jjtc000 = true;
   jjtree.openNodeScope(jjtn000);
   jjtn000.jjtSetFirstToken(getToken(1));
 /*@egen*/}
-{/*@bgen(jjtree) CreateClusterStatement */
+{/*@bgen(jjtree) CreateCollectionStatement */
     try {
 /*@egen*/
     (
         <CREATE>
         (
-            ( <CLUSTER> )
+            ( <COLLECTION> )
             |
-            ( <BLOB> <CLUSTER> { jjtn000.blob = true; } )
+            ( <BLOB> <COLLECTION> { jjtn000.blob = true; } )
         )
         jjtn000.name = Identifier()
         [ <IF> <NOT> <EXISTS> { jjtn000.ifNotExists = true; } ]
@@ -9161,17 +9161,17 @@ SQLCreateClusterStatement CreateClusterStatement():
 /*@egen*/
 }
 
-SQLAlterClusterStatement AlterClusterStatement():
-{/*@bgen(jjtree) AlterClusterStatement */
-  SQLAlterClusterStatement jjtn000 = new SQLAlterClusterStatement(JJTALTERCLUSTERSTATEMENT);
+SQLAlterCollectionStatement AlterCollectionStatement():
+{/*@bgen(jjtree) AlterCollectionStatement */
+  SQLAlterCollectionStatement jjtn000 = new SQLAlterCollectionStatement(JJTALTERCOLLECTIONSTATEMENT);
   boolean jjtc000 = true;
   jjtree.openNodeScope(jjtn000);
   jjtn000.jjtSetFirstToken(getToken(1));
 /*@egen*/}
-{/*@bgen(jjtree) AlterClusterStatement */
+{/*@bgen(jjtree) AlterCollectionStatement */
         try {
 /*@egen*/
-	<ALTER> <CLUSTER>
+	<ALTER> <COLLECTION>
 	(
 		jjtn000.name = Identifier()
 	)
@@ -10810,7 +10810,7 @@ SQLSecurityResourceSegment SecurityResourceSegment():
             |
             identifier = Identifier() {jjtn000.setIdentifier(identifier); }
             |
-            token = <CLUSTER> { jjtn000.setIdentifier( new SQLIdentifier(token.image)); }
+            token = <COLLECTION> { jjtn000.setIdentifier( new SQLIdentifier(token.image)); }
             |
             token = <CREATE> { jjtn000.setIdentifier(new SQLIdentifier(token.image)); }
             |

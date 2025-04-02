@@ -10,6 +10,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Spliterator;
 import java.util.function.Consumer;
+import javax.annotation.Nullable;
 
 final class SpliteratorForward<K> implements Spliterator<RawPair<K, RID>> {
 
@@ -70,6 +71,7 @@ final class SpliteratorForward<K> implements Spliterator<RawPair<K, RID>> {
     return false;
   }
 
+  @Nullable
   @Override
   public Spliterator<RawPair<K, RID>> trySplit() {
     return null;

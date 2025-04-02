@@ -20,8 +20,8 @@ public class DBRecordMetadataTest extends BaseDBTest {
   }
 
   private static void assetORIDEquals(RID actual, RID expected) {
-    assertEquals(actual.getClusterId(), expected.getClusterId());
-    assertEquals(actual.getClusterPosition(), expected.getClusterPosition());
+    assertEquals(actual.getCollectionId(), expected.getCollectionId());
+    assertEquals(actual.getCollectionPosition(), expected.getCollectionPosition());
   }
 
   public void testGetRecordMetadata() {

@@ -20,8 +20,8 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     super(iOwner, iName);
   }
 
-  protected SchemaClassEmbedded(SchemaShared iOwner, String iName, int[] iClusterIds) {
-    super(iOwner, iName, iClusterIds);
+  protected SchemaClassEmbedded(SchemaShared iOwner, String iName, int[] iCollectionIds) {
+    super(iOwner, iName, iCollectionIds);
   }
 
   public SchemaPropertyImpl addProperty(
@@ -110,7 +110,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       }
 
       if (subclasses.remove(baseClass)) {
-        removePolymorphicClusterIds(session, baseClass);
+        removePolymorphicCollectionIds(session, baseClass);
       }
 
     } finally {
@@ -314,7 +314,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       final var oldName = this.name;
       owner.changeClassName(session, this.name, name, this);
       this.name = name;
-      renameCluster(session, oldName, this.name);
+      renameCollection(session, oldName, this.name);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -538,43 +538,43 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     try {
       if (isAbstract) {
         // SWITCH TO ABSTRACT
-        if (defaultClusterId != NOT_EXISTENT_CLUSTER_ID) {
+        if (defaultCollectionId != NOT_EXISTENT_COLLECTION_ID) {
           // CHECK
           if (count(database) > 0) {
             throw new IllegalStateException(
                 "Cannot set the class as abstract because contains records.");
           }
 
-          tryDropCluster(database, defaultClusterId);
-          for (var clusterId : getClusterIds(database)) {
-            tryDropCluster(database, clusterId);
-            removePolymorphicClusterId(database, clusterId);
-            ((SchemaEmbedded) owner).removeClusterForClass(database, clusterId);
+          tryDropCollection(database, defaultCollectionId);
+          for (var collectionId : getCollectionIds(database)) {
+            tryDropCollection(database, collectionId);
+            removePolymorphicCollectionId(database, collectionId);
+            ((SchemaEmbedded) owner).removeCollectionForClass(database, collectionId);
           }
 
-          setClusterIds(new int[]{NOT_EXISTENT_CLUSTER_ID});
+          setCollectionIds(new int[]{NOT_EXISTENT_COLLECTION_ID});
 
-          defaultClusterId = NOT_EXISTENT_CLUSTER_ID;
+          defaultCollectionId = NOT_EXISTENT_COLLECTION_ID;
         }
       } else {
         if (!abstractClass) {
           return;
         }
 
-        var clusterId = database.getClusterIdByName(name);
-        if (clusterId == -1) {
-          clusterId = database.addCluster(name);
+        var collectionId = database.getCollectionIdByName(name);
+        if (collectionId == -1) {
+          collectionId = database.addCollection(name);
         }
 
-        this.defaultClusterId = clusterId;
-        this.clusterIds[0] = this.defaultClusterId;
-        this.polymorphicClusterIds = Arrays.copyOf(clusterIds, clusterIds.length);
+        this.defaultCollectionId = collectionId;
+        this.collectionIds[0] = this.defaultCollectionId;
+        this.polymorphicCollectionIds = Arrays.copyOf(collectionIds, collectionIds.length);
         for (var clazz : getAllSubclasses(database)) {
           if (clazz instanceof SchemaClassImpl) {
-            addPolymorphicClusterIds(database, clazz);
+            addPolymorphicCollectionIds(database, clazz);
           } else {
             LogManager.instance()
-                .warn(this, "Warning: cannot set polymorphic cluster IDs for class " + name);
+                .warn(this, "Warning: cannot set polymorphic collection IDs for class " + name);
           }
         }
       }
@@ -585,65 +585,65 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
-  private void tryDropCluster(DatabaseSessionInternal session, final int clusterId) {
-    if (name.toLowerCase(Locale.ENGLISH).equals(session.getClusterNameById(clusterId))) {
-      // DROP THE DEFAULT CLUSTER CALLED WITH THE SAME NAME ONLY IF EMPTY
-      if (session.countClusterElements(clusterId) == 0) {
-        session.dropClusterInternal(clusterId);
+  private void tryDropCollection(DatabaseSessionInternal session, final int collectionId) {
+    if (name.toLowerCase(Locale.ENGLISH).equals(session.getCollectionNameById(collectionId))) {
+      // DROP THE DEFAULT COLLECTION CALLED WITH THE SAME NAME ONLY IF EMPTY
+      if (session.countCollectionElements(collectionId) == 0) {
+        session.dropCollectionInternal(collectionId);
       }
     }
   }
 
-  protected void addClusterIdInternal(DatabaseSessionInternal session, final int clusterId) {
+  protected void addCollectionIdInternal(DatabaseSessionInternal session, final int collectionId) {
     acquireSchemaWriteLock(session);
     try {
       checkEmbedded(session);
 
-      owner.checkClusterCanBeAdded(session, clusterId, this);
+      owner.checkCollectionCanBeAdded(session, collectionId, this);
 
-      for (var currId : clusterIds) {
-        if (currId == clusterId)
+      for (var currId : collectionIds) {
+        if (currId == collectionId)
         // ALREADY ADDED
         {
           return;
         }
       }
 
-      clusterIds = ArrayUtils.copyOf(clusterIds, clusterIds.length + 1);
-      clusterIds[clusterIds.length - 1] = clusterId;
-      Arrays.sort(clusterIds);
+      collectionIds = ArrayUtils.copyOf(collectionIds, collectionIds.length + 1);
+      collectionIds[collectionIds.length - 1] = collectionId;
+      Arrays.sort(collectionIds);
 
-      addPolymorphicClusterId(session, clusterId);
+      addPolymorphicCollectionId(session, collectionId);
 
-      if (defaultClusterId == NOT_EXISTENT_CLUSTER_ID) {
-        defaultClusterId = clusterId;
+      if (defaultCollectionId == NOT_EXISTENT_COLLECTION_ID) {
+        defaultCollectionId = collectionId;
       }
 
-      ((SchemaEmbedded) owner).addClusterForClass(session, clusterId, this);
+      ((SchemaEmbedded) owner).addCollectionForClass(session, collectionId, this);
     } finally {
       releaseSchemaWriteLock(session);
     }
   }
 
-  protected void addPolymorphicClusterId(DatabaseSessionInternal session, int clusterId) {
-    if (Arrays.binarySearch(polymorphicClusterIds, clusterId) >= 0) {
+  protected void addPolymorphicCollectionId(DatabaseSessionInternal session, int collectionId) {
+    if (Arrays.binarySearch(polymorphicCollectionIds, collectionId) >= 0) {
       return;
     }
 
-    polymorphicClusterIds = ArrayUtils.copyOf(polymorphicClusterIds,
-        polymorphicClusterIds.length + 1);
-    polymorphicClusterIds[polymorphicClusterIds.length - 1] = clusterId;
-    Arrays.sort(polymorphicClusterIds);
+    polymorphicCollectionIds = ArrayUtils.copyOf(polymorphicCollectionIds,
+        polymorphicCollectionIds.length + 1);
+    polymorphicCollectionIds[polymorphicCollectionIds.length - 1] = collectionId;
+    Arrays.sort(polymorphicCollectionIds);
 
-    addClusterIdToIndexes(session, clusterId);
+    addCollectionIdToIndexes(session, collectionId);
 
     for (var superClass : superClasses) {
-      ((SchemaClassEmbedded) superClass).addPolymorphicClusterId(session, clusterId);
+      ((SchemaClassEmbedded) superClass).addPolymorphicCollectionId(session, collectionId);
     }
   }
 
-  protected void addClusterIdToIndexes(DatabaseSessionInternal session, int iId) {
-    var clusterName = session.getClusterNameById(iId);
+  protected void addCollectionIdToIndexes(DatabaseSessionInternal session, int iId) {
+    var collectionName = session.getCollectionNameById(iId);
     final List<String> indexesToAdd = new ArrayList<String>();
 
     for (var index : getIndexesInternal(session)) {
@@ -653,7 +653,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     final var indexManager =
         session.getMetadata().getIndexManagerInternal();
     for (var indexName : indexesToAdd) {
-      indexManager.addClusterToIndex(session, clusterName, indexName);
+      indexManager.addCollectionToIndex(session, collectionName, indexName);
     }
   }
 }

@@ -43,6 +43,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * SQL UPDATE command.
@@ -95,7 +96,7 @@ public class CommandExecutorSQLDelete extends CommandExecutorSQLAbstract
           session.getDatabaseName());
       if (subjectName == null) {
         throwSyntaxErrorException(session.getDatabaseName(),
-            "Invalid subject name. Expected cluster, class, index or sub-query");
+            "Invalid subject name. Expected collection, class, index or sub-query");
       }
 
       if (StringParser.startsWithIgnoreCase(
@@ -167,6 +168,7 @@ public class CommandExecutorSQLDelete extends CommandExecutorSQLAbstract
     return ((SQLDeleteStatement) preParsedStatement).fromClause.toString();
   }
 
+  @Nullable
   public Object execute(DatabaseSessionInternal session, final Map<Object, Object> iArgs) {
     return null;
   }
@@ -227,7 +229,7 @@ public class CommandExecutorSQLDelete extends CommandExecutorSQLAbstract
   }
 
   public String getSyntax() {
-    return "DELETE FROM <Class>|RID|cluster:<cluster> [UNSAFE] [LOCK <NONE|RECORD>] [RETURN"
+    return "DELETE FROM <Class>|RID|collection:<collection> [UNSAFE] [LOCK <NONE|RECORD>] [RETURN"
         + " <COUNT|BEFORE>] [WHERE <condition>*]";
   }
 

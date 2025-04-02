@@ -28,6 +28,7 @@ import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrack.db.internal.server.network.ServerNetworkListener;
 import java.io.IOException;
 import java.net.Socket;
+import javax.annotation.Nullable;
 
 public abstract class NetworkProtocol extends SoftThread {
 
@@ -51,6 +52,7 @@ public abstract class NetworkProtocol extends SoftThread {
 
   public abstract SocketChannel getChannel();
 
+  @Nullable
   public String getListeningAddress() {
     final var c = getChannel();
     if (c != null) {

@@ -53,11 +53,12 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
+import javax.annotation.Nullable;
 
 public class ResultSerializerNetwork {
 
   private static final String CHARSET_UTF_8 = "UTF-8";
-  private static final RecordId NULL_RECORD_ID = new RecordId(-2, RID.CLUSTER_POS_INVALID);
+  private static final RecordId NULL_RECORD_ID = new RecordId(-2, RID.COLLECTION_POS_INVALID);
   private static final long MILLISEC_PER_DAY = 86400000;
 
   public ResultSerializerNetwork() {
@@ -175,6 +176,7 @@ public class ResultSerializerNetwork {
     }
   }
 
+  @Nullable
   protected PropertyTypeInternal readOType(final BytesContainer bytes) {
     var val = readByte(bytes);
     if (val == -1) {
@@ -508,8 +510,8 @@ public class ResultSerializerNetwork {
   }
 
   private static void writeNullLink(final BytesContainer bytes) {
-    VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getClusterId());
-    VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getClusterPosition());
+    VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getCollectionId());
+    VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getCollectionPosition());
   }
 
   private static void writeOptimizedLink(DatabaseSessionInternal session,
@@ -520,8 +522,8 @@ public class ResultSerializerNetwork {
       rid = session.refreshRid(rid);
     }
 
-    VarIntSerializer.write(bytes, rid.getClusterId());
-    VarIntSerializer.write(bytes, rid.getClusterPosition());
+    VarIntSerializer.write(bytes, rid.getCollectionId());
+    VarIntSerializer.write(bytes, rid.getCollectionPosition());
   }
 
   private static void writeLinkCollection(

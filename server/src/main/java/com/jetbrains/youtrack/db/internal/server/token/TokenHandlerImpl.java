@@ -33,6 +33,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.UUID;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -303,6 +304,7 @@ public class TokenHandlerImpl implements TokenHandler {
     return baos.toByteArray();
   }
 
+  @Nullable
   public NetworkProtocolData getProtocolDataFromToken(
       ClientConnection connection, final Token token) {
     if (token instanceof BinaryToken binary) {
@@ -412,10 +414,10 @@ public class TokenHandlerImpl implements TokenHandler {
     payload.setDatabase((String) map.get("sub"));
     payload.setAudience((String) map.get("aud"));
     payload.setTokenId((String) map.get("jti"));
-    final int cluster = (Integer) map.get("uidc");
+    final int collection = (Integer) map.get("uidc");
     final var pos = ((Number) map.get("uidp")).longValue();
 
-    payload.setUserRid(new RecordId(cluster, pos));
+    payload.setUserRid(new RecordId(collection, pos));
     payload.setDatabaseType((String) map.get("bdtyp"));
     return payload;
   }
@@ -447,8 +449,8 @@ public class TokenHandlerImpl implements TokenHandler {
     map.put("sub", payload.getDatabase());
     map.put("aud", payload.getAudience());
     map.put("jti", payload.getTokenId());
-    map.put("uidc", payload.getUserRid().getClusterId());
-    map.put("uidp", payload.getUserRid().getClusterPosition());
+    map.put("uidc", payload.getUserRid().getCollectionId());
+    map.put("uidp", payload.getUserRid().getCollectionPosition());
     map.put("bdtyp", payload.getDatabaseType());
     return JSONSerializerJackson.mapToJson(map).getBytes(StandardCharsets.UTF_8);
   }

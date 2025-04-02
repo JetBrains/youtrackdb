@@ -4,6 +4,7 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLPredicate;
+import javax.annotation.Nullable;
 
 /**
  * Returns the index of the argument that is more than the first argument.
@@ -60,6 +61,7 @@ public class SQLFunctionInterval extends SQLFunctionMathAbstract {
     return "interval(<field> [,<field>*])";
   }
 
+  @Nullable
   @Override
   public Object getResult() {
     return null;

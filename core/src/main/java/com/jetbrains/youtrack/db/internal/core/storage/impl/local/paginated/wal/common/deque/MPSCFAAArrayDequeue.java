@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal
 import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.common.deque.Node.BUFFER_SIZE;
 
 import java.util.concurrent.atomic.AtomicReference;
+import javax.annotation.Nullable;
 
 public final class MPSCFAAArrayDequeue<T> extends AtomicReference<Node<T>> {
 
@@ -46,6 +47,7 @@ public final class MPSCFAAArrayDequeue<T> extends AtomicReference<Node<T>> {
     }
   }
 
+  @Nullable
   public T poll() {
     while (true) {
       var head = this.head;
@@ -75,6 +77,7 @@ public final class MPSCFAAArrayDequeue<T> extends AtomicReference<Node<T>> {
     }
   }
 
+  @Nullable
   public T peek() {
     var head = this.head;
 
@@ -102,6 +105,7 @@ public final class MPSCFAAArrayDequeue<T> extends AtomicReference<Node<T>> {
     }
   }
 
+  @Nullable
   public Cursor<T> peekFirst() {
     var head = this.head;
 
@@ -128,6 +132,7 @@ public final class MPSCFAAArrayDequeue<T> extends AtomicReference<Node<T>> {
     }
   }
 
+  @Nullable
   public static <T> Cursor<T> next(Cursor<T> cursor) {
     if (cursor == null) {
       return null;
@@ -163,6 +168,7 @@ public final class MPSCFAAArrayDequeue<T> extends AtomicReference<Node<T>> {
     return null;
   }
 
+  @Nullable
   public Cursor<T> peekLast() {
     while (true) {
       var tail = get();
@@ -192,6 +198,7 @@ public final class MPSCFAAArrayDequeue<T> extends AtomicReference<Node<T>> {
     }
   }
 
+  @Nullable
   public static <T> Cursor<T> prev(Cursor<T> cursor) {
     if (cursor == null) {
       return null;

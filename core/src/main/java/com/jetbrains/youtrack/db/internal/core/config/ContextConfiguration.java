@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import java.io.Serializable;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import javax.annotation.Nullable;
 
 /**
  * Represents a context configuration where custom setting could be defined for the context only. If
@@ -86,6 +87,7 @@ public class ContextConfiguration implements Serializable {
    *                                  bug can not be converted to instance of passed in enumeration
    *                                  class.
    */
+  @Nullable
   public <T extends Enum<T>> T getValueAsEnum(
       final GlobalConfiguration config, Class<T> enumType) {
     final Object value;
@@ -136,6 +138,7 @@ public class ContextConfiguration implements Serializable {
     return getValue(iName, iDefaultValue);
   }
 
+  @Nullable
   public String getValueAsString(final GlobalConfiguration iConfig) {
     final var v = getValue(iConfig);
     if (v == null) {

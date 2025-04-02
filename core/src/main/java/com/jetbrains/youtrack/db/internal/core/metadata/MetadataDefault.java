@@ -36,11 +36,12 @@ import com.jetbrains.youtrack.db.internal.core.metadata.sequence.SequenceLibrary
 import com.jetbrains.youtrack.db.internal.core.schedule.Scheduler;
 import com.jetbrains.youtrack.db.internal.core.schedule.SchedulerProxy;
 import java.io.IOException;
+import javax.annotation.Nullable;
 
 public class MetadataDefault implements MetadataInternal {
 
-  public static final String CLUSTER_INTERNAL_NAME = "internal";
-  protected int schemaClusterId;
+  public static final String COLLECTION_INTERNAL_NAME = "internal";
+  protected int schemaCollectionId;
 
   protected SchemaProxy schema;
   protected Security security;
@@ -95,6 +96,7 @@ public class MetadataDefault implements MetadataInternal {
     }
   }
 
+  @Nullable
   @Override
   public ImmutableSchema getImmutableSchemaSnapshot() {
     if (immutableSchema == null) {
@@ -123,7 +125,7 @@ public class MetadataDefault implements MetadataInternal {
   }
 
   public SharedContext init(SharedContext shared) {
-    schemaClusterId = database.getClusterIdByName(CLUSTER_INTERNAL_NAME);
+    schemaCollectionId = database.getCollectionIdByName(COLLECTION_INTERNAL_NAME);
 
     schema = new SchemaProxy(shared.getSchema(), database);
     indexManager = new IndexManagerProxy(shared.getIndexManager(), database);

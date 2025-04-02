@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.
 import java.nio.ByteBuffer;
 import java.util.Calendar;
 import java.util.Date;
+import javax.annotation.Nullable;
 
 /**
  * Serializer for {@link Date} type, it serializes it without time part.
@@ -101,6 +102,7 @@ public class DateSerializer implements BinarySerializer<Date> {
     return LongSerializer.LONG_SIZE;
   }
 
+  @Nullable
   @Override
   public Date preprocess(BinarySerializerFactory serializerFactory, Date value, Object... hints) {
     if (value == null) {

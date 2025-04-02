@@ -21,7 +21,7 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
   private static final Object unset = new Object();
 
   protected SQLIdentifier className;
-  protected SQLIdentifier targetClusterName;
+  protected SQLIdentifier targetCollectionName;
 
   protected SQLRid rid;
   protected List<SQLRid> rids;
@@ -98,9 +98,9 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
     if (className != null) {
       builder.append(" ");
       className.toString(params, builder);
-      if (targetClusterName != null) {
-        builder.append(" CLUSTER ");
-        targetClusterName.toString(params, builder);
+      if (targetCollectionName != null) {
+        builder.append(" COLLECTION ");
+        targetCollectionName.toString(params, builder);
       }
     }
 
@@ -148,9 +148,9 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
     if (className != null) {
       builder.append(" ");
       className.toGenericStatement(builder);
-      if (targetClusterName != null) {
-        builder.append(" CLUSTER ");
-        targetClusterName.toGenericStatement(builder);
+      if (targetCollectionName != null) {
+        builder.append(" COLLECTION ");
+        targetCollectionName.toGenericStatement(builder);
       }
     }
 
@@ -201,7 +201,7 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
       throw new RuntimeException(e);
     }
     result.className = className == null ? null : className.copy();
-    result.targetClusterName = targetClusterName == null ? null : targetClusterName.copy();
+    result.targetCollectionName = targetCollectionName == null ? null : targetCollectionName.copy();
     result.rid = rid == null ? null : rid.copy();
     result.rids =
         rids == null ? null : rids.stream().map(x -> x.copy()).collect(Collectors.toList());
@@ -239,7 +239,7 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
     if (!Objects.equals(className, that.className)) {
       return false;
     }
-    if (!Objects.equals(targetClusterName, that.targetClusterName)) {
+    if (!Objects.equals(targetCollectionName, that.targetCollectionName)) {
       return false;
     }
     if (!Objects.equals(rid, that.rid)) {
@@ -266,7 +266,7 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
   @Override
   public int hashCode() {
     var result = className != null ? className.hashCode() : 0;
-    result = 31 * result + (targetClusterName != null ? targetClusterName.hashCode() : 0);
+    result = 31 * result + (targetCollectionName != null ? targetCollectionName.hashCode() : 0);
     result = 31 * result + (rid != null ? rid.hashCode() : 0);
     result = 31 * result + (rids != null ? rids.hashCode() : 0);
     result = 31 * result + (leftExpression != null ? leftExpression.hashCode() : 0);
@@ -285,12 +285,12 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
     this.className = className;
   }
 
-  public SQLIdentifier getTargetClusterName() {
-    return targetClusterName;
+  public SQLIdentifier getTargetCollectionName() {
+    return targetCollectionName;
   }
 
-  public void setTargetClusterName(SQLIdentifier targetClusterName) {
-    this.targetClusterName = targetClusterName;
+  public void setTargetCollectionName(SQLIdentifier targetCollectionName) {
+    this.targetCollectionName = targetCollectionName;
   }
 
   public SQLRid getRid() {

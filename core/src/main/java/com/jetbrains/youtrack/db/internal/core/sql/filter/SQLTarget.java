@@ -48,7 +48,7 @@ public class SQLTarget extends BaseParser {
   protected String targetVariable;
   protected String targetQuery;
   protected Iterable<Identifiable> targetRecords;
-  protected Map<String, String> targetClusters;
+  protected Map<String, String> targetCollections;
   protected Map<String, String> targetClasses;
 
   protected String targetIndex;
@@ -86,8 +86,8 @@ public class SQLTarget extends BaseParser {
     }
   }
 
-  public Map<String, String> getTargetClusters() {
-    return targetClusters;
+  public Map<String, String> getTargetCollections() {
+    return targetCollections;
   }
 
   public Map<String, String> getTargetClasses() {
@@ -118,8 +118,8 @@ public class SQLTarget extends BaseParser {
   public String toString() {
     if (targetClasses != null) {
       return "class " + targetClasses.keySet();
-    } else if (targetClusters != null) {
-      return "cluster " + targetClusters.keySet();
+    } else if (targetCollections != null) {
+      return "collection " + targetCollections.keySet();
     }
     if (targetIndex != null) {
       return "index " + targetIndex;
@@ -188,7 +188,7 @@ public class SQLTarget extends BaseParser {
 
       while (!parserIsEnded()
           && (targetClasses == null
-          && targetClusters == null
+          && targetCollections == null
           && targetIndex == null
           && targetIndexValues == null
           && targetRecords == null)) {
@@ -204,21 +204,21 @@ public class SQLTarget extends BaseParser {
         }
 
         final var subjectToMatch = subjectName;
-        if (subjectToMatch.startsWith(CommandExecutorSQLAbstract.CLUSTER_PREFIX)) {
-          // REGISTER AS CLUSTER
-          if (targetClusters == null) {
-            targetClusters = new HashMap<String, String>();
+        if (subjectToMatch.startsWith(CommandExecutorSQLAbstract.COLLECTION_PREFIX)) {
+          // REGISTER AS COLLECTION
+          if (targetCollections == null) {
+            targetCollections = new HashMap<String, String>();
           }
-          final var clusterNames =
-              subjectName.substring(CommandExecutorSQLAbstract.CLUSTER_PREFIX.length());
-          if (clusterNames.startsWith("[") && clusterNames.endsWith("]")) {
-            final Collection<String> clusters = new HashSet<String>(3);
-            StringSerializerHelper.getCollection(clusterNames, 0, clusters);
-            for (var cl : clusters) {
-              targetClusters.put(cl, cl);
+          final var collectionNames =
+              subjectName.substring(CommandExecutorSQLAbstract.COLLECTION_PREFIX.length());
+          if (collectionNames.startsWith("[") && collectionNames.endsWith("]")) {
+            final Collection<String> collections = new HashSet<String>(3);
+            StringSerializerHelper.getCollection(collectionNames, 0, collections);
+            for (var cl : collections) {
+              targetCollections.put(cl, cl);
             }
           } else {
-            targetClusters.put(clusterNames, alias);
+            targetCollections.put(collectionNames, alias);
           }
 
         } else if (subjectToMatch.startsWith(CommandExecutorSQLAbstract.INDEX_PREFIX)) {

@@ -34,6 +34,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Index implementation bound to one schema class property that presents
@@ -75,6 +76,7 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
     return createValue(session, entity.<Object>getProperty(field));
   }
 
+  @Nullable
   @Override
   public Object createValue(DatabaseSessionInternal session, List<?> params) {
     if (!(params.get(0) instanceof Map)) {
@@ -90,6 +92,7 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
     return result;
   }
 
+  @Nullable
   @Override
   public Object createValue(DatabaseSessionInternal session, Object... params) {
     if (!(params[0] instanceof Map)) {

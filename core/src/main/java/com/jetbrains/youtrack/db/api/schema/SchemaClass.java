@@ -115,9 +115,9 @@ public interface SchemaClass {
 
   boolean existsProperty(String iPropertyName);
 
-  int[] getClusterIds();
+  int[] getCollectionIds();
 
-  int[] getPolymorphicClusterIds();
+  int[] getPolymorphicCollectionIds();
 
   /**
    * @return all the subclasses (one level hierarchy only)
@@ -252,7 +252,7 @@ public interface SchemaClass {
 
   Set<String> getCustomKeys();
 
-  boolean hasClusterId(int clusterId);
+  boolean hasCollectionId(int collectionId);
 
-  boolean hasPolymorphicClusterId(int clusterId);
+  boolean hasPolymorphicCollectionId(int collectionId);
 }

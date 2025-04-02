@@ -59,9 +59,9 @@ public interface AtomicOperation {
 
   Iterable<String> lockedObjects();
 
-  void addDeletedRecordPosition(final int clusterId, final int pageIndex, final int recordPosition);
+  void addDeletedRecordPosition(final int collectionId, final int pageIndex, final int recordPosition);
 
-  IntSet getBookedRecordPositions(final int clusterId, final int pageIndex);
+  IntSet getBookedRecordPositions(final int collectionId, final int pageIndex);
 
   void incrementComponentOperations();
 

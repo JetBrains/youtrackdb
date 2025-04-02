@@ -32,6 +32,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * SQL CREATE PROPERTY command: Creates a new property in the target class.
@@ -120,6 +121,7 @@ public class CommandExecutorSQLDropProperty extends CommandExecutorSQLAbstract
   /**
    * Execute the CREATE PROPERTY.
    */
+  @Nullable
   public Object execute(DatabaseSessionInternal session, final Map<Object, Object> iArgs) {
     if (fieldName == null) {
       throw new CommandExecutionException(session,

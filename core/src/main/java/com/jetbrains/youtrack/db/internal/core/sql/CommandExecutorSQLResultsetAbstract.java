@@ -34,7 +34,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClusters;
+import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollections;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
@@ -58,6 +58,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import javax.annotation.Nullable;
 
 /**
  * Executes a TRAVERSE crossing records. Returns a List<Identifiable> containing all the traversed
@@ -178,8 +179,8 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
               new IndexValuesIterator(session,
                   parsedTarget.getTargetIndexValues(), parsedTarget.isTargetIndexValuesAsc());
         } else {
-          if (parsedTarget.getTargetClusters() != null) {
-            searchInClusters(session);
+          if (parsedTarget.getTargetCollections() != null) {
+            searchInCollections(session);
           } else {
             if (parsedTarget.getTargetRecords() != null) {
               if (!lazyIteration && parsedTarget.getTargetQuery() != null) {
@@ -223,6 +224,7 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
     return true;
   }
 
+  @Nullable
   protected Object getResultInstance() {
     return null;
   }
@@ -499,41 +501,41 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
     }
   }
 
-  protected void searchInClusters(DatabaseSessionInternal session) {
-    final var clusterIds = new IntOpenHashSet();
-    for (var clusterName : parsedTarget.getTargetClusters().keySet()) {
-      if (clusterName == null || clusterName.isEmpty()) {
+  protected void searchInCollections(DatabaseSessionInternal session) {
+    final var collectionIds = new IntOpenHashSet();
+    for (var collectionName : parsedTarget.getTargetCollections().keySet()) {
+      if (collectionName == null || collectionName.isEmpty()) {
         throw new CommandExecutionException(session,
-            "No cluster or schema class selected in query");
+            "No collection or schema class selected in query");
       }
 
       session.checkSecurity(
-          Rule.ResourceGeneric.CLUSTER,
+          Rule.ResourceGeneric.COLLECTION,
           Role.PERMISSION_READ,
-          clusterName.toLowerCase(Locale.ENGLISH));
+          collectionName.toLowerCase(Locale.ENGLISH));
 
-      if (Character.isDigit(clusterName.charAt(0))) {
-        // GET THE CLUSTER NUMBER
-        for (var clusterId : StringSerializerHelper.splitIntArray(clusterName)) {
-          if (clusterId == -1) {
-            throw new CommandExecutionException(session, "Cluster '" + clusterName + "' not found");
+      if (Character.isDigit(collectionName.charAt(0))) {
+        // GET THE COLLECTION NUMBER
+        for (var collectionId : StringSerializerHelper.splitIntArray(collectionName)) {
+          if (collectionId == -1) {
+            throw new CommandExecutionException(session, "Collection '" + collectionName + "' not found");
           }
 
-          clusterIds.add(clusterId);
+          collectionIds.add(collectionId);
         }
       } else {
-        // GET THE CLUSTER NUMBER BY THE CLASS NAME
-        final var clusterId = session.getClusterIdByName(clusterName.toLowerCase(Locale.ENGLISH));
-        if (clusterId == -1) {
-          throw new CommandExecutionException(session, "Cluster '" + clusterName + "' not found");
+        // GET THE COLLECTION NUMBER BY THE CLASS NAME
+        final var collectionId = session.getCollectionIdByName(collectionName.toLowerCase(Locale.ENGLISH));
+        if (collectionId == -1) {
+          throw new CommandExecutionException(session, "Collection '" + collectionName + "' not found");
         }
 
-        clusterIds.add(clusterId);
+        collectionIds.add(collectionId);
       }
     }
 
     target =
-        new RecordIteratorClusters<>(session, clusterIds.toIntArray(), true);
+        new RecordIteratorCollections<>(session, collectionIds.toIntArray(), true);
   }
 
   protected void applyLimitAndSkip() {

@@ -880,8 +880,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   }
 
   @Test
-  public void testFetchFromClusterNumber() {
-    var className = "testFetchFromClusterNumber";
+  public void testFetchFromCollectionNumber() {
+    var className = "testFetchFromCollectionNumber";
     Schema schema = session.getMetadata().getSchema();
     schema.createClass(className);
 
@@ -912,7 +912,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testFetchFromClassNumberOrderByRidDesc() {
-    var className = "testFetchFromClusterNumberOrderByRidDesc";
+    var className = "testFetchFromCollectionNumberOrderByRidDesc";
     Schema schema = session.getMetadata().getSchema();
     schema.createClass(className);
 
@@ -947,7 +947,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testFetchFromClassNumberOrderByRidAsc() {
-    var className = "testFetchFromClusterNumberOrderByRidAsc";
+    var className = "testFetchFromCollectionNumberOrderByRidAsc";
     Schema schema = session.getMetadata().getSchema();
     schema.createClass(className);
 
@@ -3547,8 +3547,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var rid = item.getProperty("theRid");
     Assert.assertTrue(rid instanceof Identifiable);
     var id = (Identifiable) rid;
-    Assert.assertEquals(12, id.getIdentity().getClusterId());
-    Assert.assertEquals(0L, id.getIdentity().getClusterPosition());
+    Assert.assertEquals(12, id.getIdentity().getCollectionId());
+    Assert.assertEquals(0L, id.getIdentity().getCollectionPosition());
     Assert.assertFalse(result.hasNext());
     result.close();
     session.commit();

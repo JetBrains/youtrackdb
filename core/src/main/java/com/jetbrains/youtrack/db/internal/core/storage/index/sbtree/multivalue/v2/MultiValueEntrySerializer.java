@@ -34,10 +34,10 @@ public final class MultiValueEntrySerializer implements BinarySerializer<MultiVa
     LongSerializer.INSTANCE.serialize(object.id, serializerFactory, stream, pos);
     pos += LongSerializer.LONG_SIZE;
 
-    ShortSerializer.INSTANCE.serialize((short) object.clusterId, serializerFactory, stream, pos);
+    ShortSerializer.INSTANCE.serialize((short) object.collectionId, serializerFactory, stream, pos);
     pos += ShortSerializer.SHORT_SIZE;
 
-    LongSerializer.INSTANCE.serialize(object.clusterPosition, serializerFactory, stream, pos);
+    LongSerializer.INSTANCE.serialize(object.collectionPosition, serializerFactory, stream, pos);
   }
 
   @Override
@@ -47,12 +47,12 @@ public final class MultiValueEntrySerializer implements BinarySerializer<MultiVa
     final long id = LongSerializer.INSTANCE.deserialize(serializerFactory, stream, pos);
     pos += LongSerializer.LONG_SIZE;
 
-    final int clusterId = ShortSerializer.INSTANCE.deserialize(serializerFactory, stream, pos);
+    final int collectionId = ShortSerializer.INSTANCE.deserialize(serializerFactory, stream, pos);
     pos += ShortSerializer.SHORT_SIZE;
 
-    final long clusterPosition = LongSerializer.INSTANCE.deserialize(serializerFactory, stream,
+    final long collectionPosition = LongSerializer.INSTANCE.deserialize(serializerFactory, stream,
         pos);
-    return new MultiValueEntry(id, clusterId, clusterPosition);
+    return new MultiValueEntry(id, collectionId, collectionPosition);
   }
 
   @Override
@@ -80,10 +80,10 @@ public final class MultiValueEntrySerializer implements BinarySerializer<MultiVa
     LongSerializer.INSTANCE.serializeNative(object.id, stream, pos);
     pos += LongSerializer.LONG_SIZE;
 
-    ShortSerializer.INSTANCE.serializeNative((short) object.clusterId, stream, pos);
+    ShortSerializer.INSTANCE.serializeNative((short) object.collectionId, stream, pos);
     pos += ShortSerializer.SHORT_SIZE;
 
-    LongSerializer.INSTANCE.serializeNative(object.clusterPosition, stream, pos);
+    LongSerializer.INSTANCE.serializeNative(object.collectionPosition, stream, pos);
   }
 
   @Override
@@ -93,11 +93,11 @@ public final class MultiValueEntrySerializer implements BinarySerializer<MultiVa
     final var id = LongSerializer.INSTANCE.deserializeNative(stream, pos);
     pos += LongSerializer.LONG_SIZE;
 
-    final int clusterId = ShortSerializer.INSTANCE.deserializeNative(stream, pos);
+    final int collectionId = ShortSerializer.INSTANCE.deserializeNative(stream, pos);
     pos += ShortSerializer.SHORT_SIZE;
 
-    final var clusterPosition = LongSerializer.INSTANCE.deserializeNative(stream, pos);
-    return new MultiValueEntry(id, clusterId, clusterPosition);
+    final var collectionPosition = LongSerializer.INSTANCE.deserializeNative(stream, pos);
+    return new MultiValueEntry(id, collectionId, collectionPosition);
   }
 
   @Override
@@ -117,18 +117,18 @@ public final class MultiValueEntrySerializer implements BinarySerializer<MultiVa
       BinarySerializerFactory serializerFactory, final MultiValueEntry object,
       final ByteBuffer buffer, final Object... hints) {
     buffer.putLong(object.id);
-    buffer.putShort((short) object.clusterId);
-    buffer.putLong(object.clusterPosition);
+    buffer.putShort((short) object.collectionId);
+    buffer.putLong(object.collectionPosition);
   }
 
   @Override
   public MultiValueEntry deserializeFromByteBufferObject(BinarySerializerFactory serializerFactory,
       final ByteBuffer buffer) {
     final var id = buffer.getLong();
-    final int clusterId = buffer.getShort();
-    final var clusterPosition = buffer.getLong();
+    final int collectionId = buffer.getShort();
+    final var collectionPosition = buffer.getLong();
 
-    return new MultiValueEntry(id, clusterId, clusterPosition);
+    return new MultiValueEntry(id, collectionId, collectionPosition);
   }
 
   @Override
@@ -137,12 +137,12 @@ public final class MultiValueEntrySerializer implements BinarySerializer<MultiVa
     final var id = buffer.getLong(offset);
     offset += Long.BYTES;
 
-    final int clusterId = buffer.getShort(offset);
+    final int collectionId = buffer.getShort(offset);
     offset += Short.BYTES;
 
-    final var clusterPosition = buffer.getLong(offset);
+    final var collectionPosition = buffer.getLong(offset);
 
-    return new MultiValueEntry(id, clusterId, clusterPosition);
+    return new MultiValueEntry(id, collectionId, collectionPosition);
   }
 
   @Override
@@ -166,12 +166,12 @@ public final class MultiValueEntrySerializer implements BinarySerializer<MultiVa
     final var id = walChanges.getLongValue(buffer, position);
     position += LongSerializer.LONG_SIZE;
 
-    final int clusterId = walChanges.getShortValue(buffer, position);
+    final int collectionId = walChanges.getShortValue(buffer, position);
     position += ShortSerializer.SHORT_SIZE;
 
-    final var clusterPosition = walChanges.getLongValue(buffer, position);
+    final var collectionPosition = walChanges.getLongValue(buffer, position);
 
-    return new MultiValueEntry(id, clusterId, clusterPosition);
+    return new MultiValueEntry(id, collectionId, collectionPosition);
   }
 
   @Override

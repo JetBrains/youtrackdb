@@ -201,6 +201,7 @@ public class ScheduledEvent extends IdentityWrapper {
           user,
           db -> {
             runTask(db);
+            //noinspection ReturnOfNull
             return null;
           });
     }

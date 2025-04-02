@@ -426,25 +426,25 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
 
   @Nullable
   @Override
-  public RecordId getFirstRid(int clusterId) {
+  public RecordId getFirstRid(int collectionId) {
     throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
   }
 
   @Nullable
   @Override
-  public RecordId getLastRid(int clusterId) {
+  public RecordId getLastRid(int collectionId) {
     throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
   }
 
   @Nullable
   @Override
-  public RecordId getNextRidInCluster(@Nonnull RecordId rid) {
+  public RecordId getNextRidInCollection(@Nonnull RecordId rid) {
     throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
   }
 
   @Nullable
   @Override
-  public RecordId getPreviousRidInCluster(@Nonnull RecordId rid) {
+  public RecordId getPreviousRidInCollection(@Nonnull RecordId rid) {
     throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
   }
 

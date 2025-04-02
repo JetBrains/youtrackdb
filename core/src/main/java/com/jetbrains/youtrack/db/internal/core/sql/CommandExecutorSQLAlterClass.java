@@ -110,8 +110,8 @@ public class CommandExecutorSQLAlterClass extends CommandExecutorSQLAbstract
 
       value = parserText.substring(pos + 1).trim();
 
-      if ("addcluster".equalsIgnoreCase(attributeAsString)
-          || "removecluster".equalsIgnoreCase(attributeAsString)) {
+      if ("addcollection".equalsIgnoreCase(attributeAsString)
+          || "removecollection".equalsIgnoreCase(attributeAsString)) {
         value = decodeClassName(value);
       }
       var stm = (SQLAlterClassStatement) preParsedStatement;

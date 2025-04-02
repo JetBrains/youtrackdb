@@ -49,11 +49,11 @@ public class AuditingLoggingThread extends Thread {
     this.security = security;
     setDaemon(true);
 
-    // This will create a cluster in the system database for logging auditing events for
+    // This will create a collection in the system database for logging auditing events for
     // "databaseName", if it doesn't already
     // exist.
-    // server.getSystemDatabase().createCluster(DefaultAuditing.AUDITING_LOG_CLASSNAME,
-    // DefaultAuditing.getClusterName(databaseName));
+    // server.getSystemDatabase().createCollection(DefaultAuditing.AUDITING_LOG_CLASSNAME,
+    // DefaultAuditing.getCollectionName(databaseName));
 
     className = DefaultAuditing.getClassName(iDatabaseName);
 

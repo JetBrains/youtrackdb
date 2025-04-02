@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -87,9 +88,10 @@ public abstract class CommandExecutorSQLSetAware extends CommandExecutorSQLAbstr
     }
   }
 
+  @Nullable
   protected SchemaClass extractClassFromTarget(DatabaseSessionInternal db, String iTarget) {
     // CLASS
-    if (!iTarget.toUpperCase(Locale.ENGLISH).startsWith(CommandExecutorSQLAbstract.CLUSTER_PREFIX)
+    if (!iTarget.toUpperCase(Locale.ENGLISH).startsWith(CommandExecutorSQLAbstract.COLLECTION_PREFIX)
         && !iTarget.startsWith(CommandExecutorSQLAbstract.INDEX_PREFIX)) {
 
       if (iTarget.toUpperCase(Locale.ENGLISH).startsWith(CommandExecutorSQLAbstract.CLASS_PREFIX))
@@ -102,27 +104,27 @@ public abstract class CommandExecutorSQLSetAware extends CommandExecutorSQLAbstr
         return db
             .getMetadata()
             .getImmutableSchemaSnapshot()
-            .getClassByClusterId(new RecordId(iTarget).getClusterId());
+            .getClassByCollectionId(new RecordId(iTarget).getCollectionId());
       }
 
       return db.getMetadata().getImmutableSchemaSnapshot().getClass(iTarget);
     }
-    // CLUSTER
+    // COLLECTION
     if (iTarget
         .toUpperCase(Locale.ENGLISH)
-        .startsWith(CommandExecutorSQLAbstract.CLUSTER_PREFIX)) {
-      var clusterName =
-          iTarget.substring(CommandExecutorSQLAbstract.CLUSTER_PREFIX.length()).trim();
-      if (clusterName.startsWith("[") && clusterName.endsWith("]")) {
-        var clusterNames = clusterName.substring(1, clusterName.length() - 1).split(",");
+        .startsWith(CommandExecutorSQLAbstract.COLLECTION_PREFIX)) {
+      var collectionName =
+          iTarget.substring(CommandExecutorSQLAbstract.COLLECTION_PREFIX.length()).trim();
+      if (collectionName.startsWith("[") && collectionName.endsWith("]")) {
+        var collectionNames = collectionName.substring(1, collectionName.length() - 1).split(",");
         SchemaClass candidateClass = null;
-        for (var cName : clusterNames) {
-          final var clusterId = db.getClusterIdByName(cName.trim());
-          if (clusterId < 0) {
+        for (var cName : collectionNames) {
+          final var collectionId = db.getCollectionIdByName(cName.trim());
+          if (collectionId < 0) {
             return null;
           }
           var aClass =
-              db.getMetadata().getImmutableSchemaSnapshot().getClassByClusterId(clusterId);
+              db.getMetadata().getImmutableSchemaSnapshot().getClassByCollectionId(collectionId);
           if (aClass == null) {
             return null;
           }
@@ -136,9 +138,9 @@ public abstract class CommandExecutorSQLSetAware extends CommandExecutorSQLAbstr
         }
         return candidateClass;
       } else {
-        final var clusterId = db.getClusterIdByName(clusterName);
-        if (clusterId >= 0) {
-          return db.getMetadata().getImmutableSchemaSnapshot().getClassByClusterId(clusterId);
+        final var collectionId = db.getCollectionIdByName(collectionName);
+        if (collectionId >= 0) {
+          return db.getMetadata().getImmutableSchemaSnapshot().getClassByCollectionId(collectionId);
         }
       }
     }

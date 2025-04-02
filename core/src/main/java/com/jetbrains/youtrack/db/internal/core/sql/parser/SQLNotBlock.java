@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLNotBlock extends SQLBooleanExpression {
 
@@ -99,6 +100,7 @@ public class SQLNotBlock extends SQLBooleanExpression {
     return sub.getExternalCalculationConditions();
   }
 
+  @Nullable
   public List<SQLBinaryCondition> getIndexedFunctionConditions(
       SchemaClass iSchemaClass, DatabaseSessionInternal database) {
     if (sub == null) {

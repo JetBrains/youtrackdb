@@ -29,6 +29,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLPredicate;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * SQL UPDATE command.
@@ -55,24 +56,29 @@ public class CommandExecutorSQLDelegate extends CommandExecutorSQLAbstract
   }
 
 
+  @Nullable
   public Object execute(DatabaseSessionInternal session, final Map<Object, Object> iArgs) {
     return null;
   }
 
+  @Nullable
   @Override
   public CommandContext getContext() {
     return null;
   }
 
+  @Nullable
   @Override
   public String toString() {
     return null;
   }
 
+  @Nullable
   public String getSyntax() {
     return null;
   }
 
+  @Nullable
   @Override
   public String getFetchPlan() {
     return null;
@@ -83,6 +89,7 @@ public class CommandExecutorSQLDelegate extends CommandExecutorSQLAbstract
     return false;
   }
 
+  @Nullable
   public CommandExecutor getDelegate() {
     return null;
   }
@@ -92,8 +99,9 @@ public class CommandExecutorSQLDelegate extends CommandExecutorSQLAbstract
     return false;
   }
 
+  @Nullable
   @Override
-  public Set<String> getInvolvedClusters(DatabaseSessionInternal session) {
+  public Set<String> getInvolvedCollections(DatabaseSessionInternal session) {
     return null;
   }
 }

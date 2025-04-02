@@ -52,7 +52,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
+import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.FunctionLibraryImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
@@ -863,15 +863,15 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   @Override
-  public int addBlobCluster(final String iClusterName, final Object... iParameters) {
+  public int addBlobCollection(final String iCollectionName, final Object... iParameters) {
     assert assertIfNotActive();
     int id;
-    if (!existsCluster(iClusterName)) {
-      id = addCluster(iClusterName, iParameters);
+    if (!existsCollection(iCollectionName)) {
+      id = addCollection(iCollectionName, iParameters);
     } else {
-      id = getClusterIdByName(iClusterName);
+      id = getCollectionIdByName(iCollectionName);
     }
-    getMetadata().getSchema().addBlobCluster(id);
+    getMetadata().getSchema().addBlobCollection(id);
     return id;
   }
 
@@ -895,10 +895,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     record.delete();
   }
 
-  public void beforeCreateOperations(final RecordAbstract recordAbstract, String clusterName) {
+  public void beforeCreateOperations(final RecordAbstract recordAbstract, String collectionName) {
     assert assertIfNotActive();
 
-    checkSecurity(Role.PERMISSION_CREATE, recordAbstract, clusterName);
+    checkSecurity(Role.PERMISSION_CREATE, recordAbstract, collectionName);
 
     if (recordAbstract instanceof EntityImpl entity) {
       if (!getSharedContext().getSecurity().canCreate(this, entity)) {
@@ -949,10 +949,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     callbackHooks(RecordHook.TYPE.AFTER_CREATE, recordAbstract);
   }
 
-  public void beforeUpdateOperations(final RecordAbstract recordAbstract, String clusterName) {
+  public void beforeUpdateOperations(final RecordAbstract recordAbstract, String collectionName) {
     assert assertIfNotActive();
 
-    checkSecurity(Role.PERMISSION_UPDATE, recordAbstract, clusterName);
+    checkSecurity(Role.PERMISSION_UPDATE, recordAbstract, collectionName);
 
     if (recordAbstract instanceof EntityImpl entity) {
 
@@ -1000,9 +1000,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   public void beforeDeleteOperations(final RecordAbstract recordAbstract,
-      java.lang.String clusterName) {
+      java.lang.String collectionName) {
     assert assertIfNotActive();
-    checkSecurity(Role.PERMISSION_DELETE, recordAbstract, clusterName);
+    checkSecurity(Role.PERMISSION_DELETE, recordAbstract, collectionName);
 
     if (recordAbstract instanceof EntityImpl entity) {
       ensureLinksConsistencyBeforeDeletion(entity);
@@ -1173,12 +1173,12 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     LiveQueryHookV2.removePendingDatabaseOps(this);
   }
 
-  public String getClusterName(final @Nonnull DBRecord record) {
+  public String getCollectionName(final @Nonnull DBRecord record) {
     assert assertIfNotActive();
 
-    var clusterId = record.getIdentity().getClusterId();
-    if (clusterId == RID.CLUSTER_ID_INVALID) {
-      // COMPUTE THE CLUSTER ID
+    var collectionId = record.getIdentity().getCollectionId();
+    if (collectionId == RID.COLLECTION_ID_INVALID) {
+      // COMPUTE THE COLLECTION ID
       SchemaClassInternal schemaClass = null;
       if (record instanceof EntityImpl) {
         SchemaImmutableClass result = null;
@@ -1186,24 +1186,24 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
         schemaClass = result;
       }
       if (schemaClass != null) {
-        // FIND THE RIGHT CLUSTER AS CONFIGURED IN CLASS
+        // FIND THE RIGHT COLLECTION AS CONFIGURED IN CLASS
         if (schemaClass.isAbstract()) {
           throw new SchemaException(getDatabaseName(),
               "Entity belongs to abstract class '"
                   + schemaClass.getName()
                   + "' and cannot be saved");
         }
-        clusterId = schemaClass.getClusterForNewInstance((EntityImpl) record);
-        return getClusterNameById(clusterId);
+        collectionId = schemaClass.getCollectionForNewInstance((EntityImpl) record);
+        return getCollectionNameById(collectionId);
       } else {
         throw new SchemaException(getDatabaseName(),
-            "Cannot find the cluster id for record "
+            "Cannot find the collection id for record "
                 + record
                 + " because the schema class is not defined");
       }
 
     } else {
-      return getClusterNameById(clusterId);
+      return getCollectionNameById(collectionId);
     }
   }
 
@@ -1214,9 +1214,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     assert assertIfNotActive();
     try {
       checkSecurity(
-          Rule.ResourceGeneric.CLUSTER,
+          Rule.ResourceGeneric.COLLECTION,
           Role.PERMISSION_READ,
-          getClusterNameById(rid.getClusterId()));
+          getCollectionNameById(rid.getCollectionId()));
 
       var txInternal = getTransactionInternal();
       if (txInternal.isDeletedInTx(rid)) {
@@ -1242,8 +1242,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
           new DatabaseException(getDatabaseName(),
               "Error on retrieving record "
                   + rid
-                  + " (cluster: "
-                  + storage.getPhysicalClusterNameById(rid.getClusterId())
+                  + " (collection: "
+                  + storage.getPhysicalCollectionNameById(rid.getCollectionId())
                   + ")"),
           t, getDatabaseName());
     }
@@ -1353,15 +1353,15 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   @Override
-  public int addCluster(final String iClusterName, final Object... iParameters) {
+  public int addCollection(final String iCollectionName, final Object... iParameters) {
     assert assertIfNotActive();
-    return storage.addCluster(this, iClusterName, iParameters);
+    return storage.addCollection(this, iCollectionName, iParameters);
   }
 
   @Override
-  public int addCluster(final String iClusterName, final int iRequestedId) {
+  public int addCollection(final String iCollectionName, final int iRequestedId) {
     assert assertIfNotActive();
-    return storage.addCluster(this, iClusterName, iRequestedId);
+    return storage.addCollection(this, iCollectionName, iRequestedId);
   }
 
   public RecordConflictStrategy getConflictStrategy() {
@@ -1383,27 +1383,27 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   @Override
-  public long getClusterRecordSizeByName(final String clusterName) {
+  public long getCollectionRecordSizeByName(final String collectionName) {
     assert assertIfNotActive();
     try {
-      return storage.getClusterRecordsSizeByName(clusterName);
+      return storage.getCollectionRecordsSizeByName(collectionName);
     } catch (Exception e) {
       throw BaseException.wrapException(
           new DatabaseException(getDatabaseName(),
-              "Error on reading records size for cluster '" + clusterName + "'"),
+              "Error on reading records size for collection '" + collectionName + "'"),
           e, getDatabaseName());
     }
   }
 
   @Override
-  public long getClusterRecordSizeById(final int clusterId) {
+  public long getCollectionRecordSizeById(final int collectionId) {
     assert assertIfNotActive();
     try {
-      return storage.getClusterRecordsSizeById(clusterId);
+      return storage.getCollectionRecordsSizeById(collectionId);
     } catch (Exception e) {
       throw BaseException.wrapException(
           new DatabaseException(getDatabaseName(),
-              "Error on reading records size for cluster with id '" + clusterId + "'"),
+              "Error on reading records size for collection with id '" + collectionId + "'"),
           e, getDatabaseName());
     }
   }
@@ -1412,106 +1412,106 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
    * {@inheritDoc}
    */
   @Override
-  public long countClusterElements(int iClusterId, boolean countTombstones) {
+  public long countCollectionElements(int iCollectionId, boolean countTombstones) {
     assert assertIfNotActive();
-    final var name = getClusterNameById(iClusterId);
+    final var name = getCollectionNameById(iCollectionId);
     if (name == null) {
       return 0;
     }
-    checkSecurity(Rule.ResourceGeneric.CLUSTER, Role.PERMISSION_READ, name);
+    checkSecurity(Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_READ, name);
     assert assertIfNotActive();
-    return storage.count(this, iClusterId, countTombstones);
+    return storage.count(this, iCollectionId, countTombstones);
   }
 
   /**
    * {@inheritDoc}
    */
   @Override
-  public long countClusterElements(int[] iClusterIds, boolean countTombstones) {
+  public long countCollectionElements(int[] iCollectionIds, boolean countTombstones) {
     assert assertIfNotActive();
     String name;
-    for (var iClusterId : iClusterIds) {
-      name = getClusterNameById(iClusterId);
-      checkSecurity(Rule.ResourceGeneric.CLUSTER, Role.PERMISSION_READ, name);
+    for (var iCollectionId : iCollectionIds) {
+      name = getCollectionNameById(iCollectionId);
+      checkSecurity(Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_READ, name);
     }
-    return storage.count(this, iClusterIds, countTombstones);
+    return storage.count(this, iCollectionIds, countTombstones);
   }
 
   /**
    * {@inheritDoc}
    */
   @Override
-  public long countClusterElements(final String iClusterName) {
-    checkSecurity(Rule.ResourceGeneric.CLUSTER, Role.PERMISSION_READ, iClusterName);
+  public long countCollectionElements(final String iCollectionName) {
+    checkSecurity(Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_READ, iCollectionName);
     assert assertIfNotActive();
 
-    final var clusterId = getClusterIdByName(iClusterName);
-    if (clusterId < 0) {
-      throw new IllegalArgumentException("Cluster '" + iClusterName + "' was not found");
+    final var collectionId = getCollectionIdByName(iCollectionName);
+    if (collectionId < 0) {
+      throw new IllegalArgumentException("Collection '" + iCollectionName + "' was not found");
     }
-    return storage.count(this, clusterId);
+    return storage.count(this, collectionId);
   }
 
   @Override
-  public boolean dropCluster(final String iClusterName) {
+  public boolean dropCollection(final String iCollectionName) {
     assert assertIfNotActive();
-    final var clusterId = getClusterIdByName(iClusterName);
+    final var collectionId = getCollectionIdByName(iCollectionName);
     var schema = metadata.getSchema();
 
-    var clazz = schema.getClassByClusterId(clusterId);
+    var clazz = schema.getClassByCollectionId(collectionId);
     if (clazz != null) {
-      throw new DatabaseException(this, "Cannot drop cluster '" + getClusterNameById(clusterId)
+      throw new DatabaseException(this, "Cannot drop collection '" + getCollectionNameById(collectionId)
           + "' because it is mapped to class '" + clazz.getName() + "'");
     }
-    if (schema.getBlobClusters().contains(clusterId)) {
-      schema.removeBlobCluster(iClusterName);
+    if (schema.getBlobCollections().contains(collectionId)) {
+      schema.removeBlobCollection(iCollectionName);
     }
-    getLocalCache().freeCluster(clusterId);
-    return dropClusterInternal(iClusterName);
+    getLocalCache().freeCollection(collectionId);
+    return dropCollectionInternal(iCollectionName);
   }
 
-  protected boolean dropClusterInternal(final String iClusterName) {
+  protected boolean dropCollectionInternal(final String iCollectionName) {
     assert assertIfNotActive();
-    return storage.dropCluster(this, iClusterName);
+    return storage.dropCollection(this, iCollectionName);
   }
 
   @Override
-  public boolean dropCluster(final int clusterId) {
+  public boolean dropCollection(final int collectionId) {
     assert assertIfNotActive();
 
     checkSecurity(
-        Rule.ResourceGeneric.CLUSTER, Role.PERMISSION_DELETE, getClusterNameById(clusterId));
+        Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_DELETE, getCollectionNameById(collectionId));
 
     var schema = metadata.getSchema();
-    final var clazz = schema.getClassByClusterId(clusterId);
+    final var clazz = schema.getClassByCollectionId(collectionId);
     if (clazz != null) {
-      throw new DatabaseException(this, "Cannot drop cluster '" + getClusterNameById(clusterId)
+      throw new DatabaseException(this, "Cannot drop collection '" + getCollectionNameById(collectionId)
           + "' because it is mapped to class '" + clazz.getName() + "'");
     }
 
-    getLocalCache().freeCluster(clusterId);
-    if (schema.getBlobClusters().contains(clusterId)) {
-      schema.removeBlobCluster(getClusterNameById(clusterId));
+    getLocalCache().freeCollection(collectionId);
+    if (schema.getBlobCollections().contains(collectionId)) {
+      schema.removeBlobCollection(getCollectionNameById(collectionId));
     }
 
-    final var clusterName = getClusterNameById(clusterId);
-    if (clusterName == null) {
+    final var collectionName = getCollectionNameById(collectionId);
+    if (collectionName == null) {
       return false;
     }
 
-    final var iteratorCluster = browseCluster(clusterName);
-    if (iteratorCluster == null) {
+    final var iteratorCollection = browseCollection(collectionName);
+    if (iteratorCollection == null) {
       return false;
     }
 
-    executeInTxBatches(iteratorCluster, (session, record) -> delete(record));
+    executeInTxBatches(iteratorCollection, (session, record) -> delete(record));
 
-    return dropClusterInternal(clusterId);
+    return dropCollectionInternal(collectionId);
   }
 
-  public boolean dropClusterInternal(int clusterId) {
+  public boolean dropCollectionInternal(int collectionId) {
     assert assertIfNotActive();
-    return storage.dropCluster(this, clusterId);
+    return storage.dropCollection(this, collectionId);
   }
 
   @Override
@@ -1714,15 +1714,15 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
 
 
   @Override
-  public String getClusterRecordConflictStrategy(int clusterId) {
+  public String getCollectionRecordConflictStrategy(int collectionId) {
     assert assertIfNotActive();
-    return storage.getClusterRecordConflictStrategy(clusterId);
+    return storage.getCollectionRecordConflictStrategy(collectionId);
   }
 
   @Override
-  public int[] getClustersIds(@Nonnull Set<String> filterClusters) {
+  public int[] getCollectionsIds(@Nonnull Set<String> filterCollections) {
     assert assertIfNotActive();
-    return storage.getClustersIds(filterClusters);
+    return storage.getCollectionsIds(filterCollections);
   }
 
   public void startExclusiveMetadataChange() {
@@ -1740,22 +1740,22 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     assert assertIfNotActive();
     this.checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_UPDATE);
     var clazz = getClass(name);
-    int[] clusterIds;
+    int[] collectionIds;
     if (polimorfic) {
-      clusterIds = clazz.getPolymorphicClusterIds();
+      collectionIds = clazz.getPolymorphicCollectionIds();
     } else {
-      clusterIds = clazz.getClusterIds();
+      collectionIds = clazz.getCollectionIds();
     }
     long count = 0;
-    for (var id : clusterIds) {
+    for (var id : collectionIds) {
       if (id < 0) {
         continue;
       }
-      final var clusterName = getClusterNameById(id);
-      if (clusterName == null) {
+      final var collectionName = getCollectionNameById(id);
+      if (collectionName == null) {
         continue;
       }
-      count += truncateClusterInternal(clusterName);
+      count += truncateCollectionInternal(collectionName);
     }
     return count;
   }
@@ -1767,25 +1767,25 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   @Override
-  public long truncateClusterInternal(String clusterName) {
+  public long truncateCollectionInternal(String collectionName) {
     assert assertIfNotActive();
-    checkSecurity(Rule.ResourceGeneric.CLUSTER, Role.PERMISSION_DELETE, clusterName);
+    checkSecurity(Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_DELETE, collectionName);
 
-    var id = getClusterIdByName(clusterName);
+    var id = getCollectionIdByName(collectionName);
     if (id == -1) {
       throw new DatabaseException(getDatabaseName(),
-          "Cluster with name " + clusterName + " does not exist");
+          "Collection with name " + collectionName + " does not exist");
     }
-    final var clazz = getMetadata().getSchema().getClassByClusterId(id);
+    final var clazz = getMetadata().getSchema().getClassByCollectionId(id);
     if (clazz != null) {
       checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_DELETE, clazz.getName());
     }
 
     var count = new long[]{0};
-    final var iteratorCluster =
-        new RecordIteratorCluster<>(this, id, true);
+    final var iteratorCollection =
+        new RecordIteratorCollection<>(this, id, true);
 
-    executeInTxBatches(iteratorCluster, (session, record) -> {
+    executeInTxBatches(iteratorCollection, (session, record) -> {
       delete(record);
       count[0]++;
     });
@@ -1794,9 +1794,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   @Override
-  public void truncateCluster(String clusterName) {
+  public void truncateCollection(String collectionName) {
     assert assertIfNotActive();
-    truncateClusterInternal(clusterName);
+    truncateCollectionInternal(collectionName);
   }
 
   @Override

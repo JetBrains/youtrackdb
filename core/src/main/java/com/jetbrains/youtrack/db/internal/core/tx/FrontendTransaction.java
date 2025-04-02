@@ -220,16 +220,16 @@ public interface FrontendTransaction extends Transaction {
   RecordOperation addRecordOperation(RecordAbstract record, byte status);
 
   @Nullable
-  RecordId getFirstRid(int clusterId);
+  RecordId getFirstRid(int collectionId);
 
   @Nullable
-  RecordId getLastRid(int clusterId);
+  RecordId getLastRid(int collectionId);
 
   @Nullable
-  RecordId getNextRidInCluster(@Nonnull RecordId rid);
+  RecordId getNextRidInCollection(@Nonnull RecordId rid);
 
   @Nullable
-  RecordId getPreviousRidInCluster(@Nonnull RecordId rid);
+  RecordId getPreviousRidInCollection(@Nonnull RecordId rid);
 
   boolean isDeletedInTx(@Nonnull RID rid);
 

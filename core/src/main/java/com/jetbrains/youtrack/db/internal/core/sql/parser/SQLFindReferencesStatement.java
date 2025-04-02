@@ -19,7 +19,7 @@ public class SQLFindReferencesStatement extends SQLStatement {
   protected SQLRid rid;
   protected SQLStatement subQuery;
 
-  // class or cluster
+  // class or collection
   protected List<SimpleNode> targets;
 
   public SQLFindReferencesStatement(int id) {

@@ -8,6 +8,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
+import javax.annotation.Nullable;
 
 /**
  * This class is used to represent all the indentifies in the SQL grammar, ie. class names, property
@@ -77,6 +78,7 @@ public class SQLIdentifier extends SimpleNode {
    *
    * @return
    */
+  @Nullable
   public String getStringValue() {
     if (value == null) {
       return null;

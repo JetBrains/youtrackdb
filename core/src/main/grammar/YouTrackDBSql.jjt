@@ -611,13 +611,13 @@ SQLRid Rid():
     (
 	     LOOKAHEAD(4)
 	     (
-	       "#" jjtThis.cluster = Integer() <COLON> jjtThis.position = Integer()
+	       "#" jjtThis.collection = Integer() <COLON> jjtThis.position = Integer()
 	       { jjtThis.legacy = true; }
 	     )
     	 |
     	 LOOKAHEAD(3)
     	 (
-    	   jjtThis.cluster = Integer() <COLON> jjtThis.position = Integer()
+    	   jjtThis.collection = Integer() <COLON> jjtThis.position = Integer()
     	   { jjtThis.legacy = true; }
     	 )
     	 |

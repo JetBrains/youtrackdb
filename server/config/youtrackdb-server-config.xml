@@ -114,8 +114,8 @@
         </commands>
       </listener>
     </listeners>
-    <cluster>
-    </cluster>
+    <collection>
+    </collection>
   </network>
   <storages>
   </storages>

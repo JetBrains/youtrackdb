@@ -33,6 +33,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * Returns a traversed element from the stack. Use it with SQL traverse only.
@@ -53,6 +54,7 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
     return false;
   }
 
+  @Nullable
   @Override
   public Object getResult() {
     return null;
@@ -76,6 +78,7 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
     return evaluate(iThis, iParams, iContext, null);
   }
 
+  @Nullable
   protected Object evaluate(
       final Object iThis,
       final Object[] iParams,

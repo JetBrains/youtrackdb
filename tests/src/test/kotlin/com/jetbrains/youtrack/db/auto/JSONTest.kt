@@ -951,8 +951,8 @@ class JSONTest @Parameters(value = ["remote"]) constructor(@Optional remote: Boo
             val bag = entity.getProperty<RidBag>("in_EHasGoodStudents")!!
             Assert.assertEquals(bag.size(), 1)
             val rid = bag.iterator().next()
-            Assert.assertEquals(rid.clusterId, 57)
-            Assert.assertEquals(rid.clusterPosition, 0)
+            Assert.assertEquals(rid.collectionId, 57)
+            Assert.assertEquals(rid.collectionPosition, 0)
         }
     }
 

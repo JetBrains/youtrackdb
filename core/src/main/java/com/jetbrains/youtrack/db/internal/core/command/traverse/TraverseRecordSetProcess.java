@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.Iterator;
+import javax.annotation.Nullable;
 
 public class TraverseRecordSetProcess extends TraverseAbstractProcess<Iterator<Identifiable>> {
 
@@ -39,6 +40,7 @@ public class TraverseRecordSetProcess extends TraverseAbstractProcess<Iterator<I
     command.getContext().push(this);
   }
 
+  @Nullable
   @SuppressWarnings("unchecked")
   public Identifiable process() {
     while (target.hasNext()) {

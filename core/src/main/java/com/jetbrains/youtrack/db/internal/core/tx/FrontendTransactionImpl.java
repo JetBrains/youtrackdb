@@ -450,11 +450,11 @@ public class FrontendTransactionImpl implements
       checkTransactionValid();
       var rid = record.getIdentity();
 
-      if (rid.getClusterId() == RID.CLUSTER_ID_INVALID) {
-        var clusterId = session.assignAndCheckCluster(record);
-        rid.setClusterAndPosition(clusterId, newRecordsPositionsGenerator--);
+      if (rid.getCollectionId() == RID.COLLECTION_ID_INVALID) {
+        var collectionId = session.assignAndCheckCollection(record);
+        rid.setCollectionAndPosition(collectionId, newRecordsPositionsGenerator--);
       } else if (!rid.isValidPosition()) {
-        rid.setClusterPosition(newRecordsPositionsGenerator--);
+        rid.setCollectionPosition(newRecordsPositionsGenerator--);
       }
 
       txEntry = getRecordEntry(rid);
@@ -666,7 +666,7 @@ public class FrontendTransactionImpl implements
   private void preProcessRecordOperationAndExecuteBeforeCallbacks(RecordOperation recordOperation,
       RecordSerializer serializer) {
     var record = recordOperation.record;
-    var clusterName = session.getClusterNameById(record.getIdentity().getClusterId());
+    var collectionName = session.getCollectionNameById(record.getIdentity().getCollectionId());
 
     if (recordOperation.type == RecordOperation.CREATED
         || recordOperation.type == RecordOperation.UPDATED) {
@@ -703,18 +703,18 @@ public class FrontendTransactionImpl implements
             if (className != null && !session.isRemote()) {
               ClassIndexManager.checkIndexesAfterCreate(entityImpl, session);
             }
-            session.beforeCreateOperations(record, clusterName);
+            session.beforeCreateOperations(record, collectionName);
           } else {
             if (className != null && !session.isRemote()) {
               ClassIndexManager.checkIndexesAfterUpdate(entityImpl, session);
             }
-            session.beforeUpdateOperations(record, clusterName);
+            session.beforeUpdateOperations(record, collectionName);
           }
         } else {
           if (className != null) {
             ClassIndexManager.checkIndexesAfterUpdate(entityImpl, session);
           }
-          session.beforeUpdateOperations(record, clusterName);
+          session.beforeUpdateOperations(record, collectionName);
         }
       } finally {
         recordOperation.record.processingInCallback = false;
@@ -740,7 +740,7 @@ public class FrontendTransactionImpl implements
         if (className != null && !session.isRemote()) {
           ClassIndexManager.checkIndexesAfterDelete(entityImpl, session);
         }
-        session.beforeDeleteOperations(record, clusterName);
+        session.beforeDeleteOperations(record, collectionName);
       } finally {
         recordOperation.record.processingInCallback = false;
       }
@@ -1044,48 +1044,48 @@ public class FrontendTransactionImpl implements
   }
 
   @Nullable
-  public RecordId getFirstRid(int clusterId) {
-    var result = recordsInTransaction.ceiling(new RecordId(clusterId, Long.MIN_VALUE));
+  public RecordId getFirstRid(int collectionId) {
+    var result = recordsInTransaction.ceiling(new RecordId(collectionId, Long.MIN_VALUE));
 
     if (result == null) {
       return null;
     }
 
-    if (result.getClusterId() != clusterId) {
+    if (result.getCollectionId() != collectionId) {
       return null;
     }
 
     var record = getRecordEntry(result);
     if (record != null && record.type == RecordOperation.DELETED) {
-      return getNextRidInCluster(result);
+      return getNextRidInCollection(result);
     }
 
     return result;
   }
 
   @Nullable
-  public RecordId getLastRid(int clusterId) {
-    var result = recordsInTransaction.floor(new RecordId(clusterId, Long.MAX_VALUE));
+  public RecordId getLastRid(int collectionId) {
+    var result = recordsInTransaction.floor(new RecordId(collectionId, Long.MAX_VALUE));
 
     if (result == null) {
       return null;
     }
 
-    if (result.getClusterId() != clusterId) {
+    if (result.getCollectionId() != collectionId) {
       return null;
     }
 
     var record = getRecordEntry(result);
     if (record != null && record.type == RecordOperation.DELETED) {
-      return getPreviousRidInCluster(result);
+      return getPreviousRidInCollection(result);
     }
 
     return result;
   }
 
   @Nullable
-  public RecordId getNextRidInCluster(@Nonnull RecordId rid) {
-    var clusterId = rid.getClusterId();
+  public RecordId getNextRidInCollection(@Nonnull RecordId rid) {
+    var collectionId = rid.getCollectionId();
 
     while (true) {
       var result = recordsInTransaction.higher(rid);
@@ -1093,7 +1093,7 @@ public class FrontendTransactionImpl implements
       if (result == null) {
         return null;
       }
-      if (result.getClusterId() != clusterId) {
+      if (result.getCollectionId() != collectionId) {
         return null;
       }
 
@@ -1108,15 +1108,15 @@ public class FrontendTransactionImpl implements
   }
 
   @Nullable
-  public RecordId getPreviousRidInCluster(@Nonnull RecordId rid) {
-    var clusterId = rid.getClusterId();
+  public RecordId getPreviousRidInCollection(@Nonnull RecordId rid) {
+    var collectionId = rid.getCollectionId();
     while (true) {
       var result = recordsInTransaction.lower(rid);
 
       if (result == null) {
         return null;
       }
-      if (result.getClusterId() != clusterId) {
+      if (result.getCollectionId() != collectionId) {
         return null;
       }
 

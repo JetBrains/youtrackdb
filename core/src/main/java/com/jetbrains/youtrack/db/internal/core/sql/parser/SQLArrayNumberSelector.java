@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLArrayNumberSelector extends SimpleNode {
 
@@ -47,6 +48,7 @@ public class SQLArrayNumberSelector extends SimpleNode {
     }
   }
 
+  @Nullable
   public Integer getValue(Identifiable iCurrentRecord, CommandContext ctx) {
     Object result = null;
     if (inputValue != null) {
@@ -66,6 +68,7 @@ public class SQLArrayNumberSelector extends SimpleNode {
     return null;
   }
 
+  @Nullable
   public Integer getValue(Result iCurrentRecord, CommandContext ctx) {
     Object result = null;
     if (inputValue != null) {

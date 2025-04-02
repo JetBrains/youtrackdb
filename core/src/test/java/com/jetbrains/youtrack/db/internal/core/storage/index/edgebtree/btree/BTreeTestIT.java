@@ -330,9 +330,9 @@ public class BTreeTestIT {
     for (var i = 0; i < keysCount; i++) {
       final var key = new EdgeKey(42, i, i);
       atomicOperationsManager.executeInsideAtomicOperation(
-          null, atomicOperation -> bTree.put(atomicOperation, key, key.targetCluster % 5));
+          null, atomicOperation -> bTree.put(atomicOperation, key, key.targetCollection % 5));
 
-      Assert.assertEquals(bTree.get(key), key.targetCluster % 5);
+      Assert.assertEquals(bTree.get(key), key.targetCollection % 5);
     }
 
     for (var i = 0; i < keysCount; i++) {
@@ -343,7 +343,7 @@ public class BTreeTestIT {
           atomicOperation -> {
             if (index % 3 == 0) {
               final var key = new EdgeKey(42, index, index);
-              Assert.assertEquals(bTree.remove(atomicOperation, key), key.targetCluster % 5);
+              Assert.assertEquals(bTree.remove(atomicOperation, key), key.targetCollection % 5);
             }
 
             if (index % 2 == 0) {
@@ -427,7 +427,7 @@ public class BTreeTestIT {
       var fromKey = keys[fromKeyIndex];
 
       if (random.nextBoolean() && fromKey.targetPosition > Long.MIN_VALUE) {
-        fromKey = new EdgeKey(fromKey.ridBagId, fromKey.targetCluster, fromKey.targetPosition - 1);
+        fromKey = new EdgeKey(fromKey.ridBagId, fromKey.targetCollection, fromKey.targetPosition - 1);
       }
 
       final Iterator<RawPairObjectInteger<EdgeKey>> indexIterator;
@@ -518,7 +518,7 @@ public class BTreeTestIT {
       var toKeyIndex = random.nextInt(keys.length);
       var toKey = keys[toKeyIndex];
       if (random.nextBoolean()) {
-        toKey = new EdgeKey(toKey.ridBagId, toKey.targetCluster, toKey.targetPosition + 1);
+        toKey = new EdgeKey(toKey.ridBagId, toKey.targetCollection, toKey.targetPosition + 1);
       }
 
       final Iterator<RawPairObjectInteger<EdgeKey>> indexIterator;
@@ -612,11 +612,11 @@ public class BTreeTestIT {
       var toKey = keys[toKeyIndex];
 
       if (random.nextBoolean()) {
-        fromKey = new EdgeKey(fromKey.ridBagId, fromKey.targetCluster, fromKey.targetPosition - 1);
+        fromKey = new EdgeKey(fromKey.ridBagId, fromKey.targetCollection, fromKey.targetPosition - 1);
       }
 
       if (random.nextBoolean()) {
-        toKey = new EdgeKey(toKey.ridBagId, toKey.targetCluster, toKey.targetPosition + 1);
+        toKey = new EdgeKey(toKey.ridBagId, toKey.targetCollection, toKey.targetPosition + 1);
       }
 
       if (fromKey.compareTo(toKey) > 0) {

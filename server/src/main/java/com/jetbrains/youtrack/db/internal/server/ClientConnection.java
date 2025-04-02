@@ -115,6 +115,7 @@ public class ClientConnection {
   /**
    * Returns the remote network address in the format <ip>:<port>.
    */
+  @Nullable
   public String getRemoteAddress() {
     Socket socket = null;
     if (protocol != null) {
@@ -272,6 +273,7 @@ public class ClientConnection {
     this.tokenBytes = tokenBytes;
   }
 
+  @Nullable
   public Token getToken() {
     if (token != null) {
       return token.getToken();
@@ -304,6 +306,7 @@ public class ClientConnection {
     }
   }
 
+  @Nullable
   public String getDatabaseName() {
     if (session != null) {
       return session.getDatabaseName();
@@ -356,6 +359,7 @@ public class ClientConnection {
     stats.lastCommandReceived = System.currentTimeMillis();
   }
 
+  @Nullable
   private static List<String> getActiveQueries(DatabaseSessionInternal database) {
     try {
       List<String> result = new ArrayList<>();

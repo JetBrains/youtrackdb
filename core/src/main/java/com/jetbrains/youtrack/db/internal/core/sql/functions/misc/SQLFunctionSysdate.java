@@ -27,6 +27,7 @@ import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.TimeZone;
+import javax.annotation.Nullable;
 
 /**
  * Returns the current date time.
@@ -78,6 +79,7 @@ public class SQLFunctionSysdate extends SQLFunctionAbstract {
     return "sysdate([<format>] [,<timezone>])";
   }
 
+  @Nullable
   @Override
   public Object getResult() {
     return null;

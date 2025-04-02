@@ -37,7 +37,7 @@ import java.util.Set;
  */
 public interface MetadataInternal extends Metadata {
 
-  Set<String> SYSTEM_CLUSTER =
+  Set<String> SYSTEM_COLLECTION =
       Collections.unmodifiableSet(
           new HashSet<String>(
               Arrays.asList(

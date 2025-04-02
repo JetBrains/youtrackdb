@@ -54,6 +54,7 @@ public class ServerCommandPostInstallDatabase extends ServerCommandAuthenticated
                   name,
                   conn.getInputStream(),
                   () -> {
+                    //noinspection ReturnOfNull
                     return null;
                   });
           try (DatabaseSession session = server.getDatabases().openNoAuthorization(name)) {

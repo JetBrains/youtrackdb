@@ -31,6 +31,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.StatementCache;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * Wrapper for OPrifileStorageStatement command (for compatibility with the old executor
@@ -55,6 +56,7 @@ public class CommandExecutorToStatementWrapper implements CommandExecutor {
   }
 
 
+  @Nullable
   @Override
   public Object execute(DatabaseSessionInternal session, Map<Object, Object> iArgs) {
     return null;
@@ -72,11 +74,13 @@ public class CommandExecutorToStatementWrapper implements CommandExecutor {
     return (RET) this;
   }
 
+  @Nullable
   @Override
   public String getFetchPlan() {
     return null;
   }
 
+  @Nullable
   @Override
   public Map<Object, Object> getParameters() {
     return null;
@@ -98,7 +102,7 @@ public class CommandExecutorToStatementWrapper implements CommandExecutor {
   }
 
   @Override
-  public Set<String> getInvolvedClusters(DatabaseSessionInternal session) {
+  public Set<String> getInvolvedCollections(DatabaseSessionInternal session) {
     return Collections.EMPTY_SET;
   }
 

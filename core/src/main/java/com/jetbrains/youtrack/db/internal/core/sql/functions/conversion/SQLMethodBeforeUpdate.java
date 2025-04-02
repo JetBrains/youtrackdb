@@ -21,6 +21,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.LiveQueryListenerImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
+import javax.annotation.Nullable;
 
 /**
  * ONLY FOR LIVE QUERY. Returns the value of current record (as an Result) before it was updated.
@@ -41,6 +42,7 @@ public class SQLMethodBeforeUpdate extends AbstractSQLMethod {
     return "beforeUpdate()";
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,

@@ -75,9 +75,9 @@ public interface CommandExecutor {
   boolean isIdempotent();
 
   /**
-   * Returns the involved clusters.
+   * Returns the involved collections.
    */
-  Set<String> getInvolvedClusters(DatabaseSessionInternal session);
+  Set<String> getInvolvedCollections(DatabaseSessionInternal session);
 
   /**
    * Returns the security operation type use to check about security.

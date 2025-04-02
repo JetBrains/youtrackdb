@@ -34,7 +34,7 @@ public class PhysicalPosition implements SerializableStream, Externalizable {
           + BinaryProtocol.SIZE_BYTE
           + BinaryProtocol.SIZE_INT
           + BinaryProtocol.SIZE_INT;
-  public long clusterPosition;
+  public long collectionPosition;
   public byte recordType;
   public int recordVersion = 0;
   public int recordSize;
@@ -42,21 +42,21 @@ public class PhysicalPosition implements SerializableStream, Externalizable {
   public PhysicalPosition() {
   }
 
-  public PhysicalPosition(final long iClusterPosition) {
-    clusterPosition = iClusterPosition;
+  public PhysicalPosition(final long iCollectionPosition) {
+    collectionPosition = iCollectionPosition;
   }
 
   public PhysicalPosition(final byte iRecordType) {
     recordType = iRecordType;
   }
 
-  public PhysicalPosition(final long iClusterPosition, final int iVersion) {
-    clusterPosition = iClusterPosition;
+  public PhysicalPosition(final long iCollectionPosition, final int iVersion) {
+    collectionPosition = iCollectionPosition;
     recordVersion = iVersion;
   }
 
   private void copyTo(final PhysicalPosition iDest) {
-    iDest.clusterPosition = clusterPosition;
+    iDest.collectionPosition = collectionPosition;
     iDest.recordType = recordType;
     iDest.recordVersion = recordVersion;
     iDest.recordSize = recordSize;
@@ -69,7 +69,7 @@ public class PhysicalPosition implements SerializableStream, Externalizable {
   @Override
   public String toString() {
     return "rid(?:"
-        + clusterPosition
+        + collectionPosition
         + ") record(type:"
         + recordType
         + " size:"
@@ -83,7 +83,7 @@ public class PhysicalPosition implements SerializableStream, Externalizable {
   public SerializableStream fromStream(final byte[] iStream) throws SerializationException {
     var pos = 0;
 
-    clusterPosition = BinaryProtocol.bytes2long(iStream);
+    collectionPosition = BinaryProtocol.bytes2long(iStream);
     pos += BinaryProtocol.SIZE_LONG;
 
     recordType = iStream[pos];
@@ -102,7 +102,7 @@ public class PhysicalPosition implements SerializableStream, Externalizable {
     final var buffer = new byte[binarySize];
     var pos = 0;
 
-    BinaryProtocol.long2bytes(clusterPosition, buffer, pos);
+    BinaryProtocol.long2bytes(collectionPosition, buffer, pos);
     pos += BinaryProtocol.SIZE_LONG;
 
     buffer[pos] = recordType;
@@ -121,7 +121,7 @@ public class PhysicalPosition implements SerializableStream, Externalizable {
       return false;
     }
 
-    return clusterPosition == other.clusterPosition
+    return collectionPosition == other.collectionPosition
         && recordType == other.recordType
         && recordVersion == other.recordVersion
         && recordSize == other.recordSize;
@@ -129,7 +129,7 @@ public class PhysicalPosition implements SerializableStream, Externalizable {
 
   @Override
   public int hashCode() {
-    var result = (int) (31 * clusterPosition);
+    var result = (int) (31 * collectionPosition);
     result = 31 * result + (int) recordType;
     result = 31 * result + recordVersion;
     result = 31 * result + recordSize;
@@ -138,7 +138,7 @@ public class PhysicalPosition implements SerializableStream, Externalizable {
 
   @Override
   public void writeExternal(final ObjectOutput out) throws IOException {
-    out.writeLong(clusterPosition);
+    out.writeLong(collectionPosition);
     out.writeByte(recordType);
     out.writeInt(recordSize);
     out.writeInt(recordVersion);
@@ -146,7 +146,7 @@ public class PhysicalPosition implements SerializableStream, Externalizable {
 
   @Override
   public void readExternal(final ObjectInput in) throws IOException, ClassNotFoundException {
-    clusterPosition = in.readLong();
+    collectionPosition = in.readLong();
     recordType = in.readByte();
     recordSize = in.readInt();
     recordVersion = in.readInt();

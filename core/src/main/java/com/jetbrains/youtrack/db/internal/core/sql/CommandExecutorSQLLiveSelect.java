@@ -26,7 +26,6 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.RestrictedOperation;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryHook;
@@ -155,11 +154,11 @@ public class CommandExecutorSQLLiveSelect extends CommandExecutorSQLSelect
         }
       }
     }
-    if (this.parsedTarget.getTargetClusters() != null) {
-      final var clusterName = execDb.getClusterNameById(value.getIdentity().getClusterId());
-      if (clusterName != null) {
-        for (var cluster : parsedTarget.getTargetClusters().keySet()) {
-          if (clusterName.equalsIgnoreCase(cluster)) { // make it case insensitive in 3.0?
+    if (this.parsedTarget.getTargetCollections() != null) {
+      final var collectionName = execDb.getCollectionNameById(value.getIdentity().getCollectionId());
+      if (collectionName != null) {
+        for (var collection : parsedTarget.getTargetCollections().keySet()) {
+          if (collectionName.equalsIgnoreCase(collection)) { // make it case insensitive in 3.0?
             return true;
           }
         }

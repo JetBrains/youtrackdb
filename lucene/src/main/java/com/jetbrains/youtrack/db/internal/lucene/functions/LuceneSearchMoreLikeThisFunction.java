@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.queries.mlt.MoreLikeThis;
 import org.apache.lucene.queryparser.classic.QueryParser;
@@ -273,6 +274,7 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
     return searchForIndex(ctx, className);
   }
 
+  @Nullable
   private LuceneFullTextIndex searchForIndex(CommandContext ctx, String className) {
     var db = ctx.getDatabaseSession();
     var dbMetadata = db.getMetadata();

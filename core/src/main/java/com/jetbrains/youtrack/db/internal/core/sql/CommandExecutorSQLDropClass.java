@@ -29,9 +29,10 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLDropClassStatement;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
- * SQL DROP CLASS command: Drops a class from the database. Cluster associated are removed too if
+ * SQL DROP CLASS command: Drops a class from the database. Collection associated are removed too if
  * are used exclusively by the deleting class.
  */
 @SuppressWarnings("unchecked")
@@ -105,6 +106,7 @@ public class CommandExecutorSQLDropClass extends CommandExecutorSQLAbstract
   /**
    * Execute the DROP CLASS.
    */
+  @Nullable
   public Object execute(DatabaseSessionInternal session, final Map<Object, Object> iArgs) {
     if (className == null) {
       throw new CommandExecutionException(session,

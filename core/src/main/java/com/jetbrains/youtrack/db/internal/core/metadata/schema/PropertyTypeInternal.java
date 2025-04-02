@@ -861,7 +861,7 @@ public enum PropertyTypeInternal {
 
       var identifiable = (Identifiable) value;
       var rid = identifiable.getIdentity();
-      return new RecordId(rid.getClusterId(), rid.getClusterPosition());
+      return new RecordId(rid.getCollectionId(), rid.getCollectionPosition());
     }
 
     @Override

@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLArraySelector extends SimpleNode {
 
@@ -54,6 +55,7 @@ public class SQLArraySelector extends SimpleNode {
     }
   }
 
+  @Nullable
   public Object getValue(Identifiable iCurrentRecord, Object iResult, CommandContext ctx) {
     Object result = null;
     if (inputParam != null) {
@@ -73,6 +75,7 @@ public class SQLArraySelector extends SimpleNode {
     return result;
   }
 
+  @Nullable
   public Object getValue(Result iCurrentRecord, Object iResult, CommandContext ctx) {
     Object result = null;
     if (inputParam != null) {

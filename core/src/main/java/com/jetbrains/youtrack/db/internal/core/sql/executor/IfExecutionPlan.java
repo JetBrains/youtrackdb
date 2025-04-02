@@ -92,6 +92,7 @@ public class IfExecutionPlan implements InternalExecutionPlan {
     return false;
   }
 
+  @Nullable
   public ExecutionStepInternal executeUntilReturn() {
     var plan = step.producePlan(ctx);
     if (plan != null) {

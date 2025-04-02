@@ -117,7 +117,7 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
           session.getDatabaseName());
       if (subjectName == null) {
         throwSyntaxErrorException(session.getDatabaseName(),
-            "Invalid subject name. Expected cluster, class, index or sub-query");
+            "Invalid subject name. Expected collection, class, index or sub-query");
       }
       if (subjectName.equalsIgnoreCase("EDGE")) {
         updateEdge = true;
@@ -431,7 +431,7 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
 
   @Override
   public String getSyntax() {
-    return "UPDATE <class>|cluster:<cluster>> [SET|ADD|PUT|REMOVE|INCREMENT|CONTENT {<JSON>}|MERGE"
+    return "UPDATE <class>|collection:<collection>> [SET|ADD|PUT|REMOVE|INCREMENT|CONTENT {<JSON>}|MERGE"
         + " {<JSON>}] [[,] <field-name> = <expression>|<sub-command>]* [LOCK <NONE|RECORD>]"
         + " [UPSERT] [RETURN <COUNT|BEFORE|AFTER>] [WHERE <conditions>]";
   }

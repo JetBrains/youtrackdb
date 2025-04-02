@@ -11,6 +11,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.HashSet;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -41,6 +42,7 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
         ctx.getDatabaseSession()));
   }
 
+  @Nullable
   private Result filterMap(Result result, Set<RID> pastRids, Set<Result> pastItems,
       DatabaseSessionInternal session) {
     if (alreadyVisited(result, pastRids, pastItems)) {
@@ -55,9 +57,9 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
       DatabaseSessionInternal session) {
     if (nextValue.isEntity()) {
       var identity = nextValue.asEntityOrNull().getIdentity();
-      var cluster = identity.getClusterId();
-      var pos = identity.getClusterPosition();
-      if (cluster >= 0 && pos >= 0) {
+      var collection = identity.getCollectionId();
+      var pos = identity.getCollectionPosition();
+      if (collection >= 0 && pos >= 0) {
         pastRids.add(identity);
         return;
       }
@@ -78,9 +80,9 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
       Set<Result> pastItems) {
     if (nextValue.isEntity()) {
       var identity = nextValue.asEntityOrNull().getIdentity();
-      var cluster = identity.getClusterId();
-      var pos = identity.getClusterPosition();
-      if (cluster >= 0 && pos >= 0) {
+      var collection = identity.getCollectionId();
+      var pos = identity.getCollectionPosition();
+      if (collection >= 0 && pos >= 0) {
         return pastRids.contains(identity);
       }
     }

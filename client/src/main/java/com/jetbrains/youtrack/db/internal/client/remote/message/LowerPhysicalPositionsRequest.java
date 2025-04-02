@@ -35,12 +35,12 @@ public class LowerPhysicalPositionsRequest
     implements BinaryRequest<LowerPhysicalPositionsResponse> {
 
   private PhysicalPosition physicalPosition;
-  private int iClusterId;
+  private int iCollectionId;
   private int limit;
 
-  public LowerPhysicalPositionsRequest(PhysicalPosition physicalPosition, int iClusterId, int limit) {
+  public LowerPhysicalPositionsRequest(PhysicalPosition physicalPosition, int iCollectionId, int limit) {
     this.physicalPosition = physicalPosition;
-    this.iClusterId = iClusterId;
+    this.iCollectionId = iCollectionId;
     this.limit = limit;
   }
 
@@ -50,8 +50,8 @@ public class LowerPhysicalPositionsRequest
   @Override
   public void write(DatabaseSessionInternal databaseSession, ChannelDataOutput network,
       StorageRemoteSession session) throws IOException {
-    network.writeInt(iClusterId);
-    network.writeLong(physicalPosition.clusterPosition);
+    network.writeInt(iCollectionId);
+    network.writeLong(physicalPosition.collectionPosition);
     network.writeInt(limit);
   }
 
@@ -59,7 +59,7 @@ public class LowerPhysicalPositionsRequest
       int protocolVersion,
       RecordSerializerNetwork serializer)
       throws IOException {
-    this.iClusterId = channel.readInt();
+    this.iCollectionId = channel.readInt();
     this.physicalPosition = new PhysicalPosition(channel.readLong());
     this.limit = channel.readInt();
   }
@@ -74,8 +74,8 @@ public class LowerPhysicalPositionsRequest
     return "Retrieve lower positions";
   }
 
-  public int getiClusterId() {
-    return iClusterId;
+  public int getiCollectionId() {
+    return iCollectionId;
   }
 
   public PhysicalPosition getPhysicalPosition() {

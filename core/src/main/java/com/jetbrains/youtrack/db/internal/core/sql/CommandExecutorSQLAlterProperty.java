@@ -37,6 +37,7 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.Locale;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * SQL ALTER PROPERTY command: Changes an attribute of an existent property in the target class.
@@ -198,6 +199,7 @@ public class CommandExecutorSQLAlterProperty extends CommandExecutorSQLAbstract
   /**
    * Execute the ALTER PROPERTY.
    */
+  @Nullable
   public Object execute(DatabaseSessionInternal session, final Map<Object, Object> iArgs) {
     if (attribute == null) {
       throw new CommandExecutionException(session,

@@ -147,10 +147,10 @@ public class RecreateIndexesTask implements Runnable {
     index.delete(session);
 
     final var indexName = indexMetadata.getName();
-    final var clusters = indexMetadata.getClustersToIndex();
+    final var collections = indexMetadata.getCollectionsToIndex();
     final var type = indexMetadata.getType();
 
-    if (clusters != null && !clusters.isEmpty() && type != null) {
+    if (collections != null && !collections.isEmpty() && type != null) {
       LogManager.instance().info(this, "Start creation of index '%s'", indexName);
       index.create(session, indexMetadata, false, new IndexRebuildOutputListener(index));
 
@@ -174,11 +174,11 @@ public class RecreateIndexesTask implements Runnable {
           .error(
               this,
               "Information about index was restored incorrectly, following data were loaded : "
-                  + "index name '%s', index definition '%s', clusters %s, type %s",
+                  + "index name '%s', index definition '%s', collections %s, type %s",
               null,
               indexName,
               indexDefinition,
-              clusters,
+              collections,
               type);
     }
   }

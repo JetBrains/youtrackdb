@@ -44,6 +44,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 import org.apache.lucene.index.memory.MemoryIndex;
 
 public class LuceneTextOperator extends QueryTargetOperator {
@@ -75,6 +76,7 @@ public class LuceneTextOperator extends QueryTargetOperator {
         iSchemaClass, iCondition, iIndexSearchResults, context);
   }
 
+  @Nullable
   @Override
   public Stream<RawPair<Object, RID>> executeIndexQuery(
       CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
@@ -92,11 +94,13 @@ public class LuceneTextOperator extends QueryTargetOperator {
         .map((rid) -> new RawPair<>(new LuceneCompositeKey(keyParams).setContext(iContext), rid));
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;
@@ -107,6 +111,7 @@ public class LuceneTextOperator extends QueryTargetOperator {
     return false;
   }
 
+  @Nullable
   @Override
   public Object evaluateRecord(
       Result iRecord,
@@ -220,6 +225,7 @@ public class LuceneTextOperator extends QueryTargetOperator {
     return -1;
   }
 
+  @Nullable
   protected LuceneFullTextIndex involvedIndex(
       DatabaseSessionInternal session, Entity iRecord,
       SQLFilterCondition iCondition) {

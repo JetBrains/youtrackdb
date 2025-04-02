@@ -53,6 +53,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -292,6 +293,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return streams;
   }
 
+  @Nullable
   private static Stream<RawPair<Object, RID>> fetchNullKeys(DatabaseSessionInternal session,
       Index index) {
     if (index.getDefinition().isNullValuesIgnored()) {
@@ -524,6 +526,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return new SQLValueExpression(value);
   }
 
+  @Nullable
   private static Object convertToIndexDefinitionTypes(
       DatabaseSessionInternal session, SQLBooleanExpression condition, Object val,
       PropertyTypeInternal[] types) {

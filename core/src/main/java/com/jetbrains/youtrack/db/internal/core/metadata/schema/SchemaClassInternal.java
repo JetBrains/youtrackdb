@@ -16,9 +16,9 @@ import java.util.Set;
 
 public interface SchemaClassInternal extends SchemaClass {
 
-  ClusterSelectionStrategy getClusterSelection();
+  CollectionSelectionStrategy getCollectionSelection();
 
-  int getClusterForNewInstance(final EntityImpl entity);
+  int getCollectionForNewInstance(final EntityImpl entity);
 
   Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session, String... fields);
 

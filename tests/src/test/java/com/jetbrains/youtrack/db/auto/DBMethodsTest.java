@@ -16,10 +16,10 @@ public class DBMethodsTest extends BaseDBTest {
     super(remote != null && remote);
   }
 
-  public void testAddCluster() {
-    session.addCluster("addClusterTest");
+  public void testAddCollection() {
+    session.addCollection("addCollectionTest");
 
-    Assert.assertTrue(session.existsCluster("addClusterTest"));
-    Assert.assertTrue(session.existsCluster("addclUstertESt"));
+    Assert.assertTrue(session.existsCollection("addCollectionTest"));
+    Assert.assertTrue(session.existsCollection("addcOllectiontESt"));
   }
 }

@@ -22,6 +22,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.functions;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
+import javax.annotation.Nullable;
 
 /**
  * Abstract class to extend to build Custom SQL Functions. Extend it and register it with: <code>
@@ -73,6 +74,7 @@ public abstract class SQLFunctionAbstract implements SQLFunction {
     return false;
   }
 
+  @Nullable
   @Override
   public Object getResult() {
     return null;
@@ -91,6 +93,7 @@ public abstract class SQLFunctionAbstract implements SQLFunction {
    * the single element in it. If source is a multi value with more than 1 element null is returned,
    * indicating an error
    */
+  @Nullable
   @SuppressWarnings("OptionalGetWithoutIsPresent")
   protected static Object getSingleItem(Object source) {
     if (MultiValue.isMultiValue(source)) {

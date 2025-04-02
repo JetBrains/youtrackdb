@@ -41,7 +41,7 @@ public class CommandExecutorSQLMoveVertex extends CommandExecutorSQLSetAware
   private static final String KEYWORD_MERGE = "MERGE";
   private static final String KEYWORD_BATCH = "BATCH";
   private String source = null;
-  private String clusterName;
+  private String collectionName;
   private String className;
   private SchemaClass clazz;
   private List<Pair<String, Object>> fields;
@@ -67,22 +67,22 @@ public class CommandExecutorSQLMoveVertex extends CommandExecutorSQLSetAware
     var temp = parseOptionalWord(session.getDatabaseName(), true);
 
     while (temp != null) {
-      if (temp.startsWith("CLUSTER:")) {
+      if (temp.startsWith("COLLECTION:")) {
         if (className != null) {
           throw new CommandSQLParsingException(session.getDatabaseName(),
-              "Cannot define multiple sources. Found both cluster and class.");
+              "Cannot define multiple sources. Found both collection and class.");
         }
 
-        clusterName = temp.substring("CLUSTER:".length());
-        if (session.getClusterIdByName(clusterName) == -1) {
+        collectionName = temp.substring("COLLECTION:".length());
+        if (session.getCollectionIdByName(collectionName) == -1) {
           throw new CommandSQLParsingException(session.getDatabaseName(),
-              "Cluster '" + clusterName + "' was not found");
+              "Collection '" + collectionName + "' was not found");
         }
 
       } else if (temp.startsWith("CLASS:")) {
-        if (clusterName != null) {
+        if (collectionName != null) {
           throw new CommandSQLParsingException(session.getDatabaseName(),
-              "Cannot define multiple sources. Found both cluster and class.");
+              "Cannot define multiple sources. Found both collection and class.");
         }
 
         className = temp.substring("CLASS:".length());

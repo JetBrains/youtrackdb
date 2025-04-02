@@ -43,7 +43,7 @@ public class CommandExecutorSQLCreateVertex extends CommandExecutorSQLSetAware
 
   public static final String NAME = "CREATE VERTEX";
   private SchemaClassInternal clazz;
-  private String clusterName;
+  private String collectionName;
   private List<Pair<String, Object>> fields;
 
   @SuppressWarnings("unchecked")
@@ -68,8 +68,8 @@ public class CommandExecutorSQLCreateVertex extends CommandExecutorSQLSetAware
       var temp = parseOptionalWord(session.getDatabaseName(), true);
 
       while (temp != null) {
-        if (temp.equals("CLUSTER")) {
-          clusterName = parserRequiredWord(session.getDatabaseName(), false);
+        if (temp.equals("COLLECTION")) {
+          collectionName = parserRequiredWord(session.getDatabaseName(), false);
 
         } else if (temp.equals(KEYWORD_SET)) {
           fields = new ArrayList<>();
@@ -148,13 +148,13 @@ public class CommandExecutorSQLCreateVertex extends CommandExecutorSQLSetAware
   }
 
   @Override
-  public Set<String> getInvolvedClusters(DatabaseSessionInternal session) {
+  public Set<String> getInvolvedCollections(DatabaseSessionInternal session) {
     if (clazz != null) {
       return Collections.singleton(
-          session.getClusterNameById(
-              clazz.getClusterSelection().getCluster(session, clazz, null)));
-    } else if (clusterName != null) {
-      return getInvolvedClustersOfClusters(session, Collections.singleton(clusterName));
+          session.getCollectionNameById(
+              clazz.getCollectionSelection().getCollection(session, clazz, null)));
+    } else if (collectionName != null) {
+      return getInvolvedCollectionsOfCollections(session, Collections.singleton(collectionName));
     }
 
     return Collections.emptySet();
@@ -162,6 +162,6 @@ public class CommandExecutorSQLCreateVertex extends CommandExecutorSQLSetAware
 
   @Override
   public String getSyntax() {
-    return "CREATE VERTEX [<class>] [CLUSTER <cluster>] [SET <field> = <expression>[,]*]";
+    return "CREATE VERTEX [<class>] [COLLECTION <collection>] [SET <field> = <expression>[,]*]";
   }
 }

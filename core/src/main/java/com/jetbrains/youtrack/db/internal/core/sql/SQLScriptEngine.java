@@ -34,6 +34,7 @@ import java.io.IOException;
 import java.io.Reader;
 import java.util.HashMap;
 import java.util.Map;
+import javax.annotation.Nullable;
 import javax.script.Bindings;
 import javax.script.ScriptContext;
 import javax.script.ScriptEngine;
@@ -154,6 +155,7 @@ public class SQLScriptEngine implements ScriptEngine {
   public void put(String key, Object value) {
   }
 
+  @Nullable
   @Override
   public Object get(String key) {
     return null;
@@ -173,6 +175,7 @@ public class SQLScriptEngine implements ScriptEngine {
     return new SimpleBindings();
   }
 
+  @Nullable
   @Override
   public ScriptContext getContext() {
     return null;

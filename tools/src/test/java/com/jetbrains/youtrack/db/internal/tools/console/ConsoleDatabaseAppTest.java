@@ -40,7 +40,7 @@ public class ConsoleDatabaseAppTest {
       app.open("test", "admin", "admin");
 
       var db = (DatabaseSessionInternal) app.getCurrentDatabaseSession();
-      db.addBlobCluster("blobTest");
+      db.addBlobCollection("blobTest");
 
       db.begin();
       var record = db.newBlob("blobContent".getBytes());
@@ -207,7 +207,7 @@ public class ConsoleDatabaseAppTest {
             + "config;\n"
             + "list classes;\n"
             + "list properties;\n"
-            + "list clusters;\n"
+            + "list collections;\n"
             + "list indexes;\n"
             + "info class OUser;\n"
             + "info property OUser.name;\n"
@@ -278,7 +278,7 @@ public class ConsoleDatabaseAppTest {
             + "config;\n"
             + "list classes;\n"
             + "list properties;\n"
-            + "list clusters;\n"
+            + "list collections;\n"
             + "list indexes;\n"
             + "info class OUser;\n"
             + "info property OUser.name;\n"

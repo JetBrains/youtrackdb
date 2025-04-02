@@ -40,6 +40,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -82,24 +83,24 @@ public final class BTreeCollectionManagerShared
     }
   }
 
-  public static boolean isComponentPresent(final AtomicOperation operation, final int clusterId) {
-    return operation.fileIdByName(generateLockName(clusterId)) >= 0;
+  public static boolean isComponentPresent(final AtomicOperation operation, final int collectionId) {
+    return operation.fileIdByName(generateLockName(collectionId)) >= 0;
   }
 
-  public void createComponent(final AtomicOperation operation, final int clusterId) {
+  public void createComponent(final AtomicOperation operation, final int collectionId) {
     // lock is already acquired on storage level, during storage open
-    final var bTree = new LinkBagBTree(storage, FILE_NAME_PREFIX + clusterId, FILE_EXTENSION);
+    final var bTree = new LinkBagBTree(storage, FILE_NAME_PREFIX + collectionId, FILE_EXTENSION);
     bTree.create(operation);
 
     final var intFileId = WOWCache.extractFileId(bTree.getFileId());
     fileIdBTreeMap.put(intFileId, bTree);
   }
 
-  public void deleteComponentByClusterId(
-      final AtomicOperation atomicOperation, final int clusterId) {
-    // lock is already acquired on storage level, during cluster drop
+  public void deleteComponentByCollectionId(
+      final AtomicOperation atomicOperation, final int collectionId) {
+    // lock is already acquired on storage level, during collection drop
 
-    final var fileId = atomicOperation.fileIdByName(generateLockName(clusterId));
+    final var fileId = atomicOperation.fileIdByName(generateLockName(collectionId));
     final var intFileId = AbstractWriteCache.extractFileId(fileId);
     final var bTree = fileIdBTreeMap.remove(intFileId);
     if (bTree != null) {
@@ -107,13 +108,13 @@ public final class BTreeCollectionManagerShared
     }
   }
 
-  private EdgeBTreeImpl doCreateRidBag(AtomicOperation atomicOperation, int clusterId) {
-    var fileId = atomicOperation.fileIdByName(generateLockName(clusterId));
+  private EdgeBTreeImpl doCreateRidBag(AtomicOperation atomicOperation, int collectionId) {
+    var fileId = atomicOperation.fileIdByName(generateLockName(collectionId));
 
     // lock is already acquired on storage level, during start fo the transaction so we
     // are thread safe here.
     if (fileId < 0) {
-      final var bTree = new LinkBagBTree(storage, FILE_NAME_PREFIX + clusterId, FILE_EXTENSION);
+      final var bTree = new LinkBagBTree(storage, FILE_NAME_PREFIX + collectionId, FILE_EXTENSION);
       bTree.create(atomicOperation);
 
       fileId = bTree.getFileId();
@@ -163,9 +164,9 @@ public final class BTreeCollectionManagerShared
 
   @Override
   public BonsaiCollectionPointer createSBTree(
-      int clusterId, AtomicOperation atomicOperation, UUID ownerUUID,
+      int collectionId, AtomicOperation atomicOperation, UUID ownerUUID,
       DatabaseSessionInternal session) {
-    final var bonsaiGlobal = doCreateRidBag(atomicOperation, clusterId);
+    final var bonsaiGlobal = doCreateRidBag(atomicOperation, collectionId);
     final var pointer = bonsaiGlobal.getCollectionPointer();
 
     if (ownerUUID != null) {
@@ -182,6 +183,7 @@ public final class BTreeCollectionManagerShared
   /**
    * Change UUID to null to prevent its serialization to disk.
    */
+  @Nullable
   @Override
   public UUID listenForChanges(RidBag collection, DatabaseSessionInternal session) {
     var ownerUUID = collection.getTemporaryId();
@@ -259,12 +261,12 @@ public final class BTreeCollectionManagerShared
   }
 
   /**
-   * Generates a lock name for the given cluster ID.
+   * Generates a lock name for the given collection ID.
    *
-   * @param clusterId the cluster ID to generate the lock name for.
+   * @param collectionId the collection ID to generate the lock name for.
    * @return the generated lock name.
    */
-  public static String generateLockName(int clusterId) {
-    return FILE_NAME_PREFIX + clusterId + FILE_EXTENSION;
+  public static String generateLockName(int collectionId) {
+    return FILE_NAME_PREFIX + collectionId + FILE_EXTENSION;
   }
 }

@@ -8,7 +8,7 @@ import com.jetbrains.youtrack.db.internal.core.config.StorageEntryConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ProduceExecutionStream;
-import com.jetbrains.youtrack.db.internal.core.storage.StorageCluster;
+import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -36,8 +36,8 @@ public class FetchFromStorageMetadataStep extends AbstractExecutionStep {
     var result = new ResultInternal(db);
 
     var storage = db.getStorage();
-    result.setProperty("clusters", toResult(db, storage.getClusterInstances()));
-    result.setProperty("totalClusters", storage.getClusters());
+    result.setProperty("collections", toResult(db, storage.getCollectionInstances()));
+    result.setProperty("totalCollections", storage.getCollections());
     result.setProperty("configuration", toResult(db, storage.getConfiguration()));
     result.setProperty(
         "conflictStrategy",
@@ -56,7 +56,7 @@ public class FetchFromStorageMetadataStep extends AbstractExecutionStep {
       StorageConfiguration configuration) {
     var result = new ResultInternal(db);
     result.setProperty("charset", configuration.getCharset());
-    result.setProperty("clusterSelection", configuration.getClusterSelection());
+    result.setProperty("collectionSelection", configuration.getCollectionSelection());
     result.setProperty("conflictStrategy", configuration.getConflictStrategy());
     result.setProperty("dateFormat", configuration.getDateFormat());
     result.setProperty("dateTimeFormat", configuration.getDateTimeFormat());
@@ -83,21 +83,21 @@ public class FetchFromStorageMetadataStep extends AbstractExecutionStep {
   }
 
   private List<Result> toResult(DatabaseSessionInternal db,
-      Collection<? extends StorageCluster> clusterInstances) {
+      Collection<? extends StorageCollection> collectionInstances) {
     List<Result> result = new ArrayList<>();
-    if (clusterInstances != null) {
-      for (var cluster : clusterInstances) {
+    if (collectionInstances != null) {
+      for (var collection : collectionInstances) {
         var item = new ResultInternal(db);
-        item.setProperty("name", cluster.getName());
-        item.setProperty("fileName", cluster.getFileName());
-        item.setProperty("id", cluster.getId());
-        item.setProperty("entries", cluster.getEntries());
+        item.setProperty("name", collection.getName());
+        item.setProperty("fileName", collection.getFileName());
+        item.setProperty("id", collection.getId());
+        item.setProperty("entries", collection.getEntries());
         item.setProperty(
             "conflictStrategy",
-            cluster.getRecordConflictStrategy() == null
+            collection.getRecordConflictStrategy() == null
                 ? null
-                : cluster.getRecordConflictStrategy().getName());
-        item.setProperty("tombstonesCount", cluster.getTombstonesCount());
+                : collection.getRecordConflictStrategy().getName());
+        item.setProperty("tombstonesCount", collection.getTombstonesCount());
         result.add(item);
       }
     }

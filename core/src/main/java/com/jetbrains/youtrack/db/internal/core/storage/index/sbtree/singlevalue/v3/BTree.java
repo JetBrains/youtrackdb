@@ -291,11 +291,11 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
               if (oldRawValue == null) {
                 oldValue = null;
               } else {
-                final int clusterId = ShortSerializer.INSTANCE.deserializeNative(oldRawValue, 0);
-                final var clusterPosition =
+                final int collectionId = ShortSerializer.INSTANCE.deserializeNative(oldRawValue, 0);
+                final var collectionPosition =
                     LongSerializer.INSTANCE.deserializeNative(
                         oldRawValue, ShortSerializer.SHORT_SIZE);
-                oldValue = new RecordId(clusterId, clusterPosition);
+                oldValue = new RecordId(collectionId, collectionPosition);
               }
 
               if (validator != null) {
@@ -323,9 +323,9 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
               final var serializedValue =
                   new byte[ShortSerializer.SHORT_SIZE + LongSerializer.LONG_SIZE];
               ShortSerializer.INSTANCE.serializeNative(
-                  (short) value.getClusterId(), serializedValue, 0);
+                  (short) value.getCollectionId(), serializedValue, 0);
               LongSerializer.INSTANCE.serializeNative(
-                  value.getClusterPosition(), serializedValue, ShortSerializer.SHORT_SIZE);
+                  value.getCollectionPosition(), serializedValue, ShortSerializer.SHORT_SIZE);
 
               int insertionIndex;
               final int sizeDiff;
@@ -513,12 +513,12 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
                       removeSearchResult.getLeafEntryPageIndex(), serializedKey);
                   updateSize(-1, atomicOperation);
 
-                  final int clusterId = ShortSerializer.INSTANCE.deserializeNative(rawValue, 0);
-                  final var clusterPosition =
+                  final int collectionId = ShortSerializer.INSTANCE.deserializeNative(rawValue, 0);
+                  final var collectionPosition =
                       LongSerializer.INSTANCE.deserializeNative(
                           rawValue, ShortSerializer.SHORT_SIZE);
 
-                  removedValue = new RecordId(clusterId, clusterPosition);
+                  removedValue = new RecordId(collectionId, collectionPosition);
                 }
               } else {
                 return null;

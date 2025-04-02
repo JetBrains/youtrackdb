@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class SecurityRemote implements SecurityInternal {
 
@@ -109,10 +110,12 @@ public class SecurityRemote implements SecurityInternal {
               (EntityImpl) result.next().asEntity());
         }
       }
+      //noinspection ReturnOfNull
       return null;
     });
   }
 
+  @Nullable
   public SecurityUserImpl getUser(final DatabaseSession session, final RID iRecordId) {
     if (iRecordId == null) {
       return null;
@@ -127,6 +130,7 @@ public class SecurityRemote implements SecurityInternal {
     return new SecurityUserImpl((DatabaseSessionInternal) session, result);
   }
 
+  @Nullable
   public Role getRole(final DatabaseSession session, final Identifiable iRole) {
     var sessionInternal = (DatabaseSessionInternal) session;
     final EntityImpl entity = sessionInternal.load(iRole.getIdentity());
@@ -139,6 +143,7 @@ public class SecurityRemote implements SecurityInternal {
     return null;
   }
 
+  @Nullable
   public Role getRole(final DatabaseSession session, final String iRoleName) {
     if (iRoleName == null) {
       return null;
@@ -154,6 +159,7 @@ public class SecurityRemote implements SecurityInternal {
         }
       }
 
+      //noinspection ReturnOfNull
       return null;
     });
   }

@@ -46,6 +46,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * SQL DELETE VERTEX command.
@@ -290,10 +291,10 @@ public class CommandExecutorSQLDeleteVertex extends CommandExecutorSQLAbstract
   }
 
   @Override
-  public Set<String> getInvolvedClusters(DatabaseSessionInternal session) {
+  public Set<String> getInvolvedCollections(DatabaseSessionInternal session) {
     final var result = new HashSet<String>();
     if (rid != null) {
-      result.add(database.getClusterNameById(rid.getClusterId()));
+      result.add(database.getCollectionNameById(rid.getCollectionId()));
     } else if (query != null) {
       final var executor =
           database
@@ -305,7 +306,7 @@ public class CommandExecutorSQLDeleteVertex extends CommandExecutorSQLAbstract
       // COPY THE CONTEXT FROM THE REQUEST
       executor.setContext(context);
       executor.parse(database, query);
-      return executor.getInvolvedClusters(session);
+      return executor.getInvolvedCollections(session);
     }
     return result;
   }
@@ -323,6 +324,7 @@ public class CommandExecutorSQLDeleteVertex extends CommandExecutorSQLAbstract
     return (RET) this;
   }
 
+  @Nullable
   private static Vertex toVertex(DatabaseSessionInternal db, Identifiable item) {
     if (item instanceof Entity) {
       return ((Entity) item).asVertexOrNull();

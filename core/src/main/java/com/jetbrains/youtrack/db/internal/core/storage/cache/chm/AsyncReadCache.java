@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import javax.annotation.Nullable;
 
 /**
  * Disk cache based on ConcurrentHashMap and eviction policy which is asynchronously processed by
@@ -129,6 +130,7 @@ public final class AsyncReadCache implements ReadCache {
     return doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums);
   }
 
+  @Nullable
   @Override
   public CacheEntry silentLoadForRead(
       final long extFileId,
@@ -187,6 +189,7 @@ public final class AsyncReadCache implements ReadCache {
     }
   }
 
+  @Nullable
   private CacheEntry doLoad(
       final long extFileId,
       final int pageIndex,

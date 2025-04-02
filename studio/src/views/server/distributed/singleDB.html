@@ -1,4 +1,4 @@
-<div class="col-md-12" ng-controller="ClusterSingleDBController">
+<div class="col-md-12" ng-controller="CollectionSingleDBController">
 
 
   <div class="row row-space">
@@ -34,7 +34,7 @@
                   <a href="javascript:void(0)" tabindex="1"
                      data-trigger="focus" data-placement="right"
                      data-container="body"
-                     data-content="{{ 'cluster.writeQuorum' | translate:links }}" bs-popover>
+                     data-content="{{ 'collection.writeQuorum' | translate:links }}" bs-popover>
                     <i class="fa fa-question-circle"></i>
                   </a>
                 </label>
@@ -53,7 +53,7 @@
                   <a href="javascript:void(0)" tabindex="1"
                      data-trigger="focus" data-placement="right"
                      data-container="body"
-                     data-content="{{ 'cluster.readQuorum' | translate:links }}" bs-popover>
+                     data-content="{{ 'collection.readQuorum' | translate:links }}" bs-popover>
                     <i class="fa fa-question-circle"></i>
                   </a>
                 </label>
@@ -72,7 +72,7 @@
                       <a href="javascript:void(0)" tabindex="1"
                          data-trigger="focus" data-placement="right"
                          data-container="body"
-                         data-content="{{ 'cluster.autoDeploy' | translate:links }}" bs-popover>
+                         data-content="{{ 'collection.autoDeploy' | translate:links }}" bs-popover>
                         <i class="fa fa-question-circle"></i>
                       </a>
                     </label>
@@ -89,7 +89,7 @@
                       <a href="javascript:void(0)" tabindex="1"
                          data-trigger="focus" data-placement="right"
                          data-container="body"
-                         data-content="{{ 'cluster.readYourWrites' | translate:links }}" bs-popover>
+                         data-content="{{ 'collection.readYourWrites' | translate:links }}" bs-popover>
                         <i class="fa fa-question-circle"></i>
                       </a>
 
@@ -122,7 +122,7 @@
                         <a href="javascript:void(0)" tabindex="1"
                            data-trigger="focus" data-placement="right"
                            data-container="body"
-                           data-content="{{ 'cluster.role' | translate:links }}" bs-popover>
+                           data-content="{{ 'collection.role' | translate:links }}" bs-popover>
                           <i class="fa fa-question-circle"></i>
                         </a>
                       </th>
@@ -286,11 +286,11 @@
     <div class="col-md-12">
       <div class="panel panel-default list-group">
         <div class="panel-heading">
-          <b> Clusters Distribution
+          <b> Collections Distribution
             <a href="javascript:void(0)" tabindex="1"
                data-trigger="focus" data-placement="right"
                data-container="body"
-               data-content="{{ 'cluster.distribution' | translate:links }}" bs-popover>
+               data-content="{{ 'collection.distribution' | translate:links }}" bs-popover>
               <i class="fa fa-question-circle"></i>
             </a>
           </b> <span class="pull-right"> <b>LEGEND: </b> X = Owner, o = Copy </span>
@@ -306,7 +306,7 @@
           </tr>
           </thead>
           <tbody>
-          <tr ng-repeat="(key,value) in config.clusters">
+          <tr ng-repeat="(key,value) in config.collections">
             <td>
               {{key}}
             </td>
@@ -325,7 +325,7 @@
                   <div class="btn-group">
                     <button class="btn btn-sm btn-default" data-trigger="hover" data-placement="top"
                             data-container="body"
-                            bs-tooltip="syncClusterTooltip" ng-click="syncCluster(key,s.name)">
+                            bs-tooltip="syncCollectionTooltip" ng-click="syncCollection(key,s.name)">
                       <i class="fa fa-refresh"></i>
                     </button>
                   </div>

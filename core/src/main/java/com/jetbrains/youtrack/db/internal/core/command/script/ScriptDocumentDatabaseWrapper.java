@@ -30,7 +30,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
+import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrack.db.internal.core.metadata.Metadata;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -135,8 +135,8 @@ public class ScriptDocumentDatabaseWrapper {
     return session.getURL();
   }
 
-  public RecordIteratorCluster<EntityImpl> browseCluster(String iClusterName) {
-    return session.browseCluster(iClusterName);
+  public RecordIteratorCollection<EntityImpl> browseCollection(String iCollectionName) {
+    return session.browseCollection(iCollectionName);
   }
 
   public boolean isClosed() {
@@ -165,12 +165,12 @@ public class ScriptDocumentDatabaseWrapper {
     session.close();
   }
 
-  public int getClusters() {
-    return session.getClusters();
+  public int getCollections() {
+    return session.getCollections();
   }
 
-  public Collection<String> getClusterNames() {
-    return session.getClusterNames();
+  public Collection<String> getCollectionNames() {
+    return session.getCollectionNames();
   }
 
   public FrontendTransaction getTransaction() {
@@ -181,16 +181,16 @@ public class ScriptDocumentDatabaseWrapper {
     session.begin();
   }
 
-  public int getClusterIdByName(String iClusterName) {
-    return session.getClusterIdByName(iClusterName);
+  public int getCollectionIdByName(String iCollectionName) {
+    return session.getCollectionIdByName(iCollectionName);
   }
 
   public boolean isMVCC() {
     return session.isMVCC();
   }
 
-  public String getClusterNameById(int iClusterId) {
-    return session.getClusterNameById(iClusterId);
+  public String getCollectionNameById(int iCollectionId) {
+    return session.getCollectionNameById(iCollectionId);
   }
 
   public DatabaseSession setMVCC(boolean iValue) {

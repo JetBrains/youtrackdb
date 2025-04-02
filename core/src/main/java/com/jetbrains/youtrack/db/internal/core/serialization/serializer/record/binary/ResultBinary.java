@@ -148,7 +148,7 @@ public class ResultBinary implements Result {
   }
 
   @Override
-  public Blob getBlob(String name) {
+  public Blob getBlob(@Nonnull String name) {
     throw new UnsupportedOperationException("Not supported yet.");
   }
 

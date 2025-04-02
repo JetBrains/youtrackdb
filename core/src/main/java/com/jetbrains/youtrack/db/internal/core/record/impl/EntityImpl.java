@@ -147,7 +147,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     setup();
 
-    this.recordId.setClusterAndPosition(rid.getClusterId(), rid.getClusterPosition());
+    this.recordId.setCollectionAndPosition(rid.getCollectionId(), rid.getCollectionPosition());
   }
 
   /**
@@ -394,7 +394,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nullable
-  public Blob getBlob(String propertyName) {
+  public Blob getBlob(@Nonnull String propertyName) {
     var property = getProperty(propertyName);
 
     return switch (property) {
@@ -1047,7 +1047,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     var fromFields = new HashMap<>(from.properties);
-    var sameCluster = from.recordId.getClusterId() == recordId.getClusterId();
+    var sameCollection = from.recordId.getCollectionId() == recordId.getCollectionId();
     var excludeSet = new HashSet<String>();
 
     if (exclude.length > 0) {
@@ -1072,12 +1072,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
         if (fromValue != null && currentValue == null) {
           setPropertyInternal(propertyName,
-              copyRidBagIfNecessary(session, fromValue, sameCluster), fromType);
+              copyRidBagIfNecessary(session, fromValue, sameCollection), fromType);
         } else if (fromValue == null && currentValue != null) {
           setPropertyInternal(propertyName, null, currentEntry.type);
         } else if (fromValue.getClass() != currentValue.getClass()) {
           setPropertyInternal(propertyName,
-              copyRidBagIfNecessary(session, fromValue, sameCluster),
+              copyRidBagIfNecessary(session, fromValue, sameCollection),
               fromType);
         } else {
           if (!(currentValue instanceof RidBag ridBag)) {
@@ -1089,12 +1089,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
               if (!Objects.equals(fromType, currentEntry.type)) {
                 setPropertyInternal(propertyName,
                     copyRidBagIfNecessary(session,
-                        copyRidBagIfNecessary(session, fromValue, sameCluster), sameCluster),
+                        copyRidBagIfNecessary(session, fromValue, sameCollection), sameCollection),
                     fromType);
               }
             } else {
               setPropertyInternal(propertyName,
-                  copyRidBagIfNecessary(session, fromValue, sameCluster), fromType);
+                  copyRidBagIfNecessary(session, fromValue, sameCollection), fromType);
             }
           }
         }
@@ -1103,12 +1103,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   /**
-   * All tree based ridbags are partitioned by clusters, so if we move entity to another cluster we
+   * All tree based ridbags are partitioned by collections, so if we move entity to another collection we
    * need to copy ridbags to avoid inconsistency.
    */
   private static Object copyRidBagIfNecessary(DatabaseSessionInternal seession, Object value,
-      boolean sameCluster) {
-    if (sameCluster) {
+      boolean sameCollection) {
+    if (sameCollection) {
       return value;
     }
 
@@ -1809,13 +1809,13 @@ public class EntityImpl extends RecordAbstract implements Entity {
       // DON'T VALIDATE OUSER AND OROLE FOR SECURITY RESTRICTIONS
       var identifiable = (Identifiable) propertyValue;
       final var rid = identifiable.getIdentity();
-      if (!schemaClass.hasPolymorphicClusterId(rid.getClusterId())) {
+      if (!schemaClass.hasPolymorphicCollectionId(rid.getCollectionId())) {
         // AT THIS POINT CHECK THE CLASS ONLY IF != NULL BECAUSE IN CASE OF GRAPHS THE RECORD
         // COULD BE PARTIAL
         SchemaClass cls;
-        var clusterId = rid.getClusterId();
-        if (clusterId != RID.CLUSTER_ID_INVALID) {
-          cls = schema.getClassByClusterId(rid.getClusterId());
+        var collectionId = rid.getCollectionId();
+        if (collectionId != RID.COLLECTION_ID_INVALID) {
+          cls = schema.getClassByCollectionId(rid.getCollectionId());
         } else if (identifiable instanceof EntityImpl entity) {
           cls = entity.getImmutableSchemaClass(session);
         } else {
@@ -3770,10 +3770,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   private void fetchClassName(DatabaseSessionInternal session) {
-    if (recordId.getClusterId() >= 0) {
+    if (recordId.getCollectionId() >= 0) {
       final Schema schema = session.getMetadata().getImmutableSchemaSnapshot();
       if (schema != null) {
-        var clazz = schema.getClassByClusterId(recordId.getClusterId());
+        var clazz = schema.getClassByCollectionId(recordId.getCollectionId());
         if (clazz != null) {
           className = clazz.getName();
         }

@@ -427,7 +427,7 @@ public class JSONSerializerJackson {
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
     SchemaClass schemaClass = null;
     if (className == null && defaultClassName == null && recordId != null) {
-      schemaClass = schema.getClassByClusterId(recordId.getClusterId());
+      schemaClass = schema.getClassByCollectionId(recordId.getCollectionId());
 
       if (schemaClass != null) {
         className = schemaClass.getName();
@@ -646,9 +646,9 @@ public class JSONSerializerJackson {
           jsonGenerator.writeString(schemaClass.getName());
         }
       } else if (formatSettings.internalRecords && !entity.isEmbedded()) {
-        var clusterName = session.getClusterName(record);
+        var collectionName = session.getCollectionName(record);
 
-        if (clusterName.equals(MetadataDefault.CLUSTER_INTERNAL_NAME)) {
+        if (collectionName.equals(MetadataDefault.COLLECTION_INTERNAL_NAME)) {
           var metadata = session.getMetadata();
           var schema = metadata.getSchemaInternal();
           var indexManager = metadata.getIndexManagerInternal();
@@ -723,6 +723,7 @@ public class JSONSerializerJackson {
     return type;
   }
 
+  @Nullable
   private static String charType(PropertyTypeInternal type) {
     return switch (type) {
       case FLOAT -> "f";

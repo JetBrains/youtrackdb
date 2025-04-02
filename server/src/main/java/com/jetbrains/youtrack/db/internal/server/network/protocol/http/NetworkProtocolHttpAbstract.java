@@ -51,7 +51,7 @@ import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.d
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.delete.ServerCommandDeleteIndex;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.delete.ServerCommandDeleteProperty;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get.ServerCommandGetClass;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get.ServerCommandGetCluster;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get.ServerCommandGetCollection;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get.ServerCommandGetConnect;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get.ServerCommandGetConnections;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get.ServerCommandGetDatabase;
@@ -112,6 +112,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
+import javax.annotation.Nullable;
 
 public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
     implements ONetworkHttpExecutor {
@@ -307,6 +308,7 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
     ServerPluginHelper.invokeHandlerCallbackOnAfterClientRequest(server, connection, (byte) -1);
   }
 
+  @Nullable
   private List<String> getActiveQueries(DatabaseSessionInternal database) {
     if (database == null) {
       return null;
@@ -934,6 +936,7 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
     }
   }
 
+  @Nullable
   protected String deCompress(byte[] zipBytes) {
     if (zipBytes == null || zipBytes.length == 0) {
       return null;
@@ -980,7 +983,7 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
     cmdManager.registerCommand(new ServerCommandGetConnect());
     cmdManager.registerCommand(new ServerCommandGetDisconnect());
     cmdManager.registerCommand(new ServerCommandGetClass());
-    cmdManager.registerCommand(new ServerCommandGetCluster());
+    cmdManager.registerCommand(new ServerCommandGetCollection());
     cmdManager.registerCommand(new ServerCommandGetDatabase());
     cmdManager.registerCommand(new ServerCommandGetDictionary());
     cmdManager.registerCommand(new ServerCommandGetDocument());

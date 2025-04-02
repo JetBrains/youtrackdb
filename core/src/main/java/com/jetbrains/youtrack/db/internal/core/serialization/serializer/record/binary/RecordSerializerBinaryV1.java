@@ -67,6 +67,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.TreeMap;
+import javax.annotation.Nullable;
 
 public class RecordSerializerBinaryV1 implements EntitySerializer {
 
@@ -186,6 +187,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return match;
   }
 
+  @Nullable
   public BinaryField deserializeField(
       DatabaseSessionInternal session, final BytesContainer bytes,
       final SchemaClass iClass,
@@ -525,6 +527,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return deserializeFieldTypedLoopAndReturn(session, bytes, iFieldName, schema, encryption);
   }
 
+  @Nullable
   protected <RET> RET deserializeFieldTypedLoopAndReturn(
       DatabaseSessionInternal session, BytesContainer bytes,
       String iFieldName,
@@ -1200,6 +1203,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return new ResultBinary(db, schema, bytes.bytes, startOffset, valueLength, this);
   }
 
+  @Nullable
   protected EntityEmbeddedSetImpl<?> readEmbeddedSet(DatabaseSessionInternal db,
       final BytesContainer bytes,
       final RecordElement owner) {
@@ -1223,6 +1227,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return null;
   }
 
+  @Nullable
   protected EntityEmbeddedListImpl<?> readEmbeddedList(DatabaseSessionInternal db,
       final BytesContainer bytes,
       final RecordElement owner) {

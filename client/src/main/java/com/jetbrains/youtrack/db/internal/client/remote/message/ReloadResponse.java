@@ -30,37 +30,37 @@ import java.io.IOException;
 
 public class ReloadResponse implements BinaryResponse {
 
-  private String[] clusterNames;
-  private int[] clusterIds;
+  private String[] collectionNames;
+  private int[] collectionIds;
 
   public ReloadResponse() {
   }
 
-  public ReloadResponse(String[] clusterNames, int[] clusterIds) {
-    this.clusterNames = clusterNames;
-    this.clusterIds = clusterIds;
+  public ReloadResponse(String[] collectionNames, int[] collectionIds) {
+    this.collectionNames = collectionNames;
+    this.collectionIds = collectionIds;
   }
 
   @Override
   public void read(DatabaseSessionInternal db, ChannelDataInput network,
       StorageRemoteSession session) throws IOException {
-    final var clusters = MessageHelper.readClustersArray(network);
-    clusterNames = clusters.first;
-    clusterIds = clusters.second;
+    final var collections = MessageHelper.readCollectionsArray(network);
+    collectionNames = collections.first;
+    collectionIds = collections.second;
   }
 
   public void write(DatabaseSessionInternal session, ChannelDataOutput channel,
       int protocolVersion, RecordSerializer serializer)
       throws IOException {
-    MessageHelper.writeClustersArray(
-        channel, new RawPair<>(clusterNames, clusterIds), protocolVersion);
+    MessageHelper.writeCollectionsArray(
+        channel, new RawPair<>(collectionNames, collectionIds), protocolVersion);
   }
 
-  public String[] getClusterNames() {
-    return clusterNames;
+  public String[] getCollectionNames() {
+    return collectionNames;
   }
 
-  public int[] getClusterIds() {
-    return clusterIds;
+  public int[] getCollectionIds() {
+    return collectionIds;
   }
 }

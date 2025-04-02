@@ -6,6 +6,7 @@ import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.exception.QueryParsingException;
 import java.lang.reflect.InvocationTargetException;
+import javax.annotation.Nullable;
 
 /**
  * Enumeration with the error managed by YouTrackDB. This class has been introduced in v.2.2 and
@@ -78,6 +79,7 @@ public enum ErrorCode {
     throw exc;
   }
 
+  @Nullable
   public BaseException newException(String message, Throwable parent) {
     final var fullMessage = String.format("%1$06d_%2$06d - %3$s", category.code, code, message);
     try {

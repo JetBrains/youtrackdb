@@ -42,6 +42,7 @@ import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nullable;
 
 public class ServerNetworkListener extends Thread {
 
@@ -311,6 +312,7 @@ public class ServerNetworkListener extends Thread {
     System.out.println(ServerNetworkListener.getLocalHostIp());
   }
 
+  @Nullable
   public static String getLocalHostIp() {
     try {
       var host = InetAddress.getLocalHost();
@@ -337,6 +339,7 @@ public class ServerNetworkListener extends Thread {
     return builder;
   }
 
+  @Nullable
   public Object getCommand(final Class<?> iCommandClass) {
     // SEARCH IN STATELESS COMMANDS
     for (var cmd : statelessCommands) {

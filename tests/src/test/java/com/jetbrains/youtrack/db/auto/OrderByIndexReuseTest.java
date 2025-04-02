@@ -28,8 +28,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    final Schema schema = session.getMetadata().getSchema();
-
+    final var schema = session.getMetadata().getSchema();
     final var orderByIndexReuse = schema.createClass("OrderByIndexReuse", 1);
 
     orderByIndexReuse.createProperty("firstProp", PropertyType.INTEGER);

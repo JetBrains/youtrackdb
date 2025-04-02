@@ -85,7 +85,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     }
 
     var rid = result.getIdentity();
-    if (schema.getClassByClusterId(rid.getClusterId()).isVertexType()) {
+    if (schema.getClassByCollectionId(rid.getCollectionId()).isVertexType()) {
       return rid;
     }
 
@@ -118,7 +118,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     }
 
     var rid = result.getIdentity();
-    if (schema.getClassByClusterId(rid.getClusterId()).isVertexType()) {
+    if (schema.getClassByCollectionId(rid.getCollectionId()).isVertexType()) {
       return rid;
     }
 

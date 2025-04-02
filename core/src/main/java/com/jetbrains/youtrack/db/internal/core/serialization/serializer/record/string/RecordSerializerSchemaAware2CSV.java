@@ -44,6 +44,7 @@ import java.util.Date;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract {
 
@@ -57,6 +58,7 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
     return NAME;
   }
 
+  @Nullable
   public String getClassName(String content) {
     content = content.trim();
 
@@ -91,7 +93,7 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
     final var posFirstValue = iContent.indexOf(StringSerializerHelper.ENTRY_SEPARATOR);
     pos = iContent.indexOf(StringSerializerHelper.CLASS_SEPARATOR);
     if (pos > -1 && (pos < posFirstValue || posFirstValue == -1)) {
-      if ((record.getIdentity().getClusterId() < 0 || session == null)) {
+      if ((record.getIdentity().getCollectionId() < 0 || session == null)) {
         ((EntityImpl) iRecord).setClassNameWithoutPropertiesPostProcessing(
             iContent.substring(0, pos));
       }
@@ -294,6 +296,7 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
     return iRecord;
   }
 
+  @Nullable
   @Override
   public byte[] toStream(DatabaseSessionInternal session, RecordAbstract iRecord) {
     final var result = super.toStream(session, iRecord);
@@ -539,6 +542,7 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
     return iOutput;
   }
 
+  @Nullable
   private String getClassName(final Object iValue) {
     if (iValue instanceof EntityImpl) {
       return ((EntityImpl) iValue).getSchemaClassName();
@@ -547,6 +551,7 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
     return iValue != null ? iValue.getClass().getSimpleName() : null;
   }
 
+  @Nullable
   private SchemaClass getLinkInfo(
       final DatabaseSessionInternal iDatabase, final String iFieldClassName) {
     if (iDatabase == null || iDatabase.isClosed() || iFieldClassName == null) {

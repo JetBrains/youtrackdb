@@ -35,7 +35,7 @@ import org.testng.annotations.Test;
  */
 public class MultipleDBTest extends BaseDBTest {
 
-  int oldClusterCount = 8;
+  int oldCollectionCount = 8;
 
   public MultipleDBTest() {
   }
@@ -49,14 +49,14 @@ public class MultipleDBTest extends BaseDBTest {
   @Override
   public void beforeClass() throws Exception {
     super.beforeClass();
-    oldClusterCount = GlobalConfiguration.CLASS_CLUSTERS_COUNT.getValue();
-    GlobalConfiguration.CLASS_CLUSTERS_COUNT.setValue(1);
+    oldCollectionCount = GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getValue();
+    GlobalConfiguration.CLASS_COLLECTIONS_COUNT.setValue(1);
   }
 
   @AfterClass
   @Override
   public void afterClass() throws Exception {
-    GlobalConfiguration.CLASS_CLUSTERS_COUNT.setValue(oldClusterCount);
+    GlobalConfiguration.CLASS_COLLECTIONS_COUNT.setValue(oldCollectionCount);
     super.afterClass();
   }
 
@@ -90,7 +90,7 @@ public class MultipleDBTest extends BaseDBTest {
                 session.commit();
 
                 Assert.assertEquals(
-                    dummy.getIdentity().getClusterPosition(), j, "RID was " + dummy.getIdentity());
+                    dummy.getIdentity().getCollectionPosition(), j, "RID was " + dummy.getIdentity());
               }
               var end = System.currentTimeMillis();
 
@@ -167,7 +167,7 @@ public class MultipleDBTest extends BaseDBTest {
                 session.commit();
 
                 Assert.assertEquals(
-                    dummy.getIdentity().getClusterPosition(), j, "RID was " + dummy.getIdentity());
+                    dummy.getIdentity().getCollectionPosition(), j, "RID was " + dummy.getIdentity());
               }
               var end = System.currentTimeMillis();
 

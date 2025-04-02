@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.internal.core.security.SecurityAuthenticator;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import java.util.Map;
+import javax.annotation.Nullable;
 import javax.security.auth.Subject;
 
 /**
@@ -101,6 +102,7 @@ public abstract class SecurityAuthenticatorAbstract implements SecurityAuthentic
     return header;
   }
 
+  @Nullable
   public Subject getClientSubject() {
     return null;
   }
@@ -110,6 +112,7 @@ public abstract class SecurityAuthenticatorAbstract implements SecurityAuthentic
     return name;
   }
 
+  @Nullable
   public SecurityUser getUser(final String username, DatabaseSessionInternal session) {
     return null;
   }
@@ -119,6 +122,7 @@ public abstract class SecurityAuthenticatorAbstract implements SecurityAuthentic
     return false;
   }
 
+  @Nullable
   @Override
   public SecurityUser authenticate(
       DatabaseSessionInternal session, AuthenticationInfo authenticationInfo) {

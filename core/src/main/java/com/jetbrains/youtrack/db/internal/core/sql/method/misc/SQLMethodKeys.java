@@ -24,6 +24,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -36,6 +37,7 @@ public class SQLMethodKeys extends AbstractSQLMethod {
     super(NAME);
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,

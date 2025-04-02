@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import javax.annotation.Nullable;
 import net.jpountz.lz4.LZ4Compressor;
 import net.jpountz.lz4.LZ4Factory;
 import net.jpountz.lz4.LZ4FastDecompressor;
@@ -348,6 +349,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
     }
   }
 
+  @Nullable
   @Override
   public Pointer loadPage(int fileId, int pageIndex, ByteBufferPool bufferPool)
       throws IOException {

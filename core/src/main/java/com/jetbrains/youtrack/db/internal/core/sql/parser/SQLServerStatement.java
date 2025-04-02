@@ -13,6 +13,7 @@ import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 public class SQLServerStatement extends SimpleNode {
 
@@ -122,6 +123,7 @@ public class SQLServerStatement extends SimpleNode {
     return false;
   }
 
+  @Nullable
   public static SQLStatement deserializeFromOResult(Result res) {
     try {
       var result =

@@ -48,6 +48,7 @@ import java.util.ServiceLoader;
 import java.util.TreeMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import javax.annotation.Nullable;
 
 public class ConsoleApplication {
 
@@ -524,6 +525,7 @@ public class ConsoleApplication {
     }
   }
 
+  @Nullable
   protected Method getMethod(String iCommand) {
     iCommand = iCommand.trim();
 

@@ -123,8 +123,8 @@ public class BinaryTokenPayloadImpl implements BinaryTokenPayload {
       output.writeShort(-1);
       output.writeLong(-1);
     } else {
-      output.writeShort(id.getClusterId());
-      output.writeLong(id.getClusterPosition());
+      output.writeShort(id.getCollectionId());
+      output.writeLong(id.getCollectionPosition());
     }
     output.writeLong(this.expiry);
     output.writeBoolean(this.serverUser);

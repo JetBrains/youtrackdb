@@ -25,13 +25,13 @@ package com.jetbrains.youtrack.db.api.record;
 public interface RID extends Identifiable {
   char PREFIX = '#';
   char SEPARATOR = ':';
-  int CLUSTER_MAX = 32767;
-  int CLUSTER_ID_INVALID = -1;
-  long CLUSTER_POS_INVALID = -1;
+  int COLLECTION_MAX = 32767;
+  int COLLECTION_ID_INVALID = -1;
+  long COLLECTION_POS_INVALID = -1;
 
-  int getClusterId();
+  int getCollectionId();
 
-  long getClusterPosition();
+  long getCollectionPosition();
 
   boolean isPersistent();
 

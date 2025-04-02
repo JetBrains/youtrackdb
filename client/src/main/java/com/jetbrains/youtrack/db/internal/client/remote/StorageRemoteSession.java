@@ -33,6 +33,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -108,6 +109,7 @@ public class StorageRemoteSession {
     return curSession.getSessionId();
   }
 
+  @Nullable
   public String getServerUrl() {
     if (sessions.isEmpty()) {
       return null;

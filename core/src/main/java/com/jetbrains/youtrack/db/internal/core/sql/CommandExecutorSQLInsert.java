@@ -49,6 +49,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * SQL INSERT command.
@@ -61,7 +62,7 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
   private static final String KEYWORD_VALUES = "VALUES";
   private String className = null;
   private SchemaClass clazz = null;
-  private String clusterName = null;
+  private String collectionName = null;
   private String indexName = null;
   private List<Map<String, Object>> newRecords;
   private final AtomicLong saved = new AtomicLong(0);
@@ -98,13 +99,13 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
       parserRequiredKeyword(session.getDatabaseName(), "INTO");
 
       var subjectName =
-          parserRequiredWord(false, "Invalid subject name. Expected cluster, class or index",
+          parserRequiredWord(false, "Invalid subject name. Expected collection, class or index",
               session.getDatabaseName());
       var subjectNameUpper = subjectName.toUpperCase(Locale.ENGLISH);
-      if (subjectNameUpper.startsWith(CommandExecutorSQLAbstract.CLUSTER_PREFIX))
-      // CLUSTER
+      if (subjectNameUpper.startsWith(CommandExecutorSQLAbstract.COLLECTION_PREFIX))
+      // COLLECTION
       {
-        clusterName = subjectName.substring(CommandExecutorSQLAbstract.CLUSTER_PREFIX.length());
+        collectionName = subjectName.substring(CommandExecutorSQLAbstract.COLLECTION_PREFIX.length());
       } else if (subjectNameUpper.startsWith(CommandExecutorSQLAbstract.INDEX_PREFIX))
       // INDEX
       {
@@ -138,10 +139,10 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
         }
       }
 
-      if (clusterName != null && className == null) {
-        final var clusterId = session.getClusterIdByName(clusterName);
-        if (clusterId >= 0) {
-          clazz = session.getMetadata().getSchema().getClassByClusterId(clusterId);
+      if (collectionName != null && className == null) {
+        final var collectionId = session.getCollectionIdByName(collectionName);
+        if (collectionId >= 0) {
+          clazz = session.getMetadata().getSchema().getClassByCollectionId(collectionId);
           if (clazz != null) {
             className = clazz.getName();
           }
@@ -155,8 +156,8 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
       }
 
       final var temp = parseOptionalWord(session.getDatabaseName(), true);
-      if (parserGetLastWord().equalsIgnoreCase("cluster")) {
-        clusterName = parserRequiredWord(session.getDatabaseName(), false);
+      if (parserGetLastWord().equalsIgnoreCase("collection")) {
+        collectionName = parserRequiredWord(session.getDatabaseName(), false);
 
         parserSkipWhiteSpaces();
         if (parserIsEnded()) {
@@ -214,6 +215,7 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
   /**
    * Execute the INSERT and return the EntityImpl object created.
    */
+  @Nullable
   public Object execute(DatabaseSessionInternal session, final Map<Object, Object> iArgs) {
     if (newRecords == null && content == null) {
       throw new CommandExecutionException(session,
@@ -255,15 +257,15 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
   }
 
   @Override
-  public Set<String> getInvolvedClusters(DatabaseSessionInternal session) {
+  public Set<String> getInvolvedCollections(DatabaseSessionInternal session) {
     if (className != null) {
       var clazz =
           session.getMetadata().getImmutableSchemaSnapshot().getClassInternal(className);
       return Collections.singleton(
-          session.getClusterNameById(
-              clazz.getClusterSelection().getCluster(session, clazz, null)));
-    } else if (clusterName != null) {
-      return getInvolvedClustersOfClusters(session, Collections.singleton(clusterName));
+          session.getCollectionNameById(
+              clazz.getCollectionSelection().getCollection(session, clazz, null)));
+    } else if (collectionName != null) {
+      return getInvolvedCollectionsOfCollections(session, Collections.singleton(collectionName));
     }
 
     return Collections.emptySet();
@@ -271,7 +273,7 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
 
   @Override
   public String getSyntax() {
-    return "INSERT INTO [class:]<class>|cluster:<cluster>|index:<index> [(<field>[,]*) VALUES"
+    return "INSERT INTO [class:]<class>|collection:<collection>|index:<index> [(<field>[,]*) VALUES"
         + " (<expression>[,]*)[,]*]|[SET <field> = <expression>|<sub-command>[,]*]|CONTENT"
         + " {<JSON>} [RETURN <expression>] [FROM select-query]";
   }

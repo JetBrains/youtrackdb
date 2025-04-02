@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class SQLMethodCall extends SimpleNode {
 
@@ -115,6 +116,7 @@ public class SQLMethodCall extends SimpleNode {
     return isGraph;
   }
 
+  @Nullable
   private Object execute(
       Object targetObjects,
       CommandContext ctx,
@@ -189,6 +191,7 @@ public class SQLMethodCall extends SimpleNode {
     }
   }
 
+  @Nullable
   private static Object executeGraphFunction(
       Object targetObjects,
       CommandContext ctx,

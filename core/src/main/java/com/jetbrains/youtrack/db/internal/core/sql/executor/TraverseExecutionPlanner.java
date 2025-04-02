@@ -153,12 +153,12 @@ public class TraverseExecutionPlanner {
         var orid = identifiable.getIdentity();
 
         var rid = new SQLRid(-1);
-        var cluster = new SQLInteger(-1);
-        cluster.setValue(orid.getClusterId());
+        var collection = new SQLInteger(-1);
+        collection.setValue(orid.getCollectionId());
         var position = new SQLInteger(-1);
-        position.setValue(orid.getClusterPosition());
+        position.setValue(orid.getCollectionPosition());
         rid.setLegacy(true);
-        rid.setCluster(cluster);
+        rid.setCollection(collection);
         rid.setPosition(position);
 
         handleRidsAsTarget(result, Collections.singletonList(rid), ctx, profilingEnabled);
@@ -174,11 +174,11 @@ public class TraverseExecutionPlanner {
           var orid = ((Identifiable) x).getIdentity();
 
           var rid = new SQLRid(-1);
-          var cluster = new SQLInteger(-1);
-          cluster.setValue(orid.getClusterId());
+          var collection = new SQLInteger(-1);
+          collection.setValue(orid.getCollectionId());
           var position = new SQLInteger(-1);
-          position.setValue(orid.getClusterPosition());
-          rid.setCluster(cluster);
+          position.setValue(orid.getCollectionPosition());
+          rid.setCollection(collection);
           rid.setPosition(position);
 
           rids.add(rid);

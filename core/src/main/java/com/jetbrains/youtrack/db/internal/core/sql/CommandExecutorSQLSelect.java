@@ -54,12 +54,11 @@ import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionMultiValue;
 import com.jetbrains.youtrack.db.internal.core.index.IndexEngineException;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClusters;
+import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollection;
+import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollections;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityShared;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -388,14 +387,14 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
   }
 
   /**
-   * Determine clusters that are used in select operation
+   * Determine collections that are used in select operation
    *
-   * @return set of involved cluster names
+   * @return set of involved collection names
    */
   @Override
-  public Set<String> getInvolvedClusters(DatabaseSessionInternal session) {
+  public Set<String> getInvolvedCollections(DatabaseSessionInternal session) {
 
-    final Set<String> clusters = new HashSet<String>();
+    final Set<String> collections = new HashSet<String>();
 
     if (parsedTarget != null) {
       if (parsedTarget.getTargetQuery() != null
@@ -404,11 +403,11 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
         // SUB QUERY, PROPAGATE THE CALL
         final var clIds =
             ((CommandExecutorSQLResultsetDelegate) parsedTarget.getTargetRecords())
-                .getInvolvedClusters(session);
+                .getInvolvedCollections(session);
         for (var c : clIds) {
-          // FILTER THE CLUSTER WHERE THE USER HAS THE RIGHT ACCESS
-          if (checkClusterAccess(session, c)) {
-            clusters.add(c);
+          // FILTER THE COLLECTION WHERE THE USER HAS THE RIGHT ACCESS
+          if (checkCollectionAccess(session, c)) {
+            collections.add(c);
           }
         }
 
@@ -416,29 +415,29 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
         // SINGLE RECORDS: BROWSE ALL (COULD BE EXPENSIVE).
         for (var identifiable : parsedTarget.getTargetRecords()) {
           final var c =
-              session.getClusterNameById(identifiable.getIdentity().getClusterId())
+              session.getCollectionNameById(identifiable.getIdentity().getCollectionId())
                   .toLowerCase(Locale.ENGLISH);
-          // FILTER THE CLUSTER WHERE THE USER HAS THE RIGHT ACCESS
-          if (checkClusterAccess(session, c)) {
-            clusters.add(c);
+          // FILTER THE COLLECTION WHERE THE USER HAS THE RIGHT ACCESS
+          if (checkCollectionAccess(session, c)) {
+            collections.add(c);
           }
         }
       }
 
       if (parsedTarget.getTargetClasses() != null) {
-        return getInvolvedClustersOfClasses(parsedTarget.getTargetClasses().values(), session);
+        return getInvolvedCollectionsOfClasses(parsedTarget.getTargetClasses().values(), session);
       }
 
-      if (parsedTarget.getTargetClusters() != null) {
-        return getInvolvedClustersOfClusters(session, parsedTarget.getTargetClusters().keySet());
+      if (parsedTarget.getTargetCollections() != null) {
+        return getInvolvedCollectionsOfCollections(session, parsedTarget.getTargetCollections().keySet());
       }
 
       if (parsedTarget.getTargetIndex() != null) {
-        // EXTRACT THE CLASS NAME -> CLUSTERS FROM THE INDEX DEFINITION
-        return getInvolvedClustersOfIndex(session, parsedTarget.getTargetIndex());
+        // EXTRACT THE CLASS NAME -> COLLECTIONS FROM THE INDEX DEFINITION
+        return getInvolvedCollectionsOfIndex(session, parsedTarget.getTargetIndex());
       }
     }
-    return clusters;
+    return collections;
   }
 
   /**
@@ -557,7 +556,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
         searchInIndex(session);
       } else {
         throw new QueryParsingException(session.getDatabaseName(),
-            "No source found in query: specify class, cluster(s), index or single record(s). Use "
+            "No source found in query: specify class, collection(s), index or single record(s). Use "
                 + getSyntax());
       }
     }
@@ -1303,9 +1302,9 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
                     (SchemaClassInternal) session.getMetadata().getImmutableSchemaSnapshot()
                         .getClass(className);
                 count = cls.count(session);
-              } else if (parsedTarget.getTargetClusters() != null) {
-                for (var cluster : parsedTarget.getTargetClusters().keySet()) {
-                  count += session.countClusterElements(cluster);
+              } else if (parsedTarget.getTargetCollections() != null) {
+                for (var collection : parsedTarget.getTargetCollections().keySet()) {
+                  count += session.countCollectionElements(collection);
                 }
               } else if (parsedTarget.getTargetIndex() != null) {
                 count +=
@@ -1576,25 +1575,25 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
 
     final var startFetching = System.currentTimeMillis();
 
-    final int[] clusterIds;
-    if (iTarget instanceof RecordIteratorClusters) {
-      clusterIds = ((RecordIteratorClusters) iTarget).getClusterIds();
+    final int[] collectionIds;
+    if (iTarget instanceof RecordIteratorCollections) {
+      collectionIds = ((RecordIteratorCollections) iTarget).getCollectionIds();
     } else {
-      clusterIds = null;
+      collectionIds = null;
     }
 
     parallel =
         (parallel
             || db.getConfiguration()
             .getValueAsBoolean(GlobalConfiguration.QUERY_PARALLEL_AUTO))
-            && canRunParallel(db, clusterIds, iTarget);
+            && canRunParallel(db, collectionIds, iTarget);
 
     try {
       if (parallel) {
         return parallelExec(db, iTarget);
       }
 
-      var prefetchPages = canScanStorageCluster(db, clusterIds);
+      var prefetchPages = canScanStorageCollection(db, collectionIds);
 
       // WORK WITH ITERATOR
       db.setPrefetchRecords(prefetchPages);
@@ -1610,23 +1609,23 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
     }
   }
 
-  private boolean canRunParallel(DatabaseSessionInternal db, int[] clusterIds,
+  private boolean canRunParallel(DatabaseSessionInternal db, int[] collectionIds,
       Iterator<? extends Identifiable> iTarget) {
     if (db.getTransactionInternal().isActive()) {
       return false;
     }
 
-    if (iTarget instanceof RecordIteratorClusters) {
-      if (clusterIds.length > 1) {
-        final var totalRecords = db.countClusterElements(clusterIds);
+    if (iTarget instanceof RecordIteratorCollections) {
+      if (collectionIds.length > 1) {
+        final var totalRecords = db.countCollectionElements(collectionIds);
         if (totalRecords > db.getConfiguration()
             .getValueAsLong(GlobalConfiguration.QUERY_PARALLEL_MINIMUM_RECORDS)) {
           // ACTIVATE PARALLEL
           LogManager.instance()
               .debug(
                   this,
-                  "Activated parallel query. clusterIds=%d, totalRecords=%d",
-                  clusterIds.length,
+                  "Activated parallel query. collectionIds=%d, totalRecords=%d",
+                  collectionIds.length,
                   totalRecords);
           return true;
         }
@@ -1635,7 +1634,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
     return false;
   }
 
-  private boolean canScanStorageCluster(DatabaseSessionInternal db, final int[] clusterIds) {
+  private boolean canScanStorageCollection(DatabaseSessionInternal db, final int[] collectionIds) {
     return false;
   }
 
@@ -1667,7 +1666,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
       }
     }
 
-    final var res = execParallelWithPool((RecordIteratorClusters) iTarget, db);
+    final var res = execParallelWithPool((RecordIteratorCollections) iTarget, db);
 
     if (LogManager.instance().isDebugEnabled()) {
       LogManager.instance().debug(this, "Parallel query '%s' completed", parserText);
@@ -1677,18 +1676,18 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
   }
 
   private boolean execParallelWithPool(
-      final RecordIteratorClusters iTarget, final DatabaseSessionInternal session) {
-    final var clusterIds = iTarget.getClusterIds();
+      final RecordIteratorCollections iTarget, final DatabaseSessionInternal session) {
+    final var collectionIds = iTarget.getCollectionIds();
 
-    // CREATE ONE THREAD PER CLUSTER
-    final var jobNumbers = clusterIds.length;
+    // CREATE ONE THREAD PER COLLECTION
+    final var jobNumbers = collectionIds.length;
     final List<Future<?>> jobs = new ArrayList<Future<?>>();
 
     LogManager.instance()
         .debug(
             this,
-            "Executing parallel query with strategy executors. clusterIds=%d, jobs=%d",
-            clusterIds.length,
+            "Executing parallel query with strategy executors. collectionIds=%d, jobs=%d",
+            collectionIds.length,
             jobNumbers);
 
     final var results = new boolean[jobNumbers];
@@ -1719,8 +1718,8 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
 
                 // CREATE A SNAPSHOT TO AVOID DEADLOCKS
                 session.getMetadata().getSchema().makeSnapshot();
-                scanClusterWithIterator(
-                    localDatabase, threadContext, clusterIds[current], current, results);
+                scanCollectionWithIterator(
+                    localDatabase, threadContext, collectionIds[current], current, results);
               } catch (RuntimeException t) {
                 exceptions[current] = t;
               } finally {
@@ -1828,13 +1827,13 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
     return true;
   }
 
-  private void scanClusterWithIterator(
+  private void scanCollectionWithIterator(
       final DatabaseSessionInternal localDatabase,
       final CommandContext iContext,
-      final int iClusterId,
+      final int iCollectionId,
       final int current,
       final boolean[] results) {
-    final var it = new RecordIteratorCluster<>(localDatabase, iClusterId, true);
+    final var it = new RecordIteratorCollection<>(localDatabase, iCollectionId, true);
 
     while (it.hasNext()) {
       final var next = it.next();
@@ -1964,7 +1963,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
     // Leaving this in for reference, for the moment.
     // This should not be necessary as searchInClasses() does a security check and when the record
     // iterator
-    // calls SchemaClassImpl.readableClusters(), it too filters out clusters based on the class's
+    // calls SchemaClassImpl.readableCollections(), it too filters out collections based on the class's
     // security permissions.
     // This throws an unnecessary exception that potentially prevents using an index and prevents
     // filtering later.
@@ -2074,7 +2073,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
                 .error(
                     this,
                     "Error on using index %s in query '%s'. Probably you need to rebuild indexes."
-                        + " Now executing query using cluster scan",
+                        + " Now executing query using collection scan",
                     e,
                     index.getName(),
                     "");
@@ -2235,7 +2234,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
                   .error(
                       this,
                       "Error on using index %s in query '%s'. Probably you need to rebuild indexes."
-                          + " Now executing query using cluster scan",
+                          + " Now executing query using collection scan",
                       e,
                       index.getName(),
                       "");

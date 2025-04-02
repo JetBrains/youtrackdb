@@ -246,6 +246,7 @@ public class SecurityShared implements SecurityInternal {
     return user;
   }
 
+  @Nullable
   @Override
   public SecurityUserImpl authenticate(
       DatabaseSessionInternal session, final String iUsername, final String iUserPassword) {
@@ -278,6 +279,7 @@ public class SecurityShared implements SecurityInternal {
     return user;
   }
 
+  @Nullable
   public SecurityUserImpl getUser(final DatabaseSession session, final RID iRecordId) {
     if (iRecordId == null) {
       return null;
@@ -335,6 +337,7 @@ public class SecurityShared implements SecurityInternal {
     return removed != null && removed.intValue() > 0;
   }
 
+  @Nullable
   public Role getRole(final DatabaseSession session, final Identifiable iRole) {
     try {
       var sessionInternal = (DatabaseSessionInternal) session;
@@ -353,6 +356,7 @@ public class SecurityShared implements SecurityInternal {
     return null;
   }
 
+  @Nullable
   public Role getRole(final DatabaseSession session, final String iRoleName) {
     if (iRoleName == null) {
       return null;
@@ -368,10 +372,12 @@ public class SecurityShared implements SecurityInternal {
         }
       }
 
+      //noinspection ReturnOfNull
       return null;
     });
   }
 
+  @Nullable
   public static RID getRoleRID(final DatabaseSession session, final String iRoleName) {
     if (iRoleName == null) {
       return null;
@@ -387,6 +393,7 @@ public class SecurityShared implements SecurityInternal {
           return result.next().getProperty("rid");
         }
       }
+      //noinspection ReturnOfNull
       return null;
     });
   }
@@ -592,6 +599,7 @@ public class SecurityShared implements SecurityInternal {
     return resource; // TODO
   }
 
+  @Nullable
   public SecurityUserImpl create(final DatabaseSessionInternal session) {
     if (!session.getMetadata().getSchema().getClasses().isEmpty()) {
       return null;
@@ -671,11 +679,11 @@ public class SecurityShared implements SecurityInternal {
         ResourceGeneric.SCHEMA,
         null, Role.PERMISSION_READ + Role.PERMISSION_CREATE + Role.PERMISSION_UPDATE);
     writerRole.addRule(session,
-        ResourceGeneric.CLUSTER,
-        MetadataDefault.CLUSTER_INTERNAL_NAME, Role.PERMISSION_READ);
+        ResourceGeneric.COLLECTION,
+        MetadataDefault.COLLECTION_INTERNAL_NAME, Role.PERMISSION_READ);
     writerRole.addRule(session, ResourceGeneric.CLASS, null, Role.PERMISSION_ALL);
     writerRole.addRule(session, ResourceGeneric.CLASS, "OUser", Role.PERMISSION_READ);
-    writerRole.addRule(session, ResourceGeneric.CLUSTER, null, Role.PERMISSION_ALL);
+    writerRole.addRule(session, ResourceGeneric.COLLECTION, null, Role.PERMISSION_ALL);
     writerRole.addRule(session, ResourceGeneric.COMMAND, null, Role.PERMISSION_ALL);
     writerRole.addRule(session, ResourceGeneric.RECORD_HOOK, null, Role.PERMISSION_ALL);
     writerRole.addRule(session, ResourceGeneric.FUNCTION, null, Role.PERMISSION_READ);
@@ -686,7 +694,7 @@ public class SecurityShared implements SecurityInternal {
     writerRole.addRule(session,
         ResourceGeneric.CLASS,
         SecurityResource.class.getSimpleName(), Role.PERMISSION_READ);
-    writerRole.addRule(session, ResourceGeneric.SYSTEM_CLUSTERS, null, Role.PERMISSION_NONE);
+    writerRole.addRule(session, ResourceGeneric.SYSTEM_COLLECTIONS, null, Role.PERMISSION_NONE);
     writerRole.save(session);
 
     setSecurityPolicyWithBitmask(
@@ -699,20 +707,20 @@ public class SecurityShared implements SecurityInternal {
     setSecurityPolicyWithBitmask(
         session,
         writerRole,
-        Rule.ResourceGeneric.CLUSTER.getLegacyName()
+        Rule.ResourceGeneric.COLLECTION.getLegacyName()
             + "."
-            + MetadataDefault.CLUSTER_INTERNAL_NAME,
+            + MetadataDefault.COLLECTION_INTERNAL_NAME,
         Role.PERMISSION_READ);
     setSecurityPolicyWithBitmask(
         session,
         writerRole,
-        Rule.ResourceGeneric.CLUSTER.getLegacyName() + "." + Role.CLASS_NAME.toLowerCase(
+        Rule.ResourceGeneric.COLLECTION.getLegacyName() + "." + Role.CLASS_NAME.toLowerCase(
             Locale.ROOT),
         Role.PERMISSION_READ);
     setSecurityPolicyWithBitmask(
         session,
         writerRole,
-        Rule.ResourceGeneric.CLUSTER.getLegacyName() + ".ouser",
+        Rule.ResourceGeneric.COLLECTION.getLegacyName() + ".ouser",
         Role.PERMISSION_READ);
     setSecurityPolicyWithBitmask(
         session,
@@ -727,7 +735,7 @@ public class SecurityShared implements SecurityInternal {
     setSecurityPolicyWithBitmask(
         session,
         writerRole,
-        Rule.ResourceGeneric.CLUSTER.getLegacyName() + ".*",
+        Rule.ResourceGeneric.COLLECTION.getLegacyName() + ".*",
         Role.PERMISSION_ALL);
     setSecurityPolicyWithBitmask(
         session, writerRole, Rule.ResourceGeneric.COMMAND.getLegacyName(), Role.PERMISSION_ALL);
@@ -749,17 +757,17 @@ public class SecurityShared implements SecurityInternal {
     setSecurityPolicyWithBitmask(
         session,
         writerRole,
-        Rule.ResourceGeneric.SYSTEM_CLUSTERS.getLegacyName() + ".OTriggered",
+        Rule.ResourceGeneric.SYSTEM_COLLECTIONS.getLegacyName() + ".OTriggered",
         Role.PERMISSION_READ);
     setSecurityPolicyWithBitmask(
         session,
         writerRole,
-        Rule.ResourceGeneric.SYSTEM_CLUSTERS.getLegacyName() + ".OSchedule",
+        Rule.ResourceGeneric.SYSTEM_COLLECTIONS.getLegacyName() + ".OSchedule",
         Role.PERMISSION_READ);
     setSecurityPolicyWithBitmask(
         session,
         writerRole,
-        Rule.ResourceGeneric.SYSTEM_CLUSTERS.getLegacyName(),
+        Rule.ResourceGeneric.SYSTEM_COLLECTIONS.getLegacyName(),
         Role.PERMISSION_NONE);
   }
 
@@ -776,18 +784,18 @@ public class SecurityShared implements SecurityInternal {
     readerRole.addRule(session, ResourceGeneric.DATABASE, null, Role.PERMISSION_READ);
     readerRole.addRule(session, ResourceGeneric.SCHEMA, null, Role.PERMISSION_READ);
     readerRole.addRule(session,
-        ResourceGeneric.CLUSTER,
-        MetadataDefault.CLUSTER_INTERNAL_NAME, Role.PERMISSION_READ);
-    readerRole.addRule(session, ResourceGeneric.CLUSTER, Role.CLASS_NAME.toLowerCase(Locale.ROOT),
+        ResourceGeneric.COLLECTION,
+        MetadataDefault.COLLECTION_INTERNAL_NAME, Role.PERMISSION_READ);
+    readerRole.addRule(session, ResourceGeneric.COLLECTION, Role.CLASS_NAME.toLowerCase(Locale.ROOT),
         Role.PERMISSION_READ);
-    readerRole.addRule(session, ResourceGeneric.CLUSTER, "ouser", Role.PERMISSION_READ);
+    readerRole.addRule(session, ResourceGeneric.COLLECTION, "ouser", Role.PERMISSION_READ);
     readerRole.addRule(session, ResourceGeneric.CLASS, null, Role.PERMISSION_READ);
     readerRole.addRule(session, ResourceGeneric.CLASS, "OUser", Role.PERMISSION_NONE);
-    readerRole.addRule(session, ResourceGeneric.CLUSTER, null, Role.PERMISSION_READ);
+    readerRole.addRule(session, ResourceGeneric.COLLECTION, null, Role.PERMISSION_READ);
     readerRole.addRule(session, ResourceGeneric.COMMAND, null, Role.PERMISSION_READ);
     readerRole.addRule(session, ResourceGeneric.RECORD_HOOK, null, Role.PERMISSION_READ);
     readerRole.addRule(session, ResourceGeneric.FUNCTION, null, Role.PERMISSION_READ);
-    readerRole.addRule(session, ResourceGeneric.SYSTEM_CLUSTERS, null, Role.PERMISSION_NONE);
+    readerRole.addRule(session, ResourceGeneric.SYSTEM_COLLECTIONS, null, Role.PERMISSION_NONE);
 
     readerRole.save(session);
 
@@ -798,20 +806,20 @@ public class SecurityShared implements SecurityInternal {
     setSecurityPolicyWithBitmask(
         session,
         readerRole,
-        Rule.ResourceGeneric.CLUSTER.getLegacyName()
+        Rule.ResourceGeneric.COLLECTION.getLegacyName()
             + "."
-            + MetadataDefault.CLUSTER_INTERNAL_NAME,
+            + MetadataDefault.COLLECTION_INTERNAL_NAME,
         Role.PERMISSION_READ);
     setSecurityPolicyWithBitmask(
         session,
         readerRole,
-        Rule.ResourceGeneric.CLUSTER.getLegacyName() + "." + Role.CLASS_NAME.toLowerCase(
+        Rule.ResourceGeneric.COLLECTION.getLegacyName() + "." + Role.CLASS_NAME.toLowerCase(
             Locale.ROOT),
         Role.PERMISSION_READ);
     setSecurityPolicyWithBitmask(
         session,
         readerRole,
-        Rule.ResourceGeneric.CLUSTER.getLegacyName() + ".ouser",
+        Rule.ResourceGeneric.COLLECTION.getLegacyName() + ".ouser",
         Role.PERMISSION_READ);
     setSecurityPolicyWithBitmask(
         session,
@@ -826,7 +834,7 @@ public class SecurityShared implements SecurityInternal {
     setSecurityPolicyWithBitmask(
         session,
         readerRole,
-        Rule.ResourceGeneric.CLUSTER.getLegacyName() + ".*",
+        Rule.ResourceGeneric.COLLECTION.getLegacyName() + ".*",
         Role.PERMISSION_READ);
     setSecurityPolicyWithBitmask(
         session, readerRole, Rule.ResourceGeneric.COMMAND.getLegacyName(), Role.PERMISSION_READ);
@@ -843,7 +851,7 @@ public class SecurityShared implements SecurityInternal {
     setSecurityPolicyWithBitmask(
         session,
         readerRole,
-        Rule.ResourceGeneric.SYSTEM_CLUSTERS.getLegacyName(),
+        Rule.ResourceGeneric.SYSTEM_COLLECTIONS.getLegacyName(),
         Role.PERMISSION_NONE);
   }
 
@@ -860,8 +868,8 @@ public class SecurityShared implements SecurityInternal {
         .save(session);
     adminRole.addRule(session, ResourceGeneric.ALL, null, Role.PERMISSION_ALL).save(session);
     adminRole.addRule(session, ResourceGeneric.CLASS, null, Role.PERMISSION_ALL).save(session);
-    adminRole.addRule(session, ResourceGeneric.CLUSTER, null, Role.PERMISSION_ALL).save(session);
-    adminRole.addRule(session, ResourceGeneric.SYSTEM_CLUSTERS, null, Role.PERMISSION_ALL)
+    adminRole.addRule(session, ResourceGeneric.COLLECTION, null, Role.PERMISSION_ALL).save(session);
+    adminRole.addRule(session, ResourceGeneric.SYSTEM_COLLECTIONS, null, Role.PERMISSION_ALL)
         .save(session);
     adminRole.addRule(session, ResourceGeneric.DATABASE, null, Role.PERMISSION_ALL).save(session);
     adminRole.addRule(session, ResourceGeneric.SCHEMA, null, Role.PERMISSION_ALL).save(session);
@@ -1110,6 +1118,7 @@ public class SecurityShared implements SecurityInternal {
         }
       }
 
+      //noinspection ReturnOfNull
       return null;
     });
   }
@@ -1177,6 +1186,7 @@ public class SecurityShared implements SecurityInternal {
         }
       }
 
+      //noinspection ReturnOfNull
       return null;
     });
   }
@@ -1691,6 +1701,7 @@ public class SecurityShared implements SecurityInternal {
         session, predicate, (DBRecord) transaction.loadEntity(identifiable));
   }
 
+  @Nullable
   protected SQLBooleanExpression getPredicateFromCache(String roleName, String key) {
     var roleMap = this.securityPredicateCache.get(roleName);
     if (roleMap == null) {

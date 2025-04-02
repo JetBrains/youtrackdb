@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Explains the execution of a command returning profiling information.
@@ -47,6 +48,7 @@ public class CommandExecutorSQLExplain extends CommandExecutorSQLDelegate {
     }
   }
 
+  @Nullable
   @Override
   public Object execute(DatabaseSessionInternal session, Map<Object, Object> iArgs) {
 

@@ -24,6 +24,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
 
@@ -285,6 +286,7 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
     return total[0];
   }
 
+  @Nullable
   private List<EntityImpl> toList(ResultSet rs) {
     if (!rs.hasNext()) {
       return null;

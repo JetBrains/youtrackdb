@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -60,6 +61,7 @@ public abstract class SQLBooleanExpression extends SimpleNode {
           return TRUE;
         }
 
+        @Nullable
         @Override
         public List<String> getMatchPatternInvolvedAliases() {
           return null;
@@ -145,6 +147,7 @@ public abstract class SQLBooleanExpression extends SimpleNode {
           return FALSE;
         }
 
+        @Nullable
         @Override
         public List<String> getMatchPatternInvolvedAliases() {
           return null;
@@ -217,6 +220,7 @@ public abstract class SQLBooleanExpression extends SimpleNode {
    */
   protected abstract List<Object> getExternalCalculationConditions();
 
+  @Nullable
   public List<SQLBinaryCondition> getIndexedFunctionConditions(
       SchemaClass iSchemaClass, DatabaseSessionInternal database) {
     return null;
@@ -267,6 +271,7 @@ public abstract class SQLBooleanExpression extends SimpleNode {
   public void translateLuceneOperator() {
   }
 
+  @Nullable
   public static SQLBooleanExpression deserializeFromOResult(Result res) {
     try {
       var result =

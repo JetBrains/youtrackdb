@@ -21,6 +21,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
 import java.math.BigDecimal;
 import java.util.Date;
+import javax.annotation.Nullable;
 
 /**
  * Transforms a value to decimal. If the conversion is not possible, null is returned.
@@ -38,6 +39,7 @@ public class SQLMethodAsDecimal extends AbstractSQLMethod {
     return "asDecimal()";
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,

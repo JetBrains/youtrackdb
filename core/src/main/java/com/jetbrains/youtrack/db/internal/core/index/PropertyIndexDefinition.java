@@ -31,6 +31,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Index implementation bound to one schema class property.
@@ -71,6 +72,7 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
     return Collections.singletonList(field + " collate " + collate.getName());
   }
 
+  @Nullable
   public Object getDocumentValueToIndex(
       DatabaseSessionInternal session, final EntityImpl entity) {
     if (PropertyTypeInternal.LINK.equals(keyType)) {

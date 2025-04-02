@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
+import javax.annotation.Nullable;
 
 /**
  * Returns the first <code>field/value</code> not null parameter. if no <code>field/value</code> is
@@ -68,6 +69,7 @@ public class SQLFunctionCoalesce extends SQLFunctionAbstract {
     super(NAME, 1, 1000);
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,

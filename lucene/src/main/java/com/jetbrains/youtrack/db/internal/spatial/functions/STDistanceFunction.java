@@ -17,6 +17,7 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeFactory;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -30,6 +31,7 @@ public class STDistanceFunction extends SpatialFunctionAbstract {
     super(NAME, 2, 2);
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
@@ -52,6 +54,7 @@ public class STDistanceFunction extends SpatialFunctionAbstract {
     return factory.operation().distance(shape, shape1);
   }
 
+  @Nullable
   @Override
   public String getSyntax(DatabaseSession session) {
     return null;

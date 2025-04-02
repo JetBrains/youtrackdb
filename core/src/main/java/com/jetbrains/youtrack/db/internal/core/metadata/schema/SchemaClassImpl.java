@@ -38,11 +38,11 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionFactory;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.clusterselection.RoundRobinClusterSelectionStrategy;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.collectionselection.RoundRobinCollectionSelectionStrategy;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.storage.StorageCluster;
+import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntRBTreeSet;
@@ -67,37 +67,37 @@ import javax.annotation.Nullable;
 @SuppressWarnings("unchecked")
 public abstract class SchemaClassImpl {
 
-  protected static final int NOT_EXISTENT_CLUSTER_ID = -1;
+  protected static final int NOT_EXISTENT_COLLECTION_ID = -1;
   private static final Pattern PATTERN = Pattern.compile(",\\s*");
   protected final SchemaShared owner;
   protected final Map<String, SchemaPropertyImpl> properties = new HashMap<>();
-  protected int defaultClusterId = NOT_EXISTENT_CLUSTER_ID;
+  protected int defaultCollectionId = NOT_EXISTENT_COLLECTION_ID;
   protected String name;
   protected String description;
-  protected int[] clusterIds;
+  protected int[] collectionIds;
   protected List<SchemaClassImpl> superClasses = new ArrayList<>();
-  protected int[] polymorphicClusterIds;
+  protected int[] polymorphicCollectionIds;
   protected List<SchemaClassImpl> subclasses;
   protected float overSize = 0f;
   protected boolean strictMode = false; // @SINCE v1.0rc8
   protected boolean abstractClass = false; // @SINCE v1.2.0
   protected Map<String, String> customFields;
-  protected final ClusterSelectionStrategy clusterSelection = new RoundRobinClusterSelectionStrategy();
+  protected final CollectionSelectionStrategy collectionSelection = new RoundRobinCollectionSelectionStrategy();
   protected volatile int hashCode;
 
   protected SchemaClassImpl(final SchemaShared iOwner, final String iName,
-      final int[] iClusterIds) {
+      final int[] iCollectionIds) {
     this(iOwner, iName);
-    setClusterIds(iClusterIds);
-    defaultClusterId = iClusterIds[0];
-    if (defaultClusterId == NOT_EXISTENT_CLUSTER_ID) {
+    setCollectionIds(iCollectionIds);
+    defaultCollectionId = iCollectionIds[0];
+    if (defaultCollectionId == NOT_EXISTENT_COLLECTION_ID) {
       abstractClass = true;
     }
 
     if (abstractClass) {
-      setPolymorphicClusterIds(CommonConst.EMPTY_INT_ARRAY);
+      setPolymorphicCollectionIds(CommonConst.EMPTY_INT_ARRAY);
     } else {
-      setPolymorphicClusterIds(iClusterIds);
+      setPolymorphicCollectionIds(iCollectionIds);
     }
   }
 
@@ -109,46 +109,46 @@ public abstract class SchemaClassImpl {
     owner = iOwner;
   }
 
-  public static int[] readableClusters(
-      final DatabaseSessionInternal db, final int[] iClusterIds, String className) {
+  public static int[] readableCollections(
+      final DatabaseSessionInternal db, final int[] iCollectionIds, String className) {
     var listOfReadableIds = new IntArrayList();
 
     var all = true;
-    for (var clusterId : iClusterIds) {
+    for (var collectionId : iCollectionIds) {
       try {
         // This will exclude (filter out) any specific classes without explicit read permission.
         if (className != null) {
           db.checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_READ, className);
         }
 
-        final var clusterName = db.getClusterNameById(clusterId);
-        db.checkSecurity(Rule.ResourceGeneric.CLUSTER, Role.PERMISSION_READ, clusterName);
-        listOfReadableIds.add(clusterId);
+        final var collectionName = db.getCollectionNameById(collectionId);
+        db.checkSecurity(Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_READ, collectionName);
+        listOfReadableIds.add(collectionId);
       } catch (SecurityAccessException ignore) {
         all = false;
-        // if the cluster is inaccessible it's simply not processed in the list.add
+        // if the collection is inaccessible it's simply not processed in the list.add
       }
     }
 
     // JUST RETURN INPUT ARRAY (FASTER)
     if (all) {
-      return iClusterIds;
+      return iCollectionIds;
     }
 
-    final var readableClusterIds = new int[listOfReadableIds.size()];
+    final var readableCollectionIds = new int[listOfReadableIds.size()];
     var index = 0;
     for (var i = 0; i < listOfReadableIds.size(); i++) {
-      readableClusterIds[index++] = listOfReadableIds.getInt(i);
+      readableCollectionIds[index++] = listOfReadableIds.getInt(i);
     }
 
-    return readableClusterIds;
+    return readableCollectionIds;
   }
 
 
-  public ClusterSelectionStrategy getClusterSelection(DatabaseSessionInternal session) {
+  public CollectionSelectionStrategy getCollectionSelection(DatabaseSessionInternal session) {
     acquireSchemaReadLock(session);
     try {
-      return clusterSelection;
+      return collectionSelection;
     } finally {
       releaseSchemaReadLock(session);
     }
@@ -200,20 +200,20 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  public boolean hasClusterId(DatabaseSessionInternal session, final int clusterId) {
+  public boolean hasCollectionId(DatabaseSessionInternal session, final int collectionId) {
     acquireSchemaReadLock(session);
     try {
-      return Arrays.binarySearch(clusterIds, clusterId) >= 0;
+      return Arrays.binarySearch(collectionIds, collectionId) >= 0;
     } finally {
       releaseSchemaReadLock(session);
     }
 
   }
 
-  public boolean hasPolymorphicClusterId(DatabaseSessionInternal session, final int clusterId) {
+  public boolean hasPolymorphicCollectionId(DatabaseSessionInternal session, final int collectionId) {
     acquireSchemaReadLock(session);
     try {
-      return Arrays.binarySearch(polymorphicClusterIds, clusterId) >= 0;
+      return Arrays.binarySearch(polymorphicCollectionIds, collectionId) >= 0;
     } finally {
       releaseSchemaReadLock(session);
     }
@@ -284,8 +284,8 @@ public abstract class SchemaClassImpl {
     acquireSchemaReadLock(session);
     try {
       long size = 0;
-      for (var clusterId : clusterIds) {
-        size += session.getClusterRecordSizeById(clusterId);
+      for (var collectionId : collectionIds) {
+        size += session.getCollectionRecordSizeById(collectionId);
       }
 
       return size;
@@ -540,7 +540,7 @@ public abstract class SchemaClassImpl {
     } else {
       description = null;
     }
-    defaultClusterId = entity.getProperty("defaultClusterId");
+    defaultCollectionId = entity.getProperty("defaultCollectionId");
     if (entity.hasProperty("strictMode")) {
       strictMode = entity.getProperty("strictMode");
     } else {
@@ -559,23 +559,23 @@ public abstract class SchemaClassImpl {
       overSize = 0f;
     }
 
-    final var cc = entity.getProperty("clusterIds");
+    final var cc = entity.getProperty("collectionIds");
     if (cc instanceof Collection<?>) {
-      final Collection<Integer> coll = entity.getProperty("clusterIds");
-      clusterIds = new int[coll.size()];
+      final Collection<Integer> coll = entity.getProperty("collectionIds");
+      collectionIds = new int[coll.size()];
       var i = 0;
       for (final var item : coll) {
-        clusterIds[i++] = item;
+        collectionIds[i++] = item;
       }
     } else {
-      clusterIds = (int[]) cc;
+      collectionIds = (int[]) cc;
     }
-    Arrays.sort(clusterIds);
+    Arrays.sort(collectionIds);
 
-    if (clusterIds.length == 1 && clusterIds[0] == -1) {
-      setPolymorphicClusterIds(CommonConst.EMPTY_INT_ARRAY);
+    if (collectionIds.length == 1 && collectionIds[0] == -1) {
+      setPolymorphicCollectionIds(CommonConst.EMPTY_INT_ARRAY);
     } else {
-      setPolymorphicClusterIds(clusterIds);
+      setPolymorphicCollectionIds(collectionIds);
     }
 
     // READ PROPERTIES
@@ -611,8 +611,8 @@ public abstract class SchemaClassImpl {
     var entity = session.newEmbeddedEntity();
     entity.setProperty("name", name);
     entity.setProperty("description", description);
-    entity.setProperty("defaultClusterId", defaultClusterId);
-    entity.newEmbeddedList("clusterIds", clusterIds);
+    entity.setProperty("defaultCollectionId", defaultCollectionId);
+    entity.newEmbeddedList("collectionIds", collectionIds);
     entity.setProperty("overSize", overSize);
     entity.setProperty("strictMode", strictMode);
     entity.setProperty("abstract", abstractClass);
@@ -648,27 +648,27 @@ public abstract class SchemaClassImpl {
   }
 
 
-  public int[] getClusterIds(DatabaseSessionInternal session) {
+  public int[] getCollectionIds(DatabaseSessionInternal session) {
     acquireSchemaReadLock(session);
     try {
-      return clusterIds;
+      return collectionIds;
     } finally {
       releaseSchemaReadLock(session);
     }
   }
 
-  public int[] getPolymorphicClusterIds(DatabaseSessionInternal session) {
+  public int[] getPolymorphicCollectionIds(DatabaseSessionInternal session) {
     acquireSchemaReadLock(session);
     try {
-      return Arrays.copyOf(polymorphicClusterIds, polymorphicClusterIds.length);
+      return Arrays.copyOf(polymorphicCollectionIds, polymorphicCollectionIds.length);
     } finally {
       releaseSchemaReadLock(session);
     }
   }
 
-  private void setPolymorphicClusterIds(final int[] iClusterIds) {
-    var set = new IntRBTreeSet(iClusterIds);
-    polymorphicClusterIds = set.toIntArray();
+  private void setPolymorphicCollectionIds(final int[] iCollectionIds) {
+    var set = new IntRBTreeSet(iCollectionIds);
+    polymorphicCollectionIds = set.toIntArray();
   }
 
   public void renameProperty(final String iOldName, final String iNewName) {
@@ -678,9 +678,9 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  protected static void truncateClusterInternal(
-      final String clusterName, final DatabaseSessionInternal database) {
-    database.truncateCluster(clusterName);
+  protected static void truncateCollectionInternal(
+      final String collectionName, final DatabaseSessionInternal database) {
+    database.truncateCollection(collectionName);
   }
 
   public Collection<SchemaClassImpl> getSubclasses(DatabaseSessionInternal session) {
@@ -792,7 +792,7 @@ public abstract class SchemaClassImpl {
   }
 
   /**
-   * Truncates all the clusters the class uses.
+   * Truncates all the collections the class uses.
    */
   public void truncate(DatabaseSessionInternal session) {
     session.truncateClass(name, false);
@@ -1027,7 +1027,7 @@ public abstract class SchemaClassImpl {
             oClass.extractFieldTypes(fields), null, type
         );
 
-    final var localPolymorphicClusterIds = polymorphicClusterIds;
+    final var localPolymorphicCollectionIds = polymorphicCollectionIds;
     session
         .getMetadata()
         .getIndexManagerInternal()
@@ -1036,7 +1036,7 @@ public abstract class SchemaClassImpl {
             name,
             type,
             indexDefinition,
-            localPolymorphicClusterIds,
+            localPolymorphicCollectionIds,
             progressListener,
             metadata,
             algorithm);
@@ -1442,25 +1442,25 @@ public abstract class SchemaClassImpl {
     hashCode = result;
   }
 
-  protected void renameCluster(DatabaseSessionInternal session, String oldName, String newName) {
+  protected void renameCollection(DatabaseSessionInternal session, String oldName, String newName) {
     oldName = oldName.toLowerCase(Locale.ENGLISH);
     newName = newName.toLowerCase(Locale.ENGLISH);
 
-    if (session.getClusterIdByName(newName) != -1) {
+    if (session.getCollectionIdByName(newName) != -1) {
       return;
     }
 
-    final var clusterId = session.getClusterIdByName(oldName);
-    if (clusterId == -1) {
+    final var collectionId = session.getCollectionIdByName(oldName);
+    if (collectionId == -1) {
       return;
     }
 
-    if (!hasClusterId(session, clusterId)) {
+    if (!hasCollectionId(session, collectionId)) {
       return;
     }
 
     if (!session.isRemote()) {
-      session.getStorage().setClusterAttribute(clusterId, StorageCluster.ATTRIBUTES.NAME, newName);
+      session.getStorage().setCollectionAttribute(collectionId, StorageCollection.ATTRIBUTES.NAME, newName);
     }
   }
 
@@ -1487,11 +1487,11 @@ public abstract class SchemaClassImpl {
   protected void validatePropertyName(final String propertyName) {
   }
 
-  protected abstract void addClusterIdToIndexes(DatabaseSessionInternal session, int iId);
+  protected abstract void addCollectionIdToIndexes(DatabaseSessionInternal session, int iId);
 
   /**
-   * Adds a base class to the current one. It adds also the base class cluster ids to the
-   * polymorphic cluster ids array.
+   * Adds a base class to the current one. It adds also the base class collection ids to the
+   * polymorphic collection ids array.
    *
    * @param iBaseClass The base class to add.
    */
@@ -1508,7 +1508,7 @@ public abstract class SchemaClassImpl {
     }
 
     subclasses.add(iBaseClass);
-    addPolymorphicClusterIdsWithInheritance(session, iBaseClass);
+    addPolymorphicCollectionIdsWithInheritance(session, iBaseClass);
   }
 
   protected void checkParametersConflict(DatabaseSessionInternal session,
@@ -1569,40 +1569,40 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  protected void removePolymorphicClusterIds(DatabaseSessionInternal session,
+  protected void removePolymorphicCollectionIds(DatabaseSessionInternal session,
       final SchemaClassImpl iBaseClass) {
-    for (final var clusterId : iBaseClass.polymorphicClusterIds) {
-      removePolymorphicClusterId(session, clusterId);
+    for (final var collectionId : iBaseClass.polymorphicCollectionIds) {
+      removePolymorphicCollectionId(session, collectionId);
     }
   }
 
-  protected void removePolymorphicClusterId(DatabaseSessionInternal session,
-      final int clusterId) {
-    final var index = Arrays.binarySearch(polymorphicClusterIds, clusterId);
+  protected void removePolymorphicCollectionId(DatabaseSessionInternal session,
+      final int collectionId) {
+    final var index = Arrays.binarySearch(polymorphicCollectionIds, collectionId);
     if (index < 0) {
       return;
     }
 
-    if (index < polymorphicClusterIds.length - 1) {
+    if (index < polymorphicCollectionIds.length - 1) {
       System.arraycopy(
-          polymorphicClusterIds,
+          polymorphicCollectionIds,
           index + 1,
-          polymorphicClusterIds,
+          polymorphicCollectionIds,
           index,
-          polymorphicClusterIds.length - (index + 1));
+          polymorphicCollectionIds.length - (index + 1));
     }
 
-    polymorphicClusterIds = Arrays.copyOf(polymorphicClusterIds, polymorphicClusterIds.length - 1);
+    polymorphicCollectionIds = Arrays.copyOf(polymorphicCollectionIds, polymorphicCollectionIds.length - 1);
 
-    removeClusterFromIndexes(session, clusterId);
+    removeCollectionFromIndexes(session, collectionId);
     for (var superClass : superClasses) {
-      superClass.removePolymorphicClusterId(session, clusterId);
+      superClass.removePolymorphicCollectionId(session, collectionId);
     }
   }
 
-  private void removeClusterFromIndexes(DatabaseSessionInternal session, final int iId) {
+  private void removeCollectionFromIndexes(DatabaseSessionInternal session, final int iId) {
     if (session.getStorage() instanceof AbstractPaginatedStorage) {
-      final var clusterName = session.getClusterNameById(iId);
+      final var collectionName = session.getCollectionNameById(iId);
       final List<String> indexesToRemove = new ArrayList<>();
 
       final Set<Index> indexes = new HashSet<>();
@@ -1615,49 +1615,49 @@ public abstract class SchemaClassImpl {
       final var indexManager =
           session.getMetadata().getIndexManagerInternal();
       for (final var indexName : indexesToRemove) {
-        indexManager.removeClusterFromIndex(session, clusterName, indexName);
+        indexManager.removeCollectionFromIndex(session, collectionName, indexName);
       }
     }
   }
 
   /**
-   * Add different cluster id to the "polymorphic cluster ids" array.
+   * Add different collection id to the "polymorphic collection ids" array.
    */
-  protected void addPolymorphicClusterIds(DatabaseSessionInternal session,
+  protected void addPolymorphicCollectionIds(DatabaseSessionInternal session,
       final SchemaClassImpl iBaseClass) {
-    var clusters = new IntRBTreeSet(polymorphicClusterIds);
+    var collections = new IntRBTreeSet(polymorphicCollectionIds);
 
-    for (var clusterId : iBaseClass.polymorphicClusterIds) {
-      if (clusters.add(clusterId)) {
+    for (var collectionId : iBaseClass.polymorphicCollectionIds) {
+      if (collections.add(collectionId)) {
         try {
-          addClusterIdToIndexes(session, clusterId);
+          addCollectionIdToIndexes(session, collectionId);
         } catch (RuntimeException e) {
           LogManager.instance()
               .warn(
                   this,
-                  "Error adding clusterId '%d' to index of class '%s'",
+                  "Error adding collectionId '%d' to index of class '%s'",
                   e,
-                  clusterId,
+                  collectionId,
                   getName(session));
-          clusters.remove(clusterId);
+          collections.remove(collectionId);
         }
       }
     }
 
-    polymorphicClusterIds = clusters.toIntArray();
+    polymorphicCollectionIds = collections.toIntArray();
   }
 
-  private void addPolymorphicClusterIdsWithInheritance(DatabaseSessionInternal session,
+  private void addPolymorphicCollectionIdsWithInheritance(DatabaseSessionInternal session,
       final SchemaClassImpl iBaseClass) {
-    addPolymorphicClusterIds(session, iBaseClass);
+    addPolymorphicCollectionIds(session, iBaseClass);
     for (var superClass : superClasses) {
-      superClass.addPolymorphicClusterIdsWithInheritance(session, iBaseClass);
+      superClass.addPolymorphicCollectionIdsWithInheritance(session, iBaseClass);
     }
   }
 
-  protected void setClusterIds(final int[] iClusterIds) {
-    clusterIds = iClusterIds;
-    Arrays.sort(clusterIds);
+  protected void setCollectionIds(final int[] iCollectionIds) {
+    collectionIds = iCollectionIds;
+    Arrays.sort(collectionIds);
   }
 
   @Nullable

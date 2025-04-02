@@ -21,7 +21,7 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
   @Override
   protected YouTrackDBConfig createConfig() {
     var builder = YouTrackDBConfig.builder();
-    builder.addGlobalConfigurationParameter(GlobalConfiguration.CLASS_CLUSTERS_COUNT, 1);
+    builder.addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1);
     return builder.build();
   }
 

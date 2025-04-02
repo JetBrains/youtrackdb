@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.internal.core.security.SecurityManager;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
 import java.io.UnsupportedEncodingException;
 import java.security.NoSuchAlgorithmException;
+import javax.annotation.Nullable;
 
 /**
  * Hash a string supporting multiple algorithm, all those supported by JVM
@@ -40,6 +41,7 @@ public class SQLMethodHash extends AbstractSQLMethod {
     return "hash([<algorithm>])";
   }
 
+  @Nullable
   @Override
   public Object execute(
       final Object iThis,

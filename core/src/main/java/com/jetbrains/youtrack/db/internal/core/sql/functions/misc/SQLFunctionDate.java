@@ -31,6 +31,7 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.TimeZone;
+import javax.annotation.Nullable;
 
 /**
  * Builds a date object from the format passed. If no arguments are passed, than the system date is
@@ -53,6 +54,7 @@ public class SQLFunctionDate extends SQLFunctionAbstract {
     date = new Date();
   }
 
+  @Nullable
   public Object execute(
       Object iThis,
       final Result iCurrentRecord,
@@ -106,6 +108,7 @@ public class SQLFunctionDate extends SQLFunctionAbstract {
     return "date([<date-as-string>] [,<format>] [,<timezone>])";
   }
 
+  @Nullable
   @Override
   public Object getResult() {
     format = null;

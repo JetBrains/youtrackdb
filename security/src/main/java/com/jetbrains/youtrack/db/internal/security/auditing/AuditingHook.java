@@ -38,6 +38,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
+import javax.annotation.Nullable;
 
 /**
  * Hook to audit database access.
@@ -391,6 +392,7 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
     }
   }
 
+  @Nullable
   private static String formatNote(final DBRecord iRecord, final String iNote) {
     if (iNote == null) {
       return null;
@@ -402,6 +404,7 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
             "${",
             "}",
             new VariableParserListener() {
+              @Nullable
               @Override
               public Object resolve(final String iVariable) {
                 if (iVariable.startsWith("field.")) {
@@ -415,6 +418,7 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
             });
   }
 
+  @Nullable
   private AuditingClassConfig getAuditConfiguration(final DBRecord iRecord) {
     AuditingClassConfig cfg = null;
 

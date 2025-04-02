@@ -20,6 +20,7 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http;
 
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Wrapper to use the HTTP request in functions and scripts. This class mimics the J2EE HTTPRequest
@@ -126,6 +127,7 @@ public class HttpRequestWrapper {
    *
    * @return Array of arguments
    */
+  @Nullable
   public String getArgument(final int iPosition) {
     return args != null && args.length > iPosition ? args[iPosition] : null;
   }
@@ -144,6 +146,7 @@ public class HttpRequestWrapper {
    *
    * @return The parameter value if any otherwise null
    */
+  @Nullable
   public String getParameter(final String iName) {
     return request.getParameters() != null ? request.getParameters().get(iName) : null;
   }

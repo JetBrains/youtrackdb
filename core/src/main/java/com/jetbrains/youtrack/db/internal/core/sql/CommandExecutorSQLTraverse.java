@@ -204,7 +204,7 @@ public class CommandExecutorSQLTraverse extends CommandExecutorSQLResultsetAbstr
 
     if (!assignTarget(session, iArgs)) {
       throw new QueryParsingException(session.getDatabaseName(),
-          "No source found in query: specify class, cluster(s) or single record(s)");
+          "No source found in query: specify class, collection(s) or single record(s)");
     }
 
     if (traverse == null) {

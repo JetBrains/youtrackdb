@@ -26,6 +26,7 @@ import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import javax.annotation.Nullable;
 
 /**
  * Compute the average value for a field. Uses the context to save the last average number. When
@@ -94,6 +95,7 @@ public class SQLFunctionAverage extends SQLFunctionMathAbstract {
     return configuredParameters.length == 1;
   }
 
+  @Nullable
   private Object computeAverage(Number iSum, int iTotal) {
     if (iSum instanceof Integer) {
       return iSum.intValue() / iTotal;

@@ -51,6 +51,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * Note: all atomic operations methods are designed in context that all operations on single files
@@ -107,6 +108,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     return operationUnitId;
   }
 
+  @Nullable
   @Override
   public CacheEntry loadPageForWrite(
       long fileId, final long pageIndex, final int pageCount, final boolean verifyChecksum)
@@ -154,6 +156,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     return null;
   }
 
+  @Nullable
   @Override
   public CacheEntry loadPageForRead(long fileId, final long pageIndex) throws IOException {
 
@@ -644,17 +647,17 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   @Override
-  public void addDeletedRecordPosition(int clusterId, int pageIndex, int recordPosition) {
-    var key = new IntIntImmutablePair(clusterId, pageIndex);
+  public void addDeletedRecordPosition(int collectionId, int pageIndex, int recordPosition) {
+    var key = new IntIntImmutablePair(collectionId, pageIndex);
     final var recordPositions =
         deletedRecordPositions.computeIfAbsent(key, k -> new IntOpenHashSet());
     recordPositions.add(recordPosition);
   }
 
   @Override
-  public IntSet getBookedRecordPositions(int clusterId, int pageIndex) {
+  public IntSet getBookedRecordPositions(int collectionId, int pageIndex) {
     return deletedRecordPositions.getOrDefault(
-        new IntIntImmutablePair(clusterId, pageIndex), IntSets.emptySet());
+        new IntIntImmutablePair(collectionId, pageIndex), IntSets.emptySet());
   }
 
   @Override

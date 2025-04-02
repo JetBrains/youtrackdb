@@ -33,6 +33,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * SQL ALTER DATABASE command: Changes an attribute of the current database.
@@ -122,6 +123,7 @@ public class CommandExecutorSQLAlterDatabase extends CommandExecutorSQLAbstract
   /**
    * Execute the ALTER DATABASE.
    */
+  @Nullable
   public Object execute(DatabaseSessionInternal session, final Map<Object, Object> iArgs) {
     if (attribute == null) {
       throw new CommandExecutionException(session.getDatabaseName(),

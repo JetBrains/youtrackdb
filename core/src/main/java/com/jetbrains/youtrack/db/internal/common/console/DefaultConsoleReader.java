@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.internal.common.thread.SoftThread;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import javax.annotation.Nullable;
 
 /**
  * Console reader implementation that uses the Java System.in.
@@ -50,6 +51,7 @@ public class DefaultConsoleReader implements ConsoleReader {
     }
   }
 
+  @Nullable
   @Override
   public String readLine() {
     try {
@@ -59,6 +61,7 @@ public class DefaultConsoleReader implements ConsoleReader {
     }
   }
 
+  @Nullable
   @Override
   public String readPassword() {
     if (System.console() == null)

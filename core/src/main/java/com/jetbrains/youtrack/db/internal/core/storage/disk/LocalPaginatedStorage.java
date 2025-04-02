@@ -62,9 +62,9 @@ import com.jetbrains.youtrack.db.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogGL;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
-import com.jetbrains.youtrack.db.internal.core.storage.cluster.ClusterPositionMap;
-import com.jetbrains.youtrack.db.internal.core.storage.cluster.v2.FreeSpaceMap;
-import com.jetbrains.youtrack.db.internal.core.storage.config.ClusterBasedStorageConfiguration;
+import com.jetbrains.youtrack.db.internal.core.storage.collection.CollectionPositionMap;
+import com.jetbrains.youtrack.db.internal.core.storage.collection.v2.FreeSpaceMap;
+import com.jetbrains.youtrack.db.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.storage.fs.File;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.StartupMetadata;
@@ -121,6 +121,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
@@ -178,12 +179,12 @@ public class LocalPaginatedStorage extends AbstractPaginatedStorage {
       IV_EXT,
       CASDiskWriteAheadLog.WAL_SEGMENT_EXTENSION,
       CASDiskWriteAheadLog.MASTER_RECORD_EXTENSION,
-      ClusterPositionMap.DEF_EXTENSION,
+      CollectionPositionMap.DEF_EXTENSION,
       BTreeCollectionManagerShared.FILE_EXTENSION,
-      ClusterBasedStorageConfiguration.MAP_FILE_EXTENSION,
-      ClusterBasedStorageConfiguration.DATA_FILE_EXTENSION,
-      ClusterBasedStorageConfiguration.TREE_DATA_FILE_EXTENSION,
-      ClusterBasedStorageConfiguration.TREE_NULL_FILE_EXTENSION,
+      CollectionBasedStorageConfiguration.MAP_FILE_EXTENSION,
+      CollectionBasedStorageConfiguration.DATA_FILE_EXTENSION,
+      CollectionBasedStorageConfiguration.TREE_DATA_FILE_EXTENSION,
+      CollectionBasedStorageConfiguration.TREE_NULL_FILE_EXTENSION,
       BTreeMultiValueIndexEngine.DATA_FILE_EXTENSION,
       BTreeMultiValueIndexEngine.M_CONTAINER_EXTENSION,
       DoubleWriteLogGL.EXTENSION,
@@ -603,8 +604,8 @@ public class LocalPaginatedStorage extends AbstractPaginatedStorage {
       final ContextConfiguration contextConfiguration,
       AtomicOperation atomicOperation)
       throws IOException {
-    configuration = new ClusterBasedStorageConfiguration(this);
-    ((ClusterBasedStorageConfiguration) configuration)
+    configuration = new CollectionBasedStorageConfiguration(this);
+    ((CollectionBasedStorageConfiguration) configuration)
         .load(contextConfiguration, atomicOperation);
   }
 
@@ -1128,6 +1129,7 @@ public class LocalPaginatedStorage extends AbstractPaginatedStorage {
     return fileName;
   }
 
+  @Nullable
   private UUID extractDbInstanceUUID(java.io.File backupDirectory, String file, String charset)
       throws IOException {
     final var ibuFile = new java.io.File(backupDirectory, file);
@@ -1598,9 +1600,9 @@ public class LocalPaginatedStorage extends AbstractPaginatedStorage {
     atomicOperationsManager.executeInsideAtomicOperation(
         null,
         atomicOperation -> {
-          closeClusters();
+          closeCollections();
           closeIndexes(atomicOperation);
-          ((ClusterBasedStorageConfiguration) configuration).close(atomicOperation);
+          ((CollectionBasedStorageConfiguration) configuration).close(atomicOperation);
         });
 
     configuration = null;
@@ -1716,23 +1718,23 @@ public class LocalPaginatedStorage extends AbstractPaginatedStorage {
 
   private void postProcessIncrementalRestore(ContextConfiguration contextConfiguration)
       throws IOException {
-    if (ClusterBasedStorageConfiguration.exists(writeCache)) {
-      configuration = new ClusterBasedStorageConfiguration(this);
+    if (CollectionBasedStorageConfiguration.exists(writeCache)) {
+      configuration = new CollectionBasedStorageConfiguration(this);
       atomicOperationsManager.executeInsideAtomicOperation(
           null,
           atomicOperation ->
-              ((ClusterBasedStorageConfiguration) configuration)
+              ((CollectionBasedStorageConfiguration) configuration)
                   .load(contextConfiguration, atomicOperation));
     } else {
-      configuration = new ClusterBasedStorageConfiguration(this);
+      configuration = new CollectionBasedStorageConfiguration(this);
       atomicOperationsManager.executeInsideAtomicOperation(
           null,
           atomicOperation ->
-              ((ClusterBasedStorageConfiguration) configuration)
+              ((CollectionBasedStorageConfiguration) configuration)
                   .load(contextConfiguration, atomicOperation));
     }
 
-    atomicOperationsManager.executeInsideAtomicOperation(null, this::openClusters);
+    atomicOperationsManager.executeInsideAtomicOperation(null, this::openCollections);
     sbTreeCollectionManager.close();
     sbTreeCollectionManager.load();
     openIndexes();

@@ -42,6 +42,7 @@ import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * Provides a symmetric key specific authentication. Implements an Security interface that delegates
@@ -143,6 +144,7 @@ public class SymmetricKeySecurity implements SecurityInternal {
     delegate.load(session);
   }
 
+  @Nullable
   public SecurityUserImpl authenticate(DatabaseSessionInternal session, final Token authToken) {
     return null;
   }

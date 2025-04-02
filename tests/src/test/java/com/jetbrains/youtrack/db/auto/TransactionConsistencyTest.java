@@ -27,7 +27,6 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import org.apache.commons.lang.ArrayUtils;
@@ -424,19 +423,19 @@ public class TransactionConsistencyTest extends BaseDBTest {
     chloe.getOrCreateLinkSet("following").addAll(List.of(jack, teri, kim));
 
     var schema = session.getSchema();
-    var profileClusterIds =
-        Arrays.asList(ArrayUtils.toObject(schema.getClass("Profile").getClusterIds()));
+    var profileCollectionIds =
+        Arrays.asList(ArrayUtils.toObject(schema.getClass("Profile").getCollectionIds()));
 
     session.commit();
 
     Assert.assertListContainsObject(
-        profileClusterIds, jack.getIdentity().getClusterId(), "Cluster id not found");
+        profileCollectionIds, jack.getIdentity().getCollectionId(), "Collection id not found");
     Assert.assertListContainsObject(
-        profileClusterIds, kim.getIdentity().getClusterId(), "Cluster id not found");
+        profileCollectionIds, kim.getIdentity().getCollectionId(), "Collection id not found");
     Assert.assertListContainsObject(
-        profileClusterIds, teri.getIdentity().getClusterId(), "Cluster id not found");
+        profileCollectionIds, teri.getIdentity().getCollectionId(), "Collection id not found");
     Assert.assertListContainsObject(
-        profileClusterIds, chloe.getIdentity().getClusterId(), "Cluster id not found");
+        profileCollectionIds, chloe.getIdentity().getCollectionId(), "Collection id not found");
 
     session.begin();
     session.load(chloe.getIdentity());
@@ -473,7 +472,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
     var chunkSize = 10;
     for (var initialValue = 0; initialValue < 10; initialValue++) {
-      Assert.assertEquals(session.countClusterElements("MyFruit"), 0);
+      Assert.assertEquals(session.countCollectionElements("MyFruit"), 0);
 
       System.out.println(
           "[testTransactionPopulateDelete] Populating chunk "
@@ -517,7 +516,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
       System.out.println("[testTransactionPopulateDelete] Deleted executed successfully");
 
-      Assert.assertEquals(session.countClusterElements("MyFruit"), 0);
+      Assert.assertEquals(session.countCollectionElements("MyFruit"), 0);
     }
 
     System.out.println("[testTransactionPopulateDelete] End of the test");

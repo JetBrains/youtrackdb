@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
+import javax.annotation.Nullable;
 
 /**
  * Returns different values based on the condition. If it's true the first value is returned,
@@ -71,6 +72,7 @@ public class SQLFunctionIf extends SQLFunctionAbstract {
     super(NAME, 2, 3);
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,

@@ -91,7 +91,7 @@ public class CommandExecutorSQLFindReferences extends CommandExecutorSQLEarlyRes
         if (!classList.startsWith("[") || !classList.endsWith("]")) {
           throwParsingException(session.getDatabaseName(), "Class list must be contained in []");
         }
-        // GET THE CLUSTER LIST TO SEARCH, IF NULL WILL SEARCH ENTIRE DATABASE
+        // GET THE COLLECTION LIST TO SEARCH, IF NULL WILL SEARCH ENTIRE DATABASE
         classList = classList.substring(1, classList.length() - 1);
       }
 

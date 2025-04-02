@@ -31,6 +31,7 @@ import java.security.SecureRandom;
 import java.security.spec.KeySpec;
 import java.util.Base64;
 import java.util.UUID;
+import javax.annotation.Nullable;
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 import javax.crypto.SecretKeyFactory;
@@ -202,6 +203,7 @@ public class SymmetricKey {
   /**
    * Returns the secret key algorithm portion of the cipher transformation.
    */
+  @Nullable
   protected static String separateAlgorithm(final String cipherTransform) {
     var array = cipherTransform.split("/");
 

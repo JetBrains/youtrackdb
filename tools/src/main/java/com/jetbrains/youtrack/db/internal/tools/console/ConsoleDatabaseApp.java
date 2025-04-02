@@ -66,7 +66,7 @@ import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseRepair;
 import com.jetbrains.youtrack.db.internal.core.db.tool.GraphRepair;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
+import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -97,6 +97,7 @@ import java.util.Optional;
 import java.util.Scanner;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 @SuppressWarnings("unused")
 public class ConsoleDatabaseApp extends ConsoleApplication
@@ -499,43 +500,43 @@ public class ConsoleDatabaseApp extends ConsoleApplication
   @ConsoleCommand(
       splitInWords = false,
       description =
-          "Create a new cluster in the current database. The cluster can be physical or memory")
-  public void createCluster(
+          "Create a new collection in the current database. The collection can be physical or memory")
+  public void createCollection(
       @ConsoleParameter(name = "command-text", description = "The command text to execute")
       String iCommandText) {
-    sqlCommand("create", iCommandText, "\nCluster created correctly in %.2f seconds\n", false);
+    sqlCommand("create", iCommandText, "\nCollection created correctly in %.2f seconds\n", false);
     updateDatabaseInfo();
   }
 
   @ConsoleCommand(
       description =
-          "Remove a cluster in the current database. The cluster can be physical or memory")
-  public void dropCluster(
+          "Remove a collection in the current database. The collection can be physical or memory")
+  public void dropCollection(
       @ConsoleParameter(
-          name = "cluster-name",
-          description = "The name or the id of the cluster to remove")
-      String iClusterName) {
+          name = "collection-name",
+          description = "The name or the id of the collection to remove")
+      String iCollectionName) {
     checkForDatabase();
 
-    message("\nDropping cluster [" + iClusterName + "] in database " + currentDatabaseName + "...");
+    message("\nDropping collection [" + iCollectionName + "] in database " + currentDatabaseName + "...");
 
-    var result = currentDatabaseSession.dropCluster(iClusterName);
+    var result = currentDatabaseSession.dropCollection(iCollectionName);
 
     if (!result) {
-      // TRY TO GET AS CLUSTER ID
+      // TRY TO GET AS COLLECTION ID
       try {
-        var clusterId = Integer.parseInt(iClusterName);
-        if (clusterId > -1) {
-          result = currentDatabaseSession.dropCluster(clusterId);
+        var collectionId = Integer.parseInt(iCollectionName);
+        if (collectionId > -1) {
+          result = currentDatabaseSession.dropCollection(collectionId);
         }
       } catch (Exception ignored) {
       }
     }
 
     if (result) {
-      message("\nCluster correctly removed");
+      message("\nCollection correctly removed");
     } else {
-      message("\nCannot find the cluster to remove");
+      message("\nCannot find the collection to remove");
     }
     updateDatabaseInfo();
   }
@@ -543,11 +544,11 @@ public class ConsoleDatabaseApp extends ConsoleApplication
   @ConsoleCommand(
       splitInWords = false,
       description =
-          "Alters a cluster in the current database. The cluster can be physical or memory")
-  public void alterCluster(
+          "Alters a collection in the current database. The collection can be physical or memory")
+  public void alterCollection(
       @ConsoleParameter(name = "command-text", description = "The command text to execute")
       String iCommandText) {
-    sqlCommand("alter", iCommandText, "\nCluster updated successfully.\n", false);
+    sqlCommand("alter", iCommandText, "\nCollection updated successfully.\n", false);
     updateDatabaseInfo();
   }
 
@@ -639,8 +640,8 @@ public class ConsoleDatabaseApp extends ConsoleApplication
 
   @ConsoleCommand(
       splitInWords = false,
-      description = "Truncate the cluster content in the current database")
-  public void truncateCluster(
+      description = "Truncate the collection content in the current database")
+  public void truncateCollection(
       @ConsoleParameter(name = "text", description = "The name of the class to truncate")
       String iCommandText) {
     sqlCommand("truncate", iCommandText, "\nTruncated %d record(s) in %f sec(s).\n", true);
@@ -783,7 +784,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
 
   @ConsoleCommand(
       splitInWords = false,
-      description = "Move vertices to another position (class/cluster)",
+      description = "Move vertices to another position (class/collection)",
       priority = 8,
       onlineHelp = "SQL-Move-Vertex")
   // EVALUATE THIS BEFORE 'MOVE'
@@ -1483,15 +1484,15 @@ public class ConsoleDatabaseApp extends ConsoleApplication
   }
 
   @ConsoleCommand(
-      description = "Browse all records of a cluster",
-      onlineHelp = "Console-Command-Browse-Cluster")
-  public void browseCluster(
-      @ConsoleParameter(name = "cluster-name", description = "The name of the cluster") final String iClusterName) {
+      description = "Browse all records of a collection",
+      onlineHelp = "Console-Command-Browse-Collection")
+  public void browseCollection(
+      @ConsoleParameter(name = "collection-name", description = "The name of the collection") final String iCollectionName) {
     checkForDatabase();
 
     resetResultSet();
 
-    final RecordIteratorCluster<?> it = currentDatabaseSession.browseCluster(iClusterName);
+    final RecordIteratorCollection<?> it = currentDatabaseSession.browseCollection(iCollectionName);
 
     browseRecords(it);
   }
@@ -1509,7 +1510,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       currentDatabaseSession.getMetadata().reload();
 
       listProperties();
-      listClusters(null);
+      listCollections(null);
       listClasses();
       listIndexes();
     }
@@ -1616,26 +1617,26 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     }
 
     message(
-        "\nDefault cluster......: "
-            + currentDatabaseSession.getClusterNameById(
-            cls.getClusterIds()[0])
+        "\nDefault collection......: "
+            + currentDatabaseSession.getCollectionNameById(
+            cls.getCollectionIds()[0])
             + " (id="
-            + cls.getClusterIds()[0]
+            + cls.getCollectionIds()[0]
             + ")");
 
-    final var clusters = new StringBuilder();
-    for (var clId : cls.getClusterIds()) {
-      if (!clusters.isEmpty()) {
-        clusters.append(", ");
+    final var collections = new StringBuilder();
+    for (var clId : cls.getCollectionIds()) {
+      if (!collections.isEmpty()) {
+        collections.append(", ");
       }
 
-      clusters.append(currentDatabaseSession.getClusterNameById(clId));
-      clusters.append("(");
-      clusters.append(clId);
-      clusters.append(")");
+      collections.append(currentDatabaseSession.getCollectionNameById(clId));
+      collections.append("(");
+      collections.append(clId);
+      collections.append(")");
     }
 
-    message("\nSupported clusters...: " + clusters);
+    message("\nSupported collections...: " + collections);
     if (!cls.getSubclasses().isEmpty()) {
       message("\nSubclasses.........: ");
       var i = 0;
@@ -1910,10 +1911,10 @@ public class ConsoleDatabaseApp extends ConsoleApplication
   }
 
   @ConsoleCommand(
-      description = "Display all the configured clusters",
-      aliases = {"clusters"},
-      onlineHelp = "Console-Command-List-Clusters")
-  public void listClusters(
+      description = "Display all the configured collections",
+      aliases = {"collections"},
+      onlineHelp = "Console-Command-List-Collections")
+  public void listCollections(
       @ConsoleParameter(
           name = "[options]",
           optional = true,
@@ -1921,46 +1922,46 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     final var commandOptions = parseCommandOptions(options);
 
     if (currentDatabaseName != null) {
-      message("\n\nCLUSTERS (collections)");
+      message("\n\nCOLLECTIONS (collections)");
 
       final List<RawPair<RID, Object>> resultSet = new ArrayList<>();
 
-      int clusterId;
+      int collectionId;
       long totalElements = 0;
       long totalSpaceUsed = 0;
       long totalTombstones = 0;
       long count;
 
-      final List<String> clusters = new ArrayList<>(currentDatabaseSession.getClusterNames());
-      Collections.sort(clusters);
+      final List<String> collections = new ArrayList<>(currentDatabaseSession.getCollectionNames());
+      Collections.sort(collections);
 
       final var isRemote = currentDatabaseSession.isRemote();
-      for (var clusterName : clusters) {
+      for (var collectionName : collections) {
         try {
           var row = new HashMap<String, Object>();
           resultSet.add(new RawPair<>(null, row));
 
-          clusterId = currentDatabaseSession.getClusterIdByName(clusterName);
+          collectionId = currentDatabaseSession.getCollectionIdByName(collectionName);
 
           final var conflictStrategy =
               Optional.ofNullable(
-                      currentDatabaseSession.getClusterRecordConflictStrategy(clusterId))
+                      currentDatabaseSession.getCollectionRecordConflictStrategy(collectionId))
                   .orElse("");
 
-          count = currentDatabaseSession.countClusterElements(clusterName);
+          count = currentDatabaseSession.countCollectionElements(collectionName);
           totalElements += count;
 
           final var cls =
               currentDatabaseSession
                   .getMetadata()
                   .getImmutableSchemaSnapshot()
-                  .getClassByClusterId(clusterId);
+                  .getClassByCollectionId(collectionId);
           final var className = Optional.ofNullable(cls)
               .map(schemaClass -> schemaClass.getName())
               .orElse(null);
 
-          row.put("NAME", clusterName);
-          row.put("ID", clusterId);
+          row.put("NAME", collectionName);
+          row.put("ID", collectionId);
           row.put("CLASS", className);
           row.put("COUNT", count);
         } catch (Exception e) {
@@ -2019,20 +2020,20 @@ public class ConsoleDatabaseApp extends ConsoleApplication
           final var row = new HashMap<String, Object>();
           resultSet.add(new RawPair<>(null, row));
 
-          final var clusters = new StringBuilder(1024);
+          final var collections = new StringBuilder(1024);
           if (cls.isAbstract()) {
-            clusters.append("-");
+            collections.append("-");
           } else {
-            var clusterIds = cls.getClusterIds();
-            for (var i = 0; i < clusterIds.length; ++i) {
+            var collectionIds = cls.getCollectionIds();
+            for (var i = 0; i < collectionIds.length; ++i) {
               if (i > 0) {
-                clusters.append(",");
+                collections.append(",");
               }
 
-              clusters.append(currentDatabaseSession.getClusterNameById(clusterIds[i]));
-              clusters.append("(");
-              clusters.append(clusterIds[i]);
-              clusters.append(")");
+              collections.append(currentDatabaseSession.getCollectionNameById(collectionIds[i]));
+              collections.append("(");
+              collections.append(collectionIds[i]);
+              collections.append(")");
             }
           }
 
@@ -2045,7 +2046,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
 
           row.put("NAME", cls.getName());
           row.put("SUPER-CLASSES", superClasses);
-          row.put("CLUSTERS", clusters);
+          row.put("COLLECTIONS", collections);
           row.put("COUNT", count);
 
         } catch (Exception ignored) {
@@ -2977,6 +2978,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     tableFormatter.writeRecords(currentResultSet, limit, currentDatabaseSession);
   }
 
+  @Nullable
   private List<Map<String, ?>> sqlCommand(
       final String iExpectedCommand,
       String iReceivedCommand,
@@ -3024,6 +3026,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     out.println();
   }
 
+  @Nullable
   protected static String format(final String iValue, final int iMaxSize) {
     if (iValue == null) {
       return null;

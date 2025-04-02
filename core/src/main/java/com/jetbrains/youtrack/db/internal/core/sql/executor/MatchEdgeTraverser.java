@@ -40,6 +40,7 @@ public class MatchEdgeTraverser {
     return downstream.hasNext(ctx);
   }
 
+  @Nullable
   public Result next(CommandContext ctx) {
     init(ctx);
     if (!downstream.hasNext(ctx)) {
@@ -129,7 +130,7 @@ public class MatchEdgeTraverser {
     SQLWhereClause whileCondition = null;
     Integer maxDepth = null;
     String className = null;
-    Integer clusterId = null;
+    Integer collectionId = null;
     SQLRid targetRid = null;
     if (item.getFilter() != null) {
       filter = getTargetFilter(item);
@@ -147,12 +148,12 @@ public class MatchEdgeTraverser {
       var queryResult = traversePatternEdge(startingPoint, iCommandContext);
       final var theFilter = filter;
       final var theClassName = className;
-      final var theClusterId = clusterId;
+      final var theCollectionId = collectionId;
       final var theTargetRid = targetRid;
       return queryResult.filter(
           (next, ctx) ->
               filter(
-                  iCommandContext, theFilter, theClassName, theClusterId, theTargetRid, next, ctx));
+                  iCommandContext, theFilter, theClassName, theCollectionId, theTargetRid, next, ctx));
     } else { // in this case also zero level (starting point) is considered and traversal depth is
       // given by the while condition
       List<Result> result = new ArrayList<>();
@@ -162,7 +163,7 @@ public class MatchEdgeTraverser {
 
       if (matchesFilters(iCommandContext, filter, startingPoint)
           && matchesClass(iCommandContext, className, startingPoint)
-          && matchesCluster(clusterId, startingPoint)
+          && matchesCollection(collectionId, startingPoint)
           && matchesRid(iCommandContext, targetRid, startingPoint)) {
         var rs = new ResultInternal(iCommandContext.getDatabaseSession(), startingPoint);
         // set traversal depth in the metadata
@@ -213,7 +214,7 @@ public class MatchEdgeTraverser {
       CommandContext iCommandContext,
       final SQLWhereClause theFilter,
       final String theClassName,
-      final Integer theClusterId,
+      final Integer theCollectionId,
       final SQLRid theTargetRid,
       Result next,
       CommandContext ctx) {
@@ -229,7 +230,7 @@ public class MatchEdgeTraverser {
     iCommandContext.setVariable("$currentMatch", elem);
     if (matchesFilters(iCommandContext, theFilter, elem)
         && matchesClass(iCommandContext, theClassName, elem)
-        && matchesCluster(theClusterId, elem)
+        && matchesCollection(theCollectionId, elem)
         && matchesRid(iCommandContext, theTargetRid, elem)) {
       ctx.setVariable("$currentMatch", previousMatch);
       return next;
@@ -280,9 +281,9 @@ public class MatchEdgeTraverser {
     return false;
   }
 
-  private static boolean matchesCluster(
-      Integer clusterId, Identifiable origin) {
-    if (clusterId == null) {
+  private static boolean matchesCollection(
+      Integer collectionId, Identifiable origin) {
+    if (collectionId == null) {
       return true;
     }
     if (origin == null) {
@@ -292,7 +293,7 @@ public class MatchEdgeTraverser {
     if (origin.getIdentity() == null) {
       return false;
     }
-    return clusterId.equals(origin.getIdentity().getClusterId());
+    return collectionId.equals(origin.getIdentity().getCollectionId());
   }
 
   private boolean matchesRid(CommandContext iCommandContext, SQLRid rid, Identifiable origin) {

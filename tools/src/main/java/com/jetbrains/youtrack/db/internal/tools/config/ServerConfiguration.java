@@ -25,6 +25,7 @@ import jakarta.xml.bind.annotation.XmlElementWrapper;
 import jakarta.xml.bind.annotation.XmlRootElement;
 import jakarta.xml.bind.annotation.XmlTransient;
 import java.util.List;
+import javax.annotation.Nullable;
 
 @XmlRootElement(name = "youtrackdb-server")
 public class ServerConfiguration {
@@ -88,6 +89,7 @@ public class ServerConfiguration {
     security = new ServerSecurityConfiguration(iFactory);
   }
 
+  @Nullable
   public String getStoragePath(String iURL) {
     if (storages != null) {
       for (var stg : storages) {
@@ -115,6 +117,7 @@ public class ServerConfiguration {
    * @param iName         Property name to find
    * @param iDefaultValue Default value returned if not found
    */
+  @Nullable
   public String getProperty(final String iName, final String iDefaultValue) {
     if (properties == null) {
       return null;

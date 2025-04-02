@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLCluster;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFindReferencesStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLRid;
@@ -20,7 +19,7 @@ public class FindReferencesExecutionPlanner {
   protected SQLRid rid;
   protected SQLStatement subQuery;
 
-  // class or cluster
+  // class or collection
   protected List<SimpleNode> targets;
 
   public FindReferencesExecutionPlanner(SQLFindReferencesStatement statement) {
@@ -44,21 +43,15 @@ public class FindReferencesExecutionPlanner {
   private void handleFindReferences(
       SelectExecutionPlan plan, CommandContext ctx, boolean profilingEnabled) {
     List<SQLIdentifier> classes = null;
-    List<SQLCluster> clusters = null;
     if (targets != null) {
       classes =
           targets.stream()
               .filter(x -> x instanceof SQLIdentifier)
               .map(y -> ((SQLIdentifier) y))
               .collect(Collectors.toList());
-      clusters =
-          targets.stream()
-              .filter(x -> x instanceof SQLCluster)
-              .map(y -> ((SQLCluster) y))
-              .collect(Collectors.toList());
     }
 
-    plan.chain(new FindReferencesStep(classes, clusters, ctx, profilingEnabled));
+    plan.chain(new FindReferencesStep(classes, ctx, profilingEnabled));
   }
 
   private void handleSubQuerySource(

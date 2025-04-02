@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
+import javax.annotation.Nullable;
 
 /**
  * Mostly used for testing purpose. It just throws an ConcurrentModificationException
@@ -58,6 +59,7 @@ public class SQLFunctionThrowCME extends SQLFunctionAbstract {
     return "throwCME(RID, DatabaseVersion, RecordVersion, RecordOperation)";
   }
 
+  @Nullable
   @Override
   public Object getResult() {
     return null;

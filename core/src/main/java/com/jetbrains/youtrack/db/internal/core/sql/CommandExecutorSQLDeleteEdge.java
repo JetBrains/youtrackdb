@@ -45,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * SQL DELETE EDGE command.
@@ -380,6 +381,7 @@ public class CommandExecutorSQLDeleteEdge extends CommandExecutorSQLSetAware
     return true;
   }
 
+  @Nullable
   private Edge toEdge(DatabaseSessionInternal session, Identifiable item) {
     if (item instanceof Entity) {
       return ((Entity) item).asStatefulEdge();
@@ -398,6 +400,7 @@ public class CommandExecutorSQLDeleteEdge extends CommandExecutorSQLSetAware
     return null;
   }
 
+  @Nullable
   private static Vertex toVertex(DatabaseSessionInternal db, Identifiable item) {
     if (item instanceof Entity) {
       return ((Entity) item).asVertexOrNull();
@@ -435,11 +438,11 @@ public class CommandExecutorSQLDeleteEdge extends CommandExecutorSQLSetAware
   }
 
   @Override
-  public Set<String> getInvolvedClusters(DatabaseSessionInternal session) {
+  public Set<String> getInvolvedCollections(DatabaseSessionInternal session) {
     final var result = new HashSet<String>();
     if (rids != null) {
       for (var rid : rids) {
-        result.add(session.getClusterNameById(rid.getClusterId()));
+        result.add(session.getCollectionNameById(rid.getCollectionId()));
       }
     } else if (query != null) {
 
@@ -453,7 +456,7 @@ public class CommandExecutorSQLDeleteEdge extends CommandExecutorSQLSetAware
       // COPY THE CONTEXT FROM THE REQUEST
       executor.setContext(context);
       executor.parse(session, query);
-      return executor.getInvolvedClusters(session);
+      return executor.getInvolvedCollections(session);
     }
     return result;
   }

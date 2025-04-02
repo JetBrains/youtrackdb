@@ -50,8 +50,8 @@ public class CreateRecordResponse implements BinaryResponse {
   public void write(DatabaseSessionInternal session, ChannelDataOutput channel,
       int protocolVersion, RecordSerializer serializer)
       throws IOException {
-    channel.writeShort((short) this.identity.getClusterId());
-    channel.writeLong(this.identity.getClusterPosition());
+    channel.writeShort((short) this.identity.getCollectionId());
+    channel.writeLong(this.identity.getCollectionPosition());
     channel.writeInt(version);
     if (protocolVersion >= 20) {
       MessageHelper.writeCollectionChanges(channel, changedIds);
@@ -61,9 +61,9 @@ public class CreateRecordResponse implements BinaryResponse {
   @Override
   public void read(DatabaseSessionInternal db, ChannelDataInput network,
       StorageRemoteSession session) throws IOException {
-    var clusterId = network.readShort();
+    var collectionId = network.readShort();
     var posistion = network.readLong();
-    identity = new RecordId(clusterId, posistion);
+    identity = new RecordId(collectionId, posistion);
     version = network.readVersion();
     changedIds = MessageHelper.readCollectionChanges(network);
   }

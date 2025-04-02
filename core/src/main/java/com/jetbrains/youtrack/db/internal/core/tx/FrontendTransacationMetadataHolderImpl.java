@@ -8,6 +8,7 @@ import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
+import javax.annotation.Nullable;
 
 public class FrontendTransacationMetadataHolderImpl implements FrontendTransacationMetadataHolder {
 
@@ -37,6 +38,7 @@ public class FrontendTransacationMetadataHolderImpl implements FrontendTransacat
     return outputStream.toByteArray();
   }
 
+  @Nullable
   public static FrontendTransacationMetadataHolder read(final byte[] data) {
     final var inputStream = new ByteArrayInputStream(data);
     final DataInput input = new DataInputStream(inputStream);

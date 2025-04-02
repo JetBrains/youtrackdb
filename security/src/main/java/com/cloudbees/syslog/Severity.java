@@ -16,6 +16,7 @@ package com.cloudbees.syslog;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Syslog severity as defined in <a href="https://tools.ietf.org/html/rfc5424">RFC 5424 - The Syslog
@@ -94,6 +95,7 @@ public enum Severity {
    * @return Syslog severity, {@code null} if given value is {@code null}
    * @throws IllegalArgumentException the given value is not a valid Syslog severity textual code
    */
+  @Nullable
   public static Severity fromLabel(String label) throws IllegalArgumentException {
     if (label == null || label.isEmpty()) {
       return null;
