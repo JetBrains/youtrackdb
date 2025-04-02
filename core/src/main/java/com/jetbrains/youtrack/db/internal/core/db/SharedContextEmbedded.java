@@ -145,7 +145,6 @@ public class SharedContextEmbedded extends SharedContext {
       security.create(session);
       FunctionLibraryImpl.create(session);
       SequenceLibraryImpl.create(session);
-      security.createClassTrigger(session);
       SchedulerImpl.create(session);
       schema.forceSnapshot(session);
 

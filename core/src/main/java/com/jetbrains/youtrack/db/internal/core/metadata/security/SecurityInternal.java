@@ -107,8 +107,6 @@ public interface SecurityInternal {
 
   boolean dropRole(DatabaseSession session, String iRoleName);
 
-  void createClassTrigger(DatabaseSessionInternal session);
-
   long getVersion(DatabaseSession session);
 
   void incrementVersion(DatabaseSession session);

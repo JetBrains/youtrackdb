@@ -242,11 +242,6 @@ public class SecurityRemote implements SecurityInternal {
   }
 
   @Override
-  public void createClassTrigger(DatabaseSessionInternal session) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
   public long getVersion(DatabaseSession session) {
     return 0;
   }

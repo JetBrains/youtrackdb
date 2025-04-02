@@ -25,7 +25,6 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.ClassTrigger;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.FunctionLibraryImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
@@ -83,7 +82,6 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   private Collection<SchemaImmutableClass> subclasses;
   private boolean isVertexType;
   private boolean isEdgeType;
-  private boolean triggered;
   private boolean function;
   private boolean scheduler;
   private boolean sequence;
@@ -158,7 +156,6 @@ public class SchemaImmutableClass implements SchemaClassInternal {
       this.allPropertiesMap = Collections.unmodifiableMap(allPropsMap);
       this.isVertexType = isSubClassOf(SchemaClass.VERTEX_CLASS_NAME);
       this.isEdgeType = isSubClassOf(SchemaClass.EDGE_CLASS_NAME);
-      this.triggered = isSubClassOf(ClassTrigger.CLASSNAME);
       this.function = isSubClassOf(FunctionLibraryImpl.CLASSNAME);
       this.scheduler = isSubClassOf(ScheduledEvent.CLASS_NAME);
       this.sequence = isSubClassOf(DBSequence.CLASS_NAME);
@@ -747,10 +744,6 @@ public class SchemaImmutableClass implements SchemaClassInternal {
 
   public boolean isVertexType() {
     return isVertexType;
-  }
-
-  public boolean isTriggered() {
-    return triggered;
   }
 
   public boolean isFunction() {

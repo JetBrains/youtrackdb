@@ -34,7 +34,6 @@ import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SystemDatabase;
-import com.jetbrains.youtrack.db.internal.core.db.record.ClassTrigger;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.index.NullOutputListener;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
@@ -1097,13 +1096,6 @@ public class SecurityShared implements SecurityInternal {
 
         incrementVersion(session);
       });
-    }
-  }
-
-  public void createClassTrigger(DatabaseSessionInternal session) {
-    var classTrigger = session.getMetadata().getSchema().getClass(ClassTrigger.CLASSNAME);
-    if (classTrigger == null) {
-      session.getMetadata().getSchema().createAbstractClass(ClassTrigger.CLASSNAME);
     }
   }
 

@@ -18,8 +18,8 @@ package com.jetbrains.youtrack.db.api.record;
 
 /**
  * Interface that represents a unique record id in a database.
- * Record id <b>cannot</b> be used outside
- * the database as its value can be changed during the database lifecycle (e.g., after database
+ * Record id <b>cannot</b> be used outside the database
+ * as its value can be changed during the database lifecycle (e.g., after database
  * migration).
  */
 public interface RID extends Identifiable {

@@ -40,7 +40,6 @@ import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.EntityFieldWalker;
-import com.jetbrains.youtrack.db.internal.core.db.record.ClassTrigger;
 import com.jetbrains.youtrack.db.internal.core.db.tool.importer.ConverterData;
 import com.jetbrains.youtrack.db.internal.core.db.tool.importer.LinksRewriter;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
@@ -58,7 +57,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.Identity;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityPolicy;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityShared;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -406,9 +404,6 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
     }
     if (schema.existsClass("ORIDs")) {
       schema.dropClass("ORIDs");
-    }
-    if (schema.existsClass(ClassTrigger.CLASSNAME)) {
-      schema.dropClass(ClassTrigger.CLASSNAME);
     }
 
     session.getSharedContext().getSecurity().create(session);

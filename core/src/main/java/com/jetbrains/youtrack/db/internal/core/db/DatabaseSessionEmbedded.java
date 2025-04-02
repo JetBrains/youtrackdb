@@ -46,7 +46,6 @@ import com.jetbrains.youtrack.db.internal.common.profiler.metrics.Stopwatch;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
-import com.jetbrains.youtrack.db.internal.core.db.record.ClassTrigger;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
@@ -60,10 +59,8 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassIntern
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.ImmutableUser;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyEncryptionNone;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.RestrictedOperation;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityShared;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.AuthenticationInfo;
@@ -918,11 +915,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
         checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, clazz.getName());
         if (clazz.isUser()) {
           entity.validate();
-        }
-        if (clazz.isTriggered()) {
-          ClassTrigger.onRecordBeforeCreate(entity, this);
-        }
-        if (clazz.isFunction()) {
+        } else if (clazz.isFunction()) {
           FunctionLibraryImpl.validateFunctionRecord(entity);
         }
 
@@ -950,9 +943,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
         if (clazz.isRole() || clazz.isSecurityPolicy()) {
           sharedContext.getSecurity().incrementVersion(this);
         }
-        if (clazz.isTriggered()) {
-          ClassTrigger.onRecordAfterCreate(entity, this);
-        }
       }
     }
 
@@ -972,9 +962,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       if (clazz != null) {
         if (clazz.isScheduler()) {
           getSharedContext().getScheduler().preHandleUpdateScheduleInTx(this, entity);
-        }
-        if (clazz.isTriggered()) {
-          ClassTrigger.onRecordBeforeUpdate(entity, this);
         }
         if (clazz.isFunction()) {
           FunctionLibraryImpl.validateFunctionRecord(entity);
@@ -1000,9 +987,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       var clazz = entity.getImmutableSchemaClass(this);
       if (clazz != null) {
 
-        if (clazz.isTriggered()) {
-          ClassTrigger.onRecordAfterUpdate(entity, this);
-        } else if (clazz.isUser()) {
+        if (clazz.isUser()) {
           SecurityUserImpl.encodePassword(this, entity);
           sharedContext.getSecurity().incrementVersion(this);
         } else if (clazz.isRole() || clazz.isSecurityPolicy()) {
@@ -1024,9 +1009,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
 
       var clazz = entity.getImmutableSchemaClass(this);
       if (clazz != null) {
-        if (clazz.isTriggered()) {
-          ClassTrigger.onRecordBeforeDelete(entity, this);
-        }
         if (!getSharedContext().getSecurity().canDelete(this, entity)) {
           throw new SecurityException(getDatabaseName(),
               "Cannot delete record "
@@ -1046,9 +1028,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     if (recordAbstract instanceof EntityImpl entity) {
       var clazz = entity.getImmutableSchemaClass(this);
       if (clazz != null) {
-        if (clazz.isTriggered()) {
-          ClassTrigger.onRecordAfterDelete(entity, this);
-        } else if (clazz.isSequence()) {
+        if (clazz.isSequence()) {
           SequenceLibraryImpl.onAfterSequenceDropped((FrontendTransactionImpl) this.currentTx,
               entity);
         } else if (clazz.isFunction()) {
@@ -1066,16 +1046,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   @Override
   public void afterReadOperations(RecordAbstract identifiable) {
     assert assertIfNotActive();
-    if (identifiable instanceof EntityImpl entity) {
-      SchemaImmutableClass clazz = null;
-      clazz = entity.getImmutableSchemaClass(this);
-      if (clazz != null) {
-        if (clazz.isTriggered()) {
-          ClassTrigger.onRecordAfterRead(entity, this);
-        }
-      }
-    }
-
     callbackHooks(RecordHook.TYPE.READ, identifiable);
   }
 
@@ -1085,9 +1055,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     if (identifiable instanceof EntityImpl entity) {
       var clazz = entity.getImmutableSchemaClass(this);
       if (clazz != null) {
-        if (clazz.isTriggered()) {
-          ClassTrigger.onRecordBeforeRead(entity, this);
-        }
         try {
           checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_READ, clazz.getName());
         } catch (SecurityException e) {

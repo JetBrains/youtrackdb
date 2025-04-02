@@ -256,10 +256,6 @@ public class SymmetricKeySecurity implements SecurityInternal {
     return delegate.dropRole(session, iRoleName);
   }
 
-  public void createClassTrigger(DatabaseSessionInternal session) {
-    delegate.createClassTrigger(session);
-  }
-
   @Override
   public long getVersion(DatabaseSession session) {
     return delegate.getVersion(session);
