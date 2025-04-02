@@ -114,7 +114,7 @@ public class StringsTest extends BaseDBTest {
     var value = document.toString();
 
     Assert.assertEquals(value,
-        "O{selfref:<recursion:rid=#-1:-1>,ref:O{ref:<recursion:rid=#-1:-1>}}");
+        "O#7:-2{ref:#7:-3,selfref:#7:-2} v0");
     session.commit();
   }
 }

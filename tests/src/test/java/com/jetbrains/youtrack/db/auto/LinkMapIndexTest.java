@@ -5,7 +5,6 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import org.testng.Assert;
@@ -19,7 +18,6 @@ import org.testng.annotations.Test;
 /**
  * @since 22.03.12
  */
-@SuppressWarnings("deprecation")
 @Test
 public class LinkMapIndexTest extends BaseDBTest {
 
@@ -348,9 +346,7 @@ public class LinkMapIndexTest extends BaseDBTest {
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
-
     final var docTwo = ((EntityImpl) session.newEntity());
-
     final var docThree = ((EntityImpl) session.newEntity());
 
     var map = session.newLinkMap();

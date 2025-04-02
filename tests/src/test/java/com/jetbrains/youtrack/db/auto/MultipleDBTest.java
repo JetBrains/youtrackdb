@@ -11,6 +11,7 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemote;
 import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -23,6 +24,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import org.testng.Assert;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
@@ -32,12 +35,29 @@ import org.testng.annotations.Test;
  */
 public class MultipleDBTest extends BaseDBTest {
 
+  int oldClusterCount = 8;
+
   public MultipleDBTest() {
   }
 
   @Parameters(value = "remote")
   public MultipleDBTest(@Optional Boolean remote) {
     super(remote != null && remote);
+  }
+
+  @BeforeClass
+  @Override
+  public void beforeClass() throws Exception {
+    super.beforeClass();
+    oldClusterCount = GlobalConfiguration.CLASS_CLUSTERS_COUNT.getValue();
+    GlobalConfiguration.CLASS_CLUSTERS_COUNT.setValue(1);
+  }
+
+  @AfterClass
+  @Override
+  public void afterClass() throws Exception {
+    GlobalConfiguration.CLASS_CLUSTERS_COUNT.setValue(oldClusterCount);
+    super.afterClass();
   }
 
   @Test
