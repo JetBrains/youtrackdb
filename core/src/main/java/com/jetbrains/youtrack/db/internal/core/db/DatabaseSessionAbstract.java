@@ -650,24 +650,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     return getStorageInfo().getPhysicalClusterNameById(iClusterId);
   }
 
-  public void checkForClusterPermissions(final String iClusterName) {
-    assert assertIfNotActive();
-    // CHECK FOR ORESTRICTED
-    final var classes =
-        getMetadata().getImmutableSchemaSnapshot().getClassesRelyOnCluster(iClusterName, this);
-
-    for (var c : classes) {
-      if (c.isSubClassOf(SecurityShared.RESTRICTED_CLASSNAME)) {
-        throw new SecurityException(getDatabaseName(),
-            "Class '"
-                + c.getName()
-                + "' cannot be truncated because has record level security enabled (extends '"
-                + SecurityShared.RESTRICTED_CLASSNAME
-                + "')");
-      }
-    }
-  }
-
   @Override
   public Object setProperty(final String iName, final Object iValue) {
     assert assertIfNotActive();

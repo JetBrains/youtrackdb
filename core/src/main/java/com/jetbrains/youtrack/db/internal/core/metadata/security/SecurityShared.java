@@ -78,7 +78,6 @@ public class SecurityShared implements SecurityInternal {
 
   private final AtomicLong version = new AtomicLong();
 
-  public static final String RESTRICTED_CLASSNAME = "ORestricted";
   public static final String IDENTITY_CLASSNAME = "OIdentity";
 
   /**
@@ -139,107 +138,6 @@ public class SecurityShared implements SecurityInternal {
 
   public SecurityShared(SecuritySystem security) {
     this.security = security;
-  }
-
-  @Override
-  public Identifiable allowRole(
-      final DatabaseSession session,
-      final EntityImpl entity,
-      final RestrictedOperation iOperation,
-      final String iRoleName) {
-    return session.computeInTx(
-        transaction -> {
-          final var role = getRoleRID(session, iRoleName);
-          if (role == null) {
-            throw new IllegalArgumentException("Role '" + iRoleName + "' not found");
-          }
-
-          return allowIdentity(session, entity, iOperation.getFieldName(), role);
-        });
-  }
-
-  @Override
-  public Identifiable allowUser(
-      final DatabaseSession session,
-      final EntityImpl entity,
-      final RestrictedOperation iOperation,
-      final String iUserName) {
-    return session.computeInTx(
-        transaction -> {
-          final var user = getUserRID(session, iUserName);
-          if (user == null) {
-            throw new IllegalArgumentException("User '" + iUserName + "' not found");
-          }
-
-          return allowIdentity(session, entity, iOperation.getFieldName(), user);
-        });
-  }
-
-  public Identifiable allowIdentity(
-      final DatabaseSession session,
-      final EntityImpl entity,
-      final String iAllowFieldName,
-      final Identifiable iId) {
-    if (session.isTxActive()) {
-      return doAllowIdentity(entity, iAllowFieldName, iId);
-    }
-
-    return session.computeInTx(
-        transaction -> doAllowIdentity(entity, iAllowFieldName, iId));
-  }
-
-  private static Identifiable doAllowIdentity(EntityImpl entity, String iAllowFieldName,
-      Identifiable iId) {
-    var field = entity.getOrCreateLinkSet(iAllowFieldName);
-    field.add(iId);
-
-    return iId;
-  }
-
-  @Override
-  public Identifiable denyUser(
-      final DatabaseSessionInternal session,
-      final EntityImpl entity,
-      final RestrictedOperation iOperation,
-      final String iUserName) {
-    return session.computeInTx(
-        transaction -> {
-          final var user = getUserRID(session, iUserName);
-          if (user == null) {
-            throw new IllegalArgumentException("User '" + iUserName + "' not found");
-          }
-
-          return disallowIdentity(session, entity, iOperation.getFieldName(), user);
-        });
-  }
-
-  @Override
-  public Identifiable denyRole(
-      final DatabaseSessionInternal session,
-      final EntityImpl entity,
-      final RestrictedOperation iOperation,
-      final String iRoleName) {
-    return session.computeInTx(
-        transaction -> {
-          final var role = getRoleRID(session, iRoleName);
-          if (role == null) {
-            throw new IllegalArgumentException("Role '" + iRoleName + "' not found");
-          }
-
-          return disallowIdentity(session, entity, iOperation.getFieldName(), role);
-        });
-  }
-
-  public Identifiable disallowIdentity(
-      final DatabaseSessionInternal session,
-      final EntityImpl entity,
-      final String iAllowFieldName,
-      final Identifiable iId) {
-    Set<Identifiable> field = entity.getProperty(iAllowFieldName);
-    if (field != null) {
-      field.remove(iId);
-    }
-    return iId;
   }
 
   @Override
@@ -714,7 +612,6 @@ public class SecurityShared implements SecurityInternal {
       var roleClass = createOrUpdateORoleClass(session, identityClass);
 
       createOrUpdateOUserClass(session, identityClass, roleClass);
-      createOrUpdateORestrictedClass(session);
 
       if (!SystemDatabase.SYSTEM_DB_NAME.equals(session.getDatabaseName())) {
         // CREATE ROLES AND USERS
@@ -975,42 +872,6 @@ public class SecurityShared implements SecurityInternal {
     adminRole.addRule(session, ResourceGeneric.FUNCTION, null, Role.PERMISSION_ALL).save(session);
 
     adminRole.save(session);
-  }
-
-  private static void createOrUpdateORestrictedClass(final DatabaseSessionInternal database) {
-    var restrictedClass = database.getMetadata().getSchemaInternal()
-        .getClassInternal(RESTRICTED_CLASSNAME);
-    var unsafe = false;
-    if (restrictedClass == null) {
-      restrictedClass =
-          (SchemaClassInternal) database.getMetadata().getSchemaInternal()
-              .createAbstractClass(RESTRICTED_CLASSNAME);
-      unsafe = true;
-    }
-    if (!restrictedClass.existsProperty(ALLOW_ALL_FIELD)) {
-      restrictedClass.createProperty(
-          ALLOW_ALL_FIELD,
-          PropertyTypeInternal.LINKSET,
-          database.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
-    }
-    if (!restrictedClass.existsProperty(ALLOW_READ_FIELD)) {
-      restrictedClass.createProperty(
-          ALLOW_READ_FIELD,
-          PropertyTypeInternal.LINKSET,
-          database.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
-    }
-    if (!restrictedClass.existsProperty(ALLOW_UPDATE_FIELD)) {
-      restrictedClass.createProperty(
-          ALLOW_UPDATE_FIELD,
-          PropertyTypeInternal.LINKSET,
-          database.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
-    }
-    if (!restrictedClass.existsProperty(ALLOW_DELETE_FIELD)) {
-      restrictedClass.createProperty(
-          ALLOW_DELETE_FIELD,
-          PropertyTypeInternal.LINKSET,
-          database.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
-    }
   }
 
   private static void createOrUpdateOUserClass(

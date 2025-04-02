@@ -80,7 +80,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     }
 
     var session = ctx.getDatabaseSession();
-    var tx = ((FrontendTransactionImpl) session.getTransactionInternal());
+    var tx = session.getTransactionInternal();
     tx.preProcessRecordsAndExecuteCallCallbacks();
 
     var streams = init(desc, orderAsc, ctx);

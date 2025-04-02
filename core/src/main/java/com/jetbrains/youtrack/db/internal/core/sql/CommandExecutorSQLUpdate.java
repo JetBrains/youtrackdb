@@ -285,7 +285,6 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
       queryArgs = iArgs;
     }
 
-
     returnHandler.reset();
 
     throw new UnsupportedOperationException();
@@ -539,26 +538,6 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
     if (content != null) {
       // REPLACE ALL THE CONTENT
       final var fieldsToPreserve = new EntityImpl(session);
-
-      final var restricted =
-          session.getMetadata()
-              .getImmutableSchemaSnapshot()
-              .getClass(Security.RESTRICTED_CLASSNAME);
-
-      if (restricted != null) {
-        SchemaImmutableClass result = null;
-        if (record != null) {
-          result = record.getImmutableSchemaClass(session);
-        }
-        if (restricted.isSuperClassOf(
-            result)) {
-          for (var prop : restricted.getProperties()) {
-            final String iFieldName = prop.getName();
-            fieldsToPreserve.setProperty(iFieldName, record.getProperty(prop.getName()));
-          }
-        }
-      }
-
       SchemaImmutableClass result = null;
       if (record != null) {
         result = record.getImmutableSchemaClass(session);

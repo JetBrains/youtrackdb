@@ -134,55 +134,6 @@ public class SymmetricKeySecurity implements SecurityInternal {
     return delegate.isAllowed(session, iAllowAll, iAllowOperation);
   }
 
-  @Override
-  public Identifiable allowUser(
-      DatabaseSession session,
-      EntityImpl entity,
-      RestrictedOperation iOperationType,
-      String iUserName) {
-    return delegate.allowUser(session, entity, iOperationType, iUserName);
-  }
-
-  @Override
-  public Identifiable allowRole(
-      DatabaseSession session,
-      EntityImpl entity,
-      RestrictedOperation iOperationType,
-      String iRoleName) {
-    return delegate.allowRole(session, entity, iOperationType, iRoleName);
-  }
-
-  @Override
-  public Identifiable denyUser(
-      DatabaseSessionInternal session,
-      EntityImpl entity,
-      RestrictedOperation iOperationType,
-      String iUserName) {
-    return delegate.denyUser(session, entity, iOperationType, iUserName);
-  }
-
-  @Override
-  public Identifiable denyRole(
-      DatabaseSessionInternal session,
-      EntityImpl entity,
-      RestrictedOperation iOperationType,
-      String iRoleName) {
-    return delegate.denyRole(session, entity, iOperationType, iRoleName);
-  }
-
-  @Override
-  public Identifiable allowIdentity(
-      DatabaseSession session, EntityImpl entity, String iAllowFieldName,
-      Identifiable iId) {
-    return delegate.allowIdentity(session, entity, iAllowFieldName, iId);
-  }
-
-  @Override
-  public Identifiable disallowIdentity(
-      DatabaseSessionInternal session, EntityImpl entity, String iAllowFieldName,
-      Identifiable iId) {
-    return delegate.disallowIdentity(session, entity, iAllowFieldName, iId);
-  }
 
   public SecurityUserImpl create(DatabaseSessionInternal session) {
     return delegate.create(session);

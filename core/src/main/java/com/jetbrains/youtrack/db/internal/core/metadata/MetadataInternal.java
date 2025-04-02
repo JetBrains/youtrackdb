@@ -44,7 +44,6 @@ public interface MetadataInternal extends Metadata {
                   SecurityUserImpl.CLASS_NAME.toLowerCase(Locale.ENGLISH),
                   Role.CLASS_NAME.toLowerCase(Locale.ENGLISH),
                   Identity.CLASS_NAME.toLowerCase(Locale.ENGLISH),
-                  Security.RESTRICTED_CLASSNAME.toLowerCase(Locale.ENGLISH),
                   Function.CLASS_NAME.toLowerCase(Locale.ENGLISH),
                   "internal")));
 

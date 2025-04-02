@@ -1352,20 +1352,6 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
     var restrictedClasses = false;
     final var user = db.getCurrentUser();
 
-    if (parsedTarget.getTargetClasses() != null
-        && user != null
-        && user.checkIfAllowed(db, Rule.ResourceGeneric.BYPASS_RESTRICTED, null,
-        Role.PERMISSION_READ)
-        == null) {
-      for (var className : parsedTarget.getTargetClasses().keySet()) {
-        final var cls =
-            db.getMetadata().getImmutableSchemaSnapshot().getClass(className);
-        if (cls.isSubClassOf(SecurityShared.RESTRICTED_CLASSNAME)) {
-          restrictedClasses = true;
-          break;
-        }
-      }
-    }
     return restrictedClasses;
   }
 

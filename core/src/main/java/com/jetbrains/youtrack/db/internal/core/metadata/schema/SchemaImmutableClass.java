@@ -30,7 +30,6 @@ import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.FunctionLibraryImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityPolicy;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityShared;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.sequence.DBSequence;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -82,7 +81,6 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   private final List<SchemaImmutableClass> superClasses;
   // do not do it volatile it is already SAFE TO USE IT in MT mode.
   private Collection<SchemaImmutableClass> subclasses;
-  private boolean restricted;
   private boolean isVertexType;
   private boolean isEdgeType;
   private boolean triggered;
@@ -158,7 +156,6 @@ public class SchemaImmutableClass implements SchemaClassInternal {
 
       this.allProperties = Collections.unmodifiableCollection(allProperties);
       this.allPropertiesMap = Collections.unmodifiableMap(allPropsMap);
-      this.restricted = isSubClassOf(SecurityShared.RESTRICTED_CLASSNAME);
       this.isVertexType = isSubClassOf(SchemaClass.VERTEX_CLASS_NAME);
       this.isEdgeType = isSubClassOf(SchemaClass.EDGE_CLASS_NAME);
       this.triggered = isSubClassOf(ClassTrigger.CLASSNAME);
@@ -742,10 +739,6 @@ public class SchemaImmutableClass implements SchemaClassInternal {
 
       subclasses = result;
     }
-  }
-
-  public boolean isRestricted() {
-    return restricted;
   }
 
   public boolean isEdgeType() {

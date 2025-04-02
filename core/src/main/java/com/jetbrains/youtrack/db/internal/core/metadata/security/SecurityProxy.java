@@ -45,30 +45,6 @@ public class SecurityProxy implements Security {
     return security.isAllowed(session, iAllowAll, iAllowOperation);
   }
 
-  @Override
-  public Identifiable allowUser(
-      EntityImpl entity, RestrictedOperation iOperationType, String iUserName) {
-    return security.allowUser(session, entity, iOperationType, iUserName);
-  }
-
-  @Override
-  public Identifiable allowRole(
-      EntityImpl entity, RestrictedOperation iOperationType, String iRoleName) {
-    return security.allowRole(session, entity, iOperationType, iRoleName);
-  }
-
-  @Override
-  public Identifiable denyUser(
-      EntityImpl entity, RestrictedOperation iOperationType, String iUserName) {
-    return security.denyUser(session, entity, iOperationType, iUserName);
-  }
-
-  @Override
-  public Identifiable denyRole(
-      EntityImpl entity, RestrictedOperation iOperationType, String iRoleName) {
-    return security.denyRole(session, entity, iOperationType, iRoleName);
-  }
-
   public SecurityUserImpl authenticate(final String iUsername, final String iUserPassword) {
     return security.authenticate(session, iUsername, iUserPassword);
   }

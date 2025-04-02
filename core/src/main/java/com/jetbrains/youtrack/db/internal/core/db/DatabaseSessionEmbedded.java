@@ -60,7 +60,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassIntern
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.ImmutableUser;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyEncryptionNone;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.RestrictedAccessHook;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.RestrictedOperation;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
@@ -923,9 +922,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
         if (clazz.isTriggered()) {
           ClassTrigger.onRecordBeforeCreate(entity, this);
         }
-        if (clazz.isRestricted()) {
-          RestrictedAccessHook.onRecordBeforeCreate(entity, this);
-        }
         if (clazz.isFunction()) {
           FunctionLibraryImpl.validateFunctionRecord(entity);
         }
@@ -980,15 +976,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
         if (clazz.isTriggered()) {
           ClassTrigger.onRecordBeforeUpdate(entity, this);
         }
-        if (clazz.isRestricted()) {
-          if (!RestrictedAccessHook.isAllowed(
-              this, entity, RestrictedOperation.ALLOW_UPDATE, true)) {
-            throw new SecurityException(getDatabaseName(),
-                "Cannot update record "
-                    + entity.getIdentity()
-                    + ": the resource has restricted access");
-          }
-        }
         if (clazz.isFunction()) {
           FunctionLibraryImpl.validateFunctionRecord(entity);
         }
@@ -1015,7 +1002,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
 
         if (clazz.isTriggered()) {
           ClassTrigger.onRecordAfterUpdate(entity, this);
-        } else  if (clazz.isUser()) {
+        } else if (clazz.isUser()) {
           SecurityUserImpl.encodePassword(this, entity);
           sharedContext.getSecurity().incrementVersion(this);
         } else if (clazz.isRole() || clazz.isSecurityPolicy()) {
@@ -1040,16 +1027,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
         if (clazz.isTriggered()) {
           ClassTrigger.onRecordBeforeDelete(entity, this);
         }
-        if (clazz.isRestricted()) {
-          if (!RestrictedAccessHook.isAllowed(
-              this, entity, RestrictedOperation.ALLOW_DELETE, true)) {
-            throw new SecurityException(getDatabaseName(),
-                "Cannot delete record "
-                    + entity.getIdentity()
-                    + ": the resource has restricted access");
-          }
-        }
-
         if (!getSharedContext().getSecurity().canDelete(this, entity)) {
           throw new SecurityException(getDatabaseName(),
               "Cannot delete record "
@@ -1110,12 +1087,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       if (clazz != null) {
         if (clazz.isTriggered()) {
           ClassTrigger.onRecordBeforeRead(entity, this);
-        }
-        if (clazz.isRestricted()) {
-          if (!RestrictedAccessHook.isAllowed(this, entity, RestrictedOperation.ALLOW_READ,
-              false)) {
-            return true;
-          }
         }
         try {
           checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_READ, clazz.getName());
@@ -1529,7 +1500,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       schema.removeBlobCluster(iClusterName);
     }
     getLocalCache().freeCluster(clusterId);
-    checkForClusterPermissions(iClusterName);
     return dropClusterInternal(iClusterName);
   }
 
@@ -1556,8 +1526,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     if (schema.getBlobClusters().contains(clusterId)) {
       schema.removeBlobCluster(getClusterNameById(clusterId));
     }
-
-    checkForClusterPermissions(getClusterNameById(clusterId));
 
     final var clusterName = getClusterNameById(clusterId);
     if (clusterName == null) {
@@ -1805,15 +1773,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     assert assertIfNotActive();
     this.checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_UPDATE);
     var clazz = getClass(name);
-    if (clazz.isSubClassOf(SecurityShared.RESTRICTED_CLASSNAME)) {
-      throw new SecurityException(getDatabaseName(),
-          "Class '"
-              + getDatabaseName()
-              + "' cannot be truncated because has record level security enabled (extends '"
-              + SecurityShared.RESTRICTED_CLASSNAME
-              + "')");
-    }
-
     int[] clusterIds;
     if (polimorfic) {
       clusterIds = clazz.getPolymorphicClusterIds();
@@ -1844,7 +1803,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   public long truncateClusterInternal(String clusterName) {
     assert assertIfNotActive();
     checkSecurity(Rule.ResourceGeneric.CLUSTER, Role.PERMISSION_DELETE, clusterName);
-    checkForClusterPermissions(clusterName);
 
     var id = getClusterIdByName(clusterName);
     if (id == -1) {

@@ -687,7 +687,6 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
       schema.removeBlobCluster(iClusterName);
     }
     getLocalCache().freeCluster(clusterId);
-    checkForClusterPermissions(iClusterName);
     return storage.dropCluster(this, iClusterName);
   }
 
@@ -706,8 +705,6 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
     if (schema.getBlobClusters().contains(clusterId)) {
       schema.removeBlobCluster(getClusterNameById(clusterId));
     }
-
-    checkForClusterPermissions(getClusterNameById(clusterId));
 
     final var clusterName = getClusterNameById(clusterId);
     if (clusterName == null) {

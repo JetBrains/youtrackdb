@@ -3,19 +3,17 @@ package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import org.junit.Test;
 
 public class AlterClassClusterTest extends DbTestBase {
   @Test
-  public void testSetAbstractRestrictedClass() {
+  public void testSetAbstractClass() {
     Schema oSchema = session.getMetadata().getSchema();
-    var oRestricted = oSchema.getClass("ORestricted");
+    var oClass = oSchema.getClass("O");
     var v = oSchema.getClass("V");
-    v.addSuperClass(oRestricted);
+    v.addSuperClass(oClass);
 
     var ovt = oSchema.createClass("Some", v);
     ovt.setAbstract(true);

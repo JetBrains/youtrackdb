@@ -225,8 +225,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   boolean isPrefetchRecords();
 
-  void checkForClusterPermissions(String name);
-
   @Nullable
   default ResultSet getActiveQuery(String id) {
     throw new UnsupportedOperationException();

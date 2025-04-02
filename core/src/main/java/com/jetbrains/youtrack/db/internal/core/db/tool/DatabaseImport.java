@@ -401,9 +401,6 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
     if (schema.existsClass(Role.CLASS_NAME)) {
       schema.dropClass(Role.CLASS_NAME);
     }
-    if (schema.existsClass(SecurityShared.RESTRICTED_CLASSNAME)) {
-      schema.dropClass(SecurityShared.RESTRICTED_CLASSNAME);
-    }
     if (schema.existsClass(Function.CLASS_NAME)) {
       schema.dropClass(Function.CLASS_NAME);
     }

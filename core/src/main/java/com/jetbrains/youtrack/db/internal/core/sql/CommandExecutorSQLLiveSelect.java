@@ -26,7 +26,6 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.RestrictedAccessHook;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.RestrictedOperation;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
@@ -105,9 +104,9 @@ public class CommandExecutorSQLLiveSelect extends CommandExecutorSQLSelect
   }
 
   private boolean checkSecurity(Identifiable value) {
+    var transaction = execDb.getActiveTransaction();
     try {
       // TODO check this!
-      var transaction = execDb.getActiveTransaction();
       execDb.checkSecurity(
           Rule.ResourceGeneric.CLASS,
           Role.PERMISSION_READ,
@@ -116,14 +115,7 @@ public class CommandExecutorSQLLiveSelect extends CommandExecutorSQLSelect
       return false;
     }
     var security = execDb.getSharedContext().getSecurity();
-    var transaction1 = execDb.getActiveTransaction();
-    var allowedByPolicy = security.canRead(execDb, transaction1.load(value));
-    if (!allowedByPolicy) {
-      return false;
-    }
-    var transaction = execDb.getActiveTransaction();
-    return RestrictedAccessHook.isAllowed(
-        execDb, transaction.load(value), RestrictedOperation.ALLOW_READ, false);
+    return security.canRead(execDb, transaction.load(value));
   }
 
   private boolean matchesFilters(Identifiable value) {

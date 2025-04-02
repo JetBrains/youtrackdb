@@ -420,8 +420,8 @@ public class SchemaTest extends BaseDBTest {
   @Test
   public void testDeletionOfDependentClass() {
     Schema schema = session.getMetadata().getSchema();
-    var oRestricted = schema.getClass(SecurityShared.RESTRICTED_CLASSNAME);
-    var classA = schema.createClass("TestDeletionOfDependentClassA", oRestricted);
+    var oClass = schema.getClass(EntityImpl.DEFAULT_CLASS_NAME);
+    var classA = schema.createClass("TestDeletionOfDependentClassA", oClass);
     var classB = schema.createClass("TestDeletionOfDependentClassB", classA);
     schema.dropClass(classB.getName());
   }

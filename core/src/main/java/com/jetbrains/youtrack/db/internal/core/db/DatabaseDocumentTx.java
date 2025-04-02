@@ -1385,10 +1385,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
     internal.setPrefetchRecords(prefetchRecords);
   }
 
-  public void checkForClusterPermissions(String name) {
-    checkOpenness();
-    internal.checkForClusterPermissions(name);
-  }
 
   @Override
   public ResultSet runScript(String language, String script, Object... args)
