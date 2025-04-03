@@ -4,8 +4,8 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.BidirectionalLink;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.Relation;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLRid;
@@ -289,7 +289,7 @@ public class MatchEdgeTraverser {
       case null -> ExecutionStream.empty();
       case Identifiable identifiable -> ExecutionStream.singleton(new ResultInternal(
           iCommandContext.getDatabaseSession(), identifiable));
-      case BidirectionalLink<?> bidirectionalLink -> ExecutionStream.singleton(new ResultInternal(
+      case Relation<?> bidirectionalLink -> ExecutionStream.singleton(new ResultInternal(
           iCommandContext.getDatabaseSession(), bidirectionalLink));
       case Iterable<?> iterable -> ExecutionStream.iterator(iterable.iterator());
       default -> ExecutionStream.empty();

@@ -21,8 +21,8 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.BidirectionalLink;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.Relation;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedListResultImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedMapResultImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedSetResultImpl;
@@ -56,7 +56,7 @@ public class ResultInternal implements Result {
   @Nullable
   protected DatabaseSessionInternal session;
   @Nullable
-  protected BidirectionalLink<?> bidirectionalLink;
+  protected Relation<?> relation;
 
   public ResultInternal(@Nullable DatabaseSessionInternal session) {
     content = new HashMap<>();
@@ -79,12 +79,12 @@ public class ResultInternal implements Result {
   }
 
   public ResultInternal(@Nullable DatabaseSessionInternal session,
-      @Nonnull BidirectionalLink<?> bidirectionalLink) {
+      @Nonnull Relation<?> relation) {
     this.session = session;
-    if (bidirectionalLink.isLightweight()) {
-      this.bidirectionalLink = bidirectionalLink;
+    if (relation.isLightweight()) {
+      this.relation = relation;
     } else {
-      setIdentifiable(bidirectionalLink.asEntity());
+      setIdentifiable(relation.asEntity());
     }
   }
 
@@ -193,7 +193,7 @@ public class ResultInternal implements Result {
       if (identifiable != null) {
         throw new IllegalStateException("Impossible to mutate result set containing entity");
       }
-      if (bidirectionalLink != null) {
+      if (relation != null) {
         throw new IllegalStateException(
             "Impossible to mutate result set containing lightweight edge");
       }
@@ -271,8 +271,8 @@ public class ResultInternal implements Result {
 
           return convertPropertyValue(result.asStatefulEdge());
         }
-        if (result instanceof ResultInternal resultInternal && resultInternal.isBiLink()) {
-          return resultInternal.asBiLink();
+        if (result instanceof ResultInternal resultInternal && resultInternal.isRelation()) {
+          return resultInternal.asRelation();
         }
 
         var resultSession = result.getBoundedToSession();
@@ -417,7 +417,7 @@ public class ResultInternal implements Result {
 
         return mapCopy;
       }
-      case BidirectionalLink<?> biLink -> {
+      case Relation<?> biLink -> {
         if (biLink.isLightweight()) {
           return biLink;
         } else {
@@ -673,7 +673,7 @@ public class ResultInternal implements Result {
   @Override
   public @Nonnull Result detach() {
     assert checkSession();
-    if (bidirectionalLink != null) {
+    if (relation != null) {
       throw new DatabaseException("Cannot detach lightweight edge");
     }
 
@@ -916,7 +916,7 @@ public class ResultInternal implements Result {
   public void setIdentifiable(Identifiable identifiable) {
     assert checkSession();
 
-    this.bidirectionalLink = null;
+    this.relation = null;
     if (identifiable instanceof Entity entity && entity.isEmbedded()) {
       content = new HashMap<>();
       this.identifiable = null;
@@ -940,11 +940,11 @@ public class ResultInternal implements Result {
     }
   }
 
-  public void setBidirectionalLink(BidirectionalLink<?> bidirectionalLink) {
+  public void setRelation(Relation<?> relation) {
     assert checkSession();
 
     this.identifiable = null;
-    this.bidirectionalLink = bidirectionalLink;
+    this.relation = relation;
     this.content = null;
   }
 
@@ -953,8 +953,8 @@ public class ResultInternal implements Result {
   public Map<String, Object> toMap() {
     assert checkSession();
 
-    if (bidirectionalLink != null) {
-      return bidirectionalLink.toMap();
+    if (relation != null) {
+      return relation.toMap();
     }
 
     if (isEntity()) {
@@ -970,9 +970,9 @@ public class ResultInternal implements Result {
     return map;
   }
 
-  public boolean isBiLink() {
+  public boolean isRelation() {
     assert checkSession();
-    return bidirectionalLink != null;
+    return relation != null;
   }
 
   @Override
@@ -982,7 +982,7 @@ public class ResultInternal implements Result {
       return false;
     }
 
-    if (bidirectionalLink instanceof Edge) {
+    if (relation instanceof Edge) {
       return true;
     }
 
@@ -1036,7 +1036,7 @@ public class ResultInternal implements Result {
   @Override
   public Edge asEdge() {
     assert checkSession();
-    if (bidirectionalLink instanceof Edge edge) {
+    if (relation instanceof Edge edge) {
       return edge;
     }
 
@@ -1052,7 +1052,7 @@ public class ResultInternal implements Result {
   public Edge asEdgeOrNull() {
     assert checkSession();
 
-    if (bidirectionalLink instanceof Edge edge) {
+    if (relation instanceof Edge edge) {
       return edge;
     }
 
@@ -1064,25 +1064,25 @@ public class ResultInternal implements Result {
   }
 
   @Nonnull
-  public BidirectionalLink<?> asBiLink() {
+  public Relation<?> asRelation() {
     assert checkSession();
-    if (bidirectionalLink != null) {
-      return bidirectionalLink;
+    if (relation != null) {
+      return relation;
     }
 
     if (isStatefulEdge()) {
       return (EdgeInternal) asStatefulEdge();
     }
 
-    throw new DatabaseException("Result is not an edge");
+    throw new DatabaseException("Result is not an relation");
   }
 
   @Nullable
-  public BidirectionalLink<?> asBiLinkOrNull() {
+  public Relation<?> asRelationOrNull() {
     assert checkSession();
 
-    if (bidirectionalLink != null) {
-      return bidirectionalLink;
+    if (relation != null) {
+      return relation;
     }
 
     if (isStatefulEdge()) {
@@ -1095,8 +1095,8 @@ public class ResultInternal implements Result {
   public @Nonnull String toJSON() {
     assert checkSession();
 
-    if (bidirectionalLink != null) {
-      return bidirectionalLink.toJSON();
+    if (relation != null) {
+      return relation.toJSON();
     }
 
     if (isEntity()) {
@@ -1227,8 +1227,8 @@ public class ResultInternal implements Result {
     if (identifiable != null) {
       return "identifiable:" + identifiable;
     }
-    if (bidirectionalLink != null) {
-      return "relation:" + bidirectionalLink.toJSON();
+    if (relation != null) {
+      return "relation:" + relation.toJSON();
     }
     return "content:{\n"
         + content.entrySet().stream()
@@ -1247,7 +1247,7 @@ public class ResultInternal implements Result {
       if (obj instanceof Result result) {
         if (result.isRecord() && identifiable != null) {
           return identifiable.equals(result.getIdentity());
-        } else if (result.isEdge() && bidirectionalLink instanceof Edge edge) {
+        } else if (result.isEdge() && relation instanceof Edge edge) {
           return edge.equals(result.getIdentity());
         } else if (result.isProjection() && content != null) {
           var propNames = result.getPropertyNames();
@@ -1282,8 +1282,8 @@ public class ResultInternal implements Result {
       return false;
     }
 
-    if (bidirectionalLink != null) {
-      return bidirectionalLink.equals(resultObj.bidirectionalLink);
+    if (relation != null) {
+      return relation.equals(resultObj.relation);
     } else if (identifiable != null) {
       return identifiable.equals(resultObj.identifiable);
     }
@@ -1297,8 +1297,8 @@ public class ResultInternal implements Result {
 
   @Override
   public int hashCode() {
-    if (bidirectionalLink != null) {
-      return bidirectionalLink.hashCode();
+    if (relation != null) {
+      return relation.hashCode();
     }
     if (identifiable != null) {
       return identifiable.hashCode();
@@ -1348,7 +1348,7 @@ public class ResultInternal implements Result {
         }
         return new ResultInternal(session, identifiable);
       }
-      case BidirectionalLink<?> bidirectionalLink -> {
+      case Relation<?> bidirectionalLink -> {
         return new ResultInternal(session, bidirectionalLink);
       }
       case Map<?, ?> map -> {

@@ -11,10 +11,10 @@ import java.util.Iterator;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class EntityLinksIterator extends
-    BidirectionalLinkIterator<Entity, LightweightBidirectionalLinkImpl<Entity>> {
+public class EntityRelationsIterator extends
+    RelationsIteratorAbstract<Entity, LightweightRelationImpl<Entity>> {
 
-  public EntityLinksIterator(@Nonnull Entity sourceEntity,
+  public EntityRelationsIterator(@Nonnull Entity sourceEntity,
       Object multiValue,
       @Nonnull Iterator<? extends Identifiable> iterator,
       Pair<Direction, String> connection,
@@ -25,7 +25,7 @@ public class EntityLinksIterator extends
 
   @Nullable
   @Override
-  protected LightweightBidirectionalLinkImpl<Entity> createBidirectionalLink(
+  protected LightweightRelationImpl<Entity> createBidirectionalLink(
       @Nullable Identifiable identifiable) {
     if (identifiable == null) {
       return null;
@@ -43,11 +43,11 @@ public class EntityLinksIterator extends
 
     if (connection.getKey() == Direction.OUT) {
       return
-          new LightweightBidirectionalLinkImpl<>(session,
+          new LightweightRelationImpl<>(session,
               this.sourceEntity, entity, connection.value);
     } else {
       return
-          new LightweightBidirectionalLinkImpl<>(session,
+          new LightweightRelationImpl<>(session,
               entity, this.sourceEntity, connection.value);
     }
 

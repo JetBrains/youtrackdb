@@ -269,7 +269,7 @@ public class SQLUpdateItem extends SimpleNode {
           } else {
             var lightweightEdge = session.newLightweightEdge(fromVertex, toVertex,
                 edge.getSchemaClass());
-            res.setBidirectionalLink((EdgeInternal) lightweightEdge);
+            res.setRelation((EdgeInternal) lightweightEdge);
           }
 
           edge.delete();

@@ -34,7 +34,7 @@ import javax.annotation.Nonnull;
 /**
  *
  */
-public class EdgeIterator extends BidirectionalLinkIterator<Vertex, EdgeInternal> {
+public class EdgeIterator extends RelationsIteratorAbstract<Vertex, EdgeInternal> {
 
   public EdgeIterator(
       @Nonnull final Vertex iSourceVertex,

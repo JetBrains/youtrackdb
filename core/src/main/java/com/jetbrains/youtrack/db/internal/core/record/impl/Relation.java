@@ -1,13 +1,13 @@
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
 import com.jetbrains.youtrack.db.api.record.Direction;
+import com.jetbrains.youtrack.db.api.record.Element;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public interface BidirectionalLink<T extends Entity> {
-
+public interface Relation<T extends Entity> extends Element {
   @Nullable
   T fromEntity();
 

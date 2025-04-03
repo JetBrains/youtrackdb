@@ -1,17 +1,23 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import org.junit.Ignore;
 import org.junit.Test;
 
 public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
@@ -51,12 +57,8 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
     session.commit();
 
     initOrgChart();
-
     initTriangleTest();
-//
-//    initEdgeIndexTest();
-//
-//    initDiamondTest();
+    initDiamondTest();
   }
 
   @Test
@@ -1084,6 +1086,582 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  @Test
+  public void testOptional() {
+    session.begin();
+    var qResult =
+        session.query(
+            "match {class:Person, as: person} -NonExistingEdge-> {as:b, optional:true} return"
+                + " person, b.name").toList();
+    assertEquals(6, qResult.size());
+    for (var doc : qResult) {
+      assertEquals(2, doc.getPropertyNames().size());
+      Identifiable personId = doc.getProperty("person");
+      var transaction = session.getActiveTransaction();
+      EntityImpl person = transaction.load(personId);
+      String name = person.getProperty("name");
+      assertTrue(!name.isEmpty() && name.charAt(0) == 'n');
+    }
+  }
+
+  @Test
+  public void testOptional2() {
+    session.begin();
+    var qResult =
+        session.query(
+            "match {class:Person, as: person} --> {as:b, optional:true, where:(nonExisting ="
+                + " 12)} return person, b.name").toList();
+    assertEquals(6, qResult.size());
+    for (var doc : qResult) {
+      assertEquals(2, doc.getPropertyNames().size());
+      Identifiable personId = doc.getProperty("person");
+      var transaction = session.getActiveTransaction();
+      EntityImpl person = transaction.load(personId);
+      String name = person.getProperty("name");
+      assertTrue(!name.isEmpty() && name.charAt(0) == 'n');
+    }
+    session.commit();
+  }
+
+  @Test
+  public void testOptional3() {
+    session.begin();
+    var qResult =
+        session.query(
+                "select friend.name as name from (match {class:Person, as:a, where:(name = 'n1' and"
+                    + " 1 + 1 = 2)}.out('friends'){as:friend, where:(name = 'n2' and 1 + 1 ="
+                    + " 2)},{as:a}.out(){as:b, where:(nonExisting = 12),"
+                    + " optional:true},{as:friend}.out(){as:b, optional:true} return friend)")
+            .toList();
+    assertEquals(1, qResult.size());
+    assertEquals("n2", qResult.getFirst().getProperty("name"));
+    session.commit();
+  }
+
+  @Test
+  public void testAliasesWithSubquery() {
+    session.begin();
+    var qResult =
+        session.query(
+            "select from ( match {class:Person, as:A} return A.name as namexx ) limit 1").toList();
+    assertEquals(1, qResult.size());
+    assertNotNull(qResult.getFirst().getProperty("namexx"));
+    assertTrue(!qResult.getFirst().getProperty("namexx").toString().isEmpty()
+        && qResult.getFirst().getProperty("namexx").toString().charAt(0) == 'n');
+    session.commit();
+  }
+
+  @Test
+  public void testEvalInReturn() {
+    // issue #6606
+    session.execute("CREATE CLASS testEvalInReturn").close();
+    session.execute("CREATE PROPERTY testEvalInReturn.name String").close();
+
+    session.begin();
+    session.execute("INSERT INTO testEvalInReturn SET name = 'foo'").close();
+    session.execute("INSERT INTO  testEvalInReturn SET name = 'bar'").close();
+    session.commit();
+
+    session.begin();
+    var qResult =
+        session.query(
+            "MATCH {class: testEvalInReturn, as: p} RETURN if(eval(\"p.name = 'foo'\"), 1, 2)"
+                + " AS b").toList();
+
+    assertEquals(2, qResult.size());
+    var sum = 0;
+    for (var doc : qResult) {
+      sum += ((Number) doc.getProperty("b")).intValue();
+    }
+    assertEquals(3, sum);
+    qResult =
+        session.query(
+            "MATCH {class: testEvalInReturn, as: p} RETURN if(eval(\"p.name = 'foo'\"), 'foo',"
+                + " 'foo') AS b").toList();
+
+    assertEquals(2, qResult.size());
+    session.commit();
+  }
+
+  @Test
+  public void testCheckClassAsCondition() {
+
+    session.execute("CREATE CLASS testCheckClassAsCondition").close();
+    session.execute("CREATE CLASS testCheckClassAsCondition1").close();
+    session.execute("CREATE CLASS testCheckClassAsCondition2").close();
+
+    session.begin();
+    session.execute("INSERT INTO testCheckClassAsCondition SET name = 'foo'").close();
+    session.execute("INSERT INTO testCheckClassAsCondition1 SET name = 'bar'").close();
+    for (var i = 0; i < 5; i++) {
+      session.execute("INSERT INTO testCheckClassAsCondition2 SET name = 'baz'").close();
+    }
+
+    var fromEntity =
+        session.query("SELECT FROM testCheckClassAsCondition WHERE name = 'foo'").
+            findFirstEntity();
+    var links = session.query("select from testCheckClassAsCondition1").toEntityList();
+
+    var linksList = fromEntity.newLinkList("links", links);
+
+    links = session.query("select from testCheckClassAsCondition2").toEntityList();
+    linksList.addAll(links);
+
+    session.commit();
+
+    session.begin();
+    var qResult =
+        session.query(
+            "MATCH {class: testCheckClassAsCondition, as: p} -links- {class:"
+                + " testCheckClassAsCondition1, as: q} RETURN $elements").toList();
+
+    assertEquals(2, qResult.size());
+    session.commit();
+  }
+
+  @Test
+  public void testInstanceof() {
+    session.begin();
+    var qResult =
+        session.query(
+            "MATCH {class: Person, as: p, where: ($currentMatch instanceof 'Person')} return"
+                + " $elements limit 1").toList();
+    assertEquals(1, qResult.size());
+
+    qResult =
+        session.query(
+            "MATCH {class: Person, as: p, where: (not ($currentMatch instanceof 'Person'))}"
+                + " return $elements limit 1").toList();
+    assertEquals(0, qResult.size());
+
+    qResult =
+        session.query(
+            "MATCH {class: Person, where: (name = 'n1')}.out(){as:p, where: ($currentMatch"
+                + " instanceof 'Person')} return $elements limit 1").toList();
+    assertEquals(1, qResult.size());
+
+    qResult =
+        session.query(
+            "MATCH {class: Person, where: (name = 'n1')}.out(){as:p, where: ($currentMatch"
+                + " instanceof 'Person' and '$currentMatch' <> '@this')} return $elements limit"
+                + " 1").toList();
+    assertEquals(1, qResult.size());
+
+    qResult =
+        session.query(
+            "MATCH {class: Person, where: (name = 'n1')}.out(){as:p, where: ( not"
+                + " ($currentMatch instanceof 'Person'))} return $elements limit 1").toList();
+    assertEquals(0, qResult.size());
+    session.commit();
+  }
+
+  @Test
+  public void testBigEntryPoint() {
+    Schema schema = session.getMetadata().getSchema();
+    schema.createClass("testBigEntryPoint1");
+    schema.createClass("testBigEntryPoint2");
+
+    for (var i = 0; i < 1000; i++) {
+      session.begin();
+      var doc = session.newInstance("testBigEntryPoint1");
+      doc.setProperty("a", i);
+
+      session.commit();
+    }
+
+    session.begin();
+    var doc = session.newInstance("testBigEntryPoint2");
+    doc.setProperty("b", "b");
+    session.commit();
+
+    session.begin();
+    var qResult =
+        session.query(
+            "MATCH {class: testBigEntryPoint1, as: a}, {class: testBigEntryPoint2, as: b}"
+                + " return $elements limit 1").toList();
+    assertEquals(1, qResult.size());
+    session.commit();
+  }
+
+  @Test
+  public void testMatched1() {
+    session.execute("CREATE CLASS testMatched1_Foo").close();
+    session.execute("CREATE CLASS testMatched1_Bar").close();
+    session.execute("CREATE CLASS testMatched1_Baz").close();
+    session.execute("CREATE CLASS testMatched1_Far").close();
+
+    var tx = session.begin();
+    tx.execute("INSERT INTO testMatched1_Foo SET name = 'foo'").close();
+    tx.execute("INSERT INTO testMatched1_Bar SET name = 'bar'").close();
+    tx.execute("INSERT INTO testMatched1_Baz SET name = 'baz'").close();
+    tx.execute("INSERT INTO testMatched1_Far SET name = 'far'").close();
+
+    tx.query("SELECT FROM testMatched1_Foo").forEachEntity(entity -> {
+      var list = tx.query("SELECT FROM testMatched1_Bar").toEntityList();
+      entity.newLinkList("testMatched1_Foo_Bar", list);
+    });
+
+    tx.query("SELECT FROM testMatched1_Bar").forEachEntity(entity -> {
+      var list = tx.query("SELECT FROM testMatched1_Baz").toEntityList();
+      entity.newLinkList("testMatched1_Bar_Baz", list);
+    });
+
+    tx.query("SELECT FROM testMatched1_Foo").forEachEntity(entity -> {
+      var list = tx.query("SELECT FROM testMatched1_Foo").toEntityList();
+      entity.newLinkList("testMatched1_Foo_Far", list);
+    });
+
+    session.commit();
+
+    session.begin();
+    var result =
+        session.query(
+            """
+                MATCH\s
+                {class: testMatched1_Foo, as: foo}.out('testMatched1_Foo_Bar') {as: bar},\s
+                {class: testMatched1_Bar,as: bar}.out('testMatched1_Bar_Baz') {as: baz},\s
+                {class: testMatched1_Foo,as: foo}.out('testMatched1_Foo_Far') {where: ($matched.baz IS null),as: far}\s
+                RETURN $matches""");
+    assertFalse(result.hasNext());
+    result.close();
+
+    result =
+        session.query(
+            """
+                MATCH\s
+                {class: testMatched1_Foo, as: foo}.out('testMatched1_Foo_Bar') {as: bar},\s
+                {class: testMatched1_Bar,as: bar}.out('testMatched1_Bar_Baz') {as: baz},\s
+                {class: testMatched1_Foo,as: foo}.out('testMatched1_Foo_Far') {where: ($matched.baz IS not null),as: far}\s
+                RETURN $matches""");
+    assertEquals(1, result.stream().count());
+    session.commit();
+  }
+
+  @Test
+  @Ignore
+  public void testDependencyOrdering1() {
+    // issue #6931
+    session.execute("CREATE CLASS testDependencyOrdering1_Foo").close();
+    session.execute("CREATE CLASS testDependencyOrdering1_Bar").close();
+    session.execute("CREATE CLASS testDependencyOrdering1_Baz").close();
+    session.execute("CREATE CLASS testDependencyOrdering1_Far").close();
+
+    session.executeInTx(transaction -> {
+      transaction.execute("INSERT INTO testDependencyOrdering1_Foo SET name = 'foo'").close();
+      transaction.execute("INSERT INTO testDependencyOrdering1_Bar SET name = 'bar'").close();
+      transaction.execute("INSERT INTO testDependencyOrdering1_Baz SET name = 'baz'").close();
+      transaction.execute("INSERT INTO testDependencyOrdering1_Far SET name = 'far'").close();
+
+      transaction.query("SELECT FROM testDependencyOrdering1_Foo").forEachEntity(entity -> {
+        var list = transaction.query("SELECT FROM testDependencyOrdering1_Far").toEntityList();
+        entity.newLinkList("testDependencyOrdering1_Foo_Far", list);
+      });
+
+      transaction.query("SELECT FROM testDependencyOrdering1_Bar").forEachEntity(entity -> {
+        var list = transaction.query("SELECT FROM testDependencyOrdering1_Baz").toEntityList();
+        entity.newLinkList("testDependencyOrdering1_Bar_Baz", list);
+      });
+
+      transaction.query("SELECT FROM testDependencyOrdering1_Foo").forEachEntity(entity -> {
+        var list = transaction.query("SELECT FROM testDependencyOrdering1_Bar").toEntityList();
+        entity.newLinkList("testDependencyOrdering1_Foo_Bar", list);
+      });
+
+      transaction.query("SELECT FROM testDependencyOrdering1_Baz").forEachEntity(entity -> {
+        var list = transaction.query("SELECT FROM testDependencyOrdering1_Foo").toEntityList();
+        entity.newLinkList("testDependencyOrdering1_Bar_Baz", list);
+      });
+
+    });
+
+    // The correct but non-obvious execution order here is:
+    // foo, bar, far, baz
+    // This is a test to ensure that the query scheduler resolves dependencies correctly,
+    // even if they are unusual or contrived.
+    session.executeInTx(transaction -> {
+      var result =
+          transaction.query(
+              """
+                  MATCH {
+                      class: testDependencyOrdering1_Foo,
+                      as: foo
+                  }.out('testDependencyOrdering1_Foo_Far') {
+                      optional: true,
+                      where: ($matched.bar IS NOT null),
+                      as: far
+                  }, {
+                      as: foo
+                  }.out('testDependencyOrdering1_Foo_Bar') {
+                      where: ($matched.foo IS NOT null),
+                      as: bar
+                  }.out('testDependencyOrdering1_Bar_Baz') {
+                      where: ($matched.far IS NOT null),
+                      as: baz
+                  } RETURN $matches""").toList();
+      assertEquals(1, result.size());
+    });
+  }
+
+  @Test
+  public void testCircularDependency() {
+    session.execute("CREATE CLASS testCircularDependency_Foo").close();
+    session.execute("CREATE CLASS testCircularDependency_Bar").close();
+    session.execute("CREATE CLASS testCircularDependency_Baz").close();
+    session.execute("CREATE CLASS testCircularDependency_Far").close();
+    session.begin();
+    session.execute("INSERT INTO testCircularDependency_Foo SET name = 'foo'").close();
+    session.execute("INSERT INTO testCircularDependency_Bar SET name = 'bar'").close();
+    session.execute("INSERT INTO testCircularDependency_Baz SET name = 'baz'").close();
+    session.execute("INSERT INTO testCircularDependency_Far SET name = 'far'").close();
+
+    session.executeInTx(transaction -> {
+      transaction.query("SELECT FROM testCircularDependency_Foo").forEachEntity(entity -> {
+        var list = transaction.query("SELECT FROM testCircularDependency_Bar").toEntityList();
+        entity.newLinkList("testCircularDependency_Foo_Bar", list);
+      });
+      transaction.query("SELECT FROM testCircularDependency_Bar").forEachEntity(entity -> {
+        var list = transaction.query("SELECT FROM testCircularDependency_Baz").toEntityList();
+        entity.newLinkList("testCircularDependency_Bar_Baz", list);
+      });
+      transaction.query("SELECT FROM testCircularDependency_Foo").forEachEntity(entity -> {
+        var list = transaction.query("SELECT FROM testCircularDependency_Far").toEntityList();
+        entity.newLinkList("testCircularDependency_Foo_Far", list);
+      });
+    });
+
+    // The circular dependency here is:
+    // - far depends on baz
+    // - baz depends on bar
+    // - bar depends on far
+    try {
+      session.executeInTx(transaction -> {
+        var query = """
+            MATCH {
+                class: testCircularDependency_Foo,
+                as: foo
+            }.out('testCircularDependency_Foo_Far') {
+                where: ($matched.baz IS NOT null),
+                as: far
+            }, {
+                as: foo
+            }.out('testCircularDependency_Foo_Bar') {
+                where: ($matched.far IS NOT null),
+                as: bar
+            }.out('testCircularDependency_Bar_Baz') {
+                where: ($matched.bar IS NOT null),
+                as: baz
+            } RETURN $matches""";
+
+        transaction.query(query);
+      });
+      fail();
+    } catch (CommandExecutionException x) {
+      // passed the test
+    }
+  }
+
+  @Test
+  public void testUndefinedAliasDependency() {
+    session.execute("CREATE CLASS testUndefinedAliasDependency_Foo").close();
+    session.execute("CREATE CLASS testUndefinedAliasDependency_Bar").close();
+
+    session.executeInTx(transaction -> {
+      session.execute("INSERT INTO testUndefinedAliasDependency_Foo SET name = 'foo'").close();
+      session.execute("INSERT INTO testUndefinedAliasDependency_Bar SET name = 'bar'").close();
+
+      transaction.query("SELECT FROM testUndefinedAliasDependency_Foo").forEachEntity(entity -> {
+        var list = transaction.query("SELECT FROM testUndefinedAliasDependency_Bar").toEntityList();
+        entity.newLinkList("testUndefinedAliasDependency_Foo_Bar", list);
+      });
+    });
+
+    try {
+      session.executeInTx(transaction -> {
+        // "bar" in the following query declares a dependency on the alias "baz", which doesn't exist.
+        var query = """
+            MATCH {
+                class: testUndefinedAliasDependency_Foo,
+                as: foo
+            }.out('testUndefinedAliasDependency_Foo_Bar') {
+                where: ($matched.baz IS NOT null),
+                as: bar
+            } RETURN $matches""";
+        transaction.query(query);
+      });
+      fail();
+    } catch (CommandExecutionException x) {
+      // passed the test
+    }
+  }
+
+  @Test
+  public void testCyclicDeepTraversal() {
+    session.execute("CREATE CLASS testCyclicDeepTraversal").close();
+
+    session.executeInTx(transaction -> {
+      transaction.execute("INSERT INTO testCyclicDeepTraversal SET name = 'a'").close();
+      transaction.execute("INSERT INTO testCyclicDeepTraversal SET name = 'b'").close();
+      transaction.execute("INSERT INTO testCyclicDeepTraversal SET name = 'c'").close();
+      transaction.execute("INSERT INTO testCyclicDeepTraversal SET name = 'z'").close();
+
+      // a -> b -> z
+      // z -> c -> a
+      transaction.query("SELECT FROM testCyclicDeepTraversal where name = 'a'")
+          .forEachEntity(entity -> {
+            var list = transaction.query("SELECT FROM testCyclicDeepTraversal WHERE name = 'b'")
+                .toEntityList();
+            entity.newLinkList("testCyclicDeepTraversal_a_b", list);
+          });
+
+      transaction.query("SELECT FROM testCyclicDeepTraversal where name = 'b'")
+          .forEachEntity(entity -> {
+            var list = transaction.query("SELECT FROM testCyclicDeepTraversal WHERE name = 'z'")
+                .toEntityList();
+            entity.newLinkList("testCyclicDeepTraversal_b_z", list);
+          });
+
+      transaction.query("SELECT FROM testCyclicDeepTraversal where name = 'z'")
+          .forEachEntity(entity -> {
+            var list = transaction.query("SELECT FROM testCyclicDeepTraversal WHERE name = 'c'")
+                .toEntityList();
+            entity.newLinkList("testCyclicDeepTraversal_z_c", list);
+          });
+
+      transaction.query("SELECT FROM testCyclicDeepTraversal where name = 'c'")
+          .forEachEntity(entity -> {
+            var list = transaction.query("SELECT FROM testCyclicDeepTraversal WHERE name = 'a'")
+                .toEntityList();
+            entity.newLinkList("testCyclicDeepTraversal_c_a", list);
+          });
+    });
+
+    session.executeInTx(transaction -> {
+      var query =
+          """
+              MATCH {
+                  class: testCyclicDeepTraversal,
+                  as: foo,
+                  where: (name = 'a')
+              }.out() {
+                  while: ($depth < 2),
+                  where: (name = 'z'),
+                  as: bar
+              }, {
+                  as: bar
+              }.out() {
+                  while: ($depth < 2),
+                  as: foo
+              } RETURN $patterns""";
+      var result = session.query(query);
+      assertEquals(1, result.stream().count());
+    });
+  }
+
+
+  @Test
+  @Ignore
+  public void testUnique() {
+    var query = new StringBuilder();
+    query.append("match ");
+    query.append(
+        "{class:Diamond, as: one, where: (uid = 0)}.out('diamond').out('diamond'){as: two} ");
+    query.append("return one, two");
+
+    session.begin();
+    var result = session.query(query.toString()).entityStream().toList();
+    assertEquals(1, result.size());
+
+    query = new StringBuilder();
+    query.append("match ");
+    query.append(
+        "{class:Diamond, as: one, where: (uid = 0)}.out('diamond').out('diamond'){as: two} ");
+    query.append("return one.uid, two.uid");
+
+    result = session.query(query.toString()).entityStream().toList();
+    assertEquals(1, result.size());
+    //    var doc = result.get(0);
+    //    assertEquals("foo", doc.getProperty("name"));
+    //    assertEquals(0, doc.getProperty("sub[0].uuid"));
+    session.commit();
+  }
+
+  @Test
+  @Ignore
+  public void testManagedElements() {
+    var managedByB = getManagedElements();
+    assertEquals(6, managedByB.size());
+    Set<String> expectedNames = new HashSet<>();
+    expectedNames.add("b");
+    expectedNames.add("p2");
+    expectedNames.add("p3");
+    expectedNames.add("p6");
+    expectedNames.add("p7");
+    expectedNames.add("p11");
+    Set<String> names = new HashSet<>();
+    for (var id : managedByB) {
+      var transaction = session.getActiveTransaction();
+      EntityImpl doc = transaction.load(id);
+      String name = doc.getProperty("name");
+      names.add(name);
+    }
+    assertEquals(expectedNames, names);
+  }
+
+  private List<? extends Identifiable> getManagedElements() {
+    var query =
+        "  match {class:Employee, as:boss, where: (name = '"
+            + "b"
+            + "')}"
+            + "  -managerOf->{}<-parentDepartment-{"
+            + "      while: ($depth = 0 or in('managerOf').size() = 0),"
+            + "      where: ($depth = 0 or in('managerOf').size() = 0)"
+            + "  }<-worksAt-{as: managed}"
+            + "  return $elements";
+
+    return session.query(query).stream().map(Result::getIdentity).toList();
+  }
+
+  @Test
+  @Ignore
+  public void testManagedPathElements() {
+    var managedByB = getManagedPathElements("b");
+    assertEquals(10, managedByB.size());
+    Set<String> expectedNames = new HashSet<>();
+    expectedNames.add("department1");
+    expectedNames.add("department3");
+    expectedNames.add("department4");
+    expectedNames.add("department8");
+    expectedNames.add("b");
+    expectedNames.add("p2");
+    expectedNames.add("p3");
+    expectedNames.add("p6");
+    expectedNames.add("p7");
+    expectedNames.add("p11");
+    Set<String> names = new HashSet<>();
+    for (var id : managedByB) {
+      var transaction = session.getActiveTransaction();
+      EntityImpl doc = transaction.load(id);
+      String name = doc.getProperty("name");
+      names.add(name);
+    }
+    assertEquals(expectedNames, names);
+  }
+
+  private List<? extends Identifiable> getManagedPathElements(
+      @SuppressWarnings("SameParameterValue") String managerName) {
+    var query =
+        "  match {class:Employee, as:boss, where: (name = '"
+            + managerName
+            + "')}"
+            + "  -managerOf->{}<-parentDepartment-{"
+            + "      while: ($depth = 0 or in('managerOf').size() = 0),"
+            + "      where: ($depth = 0 or in('managerOf').size() = 0)"
+            + "  }<-worksAt-{as: managed}"
+            + "  return $pathElements";
+
+    return session.execute(query).stream().map(Result::getIdentity).toList();
+  }
+
 
   private void initOrgChart() {
 
@@ -1153,10 +1731,10 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
       for (var child : children) {
         var childDepartment = session.query(
                 "select from Department where name = 'department" + child + "'")
-            .findFirstEntity(entity -> entity);
+            .findFirstEntity();
         var parentDepartment = session.query(
                 "select from Department where name = 'department" + parent + "'")
-            .findFirstEntity(entity -> entity);
+            .findFirstEntity();
         childDepartment.setLink("parentDepartment", parentDepartment);
       }
     }
@@ -1178,11 +1756,9 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
       var employeesForDept = employees[dept];
       for (var employeeName : employeesForDept) {
         var employee = session.execute("INSERT INTO Employee set name = '" + employeeName + "' ")
-            .entityStream().findFirst().orElseThrow();
+            .findFirstEntity();
         var department = session.query(
-                "select from Department where name = 'department" + dept + "'").entityStream()
-            .findFirst()
-            .orElseThrow();
+            "select from Department where name = 'department" + dept + "'").findFirstEntity();
         employee.setLink("worksAt", department);
       }
     }
@@ -1205,34 +1781,30 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
     };
     for (var edge : edges) {
       var fromEntity = session.query(
-          "select from Triangle where uid = ?", edge[0]).findFirstEntity(entity -> entity);
+          "select from Triangle where uid = ?", edge[0]).findFirstEntity();
       var toEntity = session.query(
-          "select from Triangle where uid = ?", edge[1]).findFirstEntity(entity -> entity);
+          "select from Triangle where uid = ?", edge[1]).findFirstEntity();
       fromEntity.getOrCreateLinkList("triangle").add(toEntity);
-
-
     }
+
     session.commit();
   }
 
-
   private void initDiamondTest() {
-    session.execute("CREATE class DiamondV extends V").close();
-    session.execute("CREATE class DiamondE extends E").close();
+    session.execute("CREATE class Diamond").close();
 
-    session.begin();
+    var tx = session.begin();
     for (var i = 0; i < 4; i++) {
-      session.execute("CREATE VERTEX DiamondV set uid = ?", i).close();
+      tx.execute("INSERT INTO Diamond set uid = ?", i).close();
     }
     var edges = new int[][]{{0, 1}, {0, 2}, {1, 3}, {2, 3}};
     for (var edge : edges) {
-      session.execute(
-              "CREATE EDGE DiamondE from (select from DiamondV where uid = ?) to (select from"
-                  + " DiamondV where uid = ?)",
-              edge[0],
-              edge[1])
-          .close();
+      tx.query("select from Diamond where uid = ?", edge[0])
+          .findFirstEntity()
+          .getOrCreateLinkList("diamond")
+          .add(tx.query("select from Diamond where uid = ?", edge[1]).findFirstEntity());
     }
     session.commit();
   }
+
 }

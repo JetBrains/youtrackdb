@@ -138,7 +138,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     } else {
       var edges = getEdgesInternal(direction, type);
       //noinspection rawtypes,unchecked
-      return new BidirectionalLinksIterable<Vertex>((Iterable) edges, direction);
+      return new BidirectionalLinksIterable<Vertex>(edges, direction);
     }
   }
 
@@ -282,7 +282,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   }
 
   @Override
-  protected Iterable<BidirectionalLink<Entity>> getBidirectionalLinksInternal(
+  protected Iterable<Relation<Entity>> getBidirectionalLinksInternal(
       Direction direction, String... linkNames) {
     //noinspection unchecked,rawtypes
     return IterableUtils.chainedIterable(

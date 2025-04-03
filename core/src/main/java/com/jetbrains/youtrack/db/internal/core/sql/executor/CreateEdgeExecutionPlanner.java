@@ -13,9 +13,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLUpdateItem;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- *
- */
 public class CreateEdgeExecutionPlanner {
 
   private final SQLCreateEdgeStatement statement;

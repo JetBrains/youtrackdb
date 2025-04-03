@@ -208,7 +208,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
   }
 
   @Override
-  public Iterable<? extends BidirectionalLink<Entity>> getBidirectionalLinks(Direction direction,
+  public Iterable<? extends Relation<Entity>> getBidirectionalLinks(Direction direction,
       String... linkNames) {
     throw new UnsupportedOperationException("Operation not supported for edges");
   }

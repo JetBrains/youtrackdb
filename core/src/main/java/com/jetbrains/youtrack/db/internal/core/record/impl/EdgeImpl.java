@@ -32,7 +32,7 @@ import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class EdgeImpl extends LightweightBidirectionalLinkImpl<Vertex> implements EdgeInternal {
+public class EdgeImpl extends LightweightRelationImpl<Vertex> implements EdgeInternal {
 
   @Nonnull
   private final SchemaImmutableClass lightweightEdgeType;

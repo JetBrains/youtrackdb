@@ -7,7 +7,8 @@ import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class LightweightBidirectionalLinkImpl<T extends Entity> implements BidirectionalLink<T> {
+public class LightweightRelationImpl<T extends Entity> implements
+    Relation<T> {
 
   @Nullable
   protected final T out;
@@ -19,7 +20,7 @@ public class LightweightBidirectionalLinkImpl<T extends Entity> implements Bidir
 
   protected final String label;
 
-  public LightweightBidirectionalLinkImpl(@Nonnull DatabaseSessionInternal session,
+  public LightweightRelationImpl(@Nonnull DatabaseSessionInternal session,
       @Nullable T out, @Nullable T in,
       String label) {
     this.out = out;
@@ -101,16 +102,17 @@ public class LightweightBidirectionalLinkImpl<T extends Entity> implements Bidir
     if (this == obj) {
       return true;
     }
-    if (!(obj instanceof BidirectionalLink<?> bidirectionalLink)) {
+    if (!(obj instanceof Relation<?> bidirectionalRelation)) {
       return false;
     }
 
-    if (!bidirectionalLink.isLightweight()) {
+    if (!bidirectionalRelation.isLightweight()) {
       return false;
     }
 
-    return out.equals(bidirectionalLink.fromEntity()) && in.equals(bidirectionalLink.toEntity())
-        && label.equals(bidirectionalLink.label());
+    return out.equals(bidirectionalRelation.fromEntity()) && in.equals(
+        bidirectionalRelation.toEntity())
+        && label.equals(bidirectionalRelation.label());
 
   }
 

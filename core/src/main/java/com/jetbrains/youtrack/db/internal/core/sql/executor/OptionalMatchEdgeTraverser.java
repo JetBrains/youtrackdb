@@ -52,9 +52,9 @@ public class OptionalMatchEdgeTraverser extends MatchEdgeTraverser {
     if (next.isEntity()) {
       result.setProperty(endPointAlias, toResult(session, next.asEntity()));
     }
-    if (next instanceof ResultInternal resultInternal && resultInternal.isBiLink()) {
+    if (next instanceof ResultInternal resultInternal && resultInternal.isRelation()) {
       result.setProperty(endPointAlias,
-          ResultInternal.toResultInternal(resultInternal.asBiLink(), ctx.getDatabaseSession(),
+          ResultInternal.toResultInternal(resultInternal.asRelation(), ctx.getDatabaseSession(),
               null));
     } else {
       result.setProperty(endPointAlias, null);

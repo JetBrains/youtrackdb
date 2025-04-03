@@ -14,7 +14,7 @@ import java.util.NoSuchElementException;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public abstract class BidirectionalLinkIterator<E extends Entity, L extends BidirectionalLink<E>> implements
+public abstract class RelationsIteratorAbstract<E extends Entity, L extends Relation<E>> implements
     Iterator<L>, Resettable, Sizeable {
 
   @Nonnull
@@ -31,7 +31,7 @@ public abstract class BidirectionalLinkIterator<E extends Entity, L extends Bidi
   private final Object multiValue;
   private L nextLink;
 
-  public BidirectionalLinkIterator(
+  public RelationsIteratorAbstract(
       @Nonnull final E sourceEntity,
       final Object multiValue,
       @Nonnull final Iterator<? extends Identifiable> iterator,

@@ -5,7 +5,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.BidirectionalLink;
+import com.jetbrains.youtrack.db.internal.core.record.impl.Relation;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMatchPathItemFirst;
@@ -85,7 +85,7 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
             if (matchesCondition(res, sub.getFilter(), iCommandContext)) {
               rightSide.add(res);
             }
-          } else if (nextSteps instanceof BidirectionalLink<?> bidirectionalLink) {
+          } else if (nextSteps instanceof Relation<?> bidirectionalLink) {
             var res = new ResultInternal(db, bidirectionalLink);
             if (matchesCondition(res, sub.getFilter(), iCommandContext)) {
               rightSide.add(res);
@@ -139,7 +139,7 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
       return resultInternal;
     } else if (x instanceof Identifiable identifiable) {
       return new ResultInternal(session, identifiable);
-    } else if (x instanceof BidirectionalLink<?> bidirectionalLink) {
+    } else if (x instanceof Relation<?> bidirectionalLink) {
       return new ResultInternal(session, bidirectionalLink);
     }
     throw new CommandExecutionException(session, "Cannot execute traversal on " + x);

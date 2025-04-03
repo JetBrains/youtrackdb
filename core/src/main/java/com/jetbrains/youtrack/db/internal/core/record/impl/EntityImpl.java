@@ -3654,7 +3654,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-  public Iterable<? extends BidirectionalLink<Entity>> getBidirectionalLinks(
+  public Iterable<? extends Relation<Entity>> getBidirectionalLinks(
       Direction direction, String... linkNames) {
     checkForBinding();
     if (direction == Direction.BOTH) {
@@ -3666,7 +3666,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-  protected Iterable<? extends BidirectionalLink<Entity>> getBidirectionalLinksInternal(
+  protected Iterable<? extends Relation<Entity>> getBidirectionalLinksInternal(
       Direction direction, String... linkNames) {
     if (linkNames == null || linkNames.length == 0) {
       var propertyNames = getPropertyNames();
@@ -3681,7 +3681,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
       linkNames = linkCandidates.toArray(new String[0]);
     }
-    var iterables = new ArrayList<Iterable<LightweightBidirectionalLinkImpl<Entity>>>(
+    var iterables = new ArrayList<Iterable<LightweightRelationImpl<Entity>>>(
         linkNames.length);
     Object fieldValue;
 
@@ -3706,23 +3706,25 @@ public class EntityImpl extends RecordAbstract implements Entity {
             }
             var coll = Collections.singleton(identifiable);
             iterables.add(
-                new EntityLinksIterable(this, new Pair<>(direction, linkName), linkNames, session,
+                new EntityRelationsIterable(this, new Pair<>(direction, linkName), linkNames,
+                    session,
                     coll, 1, coll));
           }
           case EntityLinkSetImpl set -> iterables.add(
-              new EntityLinksIterable(this, new Pair<>(direction, linkName), linkNames, session,
+              new EntityRelationsIterable(this, new Pair<>(direction, linkName), linkNames, session,
                   set, -1, set));
           case EntityLinkListImpl list -> iterables.add(
-              new EntityLinksIterable(this, new Pair<>(direction, linkName), linkNames, session,
+              new EntityRelationsIterable(this, new Pair<>(direction, linkName), linkNames, session,
                   list, -1, list));
           case RidBag bag -> iterables.add(
-              new EntityLinksIterable(
+              new EntityRelationsIterable(
                   this, new Pair<>(direction, linkName), linkNames, session,
                   bag, -1, bag));
           case EntityLinkMapIml map -> {
             var values = map.values();
             iterables.add(
-                new EntityLinksIterable(this, new Pair<>(direction, linkName), linkNames, session,
+                new EntityRelationsIterable(this, new Pair<>(direction, linkName), linkNames,
+                    session,
                     values, -1, values));
           }
 
